@@ -61,3 +61,18 @@ async def test_get_failed_articles():
     repo = ArticleRepo(mock_pool)
     assert hasattr(repo, 'get_failed_articles'), "ArticleRepo should have get_failed_articles method"
     assert callable(getattr(repo, 'get_failed_articles')), "get_failed_articles should be callable"
+
+
+def test_pipeline_has_stage_tracking():
+    """验证 Pipeline 有进度阶段跟踪常量"""
+    from modules.pipeline.graph import PHASE1_STAGES, PHASE3_STAGES
+
+    assert 'classifier' in PHASE1_STAGES, "PHASE1_STAGES should contain classifier"
+    assert 'cleaner' in PHASE1_STAGES, "PHASE1_STAGES should contain cleaner"
+    assert 'categorizer' in PHASE1_STAGES, "PHASE1_STAGES should contain categorizer"
+    assert 'vectorize' in PHASE1_STAGES, "PHASE1_STAGES should contain vectorize"
+
+    assert 're_vectorize' in PHASE3_STAGES, "PHASE3_STAGES should contain re_vectorize"
+    assert 'analyze' in PHASE3_STAGES, "PHASE3_STAGES should contain analyze"
+    assert 'credibility' in PHASE3_STAGES, "PHASE3_STAGES should contain credibility"
+    assert 'entity_extractor' in PHASE3_STAGES, "PHASE3_STAGES should contain entity_extractor"
