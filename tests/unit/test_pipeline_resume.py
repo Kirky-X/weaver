@@ -76,3 +76,11 @@ def test_pipeline_has_stage_tracking():
     assert 'analyze' in PHASE3_STAGES, "PHASE3_STAGES should contain analyze"
     assert 'credibility' in PHASE3_STAGES, "PHASE3_STAGES should contain credibility"
     assert 'entity_extractor' in PHASE3_STAGES, "PHASE3_STAGES should contain entity_extractor"
+
+
+def test_scheduler_jobs_has_retry_method():
+    """验证 SchedulerJobs 有 retry_pipeline_processing 方法"""
+    from modules.scheduler.jobs import SchedulerJobs
+
+    assert hasattr(SchedulerJobs, 'retry_pipeline_processing'), \
+        "SchedulerJobs should have retry_pipeline_processing method"
