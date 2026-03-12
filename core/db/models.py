@@ -160,6 +160,11 @@ class Article(Base):
         default=PersistStatus.PENDING,
     )
 
+    # Processing tracking
+    processing_stage: Mapped[str | None] = mapped_column(String(50))
+    processing_error: Mapped[str | None] = mapped_column(Text)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
     # Prompt version tracing
     prompt_versions: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
