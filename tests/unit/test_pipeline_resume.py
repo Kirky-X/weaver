@@ -2,6 +2,7 @@
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock
+from datetime import datetime, timezone, timedelta
 
 
 def test_persist_status_has_processing():
@@ -22,3 +23,41 @@ def test_article_has_processing_fields():
     assert 'processing_stage' in column_names, "Article should have processing_stage column"
     assert 'processing_error' in column_names, "Article should have processing_error column"
     assert 'retry_count' in column_names, "Article should have retry_count column"
+
+
+@pytest.mark.asyncio
+async def test_get_stuck_articles():
+    """验证 ArticleRepo 有 get_stuck_articles 方法"""
+    from modules.storage.article_repo import ArticleRepo
+    from unittest.mock import MagicMock
+
+    # Create mock pool
+    mock_pool = MagicMock()
+    mock_session = MagicMock()
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=None)
+    mock_pool.session = MagicMock(return_value=mock_session)
+
+    # Create repo and check method exists
+    repo = ArticleRepo(mock_pool)
+    assert hasattr(repo, 'get_stuck_articles'), "ArticleRepo should have get_stuck_articles method"
+    assert callable(getattr(repo, 'get_stuck_articles')), "get_stuck_articles should be callable"
+
+
+@pytest.mark.asyncio
+async def test_get_failed_articles():
+    """验证 ArticleRepo 有 get_failed_articles 方法"""
+    from modules.storage.article_repo import ArticleRepo
+    from unittest.mock import MagicMock
+
+    # Create mock pool
+    mock_pool = MagicMock()
+    mock_session = MagicMock()
+    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+    mock_session.__aexit__ = AsyncMock(return_value=None)
+    mock_pool.session = MagicMock(return_value=mock_session)
+
+    # Create repo and check method exists
+    repo = ArticleRepo(mock_pool)
+    assert hasattr(repo, 'get_failed_articles'), "ArticleRepo should have get_failed_articles method"
+    assert callable(getattr(repo, 'get_failed_articles')), "get_failed_articles should be callable"
