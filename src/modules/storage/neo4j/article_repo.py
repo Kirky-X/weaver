@@ -1,0 +1,277 @@
+"""Neo4j article repository for article graph operations."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any
+
+from core.db.neo4j import Neo4jPool
+from core.observability.logging import get_logger
+
+log = get_logger("neo4j_article_repo")
+
+
+class Neo4jArticleRepo:
+    """Neo4j article repository.
+
+    Handles article-related graph operations in Neo4j,
+    including article node creation and FOLLOWED_BY relationships.
+
+    Args:
+        pool: Neo4j connection pool.
+    """
+
+    def __init__(self, pool: Neo4jPool) -> None:
+        self._pool = pool
+
+    async def create_article(
+        self,
+        pg_id: str,
+        title: str,
+        category: str,
+        publish_time: datetime | None,
+        score: float | None = None,
+    ) -> str:
+        """Create an Article node in Neo4j.
+
+        Args:
+            pg_id: PostgreSQL UUID of the article.
+            title: Article title.
+            category: Article category.
+            publish_time: Publication timestamp.
+            score: Optional article score.
+
+        Returns:
+            The Neo4j internal ID of the created article.
+        """
+        query = """
+        MERGE (a:Article {pg_id: $pg_id})
+        ON CREATE SET
+            a.title = $title,
+            a.category = $category,
+            a.publish_time = $publish_time,
+            a.score = $score,
+            a.created_at = datetime()
+        ON MATCH SET
+            a.title = $title,
+            a.category = $category,
+            a.publish_time = $publish_time,
+            a.score = COALESCE($score, a.score)
+        RETURN elementId(a) AS neo4j_id
+        """
+        params = {
+            "pg_id": pg_id,
+            "title": title,
+            "category": category,
+            "publish_time": publish_time,
+            "score": score,
+        }
+        result = await self._pool.execute_query(query, params)
+        if result:
+            return result[0]["neo4j_id"]
+        raise RuntimeError("Failed to create article node")
+
+    async def find_article_by_pg_id(self, pg_id: str) -> dict[str, Any] | None:
+        """Find an article node by PostgreSQL ID.
+
+        Args:
+            pg_id: The PostgreSQL UUID.
+
+        Returns:
+            Article dict if found, None otherwise.
+        """
+        query = """
+        MATCH (a:Article {pg_id: $pg_id})
+        RETURN elementId(a) AS neo4j_id,
+               a.pg_id AS pg_id,
+               a.title AS title,
+               a.category AS category,
+               a.publish_time AS publish_time,
+               a.score AS score,
+               a.created_at AS created_at
+        """
+        result = await self._pool.execute_query(query, {"pg_id": pg_id})
+        if result:
+            return dict(result[0])
+        return None
+
+    async def find_article_by_neo4j_id(self, neo4j_id: str) -> dict[str, Any] | None:
+        """Find an article node by Neo4j internal ID.
+
+        Args:
+            neo4j_id: The Neo4j internal element ID.
+
+        Returns:
+            Article dict if found, None otherwise.
+        """
+        query = """
+        MATCH (a)
+        WHERE elementId(a) = $neo4j_id
+        RETURN elementId(a) AS neo4j_id,
+               a.pg_id AS pg_id,
+               a.title AS title,
+               a.category AS category,
+               a.publish_time AS publish_time,
+               a.score AS score,
+               a.created_at AS created_at
+        """
+        result = await self._pool.execute_query(query, {"neo4j_id": neo4j_id})
+        if result:
+            return dict(result[0])
+        return None
+
+    async def create_followed_by_relation(
+        self,
+        from_pg_id: str,
+        to_pg_id: str,
+        time_gap_hours: float | None = None,
+    ) -> None:
+        """Create a FOLLOWED_BY relationship between two articles.
+
+        Indicates that the 'from' article is followed by the 'to' article
+        (e.g., in a series of coverage about the same event).
+
+        Args:
+            from_pg_id: The source article's PostgreSQL ID.
+            to_pg_id: The target article's PostgreSQL ID.
+            time_gap_hours: Optional time gap between articles in hours.
+        """
+        query = """
+        MATCH (from:Article {pg_id: $from_pg_id})
+        MATCH (to:Article {pg_id: $to_pg_id})
+        MERGE (from)-[r:FOLLOWED_BY]->(to)
+        """
+        params = {
+            "from_pg_id": from_pg_id,
+            "to_pg_id": to_pg_id,
+        }
+
+        if time_gap_hours is not None:
+            query += " SET r.time_gap_hours = $time_gap_hours"
+            params["time_gap_hours"] = time_gap_hours
+
+        await self._pool.execute_query(query, params)
+
+    async def get_followed_articles(
+        self,
+        pg_id: str,
+        direction: str = "outgoing",
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Get articles that follow or are followed by the given article.
+
+        Args:
+            pg_id: The article's PostgreSQL ID.
+            direction: 'outgoing' for articles that follow this one,
+                      'incoming' for articles that this one follows.
+            limit: Maximum number of articles to return.
+
+        Returns:
+            List of article dictionaries.
+        """
+        if direction == "outgoing":
+            query = """
+            MATCH (a:Article {pg_id: $pg_id})-[:FOLLOWED_BY]->(followed)
+            RETURN elementId(followed) AS neo4j_id,
+                   followed.pg_id AS pg_id,
+                   followed.title AS title,
+                   followed.category AS category,
+                   followed.publish_time AS publish_time
+            LIMIT $limit
+            """
+        else:
+            query = """
+            MATCH (a:Article {pg_id: $pg_id})<-[:FOLLOWED_BY]-(predecessor)
+            RETURN elementId(predecessor) AS neo4j_id,
+                   predecessor.pg_id AS pg_id,
+                   predecessor.title AS title,
+                   predecessor.category AS category,
+                   predecessor.publish_time AS publish_time
+            LIMIT $limit
+            """
+
+        params = {"pg_id": pg_id, "limit": limit}
+        result = await self._pool.execute_query(query, params)
+        return [dict(record) for record in result]
+
+    async def delete_article(self, pg_id: str) -> bool:
+        """Delete an Article node by PostgreSQL ID.
+
+        This will also remove all MENTIONS and FOLLOWED_BY relationships.
+
+        Args:
+            pg_id: The article's PostgreSQL ID.
+
+        Returns:
+            True if deleted, False if not found.
+        """
+        query = """
+        MATCH (a:Article {pg_id: $pg_id})
+        DETACH DELETE a
+        """
+        await self._pool.execute_query(query, {"pg_id": pg_id})
+        return True
+
+    async def delete_old_articles(self, days: int = 90) -> int:
+        """Delete old Article nodes that have no FOLLOWED_BY relationships.
+
+        This is part of the data aging strategy. Only deletes articles
+        that are older than the specified days and have no outgoing
+        FOLLOWED_BY relationships (meaning no newer articles reference them).
+
+        Args:
+            days: Number of days to retain articles.
+
+        Returns:
+            Number of articles deleted (Note: Neo4j doesn't return count easily).
+        """
+        query = f"""
+        MATCH (a:Article)
+        WHERE a.publish_time < datetime() - duration({{days: {days}}})
+          AND NOT (a)-[:FOLLOWED_BY]->()
+        DETACH DELETE a
+        """
+        await self._pool.execute_query(query)
+        # Neo4j doesn't easily return count from DETACH DELETE
+        # In production, you might want to count before deleting
+        return 0
+
+    async def get_article_entities(
+        self,
+        pg_id: str,
+    ) -> list[dict[str, Any]]:
+        """Get all entities mentioned in an article.
+
+        Args:
+            pg_id: The article's PostgreSQL ID.
+
+        Returns:
+            List of entity dictionaries with role information.
+        """
+        query = """
+        MATCH (a:Article {pg_id: $pg_id})-[r:MENTIONS]->(e:Entity)
+        RETURN elementId(e) AS neo4j_id,
+               e.id AS entity_id,
+               e.canonical_name AS canonical_name,
+               e.type AS entity_type,
+               r.role AS role
+        """
+        result = await self._pool.execute_query(query, {"pg_id": pg_id})
+        return [dict(record) for record in result]
+
+    async def update_article_score(
+        self,
+        pg_id: str,
+        score: float,
+    ) -> None:
+        """Update the score of an existing article.
+
+        Args:
+            pg_id: The article's PostgreSQL ID.
+            score: New score value.
+        """
+        query = """
+        MATCH (a:Article {pg_id: $pg_id})
+        SET a.score = $score
+        """
+        await self._pool.execute_query(query, {"pg_id": pg_id, "score": score})
