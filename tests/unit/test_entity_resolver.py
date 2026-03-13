@@ -105,18 +105,18 @@ class TestEntityResolver:
         mock_entity_repo.find_entity = AsyncMock(return_value=None)
         mock_vector_repo.find_similar_entities = AsyncMock(return_value=[])
         mock_entity_repo.merge_entity = AsyncMock(return_value="new_neo4j_id")
-        
+
         result = await resolver.resolve_entity(
             name="新实体",
             entity_type="人物",
             embedding=[0.1] * 1024
         )
-        
+
         assert result["is_new"] is True
         assert result["neo4j_id"] == "new_neo4j_id"
 
     @pytest.mark.asyncio
-    async def test_merge_with_existing(self, resolver, mock_entity_repo, mock_vector_repo):
+    async def test_merge_with_existing(self, resolver, mock_llm, mock_entity_repo, mock_vector_repo):
         """Test merging with existing entity."""
         mock_entity_repo.find_entity = AsyncMock(return_value=None)
         mock_vector_repo.find_similar_entities = AsyncMock(return_value=[
@@ -127,14 +127,17 @@ class TestEntityResolver:
             "canonical_name": "张三",
             "similarity": 0.95
         })
-        
+        mock_llm.chat = AsyncMock(return_value=MagicMock(
+            content='{"should_merge": true, "target_entity": {"neo4j_id": "existing_id", "canonical_name": "张三"}}'
+        ))
+
         result = await resolver.resolve_entity(
             name="张三",
             entity_type="人物",
             embedding=[0.1] * 1024
         )
-        
-        assert result["merged"] is True
+
+        assert result.get("neo4j_id") == "existing_id"
 
     @pytest.mark.asyncio
     async def test_llm_deduplicate_merge(self, resolver, mock_llm, mock_entity_repo, mock_vector_repo):

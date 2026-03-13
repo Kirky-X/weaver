@@ -19,14 +19,16 @@ class TestProviderQueue:
 
     def test_initialization(self):
         """Test queue initializes correctly."""
-        queue = ProviderQueue("openai", concurrency=5)
+        mock_provider = MagicMock()
+        queue = ProviderQueue("openai", concurrency=5, provider=mock_provider)
         assert queue.name == "openai"
         assert queue.circuit_breaker is not None
 
     @pytest.mark.asyncio
     async def test_enqueue(self):
         """Test enqueueing a task."""
-        queue = ProviderQueue("openai", concurrency=1)
+        mock_provider = MagicMock()
+        queue = ProviderQueue("openai", concurrency=1, provider=mock_provider)
         task = LLMTask(
             call_point=CallPoint.CLASSIFIER,
             llm_type=LLMType.CHAT,
@@ -40,7 +42,8 @@ class TestProviderQueue:
 
     def test_circuit_breaker_attached(self):
         """Test circuit breaker is attached to queue."""
-        queue = ProviderQueue("openai", concurrency=1)
+        mock_provider = MagicMock()
+        queue = ProviderQueue("openai", concurrency=1, provider=mock_provider)
         assert hasattr(queue, 'circuit_breaker')
 
 
@@ -51,13 +54,12 @@ class TestLLMQueueManager:
     def mock_config_manager(self):
         """Mock config manager."""
         manager = MagicMock()
-        manager.list_providers = MagicMock(return_value=[
-            ("openai", MagicMock(concurrency=5, rpm_limit=60)),
-        ])
+        manager.list_providers = MagicMock(return_value=[])
         manager.get_call_point_config = MagicMock(return_value=MagicMock(
             primary=MagicMock(provider="openai", rpm_limit=60),
             fallbacks=[]
         ))
+        manager.get_embedding_config = MagicMock(return_value=None)
         return manager
 
     @pytest.fixture
@@ -85,8 +87,8 @@ class TestLLMQueueManager:
         assert manager._rate_limiter is mock_rate_limiter
 
     @pytest.mark.asyncio
-    async def test_startup(self, mock_config_manager, mock_rate_limiter, mock_event_bus):
-        """Test startup creates provider queues."""
+    async def test_startup_no_providers(self, mock_config_manager, mock_rate_limiter, mock_event_bus):
+        """Test startup with no providers."""
         manager = LLMQueueManager(
             config_manager=mock_config_manager,
             rate_limiter=mock_rate_limiter,

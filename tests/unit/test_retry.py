@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock
 from datetime import datetime, timezone, timedelta
 import time
+import json
 
 from modules.collector.retry import RetryQueue
 
@@ -20,6 +21,8 @@ class TestRetryQueue:
         redis.zrem = AsyncMock(return_value=1)
         redis.lpush = AsyncMock(return_value=1)
         redis.llen = AsyncMock(return_value=0)
+        redis.lrange = AsyncMock(return_value=[])
+        redis.delete = AsyncMock(return_value=1)
         return redis
 
     @pytest.fixture
@@ -31,116 +34,187 @@ class TestRetryQueue:
         """Test retry queue initializes correctly."""
         queue = RetryQueue(redis=mock_redis)
         assert queue._redis is mock_redis
+        assert queue._max_retries == 3
+        assert queue._base_delay == 60.0
+
+    def test_initialization_custom_params(self, mock_redis):
+        """Test retry queue with custom parameters."""
+        queue = RetryQueue(redis=mock_redis, max_retries=5, base_delay=30.0)
+        assert queue._max_retries == 5
+        assert queue._base_delay == 30.0
+
+    def test_dead_letter_key_constant(self):
+        """Test dead letter key constant."""
+        assert RetryQueue.DEAD_LETTER_KEY == "crawl:dead"
 
     @pytest.mark.asyncio
-    async def test_retry_queue_add(self, retry_queue, mock_redis):
-        """Test adding item to retry queue."""
-        item = {"url": "https://example.com/article", "attempt": 1}
-        await retry_queue.add("example.com", item, delay_seconds=60)
+    async def test_enqueue_first_attempt(self, retry_queue, mock_redis):
+        """Test enqueueing item with first attempt."""
+        await retry_queue.enqueue(
+            url="https://example.com/article",
+            host="example.com",
+            attempt=0
+        )
+        mock_redis.zadd.assert_called_once()
+        call_args = mock_redis.zadd.call_args
+        assert "crawl:retry:example.com" in str(call_args)
+
+    @pytest.mark.asyncio
+    async def test_enqueue_second_attempt(self, retry_queue, mock_redis):
+        """Test enqueueing item with second attempt."""
+        await retry_queue.enqueue(
+            url="https://example.com/article",
+            host="example.com",
+            attempt=1
+        )
         mock_redis.zadd.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_retry_queue_pop_due(self, retry_queue, mock_redis):
-        """Test popping due items from retry queue."""
+    async def test_enqueue_moves_to_dead_letter_after_max_retries(self, retry_queue, mock_redis):
+        """Test that item is moved to dead letter after max retries."""
+        await retry_queue.enqueue(
+            url="https://example.com/article",
+            host="example.com",
+            attempt=3
+        )
+        mock_redis.lpush.assert_called_once()
+        mock_redis.zadd.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_get_due_items_empty(self, retry_queue, mock_redis):
+        """Test getting due items when queue is empty."""
+        mock_redis.zrangebyscore = AsyncMock(return_value=[])
+        
+        items = await retry_queue.get_due_items("example.com")
+        
+        assert items == []
+        mock_redis.zrangebyscore.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_due_items_with_items(self, retry_queue, mock_redis):
+        """Test getting due items from queue."""
         mock_data = [
-            b'{"url": "https://example.com/article1"}',
-            b'{"url": "https://example.com/article2"}',
+            json.dumps({"url": "https://example.com/article1", "host": "example.com", "attempt": 1}).encode(),
+            json.dumps({"url": "https://example.com/article2", "host": "example.com", "attempt": 2}).encode(),
         ]
         mock_redis.zrangebyscore = AsyncMock(return_value=mock_data)
         
-        items = await retry_queue.pop_due("example.com")
+        items = await retry_queue.get_due_items("example.com")
         
         assert len(items) == 2
-        mock_redis.zrem.assert_called()
+        assert items[0]["url"] == "https://example.com/article1"
+        mock_redis.zrem.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_dead_letter_queue(self, retry_queue, mock_redis):
-        """Test adding to dead letter queue."""
-        item = {"url": "https://example.com/article", "error": "Max retries exceeded"}
-        await retry_queue.add_to_dead_letter(item)
-        mock_redis.lpush.assert_called()
-
-    @pytest.mark.asyncio
-    async def test_max_retries(self, retry_queue, mock_redis):
-        """Test max retries limit."""
-        item = {
-            "url": "https://example.com/article",
-            "attempt": 5,
-            "max_retries": 3
-        }
-        
-        is_max = item.get("attempt", 0) >= item.get("max_retries", 3)
-        assert is_max is True
-
-    @pytest.mark.asyncio
-    async def test_get_dead_letter_count(self, retry_queue, mock_redis):
-        """Test getting dead letter queue count."""
-        mock_redis.llen = AsyncMock(return_value=10)
-        count = await retry_queue.get_dead_letter_count()
-        assert count == 10
-
-    @pytest.mark.asyncio
-    async def test_get_dead_letter_items(self, retry_queue, mock_redis):
-        """Test getting items from dead letter queue."""
-        mock_items = [
-            b'{"url": "https://example.com/failed1"}',
-            b'{"url": "https://example.com/failed2"}',
+    async def test_get_due_items_handles_invalid_json(self, retry_queue, mock_redis):
+        """Test that invalid JSON items are skipped."""
+        mock_data = [
+            b'invalid json',
+            json.dumps({"url": "https://example.com/article", "host": "example.com", "attempt": 1}).encode(),
         ]
-        mock_redis.lrange = AsyncMock(return_value=mock_items)
+        mock_redis.zrangebyscore = AsyncMock(return_value=mock_data)
         
-        items = await retry_queue.get_dead_letter_items(limit=10)
+        items = await retry_queue.get_due_items("example.com")
         
-        assert len(items) == 2
+        assert len(items) == 1
+        assert items[0]["url"] == "https://example.com/article"
 
     @pytest.mark.asyncio
-    async def test_clear_dead_letter(self, retry_queue, mock_redis):
-        """Test clearing dead letter queue."""
-        mock_redis.delete = AsyncMock(return_value=1)
-        await retry_queue.clear_dead_letter()
-        mock_redis.delete.assert_called()
+    async def test_move_to_dead_letter(self, retry_queue, mock_redis):
+        """Test moving item to dead letter queue."""
+        await retry_queue._move_to_dead_letter(
+            url="https://example.com/article",
+            host="example.com",
+            attempt=3
+        )
+        mock_redis.lpush.assert_called_once()
+        call_args = mock_redis.lpush.call_args
+        assert RetryQueue.DEAD_LETTER_KEY in str(call_args)
 
     @pytest.mark.asyncio
-    async def test_retry_delay_calculation(self, retry_queue, mock_redis):
-        """Test retry delay is calculated correctly."""
-        item = {"url": "https://example.com/article"}
-        base_delay = 30
-        attempt = 2
-        expected_delay = base_delay * (2 ** attempt)
-        
-        await retry_queue.add("example.com", item, delay_seconds=expected_delay)
-        
-        call_args = mock_redis.zadd.call_args
-        assert call_args is not None
-
-    @pytest.mark.asyncio
-    async def test_multiple_hosts_separate_queues(self, retry_queue, mock_redis):
-        """Test separate queues for different hosts."""
-        item1 = {"url": "https://a.com/article"}
-        item2 = {"url": "https://b.com/article"}
-        
-        await retry_queue.add("a.com", item1, delay_seconds=60)
-        await retry_queue.add("b.com", item2, delay_seconds=60)
-        
-        assert mock_redis.zadd.call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_empty_pop_due(self, retry_queue, mock_redis):
-        """Test popping when no items are due."""
-        mock_redis.zrangebyscore = AsyncMock(return_value=[])
-        
-        items = await retry_queue.pop_due("example.com")
-        
-        assert items == []
-
-    @pytest.mark.asyncio
-    async def test_exponential_backoff(self, retry_queue, mock_redis):
-        """Test exponential backoff for retries."""
-        base_delay = 30
+    async def test_exponential_backoff_calculation(self, retry_queue, mock_redis):
+        """Test exponential backoff delay calculation."""
+        base_delay = 60.0
         
         delays = [base_delay * (2 ** i) for i in range(5)]
         
-        assert delays[0] == 30
-        assert delays[1] == 60
-        assert delays[2] == 120
-        assert delays[3] == 240
-        assert delays[4] == 480
+        assert delays[0] == 60.0
+        assert delays[1] == 120.0
+        assert delays[2] == 240.0
+        assert delays[3] == 480.0
+        assert delays[4] == 960.0
+
+    @pytest.mark.asyncio
+    async def test_separate_queues_per_host(self, retry_queue, mock_redis):
+        """Test that different hosts have separate retry queues."""
+        await retry_queue.enqueue(url="https://a.com/article1", host="a.com", attempt=0)
+        await retry_queue.enqueue(url="https://b.com/article2", host="b.com", attempt=0)
+        
+        assert mock_redis.zadd.call_count == 2
+        
+        calls = mock_redis.zadd.call_args_list
+        keys = [str(call[0][0]) for call in calls]
+        assert any("crawl:retry:a.com" in key for key in keys)
+        assert any("crawl:retry:b.com" in key for key in keys)
+
+    @pytest.mark.asyncio
+    async def test_enqueue_payload_structure(self, retry_queue, mock_redis):
+        """Test that enqueue creates correct payload structure."""
+        await retry_queue.enqueue(
+            url="https://example.com/article",
+            host="example.com",
+            attempt=1
+        )
+        
+        call_args = mock_redis.zadd.call_args
+        payload_dict = call_args[0][1]
+        payload_str = list(payload_dict.keys())[0]
+        payload = json.loads(payload_str)
+        
+        assert payload["url"] == "https://example.com/article"
+        assert payload["host"] == "example.com"
+        assert payload["attempt"] == 2
+        assert "enqueued_at" in payload
+
+    @pytest.mark.asyncio
+    async def test_dead_letter_payload_structure(self, retry_queue, mock_redis):
+        """Test that dead letter creates correct payload structure."""
+        await retry_queue._move_to_dead_letter(
+            url="https://example.com/article",
+            host="example.com",
+            attempt=3
+        )
+        
+        call_args = mock_redis.lpush.call_args
+        payload_str = call_args[0][1]
+        payload = json.loads(payload_str)
+        
+        assert payload["url"] == "https://example.com/article"
+        assert payload["host"] == "example.com"
+        assert payload["final_attempt"] == 3
+        assert "dead_at" in payload
+
+    @pytest.mark.asyncio
+    async def test_max_retries_boundary(self, mock_redis):
+        """Test max retries boundary conditions."""
+        queue = RetryQueue(redis=mock_redis, max_retries=3)
+        
+        await queue.enqueue(url="https://example.com/article", host="example.com", attempt=2)
+        mock_redis.zadd.assert_called_once()
+        mock_redis.lpush.assert_not_called()
+        
+        mock_redis.reset_mock()
+        
+        await queue.enqueue(url="https://example.com/article", host="example.com", attempt=3)
+        mock_redis.zadd.assert_not_called()
+        mock_redis.lpush.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_get_due_items_respects_limit(self, retry_queue, mock_redis):
+        """Test that get_due_items respects the limit parameter."""
+        mock_redis.zrangebyscore = AsyncMock(return_value=[])
+        
+        await retry_queue.get_due_items("example.com")
+        
+        call_args = mock_redis.zrangebyscore.call_args
+        assert call_args[1].get("num") == 50

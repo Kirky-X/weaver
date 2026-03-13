@@ -283,12 +283,10 @@ Consider:
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
             )
-            # Parse JSON from response
             import json
             content = result.content if hasattr(result, "content") else str(result)
-            # Try to extract JSON
             import re
-            json_match = re.search(r'\{[^{}]*\}', content, re.DOTALL)
+            json_match = re.search(r'\{.*\}', content, re.DOTALL)
             if json_match:
                 return json.loads(json_match.group())
         except Exception as e:

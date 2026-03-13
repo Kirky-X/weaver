@@ -245,7 +245,7 @@ class TestCredibilityNodeExecution:
     def test_node_execution_full(self):
         """Test full node execution exists."""
         from modules.pipeline.nodes.credibility_checker import CredibilityCheckerNode
-        assert hasattr(CredibilityCheckerNode, '_execute')
+        assert hasattr(CredibilityCheckerNode, 'execute')
 
     def test_llm_content_check(self, mock_llm, mock_source_auth_repo, mock_event_bus, mock_budget, mock_prompt_loader):
         """Test LLM content check is called."""

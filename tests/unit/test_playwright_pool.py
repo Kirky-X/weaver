@@ -48,9 +48,11 @@ class TestPlaywrightContextPool:
         mock_context = MagicMock()
         mock_context.close = AsyncMock()
         
-        pool._pool = MagicMock()
-        pool._pool.empty = MagicMock(side_effect=[False, False, True])
-        pool._pool.get = MagicMock(return_value=mock_context)
+        mock_queue = MagicMock()
+        mock_queue.empty = MagicMock(side_effect=[False, False, True])
+        mock_queue.get = AsyncMock(return_value=mock_context)
+        
+        pool._pool = mock_queue
         pool._browser = MagicMock()
         pool._browser.close = AsyncMock()
         pool._pw = MagicMock()

@@ -30,7 +30,7 @@ class TestAuthMiddleware:
         mock_settings = MagicMock()
         mock_settings.api.api_key = "valid-key"
 
-        with patch("api.middleware.auth.get_settings", return_value=mock_settings):
+        with patch("container.get_settings", return_value=mock_settings):
             with pytest.raises(HTTPException) as exc_info:
                 await verify_api_key(key="invalid-key")
             assert exc_info.value.status_code == 403
@@ -44,7 +44,7 @@ class TestAuthMiddleware:
         mock_settings = MagicMock()
         mock_settings.api.api_key = "valid-key"
 
-        with patch("api.middleware.auth.get_settings", return_value=mock_settings):
+        with patch("container.get_settings", return_value=mock_settings):
             result = await verify_api_key(key="valid-key")
             assert result == "valid-key"
 
@@ -562,7 +562,7 @@ class TestArticlesEndpoint:
         article.is_news = True
         article.title = "Test Title"
         article.body = "Test body"
-        article.category = CategoryType.TECH
+        article.category = CategoryType.TECHNOLOGY
         article.language = "zh"
         article.region = "CN"
         article.summary = "Summary"
@@ -573,7 +573,7 @@ class TestArticlesEndpoint:
         article.score = 0.85
         article.sentiment = "positive"
         article.sentiment_score = 0.75
-        article.primary_emotion = EmotionType.JOY
+        article.primary_emotion = EmotionType.OPTIMISTIC
         article.credibility_score = 0.9
         article.source_credibility = 0.8
         article.cross_verification = 0.7
@@ -584,7 +584,7 @@ class TestArticlesEndpoint:
 
         result = _article_to_dict(article)
         assert result["title"] == "Test Title"
-        assert result["category"] == "tech"
+        assert result["category"] == "科技"
         assert result["score"] == 0.85
 
     @pytest.mark.asyncio
@@ -619,13 +619,16 @@ class TestArticlesEndpoint:
         mock_article.created_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
         mock_article.updated_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
+        mock_count_result = MagicMock()
+        mock_count_result.scalar.return_value = 1
+
+        mock_articles_result = MagicMock()
+        mock_articles_result.scalars.return_value.all.return_value = [mock_article]
+
         mock_session = AsyncMock()
-        mock_session.execute = AsyncMock()
-        mock_session.execute.return_value.scalar.return_value = 1
-        mock_session.execute.return_value.scalars.return_value.all.return_value = [mock_article]
+        mock_session.execute = AsyncMock(side_effect=[mock_count_result, mock_articles_result])
 
         mock_pool = MagicMock()
-        mock_pool.session = MagicMock(return_value=mock_session)
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
 
@@ -675,8 +678,11 @@ class TestArticlesEndpoint:
         mock_article.created_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
         mock_article.updated_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
 
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = mock_article
+
         mock_session = AsyncMock()
-        mock_session.execute.return_value.scalar_one_or_none.return_value = mock_article
+        mock_session.execute.return_value = mock_result
 
         mock_pool = MagicMock()
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
@@ -709,8 +715,11 @@ class TestArticlesEndpoint:
         """Test GET /articles/{article_id} returns 404 for missing article."""
         from api.endpoints.articles import get_article
 
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none.return_value = None
+
         mock_session = AsyncMock()
-        mock_session.execute.return_value.scalar_one_or_none.return_value = None
+        mock_session.execute.return_value = mock_result
 
         mock_pool = MagicMock()
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
@@ -840,10 +849,25 @@ class TestGraphEndpoint:
         """Test GET /graph/entities/{name} returns entity."""
         from api.endpoints.graph import get_entity
 
+        class AsyncIterator:
+            def __init__(self, items):
+                self.items = items
+                self.index = 0
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                if self.index >= len(self.items):
+                    raise StopAsyncIteration
+                item = self.items[self.index]
+                self.index += 1
+                return item
+
         mock_session = AsyncMock()
 
-        mock_result = AsyncMock()
-        mock_result.single = AsyncMock(return_value={
+        entity_result = AsyncMock()
+        entity_result.single = AsyncMock(return_value={
             "id": "entity-123",
             "canonical_name": "Test Entity",
             "type": "person",
@@ -851,10 +875,17 @@ class TestGraphEndpoint:
             "description": "Test description",
             "updated_at": datetime(2024, 1, 1, tzinfo=timezone.utc),
         })
-        mock_session.run = AsyncMock(return_value=mock_result)
 
-        mock_empty_result = AsyncMock()
-        mock_empty_result.__aiter__ = MagicMock(return_value=iter([]))
+        empty_result = AsyncMock()
+        empty_result.__aiter__ = lambda self: AsyncIterator([]).__aiter__()
+        empty_result.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
+
+        mock_session.run = AsyncMock(side_effect=[
+            entity_result,
+            empty_result,
+            empty_result,
+            empty_result,
+        ])
 
         mock_neo4j = MagicMock()
         mock_neo4j.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
@@ -898,6 +929,21 @@ class TestGraphEndpoint:
         """Test GET /graph/articles/{article_id}/graph returns graph."""
         from api.endpoints.graph import get_article_graph
 
+        class AsyncIterator:
+            def __init__(self, items):
+                self.items = items
+                self.index = 0
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                if self.index >= len(self.items):
+                    raise StopAsyncIteration
+                item = self.items[self.index]
+                self.index += 1
+                return item
+
         mock_session = AsyncMock()
 
         mock_article_result = AsyncMock()
@@ -909,14 +955,15 @@ class TestGraphEndpoint:
             "score": 0.85,
         })
 
-        mock_empty_result = AsyncMock()
-        mock_empty_result.__aiter__ = MagicMock(return_value=iter([]))
+        empty_result = AsyncMock()
+        empty_result.__aiter__ = lambda self: AsyncIterator([]).__aiter__()
+        empty_result.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
 
         mock_session.run = AsyncMock(side_effect=[
             mock_article_result,
-            mock_empty_result,
-            mock_empty_result,
-            mock_empty_result,
+            empty_result,
+            empty_result,
+            empty_result,
         ])
 
         mock_neo4j = MagicMock()

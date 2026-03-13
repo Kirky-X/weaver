@@ -174,6 +174,7 @@ class TestCategorizerNode:
         ))
         node = CategorizerNode(llm=mock_llm, prompt_loader=mock_prompt_loader)
         state = PipelineState(cleaned=mock_cleaned)
+        state["raw"] = MagicMock(url="https://example.com/test")
         result = await node.execute(state)
         assert result.get("category") == "科技"
         assert result.get("language") == "zh"
@@ -186,7 +187,7 @@ class TestVectorizeNode:
     def mock_llm(self):
         """Mock LLM client."""
         llm = MagicMock()
-        llm.embed = AsyncMock(return_value=[0.1] * 1024)
+        llm.batch_embed = AsyncMock(return_value=[[0.1] * 1024])
         return llm
 
     @pytest.fixture
@@ -197,9 +198,10 @@ class TestVectorizeNode:
     @pytest.mark.asyncio
     async def test_vectorize_node(self, mock_llm, mock_cleaned):
         """Test vectorize generates embeddings."""
-        mock_llm.embed = AsyncMock(return_value=[0.1] * 1024)
+        mock_llm.batch_embed = AsyncMock(return_value=[[0.1] * 1024])
         node = VectorizeNode(llm=mock_llm)
         state = PipelineState(cleaned=mock_cleaned)
+        state["raw"] = MagicMock(url="https://example.com/test")
         result = await node.execute(state)
         assert "vectors" in result
         assert "content" in result["vectors"]
@@ -245,7 +247,7 @@ class TestReVectorizeNode:
     def mock_llm(self):
         """Mock LLM client."""
         llm = MagicMock()
-        llm.embed = AsyncMock(return_value=[0.1] * 1024)
+        llm.batch_embed = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
         return llm
 
     @pytest.fixture
@@ -263,9 +265,10 @@ class TestReVectorizeNode:
     @pytest.mark.asyncio
     async def test_re_vectorize_node(self, mock_llm, mock_vector_repo, mock_cleaned):
         """Test re-vectorize generates new embeddings."""
-        mock_llm.embed = AsyncMock(return_value=[0.1] * 1024)
-        node = ReVectorizeNode(llm=mock_llm, vector_repo=mock_vector_repo)
+        mock_llm.batch_embed = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
+        node = ReVectorizeNode(llm=mock_llm)
         state = PipelineState(cleaned=mock_cleaned)
+        state["raw"] = MagicMock(url="https://example.com/test")
         result = await node.execute(state)
         assert "vectors" in result
 
@@ -329,6 +332,7 @@ class TestAnalyzeNode:
         ))
         node = AnalyzeNode(llm=mock_llm, prompt_loader=mock_prompt_loader, budget=mock_budget)
         state = PipelineState(cleaned=mock_cleaned)
+        state["raw"] = MagicMock(url="https://example.com/test")
         result = await node.execute(state)
         assert "summary_info" in result
 
@@ -350,6 +354,7 @@ class TestAnalyzeNode:
         ))
         node = AnalyzeNode(llm=mock_llm, prompt_loader=mock_prompt_loader, budget=mock_budget)
         state = PipelineState(cleaned=mock_cleaned)
+        state["raw"] = MagicMock(url="https://example.com/test")
         result = await node.execute(state)
         assert "sentiment" in result
 
@@ -371,6 +376,7 @@ class TestAnalyzeNode:
         ))
         node = AnalyzeNode(llm=mock_llm, prompt_loader=mock_prompt_loader, budget=mock_budget)
         state = PipelineState(cleaned=mock_cleaned)
+        state["raw"] = MagicMock(url="https://example.com/test")
         result = await node.execute(state)
         assert result.get("score") == 0.85
 
@@ -413,7 +419,11 @@ class TestEntityExtractorNode:
     def mock_spacy(self):
         """Mock spaCy extractor."""
         spacy = MagicMock()
-        spacy.extract = MagicMock(return_value=[])
+        mock_entity = MagicMock()
+        mock_entity.name = "张三"
+        mock_entity.type = "人物"
+        mock_entity.label = "PER"
+        spacy.extract = MagicMock(return_value=[mock_entity])
         return spacy
 
     @pytest.fixture
@@ -431,10 +441,6 @@ class TestEntityExtractorNode:
     @pytest.mark.asyncio
     async def test_entity_extractor_spacy(self, mock_llm, mock_spacy, mock_vector_repo, mock_cleaned):
         """Test entity extractor uses spaCy."""
-        mock_entity = MagicMock()
-        mock_entity.name = "张三"
-        mock_entity.type = "人物"
-        mock_spacy.extract = MagicMock(return_value=[mock_entity])
         node = EntityExtractorNode(
             llm=mock_llm,
             spacy=mock_spacy,
@@ -443,5 +449,6 @@ class TestEntityExtractorNode:
             prompt_loader=MagicMock(get_version=MagicMock(return_value="1.0"))
         )
         state = PipelineState(cleaned=mock_cleaned, language="zh")
+        state["raw"] = MagicMock(url="https://example.com/test")
         result = await node.execute(state)
         mock_spacy.extract.assert_called()
