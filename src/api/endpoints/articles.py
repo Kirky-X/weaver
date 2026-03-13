@@ -176,7 +176,7 @@ async def list_articles(
 
         # Get total count
         from sqlalchemy import func
-        count_result = await session.execute(select(func.count()).select_from(count_query.distinct()))
+        count_result = await session.execute(select(func.count()).select_from(count_query.distinct().subquery()))
         total = count_result.scalar() or 0
 
         # Calculate pagination
