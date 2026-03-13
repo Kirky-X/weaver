@@ -13,6 +13,7 @@ from core.llm.output_validator import parse_llm_json, OutputParserException
 from core.llm.token_budget import TokenBudgetManager
 from core.prompt.loader import PromptLoader
 from core.observability.logging import get_logger
+from core.utils.time_utils import get_current_time_with_timezone
 
 log = get_logger("llm_client")
 
@@ -64,6 +65,11 @@ class LLMClient:
         """
         # Load the system prompt
         system_prompt = self._prompts.get(call_point.value)
+
+        # Inject current time for CHAT tasks
+        current_time = get_current_time_with_timezone()
+        current_time_context = f"当前时间: {current_time}\n\n"
+        system_prompt = current_time_context + system_prompt
 
         # Build user content from payload
         user_content = json.dumps(payload, ensure_ascii=False, default=str)
