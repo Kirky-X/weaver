@@ -26,38 +26,34 @@ def test_article_has_processing_fields():
 
 
 @pytest.mark.asyncio
-async def test_get_stuck_articles():
+async def test_article_repo_has_get_stuck_articles_method():
     """验证 ArticleRepo 有 get_stuck_articles 方法"""
     from modules.storage.article_repo import ArticleRepo
     from unittest.mock import MagicMock
 
-    # Create mock pool
     mock_pool = MagicMock()
     mock_session = MagicMock()
     mock_session.__aenter__ = AsyncMock(return_value=mock_session)
     mock_session.__aexit__ = AsyncMock(return_value=None)
     mock_pool.session = MagicMock(return_value=mock_session)
 
-    # Create repo and check method exists
     repo = ArticleRepo(mock_pool)
     assert hasattr(repo, 'get_stuck_articles'), "ArticleRepo should have get_stuck_articles method"
     assert callable(getattr(repo, 'get_stuck_articles')), "get_stuck_articles should be callable"
 
 
 @pytest.mark.asyncio
-async def test_get_failed_articles():
+async def test_article_repo_has_get_failed_articles_method():
     """验证 ArticleRepo 有 get_failed_articles 方法"""
     from modules.storage.article_repo import ArticleRepo
     from unittest.mock import MagicMock
 
-    # Create mock pool
     mock_pool = MagicMock()
     mock_session = MagicMock()
     mock_session.__aenter__ = AsyncMock(return_value=mock_session)
     mock_session.__aexit__ = AsyncMock(return_value=None)
     mock_pool.session = MagicMock(return_value=mock_session)
 
-    # Create repo and check method exists
     repo = ArticleRepo(mock_pool)
     assert hasattr(repo, 'get_failed_articles'), "ArticleRepo should have get_failed_articles method"
     assert callable(getattr(repo, 'get_failed_articles')), "get_failed_articles should be callable"

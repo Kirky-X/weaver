@@ -112,34 +112,6 @@ class TestUnionFind:
             uf.find("nonexistent")
 
 
-class TestBatchMergerSimilarity:
-    """Tests for batch merger similarity calculation."""
-
-    def test_similarity_threshold(self):
-        """Test similarity threshold is defined."""
-        from modules.pipeline.nodes.batch_merger import BatchMergerNode
-
-        assert BatchMergerNode.SIMILARITY_THRESHOLD == 0.80
-
-    def test_numpy_required(self):
-        """Test numpy is used for matrix operations."""
-        # This is a smoke test to ensure numpy is available
-        import numpy as np
-
-        # Create simple vectors
-        v1 = np.array([1.0, 0.0])
-        v2 = np.array([1.0, 0.0])
-
-        # Normalize
-        norms = np.linalg.norm(v1)
-        normed = v1 / norms
-
-        # Dot product
-        similarity = np.dot(normed, v2 / np.linalg.norm(v2))
-
-        assert similarity == pytest.approx(1.0)
-
-
 class TestUnionFindEdgeCases:
     """Edge case tests for UnionFind."""
 

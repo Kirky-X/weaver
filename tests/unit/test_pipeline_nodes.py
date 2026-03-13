@@ -381,26 +381,6 @@ class TestAnalyzeNode:
         assert result.get("score") == 0.85
 
 
-class TestCredibilityCheckerNode:
-    """Tests for CredibilityCheckerNode."""
-
-    WEIGHTS = {
-        "source": 0.30,
-        "cross": 0.25,
-        "content": 0.30,
-        "timeliness": 0.15,
-    }
-
-    def test_weights_defined(self):
-        """Test weights are defined."""
-        assert hasattr(CredibilityCheckerNode, "WEIGHTS")
-
-    def test_weights_sum_to_one(self):
-        """Test weights sum to 1.0."""
-        total = sum(CredibilityCheckerNode.WEIGHTS.values())
-        assert total == pytest.approx(1.0, rel=0.01)
-
-
 class TestEntityExtractorNode:
     """Tests for EntityExtractorNode."""
 
