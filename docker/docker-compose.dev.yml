@@ -1,0 +1,70 @@
+version: "3.8"
+
+services:
+  # PostgreSQL with pgvector (using local image)
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: news_discovery_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: news_discovery
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - news_discovery_network
+
+  # Neo4j Graph Database (using local image)
+  neo4j:
+    image: neo4j:5.25
+    container_name: news_discovery_neo4j
+    environment:
+      NEO4J_AUTH: neo4j/neo4j123
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_memory_heap_initial__size: 512m
+      NEO4J_dbms_memory_heap_max__size: 2g
+      NEO4J_dbms_memory_pagecache_size: 1g
+    ports:
+      - "7474:7474"  # HTTP
+      - "7687:7687"  # Bolt
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - neo4j_import:/var/lib/neo4j/import
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider localhost:7474 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - news_discovery_network
+
+  # Redis (using local image, optional - can use external)
+  # For external Redis, comment out this service and set REDIS_URL in environment
+  redis:
+    image: redis:6-alpine
+    container_name: news_discovery_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - news_discovery_network
+
+volumes:
+  postgres_data:
+  neo4j_data:
+  neo4j_logs:
+  neo4j_import:
+  redis_data:
+
+networks:
+  news_discovery_network:
+    driver: bridge
