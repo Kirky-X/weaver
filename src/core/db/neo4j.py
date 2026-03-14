@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from neo4j import AsyncDriver, AsyncGraphDatabase
+from neo4j import AsyncDriver, AsyncGraphDatabase, Auth
 
 from core.observability.logging import get_logger
 
@@ -25,6 +25,7 @@ class Neo4jPool:
             self._uri,
             auth=self._auth,
             max_connection_pool_size=50,
+            max_connection_lifetime=0,
         )
         # Verify connectivity
         try:

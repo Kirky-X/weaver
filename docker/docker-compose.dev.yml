@@ -26,14 +26,14 @@ services:
     image: neo4j:5.25
     container_name: news_discovery_neo4j
     environment:
-      NEO4J_AUTH: neo4j/neo4j123
+      NEO4J_AUTH: neo4j/newpassword123
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_dbms_memory_heap_initial__size: 512m
       NEO4J_dbms_memory_heap_max__size: 2g
       NEO4J_dbms_memory_pagecache_size: 1g
     ports:
       - "7474:7474"  # HTTP
-      - "7687:7687"  # Bolt
+      - "7688:7687"  # Bolt (mapped to 7688 to avoid proxy interference)
     volumes:
       - neo4j_data:/data
       - neo4j_logs:/logs

@@ -59,32 +59,44 @@ class VectorRepo:
             await session.execute(text("SET hnsw.ef_search = 200;"))
 
             for vec_type, embedding in [
-                (VectorType.TITLE, title_embedding),
-                (VectorType.CONTENT, content_embedding),
+                (VectorType.TITLE.value, title_embedding),
+                (VectorType.CONTENT.value, content_embedding),
             ]:
                 if embedding is None:
                     continue
 
-                # Check if exists
-                result = await session.execute(
-                    select(ArticleVector).where(
-                        ArticleVector.article_id == article_id,
-                        ArticleVector.vector_type == vec_type,
-                    )
+                existing_id = await session.execute(
+                    text(
+                        """
+                        SELECT id FROM article_vectors
+                        WHERE article_id = :article_id AND vector_type = :vector_type
+                        """
+                    ),
+                    {"article_id": article_id, "vector_type": vec_type},
                 )
-                existing = result.scalar_one_or_none()
+                existing = existing_id.scalar_one_or_none()
 
                 if existing:
-                    existing.embedding = embedding
-                    existing.model_id = model_id
-                else:
-                    av = ArticleVector(
-                        article_id=article_id,
-                        vector_type=vec_type,
-                        embedding=embedding,
-                        model_id=model_id,
+                    await session.execute(
+                        text(
+                            """
+                            UPDATE article_vectors
+                            SET embedding = :embedding, model_id = :model_id, updated_at = NOW()
+                            WHERE article_id = :article_id AND vector_type = :vector_type
+                            """
+                        ),
+                        {"article_id": article_id, "vector_type": vec_type, "embedding": f"[{','.join(map(str, embedding))}]", "model_id": model_id},
                     )
-                    session.add(av)
+                else:
+                    await session.execute(
+                        text(
+                            """
+                            INSERT INTO article_vectors (article_id, vector_type, embedding, model_id)
+                            VALUES (:article_id, :vector_type, :embedding, :model_id)
+                            """
+                        ),
+                        {"article_id": article_id, "vector_type": vec_type, "embedding": f"[{','.join(map(str, embedding))}]", "model_id": model_id},
+                    )
 
             await session.commit()
 

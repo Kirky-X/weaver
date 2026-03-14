@@ -61,11 +61,12 @@ class Neo4jWriter:
         if not article_id:
             raise ValueError("article_id not found in pipeline state")
 
-        log.info("neo4j_write_start", article_id=article_id)
+        article_id_str = str(article_id)
+
+        log.info("neo4j_write_start", article_id=article_id_str)
 
         neo4j_ids: list[str] = []
 
-        # 1. Create or update article node
         raw = state["raw"]
         title = state.get("cleaned", {}).get("title", raw.title)
         category = state.get("category", "unknown")
@@ -73,13 +74,13 @@ class Neo4jWriter:
         score = state.get("score")
 
         article_neo4j_id = await self._article_repo.create_article(
-            pg_id=article_id,
+            pg_id=article_id_str,
             title=title,
             category=category.value if hasattr(category, "value") else str(category),
             publish_time=publish_time,
             score=score,
         )
-        log.debug("neo4j_article_created", article_id=article_id)
+        log.debug("neo4j_article_created", article_id=article_id_str)
 
         # 2. Process entities and create MENTIONS relationships
         entities = state.get("entities", [])
@@ -92,16 +93,15 @@ class Neo4jWriter:
             neo4j_ids.extend(entity_ids)
 
         # 3. Handle FOLLOWED_BY relationships
-        # Check if this article follows any previously processed articles
         merged_source_ids = state.get("merged_source_ids", [])
         if merged_source_ids:
             await self._create_followed_relations(
-                article_id=article_id,
+                article_id=article_id_str,
                 source_ids=merged_source_ids,
                 publish_time=publish_time,
             )
 
-        log.info("neo4j_write_complete", article_id=article_id, entity_count=len(neo4j_ids))
+        log.info("neo4j_write_complete", article_id=article_id_str, entity_count=len(neo4j_ids))
         return neo4j_ids
 
     async def _write_entities(
@@ -122,6 +122,7 @@ class Neo4jWriter:
         """
         entity_ids: list[str] = []
         language = state.get("language", "zh")
+        entity_name_to_id: dict[str, str] = {}
 
         for entity in entities:
             name = entity.get("name")
@@ -131,10 +132,8 @@ class Neo4jWriter:
             if not name or not entity_type:
                 continue
 
-            # Resolve canonical name (simplified - could use LLM for complex cases)
             canonical_name = await self._resolve_canonical_name(name, entity_type)
 
-            # Create or merge entity
             try:
                 entity_neo4j_id = await self._entity_repo.merge_entity(
                     canonical_name=canonical_name,
@@ -142,8 +141,8 @@ class Neo4jWriter:
                     description=entity.get("description"),
                 )
                 entity_ids.append(entity_neo4j_id)
+                entity_name_to_id[canonical_name] = entity_neo4j_id
 
-                # Add alias if different from canonical name
                 if name != canonical_name:
                     await self._entity_repo.add_alias(
                         canonical_name=canonical_name,
@@ -160,7 +159,6 @@ class Neo4jWriter:
                 )
                 continue
 
-            # Create MENTIONS relationship
             try:
                 await self._entity_repo.merge_mentions_relation(
                     article_neo4j_id=article_neo4j_id,
@@ -175,7 +173,73 @@ class Neo4jWriter:
                     error=str(exc),
                 )
 
+        relations = state.get("relations", [])
+        if relations and entity_name_to_id:
+            await self._write_entity_relations(relations, entity_name_to_id)
+
         return entity_ids
+
+    async def _write_entity_relations(
+        self,
+        relations: list[dict[str, Any]],
+        entity_name_to_id: dict[str, str],
+    ) -> int:
+        """Write entity-to-entity relationships to Neo4j.
+
+        Args:
+            relations: List of relation dicts from entity extractor.
+            entity_name_to_id: Mapping from entity canonical name to Neo4j ID.
+
+        Returns:
+            Number of relations created.
+        """
+        count = 0
+        for relation in relations:
+            source_name = relation.get("source")
+            target_name = relation.get("target")
+            relation_type = relation.get("relation_type")
+            description = relation.get("description")
+
+            if not source_name or not target_name or not relation_type:
+                continue
+
+            source_id = entity_name_to_id.get(source_name)
+            target_id = entity_name_to_id.get(target_name)
+
+            if not source_id or not target_id:
+                log.debug(
+                    "entity_relation_entity_not_found",
+                    source=source_name,
+                    target=target_name,
+                )
+                continue
+
+            try:
+                await self._entity_repo.merge_relation(
+                    from_neo4j_id=source_id,
+                    to_neo4j_id=target_id,
+                    relation_type=relation_type,
+                    properties={"description": description} if description else None,
+                )
+                count += 1
+                log.debug(
+                    "entity_relation_created",
+                    source=source_name,
+                    target=target_name,
+                    relation=relation_type,
+                )
+            except Exception as exc:
+                log.error(
+                    "entity_relation_failed",
+                    source=source_name,
+                    target=target_name,
+                    relation=relation_type,
+                    error=str(exc),
+                )
+
+        if count > 0:
+            log.info("entity_relations_created", count=count)
+        return count
 
     async def _resolve_canonical_name(
         self,
