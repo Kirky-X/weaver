@@ -102,6 +102,7 @@ class Pipeline:
         )
         self._article_repo = article_repo
         self._neo4j_writer = neo4j_writer
+        self._vector_repo = vector_repo
 
     async def _update_processing_stage(
         self, state: PipelineState, stage: str
@@ -288,9 +289,20 @@ class Pipeline:
                 article_id = await self._article_repo.upsert(state)
                 state["article_id"] = str(article_id)
                 await self._article_repo.update_persist_status(article_id, PersistStatus.PG_DONE)
+                
+                if self._vector_repo and "vectors" in state:
+                    vectors = state["vectors"]
+                    if isinstance(vectors, dict) and "title" in vectors and "content" in vectors:
+                        import uuid
+                        await self._vector_repo.upsert_article_vectors(
+                            article_id=article_id,
+                            title_embedding=vectors.get("title"),
+                            content_embedding=vectors.get("content"),
+                            model_id=vectors.get("model_id", "unknown"),
+                        )
+                        log.debug("vectors_persisted", article_id=str(article_id))
             except Exception as exc:
                 log.error("persist_pg_failed", url=state["raw"].url, error=str(exc))
-                # Mark as failed if we have the article_id
                 if state.get("article_id"):
                     try:
                         import uuid
@@ -315,7 +327,6 @@ class Pipeline:
                     article_id=state.get("article_id"),
                     error=str(exc),
                 )
-                # Mark as failed if we have the article_id
                 if state.get("article_id") and self._article_repo:
                     try:
                         import uuid
