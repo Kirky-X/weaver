@@ -1,44 +1,45 @@
-"""structlog configuration for structured JSON logging."""
+"""loguru configuration for structured JSON logging."""
 
 from __future__ import annotations
 
-import structlog
+import sys
+from contextvars import ContextVar
+from typing import Any
+
+from loguru import logger
+
+
+_context_vars: ContextVar[dict[str, Any]] = ContextVar("context_vars", default={})
 
 
 def configure_logging(debug: bool = False) -> None:
-    """Configure structlog with JSON rendering and context vars.
+    """Configure loguru with JSON rendering and context vars.
 
     Args:
         debug: If True, use a lower log level for development.
     """
-    min_level = 10 if debug else 20  # DEBUG=10, INFO=20
+    level = "DEBUG" if debug else "INFO"
 
-    structlog.configure(
-        processors=[
-            structlog.contextvars.merge_contextvars,
-            structlog.processors.add_log_level,
-            structlog.processors.TimeStamper(fmt="iso"),
-            structlog.processors.StackInfoRenderer(),
-            structlog.processors.format_exc_info,
-            structlog.processors.JSONRenderer(),
-        ],
-        wrapper_class=structlog.make_filtering_bound_logger(min_level),
-        context_class=dict,
-        logger_factory=structlog.PrintLoggerFactory(),
-        cache_logger_on_first_use=True,
+    logger.remove()
+
+    logger.add(
+        sys.stderr,
+        format="{extra}",
+        level=level,
+        serialize=True,
     )
 
 
-def get_logger(name: str | None = None) -> structlog.stdlib.BoundLogger:
-    """Get a structlog bound logger.
+def get_logger(name: str | None = None) -> Any:
+    """Get a loguru logger with context binding.
 
     Args:
         name: Optional logger name for context.
 
     Returns:
-        A bound structlog logger instance.
+        A bound loguru logger instance.
     """
-    logger = structlog.get_logger()
+    bound_logger = logger.bind(**_context_vars.get())
     if name:
-        logger = logger.bind(component=name)
-    return logger
+        bound_logger = bound_logger.bind(component=name)
+    return bound_logger

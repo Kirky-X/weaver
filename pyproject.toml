@@ -15,7 +15,7 @@ dependencies = [
     "langchain>=1.2.12",
     "langchain-openai>=1.1.11",
     "langgraph>=1.1.2",
-    "neo4j>=5.0,<6.0",
+    "neo4j==5.18.0",
     "numpy>=2.4.3",
     "opentelemetry-instrumentation-fastapi>=0.61b0",
     "opentelemetry-sdk>=1.40.0",
@@ -28,7 +28,7 @@ dependencies = [
     "slowapi>=0.1.9",
     "spacy>=3.8.11",
     "sqlalchemy[asyncio]>=2.0.48",
-    "structlog>=25.5.0",
+    "loguru",
     "tiktoken>=0.12.0",
     "trafilatura>=2.0.0",
     "uvicorn[standard]>=0.41.0",
@@ -53,6 +53,9 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+asyncio_mode = "auto"
 filterwarnings = [
     "ignore:The pynvml package is deprecated:FutureWarning:torch.cuda",
+    "ignore:Can't initialize NVML:UserWarning:torch.cuda",
+    "ignore:Stealth has already been applied:UserWarning:playwright_stealth",
 ]
