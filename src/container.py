@@ -101,7 +101,7 @@ class Container:
         if self._neo4j_pool is None:
             self._neo4j_pool = Neo4jPool(
                 self._settings.neo4j.uri,
-                self._settings.neo4j.auth,
+                self._settings.neo4j.auth_tuple,
             )
             await self._neo4j_pool.startup()
             log.info("neo4j_initialized")

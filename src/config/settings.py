@@ -26,11 +26,28 @@ class Neo4jSettings(BaseSettings):
     """Neo4j connection settings."""
 
     uri: str = "bolt://localhost:7687"
-    user: str = "neo4j"
-    password: str = "neo4j_password"
+    auth: str = '["neo4j","neo4j_password"]'
 
     @property
-    def auth(self) -> tuple[str, str]:
+    def user(self) -> str:
+        """Extract user from auth JSON."""
+        import json
+        try:
+            return json.loads(self.auth)[0]
+        except (json.JSONDecodeError, IndexError, TypeError):
+            return "neo4j"
+
+    @property
+    def password(self) -> str:
+        """Extract password from auth JSON."""
+        import json
+        try:
+            return json.loads(self.auth)[1]
+        except (json.JSONDecodeError, IndexError, TypeError):
+            return "neo4j_password"
+
+    @property
+    def auth_tuple(self) -> tuple[str, str]:
         """Return auth as tuple for Neo4j driver."""
         return (self.user, self.password)
 

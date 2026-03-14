@@ -64,7 +64,7 @@ async def main():
     neo4j_writer = None
     try:
         from core.db.neo4j import Neo4jPool
-        neo4j_pool = Neo4jPool(settings.neo4j.uri, settings.neo4j.auth)
+        neo4j_pool = Neo4jPool(settings.neo4j.uri, settings.neo4j.auth_tuple)
         await neo4j_pool.startup()
         neo4j_writer = Neo4jWriter(neo4j_pool)
     except Exception as e:
