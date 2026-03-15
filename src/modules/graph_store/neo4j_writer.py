@@ -110,7 +110,7 @@ class Neo4jWriter:
         entities: list[dict[str, Any]],
         state: PipelineState,
     ) -> list[str]:
-        """Write entities and create MENTIONS relationships.
+        """Write entities and create MENTIONS relationships using batch operations.
 
         Args:
             article_neo4j_id: The article's Neo4j ID.
@@ -120,9 +120,14 @@ class Neo4jWriter:
         Returns:
             List of entity Neo4j IDs.
         """
-        entity_ids: list[str] = []
-        language = state.get("language", "zh")
+        if not entities:
+            return []
+
         entity_name_to_id: dict[str, str] = {}
+
+        entity_data = []
+        alias_data = []
+        mentions_data = []
 
         for entity in entities:
             name = entity.get("name")
@@ -134,44 +139,70 @@ class Neo4jWriter:
 
             canonical_name = await self._resolve_canonical_name(name, entity_type)
 
+            entity_data.append({
+                "canonical_name": canonical_name,
+                "type": entity_type,
+                "description": entity.get("description"),
+            })
+
+            if name != canonical_name:
+                alias_data.append({
+                    "canonical_name": canonical_name,
+                    "type": entity_type,
+                    "alias": name,
+                })
+
+            mentions_data.append({
+                "canonical_name": canonical_name,
+                "type": entity_type,
+                "role": role,
+            })
+
+        if entity_data:
             try:
-                entity_neo4j_id = await self._entity_repo.merge_entity(
-                    canonical_name=canonical_name,
-                    entity_type=entity_type,
-                    description=entity.get("description"),
-                )
-                entity_ids.append(entity_neo4j_id)
-                entity_name_to_id[canonical_name] = entity_neo4j_id
-
-                if name != canonical_name:
-                    await self._entity_repo.add_alias(
-                        canonical_name=canonical_name,
-                        entity_type=entity_type,
-                        alias=name,
-                    )
-
-            except Exception as exc:
-                log.error(
-                    "neo4j_entity_merge_failed",
-                    name=name,
-                    type=entity_type,
-                    error=str(exc),
-                )
-                continue
-
-            try:
-                await self._entity_repo.merge_mentions_relation(
-                    article_neo4j_id=article_neo4j_id,
-                    entity_neo4j_id=entity_neo4j_id,
-                    role=role,
+                result = await self._entity_repo.merge_entities_batch(entity_data)
+                log.info(
+                    "neo4j_entities_batch_merged",
+                    created=result.get("created", 0),
+                    updated=result.get("updated", 0),
                 )
             except Exception as exc:
-                log.error(
-                    "neo4j_mentions_relation_failed",
-                    article_id=article_neo4j_id,
-                    entity_id=entity_neo4j_id,
-                    error=str(exc),
-                )
+                log.error("neo4j_entities_batch_failed", error=str(exc))
+                return []
+
+        if alias_data:
+            try:
+                await self._entity_repo.add_aliases_batch(alias_data)
+            except Exception as exc:
+                log.warning("neo4j_aliases_batch_failed", error=str(exc))
+
+        entity_ids: list[str] = []
+        for entity in entity_data:
+            existing = await self._entity_repo.find_entity(
+                entity["canonical_name"],
+                entity["type"],
+            )
+            if existing:
+                entity_ids.append(existing["neo4j_id"])
+                entity_name_to_id[entity["canonical_name"]] = existing["neo4j_id"]
+
+        if mentions_data and entity_name_to_id:
+            mentions_with_ids = [
+                {
+                    "article_id": state.get("article_id"),
+                    "entity_name": m["canonical_name"],
+                    "entity_type": m["type"],
+                    "role": m.get("role"),
+                }
+                for m in mentions_data
+                if m["canonical_name"] in entity_name_to_id
+            ]
+            if mentions_with_ids:
+                try:
+                    count = await self._entity_repo.merge_mentions_batch(mentions_with_ids)
+                    log.info("neo4j_mentions_batch_created", count=count)
+                except Exception as exc:
+                    log.error("neo4j_mentions_batch_failed", error=str(exc))
 
         relations = state.get("relations", [])
         if relations and entity_name_to_id:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Any
+from typing import Any, Iterator
 
 from neo4j import AsyncDriver
 from neo4j.exceptions import ConstraintError
@@ -14,6 +14,13 @@ from core.observability.logging import get_logger
 
 log = get_logger("neo4j_entity_repo")
 
+ALLOWED_RELATION_TYPES = frozenset({
+    "RELATED_TO",
+    "MENTIONS",
+    "FOLLOWED_BY",
+    "RELATED",
+})
+
 
 class Neo4jEntityRepo:
     """Neo4j entity repository.
@@ -21,12 +28,14 @@ class Neo4jEntityRepo:
     Handles entity CRUD operations in Neo4j graph database,
     including MERGE with uniqueness constraint and alias management.
 
+    Supports both single and batch operations for efficiency.
+
     Args:
         pool: Neo4j connection pool.
     """
 
-    # Maximum retry attempts for concurrent constraint violations
     MAX_MERGE_RETRIES = 3
+    DEFAULT_BATCH_SIZE = 1000
 
     def __init__(self, pool: Neo4jPool) -> None:
         self._pool = pool
@@ -208,7 +217,16 @@ class Neo4jEntityRepo:
             to_neo4j_id: Target entity Neo4j ID.
             relation_type: Type of relationship (e.g., 'RELATED_TO').
             properties: Optional relationship properties.
+
+        Raises:
+            ValueError: If relation_type is not in the allowed list.
         """
+        if relation_type not in ALLOWED_RELATION_TYPES:
+            raise ValueError(
+                f"Invalid relation type: {relation_type}. "
+                f"Allowed types: {', '.join(sorted(ALLOWED_RELATION_TYPES))}"
+            )
+
         query = f"""
         MATCH (from)
         WHERE elementId(from) = $from_id
@@ -339,3 +357,289 @@ class Neo4jEntityRepo:
         """Async sleep helper."""
         import asyncio
         await asyncio.sleep(seconds)
+
+    async def merge_entities_batch(
+        self,
+        entities: list[dict[str, Any]],
+        batch_size: int | None = None,
+    ) -> dict[str, int]:
+        """Merge multiple entities in batches using UNWIND.
+
+        Args:
+            entities: List of entity dicts with 'canonical_name', 'type', 'description'.
+            batch_size: Batch size (default: DEFAULT_BATCH_SIZE).
+
+        Returns:
+            Dict with 'created' and 'updated' counts.
+        """
+        if not entities:
+            return {"created": 0, "updated": 0}
+
+        batch_size = batch_size or self.DEFAULT_BATCH_SIZE
+        total_created = 0
+        total_updated = 0
+
+        for batch in self._chunk(entities, batch_size):
+            query = """
+            UNWIND $entities AS entity
+            MERGE (e:Entity {canonical_name: entity.canonical_name, type: entity.type})
+            ON CREATE SET
+                e.id = entity.id,
+                e.aliases = [entity.canonical_name],
+                e.description = entity.description,
+                e.created_at = datetime(),
+                e.updated_at = datetime()
+            ON MATCH SET
+                e.updated_at = datetime(),
+                e.description = CASE
+                    WHEN e.description IS NULL AND entity.description IS NOT NULL
+                    THEN entity.description
+                    ELSE e.description
+                END
+            WITH e, CASE WHEN e.created_at = e.updated_at THEN 1 ELSE 0 END AS is_new
+            RETURN sum(is_new) AS created, count(e) - sum(is_new) AS updated
+            """
+
+            params = {
+                "entities": [
+                    {
+                        "canonical_name": e.get("canonical_name"),
+                        "type": e.get("type"),
+                        "id": str(uuid.uuid4()),
+                        "description": e.get("description"),
+                    }
+                    for e in batch
+                ]
+            }
+
+            result = await self._pool.execute_query(query, params)
+            if result:
+                total_created += result[0].get("created", 0)
+                total_updated += result[0].get("updated", 0)
+
+        return {"created": total_created, "updated": total_updated}
+
+    async def add_aliases_batch(
+        self,
+        aliases: list[dict[str, Any]],
+        batch_size: int | None = None,
+    ) -> int:
+        """Add aliases to multiple entities in batch.
+
+        Args:
+            aliases: List of dicts with 'canonical_name', 'type', 'alias'.
+            batch_size: Batch size (default: DEFAULT_BATCH_SIZE).
+
+        Returns:
+            Number of entities updated.
+        """
+        if not aliases:
+            return 0
+
+        batch_size = batch_size or self.DEFAULT_BATCH_SIZE
+        total_updated = 0
+
+        for batch in self._chunk(aliases, batch_size):
+            query = """
+            UNWIND $aliases AS alias_data
+            MATCH (e:Entity {canonical_name: alias_data.canonical_name, type: alias_data.type})
+            SET e.aliases = CASE
+                WHEN alias_data.alias IN e.aliases THEN e.aliases
+                ELSE e.aliases + [alias_data.alias]
+            END,
+            e.updated_at = datetime()
+            RETURN count(e) AS updated
+            """
+
+            params = {
+                "aliases": [
+                    {
+                        "canonical_name": a.get("canonical_name"),
+                        "type": a.get("type"),
+                        "alias": a.get("alias"),
+                    }
+                    for a in batch
+                ]
+            }
+
+            result = await self._pool.execute_query(query, params)
+            if result:
+                total_updated += result[0].get("updated", 0)
+
+        return total_updated
+
+    async def merge_relations_batch(
+        self,
+        relations: list[dict[str, Any]],
+        batch_size: int | None = None,
+    ) -> int:
+        """Merge multiple relationships in batches.
+
+        Args:
+            relations: List of dicts with 'from_name', 'from_type', 'to_name', 'to_type', 'relation_type', 'properties'.
+            batch_size: Batch size (default: DEFAULT_BATCH_SIZE * 2).
+
+        Returns:
+            Number of relationships created/updated.
+        """
+        if not relations:
+            return 0
+
+        batch_size = batch_size or (self.DEFAULT_BATCH_SIZE * 2)
+        total_created = 0
+
+        for batch in self._chunk(relations, batch_size):
+            query = """
+            UNWIND $relations AS rel
+            MATCH (from:Entity {canonical_name: rel.from_name, type: rel.from_type})
+            MATCH (to:Entity {canonical_name: rel.to_name, type: rel.to_type})
+            MERGE (from)-[r:RELATED_TO {relation_type: rel.relation_type}]->(to)
+            ON CREATE SET
+                r.created_at = datetime(),
+                r.updated_at = datetime()
+            ON MATCH SET
+                r.updated_at = datetime()
+            SET r += rel.properties
+            RETURN count(r) AS total
+            """
+
+            params = {
+                "relations": [
+                    {
+                        "from_name": r.get("from_name"),
+                        "from_type": r.get("from_type"),
+                        "to_name": r.get("to_name"),
+                        "to_type": r.get("to_type"),
+                        "relation_type": r.get("relation_type"),
+                        "properties": r.get("properties", {}),
+                    }
+                    for r in batch
+                ]
+            }
+
+            result = await self._pool.execute_query(query, params)
+            if result:
+                total_created += result[0].get("total", 0)
+
+        return total_created
+
+    async def merge_mentions_batch(
+        self,
+        mentions: list[dict[str, Any]],
+        batch_size: int | None = None,
+    ) -> int:
+        """Merge multiple MENTIONS relationships in batches.
+
+        Args:
+            mentions: List of dicts with 'article_id', 'entity_name', 'entity_type', 'role'.
+            batch_size: Batch size (default: DEFAULT_BATCH_SIZE * 5).
+
+        Returns:
+            Number of MENTIONS relationships created.
+        """
+        if not mentions:
+            return 0
+
+        batch_size = batch_size or (self.DEFAULT_BATCH_SIZE * 5)
+        total_created = 0
+
+        for batch in self._chunk(mentions, batch_size):
+            query = """
+            UNWIND $mentions AS m
+            MATCH (a:Article {pg_id: m.article_id})
+            MATCH (e:Entity {canonical_name: m.entity_name, type: m.entity_type})
+            MERGE (a)-[r:MENTIONS]->(e)
+            ON CREATE SET r.created_at = datetime()
+            SET r.role = m.role
+            RETURN count(r) AS total
+            """
+
+            params = {
+                "mentions": [
+                    {
+                        "article_id": m.get("article_id"),
+                        "entity_name": m.get("entity_name"),
+                        "entity_type": m.get("entity_type"),
+                        "role": m.get("role"),
+                    }
+                    for m in batch
+                ]
+            }
+
+            result = await self._pool.execute_query(query, params)
+            if result:
+                total_created += result[0].get("total", 0)
+
+        return total_created
+
+    async def find_entities_batch(
+        self,
+        names: list[str],
+        entity_type: str,
+    ) -> list[dict[str, Any]]:
+        """Find multiple entities by names in a single query.
+
+        Args:
+            names: List of canonical names to search for.
+            entity_type: The entity type to match.
+
+        Returns:
+            List of entity dicts found.
+        """
+        if not names:
+            return []
+
+        query = """
+        UNWIND $names AS name
+        MATCH (e:Entity {canonical_name: name, type: $type})
+        RETURN elementId(e) AS neo4j_id,
+               e.id AS id,
+               e.canonical_name AS canonical_name,
+               e.type AS type,
+               e.aliases AS aliases,
+               e.description AS description
+        """
+
+        params = {"names": names, "type": entity_type}
+        result = await self._pool.execute_query(query, params)
+        return [dict(record) for record in result]
+
+    async def delete_entities_batch(
+        self,
+        neo4j_ids: list[str],
+        batch_size: int | None = None,
+    ) -> int:
+        """Delete multiple entities by their Neo4j IDs.
+
+        Args:
+            neo4j_ids: List of Neo4j internal element IDs.
+            batch_size: Batch size (default: DEFAULT_BATCH_SIZE).
+
+        Returns:
+            Number of entities deleted.
+        """
+        if not neo4j_ids:
+            return 0
+
+        batch_size = batch_size or self.DEFAULT_BATCH_SIZE
+        total_deleted = 0
+
+        for batch in self._chunk(neo4j_ids, batch_size):
+            query = """
+            UNWIND $ids AS id
+            MATCH (e)
+            WHERE elementId(e) = id
+            DETACH DELETE e
+            RETURN count(e) AS deleted
+            """
+            result = await self._pool.execute_query(query, {"ids": batch})
+            if result:
+                total_deleted += result[0].get("deleted", 0)
+
+        return total_deleted
+
+    @staticmethod
+    def _chunk(items: list[Any], size: int) -> Iterator[list[Any]]:
+        """Split items into chunks of specified size."""
+        for i in range(0, len(items), size):
+            yield items[i:i + size]

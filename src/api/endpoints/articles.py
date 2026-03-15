@@ -6,12 +6,13 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select, desc, asc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.middleware.auth import verify_api_key
+from api.middleware.rate_limit import limiter
 from core.db.models import Article, CategoryType, PersistStatus
 from core.db.postgres import PostgresPool
 from core.observability.logging import get_logger
@@ -120,7 +121,9 @@ def _article_to_dict(article: Article) -> dict[str, Any]:
 
 
 @router.get("", response_model=ArticleListResponse)
+@limiter.limit("100/minute")
 async def list_articles(
+    request: Request,
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     category: str | None = Query(None, description="Filter by category"),
@@ -150,18 +153,17 @@ async def list_articles(
         Paginated list of articles.
     """
     async with pool.session() as session:
-        # Build base query
-        query = select(Article)
-        count_query = select(Article)
+        from sqlalchemy import func
 
-        # Apply filters
+        query = select(Article)
+
         filters = []
         if category:
             try:
                 cat = CategoryType(category)
                 filters.append(Article.category == cat)
             except ValueError:
-                pass  # Ignore invalid category
+                pass
         if source_host:
             filters.append(Article.source_host == source_host)
         if min_score is not None:
@@ -169,31 +171,24 @@ async def list_articles(
         if min_credibility is not None:
             filters.append(Article.credibility_score >= min_credibility)
 
-        # Apply filters to both queries
         for f in filters:
             query = query.where(f)
-            count_query = count_query.where(f)
 
-        # Get total count
-        from sqlalchemy import func
-        count_result = await session.execute(select(func.count()).select_from(count_query.distinct().subquery()))
+        count_query = select(func.count()).select_from(query.subquery())
+        count_result = await session.execute(count_query)
         total = count_result.scalar() or 0
 
-        # Calculate pagination
         offset = (page - 1) * page_size
-        total_pages = (total + page_size - 1) // page_size
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 0
 
-        # Apply sorting
         sort_column = getattr(Article, sort_by, Article.publish_time)
         if sort_order == "desc":
             query = query.order_by(desc(sort_column))
         else:
             query = query.order_by(asc(sort_column))
 
-        # Apply pagination
         query = query.offset(offset).limit(page_size)
 
-        # Execute
         result = await session.execute(query)
         articles = result.scalars().all()
 

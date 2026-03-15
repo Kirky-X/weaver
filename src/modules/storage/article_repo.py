@@ -62,7 +62,7 @@ class ArticleRepo:
 
             # Update fields from pipeline state
             if "category" in state:
-                print(f"[DEBUG upsert] category: {state['category']}")
+                log.debug("upsert_category", category=state["category"])
                 article.category = state["category"]
             if "language" in state:
                 article.language = state["language"]
@@ -84,7 +84,7 @@ class ArticleRepo:
                 article.score = state["score"]
             if "sentiment" in state:
                 sent = state["sentiment"]
-                print(f"[DEBUG upsert] sentiment: {sent}")
+                log.debug("upsert_sentiment", sentiment=sent.get("sentiment"))
                 article.sentiment = sent.get("sentiment")
                 article.sentiment_score = sent.get("sentiment_score")
                 article.primary_emotion = sent.get("primary_emotion")

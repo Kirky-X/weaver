@@ -58,7 +58,7 @@ class AnalyzeNode:
                 "primary_emotion": normalize_emotion(result.primary_emotion),
                 "emotion_targets": result.emotion_targets,
             }
-            print(f"[DEBUG analyze] Setting sentiment: {state['sentiment']}")
+            log.debug("analyze_sentiment_set", sentiment=state["sentiment"])
             state["score"] = result.score
         except Exception as e:
             # Fallback: use default values if LLM fails

@@ -58,7 +58,7 @@ def normalize_category(cat: str) -> str:
         return "未知"
     cat_lower = cat.lower().strip()
     result = CATEGORY_MAP.get(cat_lower, cat)
-    print(f"[DEBUG] normalize_category: '{cat}' -> '{result}'")
+    log.debug("normalize_category", input=cat, output=result)
     return result
 
 
@@ -68,7 +68,7 @@ def normalize_emotion(emo: str) -> str:
         return "客观"
     emo_lower = emo.lower().strip()
     result = EMOTION_MAP.get(emo_lower, emo)
-    print(f"[DEBUG] normalize_emotion: '{emo}' -> '{result}'")
+    log.debug("normalize_emotion", input=emo, output=result)
     return result
 
 

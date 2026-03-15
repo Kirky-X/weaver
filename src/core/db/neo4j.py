@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from neo4j import AsyncDriver, AsyncGraphDatabase, Auth
+from neo4j import AsyncDriver, AsyncGraphDatabase
+from neo4j.api import Auth
 
 from core.observability.logging import get_logger
 
@@ -16,14 +17,14 @@ class Neo4jPool:
 
     def __init__(self, uri: str, auth: tuple[str, str]) -> None:
         self._uri = uri
-        self._auth = auth
         self._driver: AsyncDriver | None = None
+        self._auth_tuple = auth
 
     async def startup(self) -> None:
         """Initialize the Neo4j async driver."""
         self._driver = AsyncGraphDatabase.driver(
             self._uri,
-            auth=self._auth,
+            auth=self._auth_tuple,
             max_connection_pool_size=50,
             max_connection_lifetime=0,
         )
@@ -38,6 +39,13 @@ class Neo4jPool:
         """Close the Neo4j driver."""
         if self._driver:
             await self._driver.close()
+            log.info("neo4j_pool_closed")
+
+    def close(self) -> None:
+        """Synchronously close the Neo4j driver."""
+        import asyncio
+        if self._driver:
+            asyncio.get_event_loop().run_until_complete(self._driver.close())
             log.info("neo4j_pool_closed")
 
     @property

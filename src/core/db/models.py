@@ -51,11 +51,11 @@ class CategoryType(str, enum.Enum):
 
 
 class PersistStatus(str, enum.Enum):
-    PENDING = "PENDING"
-    PROCESSING = "PROCESSING"
-    PG_DONE = "PG_DONE"
-    NEO4J_DONE = "NEO4J_DONE"
-    FAILED = "FAILED"
+    PENDING = "pending"
+    PROCESSING = "processing"
+    PG_DONE = "pg_done"
+    NEO4J_DONE = "neo4j_done"
+    FAILED = "failed"
 
 
 class EmotionType(str, enum.Enum):
@@ -216,6 +216,9 @@ class Article(Base):
             "persist_status",
             postgresql_where=text("persist_status IN ('pending', 'pg_done')"),
         ),
+        Index("idx_articles_category_publish", "category", publish_time.desc()),
+        Index("idx_articles_host_publish", "source_host", publish_time.desc()),
+        Index("idx_articles_status_created", "persist_status", created_at.asc()),
     )
 
 

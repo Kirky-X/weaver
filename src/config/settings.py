@@ -125,6 +125,15 @@ class FetcherSettings(BaseSettings):
     httpx_timeout: float = 15.0
     user_agent: str = "Mozilla/5.0 (compatible; NewsBot/1.0)"
 
+    stealth_enabled: bool = True
+    stealth_user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    stealth_viewport_width: int = 1920
+    stealth_viewport_height: int = 1080
+    stealth_locale: str = "zh-CN"
+    stealth_timezone: str = "Asia/Shanghai"
+    stealth_random_delay_min: float = 0.5
+    stealth_random_delay_max: float = 2.0
+
 
 class PromptSettings(BaseSettings):
     """Prompt loading settings."""
@@ -139,6 +148,38 @@ class APISettings(BaseSettings):
     rate_limit: str = "100/minute"
     host: str = "0.0.0.0"
     port: int = 8000
+
+    def validate_security(self) -> list[str]:
+        """Validate security settings and return warnings.
+
+        Returns:
+            List of security warning messages.
+        """
+        warnings = []
+        import os
+
+        environment = os.environ.get("ENVIRONMENT", "development")
+
+        if self.api_key in ["change-me-in-production", ""]:
+            if environment == "production":
+                raise ValueError(
+                    "API_KEY must be set in production environment. "
+                    "Set the ND_API__API_KEY environment variable."
+                )
+            warnings.append(
+                "Using default API key. Set ND_API__API_KEY for production."
+            )
+
+        if len(self.api_key) < 32:
+            if environment == "production":
+                raise ValueError(
+                    "API key must be at least 32 characters in production."
+                )
+            warnings.append(
+                f"API key length ({len(self.api_key)}) is less than recommended 32 characters."
+            )
+
+        return warnings
 
 
 class SchedulerSettings(BaseSettings):
@@ -191,3 +232,11 @@ class Settings(BaseSettings):
     prompt: PromptSettings = Field(default_factory=PromptSettings)
     api: APISettings = Field(default_factory=APISettings)
     scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
+
+    def validate_security(self) -> list[str]:
+        """Validate all security settings.
+
+        Returns:
+            List of security warning messages.
+        """
+        return self.api.validate_security()

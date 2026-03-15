@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import signal
 from contextlib import asynccontextmanager
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from config.settings import Settings
 from container import Container, set_container, set_settings
@@ -18,6 +23,7 @@ from api.endpoints.pipeline import set_redis_client, set_source_scheduler
 from api.endpoints.articles import set_postgres_pool
 from api.endpoints.graph import set_neo4j_client
 from api.endpoints.admin import set_source_authority_repo
+from api.middleware.rate_limit import limiter
 from core.observability.logging import get_logger
 
 log = get_logger("main")
@@ -144,11 +150,10 @@ async def lifespan(app: FastAPI) -> None:
 
     redis_client = container.redis_client()
     set_redis_client(redis_client)
-    print(f"[DEBUG] set_redis_client called with id={id(redis_client)}")
+    log.debug("redis_client_set", client_id=id(redis_client))
 
-    # Set source scheduler for API triggers
     set_source_scheduler(container.source_scheduler())
-    print(f"[DEBUG] set_source_scheduler called")
+    log.debug("source_scheduler_set")
 
     set_postgres_pool(container.postgres_pool())
     set_neo4j_client(container.neo4j_pool())
@@ -231,6 +236,40 @@ async def _graceful_shutdown(app: FastAPI) -> None:
     log.info("graceful_shutdown_complete")
 
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Middleware to add security headers to all responses."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
+
+
+class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
+    """Middleware to limit request body size."""
+
+    MAX_REQUEST_SIZE = 10 * 1024 * 1024  # 10MB
+
+    async def dispatch(self, request: Request, call_next):
+        if request.method in ["POST", "PUT", "PATCH"]:
+            content_length = request.headers.get("content-length")
+            if content_length and int(content_length) > self.MAX_REQUEST_SIZE:
+                raise HTTPException(status_code=413, detail="Request body too large")
+        return await call_next(request)
+
+
+class BusinessException(Exception):
+    """Custom business exception for API errors."""
+
+    def __init__(self, code: int, message: str, http_status: int = 400):
+        self.code = code
+        self.message = message
+        self.http_status = http_status
+
+
 def create_app(container: Container | None = None) -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -242,6 +281,10 @@ def create_app(container: Container | None = None) -> FastAPI:
     """
     settings = container.settings if container else Settings()
 
+    security_warnings = settings.validate_security()
+    for warning in security_warnings:
+        log.warning("security_check", warning=warning)
+
     app = FastAPI(
         title="News Discovery API",
         description="Backend API for news discovery, crawling, and analysis",
@@ -249,24 +292,46 @@ def create_app(container: Container | None = None) -> FastAPI:
         lifespan=lifespan,
     )
 
-    # CORS middleware
+    cors_origins = os.environ.get(
+        "CORS_ORIGINS",
+        "http://localhost:3000,http://localhost:8080,http://127.0.0.1:3000"
+    ).split(",")
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        allow_origins=cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+        allow_headers=["Authorization", "Content-Type", "X-API-Key"],
     )
 
-    # Initialize container
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(RequestSizeLimitMiddleware)
+
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+    @app.exception_handler(BusinessException)
+    async def business_exception_handler(request: Request, exc: BusinessException):
+        return JSONResponse(
+            status_code=exc.http_status,
+            content={"code": exc.code, "message": exc.message}
+        )
+
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        log.error("unhandled_exception", error=str(exc), path=request.url.path)
+        return JSONResponse(
+            status_code=500,
+            content={"code": 500, "message": "Internal server error"}
+        )
+
     if container is None:
         container = Container().configure(settings)
     app.state.container = container
 
-    # Include API router
     app.include_router(api_router)
 
-    # Health check endpoint
     @app.get("/health")
     async def health_check() -> dict:
         """Health check endpoint."""

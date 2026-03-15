@@ -123,11 +123,9 @@ class VectorRepo:
         async with self._pool.session() as session:
             await session.execute(text("SET hnsw.ef_search = 200;"))
 
-            # Convert embedding to vector literal format for pgvector
             vector_str = "[" + ",".join(str(x) for x in embedding) + "]"
 
-            # Build query with optional filters - use string concatenation for vector
-            query_str = """
+            query = text("""
                 SELECT
                     a.id::text as article_id,
                     a.category,
@@ -141,13 +139,12 @@ class VectorRepo:
                   AND (:model_id IS NULL OR av.model_id = :model_id)
                 ORDER BY similarity DESC
                 LIMIT :limit
-            """.replace(":embedding::vector", f"'{vector_str}'::vector")
-
-            query = text(query_str)
+            """)
 
             result = await session.execute(
                 query,
                 {
+                    "embedding": vector_str,
                     "threshold": threshold,
                     "category": category,
                     "model_id": model_id,

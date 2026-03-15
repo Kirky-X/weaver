@@ -1,4 +1,7 @@
-"""Entity resolver for entity deduplication and canonical name resolution."""
+"""Entity resolver for entity deduplication and canonical name resolution.
+
+Enhanced version with rule-based resolution and name normalization.
+"""
 
 from __future__ import annotations
 
@@ -6,8 +9,17 @@ import asyncio
 from typing import Any
 
 from core.llm.client import LLMClient
-from core.llm.types import CallPoint
 from core.observability.logging import get_logger
+from modules.graph_store.resolution_rules import (
+    EntityResolutionRules,
+    ResolutionResult,
+    MatchType,
+    resolution_rules,
+)
+from modules.graph_store.name_normalizer import (
+    NameNormalizer,
+    name_normalizer,
+)
 from modules.storage.neo4j.entity_repo import Neo4jEntityRepo
 from modules.storage.vector_repo import VectorRepo
 
@@ -15,35 +27,41 @@ log = get_logger("entity_resolver")
 
 
 class EntityResolver:
-    """Resolves entities using vector similarity and LLM deduplication.
+    """Resolves entities using rule-based matching, vector similarity, and LLM.
 
-    This resolver:
-    1. Uses pgvector to find similar existing entities
-    2. Uses LLM to determine if entities should be merged/aliased
-    3. Resolves canonical names for new and existing entities
-    4. Handles concurrent write conflicts with retry logic
+    Resolution pipeline:
+    1. Normalize the input name
+    2. Check for exact match in Neo4j
+    3. Apply rule-based resolution (aliases, abbreviations, translations)
+    4. Use vector similarity to find candidates
+    5. Use LLM for ambiguous cases
+    6. Resolve canonical name with preference rules
 
     Args:
         entity_repo: Neo4j entity repository.
         vector_repo: Vector repository for pgvector operations.
         llm: LLM client for deduplication decisions.
+        resolution_rules: Custom resolution rules (optional).
+        name_normalizer: Custom name normalizer (optional).
     """
 
-    # Similarity threshold for considering entities as candidates
     SIMILARITY_THRESHOLD = 0.85
-
-    # Maximum retry attempts for concurrent constraint violations
     MAX_MERGE_RETRIES = 3
+    HIGH_CONFIDENCE_THRESHOLD = 0.9
 
     def __init__(
         self,
         entity_repo: Neo4jEntityRepo,
         vector_repo: VectorRepo,
         llm: LLMClient | None = None,
+        resolution_rules: EntityResolutionRules | None = None,
+        name_normalizer: NameNormalizer | None = None,
     ) -> None:
         self._entity_repo = entity_repo
         self._vector_repo = vector_repo
         self._llm = llm
+        self._rules = resolution_rules or globals().get("resolution_rules")
+        self._normalizer = name_normalizer or globals().get("name_normalizer")
 
     async def resolve_entity(
         self,
@@ -66,35 +84,53 @@ class EntityResolver:
             - canonical_name: The canonical name used
             - is_new: Whether this is a newly created entity
             - merged: Whether it was merged with existing entity
+            - match_type: Type of match (exact, alias, fuzzy, etc.)
+            - confidence: Resolution confidence score
         """
-        # 1. Check if exact match exists
-        existing = await self._entity_repo.find_entity(name, entity_type)
+        norm_result = self._normalizer.normalize(name, entity_type)
+        normalized_name = norm_result.normalized
+
+        existing = await self._entity_repo.find_entity(normalized_name, entity_type)
         if existing:
             return {
                 "neo4j_id": existing["neo4j_id"],
                 "canonical_name": existing["canonical_name"],
                 "is_new": False,
                 "merged": False,
+                "match_type": "exact",
+                "confidence": 1.0,
             }
 
-        # 2. Use vector similarity to find candidates
+        if normalized_name != name:
+            existing = await self._entity_repo.find_entity(name, entity_type)
+            if existing:
+                return {
+                    "neo4j_id": existing["neo4j_id"],
+                    "canonical_name": existing["canonical_name"],
+                    "is_new": False,
+                    "merged": False,
+                    "match_type": "normalized_exact",
+                    "confidence": 0.95,
+                }
+
         similar = await self._vector_repo.find_similar_entities(
             embedding=embedding,
             threshold=self.SIMILARITY_THRESHOLD,
-            limit=5,
+            limit=10,
         )
 
         if not similar:
-            # No similar entities found, create new
+            canonical = self._rules.get_canonical_suggestion(name, entity_type)
             return await self._create_entity(
-                name=name,
+                name=canonical,
                 entity_type=entity_type,
                 embedding=embedding,
                 description=description,
                 is_new=True,
+                match_type="new",
+                confidence=1.0,
             )
 
-        # 3. Get full entity info for candidates
         candidates = []
         for sim in similar:
             entity = await self._entity_repo.find_entity_by_id(sim.neo4j_id)
@@ -103,68 +139,80 @@ class EntityResolver:
                 candidates.append(entity)
 
         if not candidates:
+            canonical = self._rules.get_canonical_suggestion(name, entity_type)
             return await self._create_entity(
-                name=name,
+                name=canonical,
                 entity_type=entity_type,
                 embedding=embedding,
                 description=description,
                 is_new=True,
+                match_type="new",
+                confidence=1.0,
             )
 
-        # 4. Use LLM to determine if should merge, or resolve canonical name
+        rule_result = self._rules.resolve(name, entity_type, candidates)
+        if rule_result.match_type != MatchType.NONE:
+            if rule_result.confidence >= self.HIGH_CONFIDENCE_THRESHOLD:
+                target = next(
+                    (c for c in candidates if c.get("canonical_name") == rule_result.canonical_name),
+                    None,
+                )
+                if target:
+                    return await self._merge_with_existing(
+                        new_name=name,
+                        entity_type=entity_type,
+                        target=target,
+                        embedding=embedding,
+                        match_type=rule_result.match_type.value,
+                        confidence=rule_result.confidence,
+                    )
+
         if self._llm:
             decision = await self._llm_deduplicate(
                 query_name=name,
+                entity_type=entity_type,
                 candidates=candidates,
             )
 
             if decision.get("should_merge"):
-                # Merge with existing entity
-                target = decision["target_entity"]
-                return await self._merge_with_existing(
-                    new_name=name,
-                    entity_type=entity_type,
-                    target=target,
-                    embedding=embedding,
-                )
-            else:
-                # Resolve canonical name
-                canonical_name = await self._resolve_canonical_name(
-                    query_name=name,
-                    candidates=candidates,
-                )
-                # Check if resolved canonical exists
-                resolved = await self._entity_repo.find_entity(
-                    canonical_name, entity_type
-                )
-                if resolved:
-                    # Add as alias
-                    await self._entity_repo.add_alias(
-                        canonical_name, entity_type, name
-                    )
-                    return {
-                        "neo4j_id": resolved["neo4j_id"],
-                        "canonical_name": resolved["canonical_name"],
-                        "is_new": False,
-                        "merged": True,
-                    }
-                else:
-                    return await self._create_entity(
-                        name=canonical_name,
+                target = decision.get("target_entity")
+                if target:
+                    return await self._merge_with_existing(
+                        new_name=name,
                         entity_type=entity_type,
+                        target=target,
                         embedding=embedding,
-                        description=description,
-                        is_new=True,
+                        match_type="llm_dedup",
+                        confidence=decision.get("confidence", 0.8),
                     )
-        else:
-            # No LLM, use first candidate with highest similarity
-            top_candidate = max(candidates, key=lambda x: x["similarity"])
-            return await self._merge_with_existing(
-                new_name=name,
-                entity_type=entity_type,
-                target=top_candidate,
-                embedding=embedding,
-            )
+
+        canonical_name = self._resolve_canonical_name(
+            query_name=name,
+            entity_type=entity_type,
+            candidates=candidates,
+        )
+
+        resolved = await self._entity_repo.find_entity(canonical_name, entity_type)
+        if resolved:
+            await self._entity_repo.add_alias(canonical_name, entity_type, name)
+            return {
+                "neo4j_id": resolved["neo4j_id"],
+                "canonical_name": resolved["canonical_name"],
+                "is_new": False,
+                "merged": True,
+                "match_type": "alias_added",
+                "confidence": 0.9,
+            }
+
+        return await self._create_entity(
+            name=canonical_name,
+            entity_type=entity_type,
+            embedding=embedding,
+            description=description,
+            is_new=True,
+            match_type="new_canonical",
+            confidence=0.9,
+        )
 
     async def _create_entity(
         self,
@@ -173,6 +221,8 @@ class EntityResolver:
         embedding: list[float],
         description: str | None,
         is_new: bool,
+        match_type: str,
+        confidence: float,
     ) -> dict[str, Any]:
         """Create a new entity with retry on constraint violation."""
         for attempt in range(self.MAX_MERGE_RETRIES):
@@ -188,12 +238,13 @@ class EntityResolver:
                     "canonical_name": name,
                     "is_new": is_new,
                     "merged": False,
+                    "match_type": match_type,
+                    "confidence": confidence,
                 }
             except Exception as exc:
                 if "ConstraintError" in str(type(exc).__name__):
                     if attempt == self.MAX_MERGE_RETRIES - 1:
                         raise
-                    # Entity was created by concurrent transaction, fetch it
                     existing = await self._entity_repo.find_entity(name, entity_type)
                     if existing:
                         await self._vector_repo.upsert_entity_vector(
@@ -204,6 +255,8 @@ class EntityResolver:
                             "canonical_name": existing["canonical_name"],
                             "is_new": False,
                             "merged": False,
+                            "match_type": "concurrent_create",
+                            "confidence": 0.95,
                         }
                     await asyncio.sleep(0.05 * (attempt + 1))
                 else:
@@ -217,16 +270,16 @@ class EntityResolver:
         entity_type: str,
         target: dict[str, Any],
         embedding: list[float],
+        match_type: str,
+        confidence: float,
     ) -> dict[str, Any]:
         """Merge new entity with existing entity."""
         canonical_name = target["canonical_name"]
         neo4j_id = target["neo4j_id"]
 
-        # Add new name as alias if different
         if new_name != canonical_name:
             await self._entity_repo.add_alias(canonical_name, entity_type, new_name)
 
-        # Update vector if needed
         await self._vector_repo.upsert_entity_vector(neo4j_id, embedding)
 
         return {
@@ -234,34 +287,32 @@ class EntityResolver:
             "canonical_name": canonical_name,
             "is_new": False,
             "merged": True,
+            "match_type": match_type,
+            "confidence": confidence,
         }
 
     async def _llm_deduplicate(
         self,
         query_name: str,
+        entity_type: str,
         candidates: list[dict[str, Any]],
     ) -> dict[str, Any]:
-        """Use LLM to determine if entities should be merged.
-
-        Args:
-            query_name: The new entity name to evaluate.
-            candidates: List of existing similar entities.
-
-        Returns:
-            Dict with 'should_merge' and optionally 'target_entity'.
-        """
+        """Use LLM to determine if entities should be merged."""
         if not self._llm:
             return {"should_merge": False}
 
-        # Build prompt for LLM
         candidate_text = "\n".join([
-            f"- {c.get('canonical_name', 'unknown')} (similarity: {c.get('similarity', 0):.2f})"
-            for c in candidates[:3]
+            f"- {c.get('canonical_name', 'unknown')} "
+            f"(type: {c.get('type', 'unknown')}, "
+            f"similarity: {c.get('similarity', 0):.2f})"
+            for c in candidates[:5]
         ])
 
         prompt = f"""Given a new entity name and existing candidate entities, determine if they refer to the same real-world entity.
 
-New entity name: {query_name}
+New entity:
+- Name: {query_name}
+- Type: {entity_type}
 
 Candidate entities:
 {candidate_text}
@@ -269,6 +320,7 @@ Candidate entities:
 Respond with JSON:
 {{
   "should_merge": true/false,
+  "confidence": 0.0-1.0,
   "reason": "brief explanation",
   "target_entity": {{"canonical_name": "...", "neo4j_id": "..."}} (only if should_merge is true)
 }}
@@ -276,7 +328,8 @@ Respond with JSON:
 Consider:
 - Same person, organization, or location should be merged
 - Different entities with similar names should NOT be merged
-- Consider if they could be aliases or translations of each other"""
+- Consider if they could be aliases, abbreviations, or translations of each other
+- Entity type should match for merge"""
 
         try:
             result = await self._llm.chat(
@@ -284,53 +337,46 @@ Consider:
                 temperature=0.1,
             )
             import json
-            content = result.content if hasattr(result, "content") else str(result)
             import re
+            content = result.content if hasattr(result, "content") else str(result)
             json_match = re.search(r'\{.*\}', content, re.DOTALL)
             if json_match:
                 return json.loads(json_match.group())
         except Exception as e:
             log.warning("llm_dedupe_failed", error=str(e))
 
-        # Fallback: don't merge
         return {"should_merge": False}
 
-    async def _resolve_canonical_name(
+    def _resolve_canonical_name(
         self,
         query_name: str,
+        entity_type: str,
         candidates: list[dict[str, Any]],
     ) -> str:
-        """Resolve canonical name according to rules from neo4j-detail.md.
+        """Resolve canonical name according to preference rules.
 
-        Rules (by priority):
-        1. If candidates exist with canonical_name, use that (don't change)
-        2. If candidates come from authoritative sources (tier=1), use that name
-        3. Otherwise prefer Chinese name (system面向中文场景)
-
-        Args:
-            query_name: The new entity name to resolve.
-            candidates: List of existing similar entities.
-
-        Returns:
-            The canonical name to use.
+        Priority:
+        1. Existing canonical name from high-similarity candidate
+        2. Chinese name preferred for Chinese context
+        3. Shorter, cleaner name
         """
         if not candidates:
             return query_name
 
-        # Rule 1: If any candidate has existing canonical, use that
-        # (already handled by exact match at start)
+        rule_suggestion = self._rules.get_canonical_suggestion(query_name, entity_type)
+        if rule_suggestion != query_name:
+            return rule_suggestion
 
-        # For candidates from vector search, pick best based on rules
-        # Simplified: use the candidate with highest similarity
-        # In production, could incorporate source authority data
-        best = max(candidates, key=lambda x: x.get("similarity", 0))
-        return best.get("canonical_name", query_name)
+        names = [query_name] + [c.get("canonical_name", "") for c in candidates]
+        names = [n for n in names if n]
+
+        return self._normalizer.select_canonical(names, entity_type)
 
     async def resolve_entities_batch(
         self,
         entities: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        """Resolve a batch of entities efficiently.
+        """Resolve a batch of entities in parallel.
 
         Args:
             entities: List of entity dicts with 'name', 'type', 'embedding'.
@@ -338,13 +384,71 @@ Consider:
         Returns:
             List of resolved entity dicts.
         """
-        results = []
-        for entity in entities:
-            result = await self.resolve_entity(
+        import asyncio
+        tasks = [
+            self.resolve_entity(
                 name=entity.get("name", ""),
                 entity_type=entity.get("type", "未知"),
                 embedding=entity.get("embedding", []),
                 description=entity.get("description"),
             )
-            results.append(result)
-        return results
+            for entity in entities
+        ]
+        return await asyncio.gather(*tasks)
+
+    async def pre_resolve_check(
+        self,
+        name: str,
+        entity_type: str,
+    ) -> dict[str, Any] | None:
+        """Quick pre-check for entity existence without embedding.
+
+        Useful for fast lookups before expensive embedding computation.
+
+        Args:
+            name: Entity name to check.
+            entity_type: Entity type.
+
+        Returns:
+            Existing entity info or None.
+        """
+        norm_result = self._normalizer.normalize(name, entity_type)
+        normalized_name = norm_result.normalized
+
+        existing = await self._entity_repo.find_entity(normalized_name, entity_type)
+        if existing:
+            return {
+                "neo4j_id": existing["neo4j_id"],
+                "canonical_name": existing["canonical_name"],
+                "exists": True,
+            }
+
+        if normalized_name != name:
+            existing = await self._entity_repo.find_entity(name, entity_type)
+            if existing:
+                return {
+                    "neo4j_id": existing["neo4j_id"],
+                    "canonical_name": existing["canonical_name"],
+                    "exists": True,
+                }
+
+        for alias in self._rules.get_all_aliases(name):
+            existing = await self._entity_repo.find_entity(alias, entity_type)
+            if existing:
+                return {
+                    "neo4j_id": existing["neo4j_id"],
+                    "canonical_name": existing["canonical_name"],
+                    "exists": True,
+                    "matched_alias": alias,
+                }
+
+        return None
+
+    def get_resolution_stats(self) -> dict[str, Any]:
+        """Get statistics about resolution rules and mappings."""
+        return {
+            "known_aliases": len(self._rules._alias_map),
+            "abbreviations": len(self._rules._abbreviation_map) // 3,
+            "translations": len(self._rules._translation_map) // 2,
+            "rules_count": len(self._rules._rules),
+        }

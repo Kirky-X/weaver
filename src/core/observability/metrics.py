@@ -8,6 +8,19 @@ from prometheus_client import Counter, Gauge, Histogram
 class MetricsCollector:
     """Centralized Prometheus metrics for the news discovery pipeline."""
 
+    # API metrics
+    api_request_latency = Histogram(
+        "api_request_latency_seconds",
+        "API 请求延迟",
+        ["endpoint", "method", "status"],
+        buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
+    )
+    api_request_total = Counter(
+        "api_request_total",
+        "API 请求总数",
+        ["endpoint", "method", "status"],
+    )
+
     # LLM call metrics
     llm_call_total = Counter(
         "llm_call_total",

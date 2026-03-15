@@ -256,13 +256,26 @@ class Container:
     # ── Fetcher & Crawler ────────────────────────────────────────
 
     async def init_playwright_pool(self) -> PlaywrightContextPool:
-        """Initialize Playwright browser pool."""
+        """Initialize Playwright browser pool with stealth configuration."""
         if self._playwright_pool is None:
+            settings = self._settings.fetcher
             self._playwright_pool = PlaywrightContextPool(
-                pool_size=self._settings.fetcher.playwright_pool_size,
+                pool_size=settings.playwright_pool_size,
+                stealth_enabled=settings.stealth_enabled,
+                user_agent=settings.stealth_user_agent,
+                viewport_width=settings.stealth_viewport_width,
+                viewport_height=settings.stealth_viewport_height,
+                locale=settings.stealth_locale,
+                timezone=settings.stealth_timezone,
+                random_delay_min=settings.stealth_random_delay_min,
+                random_delay_max=settings.stealth_random_delay_max,
             )
             await self._playwright_pool.startup()
-            log.info("playwright_pool_initialized", pool_size=self._settings.fetcher.playwright_pool_size)
+            log.info(
+                "playwright_pool_initialized",
+                pool_size=settings.playwright_pool_size,
+                stealth_enabled=settings.stealth_enabled,
+            )
         return self._playwright_pool
 
     def playwright_pool(self) -> PlaywrightContextPool:
@@ -352,57 +365,15 @@ class Container:
         await self.init_playwright_pool()
         await self.init_smart_fetcher()
 
-        # Initialize source scheduler with callback to save articles and process them
-        async def on_items_discovered(items: Any, source: Any) -> None:
-            """Callback to save discovered items to database and trigger pipeline.
+        from modules.collector.processor import DiscoveryProcessor
+        processor = DiscoveryProcessor(
+            crawler=self.crawler(),
+            article_repo=self.article_repo(),
+        )
+        await self.init_source_scheduler(processor.on_items_discovered)
 
-            Data flow according to dev.md:
-            RSS → Deduplicator → Interleaver → Crawler (SmartFetcher + trafilatura) → Pipeline
-            """
-            log.info("items_discovered", count=len(items), source=source.id)
-
-            # Step 1: Crawl full article content using Crawler (SmartFetcher + trafilatura)
-            crawler = self.crawler()
-            try:
-                raw_articles = await crawler.crawl_batch(items)
-                log.info("crawl_complete", count=len(raw_articles))
-            except Exception as exc:
-                log.error("crawl_failed", error=str(exc))
-                return
-
-            # Filter out failed crawls
-            successful_articles = [a for a in raw_articles if not isinstance(a, Exception)]
-            failed_count = len(raw_articles) - len(successful_articles)
-            if failed_count > 0:
-                log.warning("crawl_partial_failure", failed=failed_count)
-
-            if not successful_articles:
-                log.warning("no_articles_crawled", source=source.id)
-                return
-
-            # Step 2: Save articles to database
-            article_repo = self.article_repo()
-            article_ids = []
-            for article in successful_articles:
-                try:
-                    # Use insert_raw with full body from crawler
-                    article_id = await article_repo.insert_raw(article)
-                    article_ids.append(article_id)
-                except Exception as exc:
-                    log.error("insert_raw_failed", url=article.url, error=str(exc))
-
-            # Step 3: Process through pipeline
-            if article_ids and self._pipeline:
-                try:
-                    await self._pipeline.process_batch(successful_articles)
-                    log.info("pipeline_batch_processed", count=len(successful_articles))
-                except Exception as exc:
-                    log.error("pipeline_process_failed", error=str(exc))
-
-        await self.init_source_scheduler(on_items_discovered)
-
-        # Initialize pipeline after source scheduler
         await self.init_pipeline()
+        processor.set_pipeline(self.pipeline())
 
         log.info("container_started")
 
