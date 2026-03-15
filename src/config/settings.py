@@ -138,7 +138,7 @@ class FetcherSettings(BaseSettings):
 class PromptSettings(BaseSettings):
     """Prompt loading settings."""
 
-    dir: str = str(_PROJECT_ROOT / "src" / "config" / "prompts")
+    dir: str = str(_PROJECT_ROOT / "config" / "prompts")
 
 
 class APISettings(BaseSettings):
@@ -200,7 +200,7 @@ def settings_customize_settings(
     """Customize settings sources to include TOML file."""
     from pydantic_settings.sources import TomlConfigSettingsSource
 
-    toml_path = _PROJECT_ROOT / "src" / "config" / "settings.toml"
+    toml_path = _PROJECT_ROOT / "config" / "settings.toml"
     toml_source = TomlConfigSettingsSource(
         settings_class=settings,
         toml_file_path=str(toml_path),

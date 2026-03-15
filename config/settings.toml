@@ -1,0 +1,95 @@
+[app]
+app_name = "news-discovery"
+debug = false
+
+[postgres]
+dsn = "postgresql+asyncpg://postgres:postgres@localhost:5432/news_discovery"
+
+[neo4j]
+uri = "bolt://localhost:7687"
+auth = '["neo4j","neo4j123"]'
+
+[redis]
+url = "redis://localhost:6379/0"
+
+[llm]
+embedding_provider = "ollama"
+embedding_model = "qwen3-embedding:0.6b"
+
+[llm.providers.openai]
+provider = "openai"
+model = "gpt-4o"
+api_key = ""
+base_url = "https://api.openai.com/v1"
+rpm_limit = 60
+concurrency = 5
+timeout = 120.0
+
+[llm.providers.ollama]
+provider = "ollama"
+model = "qwen3.5:9b"
+base_url = "http://localhost:11434/v1"
+timeout = 600.0
+concurrency = 3
+
+[llm.call_points.classifier]
+primary = "ollama"
+fallbacks = ["openai"]
+
+[llm.call_points.cleaner]
+primary = "ollama"
+fallbacks = ["openai"]
+
+[llm.call_points.categorizer]
+primary = "ollama"
+fallbacks = ["openai"]
+
+[llm.call_points.merger]
+primary = "ollama"
+fallbacks = ["openai"]
+
+[llm.call_points.analyze]
+primary = "ollama"
+fallbacks = ["openai"]
+
+[llm.call_points.credibility_checker]
+primary = "ollama"
+fallbacks = ["openai"]
+
+[llm.call_points.entity_extractor]
+primary = "ollama"
+fallbacks = ["openai"]
+
+[llm.call_points.entity_resolver]
+primary = "ollama"
+fallbacks = ["openai"]
+
+[fetcher]
+playwright_pool_size = 5
+default_per_host_concurrency = 2
+global_max_concurrency = 32
+httpx_timeout = 15.0
+user_agent = "Mozilla/5.0 (compatible; NewsBot/1.0)"
+
+stealth_enabled = true
+stealth_user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+stealth_viewport_width = 1920
+stealth_viewport_height = 1080
+stealth_locale = "zh-CN"
+stealth_timezone = "Asia/Shanghai"
+stealth_random_delay_min = 0.5
+stealth_random_delay_max = 2.0
+
+[prompt]
+dir = "config/prompts"
+
+[api]
+api_key = "change-me-in-production"
+rate_limit = "100/minute"
+host = "0.0.0.0"
+port = 8000
+
+[scheduler]
+crawl_interval_minutes = 30
+neo4j_retry_interval_minutes = 10
+retry_flush_interval_seconds = 30
