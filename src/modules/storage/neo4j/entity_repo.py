@@ -66,16 +66,22 @@ class Neo4jEntityRepo:
         canonical_name: str,
         entity_type: str,
         description: str | None = None,
+        tier: int = 2,
     ) -> str:
         """Merge an entity node, creating if not exists.
 
         Uses MERGE with uniqueness constraint to ensure idempotency.
         On constraint violation (concurrent write), retries with fetch.
 
+        If the entity already exists:
+        - tier=1 (authoritative source) can update canonical_name
+        - tier>1 (general source) only adds alias, keeps existing canonical_name
+
         Args:
             canonical_name: The canonical/standard name for the entity.
             entity_type: The type of entity (e.g., '人物', '组织机构').
             description: Optional description for new entities.
+            tier: Source tier (1=authoritative, 2+=general). Lower = more authoritative.
 
         Returns:
             The Neo4j internal ID of the entity.
@@ -85,23 +91,60 @@ class Neo4jEntityRepo:
         """
         for attempt in range(self.MAX_MERGE_RETRIES):
             try:
-                query = """
-                MERGE (e:Entity {canonical_name: $canonical_name, type: $type})
-                ON CREATE SET
-                    e.id = $id,
-                    e.aliases = [$canonical_name],
-                    e.description = $description,
-                    e.created_at = datetime()
-                ON MATCH SET
-                    e.updated_at = datetime()
-                RETURN elementId(e) AS neo4j_id
-                """
-                params = {
-                    "canonical_name": canonical_name,
-                    "type": entity_type,
-                    "id": str(uuid.uuid4()),
-                    "description": description,
-                }
+                existing = await self.find_entity(canonical_name, entity_type)
+
+                if existing:
+                    existing_tier = existing.get("tier", 2)
+                    if tier < existing_tier:
+                        query = """
+                        MATCH (e:Entity {canonical_name: $canonical_name, type: $type})
+                        SET e.canonical_name = $new_name,
+                            e.tier = $tier,
+                            e.updated_at = datetime()
+                        RETURN elementId(e) AS neo4j_id
+                        """
+                        params = {
+                            "canonical_name": canonical_name,
+                            "type": entity_type,
+                            "new_name": canonical_name,
+                            "tier": tier,
+                        }
+                    else:
+                        query = """
+                        MATCH (e:Entity {canonical_name: $canonical_name, type: $type})
+                        SET e.aliases = CASE
+                            WHEN NOT $canonical_name IN e.aliases
+                            THEN e.aliases + [$canonical_name]
+                            ELSE e.aliases
+                          END,
+                            e.updated_at = datetime()
+                        RETURN elementId(e) AS neo4j_id
+                        """
+                        params = {
+                            "canonical_name": canonical_name,
+                            "type": entity_type,
+                        }
+                else:
+                    query = """
+                    MERGE (e:Entity {canonical_name: $canonical_name, type: $type})
+                    ON CREATE SET
+                        e.id = $id,
+                        e.aliases = [$canonical_name],
+                        e.description = $description,
+                        e.tier = $tier,
+                        e.created_at = datetime()
+                    ON MATCH SET
+                        e.updated_at = datetime()
+                    RETURN elementId(e) AS neo4j_id
+                    """
+                    params = {
+                        "canonical_name": canonical_name,
+                        "type": entity_type,
+                        "id": str(uuid.uuid4()),
+                        "description": description,
+                        "tier": tier,
+                    }
+
                 result = await self._pool.execute_query(query, params)
                 if result:
                     return result[0]["neo4j_id"]
@@ -110,11 +153,9 @@ class Neo4jEntityRepo:
             except ConstraintError:
                 if attempt == self.MAX_MERGE_RETRIES - 1:
                     raise
-                # Another transaction created the entity, fetch it
                 existing = await self.find_entity(canonical_name, entity_type)
                 if existing:
                     return existing["neo4j_id"]
-                # Exponential backoff before retry
                 await self._sleep(0.05 * (attempt + 1))
 
     async def find_entity(
@@ -139,6 +180,7 @@ class Neo4jEntityRepo:
                e.type AS type,
                e.aliases AS aliases,
                e.description AS description,
+               e.tier AS tier,
                e.created_at AS created_at,
                e.updated_at AS updated_at
         """

@@ -214,6 +214,7 @@ class SchedulerJobs:
 
         try:
             count = await self._neo4j_writer.archive_old_articles(days=90)
+            await self._neo4j_writer.entity_repo.delete_orphan_entities()
             log.info("archive_old_neo4j_nodes_complete", count=count)
             return count
         except Exception as exc:
@@ -232,15 +233,23 @@ class SchedulerJobs:
         log.info("cleanup_orphan_entity_vectors_start")
 
         try:
-            # Get all entity IDs from Neo4j
             active_ids = await self._neo4j_writer.entity_repo.list_all_entity_ids()
 
-            # Get all neo4j_ids from Postgres
+            vector_repo = VectorRepo(self._postgres)
+
+            from sqlalchemy import select, text
             async with self._postgres.session() as session:
-                from modules.storage.vector_repo import VectorRepo
-                # This would need a method in VectorRepo to delete orphans
-                # For now, return 0
-                pass
+                result = await session.execute(
+                    text("SELECT neo4j_id FROM entity_vectors")
+                )
+                pg_ids = {row[0] for row in result}
+
+            orphan_ids = pg_ids - active_ids
+
+            if orphan_ids:
+                count = await vector_repo.delete_entity_vectors_by_neo4j_ids(list(orphan_ids))
+                log.info("cleanup_orphan_entity_vectors_complete", count=count)
+                return count
 
             log.info("cleanup_orphan_entity_vectors_complete", count=0)
             return 0

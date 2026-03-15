@@ -17,6 +17,7 @@ class ArticleRaw:
         source: Source identifier.
         publish_time: Publication time from the feed.
         source_host: The hostname of the source.
+        tier: Source tier (1=authoritative, 2+=general). Lower = more authoritative.
     """
 
     url: str
@@ -25,3 +26,4 @@ class ArticleRaw:
     source: str = ""
     publish_time: datetime | None = None
     source_host: str = ""
+    tier: int = 2

@@ -404,3 +404,87 @@ class ArticleRepo:
                 )
             )
             await session.commit()
+
+    async def detect_merge_cycle(
+        self, article_id: uuid.UUID, target_id: uuid.UUID
+    ) -> list[uuid.UUID] | None:
+        """Detect if setting merged_to target would create a cycle.
+
+        Uses BFS to trace the merged_into chain from target_id.
+        If article_id appears in the chain, a cycle would be created.
+
+        Args:
+            article_id: The source article that would be merged.
+            target_id: The target article to merge into.
+
+        Returns:
+            List of IDs forming the cycle if detected, None otherwise.
+        """
+        if article_id == target_id:
+            return [article_id, target_id]
+
+        visited: set[uuid.UUID] = {article_id}
+        path: list[uuid.UUID] = []
+        current_id: uuid.UUID | None = target_id
+
+        async with self._pool.session() as session:
+            while current_id is not None:
+                if current_id in visited:
+                    cycle_path = path[path.index(current_id):] + [current_id]
+                    log.warning(
+                        "merge_cycle_detected",
+                        source_id=str(article_id),
+                        target_id=str(target_id),
+                        cycle=cycle_path,
+                    )
+                    return cycle_path
+
+                visited.add(current_id)
+                path.append(current_id)
+
+                result = await session.execute(
+                    select(Article.merged_into).where(Article.id == current_id)
+                )
+                current_id = result.scalar_one_or_none()
+
+        return None
+
+    async def resolve_final_merge_target(
+        self, article_id: uuid.UUID
+    ) -> uuid.UUID | None:
+        """Resolve the final target of a merge chain.
+
+        Follows the merged_into chain to the end, detecting cycles.
+
+        Args:
+            article_id: The article to resolve.
+
+        Returns:
+            The final target ID, or None if no merge.
+        """
+        visited: set[uuid.UUID] = set()
+        current_id: uuid.UUID | None = article_id
+
+        async with self._pool.session() as session:
+            while current_id is not None:
+                if current_id in visited:
+                    log.error(
+                        "merge_cycle_in_chain",
+                        article_id=str(article_id),
+                        cycle_at=str(current_id),
+                    )
+                    return None
+
+                visited.add(current_id)
+
+                result = await session.execute(
+                    select(Article.merged_into).where(Article.id == current_id)
+                )
+                next_id = result.scalar_one_or_none()
+
+                if next_id is None:
+                    return current_id
+
+                current_id = next_id
+
+        return None

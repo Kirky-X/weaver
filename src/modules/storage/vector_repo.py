@@ -238,3 +238,26 @@ class VectorRepo:
                 )
                 for row in result
             ]
+
+    async def delete_entity_vectors_by_neo4j_ids(self, neo4j_ids: list[str]) -> int:
+        """Delete entity vectors by Neo4j IDs.
+
+        Used to clean up orphan entity vectors after Neo4j cleanup.
+
+        Args:
+            neo4j_ids: List of Neo4j entity IDs to delete.
+
+        Returns:
+            Number of vectors deleted.
+        """
+        if not neo4j_ids:
+            return 0
+
+        async with self._pool.session() as session:
+            query = text("""
+                DELETE FROM entity_vectors
+                WHERE neo4j_id = ANY(:ids)
+            """)
+            result = await session.execute(query, {"ids": neo4j_ids})
+            await session.commit()
+            return result.rowcount
