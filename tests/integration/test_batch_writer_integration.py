@@ -10,9 +10,11 @@ import os
 
 def get_neo4j_pool():
     """Get real Neo4j pool for integration tests."""
+    import asyncio
+
     from core.db.neo4j import Neo4jPool
-    
-    uri = os.getenv("NEO4J_URI", "bolt://localhost:7688")
+
+    uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
     user = os.getenv("NEO4J_USER", "neo4j")
     password = os.getenv("NEO4J_PASSWORD", "testpassword123")
     

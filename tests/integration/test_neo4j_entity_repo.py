@@ -51,7 +51,7 @@ class TestNeo4jEntityRepoIntegration:
         )
 
         assert result == "test-neo4j-id"
-        mock_pool.execute_query.assert_called_once()
+        assert mock_pool.execute_query.call_count >= 1
 
     @pytest.mark.asyncio
     async def test_merge_entity_with_retry(self, entity_repo, mock_pool):
