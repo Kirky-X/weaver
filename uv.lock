@@ -1133,15 +1133,12 @@ wheels = [
 
 [[package]]
 name = "neo4j"
-version = "5.28.3"
+version = "5.18.0"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
 dependencies = [
     { name = "pytz" },
 ]
-sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/83/f2/9e386c8e7243c285768ecd2b71e6796009d3f6f3b202310e9ef972acf526/neo4j-5.28.3.tar.gz", hash = "sha256:0625aaaf0963bc99a7231e946952f579792c3be22687192b20e0b74aa1233a2b", size = 232122, upload-time = "2026-01-12T10:42:43.842Z" }
-wheels = [
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/64/83/15b4ee7c081322ba3095e58bfa2c4214452fda9accaece68e25fc86a9bb4/neo4j-5.28.3-py3-none-any.whl", hash = "sha256:dbf6d9211b861bc3dd62dccbf8a74d1e33e0c602084dd123b753edf46e1fdfad", size = 313351, upload-time = "2026-01-12T10:42:40.507Z" },
-]
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/87/17/ccb010bd9ec0039a1578d9ba55830ff4270620fa5fc44a00651144e0136d/neo4j-5.18.0.tar.gz", hash = "sha256:4014406ae5b8b485a8ba46c9f00b6f5b4aaf88e7c3a50603445030c2aab701c9", size = 198004, upload-time = "2024-02-29T10:58:22.772Z" }
 
 [[package]]
 name = "news-discovery"
@@ -1198,7 +1195,7 @@ requires-dist = [
     { name = "langchain", specifier = ">=1.2.12" },
     { name = "langchain-openai", specifier = ">=1.1.11" },
     { name = "langgraph", specifier = ">=1.1.2" },
-    { name = "neo4j", specifier = ">=5.0,<6.0" },
+    { name = "neo4j", specifier = "==5.18.0" },
     { name = "numpy", specifier = ">=2.4.3" },
     { name = "opentelemetry-instrumentation-fastapi", specifier = ">=0.61b0" },
     { name = "opentelemetry-sdk", specifier = ">=1.40.0" },

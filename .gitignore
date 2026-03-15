@@ -11,3 +11,6 @@ wheels/
 .env
 .trae/
 spec/
+
+# Configuration files with secrets
+src/config/settings.toml

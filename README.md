@@ -1,180 +1,121 @@
-# Weaver
+<span id="top"></span>
+<div align="center">
 
-智能新闻采集、分析与知识图谱构建平台
+<p>
+  <img src="https://img.shields.io/badge/python-3.12+-blue.svg" alt="Python 3.12+" style="display:inline; margin:0 4px">
+  <img src="https://img.shields.io/badge/version-0.1.0-green.svg" alt="Version" style="display:inline; margin:0 4px">
+  <img src="https://img.shields.io/badge/license-MIT-yellow.svg" alt="License" style="display:inline; margin:0 4px">
+  <img src="https://img.shields.io/badge/fastapi-0.135+-teal.svg" alt="FastAPI" style="display:inline; margin:0 4px">
+</p>
 
-## 核心特性
+<p align="center">
+  <strong>WEAVER - 智能新闻采集、分析与知识图谱构建平台</strong>
+</p>
 
-- **RSS 源管理** - 订阅、调度、解析 RSS/Atom 源，支持增量抓取
-- **智能爬取** - 自动选择 HTTPX 或 Playwright，支持动态页面渲染
-- **LLM 处理流水线** - 分类、清洗、摘要、情感分析、实体提取
-- **知识图谱** - Neo4j 存储实体关系，支持图谱查询
-- **向量检索** - pgvector 支持语义相似度搜索
-- **可信度评估** - 多维度信号聚合计算新闻可信度
-- **REST API** - FastAPI 提供完整 API 接口
+<p align="center">
+  <a href="#features" style="color:#3B82F6">✨ 功能特性</a> •
+  <a href="#quick-start" style="color:#3B82F6">🚀 快速开始</a> •
+  <a href="#architecture" style="color:#3B82F6">🏗️ 架构设计</a> •
+  <a href="#api" style="color:#3B82F6">📡 API 文档</a> •
+  <a href="#contributing" style="color:#3B82F6">🤝 参与贡献</a>
+</p>
 
-## 技术栈
+</div>
+
+---
+
+<div align="center" style="padding: 32px; margin: 24px 0">
+
+### 🎯 智能新闻处理流水线
+
+| ✨ RSS 管理 | 🕷️ 智能爬取 | 🤖 LLM 处理 | 📊 知识图谱 |
+|:-------------:|:--------------:|:---------------------:|:-----------------:|
+| 订阅调度解析 | HTTPX/Playwright 自动选择 | 分类清洗摘要情感分析 | Neo4j 实体关系存储 |
+
+</div>
+
+---
+
+## 📋 目录
+
+<details open style="padding:16px">
+<summary style="cursor:pointer; font-weight:600; color:#1E293B">📑 目录（点击展开）</summary>
+
+- [✨ 功能特性](#features)
+- [🚀 快速开始](#quick-start)
+  - [📦 环境要求](#requirements)
+  - [🔧 安装](#installation)
+  - [⚙️ 配置](#configuration)
+  - [🗄️ 数据库迁移](#migration)
+  - [▶️ 启动服务](#start)
+- [🏗️ 架构设计](#architecture)
+- [📡 API 文档](#api)
+- [🔄 Pipeline 流程](#pipeline)
+- [📊 可信度评分](#credibility)
+- [🤖 LLM 调用点](#llm-callpoints)
+- [⏰ 定时任务](#scheduled-jobs)
+- [🧪 开发指南](#development)
+- [🤝 参与贡献](#contributing)
+- [📄 许可证](#license)
+
+</details>
+
+---
+
+## <span id="features">✨ 功能特性</span>
+
+<table style="width:100%; border-collapse: collapse">
+<tr>
+<td width="50%" style="vertical-align:top; padding: 16px">
+
+### 🎯 核心功能
+
+| 状态 | 功能 | 描述 |
+|:------:|---------|-------------|
+| ✅ | **RSS 源管理** | 订阅、调度、解析 RSS/Atom 源，支持增量抓取 |
+| ✅ | **智能爬取** | 自动选择 HTTPX 或 Playwright，支持动态页面渲染 |
+| ✅ | **LLM 处理流水线** | 分类、清洗、摘要、情感分析、实体提取 |
+| ✅ | **知识图谱** | Neo4j 存储实体关系，支持图谱查询 |
+| ✅ | **向量检索** | pgvector 支持语义相似度搜索 |
+| ✅ | **可信度评估** | 多维度信号聚合计算新闻可信度 |
+| ✅ | **REST API** | FastAPI 提供完整 API 接口 |
+
+</td>
+<td width="50%" style="vertical-align:top; padding: 16px">
+
+### ⚡ 技术栈
 
 | 类别 | 技术 |
-|------|------|
-| 语言 | Python 3.12+ |
-| Web 框架 | FastAPI + Uvicorn |
-| 关系数据库 | PostgreSQL + pgvector |
-| 图数据库 | Neo4j |
-| 缓存 | Redis |
-| 浏览器自动化 | Playwright |
-| LLM 框架 | LangChain / LangGraph |
-| NLP | spaCy |
-| 任务调度 | APScheduler |
-| 可观测性 | Prometheus + OpenTelemetry |
+|:------:|---------|
+| 🐍 语言 | Python 3.12+ |
+| 🌐 Web 框架 | FastAPI + Uvicorn |
+| 🐘 关系数据库 | PostgreSQL + pgvector |
+| 🔵 图数据库 | Neo4j 5+ |
+| 🔴 缓存 | Redis 7+ |
+| 🎭 浏览器自动化 | Playwright |
+| 🤖 LLM 框架 | LangChain / LangGraph |
+| 📝 NLP | spaCy |
+| ⏰ 任务调度 | APScheduler |
+| 📈 可观测性 | Prometheus + OpenTelemetry |
 
-## 架构
+</td>
+</tr>
+</table>
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                              RSS Sources                                     │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  SourceScheduler → Deduplicator → Interleaver → Crawler (SmartFetcher)      │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Processing Pipeline                                │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ Phase 1 (Per-Article Concurrent)                                      │  │
-│  │   Classifier → Cleaner → Categorizer → Vectorize                      │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                                    ↓                                         │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ Phase 2 (Batch Serial)                                                 │  │
-│  │   BatchMerger (Union-Find similarity clustering)                       │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-│                                    ↓                                         │
-│  ┌───────────────────────────────────────────────────────────────────────┐  │
-│  │ Phase 3 (Per-Article Concurrent)                                      │  │
-│  │   ReVectorize → Analyze → Credibility → EntityExtractor               │  │
-│  └───────────────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Storage Layer                                      │
-│         PostgreSQL (Articles + Vectors)    Neo4j (Knowledge Graph)          │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+---
 
-## 目录结构
+## <span id="quick-start">🚀 快速开始</span>
 
-```
-src/
-├── api/                     # FastAPI 层
-│   ├── endpoints/           # 业务端点
-│   │   ├── articles.py      # 文章查询
-│   │   ├── graph.py         # 知识图谱
-│   │   ├── admin.py         # 管理接口
-│   │   ├── metrics.py       # Prometheus 指标
-│   │   ├── pipeline.py      # Pipeline 触发
-│   │   └── sources.py       # 源管理
-│   ├── middleware/          # 中间件
-│   │   └── auth.py          # API Key 认证
-│   └── router.py            # 路由聚合
-├── config/                  # 配置
-│   ├── prompts/             # LLM Prompt 模板 (TOML)
-│   │   ├── classifier.toml
-│   │   ├── cleaner.toml
-│   │   ├── categorizer.toml
-│   │   ├── merger.toml
-│   │   ├── analyze.toml
-│   │   ├── credibility.toml
-│   │   ├── entity_extractor.toml
-│   │   └── entity_resolver.toml
-│   ├── settings.py          # 配置类定义
-│   └── settings.toml        # 主配置文件
-├── core/                    # 核心基础设施
-│   ├── cache/               # Redis 客户端
-│   ├── db/                  # 数据库连接池
-│   │   ├── postgres.py      # PostgreSQL
-│   │   ├── neo4j.py         # Neo4j
-│   │   └── models.py        # SQLAlchemy 模型
-│   ├── event/               # 事件总线
-│   ├── fetcher/             # Playwright 浏览器池
-│   ├── llm/                 # LLM 客户端
-│   │   ├── client.py        # 统一客户端
-│   │   ├── config_manager.py
-│   │   ├── queue_manager.py # 优先级队列
-│   │   ├── rate_limiter.py  # Redis 令牌桶
-│   │   ├── token_budget.py  # Token 截断
-│   │   ├── output_validator.py
-│   │   ├── types.py         # 枚举定义
-│   │   └── providers/       # Provider 实现
-│   ├── observability/       # 可观测性
-│   │   ├── logging.py       # structlog
-│   │   ├── metrics.py       # Prometheus
-│   │   └── tracing.py       # OpenTelemetry
-│   ├── prompt/              # Prompt 加载器
-│   └── resilience/          # 断路器
-├── modules/                 # 业务模块
-│   ├── collector/           # 采集层
-│   │   ├── crawler.py       # 智能爬虫
-│   │   ├── deduplicator.py  # 两级去重
-│   │   ├── interleaver.py   # 交错调度
-│   │   ├── retry.py         # 重试队列
-│   │   └── models.py        # ArticleRaw
-│   ├── fetcher/             # 抓取器
-│   │   ├── base.py          # 抽象基类
-│   │   ├── httpx_fetcher.py # HTTP 抓取
-│   │   ├── playwright_fetcher.py
-│   │   └── smart_fetcher.py # 自动选择
-│   ├── graph_store/         # 图存储
-│   │   ├── entity_resolver.py
-│   │   └── neo4j_writer.py
-│   ├── nlp/                 # NLP
-│   │   └── spacy_extractor.py
-│   ├── pipeline/            # 处理流水线
-│   │   ├── graph.py         # Pipeline 编排
-│   │   ├── state.py         # PipelineState
-│   │   └── nodes/           # 处理节点
-│   │       ├── classifier.py
-│   │       ├── cleaner.py
-│   │       ├── categorizer.py
-│   │       ├── vectorize.py
-│   │       ├── batch_merger.py
-│   │       ├── re_vectorize.py
-│   │       ├── analyze.py
-│   │       ├── credibility_checker.py
-│   │       └── entity_extractor.py
-│   ├── scheduler/           # 定时任务
-│   │   └── jobs.py
-│   ├── source/              # 源管理
-│   │   ├── registry.py
-│   │   ├── scheduler.py
-│   │   ├── rss_parser.py
-│   │   └── models.py
-│   └── storage/             # 数据仓库
-│       ├── article_repo.py
-│       ├── vector_repo.py
-│       ├── source_authority_repo.py
-│       └── neo4j/
-│           ├── article_repo.py
-│           └── entity_repo.py
-├── alembic/                 # 数据库迁移
-│   ├── env.py
-│   └── versions/
-├── scripts/                 # 脚本
-│   └── process_pending.py
-├── container.py             # 依赖注入容器
-└── main.py                  # 应用入口
-```
+### <span id="requirements">📦 环境要求</span>
 
-## 快速开始
+| 依赖 | 版本 | 说明 |
+|------|------|------|
+| Python | 3.12+ | 运行环境 |
+| PostgreSQL | 15+ | 需安装 pgvector 扩展 |
+| Neo4j | 5+ | 图数据库 |
+| Redis | 7+ | 缓存与队列 |
 
-### 环境要求
-
-- Python 3.12+
-- PostgreSQL 15+ (with pgvector)
-- Neo4j 5+
-- Redis 7+
-
-### 安装
+### <span id="installation">🔧 安装</span>
 
 ```bash
 # 克隆项目
@@ -191,7 +132,7 @@ uv run playwright install chromium
 uv run python -m spacy download zh_core_web_sm
 ```
 
-### 配置
+### <span id="configuration">⚙️ 配置</span>
 
 1. 复制配置模板：
 
@@ -207,8 +148,7 @@ dsn = "postgresql+asyncpg://user:pass@localhost:5432/news_discovery"
 
 [neo4j]
 uri = "bolt://localhost:7687"
-user = "neo4j"
-password = "your_password"
+auth = '["neo4j","your_password"]'  # JSON 格式: [用户名, 密码]
 
 [redis]
 url = "redis://localhost:6379/0"
@@ -216,17 +156,68 @@ url = "redis://localhost:6379/0"
 [llm]
 embedding_provider = "openai"
 embedding_model = "text-embedding-3-large"
+rerank_provider = "openai"
 
 [llm.providers.openai]
 provider = "openai"
 model = "gpt-4o"
 api_key = "your_api_key"
 base_url = "https://api.openai.com/v1"
+rpm_limit = 60
+concurrency = 5
+timeout = 120.0
 
 [llm.providers.ollama]
 provider = "ollama"
 model = "qwen3.5:9b"
 base_url = "http://localhost:11434"
+rpm_limit = 60
+concurrency = 3
+timeout = 300.0
+
+# LLM 调用点配置 (primary + fallbacks)
+[llm.call_points.classifier]
+primary = "ollama"
+fallbacks = ["openai"]
+
+[llm.call_points.cleaner]
+primary = "ollama"
+fallbacks = ["openai"]
+
+[llm.call_points.categorizer]
+primary = "ollama"
+fallbacks = ["openai"]
+
+[llm.call_points.merger]
+primary = "ollama"
+fallbacks = ["openai"]
+
+[llm.call_points.analyze]
+primary = "ollama"
+fallbacks = ["openai"]
+
+[llm.call_points.credibility_checker]
+primary = "ollama"
+fallbacks = ["openai"]
+
+[llm.call_points.entity_extractor]
+primary = "ollama"
+fallbacks = ["openai"]
+
+[llm.call_points.entity_resolver]
+primary = "ollama"
+fallbacks = ["openai"]
+
+[fetcher]
+playwright_pool_size = 5
+default_per_host_concurrency = 2
+global_max_concurrency = 32
+httpx_timeout = 15.0
+
+[scheduler]
+crawl_interval_minutes = 30
+neo4j_retry_interval_minutes = 10
+retry_flush_interval_seconds = 30
 
 [api]
 api_key = "your-api-key"
@@ -235,14 +226,46 @@ host = "0.0.0.0"
 port = 8000
 ```
 
-### 数据库迁移
+<details style="padding:16px; margin: 16px 0">
+<summary style="cursor:pointer; font-weight:600; color:#1E293B">🔧 完整配置选项</summary>
+
+| 配置项 | 类型 | 默认值 | 描述 |
+|--------|------|---------|-------------|
+| **PostgreSQL** ||||
+| `dsn` | string | `postgresql+asyncpg://...` | 数据库连接字符串 |
+| **Neo4j** ||||
+| `uri` | string | `bolt://localhost:7687` | Neo4j 连接地址 |
+| `auth` | string | `'["neo4j","neo4j_password"]'` | JSON 格式认证信息 |
+| **Redis** ||||
+| `url` | string | `redis://localhost:6379/0` | Redis 连接地址 |
+| **LLM** ||||
+| `embedding_provider` | string | `openai` | Embedding 提供商 |
+| `embedding_model` | string | `text-embedding-3-large` | Embedding 模型 |
+| `rerank_provider` | string | `openai` | Rerank 提供商 |
+| **Fetcher** ||||
+| `playwright_pool_size` | int | 5 | Playwright 浏览器池大小 |
+| `default_per_host_concurrency` | int | 2 | 每主机默认并发数 |
+| `global_max_concurrency` | int | 32 | 全局最大并发数 |
+| `httpx_timeout` | float | 15.0 | HTTPX 超时时间（秒） |
+| **Scheduler** ||||
+| `crawl_interval_minutes` | int | 30 | 爬取间隔（分钟） |
+| `neo4j_retry_interval_minutes` | int | 10 | Neo4j 重试间隔（分钟） |
+| **API** ||||
+| `api_key` | string | `change-me-in-production` | API 认证密钥 |
+| `rate_limit` | string | `100/minute` | 速率限制 |
+| `host` | string | `0.0.0.0` | 监听地址 |
+| `port` | int | 8000 | 监听端口 |
+
+</details>
+
+### <span id="migration">🗄️ 数据库迁移</span>
 
 ```bash
 # 运行迁移
 uv run alembic upgrade head
 ```
 
-### 启动服务
+### <span id="start">▶️ 启动服务</span>
 
 ```bash
 # 开发模式
@@ -252,21 +275,70 @@ uv run uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 uv run python -m src.main
 ```
 
-## API 端点
+---
 
-| 端点 | 方法 | 描述 |
-|------|------|------|
-| `/health` | GET | 健康检查 |
-| `/api/v1/sources` | GET | 获取源列表 |
-| `/api/v1/sources` | POST | 添加新源 |
-| `/api/v1/sources/{id}/trigger` | POST | 触发源抓取 |
-| `/api/v1/pipeline/process` | POST | 处理待处理文章 |
-| `/api/v1/articles` | GET | 查询文章列表 |
-| `/api/v1/articles/{id}` | GET | 获取文章详情 |
-| `/api/v1/graph/entities` | GET | 查询实体 |
-| `/api/v1/graph/relations` | GET | 查询关系 |
-| `/api/v1/admin/sources/authority` | GET | 获取源权威度 |
-| `/api/v1/metrics` | GET | Prometheus 指标 |
+## <span id="architecture">🏗️ 架构设计</span>
+
+### 系统架构
+
+```mermaid
+graph TB
+    subgraph Sources ["📥 数据源"]
+        A[RSS/Atom Feeds]
+        B[Web Pages]
+    end
+
+    subgraph Collector ["🔄 采集层"]
+        C[SourceScheduler]
+        D[Deduplicator]
+        E[Interleaver]
+        F[SmartFetcher<br/>HTTPX / Playwright]
+    end
+
+    subgraph Pipeline ["⚙️ 处理流水线"]
+        G[Phase 1: 单文章并发<br/>Classifier → Cleaner → Categorizer → Vectorize]
+        H[Phase 2: 批量合并<br/>BatchMerger]
+        I[Phase 3: 后处理<br/>ReVectorize → Analyze → Credibility → EntityExtractor]
+    end
+
+    subgraph Storage ["💾 存储层"]
+        J[(PostgreSQL<br/>+ pgvector)]
+        K[(Neo4j<br/>知识图谱)]
+        L[(Redis<br/>缓存/队列)]
+    end
+
+    subgraph API ["🌐 API 层"]
+        M[FastAPI<br/>REST Endpoints]
+    end
+
+    Sources --> Collector
+    Collector --> Pipeline
+    Pipeline --> Storage
+    Storage --> API
+
+    style Sources fill:#DBEAFE,stroke:#1E40AF
+    style Collector fill:#FEF3C7,stroke:#92400E
+    style Pipeline fill:#EDE9FE,stroke:#5B21B6
+    style Storage fill:#DCFCE7,stroke:#166534
+    style API fill:#FEE2E2,stroke:#991B1B
+```
+
+### 组件状态
+
+| 组件 | 描述 | 状态 |
+|-----------|-------------|--------|
+| **SmartFetcher** | HTTPX/Playwright 自动选择 | ✅ 稳定 |
+| **Deduplicator** | 两级 URL 去重 | ✅ 稳定 |
+| **Pipeline** | LangGraph 流水线编排 | ✅ 稳定 |
+| **LLM Client** | 多 Provider 支持 + Fallback | ✅ 稳定 |
+| **Neo4j Writer** | 实体关系写入 | ✅ 稳定 |
+| **Vector Repo** | pgvector 向量存储 | ✅ 稳定 |
+| **Credibility Checker** | 多信号可信度评估 | ✅ 稳定 |
+| **APScheduler** | 定时任务调度 | ✅ 稳定 |
+
+---
+
+## <span id="api">📡 API 文档</span>
 
 ### 认证
 
@@ -276,12 +348,72 @@ uv run python -m src.main
 Authorization: Bearer your-api-key
 ```
 
-## Pipeline 流程
+### 端点列表
+
+| 端点 | 方法 | 描述 |
+|------|------|------|
+| `/health` | GET | 健康检查 |
+| `/api/v1/sources` | GET | 获取源列表 |
+| `/api/v1/sources` | POST | 添加新源 |
+| `/api/v1/sources/{source_id}` | PUT | 更新源配置 |
+| `/api/v1/sources/{source_id}` | DELETE | 删除源 |
+| `/api/v1/pipeline/process` | POST | 处理待处理文章 |
+| `/api/v1/articles` | GET | 查询文章列表（支持分页、过滤、排序） |
+| `/api/v1/articles/{id}` | GET | 获取文章详情 |
+| `/api/v1/graph/entities/{name}` | GET | 查询实体及其关系 |
+| `/api/v1/graph/articles/{id}/graph` | GET | 获取文章的知识图谱 |
+| `/api/v1/admin/sources/authority` | GET | 获取源权威度 |
+| `/api/v1/metrics` | GET | Prometheus 指标 |
+
+<details style="padding:16px; margin: 16px 0">
+<summary style="cursor:pointer; font-weight:600; color:#166534">📖 API 示例</summary>
+
+#### 获取文章列表
+
+```bash
+curl -X GET "http://localhost:8000/api/v1/articles?page=1&page_size=20&category=politics&min_credibility=0.7" \
+  -H "Authorization: Bearer your-api-key"
+```
+
+#### 创建源
+
+```bash
+curl -X POST "http://localhost:8000/api/v1/sources" \
+  -H "Authorization: Bearer your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "id": "bbc-news",
+    "name": "BBC News",
+    "url": "https://feeds.bbci.co.uk/news/rss.xml",
+    "source_type": "rss",
+    "enabled": true,
+    "interval_minutes": 30
+  }'
+```
+
+#### 查询实体
+
+```bash
+curl -X GET "http://localhost:8000/api/v1/graph/entities/Apple%20Inc?limit=10" \
+  -H "Authorization: Bearer your-api-key"
+```
+
+</details>
+
+---
+
+## <span id="pipeline">🔄 Pipeline 流程</span>
 
 ### Phase 1: 单文章并发处理
 
-```
-Classifier → Cleaner → Categorizer → Vectorize
+```mermaid
+flowchart LR
+    A[Raw Article] --> B[Classifier]
+    B --> C[Cleaner]
+    C --> D[Categorizer]
+    D --> E[Vectorize]
+    
+    B -->|非新闻| F[终止]
 ```
 
 - **Classifier**: 判断是否为新闻，非新闻直接终止
@@ -300,16 +432,22 @@ BatchMerger (Union-Find 相似度聚类)
 
 ### Phase 3: 单文章后处理
 
-```
-ReVectorize → Analyze → Credibility → EntityExtractor
+```mermaid
+flowchart LR
+    A[Merged Article] --> B[ReVectorize]
+    B --> C[Analyze]
+    C --> D[Credibility]
+    D --> E[EntityExtractor]
 ```
 
 - **ReVectorize**: 合并后重新生成向量
 - **Analyze**: 摘要、情感分析、关键数据提取
-- **Credibility**: 可信度评分 (来源权威性 + 交叉核实 + 内容核查 + 时效性)
+- **Credibility**: 可信度评分
 - **EntityExtractor**: spaCy + LLM 实体提取
 
-## 可信度评分
+---
+
+## <span id="credibility">📊 可信度评分</span>
 
 | 信号 | 权重 | 说明 |
 |------|------|------|
@@ -319,13 +457,18 @@ ReVectorize → Analyze → Credibility → EntityExtractor
 | 时效性 | 0.15 | 发布时间新鲜度 |
 
 时效性评分规则：
-- ≤6小时: 1.00
-- ≤24小时: 0.85
-- ≤72小时: 0.65
-- ≤168小时: 0.45
-- >168小时: 0.30
 
-## LLM 调用点
+| 时间差 | 评分 |
+|------|------|
+| ≤6小时 | 1.00 |
+| ≤24小时 | 0.85 |
+| ≤72小时 | 0.65 |
+| ≤168小时 | 0.45 |
+| >168小时 | 0.30 |
+
+---
+
+## <span id="llm-callpoints">🤖 LLM 调用点</span>
 
 | 调用点 | 类型 | 说明 |
 |--------|------|------|
@@ -340,7 +483,9 @@ ReVectorize → Analyze → Credibility → EntityExtractor
 | embedding | EMBEDDING | 向量生成 |
 | rerank | RERANK | 重排序 |
 
-## 定时任务
+---
+
+## <span id="scheduled-jobs">⏰ 定时任务</span>
 
 | 任务 | 间隔 | 说明 |
 |------|------|------|
@@ -351,7 +496,9 @@ ReVectorize → Analyze → Credibility → EntityExtractor
 | cleanup_orphan_entity_vectors | 每周六3点 | 清理孤立向量 |
 | retry_pipeline_processing | 15分钟 | 重试失败的 Pipeline 处理 |
 
-## 开发指南
+---
+
+## <span id="development">🧪 开发指南</span>
 
 ### 运行测试
 
@@ -391,6 +538,74 @@ uv run alembic downgrade -1
 - 类型注解必须完整
 - 文档字符串使用 Google 风格
 
-## License
+---
 
-MIT
+## <span id="contributing">🤝 参与贡献</span>
+
+<table style="width:100%; border-collapse: collapse">
+<tr>
+<td width="33%" align="center" style="padding: 16px">
+
+### 🐛 报告 Bug
+
+发现问题？<br>
+<a href="https://github.com/your-org/weaver/issues/new">创建 Issue</a>
+
+</td>
+<td width="33%" align="center" style="padding: 16px">
+
+### 💡 功能建议
+
+有好想法？<br>
+<a href="https://github.com/your-org/weaver/discussions">开始讨论</a>
+
+</td>
+<td width="33%" align="center" style="padding: 16px">
+
+### 🔧 提交 PR
+
+想贡献代码？<br>
+<a href="https://github.com/your-org/weaver/pulls">Fork 并提交 PR</a>
+
+</td>
+</tr>
+</table>
+
+<details style="padding:16px; margin: 16px 0">
+<summary style="cursor:pointer; font-weight:600; color:#1E293B">📝 贡献指南</summary>
+
+### 🚀 如何贡献
+
+1. **Fork** 本仓库
+2. **Clone** 你的 fork：`git clone https://github.com/yourusername/weaver.git`
+3. **创建** 分支：`git checkout -b feature/amazing-feature`
+4. **进行** 修改
+5. **测试** 修改：`uv run pytest`
+6. **提交** 修改：`git commit -m 'feat: 添加某功能'`
+7. **推送** 到分支：`git push origin feature/amazing-feature`
+8. **创建** Pull Request
+
+### 📋 代码规范
+
+- ✅ 遵循 Python 标准编码规范 (PEP 8)
+- ✅ 编写全面的测试
+- ✅ 更新文档
+- ✅ 类型注解完整
+
+</details>
+
+---
+
+## <span id="license">📄 许可证</span>
+
+本项目采用 **MIT 许可证**：
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+---
+
+**[⬆ 返回顶部](#top)**
+
+---
+
+<sub>© 2026 WEAVER. 保留所有权利。</sub>
