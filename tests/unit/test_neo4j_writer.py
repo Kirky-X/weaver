@@ -108,20 +108,23 @@ class TestNeo4jWriterWrite:
     async def test_write_with_entities(self, writer):
         """Test write processes entities."""
         article_id = str(uuid.uuid4())
-        
+
         writer._article_repo.create_article = AsyncMock(return_value="neo4j_article_id")
-        writer._entity_repo.find_entity = AsyncMock(return_value=None)
-        writer._entity_repo.merge_entity = AsyncMock(return_value="entity_id")
-        writer._entity_repo.add_alias = AsyncMock()
-        writer._entity_repo.merge_mentions_relation = AsyncMock()
-        
+        writer._entity_repo.find_entity = AsyncMock(return_value={
+            "neo4j_id": "entity_id",
+            "canonical_name": "张三",
+        })
+        writer._entity_repo.merge_entities_batch = AsyncMock(return_value={"created": 2, "updated": 0})
+        writer._entity_repo.add_aliases_batch = AsyncMock()
+        writer._entity_repo.merge_mentions_batch = AsyncMock(return_value=2)
+
         raw = MagicMock()
         raw.title = "Test Article"
         raw.body = "Test body"
         raw.url = "https://example.com/test"
         raw.publish_time = datetime.now(timezone.utc)
         raw.source_host = "example.com"
-        
+
         state = PipelineState(raw=raw)
         state["article_id"] = article_id
         state["cleaned"] = {"title": "Title", "body": "Body"}
@@ -130,9 +133,9 @@ class TestNeo4jWriterWrite:
             {"name": "张三", "type": "人物", "role": "主角"},
             {"name": "OpenAI", "type": "组织机构", "role": "提及"},
         ]
-        
+
         result = await writer.write(state)
-        
+
         assert len(result) == 2
 
     @pytest.mark.asyncio
@@ -277,14 +280,18 @@ class TestNeo4jWriterWriteEntities:
     @pytest.mark.asyncio
     async def test_write_entities_adds_alias(self, writer):
         """Test write entities adds alias when name differs."""
-        writer._entity_repo.find_entity = AsyncMock(return_value=None)
-        writer._entity_repo.merge_entity = AsyncMock(return_value="entity_id")
-        writer._entity_repo.add_alias = AsyncMock()
-        writer._entity_repo.merge_mentions_relation = AsyncMock()
-        
+        writer._entity_repo.find_entity = AsyncMock(return_value={
+            "neo4j_id": "entity_id",
+            "canonical_name": "张三",
+        })
+        writer._entity_repo.merge_entities_batch = AsyncMock(return_value={"created": 1, "updated": 0})
+        writer._entity_repo.add_aliases_batch = AsyncMock()
+        writer._entity_repo.merge_mentions_batch = AsyncMock(return_value=1)
+
         state = PipelineState(raw=MagicMock())
         state["language"] = "zh"
-        
+        state["article_id"] = "test_article_id"
+
         result = await writer._write_entities(
             article_neo4j_id="article_id",
             entities=[
@@ -292,21 +299,26 @@ class TestNeo4jWriterWriteEntities:
             ],
             state=state,
         )
-        
+
         assert len(result) == 1
 
     @pytest.mark.asyncio
     async def test_write_entities_handles_mentions_error(self, writer):
         """Test write entities handles MENTIONS relation error."""
-        writer._entity_repo.find_entity = AsyncMock(return_value=None)
-        writer._entity_repo.merge_entity = AsyncMock(return_value="entity_id")
-        writer._entity_repo.merge_mentions_relation = AsyncMock(
+        writer._entity_repo.find_entity = AsyncMock(return_value={
+            "neo4j_id": "entity_id",
+            "canonical_name": "张三",
+        })
+        writer._entity_repo.merge_entities_batch = AsyncMock(return_value={"created": 1, "updated": 0})
+        writer._entity_repo.add_aliases_batch = AsyncMock()
+        writer._entity_repo.merge_mentions_batch = AsyncMock(
             side_effect=Exception("Relation error")
         )
-        
+
         state = PipelineState(raw=MagicMock())
         state["language"] = "zh"
-        
+        state["article_id"] = "test_article_id"
+
         result = await writer._write_entities(
             article_neo4j_id="article_id",
             entities=[
@@ -314,7 +326,7 @@ class TestNeo4jWriterWriteEntities:
             ],
             state=state,
         )
-        
+
         assert len(result) == 1
 
 

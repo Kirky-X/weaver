@@ -17,6 +17,27 @@ def event_loop() -> Generator:
     loop.close()
 
 
+@pytest.fixture(scope="session")
+def postgres_pool():
+    """Create PostgreSQL pool for integration tests."""
+    from core.db.postgres import PostgresPool
+    
+    dsn = os.getenv("POSTGRES_DSN", "postgresql+asyncpg://postgres:postgres@localhost:5432/news_discovery")
+    pool = PostgresPool(dsn)
+    
+    async def startup():
+        await pool.startup()
+    
+    asyncio.get_event_loop_policy().new_event_loop().run_until_complete(startup())
+    
+    yield pool
+    
+    async def shutdown():
+        await pool.shutdown()
+    
+    asyncio.get_event_loop_policy().new_event_loop().run_until_complete(shutdown())
+
+
 @pytest.fixture
 def mock_redis():
     """Mock Redis client for testing."""

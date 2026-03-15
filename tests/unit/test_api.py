@@ -632,7 +632,15 @@ class TestArticlesEndpoint:
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
 
+        from starlette.requests import Request
+        from unittest.mock import MagicMock as ReqMock
+
+        mock_request = ReqMock(spec=Request)
+        mock_request.client = ReqMock()
+        mock_request.client.host = "127.0.0.1"
+
         result = await list_articles(
+            request=mock_request,
             page=1,
             page_size=20,
             category=None,

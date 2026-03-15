@@ -10,7 +10,7 @@ def test_persist_status_has_processing():
     from core.db.models import PersistStatus
 
     assert hasattr(PersistStatus, 'PROCESSING'), "PersistStatus should have PROCESSING attribute"
-    assert PersistStatus.PROCESSING.value == "PROCESSING", "PROCESSING value should be 'PROCESSING'"
+    assert PersistStatus.PROCESSING.value == "processing", "PROCESSING value should be 'processing' (lowercase to match DB enum)"
 
 
 def test_article_has_processing_fields():
