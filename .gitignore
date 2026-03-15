@@ -13,4 +13,7 @@ wheels/
 spec/
 
 # Configuration files with secrets
-src/config/settings.toml
+temp/
+
+# Docker development files
+docker/docker-compose.dev.yml
