@@ -267,6 +267,7 @@ class TestArchiveOldNeo4jNodes:
     async def test_archive_old_nodes_success(self, scheduler_jobs):
         """Test successful archiving of old nodes."""
         scheduler_jobs._neo4j_writer.archive_old_articles = AsyncMock(return_value=10)
+        scheduler_jobs._neo4j_writer.entity_repo.delete_orphan_entities = AsyncMock(return_value=5)
 
         result = await scheduler_jobs.archive_old_neo4j_nodes()
         assert result == 10
