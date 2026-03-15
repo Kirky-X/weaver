@@ -17,3 +17,6 @@ temp/
 
 # Docker development files
 docker/docker-compose.dev.yml
+
+# Configuration files
+config/settings.toml
