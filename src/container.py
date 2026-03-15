@@ -99,6 +99,7 @@ class Container:
     async def init_neo4j(self) -> Neo4jPool:
         """Initialize Neo4j connection pool."""
         if self._neo4j_pool is None:
+            log.info("init_neo4j_start", uri=self._settings.neo4j.uri, auth=self._settings.neo4j.auth)
             self._neo4j_pool = Neo4jPool(
                 self._settings.neo4j.uri,
                 self._settings.neo4j.auth_tuple,

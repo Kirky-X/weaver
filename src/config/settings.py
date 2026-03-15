@@ -11,7 +11,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic_settings.sources import PydanticBaseSettingsSource
 
 # Load environment variables from .env file
-load_dotenv()
+load_dotenv(override=True)
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -24,6 +24,8 @@ class PostgresSettings(BaseSettings):
 
 class Neo4jSettings(BaseSettings):
     """Neo4j connection settings."""
+    
+    model_config = SettingsConfigDict(env_prefix="")
 
     uri: str = "bolt://localhost:7687"
     auth: str = '["neo4j","neo4j_password"]'
@@ -207,8 +209,9 @@ def settings_customize_settings(
     )
 
     return {
-        "env": env_settings,
         "toml": toml_source,
+        "env": env_settings,
+        "dotenv": dotenv_settings,
     }
 
 
