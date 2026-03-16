@@ -260,13 +260,16 @@ class Neo4jWriter:
                     relation=relation_type,
                 )
             except Exception as exc:
+                error_msg = f"{type(exc).__name__}: {exc}"
                 log.error(
                     "entity_relation_failed",
                     source=source_name,
                     target=target_name,
                     relation=relation_type,
-                    error=str(exc),
+                    error=error_msg,
+                    error_type=type(exc).__name__,
                 )
+                print(f"DEBUG entity_relation_failed: {error_msg}")
 
         if count > 0:
             log.info("entity_relations_created", count=count)
