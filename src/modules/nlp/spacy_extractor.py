@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import lru_cache
 
 from core.observability.logging import get_logger
 
 log = get_logger("spacy_extractor")
 
 MODEL_MAP = {
-    "zh": "zh_core_web_trf",
-    "en": "en_core_web_trf",
-    "default": "xx_ent_wiki_sm",
+    "zh": ["zh_core_web_trf", "zh_core_web_sm"],
+    "en": ["en_core_web_trf", "en_core_web_sm"],
+    "default": ["xx_ent_wiki_sm"],
 }
 
 SPACY_TO_ENTITY_TYPE = {
@@ -61,17 +60,46 @@ class SpacyExtractor:
     def __init__(self) -> None:
         self._models: dict[str, object] = {}
 
-    @lru_cache(maxsize=3)
-    def _load(self, model_name: str) -> object:
-        """Load a spaCy model (cached)."""
+    def _load(self, model_name: str) -> object | None:
+        """Load a spaCy model (cached).
+
+        Args:
+            model_name: Name of the spaCy model to load.
+
+        Returns:
+            Loaded spaCy NLP pipeline or None if loading fails.
+        """
         import spacy
 
-        return spacy.load(model_name, exclude=["parser", "tagger", "lemmatizer"])
+        try:
+            return spacy.load(model_name, exclude=["parser", "tagger", "lemmatizer"])
+        except OSError:
+            log.warning("spacy_model_not_found", model=model_name)
+            return None
 
     def _get_nlp(self, language: str) -> object:
-        """Get the spaCy NLP pipeline for a language."""
-        model = MODEL_MAP.get(language, MODEL_MAP["default"])
-        return self._load(model)
+        """Get the spaCy NLP pipeline for a language.
+
+        Tries models in order, returns first successfully loaded one.
+
+        Args:
+            language: Language code (zh, en, etc.).
+
+        Returns:
+            Loaded spaCy NLP pipeline.
+
+        Raises:
+            RuntimeError: If no models could be loaded for the language.
+        """
+        model_candidates = MODEL_MAP.get(language, MODEL_MAP["default"])
+
+        for model in model_candidates:
+            nlp = self._load(model)
+            if nlp is not None:
+                log.debug("spacy_model_loaded", model=model, language=language)
+                return nlp
+
+        raise RuntimeError(f"No spaCy model available for language '{language}'. Tried: {model_candidates}")
 
     def extract(self, text: str, language: str = "zh") -> list[SpacyEntity]:
         """Extract named entities from text.
