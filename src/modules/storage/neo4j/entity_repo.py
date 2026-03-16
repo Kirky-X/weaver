@@ -21,6 +21,30 @@ ALLOWED_RELATION_TYPES = frozenset({
     "RELATED",
 })
 
+CHINESE_TO_ENGLISH_RELATIONS = {
+    "隶属于": "RELATED_TO",
+    "发布": "RELATED_TO",
+    "参与": "RELATED_TO",
+    "属于": "RELATED_TO",
+    "位于": "RELATED_TO",
+    "合作": "RELATED_TO",
+    "拥有": "RELATED_TO",
+}
+
+
+def normalize_relation_type(relation_type: str) -> str:
+    """Normalize relation type to allowed English enum.
+    
+    Args:
+        relation_type: Original relation type (Chinese or English).
+        
+    Returns:
+        Normalized relation type in English.
+    """
+    if relation_type in ALLOWED_RELATION_TYPES:
+        return relation_type
+    return CHINESE_TO_ENGLISH_RELATIONS.get(relation_type, "RELATED")
+
 
 class Neo4jEntityRepo:
     """Neo4j entity repository.
@@ -263,18 +287,14 @@ class Neo4jEntityRepo:
         Raises:
             ValueError: If relation_type is not in the allowed list.
         """
-        if relation_type not in ALLOWED_RELATION_TYPES:
-            raise ValueError(
-                f"Invalid relation type: {relation_type}. "
-                f"Allowed types: {', '.join(sorted(ALLOWED_RELATION_TYPES))}"
-            )
+        normalized_type = normalize_relation_type(relation_type)
 
         query = f"""
         MATCH (from)
         WHERE elementId(from) = $from_id
         MATCH (to)
         WHERE elementId(to) = $to_id
-        MERGE (from)-[r:{relation_type}]->(to)
+        MERGE (from)-[r:{normalized_type}]->(to)
         """
         params = {
             "from_id": from_neo4j_id,
