@@ -16,7 +16,7 @@ def get_neo4j_pool():
 
     uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
     user = os.getenv("NEO4J_USER", "neo4j")
-    password = os.getenv("NEO4J_PASSWORD", "testpassword123")
+    password = os.getenv("NEO4J_PASSWORD", "testpass123")
     
     pool = Neo4jPool(uri, (user, password))
     import asyncio
