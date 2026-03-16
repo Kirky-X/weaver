@@ -51,11 +51,15 @@ class RedisTokenBucket:
         Args:
             provider: Provider name (used as bucket key).
             rpm_limit: Requests per minute limit for the provider.
+                       If <= 0, returns 0.0 immediately (no rate limiting).
 
         Returns:
             0.0 if a token was consumed immediately.
             >0.0 indicates the number of seconds to wait.
         """
+        if rpm_limit <= 0:
+            return 0.0
+
         key = f"llm:rpm:{provider}"
         capacity = rpm_limit
         rate = rpm_limit / 60.0

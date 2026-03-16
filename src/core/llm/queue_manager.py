@@ -8,6 +8,7 @@ from typing import Any
 from core.llm.types import LLMTask, CallPoint
 from core.llm.config_manager import LLMConfigManager, ProviderConfig
 from core.llm.rate_limiter import RedisTokenBucket
+from core.llm.rate_limiter_pro import RateLimiter as ProRateLimiter
 from core.llm.providers.base import BaseLLMProvider
 from core.resilience.circuit_breaker import CircuitBreaker
 from core.event.bus import EventBus, FallbackEvent
@@ -142,7 +143,7 @@ class LLMQueueManager:
     def __init__(
         self,
         config_manager: LLMConfigManager,
-        rate_limiter: RedisTokenBucket,
+        rate_limiter: RedisTokenBucket | ProRateLimiter,
         event_bus: EventBus,
     ) -> None:
         self._config = config_manager
@@ -248,10 +249,11 @@ class LLMQueueManager:
                 ).inc()
                 continue
 
-            # Token bucket rate limiting
-            wait = await self._rate_limiter.consume(pcfg_name, pcfg.rpm_limit)
-            if wait > 0:
-                await asyncio.sleep(wait)
+            # Token bucket rate limiting (skip if rpm_limit <= 0)
+            if pcfg.rpm_limit > 0:
+                wait = await self._rate_limiter.acquire(pcfg_name, 1, pcfg.rpm_limit)
+                if wait > 0:
+                    await asyncio.sleep(wait)
 
             try:
                 task.provider_cfg = pcfg
