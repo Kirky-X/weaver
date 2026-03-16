@@ -28,8 +28,9 @@ class TestSpacyExtractor:
         assert "zh" in MODEL_MAP
         assert "en" in MODEL_MAP
         assert "default" in MODEL_MAP
-        assert MODEL_MAP["zh"] == "zh_core_web_trf"
-        assert MODEL_MAP["en"] == "en_core_web_trf"
+        assert isinstance(MODEL_MAP["zh"], list)
+        assert "zh_core_web_trf" in MODEL_MAP["zh"]
+        assert "en_core_web_trf" in MODEL_MAP["en"]
 
     def test_spacy_to_entity_type_mapping(self):
         """Test spaCy to entity type mapping."""
@@ -139,9 +140,9 @@ class TestSpacyExtractor:
             assert len(result) == 1
 
     def test_model_caching(self, extractor):
-        """Test model caching with lru_cache."""
-        assert hasattr(extractor, '_load')
-        assert extractor._load.cache_info().hits >= 0
+        """Test model caching via instance-level cache."""
+        assert hasattr(extractor, '_models')
+        assert extractor._models == {}
 
     def test_empty_text(self, extractor):
         """Test empty text handling."""
