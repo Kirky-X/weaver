@@ -99,10 +99,10 @@ class Container:
     async def init_neo4j(self) -> Neo4jPool:
         """Initialize Neo4j connection pool."""
         if self._neo4j_pool is None:
-            log.info("init_neo4j_start", uri=self._settings.neo4j.uri, auth=self._settings.neo4j.auth)
+            log.info("init_neo4j_start", uri=self._settings.neo4j.uri, password="***")
             self._neo4j_pool = Neo4jPool(
                 self._settings.neo4j.uri,
-                self._settings.neo4j.auth_tuple,
+                ("neo4j", self._settings.neo4j.password),
             )
             await self._neo4j_pool.startup()
             log.info("neo4j_initialized")
@@ -133,9 +133,19 @@ class Container:
     async def init_llm(self) -> LLMClient:
         """Initialize LLM client."""
         if self._llm_client is None:
-            # Initialize components needed for LLMClient
+            from core.llm.rate_limiter_pro import RateLimiter as ProRateLimiter
+            
             config_manager = LLMConfigManager(self._settings.llm)
-            rate_limiter = RedisTokenBucket(redis=self._redis_client._redis)
+            rate_limiter = ProRateLimiter(
+                storage_type="memory",
+                redis_url=None,
+            )
+            await rate_limiter.initialize()
+            
+            for name, cfg in config_manager.list_providers():
+                if cfg.rpm_limit > 0:
+                    rate_limiter.set_rate_limit(name, f"{cfg.rpm_limit}/minute")
+            
             event_bus = EventBus()
             queue_manager = LLMQueueManager(
                 config_manager=config_manager,
