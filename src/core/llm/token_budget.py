@@ -12,6 +12,7 @@ LIMITS: dict[CallPoint, int] = {
     CallPoint.ANALYZE: 4000,
     CallPoint.ENTITY_EXTRACTOR: 4000,
     CallPoint.CREDIBILITY_CHECKER: 3000,
+    CallPoint.QUALITY_SCORER: 3000,
     CallPoint.CLASSIFIER: 1000,
     CallPoint.MERGER: 8000,
 }

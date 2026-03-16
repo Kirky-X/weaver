@@ -83,6 +83,8 @@ class ArticleRepo:
                             pass
                 if "score" in state:
                     article.score = state["score"]
+                if "quality_score" in state:
+                    article.quality_score = state["quality_score"]
                 if "sentiment" in state:
                     sent = state["sentiment"]
                     log.debug("upsert_sentiment", sentiment=sent.get("sentiment"))

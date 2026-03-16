@@ -25,6 +25,7 @@ class CallPoint(str, Enum):
     MERGER = "merger"
     ANALYZE = "analyze"
     CREDIBILITY_CHECKER = "credibility_checker"
+    QUALITY_SCORER = "quality_scorer"
     ENTITY_EXTRACTOR = "entity_extractor"
     ENTITY_RESOLVER = "entity_resolver"
     EMBEDDING = "embedding"

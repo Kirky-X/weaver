@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import traceback
 from typing import Any
 
 from core.llm.client import LLMClient
@@ -21,6 +22,7 @@ from modules.pipeline.nodes.batch_merger import BatchMergerNode
 from modules.pipeline.nodes.re_vectorize import ReVectorizeNode
 from modules.pipeline.nodes.analyze import AnalyzeNode
 from modules.pipeline.nodes.credibility_checker import CredibilityCheckerNode
+from modules.pipeline.nodes.quality_scorer import QualityScorerNode
 from modules.pipeline.nodes.entity_extractor import EntityExtractorNode
 from modules.nlp.spacy_extractor import SpacyExtractor
 from modules.collector.models import ArticleRaw
@@ -37,6 +39,7 @@ PHASE1_STAGES = {
 PHASE3_STAGES = {
     "re_vectorize": "phase3_re_vectorize",
     "analyze": "phase3_analyze",
+    "quality_scorer": "phase3_quality_scorer",
     "credibility": "phase3_credibility",
     "entity_extractor": "phase3_entity_extractor",
 }
@@ -94,6 +97,7 @@ class Pipeline:
         self._batch_merger = BatchMergerNode(llm, prompt_loader, vector_repo)
         self._re_vectorize = ReVectorizeNode(llm)
         self._analyze = AnalyzeNode(llm, budget, prompt_loader)
+        self._quality_scorer = QualityScorerNode(llm, budget, prompt_loader)
         self._credibility = CredibilityCheckerNode(
             llm, budget, event_bus, source_auth_repo
         )
@@ -262,6 +266,13 @@ class Pipeline:
                 time.monotonic() - start
             )
             await self._update_processing_stage(state, PHASE3_STAGES["analyze"])
+
+            start = time.monotonic()
+            state = await self._quality_scorer.execute(state)
+            MetricsCollector.pipeline_stage_latency.labels(stage="quality_scorer").observe(
+                time.monotonic() - start
+            )
+            await self._update_processing_stage(state, PHASE3_STAGES["quality_scorer"])
 
             start = time.monotonic()
             state = await self._credibility.execute(state)

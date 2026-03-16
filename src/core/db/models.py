@@ -124,6 +124,7 @@ class Article(Base):
 
     # Score (0.00~1.00)
     score: Mapped[float | None] = mapped_column(Numeric(3, 2))
+    quality_score: Mapped[float | None] = mapped_column(Numeric(3, 2))
 
     # Sentiment
     sentiment: Mapped[str | None] = mapped_column(String(10))
@@ -193,6 +194,10 @@ class Article(Base):
     # Constraints
     __table_args__ = (
         CheckConstraint("score >= 0 AND score <= 1", name="chk_score_range"),
+        CheckConstraint(
+            "quality_score >= 0 AND quality_score <= 1",
+            name="chk_quality_score_range",
+        ),
         CheckConstraint(
             "sentiment_score >= 0 AND sentiment_score <= 1",
             name="chk_sentiment_score_range",
