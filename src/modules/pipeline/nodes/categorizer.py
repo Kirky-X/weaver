@@ -54,11 +54,14 @@ EMOTION_MAP = {
 
 def normalize_category(cat: str) -> str:
     """Normalize category to Chinese value."""
+    valid_categories = {"政治", "军事", "经济", "科技", "社会", "文化", "体育", "国际"}
     if not cat:
-        return "未知"
+        return "社会"
     cat_lower = cat.lower().strip()
     result = CATEGORY_MAP.get(cat_lower, cat)
     log.debug("normalize_category", input=cat, output=result)
+    if result not in valid_categories:
+        return "社会"
     return result
 
 
@@ -100,7 +103,7 @@ class CategorizerNode:
         except Exception as e:
             # Fallback: use default values if LLM fails
             log.warning("categorizer_failed_using_defaults", error=str(e), url=state["raw"].url)
-            state["category"] = "未知"
+            state["category"] = "社会"
             state["language"] = "en"
             state["region"] = "国际"
 
