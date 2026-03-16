@@ -1,45 +1,35 @@
 """Neo4j async driver wrapper."""
-
 from __future__ import annotations
-
 from typing import Any
-
 from neo4j import AsyncDriver, AsyncGraphDatabase
-from neo4j.api import Auth
-
 from core.observability.logging import get_logger
 
 log = get_logger("neo4j")
 
 
 class Neo4jPool:
-    """Wraps the official Neo4j async driver for connection management."""
+    """Wraps official Neo4j async driver for connection management."""
 
     def __init__(self, uri: str, auth: tuple[str, str]) -> None:
         self._uri = uri
         self._driver: AsyncDriver | None = None
-        self._auth_tuple = auth
+        self._auth = auth
 
     async def startup(self) -> None:
         """Initialize the Neo4j async driver."""
-        self._driver = AsyncGraphDatabase.driver(
-            self._uri,
-            auth=self._auth_tuple,
-            max_connection_pool_size=50,
-            max_connection_lifetime=0,
-        )
-        # Verify connectivity
+        self._driver = AsyncGraphDatabase.driver(self._uri, auth=self._auth)
+        log.info("neo4j_driver_started", uri=self._uri)
         try:
             await self._driver.verify_connectivity()
-            log.info("neo4j_pool_started", uri=self._uri)
+            log.info("neo4j_connection_verified")
         except Exception as exc:
-            log.warning("neo4j_connectivity_check_failed", uri=self._uri, error=str(exc))
+            log.warning("neo4j_connection_verify_failed", error=str(exc))
 
     async def shutdown(self) -> None:
         """Close the Neo4j driver."""
         if self._driver:
             await self._driver.close()
-            log.info("neo4j_pool_closed")
+            log.info("neo4j_driver_closed")
 
     def close(self) -> None:
         """Synchronously close the Neo4j driver."""
@@ -88,7 +78,10 @@ class Neo4jPool:
         Returns:
             List of result records as dictionaries.
         """
-        async with self.driver.session(database=database) as session:
+        if self._driver is None:
+            raise RuntimeError("Neo4jPool not started. Call startup() first.")
+
+        async with self._driver.session(database=database) as session:
             result = await session.run(query, parameters or {})
             records = await result.data()
             return records

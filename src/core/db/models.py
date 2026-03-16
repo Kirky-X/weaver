@@ -245,6 +245,11 @@ class ArticleVector(Base):
         default=lambda: datetime.now(timezone.utc),
         server_default=text("NOW()"),
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
 
     # Relationships
     article: Mapped["Article"] = relationship(back_populates="vectors")
