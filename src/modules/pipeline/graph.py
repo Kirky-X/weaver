@@ -302,7 +302,13 @@ class Pipeline:
                         )
                         log.debug("vectors_persisted", article_id=str(article_id))
             except Exception as exc:
-                log.error("persist_pg_failed", url=state["raw"].url, error=str(exc))
+                error_msg = f"{type(exc).__name__}: {exc}"
+                log.error("persist_pg_failed", 
+                    url=state.get("raw", {}).url if "raw" in state else "unknown",
+                    error=error_msg,
+                    error_type=type(exc).__name__,
+                    has_article_id=state.get("article_id") is not None,
+                    traceback=traceback.format_exc())
                 if state.get("article_id"):
                     try:
                         import uuid
