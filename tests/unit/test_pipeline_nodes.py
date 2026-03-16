@@ -84,10 +84,12 @@ class TestCleanerNode:
     @pytest.fixture
     def mock_llm(self):
         """Mock LLM client."""
+        from core.llm.output_validator import CleanerOutput, CleanerContent
         llm = MagicMock()
-        llm.call = AsyncMock(return_value=MagicMock(
-            cleaned_title="Cleaned Title",
-            cleaned_body="Cleaned body content"
+        llm.call = AsyncMock(return_value=CleanerOutput(
+            content=CleanerContent(title="Cleaned Title", body="Cleaned body content"),
+            tags=["科技", "AI"],
+            entities=[]
         ))
         return llm
 
@@ -95,7 +97,7 @@ class TestCleanerNode:
     def mock_prompt_loader(self):
         """Mock prompt loader."""
         loader = MagicMock()
-        loader.get_version = MagicMock(return_value="1.0.0")
+        loader.get_version = MagicMock(return_value="2.0.0")
         return loader
 
     @pytest.fixture
@@ -111,26 +113,35 @@ class TestCleanerNode:
         raw = MagicMock()
         raw.title = "Test Title"
         raw.body = "Test body content"
+        raw.url = "https://example.com/test"
+        raw.publish_time = None
+        raw.source_host = "example.com"
         return raw
 
     @pytest.mark.asyncio
     async def test_cleaner_node_basic(self, mock_llm, mock_prompt_loader, mock_budget, mock_raw):
         """Test cleaner cleans content."""
-        mock_llm.call = AsyncMock(return_value=MagicMock(
-            cleaned_title="Cleaned Title",
-            cleaned_body="Cleaned body"
+        from core.llm.output_validator import CleanerOutput, CleanerContent
+        mock_llm.call = AsyncMock(return_value=CleanerOutput(
+            content=CleanerContent(title="Cleaned Title", body="Cleaned body"),
+            tags=["科技"],
+            entities=[]
         ))
         node = CleanerNode(llm=mock_llm, prompt_loader=mock_prompt_loader, budget=mock_budget)
         state = PipelineState(raw=mock_raw)
         result = await node.execute(state)
         assert "cleaned" in result
+        assert "tags" in result
+        assert result["tags"] == ["科技"]
 
     @pytest.mark.asyncio
     async def test_cleaner_node_truncation(self, mock_llm, mock_prompt_loader, mock_budget, mock_raw):
         """Test cleaner uses token truncation."""
-        mock_llm.call = AsyncMock(return_value=MagicMock(
-            cleaned_title="Title",
-            cleaned_body="Body"
+        from core.llm.output_validator import CleanerOutput, CleanerContent
+        mock_llm.call = AsyncMock(return_value=CleanerOutput(
+            content=CleanerContent(title="Title", body="Body"),
+            tags=[],
+            entities=[]
         ))
         node = CleanerNode(llm=mock_llm, prompt_loader=mock_prompt_loader, budget=mock_budget)
         state = PipelineState(raw=mock_raw)

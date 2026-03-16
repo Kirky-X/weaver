@@ -22,6 +22,8 @@ class PipelineState(TypedDict, total=False):
 
     # Cleaner
     cleaned: dict[str, Any]  # {"title": str, "body": str, "publish_time": ...}
+    tags: list[str]
+    cleaner_entities: list[dict[str, Any]]  # Entities from cleaner prompt
 
     # Categorizer
     category: str
@@ -40,6 +42,7 @@ class PipelineState(TypedDict, total=False):
     summary_info: dict[str, Any]
     sentiment: dict[str, Any]
     score: float
+    quality_score: float
 
     # Credibility
     credibility: dict[str, Any]

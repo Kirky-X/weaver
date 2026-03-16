@@ -23,6 +23,7 @@ def parse_llm_json(raw: str, model_cls: Type[T]) -> T:
     Handles common LLM quirks:
     - Strips Markdown code block wrappers (```json ... ```)
     - Handles trailing content after valid JSON
+    - Handles plain float output for QualityScorerOutput
     - Validates against the Pydantic model schema
 
     Args:
@@ -35,6 +36,8 @@ def parse_llm_json(raw: str, model_cls: Type[T]) -> T:
     Raises:
         OutputParserException: If parsing or validation fails.
     """
+    import re
+    
     clean = (
         raw.strip()
         .removeprefix("```json")
@@ -43,9 +46,18 @@ def parse_llm_json(raw: str, model_cls: Type[T]) -> T:
         .strip()
     )
 
+    # Handle plain float output for QualityScorerOutput
+    if model_cls.__name__ == "QualityScorerOutput":
+        float_match = re.search(r'^([0-9]*\.?[0-9]+)$', clean)
+        if float_match:
+            try:
+                score = float(float_match.group(1))
+                return model_cls(score=score)  # type: ignore
+            except ValueError:
+                pass
+
     # Try to find valid JSON within the output
     # Handle cases where model outputs extra text after JSON
-    import re
     json_match = re.search(r'\{[\s\S]*\}', clean)
     if json_match:
         clean = json_match.group(0)
@@ -69,11 +81,31 @@ class ClassifierOutput(BaseModel):
     confidence: float = Field(ge=0, le=1)
 
 
+class CleanerContent(BaseModel):
+    """Content sub-model for cleaner output."""
+
+    title: str
+    subtitle: str | None = None
+    summary: str | None = None
+    body: str
+
+
+class CleanerEntity(BaseModel):
+    """Entity sub-model for cleaner output."""
+
+    name: str
+    type: str
+    description: str
+
+
 class CleanerOutput(BaseModel):
     """Output model for the cleaner node."""
 
-    title: str
-    body: str
+    publish_time: str | None = None
+    author: str | None = None
+    content: CleanerContent
+    tags: list[str] = Field(default_factory=list)
+    entities: list[CleanerEntity] = Field(default_factory=list)
 
 
 class CategorizerOutput(BaseModel):
@@ -105,6 +137,12 @@ class CredibilityOutput(BaseModel):
 
     score: float = Field(ge=0, le=1)
     flags: list[str] = Field(default_factory=list)
+
+
+class QualityScorerOutput(BaseModel):
+    """Output model for the quality scorer node."""
+
+    score: float = Field(ge=0, le=1, default=0.5)
 
 
 class EntityExtractorOutput(BaseModel):

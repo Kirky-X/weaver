@@ -42,13 +42,27 @@ class CleanerNode:
             )
 
             state["cleaned"] = {
-                "title": result.title,
-                "body": result.body,
+                "title": result.content.title,
+                "subtitle": result.content.subtitle,
+                "summary": result.content.summary,
+                "body": result.content.body,
                 "publish_time": raw.publish_time,
                 "source_host": raw.source_host,
             }
+            if result.publish_time:
+                state["cleaned"]["llm_publish_time"] = result.publish_time
+            if result.author:
+                state["cleaned"]["author"] = result.author
+            state["tags"] = result.tags
+            state["cleaner_entities"] = [
+                {
+                    "name": e.name,
+                    "type": e.type,
+                    "description": e.description,
+                }
+                for e in result.entities
+            ]
         except Exception as e:
-            # Fallback: use original content if LLM fails
             log.warning("cleaner_failed_using_original", error=str(e), url=raw.url)
             state["cleaned"] = {
                 "title": raw.title,
@@ -56,10 +70,12 @@ class CleanerNode:
                 "publish_time": raw.publish_time,
                 "source_host": raw.source_host,
             }
+            state["tags"] = []
+            state["cleaner_entities"] = []
 
         state.setdefault("prompt_versions", {})["cleaner"] = (
             self._prompt_loader.get_version("cleaner")
         )
 
-        log.info("cleaned", url=raw.url)
+        log.info("cleaned", url=raw.url, tags_count=len(state.get("tags", [])))
         return state
