@@ -6,6 +6,7 @@ from modules.fetcher.base import BaseFetcher
 from modules.source.models import SourceConfig
 from modules.source.base import BaseSourceParser
 from modules.source.rss_parser import RSSParser
+from modules.source.newsnow_parser import NewsNowParser
 from core.observability.logging import get_logger
 
 log = get_logger("source_registry")
@@ -29,6 +30,7 @@ class SourceRegistry:
     def _register_default_parsers(self) -> None:
         """Register built-in source parsers."""
         self._parsers["rss"] = RSSParser(self._fetcher)
+        self._parsers["newsnow"] = NewsNowParser(self._fetcher)
 
     def register_parser(self, source_type: str, parser: BaseSourceParser) -> None:
         """Register a custom source parser.
