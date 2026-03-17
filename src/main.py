@@ -1,4 +1,4 @@
-"""News Discovery Backend - Application Entry Point."""
+"""Weaver - Application Entry Point."""
 
 from __future__ import annotations
 
@@ -286,9 +286,9 @@ def create_app(container: Container | None = None) -> FastAPI:
         log.warning("security_check", warning=warning)
 
     app = FastAPI(
-        title="News Discovery API",
-        description="Backend API for news discovery, crawling, and analysis",
-        version="1.0.0",
+        title="Weaver API",
+        description="Weaver - Intelligent news discovery and knowledge graph platform",
+        version="0.1.0",
         lifespan=lifespan,
     )
 

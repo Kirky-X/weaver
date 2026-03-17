@@ -79,8 +79,8 @@ def build_command() -> list[str]:
         f"--main={main_module}",
         "--company-name=Weaver",
         "--product-name=weaver",
-        "--file-version=1.0.0",
-        "--product-version=1.0.0",
+        "--file-version=0.1.0",
+        "--product-version=0.1.0",
         "--linux-onefile-icon=None",
         "--macos-onefile-icon=None",
         "--windows-onefile-icon=None",
@@ -310,7 +310,7 @@ def print_usage() -> None:
 
 def main() -> None:
     """主函数"""
-    print("Nuitka Build Script for News Discovery")
+    print("Nuitka Build Script for Weaver")
     print(f"项目目录: {PROJECT_ROOT}")
     print(f"源代码目录: {SRC_DIR}")
 
