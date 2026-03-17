@@ -44,7 +44,7 @@ class CheckpointCleanupNode:
             url_hash = hashlib.sha256(url.encode()).hexdigest()[:16]
             checkpoint_key = f"{self.CHECKPOINT_KEY_PREFIX}:{url_hash}"
 
-            await self._redis.delete(checkpoint_key)
+            await self._redis.client.delete(checkpoint_key)
 
             log.debug(
                 "checkpoint_cleaned",
