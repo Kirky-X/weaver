@@ -192,7 +192,7 @@ class TestSettingsIntegration:
         from config.settings import Settings
 
         settings = Settings()
-        assert settings.app_name == "news-discovery"
+        assert settings.app_name == "weaver"
 
     def test_nested_settings(self):
         """Test nested settings structure."""

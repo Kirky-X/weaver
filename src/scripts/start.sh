@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "Starting news-discovery services..."
+echo "Starting weaver services..."
 
 # Wait for PostgreSQL
 echo "Waiting for PostgreSQL..."

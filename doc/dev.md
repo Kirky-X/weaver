@@ -61,7 +61,7 @@
 ## 二、项目目录结构
 
 ```
-news_discovery/
+weaver/
 ├── pyproject.toml                   # uv 项目配置
 ├── uv.lock
 ├── .python-version                  # 固定 Python 版本，如 3.12
@@ -219,8 +219,8 @@ news_discovery/
 
 ```bash
 # 初始化项目
-uv init news_discovery
-cd news_discovery
+uv init weaver
+cd weaver
 uv python pin 3.12
 
 # 核心框架
@@ -266,7 +266,7 @@ uv add --dev testcontainers
 
 ```toml
 [project]
-name = "news-discovery"
+name = "weaver"
 version = "0.1.0"
 requires-python = ">=3.12"
 

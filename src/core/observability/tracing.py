@@ -8,7 +8,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
 
 
-def configure_tracing(service_name: str = "news-discovery") -> None:
+def configure_tracing(service_name: str = "weaver") -> None:
     """Configure OpenTelemetry tracing with a console exporter.
 
     In production, replace ConsoleSpanExporter with an OTLP exporter
@@ -23,7 +23,7 @@ def configure_tracing(service_name: str = "news-discovery") -> None:
     trace.set_tracer_provider(provider)
 
 
-def get_tracer(name: str = "news-discovery") -> trace.Tracer:
+def get_tracer(name: str = "weaver") -> trace.Tracer:
     """Get an OpenTelemetry tracer instance.
 
     Args:

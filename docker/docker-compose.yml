@@ -3,11 +3,11 @@ version: "3.8"
 services:
   postgres:
     image: pgvector/pgvector:pg16
-    container_name: news_discovery_postgres
+    container_name: weaver_postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      POSTGRES_DB: news_discovery
+      POSTGRES_DB: weaver
     ports:
       - "5432:5432"
     volumes:
