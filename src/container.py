@@ -5,30 +5,23 @@ from __future__ import annotations
 from typing import Any
 
 from config.settings import Settings
-from core.db.postgres import PostgresPool
-from core.db.neo4j import Neo4jPool
-from core.cache.redis import RedisClient
-from core.observability.logging import get_logger
+from core.db import PostgresPool, Neo4jPool
+from core.cache import RedisClient
+from core.observability import get_logger
 from core.llm.client import LLMClient
 from core.llm.config_manager import LLMConfigManager
 from core.llm.token_budget import TokenBudgetManager
 from core.llm.rate_limiter import RedisTokenBucket
 from core.llm.queue_manager import LLMQueueManager
-from core.event.bus import EventBus
-from core.prompt.loader import PromptLoader
-from modules.source.registry import SourceRegistry
-from modules.source.scheduler import SourceScheduler
-from modules.storage.article_repo import ArticleRepo
-from modules.storage.vector_repo import VectorRepo
-from modules.storage.source_authority_repo import SourceAuthorityRepo
-from modules.storage.neo4j.entity_repo import Neo4jEntityRepo
-from modules.storage.neo4j.article_repo import Neo4jArticleRepo
-from modules.graph_store.neo4j_writer import Neo4jWriter
-from modules.graph_store.entity_resolver import EntityResolver
-from modules.fetcher.smart_fetcher import SmartFetcher
-from modules.fetcher.playwright_pool import PlaywrightContextPool
+from core.event import EventBus
+from core.prompt import PromptLoader
+from modules.source import SourceRegistry, SourceScheduler
+from modules.storage import ArticleRepo, VectorRepo, SourceAuthorityRepo
+from modules.storage.neo4j import Neo4jEntityRepo, Neo4jArticleRepo
+from modules.graph_store import Neo4jWriter, EntityResolver
+from modules.fetcher import SmartFetcher, PlaywrightContextPool
+from modules.collector import Deduplicator
 from modules.collector.crawler import Crawler
-from modules.collector.deduplicator import Deduplicator
 from modules.pipeline.graph import Pipeline
 
 log = get_logger("container")
