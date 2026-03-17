@@ -1,7 +1,8 @@
-"""Scheduler module for background jobs."""
+"""Scheduler module - Background job scheduling."""
 
-from __future__ import annotations
+from modules.scheduler.jobs import CrawlJob, schedule_crawl_job
 
-from modules.scheduler.jobs import SchedulerJobs, RetryManager
-
-__all__ = ["SchedulerJobs", "RetryManager"]
+__all__ = [
+    "CrawlJob",
+    "schedule_crawl_job",
+]

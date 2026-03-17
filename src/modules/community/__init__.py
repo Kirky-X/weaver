@@ -1,19 +1,21 @@
-"""Community detection module for knowledge graph clustering.
+"""Community module - Community detection and reporting."""
 
-This module provides:
-- Leiden algorithm for community detection
-- Modularity calculation
-- Community hierarchy management
-- Community report generation
-"""
-
-from modules.community.leiden import LeidenClustering
-from modules.community.models import Community, CommunityHierarchy
-from modules.community.modularity import ModularityCalculator
+from modules.community.report_generator import CommunityReportGenerator, CommunityReport
+from modules.community.text_unit_manager import TextUnitManager, TextUnit
+from modules.community.models import Community, CommunityHierarchy, ClusteringResult
+from modules.community.modularity import ModularityCalculator, ModularityResult
+from modules.community.leiden import LeidenClustering, GraphPartition
 
 __all__ = [
-    "LeidenClustering",
+    "CommunityReportGenerator",
+    "CommunityReport",
+    "TextUnitManager",
+    "TextUnit",
     "Community",
     "CommunityHierarchy",
+    "ClusteringResult",
     "ModularityCalculator",
+    "ModularityResult",
+    "LeidenClustering",
+    "GraphPartition",
 ]
