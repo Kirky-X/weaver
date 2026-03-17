@@ -24,6 +24,7 @@ from modules.pipeline.nodes.analyze import AnalyzeNode
 from modules.pipeline.nodes.credibility_checker import CredibilityCheckerNode
 from modules.pipeline.nodes.quality_scorer import QualityScorerNode
 from modules.pipeline.nodes.entity_extractor import EntityExtractorNode
+from modules.pipeline.nodes.checkpoint_cleanup import CheckpointCleanupNode
 from modules.nlp.spacy_extractor import SpacyExtractor
 from modules.collector.models import ArticleRaw
 from modules.graph_store.entity_resolver import EntityResolver
@@ -72,6 +73,8 @@ class Pipeline:
         article_repo: Any = None,
         neo4j_writer: Any = None,
         source_auth_repo: Any = None,
+        entity_resolver: EntityResolver | None = None,
+        redis_client: Any = None,
         phase1_concurrency: int | None = None,
         phase3_concurrency: int | None = None,
     ) -> None:
@@ -106,7 +109,8 @@ class Pipeline:
         self._entity_extractor = EntityExtractorNode(
             llm, budget, prompt_loader, spacy or SpacyExtractor(), vector_repo
         )
-        self._entity_resolver: EntityResolver | None = None
+        self._entity_resolver = entity_resolver
+        self._checkpoint_cleanup = CheckpointCleanupNode(redis_client)
         self._article_repo = article_repo
         self._neo4j_writer = neo4j_writer
         self._vector_repo = vector_repo
@@ -200,6 +204,10 @@ class Pipeline:
         # Phase 4: Persist
         persist_tasks = [self._persist(state) for state in states]
         await asyncio.gather(*persist_tasks)
+
+        # Phase 5: Checkpoint cleanup
+        cleanup_tasks = [self._checkpoint_cleanup.execute(state) for state in states]
+        await asyncio.gather(*cleanup_tasks)
 
         log.info(
             "pipeline_batch_complete",

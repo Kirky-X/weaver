@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Iterable
 
 from core.observability.logging import get_logger
 
@@ -55,10 +56,14 @@ class SpacyExtractor:
     Lazily loads spaCy models per language on first use.
     Deduplicates entities by text and maps spaCy labels
     to domain-specific entity types.
+
+    Supports batch processing via nlp.pipe() for better throughput.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, batch_size: int = 16, n_process: int = 1) -> None:
         self._models: dict[str, object] = {}
+        self._batch_size = batch_size
+        self._n_process = n_process
 
     def _load(self, model_name: str) -> object | None:
         """Load a spaCy model (cached).
@@ -113,6 +118,57 @@ class SpacyExtractor:
         """
         nlp = self._get_nlp(language)
         doc = nlp(text)
+        return self._extract_from_doc(doc)
+
+    def extract_batch(
+        self,
+        texts: list[str],
+        language: str = "zh",
+    ) -> list[list[SpacyEntity]]:
+        """Extract named entities from multiple texts using batch processing.
+
+        Uses nlp.pipe() for efficient batch processing, which is
+        significantly faster than processing texts individually.
+
+        Args:
+            texts: List of input texts to analyze.
+            language: Language code (zh, en, etc.).
+
+        Returns:
+            List of entity lists, one per input text.
+        """
+        if not texts:
+            return []
+
+        nlp = self._get_nlp(language)
+        results: list[list[SpacyEntity]] = []
+
+        docs = nlp.pipe(
+            texts,
+            batch_size=self._batch_size,
+            n_process=self._n_process,
+        )
+
+        for doc in docs:
+            results.append(self._extract_from_doc(doc))
+
+        log.debug(
+            "spacy_batch_extracted",
+            language=language,
+            text_count=len(texts),
+            total_entities=sum(len(r) for r in results),
+        )
+        return results
+
+    def _extract_from_doc(self, doc: object) -> list[SpacyEntity]:
+        """Extract entities from a spaCy Doc object.
+
+        Args:
+            doc: spaCy Doc object.
+
+        Returns:
+            List of deduplicated SpacyEntity objects.
+        """
         seen: set[str] = set()
         results: list[SpacyEntity] = []
 
@@ -135,9 +191,19 @@ class SpacyExtractor:
                 )
             )
 
-        log.debug(
-            "spacy_extracted",
-            language=language,
-            entity_count=len(results),
-        )
         return results
+
+    def warmup(self, languages: list[str] | None = None) -> None:
+        """Preload models for specified languages.
+
+        Args:
+            languages: List of language codes to preload.
+                      If None, preloads default models.
+        """
+        langs = languages or ["zh", "en"]
+        for lang in langs:
+            try:
+                self._get_nlp(lang)
+                log.info("spacy_model_warmed_up", language=lang)
+            except RuntimeError:
+                log.warning("spacy_warmup_failed", language=lang)

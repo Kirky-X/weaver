@@ -373,6 +373,8 @@ class Container:
                 article_repo=self.article_repo(),
                 neo4j_writer=self.neo4j_writer(),
                 source_auth_repo=self.source_authority_repo(),
+                entity_resolver=self.entity_resolver(),
+                redis_client=self._redis_client,
             )
             log.info("pipeline_initialized")
         return self._pipeline

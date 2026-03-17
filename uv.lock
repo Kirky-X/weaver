@@ -1196,7 +1196,7 @@ dependencies = [
 sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/87/17/ccb010bd9ec0039a1578d9ba55830ff4270620fa5fc44a00651144e0136d/neo4j-5.18.0.tar.gz", hash = "sha256:4014406ae5b8b485a8ba46c9f00b6f5b4aaf88e7c3a50603445030c2aab701c9", size = 198004, upload-time = "2024-02-29T10:58:22.772Z" }
 
 [[package]]
-name = "news-discovery"
+name = "weaver"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

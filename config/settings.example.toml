@@ -1,9 +1,9 @@
 [app]
-app_name = "news-discovery"
+app_name = "weaver"
 debug = false
 
 [postgres]
-dsn = "postgresql+asyncpg://postgres:postgres@localhost:5432/news_discovery"
+dsn = "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver"
 
 [neo4j]
 uri = "bolt://localhost:7687"

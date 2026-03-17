@@ -97,7 +97,7 @@ class LLMConfigManager:
                 # Merge with default config
                 merged_config = {**default_provider, **pcfg}
                 # Override API key from environment variable if present
-                env_key = f"ND_LLM__PROVIDERS__{name.upper()}__{'API_KEY'}"
+                env_key = f"WEAVER_LLM__PROVIDERS__{name.upper()}__{'API_KEY'}"
                 env_api_key = os.environ.get(env_key)
                 if env_api_key:
                     merged_config["api_key"] = env_api_key

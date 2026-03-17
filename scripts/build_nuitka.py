@@ -77,8 +77,8 @@ def build_command() -> list[str]:
         "--remove-output",
         "--no-pyi-file",
         f"--main={main_module}",
-        "--company-name=NewsDiscovery",
-        "--product-name=news-discovery",
+        "--company-name=Weaver",
+        "--product-name=weaver",
         "--file-version=1.0.0",
         "--product-version=1.0.0",
         "--linux-onefile-icon=None",
@@ -284,7 +284,7 @@ def run_build() -> None:
 
 def verify_output() -> None:
     """验证编译输出"""
-    dist_files = list(DIST_DIR.glob("news-discovery*"))
+    dist_files = list(DIST_DIR.glob("weaver*"))
 
     if not dist_files:
         print("错误: 编译输出目录为空")
@@ -302,9 +302,9 @@ def print_usage() -> None:
     print("=" * 60)
     print(f"编译输出: {DIST_DIR}")
     print("\n运行方式:")
-    print("  ./dist/news-discovery")
+    print("  ./dist/weaver")
     print("\n或指定参数:")
-    print("  ./dist/news-discovery --host 0.0.0.0 --port 8000")
+    print("  ./dist/weaver --host 0.0.0.0 --port 8000")
     print("=" * 60)
 
 

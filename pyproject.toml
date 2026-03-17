@@ -1,7 +1,7 @@
 [project]
-name = "news-discovery"
+name = "weaver"
 version = "0.1.0"
-description = "资讯发掘后端 — News Discovery Backend"
+description = "Weaver - 智能资讯发掘与知识图谱构建平台"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

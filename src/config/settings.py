@@ -19,7 +19,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 class PostgresSettings(BaseSettings):
     """PostgreSQL connection settings."""
 
-    dsn: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/news_discovery"
+    dsn: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver"
 
 
 class Neo4jSettings(BaseSettings):
@@ -147,10 +147,10 @@ class APISettings(BaseSettings):
             if environment == "production":
                 raise ValueError(
                     "API_KEY must be set in production environment. "
-                    "Set the ND_API__API_KEY environment variable."
+                    "Set the WEAVER_API__API_KEY environment variable."
                 )
             warnings.append(
-                "Using default API key. Set ND_API__API_KEY for production."
+                "Using default API key. Set WEAVER_API__API_KEY for production."
             )
 
         if len(self.api_key) < 32:
@@ -200,12 +200,12 @@ class Settings(BaseSettings):
     """Root application settings."""
 
     model_config = SettingsConfigDict(
-        env_prefix="ND_",
+        env_prefix="WEAVER_",
         env_nested_delimiter="__",
         settings_customise_sources=settings_customize_settings,
     )
 
-    app_name: str = "news-discovery"
+    app_name: str = "weaver"
     debug: bool = False
 
     postgres: PostgresSettings = Field(default_factory=PostgresSettings)

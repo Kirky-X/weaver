@@ -50,6 +50,7 @@ class PipelineState(TypedDict, total=False):
     # Entity extraction
     entities: list[dict[str, Any]]
     relations: list[dict[str, Any]]
+    resolved_entities: list[dict[str, Any]]
 
     # Persist
     article_id: str

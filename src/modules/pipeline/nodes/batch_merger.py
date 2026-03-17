@@ -63,7 +63,7 @@ class BatchMergerNode:
     """Batch-level Merger using Union-Find + pgvector + LLM.
 
     Algorithm:
-    1. Compute pairwise cosine similarity within the batch (> 0.80 threshold).
+    1. Use pgvector batch similarity query instead of O(n²) matrix.
     2. Cross-query pgvector for historical similar articles.
     3. Two-pass Union-Find to ensure each article belongs to one group.
     4. LLM merge for each group with > 1 member.
@@ -75,6 +75,7 @@ class BatchMergerNode:
     """
 
     SIMILARITY_THRESHOLD = 0.80
+    BATCH_SIMILARITY_LIMIT = 50
 
     def __init__(
         self,
@@ -97,7 +98,6 @@ class BatchMergerNode:
         Returns:
             Modified states with merge information.
         """
-        # Filter out terminal states
         active_states = [s for s in states if not s.get("terminal")]
         if not active_states:
             return states
@@ -106,28 +106,17 @@ class BatchMergerNode:
         vectors = [s["vectors"]["content"] for s in active_states]
         uf = UnionFind(ids)
 
-        # ① Intra-batch similarity matrix
-        mat = np.array(vectors, dtype=np.float32)
-        norms = np.linalg.norm(mat, axis=1, keepdims=True)
-        normed = mat / (norms + 1e-8)
-        sim_matrix = normed @ normed.T
+        if self._vector_repo and hasattr(self._vector_repo, "batch_find_similar"):
+            await self._batch_similarity_query(active_states, vectors, uf)
+        else:
+            await self._intra_batch_similarity(active_states, vectors, uf)
 
-        for i in range(len(ids)):
-            for j in range(i + 1, len(ids)):
-                if sim_matrix[i, j] > self.SIMILARITY_THRESHOLD:
-                    if active_states[i].get("category") == active_states[j].get(
-                        "category"
-                    ):
-                        uf.union(ids[i], ids[j])
-
-        # ② Cross-database query (if vector repo available)
         if self._vector_repo:
             cross_tasks = [
                 self._cross_query(s, uf, ids) for s in active_states
             ]
             await asyncio.gather(*cross_tasks)
 
-        # ③ Group-level LLM merge
         groups = uf.get_groups()
         merge_tasks = []
         for root, members in groups.items():
@@ -145,6 +134,50 @@ class BatchMergerNode:
             groups=len([g for g in groups.values() if len(g) > 1]),
         )
         return states
+
+    async def _batch_similarity_query(
+        self,
+        states: list[PipelineState],
+        vectors: list[list[float]],
+        uf: UnionFind,
+    ) -> None:
+        """Use pgvector batch similarity query for O(n log n) complexity."""
+        try:
+            batch_results = await self._vector_repo.batch_find_similar(
+                embeddings=vectors,
+                threshold=self.SIMILARITY_THRESHOLD,
+                limit=self.BATCH_SIMILARITY_LIMIT,
+            )
+
+            for i, hits in enumerate(batch_results):
+                for hit in hits:
+                    if hit.get("article_id") and hit.get("similarity", 0) > self.SIMILARITY_THRESHOLD:
+                        j = hit.get("batch_index")
+                        if j is not None and i != j:
+                            if states[i].get("category") == states[j].get("category"):
+                                uf.union(states[i]["raw"].url, states[j]["raw"].url)
+        except Exception as exc:
+            log.warning("batch_similarity_query_failed", error=str(exc))
+            await self._intra_batch_similarity(states, vectors, uf)
+
+    async def _intra_batch_similarity(
+        self,
+        states: list[PipelineState],
+        vectors: list[list[float]],
+        uf: UnionFind,
+    ) -> None:
+        """Fallback to O(n²) intra-batch similarity matrix."""
+        mat = np.array(vectors, dtype=np.float32)
+        norms = np.linalg.norm(mat, axis=1, keepdims=True)
+        normed = mat / (norms + 1e-8)
+        sim_matrix = normed @ normed.T
+
+        n = len(states)
+        for i in range(n):
+            for j in range(i + 1, n):
+                if sim_matrix[i, j] > self.SIMILARITY_THRESHOLD:
+                    if states[i].get("category") == states[j].get("category"):
+                        uf.union(states[i]["raw"].url, states[j]["raw"].url)
 
     async def _cross_query(
         self, state: PipelineState, uf: UnionFind, ids: list[str]
@@ -185,7 +218,6 @@ class BatchMergerNode:
             output_model=MergerOutput,
         )
 
-        # Primary = most recently published article
         primary = max(
             group_states,
             key=lambda s: s["raw"].publish_time or 0,
