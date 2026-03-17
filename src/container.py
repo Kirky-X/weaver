@@ -26,7 +26,7 @@ from modules.storage.neo4j.article_repo import Neo4jArticleRepo
 from modules.graph_store.neo4j_writer import Neo4jWriter
 from modules.graph_store.entity_resolver import EntityResolver
 from modules.fetcher.smart_fetcher import SmartFetcher
-from core.fetcher.playwright_pool import PlaywrightContextPool
+from modules.fetcher.playwright_pool import PlaywrightContextPool
 from modules.collector.crawler import Crawler
 from modules.collector.deduplicator import Deduplicator
 from modules.pipeline.graph import Pipeline

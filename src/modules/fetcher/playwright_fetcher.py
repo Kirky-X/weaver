@@ -6,7 +6,7 @@ import asyncio
 import random
 import time
 
-from core.fetcher.playwright_pool import PlaywrightContextPool
+from modules.fetcher.playwright_pool import PlaywrightContextPool
 from modules.fetcher.base import BaseFetcher
 from core.observability.logging import get_logger
 from core.observability.metrics import MetricsCollector
