@@ -23,6 +23,7 @@ class PlaywrightContextPool:
 
     Args:
         pool_size: Number of browser contexts to maintain.
+        page_pool_size: Number of pages per context to maintain.
         stealth_enabled: Enable playwright-stealth anti-detection.
         user_agent: Custom user agent string.
         viewport_width: Viewport width in pixels.
@@ -36,6 +37,7 @@ class PlaywrightContextPool:
     def __init__(
         self,
         pool_size: int = 5,
+        page_pool_size: int = 3,
         stealth_enabled: bool = True,
         user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
         viewport_width: int = 1920,
@@ -46,6 +48,7 @@ class PlaywrightContextPool:
         random_delay_max: float = 2.0,
     ) -> None:
         self._pool_size = pool_size
+        self._page_pool_size = page_pool_size
         self._stealth_enabled = stealth_enabled
         self._user_agent = user_agent
         self._viewport_width = viewport_width
@@ -58,7 +61,9 @@ class PlaywrightContextPool:
         self._pw: Playwright | None = None
         self._browser: Browser | None = None
         self._pool: asyncio.Queue[BrowserContext] = asyncio.Queue()
+        self._page_pool: asyncio.Queue[Page] = asyncio.Queue()
         self._stealth = Stealth() if stealth_enabled else None
+        self._active_pages: set[Page] = set()
 
     async def startup(self) -> None:
         """Launch browser and create context pool with stealth configuration."""
@@ -76,10 +81,14 @@ class PlaywrightContextPool:
         for _ in range(self._pool_size):
             ctx = await self._create_stealth_context()
             await self._pool.put(ctx)
+            for _ in range(self._page_pool_size):
+                page = await ctx.new_page()
+                await self._page_pool.put(page)
 
         log.info(
             "playwright_pool_started",
             pool_size=self._pool_size,
+            page_pool_size=self._page_pool_size,
             stealth_enabled=self._stealth_enabled,
         )
 
@@ -128,7 +137,14 @@ class PlaywrightContextPool:
             await asyncio.sleep(delay)
 
     async def shutdown(self) -> None:
-        """Close all contexts, browser, and playwright."""
+        """Close all pages, contexts, browser, and playwright."""
+        while not self._page_pool.empty():
+            page = await self._page_pool.get()
+            try:
+                await page.close()
+            except Exception:
+                pass
+
         while not self._pool.empty():
             ctx = await self._pool.get()
             await ctx.close()
@@ -154,3 +170,41 @@ class PlaywrightContextPool:
         finally:
             await ctx.clear_cookies()
             await self._pool.put(ctx)
+
+    @asynccontextmanager
+    async def acquire_page(self) -> AsyncIterator[Page]:
+        """Acquire a Page from the page pool for reuse.
+
+        Yields:
+            A Page instance for use.
+
+        The page is reset (navigated to about:blank) on return
+        to prevent state leakage between requests.
+        """
+        page = await self._page_pool.get()
+        self._active_pages.add(page)
+        try:
+            yield page
+        finally:
+            self._active_pages.discard(page)
+            try:
+                await page.goto("about:blank", timeout=5000)
+                await self._page_pool.put(page)
+            except Exception as e:
+                log.warning("page_reset_failed_creating_new", error=str(e))
+                try:
+                    await page.close()
+                except Exception:
+                    pass
+
+    async def get_page_stats(self) -> dict:
+        """Get page pool statistics.
+
+        Returns:
+            Dict with pool_size, available_pages, active_pages.
+        """
+        return {
+            "pool_size": self._pool_size * self._page_pool_size,
+            "available_pages": self._page_pool.qsize(),
+            "active_pages": len(self._active_pages),
+        }

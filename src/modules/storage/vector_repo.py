@@ -55,7 +55,6 @@ class VectorRepo:
     ) -> None:
         """Upsert title and content vectors for an article."""
         async with self._pool.session() as session:
-            # Set ef_search for better recall
             await session.execute(text("SET hnsw.ef_search = 200;"))
 
             for vec_type, embedding in [
@@ -99,6 +98,78 @@ class VectorRepo:
                     )
 
             await session.commit()
+
+    async def bulk_upsert_article_vectors(
+        self,
+        articles: list[tuple[uuid.UUID, list[float] | None, list[float] | None, str]],
+    ) -> int:
+        """Bulk upsert article vectors.
+
+        Args:
+            articles: List of (article_id, title_embedding, content_embedding, model_id) tuples.
+
+        Returns:
+            Number of vectors inserted/updated.
+        """
+        if not articles:
+            return 0
+
+        count = 0
+        async with self._pool.session() as session:
+            await session.execute(text("SET hnsw.ef_search = 200;"))
+
+            for article_id, title_emb, content_emb, model_id in articles:
+                for vec_type, embedding in [
+                    (VectorType.TITLE.value, title_emb),
+                    (VectorType.CONTENT.value, content_emb),
+                ]:
+                    if embedding is None:
+                        continue
+
+                    existing = await session.execute(
+                        text(
+                            """
+                            SELECT id FROM article_vectors
+                            WHERE article_id = :article_id AND vector_type = :vector_type
+                            """
+                        ),
+                        {"article_id": article_id, "vector_type": vec_type},
+                    )
+                    if existing.scalar_one_or_none():
+                        await session.execute(
+                            text(
+                                """
+                                UPDATE article_vectors
+                                SET embedding = :embedding, model_id = :model_id, updated_at = NOW()
+                                WHERE article_id = :article_id AND vector_type = :vector_type
+                                """
+                            ),
+                            {
+                                "article_id": article_id,
+                                "vector_type": vec_type,
+                                "embedding": f"[{','.join(map(str, embedding))}]",
+                                "model_id": model_id,
+                            },
+                        )
+                    else:
+                        await session.execute(
+                            text(
+                                """
+                                INSERT INTO article_vectors (article_id, vector_type, embedding, model_id)
+                                VALUES (:article_id, :vector_type, :embedding, :model_id)
+                                """
+                            ),
+                            {
+                                "article_id": article_id,
+                                "vector_type": vec_type,
+                                "embedding": f"[{','.join(map(str, embedding))}]",
+                                "model_id": model_id,
+                            },
+                        )
+                    count += 1
+
+            await session.commit()
+        return count
 
     async def find_similar(
         self,

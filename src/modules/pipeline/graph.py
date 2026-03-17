@@ -26,6 +26,8 @@ from modules.pipeline.nodes.quality_scorer import QualityScorerNode
 from modules.pipeline.nodes.entity_extractor import EntityExtractorNode
 from modules.nlp.spacy_extractor import SpacyExtractor
 from modules.collector.models import ArticleRaw
+from modules.graph_store.entity_resolver import EntityResolver
+from modules.graph_store.neo4j_writer import Neo4jWriter
 
 log = get_logger("pipeline")
 
@@ -104,6 +106,7 @@ class Pipeline:
         self._entity_extractor = EntityExtractorNode(
             llm, budget, prompt_loader, spacy or SpacyExtractor(), vector_repo
         )
+        self._entity_resolver: EntityResolver | None = None
         self._article_repo = article_repo
         self._neo4j_writer = neo4j_writer
         self._vector_repo = vector_repo
@@ -206,8 +209,13 @@ class Pipeline:
         return states
 
     async def _phase1_per_article(self, state: PipelineState) -> PipelineState:
-        """Phase 1: classify → clean → categorize → vectorize."""
-        # Use semaphore to limit concurrency
+        """Phase 1: classify → clean → (categorize || vectorize).
+
+        DAG execution:
+        - classifier must run first (determines if news)
+        - cleaner runs after classifier
+        - categorizer and vectorize can run in parallel after cleaner
+        """
         async with self._phase1_semaphore:
             import time
 
@@ -228,25 +236,46 @@ class Pipeline:
             )
             await self._update_processing_stage(state, PHASE1_STAGES["cleaner"])
 
-            start = time.monotonic()
-            state = await self._categorizer.execute(state)
-            MetricsCollector.pipeline_stage_latency.labels(stage="categorizer").observe(
-                time.monotonic() - start
-            )
-            await self._update_processing_stage(state, PHASE1_STAGES["categorizer"])
+            async def run_categorizer(s: PipelineState) -> PipelineState:
+                st = time.monotonic()
+                result = await self._categorizer.execute(s)
+                MetricsCollector.pipeline_stage_latency.labels(stage="categorizer").observe(
+                    time.monotonic() - st
+                )
+                return result
 
-            start = time.monotonic()
-            state = await self._vectorize.execute(state)
-            MetricsCollector.pipeline_stage_latency.labels(stage="vectorize").observe(
-                time.monotonic() - start
+            async def run_vectorize(s: PipelineState) -> PipelineState:
+                st = time.monotonic()
+                result = await self._vectorize.execute(s)
+                MetricsCollector.pipeline_stage_latency.labels(stage="vectorize").observe(
+                    time.monotonic() - st
+                )
+                return result
+
+            categorizer_task = asyncio.create_task(run_categorizer(state))
+            vectorize_task = asyncio.create_task(run_vectorize(state))
+
+            categorizer_state, vectorize_state = await asyncio.gather(
+                categorizer_task, vectorize_task
             )
+
+            state.update(categorizer_state)
+            state.update(vectorize_state)
+
+            await self._update_processing_stage(state, PHASE1_STAGES["categorizer"])
             await self._update_processing_stage(state, PHASE1_STAGES["vectorize"])
 
             return state
 
     async def _phase3_per_article(self, state: PipelineState) -> PipelineState:
-        """Phase 3: re-vectorize → analyze → credibility → entity extraction."""
-        # Use semaphore to limit concurrency
+        """Phase 3: re-vectorize → (analyze || quality_scorer) → credibility → entity_extraction.
+
+        DAG execution:
+        - re_vectorize runs first (updates vectors)
+        - analyze and quality_scorer can run in parallel (both only depend on cleaned)
+        - credibility depends on analyze.summary_info
+        - entity_extractor runs last
+        """
         async with self._phase3_semaphore:
             if state.get("terminal") or state.get("is_merged"):
                 return state
@@ -260,18 +289,33 @@ class Pipeline:
             )
             await self._update_processing_stage(state, PHASE3_STAGES["re_vectorize"])
 
-            start = time.monotonic()
-            state = await self._analyze.execute(state)
-            MetricsCollector.pipeline_stage_latency.labels(stage="analyze").observe(
-                time.monotonic() - start
-            )
-            await self._update_processing_stage(state, PHASE3_STAGES["analyze"])
+            async def run_analyze(s: PipelineState) -> PipelineState:
+                st = time.monotonic()
+                result = await self._analyze.execute(s)
+                MetricsCollector.pipeline_stage_latency.labels(stage="analyze").observe(
+                    time.monotonic() - st
+                )
+                return result
 
-            start = time.monotonic()
-            state = await self._quality_scorer.execute(state)
-            MetricsCollector.pipeline_stage_latency.labels(stage="quality_scorer").observe(
-                time.monotonic() - start
+            async def run_quality_scorer(s: PipelineState) -> PipelineState:
+                st = time.monotonic()
+                result = await self._quality_scorer.execute(s)
+                MetricsCollector.pipeline_stage_latency.labels(stage="quality_scorer").observe(
+                    time.monotonic() - st
+                )
+                return result
+
+            analyze_task = asyncio.create_task(run_analyze(state))
+            quality_task = asyncio.create_task(run_quality_scorer(state))
+
+            analyze_state, quality_state = await asyncio.gather(
+                analyze_task, quality_task
             )
+
+            state.update(analyze_state)
+            state.update(quality_state)
+
+            await self._update_processing_stage(state, PHASE3_STAGES["analyze"])
             await self._update_processing_stage(state, PHASE3_STAGES["quality_scorer"])
 
             start = time.monotonic()
@@ -287,6 +331,18 @@ class Pipeline:
                 time.monotonic() - start
             )
             await self._update_processing_stage(state, PHASE3_STAGES["entity_extractor"])
+
+            # === 新增: Entity Resolver 阶段 ===
+            if state.get("entities") and self._entity_resolver:
+                resolved_entities = await self._entity_resolver.resolve_entities_batch(
+                    entities=state["entities"]
+                )
+                state["resolved_entities"] = resolved_entities
+                log.debug(
+                    "entity_resolver_complete",
+                    url=state["raw"].url,
+                    resolved_count=len(resolved_entities),
+                )
 
             return state
 
@@ -352,6 +408,81 @@ class Pipeline:
                         )
                     except Exception:
                         pass
+
+    async def _persist_batch(self, states: list[PipelineState]) -> None:
+        """Persist batch of articles to Postgres and Neo4j.
+
+        Uses bulk operations for better performance.
+
+        Args:
+            states: List of pipeline states to persist.
+        """
+        valid_states = [s for s in states if not s.get("terminal")]
+        if not valid_states:
+            return
+
+        if self._article_repo:
+            try:
+                article_ids = await self._article_repo.bulk_upsert(valid_states)
+                for state, aid in zip(valid_states, article_ids):
+                    state["article_id"] = str(aid)
+                    await self._article_repo.update_persist_status(aid, PersistStatus.PG_DONE)
+
+                if self._vector_repo:
+                    vector_data = []
+                    for state in valid_states:
+                        if "vectors" in state:
+                            vectors = state["vectors"]
+                            if isinstance(vectors, dict) and "title" in vectors and "content" in vectors:
+                                import uuid
+                                vector_data.append((
+                                    uuid.UUID(state["article_id"]),
+                                    vectors.get("title"),
+                                    vectors.get("content"),
+                                    vectors.get("model_id", "unknown"),
+                                ))
+                    if vector_data:
+                        count = await self._vector_repo.bulk_upsert_article_vectors(vector_data)
+                        log.debug("vectors_bulk_persisted", count=count)
+
+                log.info("batch_pg_persisted", count=len(article_ids))
+            except Exception as exc:
+                log.error("persist_batch_pg_failed", error=str(exc))
+                for state in valid_states:
+                    if state.get("article_id"):
+                        try:
+                            import uuid
+                            await self._article_repo.mark_failed(
+                                uuid.UUID(state["article_id"]), f"PG error: {str(exc)}"
+                            )
+                        except Exception:
+                            pass
+                return
+
+        if self._neo4j_writer:
+            for state in valid_states:
+                try:
+                    neo4j_ids = await self._neo4j_writer.write(state)
+                    state["neo4j_ids"] = neo4j_ids
+                    if self._article_repo and state.get("article_id"):
+                        import uuid
+                        await self._article_repo.update_persist_status(
+                            uuid.UUID(state["article_id"]), PersistStatus.NEO4J_DONE
+                        )
+                except Exception as exc:
+                    log.error(
+                        "persist_neo4j_failed",
+                        article_id=state.get("article_id"),
+                        error=str(exc),
+                    )
+                    if state.get("article_id") and self._article_repo:
+                        try:
+                            import uuid
+                            await self._article_repo.mark_failed(
+                                uuid.UUID(state["article_id"]), f"Neo4j error: {str(exc)}"
+                            )
+                        except Exception:
+                            pass
 
     async def stop_accepting(self) -> None:
         """Stop accepting new pipeline tasks."""

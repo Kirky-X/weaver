@@ -6,6 +6,7 @@ from typing import Any
 
 from core.observability.logging import get_logger
 from modules.collector.crawler import Crawler
+from modules.collector.deduplicator import Deduplicator
 from modules.pipeline.graph import Pipeline
 from modules.storage.article_repo import ArticleRepo
 
@@ -16,7 +17,7 @@ class DiscoveryProcessor:
     """Processor for handling discovered news items.
 
     Handles the data flow:
-    RSS → Deduplicator → Interleaver → Crawler → Pipeline
+    RSS → Deduplicator → Crawler → Pipeline
 
     This class is extracted from Container to improve separation of concerns.
     """
@@ -25,6 +26,7 @@ class DiscoveryProcessor:
         self,
         crawler: Crawler,
         article_repo: ArticleRepo,
+        deduplicator: Deduplicator | None = None,
         pipeline: Pipeline | None = None,
     ) -> None:
         """Initialize the processor.
@@ -32,11 +34,21 @@ class DiscoveryProcessor:
         Args:
             crawler: Crawler for fetching article content.
             article_repo: Repository for saving articles.
+            deduplicator: Optional deduplicator for URL filtering.
             pipeline: Optional pipeline for processing articles.
         """
         self._crawler = crawler
         self._article_repo = article_repo
+        self._deduplicator = deduplicator
         self._pipeline = pipeline
+
+    def set_deduplicator(self, deduplicator: Deduplicator) -> None:
+        """Set the deduplicator.
+
+        Args:
+            deduplicator: Deduplicator instance.
+        """
+        self._deduplicator = deduplicator
 
     def set_pipeline(self, pipeline: Pipeline) -> None:
         """Set the pipeline for processing.
@@ -54,6 +66,13 @@ class DiscoveryProcessor:
             source: Source configuration.
         """
         log.info("items_discovered", count=len(items), source=source.id)
+
+        if self._deduplicator:
+            items = await self._deduplicator.dedup(items)
+            if not items:
+                log.info("all_items_deduplicated", source=source.id)
+                return
+            log.info("items_after_dedup", count=len(items), source=source.id)
 
         try:
             raw_articles = await self._crawler.crawl_batch(items)

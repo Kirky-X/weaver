@@ -81,28 +81,44 @@ async def main():
     from modules.pipeline.graph import Pipeline
     pipeline = Pipeline(
         llm=llm_client,
-        article_repo=article_repo,
+        budget=token_budget,
+        prompt_loader=prompt_loader,
+        event_bus=EventBus(),
+        spacy=SpacyExtractor(),
         vector_repo=vector_repo,
-        source_authority_repo=source_authority_repo,
+        article_repo=article_repo,
         neo4j_writer=neo4j_writer,
-        extractor=SpacyExtractor(),
+        source_auth_repo=source_authority_repo,
     )
     
-    pending = await article_repo.list_pending(limit=10)
+    pending = await article_repo.get_pending(limit=10)
     print(f"  Found {len(pending)} pending articles")
     
+    # Convert Article ORM objects to ArticleRaw dataclass objects
+    from modules.collector.models import ArticleRaw
+    raw_articles = []
     for article in pending:
-        print(f"  Processing: {article.title[:50]}...")
+        raw = ArticleRaw(
+            url=article.source_url,
+            title=article.title,
+            body=article.body or "",
+            source=article.source_host or "",
+            publish_time=article.publish_time,
+            source_host=article.source_host or "",
+            tier=2,
+        )
+        raw_articles.append(raw)
+    
+    if raw_articles:
+        print("  Processing batch...")
         try:
-            from modules.pipeline.types import PipelineState
-            state = PipelineState(
-                raw=article,
-                cleaned={"title": article.title, "body": article.body or ""},
-            )
-            await pipeline.process_single(state)
-            print(f"    ✓ Done")
+            states = await pipeline.process_batch(raw_articles)
+            success = sum(1 for s in states if not s.get("terminal"))
+            print(f"    ✓ Processed {success}/{len(raw_articles)} articles")
         except Exception as e:
+            import traceback
             print(f"    ✗ Error: {e}")
+            traceback.print_exc()
 
     # Cleanup
     print("\n[6/7] Shutting down...")

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import TypeVar, Type
 
 from pydantic import BaseModel, Field
@@ -24,6 +25,7 @@ def parse_llm_json(raw: str, model_cls: Type[T]) -> T:
     - Strips Markdown code block wrappers (```json ... ```)
     - Handles trailing content after valid JSON
     - Handles plain float output for QualityScorerOutput
+    - Handles Claude extended thinking format (dict with 'thinking' key)
     - Validates against the Pydantic model schema
 
     Args:
@@ -36,8 +38,14 @@ def parse_llm_json(raw: str, model_cls: Type[T]) -> T:
     Raises:
         OutputParserException: If parsing or validation fails.
     """
-    import re
+    import ast
     
+    if isinstance(raw, list):
+        raw = "".join(
+            block.text if hasattr(block, "text") else str(block)
+            for block in raw
+        )
+
     clean = (
         raw.strip()
         .removeprefix("```json")
@@ -45,6 +53,47 @@ def parse_llm_json(raw: str, model_cls: Type[T]) -> T:
         .removesuffix("```")
         .strip()
     )
+
+    # Handle Claude extended thinking format: {'thinking': '...', 'signature': '...'}
+    # The actual JSON output should be after the thinking block
+    # Simple approach: find the last complete JSON object
+    if clean.startswith("{'") or clean.startswith('{"'):
+        # Find the last complete JSON object by finding the last } and matching {
+        last_brace = clean.rfind('}')
+        if last_brace != -1:
+            # Work backwards to find the matching {
+            brace_count = 0
+            in_string = False
+            escape_next = False
+            string_char = None
+            
+            for i in range(last_brace, -1, -1):
+                char = clean[i]
+                
+                # Handle escape sequences
+                if escape_next:
+                    escape_next = False
+                    continue
+                if i > 0 and clean[i-1] == '\\':
+                    escape_next = True
+                    continue
+                
+                # Track string boundaries
+                if char in ('"', "'") and not in_string:
+                    in_string = True
+                    string_char = char
+                elif in_string and char == string_char:
+                    in_string = False
+                    string_char = None
+                elif not in_string:
+                    if char == '}':
+                        brace_count += 1
+                    elif char == '{':
+                        brace_count -= 1
+                        if brace_count == 0:
+                            # Found the matching opening brace
+                            clean = clean[i:last_brace+1]
+                            break
 
     # Handle plain float output for QualityScorerOutput
     if model_cls.__name__ == "QualityScorerOutput":
@@ -65,10 +114,17 @@ def parse_llm_json(raw: str, model_cls: Type[T]) -> T:
     try:
         data = json.loads(clean)
         return model_cls.model_validate(data)
-    except Exception as exc:
-        raise OutputParserException(
-            f"解析失败: {exc}\n原始内容: {raw[:200]}"
-        ) from exc
+    except json.JSONDecodeError:
+        # Try ast.literal_eval for Python dict format (single quotes)
+        try:
+            data = ast.literal_eval(clean)
+            return model_cls.model_validate(data)
+        except Exception:
+            pass
+    
+    raise OutputParserException(
+        f"解析失败: 无法解析为有效的 JSON\n原始内容: {raw[:200]}"
+    )
 
 
 # ── Output Models ────────────────────────────────────────────

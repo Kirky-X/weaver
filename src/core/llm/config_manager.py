@@ -2,12 +2,35 @@
 
 from __future__ import annotations
 
+import os
+import tomllib
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from core.observability.logging import get_logger
 
 log = get_logger("llm_config")
+
+_TOML_PATH = Path(__file__).resolve().parent.parent.parent.parent / "config" / "settings.toml"
+
+
+def _load_toml_llm_config() -> dict[str, Any]:
+    """Load LLM configuration directly from TOML file.
+
+    This bypasses pydantic-settings to avoid the issue where
+    environment variables completely replace nested dicts instead of merging.
+
+    Returns:
+        LLM configuration dict from TOML file.
+    """
+    try:
+        with open(_TOML_PATH, "rb") as f:
+            data = tomllib.load(f)
+        return data.get("llm", {})
+    except Exception as e:
+        log.warning("toml_load_failed", error=str(e), path=str(_TOML_PATH))
+        return {}
 
 
 @dataclass
@@ -49,6 +72,13 @@ class LLMConfigManager:
         self._providers: dict[str, ProviderConfig] = {}
         self._call_points: dict[str, CallPointConfig] = {}
 
+        # Load base config from TOML file directly to avoid pydantic-settings issues
+        toml_llm = _load_toml_llm_config()
+        toml_providers = toml_llm.get("providers", {})
+        toml_call_points = toml_llm.get("call_points", {})
+        self._embedding_provider = toml_llm.get("embedding_provider", "openai")
+        self._embedding_model = toml_llm.get("embedding_model", "text-embedding-3-large")
+
         # Default provider config
         default_provider = {
             "provider": "openai",
@@ -60,26 +90,25 @@ class LLMConfigManager:
             "timeout": 30.0,
         }
 
-        # Parse provider configs - merge with defaults
-        providers_dict = config.providers if isinstance(config.providers, dict) else {}
-        log.debug("providers_dict", providers_keys=list(providers_dict.keys()))
-        for name, pcfg in providers_dict.items():
+        # Parse provider configs from TOML
+        log.debug("providers_dict", providers_keys=list(toml_providers.keys()))
+        for name, pcfg in toml_providers.items():
             if isinstance(pcfg, dict):
                 # Merge with default config
                 merged_config = {**default_provider, **pcfg}
+                # Override API key from environment variable if present
+                env_key = f"ND_LLM__PROVIDERS__{name.upper()}__{'API_KEY'}"
+                env_api_key = os.environ.get(env_key)
+                if env_api_key:
+                    merged_config["api_key"] = env_api_key
                 # Ensure numeric fields are properly typed
                 merged_config["rpm_limit"] = int(merged_config.get("rpm_limit", 60))
                 merged_config["concurrency"] = int(merged_config.get("concurrency", 5))
                 merged_config["timeout"] = float(merged_config.get("timeout", 30.0))
                 self._providers[name] = ProviderConfig(**merged_config)
-            else:
-                self._providers[name] = pcfg
 
-        # Parse call-point configs
-        call_points_dict = (
-            config.call_points if isinstance(config.call_points, dict) else {}
-        )
-        for cp_name, cp_cfg in call_points_dict.items():
+        # Parse call-point configs from TOML
+        for cp_name, cp_cfg in toml_call_points.items():
             if isinstance(cp_cfg, dict):
                 primary_name = cp_cfg.get("primary", "openai")
                 fallback_names = cp_cfg.get("fallbacks", [])
@@ -121,9 +150,6 @@ class LLMConfigManager:
             call_points=list(self._call_points.keys()),
         )
 
-        # Store embedding configuration
-        self._embedding_provider = getattr(config, "embedding_provider", "openai")
-        self._embedding_model = getattr(config, "embedding_model", "text-embedding-3-large")
         log.info(
             "embedding_config",
             provider=self._embedding_provider,

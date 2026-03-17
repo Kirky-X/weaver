@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import httpx
 
 from modules.fetcher.base import BaseFetcher
 from core.observability.logging import get_logger
 from core.observability.metrics import MetricsCollector
+
+if TYPE_CHECKING:
+    from modules.fetcher.rate_limiter import HostRateLimiter
 
 log = get_logger("httpx_fetcher")
 
@@ -17,12 +22,14 @@ class HttpxFetcher(BaseFetcher):
     Args:
         timeout: Request timeout in seconds.
         user_agent: User-Agent header value.
+        rate_limiter: Optional rate limiter for per-host delays.
     """
 
     def __init__(
         self,
         timeout: float = 15.0,
         user_agent: str = "Mozilla/5.0 (compatible; NewsBot/1.0)",
+        rate_limiter: HostRateLimiter | None = None,
     ) -> None:
         self._client = httpx.AsyncClient(
             timeout=timeout,
@@ -30,6 +37,7 @@ class HttpxFetcher(BaseFetcher):
             follow_redirects=True,
             http2=False,
         )
+        self._rate_limiter = rate_limiter
 
     async def fetch(
         self, url: str, headers: dict[str, str] | None = None
@@ -44,6 +52,9 @@ class HttpxFetcher(BaseFetcher):
             Tuple of (status_code, response_text, response_headers).
         """
         import time
+
+        if self._rate_limiter:
+            await self._rate_limiter.acquire(url)
 
         start = time.monotonic()
         try:

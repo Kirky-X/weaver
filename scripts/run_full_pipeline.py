@@ -135,7 +135,7 @@ async def main():
     print("\n[4/7] Initializing Neo4j...")
     neo4j_writer = None
     try:
-        neo4j_pool = Neo4jPool(settings.neo4j.uri, settings.neo4j.auth_tuple)
+        neo4j_pool = Neo4jPool(settings.neo4j.uri, ("neo4j", settings.neo4j.password))
         await neo4j_pool.startup()
         neo4j_writer = Neo4jWriter(neo4j_pool)
         print("  ✓ Neo4j connected")
@@ -210,7 +210,8 @@ async def main():
         
         for i, result in enumerate(results[:5]):
             status = "✓" if not result.get("terminal") else "✗"
-            title = result.get("title", "N/A")[:50]
+            raw = result.get("raw")
+            title = raw.title if raw else (result.get("cleaned", {}).get("title", "N/A") or "N/A")[:50]
             category = result.get("category", "N/A")
             print(f"  {status} [{i+1}] {title}... | {category}")
         

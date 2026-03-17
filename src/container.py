@@ -28,6 +28,7 @@ from modules.graph_store.entity_resolver import EntityResolver
 from modules.fetcher.smart_fetcher import SmartFetcher
 from core.fetcher.playwright_pool import PlaywrightContextPool
 from modules.collector.crawler import Crawler
+from modules.collector.deduplicator import Deduplicator
 from modules.pipeline.graph import Pipeline
 
 log = get_logger("container")
@@ -60,6 +61,7 @@ class Container:
         self._playwright_pool: PlaywrightContextPool | None = None
         self._crawler: Crawler | None = None
         self._pipeline: Pipeline | None = None
+        self._deduplicator: Deduplicator | None = None
 
     def configure(self, settings: Settings) -> "Container":
         """Configure the container with settings.
@@ -133,19 +135,10 @@ class Container:
     async def init_llm(self) -> LLMClient:
         """Initialize LLM client."""
         if self._llm_client is None:
-            from core.llm.rate_limiter_pro import RateLimiter as ProRateLimiter
-            
             config_manager = LLMConfigManager(self._settings.llm)
-            rate_limiter = ProRateLimiter(
-                storage_type="memory",
-                redis_url=None,
-            )
-            await rate_limiter.initialize()
-            
-            for name, cfg in config_manager.list_providers():
-                if cfg.rpm_limit > 0:
-                    rate_limiter.set_rate_limit(name, f"{cfg.rpm_limit}/minute")
-            
+
+            rate_limiter = RedisTokenBucket(self._redis_client.client)
+
             event_bus = EventBus()
             queue_manager = LLMQueueManager(
                 config_manager=config_manager,
@@ -163,6 +156,7 @@ class Container:
                 token_budget=token_budget,
             )
             log.info("llm_client_initialized")
+
         return self._llm_client
 
     def llm_client(self) -> LLMClient:
@@ -300,10 +294,26 @@ class Container:
         if self._smart_fetcher is None:
             from modules.fetcher.httpx_fetcher import HttpxFetcher
             from modules.fetcher.playwright_fetcher import PlaywrightFetcher
+            from modules.fetcher.rate_limiter import HostRateLimiter
+
+            settings = self._settings.fetcher
+
+            rate_limiter = None
+            if settings.rate_limit_enabled:
+                rate_limiter = HostRateLimiter(
+                    delay_min=settings.rate_limit_delay_min,
+                    delay_max=settings.rate_limit_delay_max,
+                )
+                log.info(
+                    "rate_limiter_initialized",
+                    delay_min=settings.rate_limit_delay_min,
+                    delay_max=settings.rate_limit_delay_max,
+                )
 
             httpx_fetcher = HttpxFetcher(
-                timeout=self._settings.fetcher.httpx_timeout,
-                user_agent=self._settings.fetcher.user_agent,
+                timeout=settings.httpx_timeout,
+                user_agent=settings.user_agent,
+                rate_limiter=rate_limiter,
             )
             playwright_fetcher = PlaywrightFetcher(
                 pool=self._playwright_pool,
@@ -311,6 +321,7 @@ class Container:
             self._smart_fetcher = SmartFetcher(
                 httpx_fetcher=httpx_fetcher,
                 playwright_fetcher=playwright_fetcher,
+                rate_limiter=rate_limiter,
             )
             log.info("smart_fetcher_initialized")
         return self._smart_fetcher
@@ -329,6 +340,15 @@ class Container:
                 default_per_host=self._settings.fetcher.default_per_host_concurrency,
             )
         return self._crawler
+
+    def deduplicator(self) -> Deduplicator:
+        """Get deduplicator."""
+        if self._deduplicator is None:
+            self._deduplicator = Deduplicator(
+                redis=self._redis_client,
+                article_repo=self._article_repo,
+            )
+        return self._deduplicator
 
     # ── Pipeline ─────────────────────────────────────────────────
 
@@ -380,6 +400,7 @@ class Container:
         processor = DiscoveryProcessor(
             crawler=self.crawler(),
             article_repo=self.article_repo(),
+            deduplicator=self.deduplicator(),
         )
         await self.init_source_scheduler(processor.on_items_discovered)
 

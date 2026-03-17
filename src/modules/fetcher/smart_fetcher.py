@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from modules.fetcher.base import BaseFetcher
 from modules.fetcher.httpx_fetcher import HttpxFetcher
 from modules.fetcher.playwright_fetcher import PlaywrightFetcher
 from core.observability.logging import get_logger
+
+if TYPE_CHECKING:
+    from modules.fetcher.rate_limiter import HostRateLimiter
 
 log = get_logger("smart_fetcher")
 
@@ -32,15 +37,18 @@ class SmartFetcher(BaseFetcher):
     Args:
         httpx_fetcher: The httpx-based fetcher.
         playwright_fetcher: The Playwright-based fetcher.
+        rate_limiter: Optional rate limiter for per-host delays.
     """
 
     def __init__(
         self,
         httpx_fetcher: HttpxFetcher,
         playwright_fetcher: PlaywrightFetcher,
+        rate_limiter: HostRateLimiter | None = None,
     ) -> None:
         self._httpx = httpx_fetcher
         self._playwright = playwright_fetcher
+        self._rate_limiter = rate_limiter
 
     async def fetch(
         self, url: str, headers: dict[str, str] | None = None
@@ -55,6 +63,9 @@ class SmartFetcher(BaseFetcher):
             Tuple of (status_code, HTML content, response_headers).
         """
         from urllib.parse import urlparse
+
+        if self._rate_limiter:
+            await self._rate_limiter.acquire(url)
 
         host = urlparse(url).netloc
 

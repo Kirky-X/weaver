@@ -154,20 +154,27 @@ class LLMQueueManager:
 
     async def startup(self) -> None:
         """Initialize provider queues and start workers."""
+        from core.llm.providers.anthropic import AnthropicProvider
         from core.llm.providers.chat import ChatProvider
         from core.llm.providers.embedding import EmbeddingProvider
 
         for name, cfg in self._config.list_providers():
-            # Create the provider instance
-            provider = ChatProvider(
-                api_key=cfg.api_key,
-                base_url=cfg.base_url,
-                model=cfg.model,
-                timeout=cfg.timeout,
-            )
+            if cfg.provider == "anthropic":
+                provider: BaseLLMProvider = AnthropicProvider(
+                    api_key=cfg.api_key,
+                    base_url=cfg.base_url,
+                    model=cfg.model,
+                    timeout=cfg.timeout,
+                )
+            else:
+                provider = ChatProvider(
+                    api_key=cfg.api_key,
+                    base_url=cfg.base_url,
+                    model=cfg.model,
+                    timeout=cfg.timeout,
+                )
             self._providers[name] = provider
 
-            # Create and start the queue
             queue = ProviderQueue(name, cfg.concurrency, provider)
             await queue.start_workers(cfg.concurrency)
             self._queues[name] = queue
@@ -251,7 +258,7 @@ class LLMQueueManager:
 
             # Token bucket rate limiting (skip if rpm_limit <= 0)
             if pcfg.rpm_limit > 0:
-                wait = await self._rate_limiter.acquire(pcfg_name, 1, pcfg.rpm_limit)
+                wait = await self._rate_limiter.consume(pcfg_name, pcfg.rpm_limit)
                 if wait > 0:
                     await asyncio.sleep(wait)
 

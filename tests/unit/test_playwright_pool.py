@@ -31,10 +31,12 @@ class TestPlaywrightContextPool:
             mock_pw_instance = MagicMock()
             mock_browser = MagicMock()
             mock_context = MagicMock()
+            mock_page = MagicMock()
 
             mock_pw.return_value.start = AsyncMock(return_value=mock_pw_instance)
             mock_pw_instance.chromium.launch = AsyncMock(return_value=mock_browser)
             mock_browser.new_context = AsyncMock(return_value=mock_context)
+            mock_context.new_page = AsyncMock(return_value=mock_page)
 
             await pool.startup()
 
@@ -174,10 +176,12 @@ class TestPlaywrightContextPool:
             mock_pw_instance = MagicMock()
             mock_browser = MagicMock()
             mock_context = MagicMock()
+            mock_page = MagicMock()
 
             mock_pw.return_value.start = AsyncMock(return_value=mock_pw_instance)
             mock_pw_instance.chromium.launch = AsyncMock(return_value=mock_browser)
             mock_browser.new_context = AsyncMock(return_value=mock_context)
+            mock_context.new_page = AsyncMock(return_value=mock_page)
 
             await pool.startup()
 
@@ -255,10 +259,12 @@ class TestPlaywrightContextPoolStealth:
                 mock_pw_instance = MagicMock()
                 mock_browser = MagicMock()
                 mock_context = MagicMock()
+                mock_page = MagicMock()
 
                 mock_pw.return_value.start = AsyncMock(return_value=mock_pw_instance)
                 mock_pw_instance.chromium.launch = AsyncMock(return_value=mock_browser)
                 mock_browser.new_context = AsyncMock(return_value=mock_context)
+                mock_context.new_page = AsyncMock(return_value=mock_page)
 
                 await pool.startup()
 
@@ -301,10 +307,12 @@ class TestPlaywrightContextPoolStealth:
             mock_pw_instance = MagicMock()
             mock_browser = MagicMock()
             mock_context = MagicMock()
+            mock_page = MagicMock()
 
             mock_pw.return_value.start = AsyncMock(return_value=mock_pw_instance)
             mock_pw_instance.chromium.launch = AsyncMock(return_value=mock_browser)
             mock_browser.new_context = AsyncMock(return_value=mock_context)
+            mock_context.new_page = AsyncMock(return_value=mock_page)
 
             await pool.startup()
 

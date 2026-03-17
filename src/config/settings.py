@@ -113,6 +113,10 @@ class FetcherSettings(BaseSettings):
     stealth_random_delay_min: float = 0.5
     stealth_random_delay_max: float = 2.0
 
+    rate_limit_enabled: bool = True
+    rate_limit_delay_min: float = 1.0
+    rate_limit_delay_max: float = 3.0
+
 
 class PromptSettings(BaseSettings):
     """Prompt loading settings."""

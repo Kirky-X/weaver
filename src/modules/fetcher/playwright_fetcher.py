@@ -20,15 +20,18 @@ class PlaywrightFetcher(BaseFetcher):
     Args:
         pool: Playwright context pool for browser access.
         human_like_delay: Whether to add random delays to simulate human behavior.
+        use_page_pool: Whether to use page pooling for better performance.
     """
 
     def __init__(
         self,
         pool: PlaywrightContextPool,
         human_like_delay: bool = True,
+        use_page_pool: bool = True,
     ) -> None:
         self._pool = pool
         self._human_like_delay = human_like_delay
+        self._use_page_pool = use_page_pool
 
     async def fetch(
         self, url: str, headers: dict[str, str] | None = None
@@ -44,39 +47,16 @@ class PlaywrightFetcher(BaseFetcher):
         """
         start = time.monotonic()
         try:
-            async with self._pool.acquire() as ctx:
-                page = await ctx.new_page()
-                try:
-                    await self._pool.apply_stealth_to_page(page)
-
-                    if headers:
-                        await page.set_extra_http_headers(headers)
-
-                    if self._human_like_delay:
-                        await self._pool.random_delay()
-
-                    response = await page.goto(
-                        url,
-                        wait_until="domcontentloaded",
-                        timeout=30000,
-                    )
-
-                    if self._human_like_delay:
-                        await self._wait_for_content(page)
-
-                    status = response.status if response else 200
-                    content = await page.content()
-                    response_headers = dict(response.headers) if response else {}
-                finally:
-                    await page.close()
-
-            latency = time.monotonic() - start
-            MetricsCollector.fetch_total.labels(
-                method="playwright", status="success"
-            ).inc()
-            MetricsCollector.fetch_latency.labels(method="playwright").observe(latency)
-            log.debug("playwright_fetch_ok", url=url, status=status)
-            return status, content, response_headers
+            if self._use_page_pool and hasattr(self._pool, "acquire_page"):
+                async with self._pool.acquire_page() as page:
+                    return await self._fetch_with_page(page, url, headers, start)
+            else:
+                async with self._pool.acquire() as ctx:
+                    page = await ctx.new_page()
+                    try:
+                        return await self._fetch_with_page(page, url, headers, start)
+                    finally:
+                        await page.close()
         except Exception as exc:
             latency = time.monotonic() - start
             MetricsCollector.fetch_total.labels(
@@ -85,6 +65,39 @@ class PlaywrightFetcher(BaseFetcher):
             MetricsCollector.fetch_latency.labels(method="playwright").observe(latency)
             log.warning("playwright_fetch_error", url=url, error=str(exc))
             raise
+
+    async def _fetch_with_page(
+        self, page, url: str, headers: dict[str, str] | None, start: float
+    ) -> tuple[int, str, dict[str, str]]:
+        """Fetch content using a pre-acquired page."""
+        await self._pool.apply_stealth_to_page(page)
+
+        if headers:
+            await page.set_extra_http_headers(headers)
+
+        if self._human_like_delay:
+            await self._pool.random_delay()
+
+        response = await page.goto(
+            url,
+            wait_until="domcontentloaded",
+            timeout=30000,
+        )
+
+        if self._human_like_delay:
+            await self._wait_for_content(page)
+
+        status = response.status if response else 200
+        content = await page.content()
+        response_headers = dict(response.headers) if response else {}
+
+        latency = time.monotonic() - start
+        MetricsCollector.fetch_total.labels(
+            method="playwright", status="success"
+        ).inc()
+        MetricsCollector.fetch_latency.labels(method="playwright").observe(latency)
+        log.debug("playwright_fetch_ok", url=url, status=status)
+        return status, content, response_headers
 
     async def _wait_for_content(self, page) -> None:
         """Wait for page content to load with human-like behavior.
