@@ -7,7 +7,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-echo -e "${GREEN}=== News Discovery Development Setup ===${NC}"
+echo -e "${GREEN}=== Weaver Development Setup ===${NC}"
 
 # Check if Docker is running
 if ! docker info > /dev/null 2>&1; then
@@ -33,7 +33,7 @@ case $COMMAND in
 
         # Wait for PostgreSQL
         echo "Waiting for PostgreSQL..."
-        until docker exec news_discovery_postgres pg_isready -U postgres > /dev/null 2>&1; do
+        until docker exec weaver_postgres pg_isready -U postgres > /dev/null 2>&1; do
             sleep 2
         done
         echo -e "${GREEN}PostgreSQL is ready!${NC}"
@@ -48,7 +48,7 @@ case $COMMAND in
         echo -e "${GREEN}All services started successfully!${NC}"
         echo ""
         echo "Services:"
-        echo "  - PostgreSQL: localhost:5432 (user: postgres, pass: postgres, db: news_discovery)"
+        echo "  - PostgreSQL: localhost:5432 (user: postgres, pass: postgres, db: weaver)"
         echo "  - Neo4j:      localhost:7474 (user: neo4j, pass: neo4j123)"
         echo "  - Redis:       localhost:6379"
         echo ""

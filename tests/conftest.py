@@ -22,7 +22,7 @@ def postgres_pool():
     """Create PostgreSQL pool for integration tests."""
     from core.db.postgres import PostgresPool
     
-    dsn = os.getenv("POSTGRES_DSN", "postgresql+asyncpg://postgres:postgres@localhost:5432/news_discovery")
+    dsn = os.getenv("POSTGRES_DSN", "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver")
     pool = PostgresPool(dsn)
     
     async def startup():

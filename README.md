@@ -144,7 +144,7 @@ cp src/config/settings.example.toml src/config/settings.toml
 
 ```toml
 [postgres]
-dsn = "postgresql+asyncpg://user:pass@localhost:5432/news_discovery"
+dsn = "postgresql+asyncpg://user:pass@localhost:5432/weaver"
 
 [neo4j]
 uri = "bolt://localhost:7687"

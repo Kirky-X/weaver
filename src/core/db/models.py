@@ -1,4 +1,4 @@
-"""SQLAlchemy 2.0 ORM models for the news discovery system."""
+"""SQLAlchemy 2.0 ORM models for the weaver system."""
 
 from __future__ import annotations
 

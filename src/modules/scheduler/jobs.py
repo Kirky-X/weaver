@@ -1,4 +1,4 @@
-"""Scheduled jobs for news discovery backend."""
+"""Scheduled jobs for weaver backend."""
 
 from __future__ import annotations
 

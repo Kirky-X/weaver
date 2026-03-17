@@ -18,11 +18,11 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - news_discovery_network
+      - weaver_network
 
   neo4j:
     image: neo4j:5.25
-    container_name: news_discovery_neo4j
+    container_name: weaver_neo4j
     environment:
       NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD is required}
       NEO4J_PLUGINS: '["apoc"]'
@@ -42,15 +42,15 @@ services:
       timeout: 10s
       retries: 3
     networks:
-      - news_discovery_network
+      - weaver_network
 
   app:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    container_name: news_discovery_app
+    container_name: weaver_app
     environment:
-      WEAVER_POSTGRES__DSN: "postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/news_discovery"
+      WEAVER_POSTGRES__DSN: "postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/weaver"
       WEAVER_NEO4J__URI: "bolt://neo4j:7687"
       WEAVER_NEO4J__AUTH: '["neo4j","${NEO4J_PASSWORD}"]'
       WEAVER_REDIS__URL: "redis://redis:6379/0"
@@ -66,17 +66,17 @@ services:
     volumes:
       - ../src/config:/app/src/config:ro
     networks:
-      - news_discovery_network
+      - weaver_network
 
   redis:
     image: redis:6-alpine
-    container_name: news_discovery_redis
+    container_name: weaver_redis
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
     networks:
-      - news_discovery_network
+      - weaver_network
 
 volumes:
   postgres_data:
@@ -86,5 +86,5 @@ volumes:
   redis_data:
 
 networks:
-  news_discovery_network:
+  weaver_network:
     driver: bridge

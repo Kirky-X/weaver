@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import time
+from dataclasses import dataclass, field
 from typing import Any
 
 from core.llm.types import LLMTask, CallPoint
 from core.llm.config_manager import LLMConfigManager, ProviderConfig
 from core.llm.rate_limiter import RedisTokenBucket
-from core.llm.rate_limiter_pro import RateLimiter as ProRateLimiter
 from core.llm.providers.base import BaseLLMProvider
 from core.resilience.circuit_breaker import CircuitBreaker
 from core.event.bus import EventBus, FallbackEvent
@@ -17,18 +18,56 @@ from core.observability.metrics import MetricsCollector
 
 log = get_logger("queue_manager")
 
-# Exceptions that trigger fallback
 FALLBACK_ERRORS = (TimeoutError, ConnectionError, OSError)
-# Exceptions that trigger retry (then fallback if configured)
 RETRY_ERRORS = ("APITimeoutError", "OutputParserException")
-# OutputParserException triggers self-retry first, then fallback
 SELF_RETRY_ERRORS = ("OutputParserException",)
-# Non-retryable client errors (4xx)
 NON_RETRYABLE_STATUS = {400, 401, 403, 413}
-
-# Retry configuration
 MAX_RETRIES = 2
-RETRY_DELAY_BASE = 5  # seconds
+RETRY_DELAY_BASE = 5
+
+HEALTH_CHECK_INTERVAL = 30
+HEALTH_CHECK_TIMEOUT = 10
+
+
+@dataclass
+class ProviderHealth:
+    """Health metrics for a provider.
+
+    Attributes:
+        success_count: Total successful calls.
+        failure_count: Total failed calls.
+        avg_latency_ms: Rolling average latency in milliseconds.
+        last_success: Timestamp of last successful call.
+        last_failure: Timestamp of last failed call.
+    """
+
+    success_count: int = 0
+    failure_count: int = 0
+    avg_latency_ms: float = 0.0
+    last_success: float = 0.0
+    last_failure: float = 0.0
+
+    @property
+    def success_rate(self) -> float:
+        """Calculate success rate (0.0 to 1.0)."""
+        total = self.success_count + self.failure_count
+        if total == 0:
+            return 1.0
+        return self.success_count / total
+
+    def record_success(self, latency_ms: float) -> None:
+        """Record a successful call."""
+        self.success_count += 1
+        self.last_success = time.monotonic()
+        if self.avg_latency_ms == 0:
+            self.avg_latency_ms = latency_ms
+        else:
+            self.avg_latency_ms = 0.9 * self.avg_latency_ms + 0.1 * latency_ms
+
+    def record_failure(self) -> None:
+        """Record a failed call."""
+        self.failure_count += 1
+        self.last_failure = time.monotonic()
 
 
 class AllProvidersFailedError(Exception):

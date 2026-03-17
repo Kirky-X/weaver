@@ -1,4 +1,4 @@
-"""Dependency injection container for the news discovery application."""
+"""Dependency injection container for the weaver application."""
 
 from __future__ import annotations
 

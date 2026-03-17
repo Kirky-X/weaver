@@ -1,4 +1,4 @@
-"""Prometheus metrics definitions for the news discovery system."""
+"""Prometheus metrics definitions for the weaver system."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from prometheus_client import Counter, Gauge, Histogram
 
 
 class MetricsCollector:
-    """Centralized Prometheus metrics for the news discovery pipeline."""
+    """Centralized Prometheus metrics for the weaver pipeline."""
 
     # API metrics
     api_request_latency = Histogram(
@@ -68,6 +68,35 @@ class MetricsCollector:
         "抓取延迟",
         ["method"],
         buckets=[0.5, 1, 2, 5, 10, 30],
+    )
+
+    # Database pool metrics
+    db_pool_size = Gauge(
+        "db_pool_size",
+        "数据库连接池大小",
+        ["pool"],
+    )
+    db_pool_checked_out = Gauge(
+        "db_pool_checked_out",
+        "数据库连接池已检出连接数",
+        ["pool"],
+    )
+    db_pool_utilization = Gauge(
+        "db_pool_utilization",
+        "数据库连接池利用率",
+        ["pool"],
+    )
+
+    # Circuit breaker metrics
+    circuit_breaker_state = Gauge(
+        "circuit_breaker_state",
+        "熔断器状态 (0=closed, 1=open, 2=half_open)",
+        ["provider"],
+    )
+    circuit_breaker_failures = Counter(
+        "circuit_breaker_failures_total",
+        "熔断器失败次数",
+        ["provider"],
     )
 
 
