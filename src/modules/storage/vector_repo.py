@@ -232,6 +232,77 @@ class VectorRepo:
                 for row in result
             ]
 
+    async def batch_find_similar(
+        self,
+        queries: list[tuple[uuid.UUID, list[float]]],
+        category: str | None = None,
+        threshold: float = 0.80,
+        limit: int = 20,
+        model_id: str | None = None,
+    ) -> dict[uuid.UUID, list[SimilarArticle]]:
+        """Batch find similar articles for multiple embeddings.
+
+        Uses a single database session with concurrent queries for efficiency.
+
+        Args:
+            queries: List of (query_id, embedding) tuples.
+            category: Optional category filter.
+            threshold: Minimum cosine similarity threshold.
+            limit: Maximum results per query.
+            model_id: Optional model_id filter.
+
+        Returns:
+            Dict mapping query_id to list of similar articles.
+        """
+        if not queries:
+            return {}
+
+        results: dict[uuid.UUID, list[SimilarArticle]] = {}
+
+        async with self._pool.session() as session:
+            await session.execute(text("SET hnsw.ef_search = 200;"))
+
+            for query_id, embedding in queries:
+                vector_str = "[" + ",".join(str(x) for x in embedding) + "]"
+
+                query = text("""
+                    SELECT
+                        a.id::text as article_id,
+                        a.category,
+                        1 - (av.embedding <=> :embedding::vector) as similarity
+                    FROM article_vectors av
+                    JOIN articles a ON a.id = av.article_id
+                    WHERE av.vector_type = 'content'
+                      AND a.is_merged = FALSE
+                      AND 1 - (av.embedding <=> :embedding::vector) > :threshold
+                      AND (:category IS NULL OR a.category = :category)
+                      AND (:model_id IS NULL OR av.model_id = :model_id)
+                    ORDER BY similarity DESC
+                    LIMIT :limit
+                """)
+
+                rows = await session.execute(
+                    query,
+                    {
+                        "embedding": vector_str,
+                        "threshold": threshold,
+                        "category": category,
+                        "model_id": model_id,
+                        "limit": limit,
+                    },
+                )
+
+                results[query_id] = [
+                    SimilarArticle(
+                        article_id=row.article_id,
+                        category=row.category,
+                        similarity=row.similarity,
+                    )
+                    for row in rows
+                ]
+
+        return results
+
     async def upsert_entity_vectors(
         self, entities: list[tuple[str, list[float]]]
     ) -> None:

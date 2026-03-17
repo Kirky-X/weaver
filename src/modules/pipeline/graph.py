@@ -201,9 +201,8 @@ class Pipeline:
         ]
         states = list(await asyncio.gather(*phase3_tasks))
 
-        # Phase 4: Persist
-        persist_tasks = [self._persist(state) for state in states]
-        await asyncio.gather(*persist_tasks)
+        # Phase 4: Persist (批量持久化)
+        await self._persist_batch(states)
 
         # Phase 5: Checkpoint cleanup
         cleanup_tasks = [self._checkpoint_cleanup.execute(state) for state in states]
