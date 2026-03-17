@@ -7,62 +7,85 @@ dsn = "postgresql+asyncpg://postgres:postgres@localhost:5432/news_discovery"
 
 [neo4j]
 uri = "bolt://localhost:7687"
-auth = '["neo4j","neo4j_password"]'
+password = "neo4j_password"
 
 [redis]
 url = "redis://localhost:6379/0"
 
 [llm]
-embedding_provider = "ollama"
+embedding_provider = "embedding"
 embedding_model = "qwen3-embedding:0.6b"
 
-[llm.providers.openai]
+[llm.providers.iflow]
 provider = "openai"
-model = "gpt-4o"
+model = "qwen3-max"
 api_key = ""
-base_url = "https://api.openai.com/v1"
-rpm_limit = 60
-concurrency = 5
+base_url = "https://apis.iflow.cn/v1"
+rpm_limit = 0
+concurrency = 1
 timeout = 120.0
 
-[llm.providers.ollama]
-provider = "ollama"
-model = "qwen3.5:9b"
-base_url = "http://localhost:11434/v1"
-timeout = 600.0
+[llm.providers.zhipu]
+provider = "openai"
+model = "glm-4.7-flash"
+api_key = ""
+base_url = "https://open.bigmodel.cn/api/paas/v4"
+rpm_limit = 30
+concurrency = 1
+timeout = 120.0
+
+[llm.providers.cc_stitch]
+provider = "anthropic"
+model = "claude-sonnet-4-20250514"
+api_key = ""
+base_url = "http://127.0.0.1:5000"
+rpm_limit = 0
+concurrency = 3
+timeout = 300.0
+
+[llm.providers.embedding]
+provider = "openai"
+model = "qwen3-embedding:0.6b"
+base_url = "http://localhost:11434"
+api_key = "ollama"
+timeout = 60.0
 concurrency = 3
 
-[llm.call_points.classifier]
-primary = "ollama"
-fallbacks = ["openai"]
+[llm.call-points.classifier]
+primary = "cc_stitch"
+fallbacks = ["iflow", "zhipu"]
 
-[llm.call_points.cleaner]
-primary = "ollama"
-fallbacks = ["openai"]
+[llm.call-points.cleaner]
+primary = "cc_stitch"
+fallbacks = ["iflow", "zhipu"]
 
-[llm.call_points.categorizer]
-primary = "ollama"
-fallbacks = ["openai"]
+[llm.call-points.categorizer]
+primary = "cc_stitch"
+fallbacks = ["iflow", "zhipu"]
 
-[llm.call_points.merger]
-primary = "ollama"
-fallbacks = ["openai"]
+[llm.call-points.merger]
+primary = "cc_stitch"
+fallbacks = ["iflow", "zhipu"]
 
-[llm.call_points.analyze]
-primary = "ollama"
-fallbacks = ["openai"]
+[llm.call-points.analyze]
+primary = "cc_stitch"
+fallbacks = ["iflow", "zhipu"]
 
-[llm.call_points.credibility_checker]
-primary = "ollama"
-fallbacks = ["openai"]
+[llm.call-points.credibility_checker]
+primary = "cc_stitch"
+fallbacks = ["iflow", "zhipu"]
 
-[llm.call_points.entity_extractor]
-primary = "ollama"
-fallbacks = ["openai"]
+[llm.call-points.quality_scorer]
+primary = "cc_stitch"
+fallbacks = ["iflow", "zhipu"]
 
-[llm.call_points.entity_resolver]
-primary = "ollama"
-fallbacks = ["openai"]
+[llm.call-points.entity_extractor]
+primary = "cc_stitch"
+fallbacks = ["iflow", "zhipu"]
+
+[llm.call-points.entity_resolver]
+primary = "cc_stitch"
+fallbacks = ["iflow", "zhipu"]
 
 [fetcher]
 playwright_pool_size = 5
@@ -80,11 +103,15 @@ stealth_timezone = "Asia/Shanghai"
 stealth_random_delay_min = 0.5
 stealth_random_delay_max = 2.0
 
+rate_limit_enabled = true
+rate_limit_delay_min = 1.0
+rate_limit_delay_max = 3.0
+
 [prompt]
 dir = "config/prompts"
 
 [api]
-api_key = "CHANGE-ME-IN-PRODUCTION"
+api_key = ""
 rate_limit = "100/minute"
 host = "0.0.0.0"
 port = 8000
