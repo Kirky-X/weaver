@@ -80,7 +80,8 @@ weaver/
 │       ├── credibility_checker.toml
 │       ├── entity_extractor.toml
 │       ├── entity_resolver.toml
-│       └── merger.toml
+│       ├── merger.toml
+│       └── quality_scorer.toml      # 文章质量评分
 │
 ├── core/
 │   ├── llm/
@@ -88,7 +89,6 @@ weaver/
 │   │   ├── config_manager.py        # 多厂商配置解析
 │   │   ├── queue_manager.py         # 队列 + Fallback Chain
 │   │   ├── rate_limiter.py          # Redis 令牌桶（多进程安全）
-│   │   ├── circuit_breaker.py       # 断路器
 │   │   ├── token_budget.py          # Token 截断管理
 │   │   ├── output_validator.py      # Pydantic 输出校验 + 自重试
 │   │   ├── providers/
@@ -109,9 +109,6 @@ weaver/
 │   ├── prompt/
 │   │   └── loader.py                # TOML Prompt 加载（含版本）
 │   │
-│   ├── fetcher/
-│   │   └── playwright_pool.py       # 浏览器上下文池
-│   │
 │   ├── resilience/
 │   │   └── circuit_breaker.py       # 通用断路器
 │   │
@@ -128,6 +125,8 @@ weaver/
 │   │   ├── base.py
 │   │   ├── httpx_fetcher.py
 │   │   ├── playwright_fetcher.py
+│   │   ├── playwright_pool.py        # 浏览器上下文池
+│   │   ├── rate_limiter.py           # HTTP请求限流
 │   │   └── smart_fetcher.py
 │   │
 │   ├── source/
@@ -156,7 +155,8 @@ weaver/
 │   │       ├── re_vectorize.py
 │   │       ├── analyze.py           # summarizer + scorer + sentiment
 │   │       ├── credibility_checker.py
-│   │       └── entity_extractor.py  # spaCy + LLM
+│   │       ├── entity_extractor.py  # spaCy + LLM
+│   │       └── quality_scorer.py    # 文章质量评分
 │   │
 │   ├── nlp/
 │   │   └── spacy_extractor.py       # 多语言 spaCy 封装
@@ -297,7 +297,7 @@ CREATE TYPE category_type AS ENUM (
 );
 
 CREATE TYPE persist_status AS ENUM (
-    'pending', 'pg_done', 'neo4j_done', 'failed'
+    'pending', 'processing', 'pg_done', 'neo4j_done', 'failed'
 );
 
 CREATE TYPE emotion_type AS ENUM (
@@ -354,6 +354,14 @@ CREATE TABLE articles (
 
     -- 持久化状态
     persist_status      persist_status NOT NULL DEFAULT 'pending',
+    
+    -- 质量评分
+    quality_score       NUMERIC(3,2) CHECK (quality_score IS NULL OR (quality_score >= 0 AND quality_score <= 1)),
+    
+    -- 处理追踪
+    processing_stage    VARCHAR(50),
+    processing_error    TEXT,
+    retry_count         INT NOT NULL DEFAULT 0,
 
     -- Prompt 版本溯源
     prompt_versions     JSONB,
@@ -478,51 +486,134 @@ def upgrade():
 
 ```python
 # container.py
-from dependency_injector import containers, providers
-from core.db.postgres import PostgresPool
-from core.db.neo4j import Neo4jPool
-from core.cache.redis import RedisClient
-from core.llm.config_manager import LLMConfigManager
-from core.llm.queue_manager import LLMQueueManager
+"""依赖注入容器 - 手动管理的轻量级实现。
+
+设计决策：
+- 使用自定义Container类而非dependency_injector库，更轻量且无第三方依赖
+- 采用懒加载模式，按需初始化各组件
+- 支持优雅停机，确保资源正确释放
+"""
+from __future__ import annotations
+from typing import Any
+
+from config.settings import Settings
+from core.db import PostgresPool, Neo4jPool
+from core.cache import RedisClient
+from core.observability import get_logger
 from core.llm.client import LLMClient
+from core.llm.config_manager import LLMConfigManager
+from core.llm.token_budget import TokenBudgetManager
 from core.llm.rate_limiter import RedisTokenBucket
-from core.prompt.loader import PromptLoader
-from core.fetcher.playwright_pool import PlaywrightContextPool
-from core.event.bus import EventBus
-from core.observability.metrics import MetricsCollector
+from core.llm.queue_manager import LLMQueueManager
+from core.event import EventBus
+from core.prompt import PromptLoader
+from modules.source import SourceRegistry, SourceScheduler
+from modules.storage import ArticleRepo, VectorRepo, SourceAuthorityRepo
+from modules.storage.neo4j import Neo4jEntityRepo, Neo4jArticleRepo
+from modules.graph_store import Neo4jWriter, EntityResolver
+from modules.fetcher import SmartFetcher, PlaywrightContextPool
+from modules.collector import Deduplicator
+from modules.collector.crawler import Crawler
+from modules.pipeline.graph import Pipeline
 
-class Container(containers.DeclarativeContainer):
-    wiring_config = containers.WiringConfiguration(packages=["api", "modules"])
-    config = providers.Configuration()
+log = get_logger("container")
 
-    # 基础设施
-    postgres_pool    = providers.Singleton(PostgresPool, dsn=config.postgres.dsn)
-    neo4j_pool       = providers.Singleton(Neo4jPool, uri=config.neo4j.uri, auth=config.neo4j.auth)
-    redis_client     = providers.Singleton(RedisClient, url=config.redis.url)
-    event_bus        = providers.Singleton(EventBus)
-    metrics          = providers.Singleton(MetricsCollector)
 
-    # LLM
-    prompt_loader    = providers.Singleton(PromptLoader, path=config.prompt.dir)
-    llm_config       = providers.Singleton(LLMConfigManager, config=config.llm)
-    rate_limiter     = providers.Singleton(RedisTokenBucket, redis=redis_client)
-    llm_queue        = providers.Singleton(
-                           LLMQueueManager,
-                           config_manager=llm_config,
-                           rate_limiter=rate_limiter,
-                           event_bus=event_bus,
-                       )
-    llm_client       = providers.Singleton(
-                           LLMClient,
-                           queue_manager=llm_queue,
-                           prompt_loader=prompt_loader,
-                       )
+class Container:
+    """依赖注入容器，管理所有核心服务的生命周期。"""
 
-    # 采集
-    playwright_pool  = providers.Singleton(
-                           PlaywrightContextPool,
-                           pool_size=config.fetcher.playwright_pool_size,
-                       )
+    def __init__(self) -> None:
+        self._settings: Settings | None = None
+        self._postgres_pool: PostgresPool | None = None
+        self._neo4j_pool: Neo4jPool | None = None
+        self._redis_client: RedisClient | None = None
+        self._llm_client: LLMClient | None = None
+        self._prompt_loader: PromptLoader | None = None
+        # ... 其他组件
+
+    def configure(self, settings: Settings) -> "Container":
+        """配置容器。"""
+        self._settings = settings
+        return self
+
+    # ── 数据库连接池 ──────────────────────────────────────────
+
+    async def init_postgres(self) -> PostgresPool:
+        """初始化 PostgreSQL 连接池。"""
+        if self._postgres_pool is None:
+            self._postgres_pool = PostgresPool(self._settings.postgres.dsn)
+            await self._postgres_pool.startup()
+        return self._postgres_pool
+
+    async def init_neo4j(self) -> Neo4jPool:
+        """初始化 Neo4j 连接池。"""
+        if self._neo4j_pool is None:
+            self._neo4j_pool = Neo4jPool(
+                self._settings.neo4j.uri,
+                ("neo4j", self._settings.neo4j.password),
+            )
+            await self._neo4j_pool.startup()
+        return self._neo4j_pool
+
+    # ── LLM & Prompt ─────────────────────────────────────────────
+
+    async def init_llm(self) -> LLMClient:
+        """初始化 LLM 客户端。"""
+        if self._llm_client is None:
+            config_manager = LLMConfigManager(self._settings.llm)
+            rate_limiter = RedisTokenBucket(self._redis_client.client)
+            event_bus = EventBus()
+            queue_manager = LLMQueueManager(
+                config_manager=config_manager,
+                rate_limiter=rate_limiter,
+                event_bus=event_bus,
+            )
+            await queue_manager.startup()
+            prompt_loader = self.prompt_loader()
+            token_budget = TokenBudgetManager()
+            self._llm_client = LLMClient(
+                queue_manager=queue_manager,
+                prompt_loader=prompt_loader,
+                token_budget=token_budget,
+            )
+        return self._llm_client
+
+    # ── Fetcher & Crawler ────────────────────────────────────────
+
+    async def init_playwright_pool(self) -> PlaywrightContextPool:
+        """初始化 Playwright 浏览器池。"""
+        if self._playwright_pool is None:
+            settings = self._settings.fetcher
+            self._playwright_pool = PlaywrightContextPool(
+                pool_size=settings.playwright_pool_size,
+                stealth_enabled=settings.stealth_enabled,
+                user_agent=settings.stealth_user_agent,
+            )
+            await self._playwright_pool.startup()
+        return self._playwright_pool
+
+    # ── 生命周期 ─────────────────────────────────────────────────
+
+    async def startup(self) -> None:
+        """初始化所有服务。"""
+        await self.init_postgres()
+        await self.init_redis()
+        await self.init_neo4j()
+        await self.init_llm()
+        await self.init_playwright_pool()
+        await self.init_smart_fetcher()
+        await self.init_pipeline()
+
+    async def shutdown(self) -> None:
+        """关闭所有服务（逆序）。"""
+        if self._playwright_pool:
+            await self._playwright_pool.shutdown()
+        if self._redis_client:
+            await self._redis_client.shutdown()
+        if self._postgres_pool:
+            await self._postgres_pool.shutdown()
+        if self._neo4j_pool:
+            await self._neo4j_pool.shutdown()
 ```
 
 ---
@@ -1808,6 +1899,7 @@ FOR (e:Entity) REQUIRE (e.canonical_name, e.type) IS UNIQUE;
     id:             String,   -- UUID
     canonical_name: String,   -- 规范名称
     type:           String,   -- 人物/组织机构/地点/...
+    tier:           Integer,  -- 权威来源优先级 (1=高权威, 2=中等, 3=普通)
     aliases:        [String], -- 别名列表
     description:    String,
     updated_at:     DateTime
