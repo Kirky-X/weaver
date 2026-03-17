@@ -107,8 +107,8 @@ class TestPipelineInit:
 
     def test_default_concurrency_values(self):
         """Test default concurrency values."""
-        assert Pipeline.DEFAULT_PHASE1_CONCURRENCY == 1
-        assert Pipeline.DEFAULT_PHASE3_CONCURRENCY == 1
+        assert Pipeline.DEFAULT_PHASE1_CONCURRENCY == 5
+        assert Pipeline.DEFAULT_PHASE3_CONCURRENCY == 5
 
 
 class TestPipelineStopAccepting:

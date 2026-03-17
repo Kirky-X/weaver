@@ -56,8 +56,8 @@ class Pipeline:
     """
 
     # Default concurrency limits for LLM processing
-    DEFAULT_PHASE1_CONCURRENCY = 1  # Process articles one at a time to avoid Ollama overload
-    DEFAULT_PHASE3_CONCURRENCY = 1  # Same for post-merge processing
+    DEFAULT_PHASE1_CONCURRENCY = 5  # Concurrent processing for cloud LLM APIs
+    DEFAULT_PHASE3_CONCURRENCY = 5  # Same for post-merge processing
 
     def __init__(
         self,
