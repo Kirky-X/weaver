@@ -11,7 +11,7 @@ log = get_logger("spacy_extractor")
 
 MODEL_MAP = {
     "zh": ["zh_core_web_trf", "zh_core_web_sm"],
-    "en": ["en_core_web_trf", "en_core_web_sm"],
+    "en": ["en_core_web_sm", "en_core_web_trf"],
     "default": ["xx_ent_wiki_sm"],
 }
 
