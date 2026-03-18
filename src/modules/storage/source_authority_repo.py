@@ -1,11 +1,11 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Source authority repository."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import select, update
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.models import SourceAuthority
 from core.db.postgres import PostgresPool
@@ -70,16 +70,14 @@ class SourceAuthorityRepo:
         values: dict = {
             "authority": authority,
             "needs_review": needs_review,
-            "updated_at": datetime.now(timezone.utc),
+            "updated_at": datetime.now(UTC),
         }
         if tier is not None:
             values["tier"] = tier
 
         async with self._pool.session() as session:
             await session.execute(
-                update(SourceAuthority)
-                .where(SourceAuthority.host == host)
-                .values(**values)
+                update(SourceAuthority).where(SourceAuthority.host == host).values(**values)
             )
             await session.commit()
 
@@ -93,9 +91,7 @@ class SourceAuthorityRepo:
             )
             return list(result.scalars().all())
 
-    async def update_auto_score(
-        self, host: str, auto_score: float
-    ) -> None:
+    async def update_auto_score(self, host: str, auto_score: float) -> None:
         """Update auto-computed authority score."""
         async with self._pool.session() as session:
             await session.execute(
@@ -103,7 +99,7 @@ class SourceAuthorityRepo:
                 .where(SourceAuthority.host == host)
                 .values(
                     auto_score=auto_score,
-                    updated_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(UTC),
                 )
             )
             await session.commit()

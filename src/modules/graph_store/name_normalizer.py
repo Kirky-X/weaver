@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Entity name normalization for consistent canonical name selection.
 
 Provides comprehensive name normalization including:
@@ -15,7 +16,6 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any
 
 from core.observability.logging import get_logger
 
@@ -91,8 +91,15 @@ class NameNormalizer:
         }
 
         self._chinese_org_suffixes = [
-            "有限公司", "股份有限公司", "集团", "公司",
-            "科技", "技术", "网络", "信息", "互联网",
+            "有限公司",
+            "股份有限公司",
+            "集团",
+            "公司",
+            "科技",
+            "技术",
+            "网络",
+            "信息",
+            "互联网",
         ]
 
     def normalize(
@@ -163,8 +170,8 @@ class NameNormalizer:
 
     def _detect_script(self, text: str) -> NameScript:
         """Detect the primary script of the text."""
-        has_chinese = bool(re.search(r'[\u4e00-\u9fff]', text))
-        has_english = bool(re.search(r'[a-zA-Z]', text))
+        has_chinese = bool(re.search(r"[\u4e00-\u9fff]", text))
+        has_english = bool(re.search(r"[a-zA-Z]", text))
 
         if has_chinese and has_english:
             return NameScript.MIXED
@@ -177,22 +184,22 @@ class NameNormalizer:
 
     def _normalize_unicode(self, text: str) -> str:
         """Normalize Unicode characters."""
-        text = unicodedata.normalize('NFKC', text)
-        text = text.replace('\u3000', ' ')
-        text = text.replace('\u00a0', ' ')
+        text = unicodedata.normalize("NFKC", text)
+        text = text.replace("\u3000", " ")
+        text = text.replace("\u00a0", " ")
         return text
 
     def _normalize_whitespace_chars(self, text: str) -> str:
         """Normalize whitespace characters."""
-        text = re.sub(r'\s+', ' ', text)
-        text = re.sub(r'^\s+|\s+$', '', text)
+        text = re.sub(r"\s+", " ", text)
+        text = re.sub(r"^\s+|\s+$", "", text)
         return text
 
     def _remove_special(self, text: str) -> str:
         """Remove special characters while preserving meaningful ones."""
-        text = re.sub(r'["""\'\'`]', '', text)
-        text = re.sub(r'[\x00-\x1f\x7f-\x9f]', '', text)
-        text = re.sub(r'\s*[-–—]\s*', '-', text)
+        text = re.sub(r'["""\'\'`]', "", text)
+        text = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", text)
+        text = re.sub(r"\s*[-–—]\s*", "-", text)
         return text
 
     def _normalize_case_for_english(self, text: str) -> str:
@@ -200,6 +207,7 @@ class NameNormalizer:
 
         For mixed Chinese-English text, only normalize the English parts.
         """
+
         def normalize_english_part(match):
             word = match.group(0)
             if word.isupper() and len(word) <= 4:
@@ -208,15 +216,15 @@ class NameNormalizer:
                 return word.capitalize()
             return word
 
-        text = re.sub(r'[A-Za-z]+', normalize_english_part, text)
+        text = re.sub(r"[A-Za-z]+", normalize_english_part, text)
         return text
 
     def _normalize_organization_suffix(self, name: str) -> str:
         """Normalize organization suffixes."""
         for suffix, normalized in self._org_suffix_map.items():
-            pattern = rf'\s+{re.escape(suffix)}\.?$'
+            pattern = rf"\s+{re.escape(suffix)}\.?$"
             if re.search(pattern, name, re.IGNORECASE):
-                name = re.sub(pattern, f' {normalized}', name, flags=re.IGNORECASE)
+                name = re.sub(pattern, f" {normalized}", name, flags=re.IGNORECASE)
                 break
 
         for suffix in self._chinese_org_suffixes:
@@ -245,9 +253,7 @@ class NameNormalizer:
         if len(names) == 1:
             return names[0]
 
-        normalized_results = [
-            self.normalize(name, entity_type) for name in names
-        ]
+        normalized_results = [self.normalize(name, entity_type) for name in names]
 
         scored_names = []
         for original, result in zip(names, normalized_results):
@@ -296,7 +302,7 @@ class NameNormalizer:
         """Get the ratio of Chinese characters in text."""
         if not text:
             return 0.0
-        chinese_count = len(re.findall(r'[\u4e00-\u9fff]', text))
+        chinese_count = len(re.findall(r"[\u4e00-\u9fff]", text))
         return chinese_count / len(text)
 
     def are_equivalent(
@@ -336,7 +342,7 @@ class NameNormalizer:
         def strip_suffix(name: str) -> str:
             for suffix in suffixes:
                 if name.endswith(suffix):
-                    return name[:-len(suffix)].strip()
+                    return name[: -len(suffix)].strip()
             return name
 
         return strip_suffix(name1) == strip_suffix(name2)

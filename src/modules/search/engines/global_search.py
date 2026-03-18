@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Global search engine using Map-Reduce pattern.
 
 Performs community-level searches with aggregation, suitable for
@@ -128,7 +129,11 @@ class GlobalSearchEngine:
                 temperature=0.3,
             )
 
-            final_answer = final_response.content if hasattr(final_response, "content") else str(final_response)
+            final_answer = (
+                final_response.content
+                if hasattr(final_response, "content")
+                else str(final_response)
+            )
 
             return SearchResult(
                 query=query,
@@ -149,7 +154,7 @@ class GlobalSearchEngine:
             log.error("global_search_failed", error=str(exc))
             return SearchResult(
                 query=query,
-                answer=f"Search failed: {str(exc)}",
+                answer=f"Search failed: {exc!s}",
                 context_tokens=0,
                 confidence=0.0,
                 metadata={"error": str(exc)},
@@ -175,10 +180,9 @@ Answer:"""
 
     def _build_reduce_prompt(self, query: str, intermediate_answers: list[str]) -> str:
         """Build the Reduce phase prompt."""
-        answers_text = "\n\n---\n\n".join([
-            f"Perspective {i+1}:\n{answer}"
-            for i, answer in enumerate(intermediate_answers)
-        ])
+        answers_text = "\n\n---\n\n".join(
+            [f"Perspective {i+1}:\n{answer}" for i, answer in enumerate(intermediate_answers)]
+        )
 
         return f"""You are synthesizing multiple perspectives into a comprehensive answer.
 
@@ -273,7 +277,7 @@ Comprehensive Answer:"""
             log.error("simple_global_search_failed", error=str(exc))
             return SearchResult(
                 query=query,
-                answer=f"Search failed: {str(exc)}",
+                answer=f"Search failed: {exc!s}",
                 context_tokens=0,
                 confidence=0.0,
                 metadata={"error": str(exc)},

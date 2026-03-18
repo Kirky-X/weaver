@@ -1,8 +1,9 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Source module data models."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 
 

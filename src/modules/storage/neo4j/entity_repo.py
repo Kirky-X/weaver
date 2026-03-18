@@ -1,12 +1,12 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Neo4j entity repository for entity graph operations."""
 
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
-from neo4j import AsyncDriver
 from neo4j.exceptions import ConstraintError
 
 from core.db.neo4j import Neo4jPool
@@ -14,12 +14,14 @@ from core.observability.logging import get_logger
 
 log = get_logger("neo4j_entity_repo")
 
-ALLOWED_RELATION_TYPES = frozenset({
-    "RELATED_TO",
-    "MENTIONS",
-    "FOLLOWED_BY",
-    "RELATED",
-})
+ALLOWED_RELATION_TYPES = frozenset(
+    {
+        "RELATED_TO",
+        "MENTIONS",
+        "FOLLOWED_BY",
+        "RELATED",
+    }
+)
 
 CHINESE_TO_ENGLISH_RELATIONS = {
     "隶属于": "RELATED_TO",
@@ -34,10 +36,10 @@ CHINESE_TO_ENGLISH_RELATIONS = {
 
 def normalize_relation_type(relation_type: str) -> str:
     """Normalize relation type to allowed English enum.
-    
+
     Args:
         relation_type: Original relation type (Chinese or English).
-        
+
     Returns:
         Normalized relation type in English.
     """
@@ -418,6 +420,7 @@ class Neo4jEntityRepo:
     async def _sleep(seconds: float) -> None:
         """Async sleep helper."""
         import asyncio
+
         await asyncio.sleep(seconds)
 
     async def merge_entities_batch(
@@ -704,4 +707,4 @@ class Neo4jEntityRepo:
     def _chunk(items: list[Any], size: int) -> Iterator[list[Any]]:
         """Split items into chunks of specified size."""
         for i in range(0, len(items), size):
-            yield items[i:i + size]
+            yield items[i : i + size]

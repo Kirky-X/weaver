@@ -1,12 +1,13 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Categorizer pipeline node — LLM-based category/language/region detection."""
 
 from __future__ import annotations
 
 from core.llm.client import LLMClient
-from core.llm.types import CallPoint
 from core.llm.output_validator import CategorizerOutput
-from core.prompt.loader import PromptLoader
+from core.llm.types import CallPoint
 from core.observability.logging import get_logger
+from core.prompt.loader import PromptLoader
 from modules.pipeline.state import PipelineState
 
 log = get_logger("node.categorizer")
@@ -107,8 +108,8 @@ class CategorizerNode:
             state["language"] = "en"
             state["region"] = "国际"
 
-        state.setdefault("prompt_versions", {})["categorizer"] = (
-            self._prompt_loader.get_version("categorizer")
+        state.setdefault("prompt_versions", {})["categorizer"] = self._prompt_loader.get_version(
+            "categorizer"
         )
 
         log.info(

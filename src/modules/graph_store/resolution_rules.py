@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Entity resolution rules for deduplication and canonical name selection.
 
 Based on GraphRAG's entity disambiguation approach with enhancements for
@@ -7,9 +8,10 @@ Chinese language processing and domain-specific rules.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable
+from typing import Any
 
 from core.observability.logging import get_logger
 
@@ -434,9 +436,9 @@ class EntityResolutionRules:
 
         for title in titles:
             if name.endswith(title):
-                name_stripped = name[:-len(title)].strip()
+                name_stripped = name[: -len(title)].strip()
             if canonical.endswith(title):
-                canonical_stripped = canonical[:-len(title)].strip()
+                canonical_stripped = canonical[: -len(title)].strip()
 
         if name_stripped == canonical_stripped and name != canonical:
             return ResolutionResult(
@@ -456,9 +458,21 @@ class EntityResolutionRules:
     ) -> ResolutionResult | None:
         """Match organization name variants."""
         suffixes = [
-            "公司", "集团", "有限", "股份", "科技", "技术",
-            "Inc.", "Corp.", "Ltd.", "LLC", "GmbH", "Co.",
-            "Corporation", "Incorporated", "Limited",
+            "公司",
+            "集团",
+            "有限",
+            "股份",
+            "科技",
+            "技术",
+            "Inc.",
+            "Corp.",
+            "Ltd.",
+            "LLC",
+            "GmbH",
+            "Co.",
+            "Corporation",
+            "Incorporated",
+            "Limited",
         ]
 
         name_stripped = name
@@ -466,9 +480,9 @@ class EntityResolutionRules:
 
         for suffix in suffixes:
             if name.endswith(suffix):
-                name_stripped = name[:-len(suffix)].strip()
+                name_stripped = name[: -len(suffix)].strip()
             if canonical.endswith(suffix):
-                canonical_stripped = canonical[:-len(suffix)].strip()
+                canonical_stripped = canonical[: -len(suffix)].strip()
 
         if name_stripped == canonical_stripped and name != canonical:
             return ResolutionResult(
@@ -494,9 +508,9 @@ class EntityResolutionRules:
 
         for suffix in suffixes:
             if name.endswith(suffix):
-                name_stripped = name[:-len(suffix)].strip()
+                name_stripped = name[: -len(suffix)].strip()
             if canonical.endswith(suffix):
-                canonical_stripped = canonical[:-len(suffix)].strip()
+                canonical_stripped = canonical[: -len(suffix)].strip()
 
         if name_stripped == canonical_stripped and name != canonical:
             return ResolutionResult(
@@ -540,7 +554,7 @@ class EntityResolutionRules:
 
     def _is_chinese(self, text: str) -> bool:
         """Check if text contains Chinese characters."""
-        return bool(re.search(r'[\u4e00-\u9fff]', text))
+        return bool(re.search(r"[\u4e00-\u9fff]", text))
 
     def get_all_aliases(self, canonical: str) -> set[str]:
         """Get all known aliases for a canonical name."""

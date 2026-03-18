@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Batch Merger pipeline node — Union-Find based article merging."""
 
 from __future__ import annotations
@@ -9,12 +10,12 @@ from typing import Any
 
 import numpy as np
 
-from core.llm.client import LLMClient
-from core.llm.types import CallPoint
-from core.llm.output_validator import MergerOutput
-from core.prompt.loader import PromptLoader
-from core.observability.logging import get_logger
 from core.db.models import PersistStatus
+from core.llm.client import LLMClient
+from core.llm.output_validator import MergerOutput
+from core.llm.types import CallPoint
+from core.observability.logging import get_logger
+from core.prompt.loader import PromptLoader
 from modules.pipeline.state import PipelineState
 
 log = get_logger("node.batch_merger")
@@ -28,7 +29,7 @@ class UnionFind:
 
     def __init__(self, elements: list[str]) -> None:
         self._parent = {e: e for e in elements}
-        self._rank = {e: 0 for e in elements}
+        self._rank = dict.fromkeys(elements, 0)
 
     def find(self, x: str) -> str:
         """Find root with path compression."""
@@ -96,9 +97,7 @@ class BatchMergerNode:
         self._article_repo = article_repo
         self._neo4j_writer = neo4j_writer
 
-    async def execute_batch(
-        self, states: list[PipelineState]
-    ) -> list[PipelineState]:
+    async def execute_batch(self, states: list[PipelineState]) -> list[PipelineState]:
         """Execute batch merging on a list of pipeline states.
 
         Args:
@@ -121,9 +120,7 @@ class BatchMergerNode:
             await self._intra_batch_similarity(active_states, vectors, uf)
 
         if self._vector_repo:
-            cross_tasks = [
-                self._cross_query(s, uf, ids) for s in active_states
-            ]
+            cross_tasks = [self._cross_query(s, uf, ids) for s in active_states]
             await asyncio.gather(*cross_tasks)
 
         groups = uf.get_groups()
@@ -152,10 +149,7 @@ class BatchMergerNode:
     ) -> None:
         """Use pgvector batch similarity query for O(n log n) complexity."""
         try:
-            queries = [
-                (uuid.uuid4(), vec)
-                for vec in vectors
-            ]
+            queries = [(uuid.uuid4(), vec) for vec in vectors]
             batch_results = await self._vector_repo.batch_find_similar(
                 queries=queries,
                 threshold=self.SIMILARITY_THRESHOLD,
@@ -194,9 +188,7 @@ class BatchMergerNode:
                     if states[i].get("category") == states[j].get("category"):
                         uf.union(states[i]["raw"].url, states[j]["raw"].url)
 
-    async def _cross_query(
-        self, state: PipelineState, uf: UnionFind, ids: list[str]
-    ) -> None:
+    async def _cross_query(self, state: PipelineState, uf: UnionFind, ids: list[str]) -> None:
         """Query historical similar articles and extend Union-Find."""
         if not self._vector_repo:
             return
@@ -245,17 +237,15 @@ class BatchMergerNode:
         )
         primary["cleaned"]["body"] = result.merged_body
         primary["cleaned"]["title"] = result.merged_title
-        primary["merged_source_ids"] = [
-            s["raw"].url for s in group_states if s is not primary
-        ]
+        primary["merged_source_ids"] = [s["raw"].url for s in group_states if s is not primary]
 
         for s in group_states:
             if s is not primary:
                 s["is_merged"] = True
                 s["merged_into"] = primary["raw"].url
 
-        primary.setdefault("prompt_versions", {})["merger"] = (
-            self._prompt_loader.get_version("merger")
+        primary.setdefault("prompt_versions", {})["merger"] = self._prompt_loader.get_version(
+            "merger"
         )
 
     async def persist_batch_saga(
@@ -298,10 +288,7 @@ class BatchMergerNode:
         existing_urls = await self._article_repo.get_existing_urls(urls_to_check)
 
         # Filter out duplicates, keep only new articles
-        new_states = [
-            s for s in valid_states
-            if s["raw"].url not in existing_urls
-        ]
+        new_states = [s for s in valid_states if s["raw"].url not in existing_urls]
         skipped_count = len(valid_states) - len(new_states)
 
         if skipped_count > 0:
@@ -336,13 +323,19 @@ class BatchMergerNode:
                 for state in new_states:
                     if "vectors" in state:
                         vectors = state["vectors"]
-                        if isinstance(vectors, dict) and "title" in vectors and "content" in vectors:
-                            vector_data.append((
-                                uuid.UUID(state["article_id"]),
-                                vectors.get("title"),
-                                vectors.get("content"),
-                                vectors.get("model_id", "unknown"),
-                            ))
+                        if (
+                            isinstance(vectors, dict)
+                            and "title" in vectors
+                            and "content" in vectors
+                        ):
+                            vector_data.append(
+                                (
+                                    uuid.UUID(state["article_id"]),
+                                    vectors.get("title"),
+                                    vectors.get("content"),
+                                    vectors.get("model_id", "unknown"),
+                                )
+                            )
                 if vector_data:
                     await self._vector_repo.bulk_upsert_article_vectors(vector_data)
 

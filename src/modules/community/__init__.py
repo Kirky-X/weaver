@@ -1,21 +1,22 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Community module - Community detection and reporting."""
 
-from modules.community.report_generator import CommunityReportGenerator, CommunityReport
-from modules.community.text_unit_manager import TextUnitManager, TextUnit
-from modules.community.models import Community, CommunityHierarchy, ClusteringResult
+from modules.community.leiden import GraphPartition, LeidenClustering
+from modules.community.models import ClusteringResult, Community, CommunityHierarchy
 from modules.community.modularity import ModularityCalculator, ModularityResult
-from modules.community.leiden import LeidenClustering, GraphPartition
+from modules.community.report_generator import CommunityReport, CommunityReportGenerator
+from modules.community.text_unit_manager import TextUnit, TextUnitManager
 
 __all__ = [
-    "CommunityReportGenerator",
-    "CommunityReport",
-    "TextUnitManager",
-    "TextUnit",
+    "ClusteringResult",
     "Community",
     "CommunityHierarchy",
-    "ClusteringResult",
+    "CommunityReport",
+    "CommunityReportGenerator",
+    "GraphPartition",
+    "LeidenClustering",
     "ModularityCalculator",
     "ModularityResult",
-    "LeidenClustering",
-    "GraphPartition",
+    "TextUnit",
+    "TextUnitManager",
 ]

@@ -1,15 +1,16 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """NewsNow API parser for fetching news from newsnow.net.cn."""
 
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
+from core.observability.logging import get_logger
 from modules.fetcher.base import BaseFetcher
 from modules.source.base import BaseSourceParser
 from modules.source.models import NewsItem, SourceConfig
-from core.observability.logging import get_logger
 
 log = get_logger("newsnow_parser")
 
@@ -123,7 +124,7 @@ class NewsNowParser(BaseSourceParser):
             if isinstance(timestamp, (int, float)):
                 if timestamp > 1e12:
                     timestamp = timestamp / 1000
-                return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+                return datetime.fromtimestamp(timestamp, tz=UTC)
         except (OverflowError, ValueError, OSError):
             return None
 

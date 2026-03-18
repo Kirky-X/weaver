@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Entity extractor pipeline node — spaCy + batch embed + LLM refinement."""
 
 from __future__ import annotations
@@ -6,12 +7,12 @@ import asyncio
 from typing import Any
 
 from core.llm.client import LLMClient
-from core.llm.types import CallPoint
-from core.llm.token_budget import TokenBudgetManager
 from core.llm.output_validator import EntityExtractorOutput
+from core.llm.token_budget import TokenBudgetManager
+from core.llm.types import CallPoint
+from core.observability.logging import get_logger
 from core.prompt.loader import PromptLoader
 from modules.nlp.spacy_extractor import SpacyExtractor
-from core.observability.logging import get_logger
 from modules.pipeline.state import PipelineState
 
 log = get_logger("node.entity_extractor")
@@ -51,9 +52,7 @@ class EntityExtractorNode:
         # Phase 1: spaCy NER (sync, run in executor)
         try:
             loop = asyncio.get_running_loop()
-            spacy_entities = await loop.run_in_executor(
-                None, self._spacy.extract, body, language
-            )
+            spacy_entities = await loop.run_in_executor(None, self._spacy.extract, body, language)
         except Exception as e:
             log.warning("spacy_extraction_failed_using_empty", error=str(e), url=state["raw"].url)
             spacy_entities = []

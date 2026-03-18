@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Leiden algorithm for community detection.
 
 Implementation based on the Leiden algorithm for community detection,
@@ -13,10 +14,9 @@ import random
 import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any
 
 from core.observability.logging import get_logger
-from modules.community.models import Community, CommunityHierarchy, ClusteringResult
+from modules.community.models import ClusteringResult, Community, CommunityHierarchy
 from modules.community.modularity import ModularityCalculator
 
 log = get_logger("community.leiden")
@@ -170,9 +170,7 @@ class LeidenClustering:
             if level >= 10:
                 break
 
-        modularity = self._modularity_calc.calculate(
-            edges, partition.node_to_community
-        )
+        modularity = self._modularity_calc.calculate(edges, partition.node_to_community)
 
         all_communities = []
         for communities in hierarchy.levels.values():
@@ -238,9 +236,7 @@ class LeidenClustering:
         node_degree = partition.get_node_degree(node)
 
         for community in neighbor_communities:
-            gain = self._calculate_modularity_gain(
-                partition, node, community, node_degree
-            )
+            gain = self._calculate_modularity_gain(partition, node, community, node_degree)
             if gain > best_gain:
                 best_gain = gain
                 best_community = community
@@ -402,10 +398,7 @@ class LeidenClustering:
         communities = []
 
         for community_id, nodes in partition.community_to_nodes.items():
-            entity_names = [
-                node_names.get(node, node)
-                for node in nodes
-            ]
+            entity_names = [node_names.get(node, node) for node in nodes]
 
             community = Community(
                 id=str(uuid.uuid4()),

@@ -1,13 +1,14 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Smart fetcher that chooses between httpx and Playwright based on response."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from core.observability.logging import get_logger
 from modules.fetcher.base import BaseFetcher
 from modules.fetcher.httpx_fetcher import HttpxFetcher
 from modules.fetcher.playwright_fetcher import PlaywrightFetcher
-from core.observability.logging import get_logger
 
 if TYPE_CHECKING:
     from modules.fetcher.rate_limiter import HostRateLimiter

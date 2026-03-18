@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Vectorize pipeline node — generate content embeddings for Merger."""
 
 from __future__ import annotations

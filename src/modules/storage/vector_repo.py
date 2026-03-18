@@ -1,15 +1,14 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Vector repository for pgvector operations."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
 import uuid
+from dataclasses import dataclass
 
 from sqlalchemy import select, text
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.db.models import ArticleVector, EntityVector, VectorType
+from core.db.models import EntityVector, VectorType
 from core.db.postgres import PostgresPool
 from core.observability.logging import get_logger
 
@@ -65,36 +64,40 @@ class VectorRepo:
                     continue
 
                 existing_id = await session.execute(
-                    text(
-                        """
+                    text("""
                         SELECT id FROM article_vectors
                         WHERE article_id = :article_id AND vector_type = :vector_type
-                        """
-                    ),
+                        """),
                     {"article_id": article_id, "vector_type": vec_type},
                 )
                 existing = existing_id.scalar_one_or_none()
 
                 if existing:
                     await session.execute(
-                        text(
-                            """
+                        text("""
                             UPDATE article_vectors
                             SET embedding = :embedding, model_id = :model_id, updated_at = NOW()
                             WHERE article_id = :article_id AND vector_type = :vector_type
-                            """
-                        ),
-                        {"article_id": article_id, "vector_type": vec_type, "embedding": f"[{','.join(map(str, embedding))}]", "model_id": model_id},
+                            """),
+                        {
+                            "article_id": article_id,
+                            "vector_type": vec_type,
+                            "embedding": f"[{','.join(map(str, embedding))}]",
+                            "model_id": model_id,
+                        },
                     )
                 else:
                     await session.execute(
-                        text(
-                            """
+                        text("""
                             INSERT INTO article_vectors (article_id, vector_type, embedding, model_id)
                             VALUES (:article_id, :vector_type, :embedding, :model_id)
-                            """
-                        ),
-                        {"article_id": article_id, "vector_type": vec_type, "embedding": f"[{','.join(map(str, embedding))}]", "model_id": model_id},
+                            """),
+                        {
+                            "article_id": article_id,
+                            "vector_type": vec_type,
+                            "embedding": f"[{','.join(map(str, embedding))}]",
+                            "model_id": model_id,
+                        },
                     )
 
             await session.commit()
@@ -127,23 +130,19 @@ class VectorRepo:
                         continue
 
                     existing = await session.execute(
-                        text(
-                            """
+                        text("""
                             SELECT id FROM article_vectors
                             WHERE article_id = :article_id AND vector_type = :vector_type
-                            """
-                        ),
+                            """),
                         {"article_id": article_id, "vector_type": vec_type},
                     )
                     if existing.scalar_one_or_none():
                         await session.execute(
-                            text(
-                                """
+                            text("""
                                 UPDATE article_vectors
                                 SET embedding = :embedding, model_id = :model_id, updated_at = NOW()
                                 WHERE article_id = :article_id AND vector_type = :vector_type
-                                """
-                            ),
+                                """),
                             {
                                 "article_id": article_id,
                                 "vector_type": vec_type,
@@ -153,12 +152,10 @@ class VectorRepo:
                         )
                     else:
                         await session.execute(
-                            text(
-                                """
+                            text("""
                                 INSERT INTO article_vectors (article_id, vector_type, embedding, model_id)
                                 VALUES (:article_id, :vector_type, :embedding, :model_id)
-                                """
-                            ),
+                                """),
                             {
                                 "article_id": article_id,
                                 "vector_type": vec_type,
@@ -303,9 +300,7 @@ class VectorRepo:
 
         return results
 
-    async def upsert_entity_vectors(
-        self, entities: list[tuple[str, list[float]]]
-    ) -> None:
+    async def upsert_entity_vectors(self, entities: list[tuple[str, list[float]]]) -> None:
         """Upsert entity vectors by name.
 
         Args:
@@ -329,9 +324,7 @@ class VectorRepo:
 
             await session.commit()
 
-    async def upsert_entity_vector(
-        self, neo4j_id: str, embedding: list[float]
-    ) -> None:
+    async def upsert_entity_vector(self, neo4j_id: str, embedding: list[float]) -> None:
         """Upsert a single entity vector."""
         await self.upsert_entity_vectors([(neo4j_id, embedding)])
 

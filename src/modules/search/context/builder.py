@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Base context builder for search operations.
 
 Provides abstract base class and common utilities for building
@@ -133,7 +134,7 @@ class SearchContext:
         - Chinese characters: ~1 token each
         - English words: ~0.25 tokens per character
         """
-        chinese_chars = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
+        chinese_chars = sum(1 for c in text if "\u4e00" <= c <= "\u9fff")
         other_chars = len(text) - chinese_chars
 
         return chinese_chars + other_chars // 4
@@ -216,23 +217,23 @@ class ContextBuilder(ABC):
         """Format an entity for context inclusion."""
         parts = [f"- {entity.get('canonical_name', 'Unknown')} ({entity.get('type', 'Unknown')})"]
 
-        if include_description and entity.get('description'):
+        if include_description and entity.get("description"):
             parts.append(f"  Description: {entity['description']}")
 
-        if entity.get('aliases'):
-            aliases = entity['aliases'][:5]
+        if entity.get("aliases"):
+            aliases = entity["aliases"][:5]
             parts.append(f"  Aliases: {', '.join(aliases)}")
 
-        return '\n'.join(parts)
+        return "\n".join(parts)
 
     def format_relationship(
         self,
         relation: dict[str, Any],
     ) -> str:
         """Format a relationship for context inclusion."""
-        source = relation.get('source_name', 'Unknown')
-        target = relation.get('target_name', 'Unknown')
-        rel_type = relation.get('relation_type', 'RELATED_TO')
+        source = relation.get("source_name", "Unknown")
+        target = relation.get("target_name", "Unknown")
+        rel_type = relation.get("relation_type", "RELATED_TO")
 
         return f"- {source} --[{rel_type}]--> {target}"
 
@@ -246,12 +247,12 @@ class ContextBuilder(ABC):
         target_chars = int(len(content) * max_tokens / estimated)
         truncated = content[:target_chars]
 
-        last_period = truncated.rfind('。')
-        last_period_en = truncated.rfind('.')
-        last_newline = truncated.rfind('\n')
+        last_period = truncated.rfind("。")
+        last_period_en = truncated.rfind(".")
+        last_newline = truncated.rfind("\n")
 
         cut_point = max(last_period, last_period_en, last_newline)
         if cut_point > target_chars * 0.7:
-            truncated = truncated[:cut_point + 1]
+            truncated = truncated[: cut_point + 1]
 
         return truncated + "..."

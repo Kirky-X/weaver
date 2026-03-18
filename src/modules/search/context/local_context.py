@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Local context builder for entity-based neighborhood search.
 
 Builds context by:
@@ -98,7 +99,9 @@ class LocalContextBuilder(ContextBuilder):
 
         related_entities = await self._get_related_entities(entity_names)
         if related_entities:
-            related_content = self._format_entities_section(related_entities, include_description=False)
+            related_content = self._format_entities_section(
+                related_entities, include_description=False
+            )
             context.add_content(
                 name="Related Entities",
                 content=related_content,
@@ -296,8 +299,8 @@ class LocalContextBuilder(ContextBuilder):
         """Format articles section."""
         lines = []
         for article in articles:
-            title = article.get('title', 'Unknown')
-            summary = article.get('summary', '')
+            title = article.get("title", "Unknown")
+            summary = article.get("summary", "")
             lines.append(f"- {title}")
             if summary:
                 truncated = self.truncate_content(summary, 100)

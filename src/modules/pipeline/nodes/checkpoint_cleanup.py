@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Checkpoint cleanup pipeline node — clean up LangGraph checkpoints after completion."""
 
 from __future__ import annotations

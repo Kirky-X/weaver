@@ -1,10 +1,11 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Graph quality metrics module for monitoring knowledge graph health."""
 
 from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from core.db.neo4j import Neo4jPool
@@ -29,7 +30,7 @@ class GraphMetrics:
     high_degree_entities: list[dict[str, Any]] = field(default_factory=list)
     entity_type_distribution: dict[str, int] = field(default_factory=dict)
     relationship_type_distribution: dict[str, int] = field(default_factory=dict)
-    computed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    computed_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
@@ -117,21 +118,27 @@ class GraphQualityMetrics:
         queries = {
             "entities": "MATCH (e:Entity) RETURN count(e) AS count",
             "articles": "MATCH (a:Article) RETURN count(a) AS count",
-            "relationships": """
+            "relationships": (
+                """
                 MATCH ()-[r:RELATED_TO]->()
                 RETURN count(r) AS count
-            """,
-            "mentions": """
+            """
+            ),
+            "mentions": (
+                """
                 MATCH ()-[r:MENTIONS]->()
                 RETURN count(r) AS count
-            """,
-            "orphans": """
+            """
+            ),
+            "orphans": (
+                """
                 MATCH (e:Entity)
                 WHERE NOT ()-[:MENTIONS]->(e)
                   AND NOT (e)-[:RELATED_TO]-()
                   AND NOT ()-[:RELATED_TO]->(e)
                 RETURN count(e) AS count
-            """,
+            """
+            ),
         }
 
         for key, query in queries.items():
@@ -149,7 +156,7 @@ class GraphQualityMetrics:
                 elif key == "orphans":
                     metrics.orphan_entities = count
             except Exception as exc:
-                log.warning(f"metrics_count_failed", key=key, error=str(exc))
+                log.warning("metrics_count_failed", key=key, error=str(exc))
 
     async def _calculate_degree_metrics(
         self,
@@ -178,9 +185,7 @@ class GraphQualityMetrics:
         """
 
         try:
-            results = await self._pool.execute_query(
-                degree_query, {"limit": limit}
-            )
+            results = await self._pool.execute_query(degree_query, {"limit": limit})
 
             high_degree_entities = []
             total_degree_sum = 0
@@ -192,14 +197,16 @@ class GraphQualityMetrics:
                 entity_count += 1
 
                 if total_degree >= min_degree:
-                    high_degree_entities.append({
-                        "name": row.get("name"),
-                        "type": row.get("type"),
-                        "in_degree": row.get("in_degree", 0),
-                        "out_degree": row.get("out_degree", 0),
-                        "mention_count": row.get("mention_count", 0),
-                        "total_degree": total_degree,
-                    })
+                    high_degree_entities.append(
+                        {
+                            "name": row.get("name"),
+                            "type": row.get("type"),
+                            "in_degree": row.get("in_degree", 0),
+                            "out_degree": row.get("out_degree", 0),
+                            "mention_count": row.get("mention_count", 0),
+                            "total_degree": total_degree,
+                        }
+                    )
 
             metrics.high_degree_entities = high_degree_entities
 
@@ -360,12 +367,14 @@ class GraphQualityMetrics:
                     etype = entity_types.get(node, "Unknown")
                     type_dist[etype] += 1
 
-                components.append(ConnectedComponent(
-                    component_id=component_id,
-                    node_ids=node_list,
-                    size=len(node_list),
-                    entity_types=dict(type_dist),
-                ))
+                components.append(
+                    ConnectedComponent(
+                        component_id=component_id,
+                        node_ids=node_list,
+                        size=len(node_list),
+                        entity_types=dict(type_dist),
+                    )
+                )
                 component_id += 1
 
         return sorted(components, key=lambda c: c.size, reverse=True)
@@ -583,7 +592,7 @@ class GraphQualityMetrics:
                 continue
             intra = degree_sums_within[comm]
             total = degree_sums_for[comm]
-            modularity += intra - resolution * (total ** 2) / (2 * total_weight)
+            modularity += intra - resolution * (total**2) / (2 * total_weight)
 
         return modularity / (2 * total_weight)
 
@@ -600,11 +609,13 @@ class GraphQualityMetrics:
             "relationship_count": metrics.total_relationships,
             "orphan_ratio": (
                 metrics.orphan_entities / metrics.total_entities
-                if metrics.total_entities > 0 else 0
+                if metrics.total_entities > 0
+                else 0
             ),
             "connectedness": (
                 metrics.largest_component_size / metrics.total_entities
-                if metrics.total_entities > 0 else 0
+                if metrics.total_entities > 0
+                else 0
             ),
             "average_degree": metrics.average_degree,
             "recommendations": self._generate_recommendations(metrics),
@@ -647,7 +658,11 @@ class GraphQualityMetrics:
         recommendations = []
 
         if metrics.orphan_entities > 0:
-            orphan_ratio = metrics.orphan_entities / metrics.total_entities if metrics.total_entities > 0 else 0
+            orphan_ratio = (
+                metrics.orphan_entities / metrics.total_entities
+                if metrics.total_entities > 0
+                else 0
+            )
             if orphan_ratio > 0.1:
                 recommendations.append(
                     f"High orphan entity ratio ({orphan_ratio:.1%}). "

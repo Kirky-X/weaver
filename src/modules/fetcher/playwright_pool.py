@@ -1,13 +1,14 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Playwright browser context pool for anti-bot scraping."""
 
 from __future__ import annotations
 
 import asyncio
 import random
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Playwright
+from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
 from playwright_stealth.stealth import Stealth
 
 from core.observability.logging import get_logger

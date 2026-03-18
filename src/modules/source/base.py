@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Base source parser interface."""
 
 from __future__ import annotations

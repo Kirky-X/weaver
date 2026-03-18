@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Re-vectorize pipeline node — generate final embeddings after merge."""
 
 from __future__ import annotations

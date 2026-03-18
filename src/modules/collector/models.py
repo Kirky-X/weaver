@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Collector module data models."""
 
 from __future__ import annotations

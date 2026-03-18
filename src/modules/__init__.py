@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Modules package - Business logic modules for the weaver application.
 
 This package contains all business logic modules:

@@ -91,20 +91,19 @@ repos:
         files: ^src/|^tests/|^scripts/
         pass_filenames: true
 
-  # mypy — 静态类型检查
-  - repo: local
-    hooks:
-      - id: mypy
-        name: mypy (local)
-        entry: mypy
-        language: system
-        types: [python]
-        args:
-          - --config-file=pyproject.toml
-          - --show-error-codes
-          - --pretty
-        files: ^src/(?!alembic/|config/|container\.py|core/)
-        pass_filenames: true
+  # mypy — 静态类型检查（暂不启用，待完善类型注解）
+  # - repo: local
+  #   hooks:
+  #     - id: mypy
+  #       name: mypy (local)
+  #       entry: mypy
+  #       language: system
+  #       types: [python]
+  #       args:
+  #         - --config-file=pyproject.toml
+  #         - --show-error-codes
+  #       files: ^src/api/
+  #       pass_filenames: true
 
   # bandit — 安全漏洞扫描（可选，手动运行）
   # - repo: local

@@ -1,25 +1,24 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Scheduled jobs for weaver backend."""
 
 from __future__ import annotations
 
 import collections
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select, and_
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import and_, select
 
-from core.db.postgres import PostgresPool
 from core.cache.redis import RedisClient
-from core.observability.logging import get_logger
 from core.db.models import Article, PersistStatus
+from core.db.postgres import PostgresPool
+from core.observability.logging import get_logger
+from modules.collector.retry import RetryQueue
+from modules.graph_store.neo4j_writer import Neo4jWriter
 from modules.storage.article_repo import ArticleRepo
 from modules.storage.source_authority_repo import SourceAuthorityRepo
-from modules.graph_store.neo4j_writer import Neo4jWriter
 from modules.storage.vector_repo import VectorRepo
-from modules.collector.crawler import Crawler
-from modules.collector.retry import RetryQueue
 
 log = get_logger("scheduler_jobs")
 
@@ -68,14 +67,18 @@ class SchedulerJobs:
 
         async with self._postgres.session() as session:
             # Find articles stuck in pg_done state for > 10 minutes
-            threshold = datetime.now(timezone.utc) - timedelta(minutes=10)
+            threshold = datetime.now(UTC) - timedelta(minutes=10)
 
-            stmt = select(Article).where(
-                and_(
-                    Article.persist_status == PersistStatus.PG_DONE,
-                    Article.updated_at < threshold,
+            stmt = (
+                select(Article)
+                .where(
+                    and_(
+                        Article.persist_status == PersistStatus.PG_DONE,
+                        Article.updated_at < threshold,
+                    )
                 )
-            ).limit(100)  # Process in batches
+                .limit(100)
+            )  # Process in batches
 
             result = await session.execute(stmt)
             articles = result.scalars().all()
@@ -130,7 +133,7 @@ class SchedulerJobs:
             return 0
 
         requeue_count = 0
-        now = datetime.now(timezone.utc).timestamp()
+        now = datetime.now(UTC).timestamp()
 
         for key in keys:
             # Get items ready for retry
@@ -178,14 +181,12 @@ class SchedulerJobs:
                     articles = articles_result.scalars().all()
 
                     if articles:
-                        avg_score = sum(
-                            float(a.credibility_score or 0) for a in articles
-                        ) / len(articles)
+                        avg_score = sum(float(a.credibility_score or 0) for a in articles) / len(
+                            articles
+                        )
 
                         # Update source authority
-                        await self._source_authority_repo.update_auto_score(
-                            host, float(avg_score)
-                        )
+                        await self._source_authority_repo.update_auto_score(host, float(avg_score))
                         update_count += 1
 
                         log.debug(
@@ -240,11 +241,10 @@ class SchedulerJobs:
 
             vector_repo = VectorRepo(self._postgres)
 
-            from sqlalchemy import select, text
+            from sqlalchemy import text
+
             async with self._postgres.session() as session:
-                result = await session.execute(
-                    text("SELECT neo4j_id FROM entity_vectors")
-                )
+                result = await session.execute(text("SELECT neo4j_id FROM entity_vectors"))
                 pg_ids = {row[0] for row in result}
 
             orphan_ids = pg_ids - active_ids
@@ -282,7 +282,9 @@ class SchedulerJobs:
 
             if orphan_ids:
                 count = await self._neo4j_writer.article_repo.delete_orphan_articles(list(pg_ids))
-                log.info("sync_neo4j_with_postgres_complete", deleted=count, orphan_ids=len(orphan_ids))
+                log.info(
+                    "sync_neo4j_with_postgres_complete", deleted=count, orphan_ids=len(orphan_ids)
+                )
                 return count
 
             log.info("sync_neo4j_with_postgres_complete", deleted=0)
@@ -345,21 +347,24 @@ class SchedulerJobs:
 
             # For each task, check if all articles are in terminal states
             # If so, update Redis task status to "completed"
-            terminal_statuses = {PersistStatus.NEO4J_DONE, PersistStatus.PG_DONE, PersistStatus.FAILED}
+            terminal_statuses = {
+                PersistStatus.NEO4J_DONE,
+                PersistStatus.PG_DONE,
+                PersistStatus.FAILED,
+            }
             for task_id, task_arts in task_articles.items():
-                all_terminal = all(
-                    art.persist_status in terminal_statuses for art in task_arts
-                )
+                all_terminal = all(art.persist_status in terminal_statuses for art in task_arts)
                 if all_terminal:
                     try:
                         import json
+
                         task_key = "pipeline:task_status"
                         existing = await self._redis.client.hget(task_key, str(task_id))
                         if existing:
                             task_data = json.loads(existing)
                             if task_data.get("status") not in ("completed", "failed"):
                                 task_data["status"] = "completed"
-                                task_data["completed_at"] = datetime.now(timezone.utc).isoformat()
+                                task_data["completed_at"] = datetime.now(UTC).isoformat()
                                 await self._redis.client.hset(
                                     task_key, str(task_id), json.dumps(task_data)
                                 )
@@ -402,9 +407,7 @@ class SchedulerJobs:
                         error=str(exc),
                     )
                     try:
-                        await self._article_repo.mark_failed(
-                            article.id, f"Retry error: {str(exc)}"
-                        )
+                        await self._article_repo.mark_failed(article.id, f"Retry error: {exc!s}")
                     except Exception:
                         pass
 
@@ -420,13 +423,17 @@ class SchedulerJobs:
         # to reconstruct the full state
         return {
             "article_id": str(article.id),
-            "raw": type("obj", (object,), {
-                "url": article.source_url,
-                "title": article.title,
-                "body": article.body,
-                "publish_time": article.publish_time,
-                "source": article.source_host,
-            })(),
+            "raw": type(
+                "obj",
+                (object,),
+                {
+                    "url": article.source_url,
+                    "title": article.title,
+                    "body": article.body,
+                    "publish_time": article.publish_time,
+                    "source": article.source_host,
+                },
+            )(),
             "cleaned": {
                 "title": article.title,
                 "body": article.body,
@@ -451,7 +458,7 @@ class RetryManager:
     async def get_retry_items(self, host: str) -> list[str]:
         """Get all items ready for retry for a host."""
         key = f"crawl:retry:{host}"
-        now = datetime.now(timezone.utc).timestamp()
+        now = datetime.now(UTC).timestamp()
         return await self._redis.zrangebyscore(key, "-inf", now)
 
     async def remove_from_retry(self, host: str, *items: str) -> None:

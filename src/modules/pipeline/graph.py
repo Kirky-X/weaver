@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """LangGraph main pipeline flow definition."""
 
 from __future__ import annotations
@@ -6,29 +7,28 @@ import asyncio
 import traceback
 from typing import Any
 
+from core.db.models import PersistStatus
+from core.event.bus import EventBus
 from core.llm.client import LLMClient
 from core.llm.token_budget import TokenBudgetManager
-from core.prompt.loader import PromptLoader
-from core.event.bus import EventBus
 from core.observability.logging import get_logger
 from core.observability.metrics import MetricsCollector
-from core.db.models import PersistStatus
-from modules.pipeline.state import PipelineState
-from modules.pipeline.nodes.classifier import ClassifierNode
-from modules.pipeline.nodes.cleaner import CleanerNode
-from modules.pipeline.nodes.categorizer import CategorizerNode
-from modules.pipeline.nodes.vectorize import VectorizeNode
-from modules.pipeline.nodes.batch_merger import BatchMergerNode
-from modules.pipeline.nodes.re_vectorize import ReVectorizeNode
-from modules.pipeline.nodes.analyze import AnalyzeNode
-from modules.pipeline.nodes.credibility_checker import CredibilityCheckerNode
-from modules.pipeline.nodes.quality_scorer import QualityScorerNode
-from modules.pipeline.nodes.entity_extractor import EntityExtractorNode
-from modules.pipeline.nodes.checkpoint_cleanup import CheckpointCleanupNode
-from modules.nlp.spacy_extractor import SpacyExtractor
+from core.prompt.loader import PromptLoader
 from modules.collector.models import ArticleRaw
 from modules.graph_store.entity_resolver import EntityResolver
-from modules.graph_store.neo4j_writer import Neo4jWriter
+from modules.nlp.spacy_extractor import SpacyExtractor
+from modules.pipeline.nodes.analyze import AnalyzeNode
+from modules.pipeline.nodes.batch_merger import BatchMergerNode
+from modules.pipeline.nodes.categorizer import CategorizerNode
+from modules.pipeline.nodes.checkpoint_cleanup import CheckpointCleanupNode
+from modules.pipeline.nodes.classifier import ClassifierNode
+from modules.pipeline.nodes.cleaner import CleanerNode
+from modules.pipeline.nodes.credibility_checker import CredibilityCheckerNode
+from modules.pipeline.nodes.entity_extractor import EntityExtractorNode
+from modules.pipeline.nodes.quality_scorer import QualityScorerNode
+from modules.pipeline.nodes.re_vectorize import ReVectorizeNode
+from modules.pipeline.nodes.vectorize import VectorizeNode
+from modules.pipeline.state import PipelineState
 
 log = get_logger("pipeline")
 
@@ -103,9 +103,7 @@ class Pipeline:
         self._re_vectorize = ReVectorizeNode(llm)
         self._analyze = AnalyzeNode(llm, budget, prompt_loader)
         self._quality_scorer = QualityScorerNode(llm, budget, prompt_loader)
-        self._credibility = CredibilityCheckerNode(
-            llm, budget, event_bus, source_auth_repo
-        )
+        self._credibility = CredibilityCheckerNode(llm, budget, event_bus, source_auth_repo)
         self._entity_extractor = EntityExtractorNode(
             llm, budget, prompt_loader, spacy or SpacyExtractor(), vector_repo
         )
@@ -115,9 +113,7 @@ class Pipeline:
         self._neo4j_writer = neo4j_writer
         self._vector_repo = vector_repo
 
-    async def _update_processing_stage(
-        self, state: PipelineState, stage: str
-    ) -> None:
+    async def _update_processing_stage(self, state: PipelineState, stage: str) -> None:
         """Update the processing stage in the database.
 
         Args:
@@ -133,9 +129,8 @@ class Pipeline:
 
         try:
             import uuid
-            await self._article_repo.update_processing_stage(
-                uuid.UUID(article_id), stage
-            )
+
+            await self._article_repo.update_processing_stage(uuid.UUID(article_id), stage)
         except Exception as e:
             log.warning("failed_to_update_stage", article_id=article_id, error=str(e))
 
@@ -154,15 +149,12 @@ class Pipeline:
 
         try:
             import uuid
-            await self._article_repo.mark_processing(
-                uuid.UUID(article_id), "phase1_start"
-            )
+
+            await self._article_repo.mark_processing(uuid.UUID(article_id), "phase1_start")
         except Exception as e:
             log.warning("failed_to_mark_processing", article_id=article_id, error=str(e))
 
-    async def process_batch(
-        self, articles: list[ArticleRaw]
-    ) -> list[PipelineState]:
+    async def process_batch(self, articles: list[ArticleRaw]) -> list[PipelineState]:
         """Process a batch of articles through the full pipeline.
 
         Args:
@@ -177,18 +169,15 @@ class Pipeline:
         log.info("pipeline_batch_start", batch_size=len(articles))
 
         # Initialize states
-        states: list[PipelineState] = [
-            PipelineState(raw=article) for article in articles
-        ]
+        states: list[PipelineState] = [PipelineState(raw=article) for article in articles]
 
         # Phase 1: Per-article concurrent nodes
-        phase1_tasks = [
-            self._phase1_per_article(state) for state in states
-        ]
+        phase1_tasks = [self._phase1_per_article(state) for state in states]
         states = await asyncio.gather(*phase1_tasks)
 
         # Phase 2: Batch merger (serial)
         import time
+
         start = time.monotonic()
         states = await self._batch_merger.execute_batch(list(states))
         MetricsCollector.pipeline_stage_latency.labels(stage="batch_merger").observe(
@@ -196,9 +185,7 @@ class Pipeline:
         )
 
         # Phase 3: Per-article post-merge nodes (concurrent)
-        phase3_tasks = [
-            self._phase3_per_article(state) for state in states
-        ]
+        phase3_tasks = [self._phase3_per_article(state) for state in states]
         states = list(await asyncio.gather(*phase3_tasks))
 
         # Phase 4: Persist (批量持久化)
@@ -315,9 +302,7 @@ class Pipeline:
             analyze_task = asyncio.create_task(run_analyze(state))
             quality_task = asyncio.create_task(run_quality_scorer(state))
 
-            analyze_state, quality_state = await asyncio.gather(
-                analyze_task, quality_task
-            )
+            analyze_state, quality_state = await asyncio.gather(analyze_task, quality_task)
 
             state.update(analyze_state)
             state.update(quality_state)
@@ -363,11 +348,12 @@ class Pipeline:
                 article_id = await self._article_repo.upsert(state)
                 state["article_id"] = str(article_id)
                 await self._article_repo.update_persist_status(article_id, PersistStatus.PG_DONE)
-                
+
                 if self._vector_repo and "vectors" in state:
                     vectors = state["vectors"]
                     if isinstance(vectors, dict) and "title" in vectors and "content" in vectors:
                         import uuid
+
                         await self._vector_repo.upsert_article_vectors(
                             article_id=article_id,
                             title_embedding=vectors.get("title"),
@@ -377,17 +363,20 @@ class Pipeline:
                         log.debug("vectors_persisted", article_id=str(article_id))
             except Exception as exc:
                 error_msg = f"{type(exc).__name__}: {exc}"
-                log.error("persist_pg_failed", 
+                log.error(
+                    "persist_pg_failed",
                     url=state.get("raw", {}).url if "raw" in state else "unknown",
                     error=error_msg,
                     error_type=type(exc).__name__,
                     has_article_id=state.get("article_id") is not None,
-                    traceback=traceback.format_exc())
+                    traceback=traceback.format_exc(),
+                )
                 if state.get("article_id"):
                     try:
                         import uuid
+
                         await self._article_repo.mark_failed(
-                            uuid.UUID(state["article_id"]), f"PG error: {str(exc)}"
+                            uuid.UUID(state["article_id"]), f"PG error: {exc!s}"
                         )
                     except Exception:
                         pass
@@ -410,8 +399,9 @@ class Pipeline:
                 if state.get("article_id") and self._article_repo:
                     try:
                         import uuid
+
                         await self._article_repo.mark_failed(
-                            uuid.UUID(state["article_id"]), f"Neo4j error: {str(exc)}"
+                            uuid.UUID(state["article_id"]), f"Neo4j error: {exc!s}"
                         )
                     except Exception:
                         pass
@@ -440,14 +430,21 @@ class Pipeline:
                     for state in valid_states:
                         if "vectors" in state:
                             vectors = state["vectors"]
-                            if isinstance(vectors, dict) and "title" in vectors and "content" in vectors:
+                            if (
+                                isinstance(vectors, dict)
+                                and "title" in vectors
+                                and "content" in vectors
+                            ):
                                 import uuid
-                                vector_data.append((
-                                    uuid.UUID(state["article_id"]),
-                                    vectors.get("title"),
-                                    vectors.get("content"),
-                                    vectors.get("model_id", "unknown"),
-                                ))
+
+                                vector_data.append(
+                                    (
+                                        uuid.UUID(state["article_id"]),
+                                        vectors.get("title"),
+                                        vectors.get("content"),
+                                        vectors.get("model_id", "unknown"),
+                                    )
+                                )
                     if vector_data:
                         count = await self._vector_repo.bulk_upsert_article_vectors(vector_data)
                         log.debug("vectors_bulk_persisted", count=count)
@@ -459,8 +456,9 @@ class Pipeline:
                     if state.get("article_id"):
                         try:
                             import uuid
+
                             await self._article_repo.mark_failed(
-                                uuid.UUID(state["article_id"]), f"PG error: {str(exc)}"
+                                uuid.UUID(state["article_id"]), f"PG error: {exc!s}"
                             )
                         except Exception:
                             pass
@@ -473,6 +471,7 @@ class Pipeline:
                     state["neo4j_ids"] = neo4j_ids
                     if self._article_repo and state.get("article_id"):
                         import uuid
+
                         await self._article_repo.update_persist_status(
                             uuid.UUID(state["article_id"]), PersistStatus.NEO4J_DONE
                         )
@@ -485,8 +484,9 @@ class Pipeline:
                     if state.get("article_id") and self._article_repo:
                         try:
                             import uuid
+
                             await self._article_repo.mark_failed(
-                                uuid.UUID(state["article_id"]), f"Neo4j error: {str(exc)}"
+                                uuid.UUID(state["article_id"]), f"Neo4j error: {exc!s}"
                             )
                         except Exception:
                             pass

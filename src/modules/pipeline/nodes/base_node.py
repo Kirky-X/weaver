@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Base class for pipeline nodes."""
 
 from __future__ import annotations
@@ -7,8 +8,8 @@ from typing import Any
 
 from core.llm.client import LLMClient
 from core.llm.token_budget import TokenBudgetManager
-from core.prompt.loader import PromptLoader
 from core.observability.logging import get_logger
+from core.prompt.loader import PromptLoader
 from modules.pipeline.state import PipelineState
 
 log = get_logger("pipeline.base_node")

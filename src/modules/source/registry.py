@@ -1,13 +1,14 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Source registry for managing multiple news sources."""
 
 from __future__ import annotations
 
-from modules.fetcher.base import BaseFetcher
-from modules.source.models import SourceConfig
-from modules.source.base import BaseSourceParser
-from modules.source.rss_parser import RSSParser
-from modules.source.newsnow_parser import NewsNowParser
 from core.observability.logging import get_logger
+from modules.fetcher.base import BaseFetcher
+from modules.source.base import BaseSourceParser
+from modules.source.models import SourceConfig
+from modules.source.newsnow_parser import NewsNowParser
+from modules.source.rss_parser import RSSParser
 
 log = get_logger("source_registry")
 

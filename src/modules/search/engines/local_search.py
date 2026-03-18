@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Local search engine for entity-based neighborhood search.
 
 Performs targeted searches around specific entities, suitable for
@@ -123,7 +124,7 @@ class LocalSearchEngine:
             log.error("local_search_failed", error=str(exc))
             return SearchResult(
                 query=query,
-                answer=f"Search failed: {str(exc)}",
+                answer=f"Search failed: {exc!s}",
                 context_tokens=0,
                 confidence=0.0,
                 metadata={"error": str(exc)},
@@ -200,5 +201,6 @@ Answer:"""
             List of SearchResults.
         """
         import asyncio
+
         tasks = [self.search(query, max_tokens=max_tokens) for query in queries]
         return await asyncio.gather(*tasks)

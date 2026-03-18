@@ -1,16 +1,18 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Source scheduler for periodic crawling using APScheduler."""
 
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
-from typing import Callable, Coroutine, Any
+from collections.abc import Callable, Coroutine
+from datetime import UTC, datetime
+from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from core.observability.logging import get_logger
 from modules.source.models import NewsItem, SourceConfig
 from modules.source.registry import SourceRegistry
-from core.observability.logging import get_logger
 
 log = get_logger("source_scheduler")
 
@@ -60,7 +62,9 @@ class SourceScheduler:
         )
         log.debug("source_scheduled", source_id=source.id, interval=source.interval_minutes)
 
-    async def _crawl_source(self, source_id: str, max_items: int | None = None, task_id: uuid.UUID | None = None) -> None:
+    async def _crawl_source(
+        self, source_id: str, max_items: int | None = None, task_id: uuid.UUID | None = None
+    ) -> None:
         """Execute a single crawl for one source.
 
         Args:
@@ -80,7 +84,7 @@ class SourceScheduler:
         try:
             items = await parser.parse(source)
             if items:
-                source.last_crawl_time = datetime.now(timezone.utc)
+                source.last_crawl_time = datetime.now(UTC)
                 await self._on_items(items, source, max_items, task_id)
                 log.info(
                     "source_crawled",
@@ -92,6 +96,7 @@ class SourceScheduler:
                 log.debug("source_no_new_items", source_id=source_id)
         except Exception as exc:
             import traceback
+
             log.error(
                 "source_crawl_failed",
                 source_id=source_id,
@@ -99,7 +104,9 @@ class SourceScheduler:
                 traceback=traceback.format_exc(),
             )
 
-    async def trigger_now(self, source_id: str, max_items: int | None = None, task_id: uuid.UUID | None = None) -> None:
+    async def trigger_now(
+        self, source_id: str, max_items: int | None = None, task_id: uuid.UUID | None = None
+    ) -> None:
         """Trigger an immediate crawl for a source.
 
         Args:

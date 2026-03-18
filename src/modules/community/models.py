@@ -1,9 +1,10 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Community detection data models."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 
@@ -26,8 +27,8 @@ class Community:
     parent_community_id: str | None = None
     child_community_ids: list[str] = field(default_factory=list)
     rank: float | None = None
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @property
     def size(self) -> int:
@@ -150,10 +151,7 @@ class ClusteringResult:
 
     def get_community_entities(self, community_id: int) -> list[str]:
         """Get entity names for a specific community ID."""
-        return [
-            entity for entity, cid in self.partitions.items()
-            if cid == community_id
-        ]
+        return [entity for entity, cid in self.partitions.items() if cid == community_id]
 
     def community_sizes(self) -> dict[int, int]:
         """Get size of each community."""

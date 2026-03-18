@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Crawler with per-host and global concurrency control."""
 
 from __future__ import annotations
@@ -8,9 +9,9 @@ from urllib.parse import urlparse
 
 import trafilatura
 
-from modules.source.models import NewsItem
-from modules.collector.models import ArticleRaw
 from core.observability.logging import get_logger
+from modules.collector.models import ArticleRaw
+from modules.source.models import NewsItem
 
 log = get_logger("crawler")
 

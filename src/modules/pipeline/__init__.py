@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Pipeline module - Data processing pipeline with LangGraph.
 
 Note: Import Pipeline directly to avoid circular imports:

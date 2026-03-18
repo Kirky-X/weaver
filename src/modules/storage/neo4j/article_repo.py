@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Neo4j article repository for article graph operations."""
 
 from __future__ import annotations

@@ -1,13 +1,14 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Cleaner pipeline node — LLM-based article content cleaning."""
 
 from __future__ import annotations
 
 from core.llm.client import LLMClient
-from core.llm.types import CallPoint
-from core.llm.token_budget import TokenBudgetManager
 from core.llm.output_validator import CleanerOutput
-from core.prompt.loader import PromptLoader
+from core.llm.token_budget import TokenBudgetManager
+from core.llm.types import CallPoint
 from core.observability.logging import get_logger
+from core.prompt.loader import PromptLoader
 from modules.pipeline.state import PipelineState
 
 log = get_logger("node.cleaner")
@@ -73,8 +74,8 @@ class CleanerNode:
             state["tags"] = []
             state["cleaner_entities"] = []
 
-        state.setdefault("prompt_versions", {})["cleaner"] = (
-            self._prompt_loader.get_version("cleaner")
+        state.setdefault("prompt_versions", {})["cleaner"] = self._prompt_loader.get_version(
+            "cleaner"
         )
 
         log.info("cleaned", url=raw.url, tags_count=len(state.get("tags", [])))

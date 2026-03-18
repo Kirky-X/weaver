@@ -1,15 +1,16 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Credibility checker pipeline node — multi-signal credibility scoring."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
+from core.event.bus import CredibilityComputedEvent, EventBus
 from core.llm.client import LLMClient
-from core.llm.types import CallPoint
-from core.llm.token_budget import TokenBudgetManager
 from core.llm.output_validator import CredibilityOutput
-from core.event.bus import EventBus, CredibilityComputedEvent
+from core.llm.token_budget import TokenBudgetManager
+from core.llm.types import CallPoint
 from core.observability.logging import get_logger
 from core.observability.metrics import MetricsCollector
 from modules.pipeline.state import PipelineState
@@ -68,9 +69,7 @@ class CredibilityCheckerNode:
         s2 = min(1.0, 0.4 + cross_count * 0.15)
 
         # Signal 3: LLM content check
-        body_trunc = self._budget.truncate(
-            state["cleaned"]["body"], CallPoint.CREDIBILITY_CHECKER
-        )
+        body_trunc = self._budget.truncate(state["cleaned"]["body"], CallPoint.CREDIBILITY_CHECKER)
         try:
             llm_result: CredibilityOutput = await self._llm.call(
                 CallPoint.CREDIBILITY_CHECKER,
@@ -147,7 +146,7 @@ class CredibilityCheckerNode:
         try:
             event_time = datetime.fromisoformat(event_time_str)
             if event_time.tzinfo is None:
-                event_time = event_time.replace(tzinfo=timezone.utc)
+                event_time = event_time.replace(tzinfo=UTC)
         except ValueError:
             return 0.7
 

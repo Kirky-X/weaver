@@ -1,15 +1,14 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Classifier pipeline node — determines if content is news."""
 
 from __future__ import annotations
 
-from typing import Any
-
 from core.llm.client import LLMClient
-from core.llm.types import CallPoint
-from core.llm.token_budget import TokenBudgetManager
 from core.llm.output_validator import ClassifierOutput
-from core.prompt.loader import PromptLoader
+from core.llm.token_budget import TokenBudgetManager
+from core.llm.types import CallPoint
 from core.observability.logging import get_logger
+from core.prompt.loader import PromptLoader
 from modules.pipeline.state import PipelineState
 
 log = get_logger("node.classifier")
@@ -44,8 +43,8 @@ class ClassifierNode:
         state["is_news"] = result.is_news
         state["terminal"] = not result.is_news
 
-        state.setdefault("prompt_versions", {})["classifier"] = (
-            self._prompt_loader.get_version("classifier")
+        state.setdefault("prompt_versions", {})["classifier"] = self._prompt_loader.get_version(
+            "classifier"
         )
 
         log.info(

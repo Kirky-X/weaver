@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Text unit management for fine-grained knowledge graph content.
 
 Text units are smaller text chunks that can be linked to entities,
@@ -8,8 +9,8 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Callable
+from datetime import UTC, datetime
+from typing import Any
 
 from core.db.neo4j import Neo4jPool
 from core.observability.logging import get_logger
@@ -28,7 +29,7 @@ class TextUnit:
     token_count: int
     entity_ids: list[str] = field(default_factory=list)
     entity_names: list[str] = field(default_factory=list)
-    created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -85,8 +86,8 @@ class TextUnitManager:
             end = start + chunk_size
 
             if end < len(text):
-                last_period = text.rfind('。', start, end)
-                last_newline = text.rfind('\n', start, end)
+                last_period = text.rfind("。", start, end)
+                last_newline = text.rfind("\n", start, end)
                 cut_point = max(last_period, last_newline)
 
                 if cut_point > start:
@@ -102,7 +103,7 @@ class TextUnitManager:
 
     def estimate_tokens(self, text: str) -> int:
         """Estimate token count for text."""
-        chinese = sum(1 for c in text if '\u4e00' <= c <= '\u9fff')
+        chinese = sum(1 for c in text if "\u4e00" <= c <= "\u9fff")
         other = len(text) - chinese
         return chinese + other // 4
 
@@ -153,15 +154,18 @@ class TextUnitManager:
                 t.created_at = $created_at
             """
 
-            await self._pool.execute_query(cypher, {
-                "id": unit.id,
-                "content": unit.content,
-                "source_article_id": unit.source_article_id,
-                "chunk_index": unit.chunk_index,
-                "token_count": unit.token_count,
-                "entity_names": unit.entity_names,
-                "created_at": unit.created_at.isoformat(),
-            })
+            await self._pool.execute_query(
+                cypher,
+                {
+                    "id": unit.id,
+                    "content": unit.content,
+                    "source_article_id": unit.source_article_id,
+                    "chunk_index": unit.chunk_index,
+                    "token_count": unit.token_count,
+                    "entity_names": unit.entity_names,
+                    "created_at": unit.created_at.isoformat(),
+                },
+            )
 
     async def get_text_unit(self, unit_id: str) -> TextUnit | None:
         """Retrieve a text unit by ID."""
@@ -187,7 +191,7 @@ class TextUnitManager:
                     chunk_index=r.get("chunk_index", 0),
                     token_count=r.get("token_count", 0),
                     entity_names=r.get("entity_names", []),
-                    created_at=r.get("created_at", datetime.now(timezone.utc)),
+                    created_at=r.get("created_at", datetime.now(UTC)),
                 )
         except Exception as exc:
             log.warning("get_text_unit_failed", error=str(exc))
@@ -217,10 +221,13 @@ class TextUnitManager:
         """
 
         try:
-            results = await self._pool.execute_query(cypher, {
-                "entity_name": entity_name,
-                "limit": limit,
-            })
+            results = await self._pool.execute_query(
+                cypher,
+                {
+                    "entity_name": entity_name,
+                    "limit": limit,
+                },
+            )
             return [self._row_to_unit(r) for r in results]
         except Exception as exc:
             log.warning("get_entity_text_units_failed", error=str(exc))
@@ -235,5 +242,5 @@ class TextUnitManager:
             chunk_index=row.get("chunk_index", 0),
             token_count=row.get("token_count", 0),
             entity_names=row.get("entity_names", []),
-            created_at=row.get("created_at", datetime.now(timezone.utc)),
+            created_at=row.get("created_at", datetime.now(UTC)),
         )

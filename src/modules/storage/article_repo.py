@@ -1,12 +1,13 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Article repository for PostgreSQL CRUD operations."""
 
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select, update, text, and_
+from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.models import Article, PersistStatus
@@ -58,15 +59,11 @@ class ArticleRepo:
             await session.commit()
             return article_ids
 
-    async def _upsert_single(
-        self, session: AsyncSession, state: PipelineState
-    ) -> uuid.UUID:
+    async def _upsert_single(self, session: AsyncSession, state: PipelineState) -> uuid.UUID:
         """Upsert a single article within an existing session."""
         raw = state["raw"]
 
-        result = await session.execute(
-            select(Article).where(Article.source_url == raw.url)
-        )
+        result = await session.execute(select(Article).where(Article.source_url == raw.url))
         article = result.scalar_one_or_none()
 
         if article is None:
@@ -126,7 +123,7 @@ class ArticleRepo:
             article.prompt_versions = state["prompt_versions"]
 
         article.publish_time = raw.publish_time
-        article.updated_at = datetime.now(timezone.utc)
+        article.updated_at = datetime.now(UTC)
 
         await session.flush()
         return article.id
@@ -147,9 +144,7 @@ class ArticleRepo:
                 raw = state["raw"]
 
                 # Check if exists
-                result = await session.execute(
-                    select(Article).where(Article.source_url == raw.url)
-                )
+                result = await session.execute(select(Article).where(Article.source_url == raw.url))
                 article = result.scalar_one_or_none()
 
                 if article is None:
@@ -212,7 +207,7 @@ class ArticleRepo:
                     article.prompt_versions = state["prompt_versions"]
 
                 article.publish_time = raw.publish_time
-                article.updated_at = datetime.now(timezone.utc)
+                article.updated_at = datetime.now(UTC)
 
                 await session.commit()
                 await session.refresh(article)
@@ -229,9 +224,7 @@ class ArticleRepo:
         if isinstance(article_id, str):
             article_id = uuid.UUID(article_id)
         async with self._pool.session() as session:
-            result = await session.execute(
-                select(Article).where(Article.id == article_id)
-            )
+            result = await session.execute(select(Article).where(Article.id == article_id))
             return result.scalar_one_or_none()
 
     async def get_existing_urls(self, urls: list[str]) -> set[str]:
@@ -252,9 +245,7 @@ class ArticleRepo:
             )
             return {row[0] for row in result}
 
-    async def update_persist_status(
-        self, article_id: uuid.UUID, status: str
-    ) -> None:
+    async def update_persist_status(self, article_id: uuid.UUID, status: str) -> None:
         """Update the persist status of an article with state validation.
 
         Args:
@@ -298,7 +289,7 @@ class ArticleRepo:
                 .where(Article.id == article_id)
                 .values(
                     persist_status=new_status,
-                    updated_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(UTC),
                 )
             )
             await session.commit()
@@ -321,7 +312,7 @@ class ArticleRepo:
                     credibility_score=credibility_score,
                     cross_verification=cross_verification,
                     verified_by_sources=verified_by_sources,
-                    updated_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(UTC),
                 )
             )
             await session.commit()
@@ -395,7 +386,8 @@ class ArticleRepo:
                 title=getattr(article, "title", ""),
                 body=getattr(article, "description", "") or getattr(article, "body", ""),
                 source=getattr(article, "source", ""),
-                publish_time=getattr(article, "pubDate", None) or getattr(article, "publish_time", None),
+                publish_time=getattr(article, "pubDate", None)
+                or getattr(article, "publish_time", None),
                 source_host=getattr(article, "source_host", ""),
             )
 
@@ -404,9 +396,7 @@ class ArticleRepo:
 
         async with self._pool.session() as session:
             # Check if exists
-            result = await session.execute(
-                select(Article).where(Article.source_url == raw.url)
-            )
+            result = await session.execute(select(Article).where(Article.source_url == raw.url))
             existing = result.scalar_one_or_none()
 
             if existing:
@@ -445,16 +435,18 @@ class ArticleRepo:
         Returns:
             List of stuck articles.
         """
-        threshold = datetime.now(timezone.utc) - timedelta(minutes=timeout_minutes)
+        threshold = datetime.now(UTC) - timedelta(minutes=timeout_minutes)
 
         async with self._pool.session() as session:
             result = await session.execute(
-                select(Article).where(
+                select(Article)
+                .where(
                     and_(
                         Article.persist_status == PersistStatus.PROCESSING,
                         Article.updated_at < threshold,
                     )
-                ).limit(50)
+                )
+                .limit(50)
             )
             return list(result.scalars().all())
 
@@ -469,18 +461,18 @@ class ArticleRepo:
         """
         async with self._pool.session() as session:
             result = await session.execute(
-                select(Article).where(
+                select(Article)
+                .where(
                     and_(
                         Article.persist_status == PersistStatus.FAILED,
                         Article.retry_count < max_retries,
                     )
-                ).limit(50)
+                )
+                .limit(50)
             )
             return list(result.scalars().all())
 
-    async def update_processing_stage(
-        self, article_id: uuid.UUID, stage: str
-    ) -> None:
+    async def update_processing_stage(self, article_id: uuid.UUID, stage: str) -> None:
         """Update the current processing stage of an article.
 
         Args:
@@ -493,7 +485,7 @@ class ArticleRepo:
                 .where(Article.id == article_id)
                 .values(
                     processing_stage=stage,
-                    updated_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(UTC),
                 )
             )
             await session.commit()
@@ -519,15 +511,13 @@ class ArticleRepo:
             update_values = {
                 "persist_status": PersistStatus.FAILED,
                 "processing_error": error,
-                "updated_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(UTC),
             }
             if increment_retry:
                 update_values["retry_count"] = current_retry + 1
 
             await session.execute(
-                update(Article)
-                .where(Article.id == article_id)
-                .values(**update_values)
+                update(Article).where(Article.id == article_id).values(**update_values)
             )
             await session.commit()
 
@@ -546,7 +536,7 @@ class ArticleRepo:
                     persist_status=PersistStatus.PROCESSING,
                     processing_stage=stage,
                     processing_error=None,
-                    updated_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(UTC),
                 )
             )
             await session.commit()
@@ -576,7 +566,7 @@ class ArticleRepo:
         async with self._pool.session() as session:
             while current_id is not None:
                 if current_id in visited:
-                    cycle_path = path[path.index(current_id):] + [current_id]
+                    cycle_path = path[path.index(current_id) :] + [current_id]
                     log.warning(
                         "merge_cycle_detected",
                         source_id=str(article_id),
@@ -595,9 +585,7 @@ class ArticleRepo:
 
         return None
 
-    async def resolve_final_merge_target(
-        self, article_id: uuid.UUID
-    ) -> uuid.UUID | None:
+    async def resolve_final_merge_target(self, article_id: uuid.UUID) -> uuid.UUID | None:
         """Resolve the final target of a merge chain.
 
         Follows the merged_into chain to the end, detecting cycles.
@@ -645,7 +633,7 @@ class ArticleRepo:
             Dictionary with total_processed, processing_count, completed_count,
             failed_count, pending_count.
         """
-        from sqlalchemy import func, case
+        from sqlalchemy import case, func
 
         async with self._pool.session() as session:
             result = await session.execute(

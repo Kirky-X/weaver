@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Entity resolver for entity deduplication and canonical name resolution.
 
 Enhanced version with rule-based resolution and name normalization.
@@ -10,15 +11,12 @@ from typing import Any
 
 from core.llm.client import LLMClient
 from core.observability.logging import get_logger
-from modules.graph_store.resolution_rules import (
-    EntityResolutionRules,
-    ResolutionResult,
-    MatchType,
-    resolution_rules,
-)
 from modules.graph_store.name_normalizer import (
     NameNormalizer,
-    name_normalizer,
+)
+from modules.graph_store.resolution_rules import (
+    EntityResolutionRules,
+    MatchType,
 )
 from modules.storage.neo4j.entity_repo import Neo4jEntityRepo
 from modules.storage.vector_repo import VectorRepo
@@ -166,7 +164,11 @@ class EntityResolver:
         if rule_result.match_type != MatchType.NONE:
             if rule_result.confidence >= self.HIGH_CONFIDENCE_THRESHOLD:
                 target = next(
-                    (c for c in candidates if c.get("canonical_name") == rule_result.canonical_name),
+                    (
+                        c
+                        for c in candidates
+                        if c.get("canonical_name") == rule_result.canonical_name
+                    ),
                     None,
                 )
                 if target:
@@ -315,12 +317,14 @@ class EntityResolver:
         if not self._llm:
             return {"should_merge": False}
 
-        candidate_text = "\n".join([
-            f"- {c.get('canonical_name', 'unknown')} "
-            f"(type: {c.get('type', 'unknown')}, "
-            f"similarity: {c.get('similarity', 0):.2f})"
-            for c in candidates[:5]
-        ])
+        candidate_text = "\n".join(
+            [
+                f"- {c.get('canonical_name', 'unknown')} "
+                f"(type: {c.get('type', 'unknown')}, "
+                f"similarity: {c.get('similarity', 0):.2f})"
+                for c in candidates[:5]
+            ]
+        )
 
         prompt = f"""Given a new entity name and existing candidate entities, determine if they refer to the same real-world entity.
 
@@ -352,8 +356,9 @@ Consider:
             )
             import json
             import re
+
             content = result.content if hasattr(result, "content") else str(result)
-            json_match = re.search(r'\{.*\}', content, re.DOTALL)
+            json_match = re.search(r"\{.*\}", content, re.DOTALL)
             if json_match:
                 return json.loads(json_match.group())
         except Exception as e:
@@ -399,6 +404,7 @@ Consider:
             List of resolved entity dicts.
         """
         import asyncio
+
         tasks = [
             self.resolve_entity(
                 name=entity.get("name", ""),

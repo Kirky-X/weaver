@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Interleaver: round-robin sort items by host to spread load."""
 
 from __future__ import annotations

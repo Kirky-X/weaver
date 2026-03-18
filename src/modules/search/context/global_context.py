@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Global context builder for community-based search.
 
 Builds context using community reports and hierarchical structure,
@@ -199,7 +200,10 @@ class GlobalContextBuilder(ContextBuilder):
         try:
             results = await self._pool.execute_query(
                 cypher,
-                {"community_ids": community_ids, "limit": self._max_entities_per_community * len(community_ids)},
+                {
+                    "community_ids": community_ids,
+                    "limit": self._max_entities_per_community * len(community_ids),
+                },
             )
             return [dict(r) for r in results]
         except Exception as exc:
@@ -248,9 +252,9 @@ class GlobalContextBuilder(ContextBuilder):
         """Format communities section."""
         lines = []
         for i, comm in enumerate(communities, 1):
-            title = comm.get('title', f'Community {i}')
-            summary = comm.get('summary', '')
-            entity_count = comm.get('entity_count', 0)
+            title = comm.get("title", f"Community {i}")
+            summary = comm.get("summary", "")
+            entity_count = comm.get("entity_count", 0)
 
             lines.append(f"### {title}")
             lines.append(f"Entities: {entity_count}")
@@ -278,11 +282,11 @@ class GlobalContextBuilder(ContextBuilder):
         """Format cross-community connections section."""
         lines = []
         for conn in connections:
-            source_comm = conn.get('source_community', 'Unknown')
-            target_comm = conn.get('target_community', 'Unknown')
-            source_entity = conn.get('source_entity', 'Unknown')
-            target_entity = conn.get('target_entity', 'Unknown')
-            rel_type = conn.get('relation_type', 'RELATED_TO')
+            source_comm = conn.get("source_community", "Unknown")
+            target_comm = conn.get("target_community", "Unknown")
+            source_entity = conn.get("source_entity", "Unknown")
+            target_entity = conn.get("target_entity", "Unknown")
+            rel_type = conn.get("relation_type", "RELATED_TO")
 
             lines.append(
                 f"- [{source_comm}] {source_entity} --[{rel_type}]--> {target_entity} [{target_comm}]"
@@ -315,17 +319,17 @@ class GlobalContextBuilder(ContextBuilder):
         for comm in communities:
             context = self.create_context(query, max_tokens_per_community)
 
-            title = comm.get('title', 'Unknown Community')
-            summary = comm.get('summary', '')
+            title = comm.get("title", "Unknown Community")
+            summary = comm.get("summary", "")
 
             context.add_content(
                 name="Community",
                 content=f"## {title}\n{summary}",
                 priority=100,
-                metadata={"community_id": comm.get('id')},
+                metadata={"community_id": comm.get("id")},
             )
 
-            entities = await self._get_community_entities(comm.get('id'))
+            entities = await self._get_community_entities(comm.get("id"))
             if entities:
                 entity_content = self._format_entities_section(entities)
                 context.add_content(

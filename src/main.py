@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Weaver - Application Entry Point."""
 
 from __future__ import annotations
@@ -11,34 +12,31 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
-from config.settings import Settings
-from container import Container, set_container, set_settings
-from api.router import api_router
-from api.endpoints.sources import set_source_registry
-from api.endpoints.pipeline import set_redis_client, set_source_scheduler, set_postgres_pool
-from api.endpoints.graph import set_neo4j_client
 from api.endpoints.health import (
-    check_postgres_health,
-    check_neo4j_health,
-    check_redis_health,
     health_check as check_health,
-    set_postgres_pool,
     set_neo4j_pool,
     set_redis_client,
+    set_source_authority_repo,
 )
+from api.endpoints.pipeline import set_postgres_pool, set_redis_client, set_source_scheduler
+from api.endpoints.sources import set_source_registry
 from api.middleware.rate_limit import limiter
-from core.observability.logging import get_logger, configure_logging
+from api.router import api_router
+from config.settings import Settings
+from container import Container, set_container, set_settings
+from core.observability.logging import configure_logging, get_logger
 from core.observability.tracing import configure_tracing
 
 log = get_logger("main")
 configure_logging(debug=os.environ.get("DEBUG", "").lower() in ("true", "1", "yes"))
 
 _scheduler = None
+
 
 async def _setup_scheduler(container: Container) -> Any:
     """Setup APScheduler with compensation jobs.
@@ -53,8 +51,8 @@ async def _setup_scheduler(container: Container) -> Any:
 
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler as AsyncScheduler
-        from apscheduler.triggers.interval import IntervalTrigger
         from apscheduler.triggers.cron import CronTrigger
+        from apscheduler.triggers.interval import IntervalTrigger
     except ImportError:
         log.warning("apscheduler_not_installed")
         return None
@@ -166,8 +164,7 @@ async def lifespan(app: FastAPI) -> None:
 
     # Initialize OpenTelemetry tracing
     configure_tracing(
-        service_name="weaver",
-        endpoint=container.settings.observability.otlp_endpoint
+        service_name="weaver", endpoint=container.settings.observability.otlp_endpoint
     )
     log.debug("tracing_initialized", endpoint=container.settings.observability.otlp_endpoint)
 
@@ -196,9 +193,12 @@ async def lifespan(app: FastAPI) -> None:
         app.state.scheduler = scheduler
     except Exception as exc:
         import traceback
+
         log.error("scheduler_setup_failed", error=str(exc), traceback=traceback.format_exc())
 
-    log.info("application_started", host=container.settings.api.host, port=container.settings.api.port)
+    log.info(
+        "application_started", host=container.settings.api.host, port=container.settings.api.port
+    )
 
     yield
 
@@ -235,12 +235,9 @@ async def _graceful_shutdown(app: FastAPI) -> None:
     # 2. Wait for current tasks to complete (with timeout)
     try:
         if hasattr(container, "pipeline"):
-            await asyncio.wait_for(
-                container.pipeline().drain(),
-                timeout=30.0
-            )
+            await asyncio.wait_for(container.pipeline().drain(), timeout=30.0)
             log.info("pipeline_drained")
-    except asyncio.TimeoutError:
+    except TimeoutError:
         log.warning("pipeline_drain_timeout")
     except Exception as exc:
         log.warning("pipeline_drain_failed", error=str(exc))
@@ -325,8 +322,7 @@ def create_app(container: Container | None = None) -> FastAPI:
     )
 
     cors_origins = os.environ.get(
-        "CORS_ORIGINS",
-        "http://localhost:3000,http://localhost:8080,http://127.0.0.1:3000"
+        "CORS_ORIGINS", "http://localhost:3000,http://localhost:8080,http://127.0.0.1:3000"
     ).split(",")
 
     app.add_middleware(
@@ -346,16 +342,14 @@ def create_app(container: Container | None = None) -> FastAPI:
     @app.exception_handler(BusinessException)
     async def business_exception_handler(request: Request, exc: BusinessException):
         return JSONResponse(
-            status_code=exc.http_status,
-            content={"code": exc.code, "message": exc.message}
+            status_code=exc.http_status, content={"code": exc.code, "message": exc.message}
         )
 
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception):
         log.error("unhandled_exception", error=str(exc), path=request.url.path)
         return JSONResponse(
-            status_code=500,
-            content={"code": 500, "message": "Internal server error"}
+            status_code=500, content={"code": 500, "message": "Internal server error"}
         )
 
     if container is None:

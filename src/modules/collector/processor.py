@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Discovery processor for handling discovered items."""
 
 from __future__ import annotations
@@ -60,7 +61,11 @@ class DiscoveryProcessor:
         self._pipeline = pipeline
 
     async def on_items_discovered(
-        self, items: list[Any], source: Any, max_items: int | None = None, task_id: uuid.UUID | None = None
+        self,
+        items: list[Any],
+        source: Any,
+        max_items: int | None = None,
+        task_id: uuid.UUID | None = None,
     ) -> None:
         """Callback to save discovered items to database and trigger pipeline.
 
@@ -71,6 +76,7 @@ class DiscoveryProcessor:
             task_id: Optional task ID for tracking.
         """
         import traceback
+
         log.info("items_discovered", count=len(items), source=source.id, max_items=max_items)
 
         try:
@@ -110,7 +116,9 @@ class DiscoveryProcessor:
                     await self._pipeline.process_batch(successful_articles)
                     log.info("pipeline_batch_processed", count=len(successful_articles))
                 except Exception as exc:
-                    log.error("pipeline_process_failed", error=str(exc), traceback=traceback.format_exc())
+                    log.error(
+                        "pipeline_process_failed", error=str(exc), traceback=traceback.format_exc()
+                    )
         except Exception as exc:
             log.error(
                 "on_items_discovered_failed",

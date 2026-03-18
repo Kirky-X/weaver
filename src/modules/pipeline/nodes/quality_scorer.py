@@ -1,13 +1,14 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Quality scorer pipeline node — LLM-based article quality assessment."""
 
 from __future__ import annotations
 
 from core.llm.client import LLMClient
-from core.llm.types import CallPoint
-from core.llm.token_budget import TokenBudgetManager
 from core.llm.output_validator import QualityScorerOutput
-from core.prompt.loader import PromptLoader
+from core.llm.token_budget import TokenBudgetManager
+from core.llm.types import CallPoint
 from core.observability.logging import get_logger
+from core.prompt.loader import PromptLoader
 from modules.pipeline.state import PipelineState
 
 log = get_logger("node.quality_scorer")
@@ -56,8 +57,8 @@ class QualityScorerNode:
             log.warning("quality_scorer_failed_using_default", error=str(e), url=state["raw"].url)
             state["quality_score"] = 0.5
 
-        state.setdefault("prompt_versions", {})["quality_scorer"] = (
-            self._prompt_loader.get_version("quality_scorer")
+        state.setdefault("prompt_versions", {})["quality_scorer"] = self._prompt_loader.get_version(
+            "quality_scorer"
         )
 
         log.info(

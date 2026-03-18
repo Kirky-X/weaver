@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Playwright-based fetcher for JavaScript-heavy pages and anti-bot scenarios."""
 
 from __future__ import annotations
@@ -6,10 +7,10 @@ import asyncio
 import random
 import time
 
-from modules.fetcher.playwright_pool import PlaywrightContextPool
-from modules.fetcher.base import BaseFetcher
 from core.observability.logging import get_logger
 from core.observability.metrics import MetricsCollector
+from modules.fetcher.base import BaseFetcher
+from modules.fetcher.playwright_pool import PlaywrightContextPool
 
 log = get_logger("playwright_fetcher")
 
@@ -59,9 +60,7 @@ class PlaywrightFetcher(BaseFetcher):
                         await page.close()
         except Exception as exc:
             latency = time.monotonic() - start
-            MetricsCollector.fetch_total.labels(
-                method="playwright", status="error"
-            ).inc()
+            MetricsCollector.fetch_total.labels(method="playwright", status="error").inc()
             MetricsCollector.fetch_latency.labels(method="playwright").observe(latency)
             log.warning("playwright_fetch_error", url=url, error=str(exc))
             raise
@@ -92,9 +91,7 @@ class PlaywrightFetcher(BaseFetcher):
         response_headers = dict(response.headers) if response else {}
 
         latency = time.monotonic() - start
-        MetricsCollector.fetch_total.labels(
-            method="playwright", status="success"
-        ).inc()
+        MetricsCollector.fetch_total.labels(method="playwright", status="success").inc()
         MetricsCollector.fetch_latency.labels(method="playwright").observe(latency)
         log.debug("playwright_fetch_ok", url=url, status=status)
         return status, content, response_headers

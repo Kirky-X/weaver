@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """httpx-based fetcher for standard HTTP requests."""
 
 from __future__ import annotations
@@ -6,9 +7,9 @@ from typing import TYPE_CHECKING
 
 import httpx
 
-from modules.fetcher.base import BaseFetcher
 from core.observability.logging import get_logger
 from core.observability.metrics import MetricsCollector
+from modules.fetcher.base import BaseFetcher
 
 if TYPE_CHECKING:
     from modules.fetcher.rate_limiter import HostRateLimiter

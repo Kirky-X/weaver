@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Pipeline state type definitions."""
 
 from __future__ import annotations

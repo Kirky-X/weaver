@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Neo4j writer for persisting pipeline state to graph database."""
 
 from __future__ import annotations
@@ -7,9 +8,9 @@ from typing import Any
 
 from core.db.neo4j import Neo4jPool
 from core.observability.logging import get_logger
+from modules.pipeline.state import PipelineState
 from modules.storage.neo4j.article_repo import Neo4jArticleRepo
 from modules.storage.neo4j.entity_repo import Neo4jEntityRepo
-from modules.pipeline.state import PipelineState
 
 log = get_logger("neo4j_writer")
 
@@ -139,24 +140,30 @@ class Neo4jWriter:
 
             canonical_name = await self._resolve_canonical_name(name, entity_type)
 
-            entity_data.append({
-                "canonical_name": canonical_name,
-                "type": entity_type,
-                "description": entity.get("description"),
-            })
-
-            if name != canonical_name:
-                alias_data.append({
+            entity_data.append(
+                {
                     "canonical_name": canonical_name,
                     "type": entity_type,
-                    "alias": name,
-                })
+                    "description": entity.get("description"),
+                }
+            )
 
-            mentions_data.append({
-                "canonical_name": canonical_name,
-                "type": entity_type,
-                "role": role,
-            })
+            if name != canonical_name:
+                alias_data.append(
+                    {
+                        "canonical_name": canonical_name,
+                        "type": entity_type,
+                        "alias": name,
+                    }
+                )
+
+            mentions_data.append(
+                {
+                    "canonical_name": canonical_name,
+                    "type": entity_type,
+                    "role": role,
+                }
+            )
 
         if entity_data:
             try:
@@ -329,9 +336,7 @@ class Neo4jWriter:
                 if source_article and publish_time and source_article.get("publish_time"):
                     source_time = source_article["publish_time"]
                     if hasattr(source_time, "timestamp") and hasattr(publish_time, "timestamp"):
-                        time_gap = abs(
-                            (publish_time.timestamp() - source_time.timestamp()) / 3600
-                        )
+                        time_gap = abs((publish_time.timestamp() - source_time.timestamp()) / 3600)
 
                 await self._article_repo.create_followed_by_relation(
                     from_pg_id=source_id,

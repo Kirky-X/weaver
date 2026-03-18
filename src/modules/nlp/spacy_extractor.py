@@ -1,9 +1,9 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Multi-language spaCy NER extractor."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
 
 from core.observability.logging import get_logger
 
@@ -104,7 +104,9 @@ class SpacyExtractor:
                 log.debug("spacy_model_loaded", model=model, language=language)
                 return nlp
 
-        raise RuntimeError(f"No spaCy model available for language '{language}'. Tried: {model_candidates}")
+        raise RuntimeError(
+            f"No spaCy model available for language '{language}'. Tried: {model_candidates}"
+        )
 
     def extract(self, text: str, language: str = "zh") -> list[SpacyEntity]:
         """Extract named entities from text.

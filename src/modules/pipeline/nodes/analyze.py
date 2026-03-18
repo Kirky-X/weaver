@@ -1,15 +1,16 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Analyze pipeline node — combined summarizer + scorer + sentiment."""
 
 from __future__ import annotations
 
 from core.llm.client import LLMClient
-from core.llm.types import CallPoint
-from core.llm.token_budget import TokenBudgetManager
 from core.llm.output_validator import AnalyzeOutput
-from core.prompt.loader import PromptLoader
+from core.llm.token_budget import TokenBudgetManager
+from core.llm.types import CallPoint
 from core.observability.logging import get_logger
-from modules.pipeline.state import PipelineState
+from core.prompt.loader import PromptLoader
 from modules.pipeline.nodes.categorizer import normalize_emotion
+from modules.pipeline.state import PipelineState
 
 log = get_logger("node.analyze")
 
@@ -79,8 +80,8 @@ class AnalyzeNode:
             }
             state["score"] = 0.5
 
-        state.setdefault("prompt_versions", {})["analyze"] = (
-            self._prompt_loader.get_version("analyze")
+        state.setdefault("prompt_versions", {})["analyze"] = self._prompt_loader.get_version(
+            "analyze"
         )
 
         log.info(

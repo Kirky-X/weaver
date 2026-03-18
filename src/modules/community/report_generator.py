@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Community report generator for knowledge graph summarization.
 
 Generates comprehensive reports for communities using LLM summarization,
@@ -8,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from core.db.neo4j import Neo4jPool
@@ -111,7 +112,7 @@ class CommunityReportGenerator:
                 rank=self._calculate_rank(entity_data, relationship_data),
                 entity_count=len(entity_data),
                 relationship_count=len(relationship_data),
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
                 metadata={
                     "entity_types": self._count_entity_types(entity_data),
                     "relationship_types": self._count_relationship_types(relationship_data),
@@ -199,7 +200,7 @@ class CommunityReportGenerator:
 
         type_groups: dict[str, list[dict]] = {}
         for entity in entities:
-            etype = entity.get('type', 'Unknown')
+            etype = entity.get("type", "Unknown")
             if etype not in type_groups:
                 type_groups[etype] = []
             type_groups[etype].append(entity)
@@ -207,17 +208,17 @@ class CommunityReportGenerator:
         for etype, ents in type_groups.items():
             lines.append(f"\n### {etype} ({len(ents)})\n")
             for ent in ents[:20]:
-                name = ent.get('name', 'Unknown')
-                desc = ent.get('description', '')
+                name = ent.get("name", "Unknown")
+                desc = ent.get("description", "")
                 lines.append(f"- {name}")
                 if desc:
                     lines.append(f"  - {desc[:100]}")
 
         lines.append("\n## Relationships\n")
         for rel in relationships[:30]:
-            source = rel.get('source', 'Unknown')
-            target = rel.get('target', 'Unknown')
-            rtype = rel.get('type', 'RELATED_TO')
+            source = rel.get("source", "Unknown")
+            target = rel.get("target", "Unknown")
+            rtype = rel.get("type", "RELATED_TO")
             lines.append(f"- {source} --[{rtype}]--> {target}")
 
         return "\n".join(lines)
@@ -248,29 +249,29 @@ Report:"""
 
     def _parse_generated_content(self, content: str) -> tuple[str, str]:
         """Parse generated content to extract title and summary."""
-        lines = content.strip().split('\n')
+        lines = content.strip().split("\n")
 
         title = "Community Report"
         summary = ""
 
         for i, line in enumerate(lines):
             line_stripped = line.strip()
-            if '标题' in line_stripped or 'Title' in line_stripped:
+            if "标题" in line_stripped or "Title" in line_stripped:
                 if i + 1 < len(lines):
-                    title = lines[i + 1].strip().strip('**').strip('#').strip()
-            elif '摘要' in line_stripped or 'Summary' in line_stripped:
+                    title = lines[i + 1].strip().strip("**").strip("#").strip()
+            elif "摘要" in line_stripped or "Summary" in line_stripped:
                 if i + 1 < len(lines):
                     summary_lines = []
                     for j in range(i + 1, min(i + 4, len(lines))):
-                        if lines[j].strip() and not lines[j].startswith('#'):
+                        if lines[j].strip() and not lines[j].startswith("#"):
                             summary_lines.append(lines[j].strip())
-                        elif lines[j].startswith('##'):
+                        elif lines[j].startswith("##"):
                             break
-                    summary = ' '.join(summary_lines[:2])
+                    summary = " ".join(summary_lines[:2])
 
         if not summary:
             for line in lines:
-                if line.strip() and not line.startswith('#') and not line.startswith('-'):
+                if line.strip() and not line.startswith("#") and not line.startswith("-"):
                     summary = line.strip()[:100]
                     break
 
@@ -288,7 +289,7 @@ Report:"""
         entity_score = len(entities) / 100.0
         relationship_score = len(relationships) / 200.0
 
-        unique_types = len(set(e.get('type') for e in entities if e.get('type')))
+        unique_types = len(set(e.get("type") for e in entities if e.get("type")))
 
         rank = (entity_score + relationship_score) * (1 + unique_types * 0.1)
 
@@ -298,7 +299,7 @@ Report:"""
         """Count entities by type."""
         counts: dict[str, int] = {}
         for ent in entities:
-            etype = ent.get('type', 'Unknown')
+            etype = ent.get("type", "Unknown")
             counts[etype] = counts.get(etype, 0) + 1
         return counts
 
@@ -306,7 +307,7 @@ Report:"""
         """Count relationships by type."""
         counts: dict[str, int] = {}
         for rel in relationships:
-            rtype = rel.get('type', 'RELATED_TO')
+            rtype = rel.get("type", "RELATED_TO")
             counts[rtype] = counts.get(rtype, 0) + 1
         return counts
 
@@ -327,20 +328,23 @@ Report:"""
             r.created_at = $created_at
         """
 
-        await self._pool.execute_query(cypher, {
-            "id": report.id,
-            "community_id": report.community_id,
-            "level": report.level,
-            "title": report.title,
-            "summary": report.summary,
-            "full_content": report.full_content,
-            "rank": report.rank,
-            "entity_count": report.entity_count,
-            "relationship_count": report.relationship_count,
-            "entity_types": str(report.metadata.get("entity_types", {})),
-            "relationship_types": str(report.metadata.get("relationship_types", {})),
-            "created_at": report.created_at.isoformat(),
-        })
+        await self._pool.execute_query(
+            cypher,
+            {
+                "id": report.id,
+                "community_id": report.community_id,
+                "level": report.level,
+                "title": report.title,
+                "summary": report.summary,
+                "full_content": report.full_content,
+                "rank": report.rank,
+                "entity_count": report.entity_count,
+                "relationship_count": report.relationship_count,
+                "entity_types": str(report.metadata.get("entity_types", {})),
+                "relationship_types": str(report.metadata.get("relationship_types", {})),
+                "created_at": report.created_at.isoformat(),
+            },
+        )
 
     def _create_empty_report(
         self,
@@ -358,7 +362,7 @@ Report:"""
             rank=0.0,
             entity_count=0,
             relationship_count=0,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             metadata={},
         )
 
@@ -379,7 +383,7 @@ Report:"""
             rank=0.0,
             entity_count=0,
             relationship_count=0,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             metadata={"error": error},
         )
 
@@ -415,7 +419,7 @@ Report:"""
                     rank=r.get("rank", 0.0),
                     entity_count=r.get("entity_count", 0),
                     relationship_count=r.get("relationship_count", 0),
-                    created_at=r.get("created_at", datetime.now(timezone.utc)),
+                    created_at=r.get("created_at", datetime.now(UTC)),
                     metadata={},
                 )
         except Exception as exc:

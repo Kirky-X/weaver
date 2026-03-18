@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Dead-letter retry queue for failed crawl items."""
 
 from __future__ import annotations
@@ -53,16 +54,18 @@ class RetryQueue:
             await self._move_to_dead_letter(url, host, attempt)
             return
 
-        delay = self._base_delay * (2 ** attempt)
+        delay = self._base_delay * (2**attempt)
         next_retry = time.time() + delay
         key = f"crawl:retry:{host}"
 
-        payload = json.dumps({
-            "url": url,
-            "host": host,
-            "attempt": attempt + 1,
-            "enqueued_at": time.time(),
-        })
+        payload = json.dumps(
+            {
+                "url": url,
+                "host": host,
+                "attempt": attempt + 1,
+                "enqueued_at": time.time(),
+            }
+        )
 
         await self._redis.zadd(key, {payload: next_retry})
         log.debug(
@@ -100,16 +103,16 @@ class RetryQueue:
 
         return result
 
-    async def _move_to_dead_letter(
-        self, url: str, host: str, attempt: int
-    ) -> None:
+    async def _move_to_dead_letter(self, url: str, host: str, attempt: int) -> None:
         """Move a permanently failed URL to the dead-letter queue."""
-        payload = json.dumps({
-            "url": url,
-            "host": host,
-            "final_attempt": attempt,
-            "dead_at": time.time(),
-        })
+        payload = json.dumps(
+            {
+                "url": url,
+                "host": host,
+                "final_attempt": attempt,
+                "dead_at": time.time(),
+            }
+        )
         await self._redis.lpush(self.DEAD_LETTER_KEY, payload)
         log.warning(
             "move_to_dead_letter",

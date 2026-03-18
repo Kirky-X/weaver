@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Modularity calculation for graph community quality assessment.
 
 Based on GraphRAG's modularity implementation for evaluating
@@ -8,7 +9,6 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any
 
 from core.observability.logging import get_logger
 
@@ -111,7 +111,7 @@ class ModularityCalculator:
                 continue
             intra = community_internal[comm]
             total = community_total[comm]
-            modularity += intra - self._resolution * (total ** 2) / (2 * total_weight)
+            modularity += intra - self._resolution * (total**2) / (2 * total_weight)
 
         modularity /= 2 * total_weight
         modularity = max(-1.0, min(1.0, modularity))
@@ -167,10 +167,7 @@ class ModularityCalculator:
         Returns:
             List of ModularityResults sorted by score (descending).
         """
-        results = [
-            self.calculate(edges, partitions)
-            for partitions in partitions_list
-        ]
+        results = [self.calculate(edges, partitions) for partitions in partitions_list]
         return sorted(results, key=lambda r: r.score, reverse=True)
 
     def find_optimal_resolution(

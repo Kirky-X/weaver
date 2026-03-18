@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Two-level deduplication: Redis Hash + DB UNIQUE constraint."""
 
 from __future__ import annotations
@@ -153,7 +154,11 @@ class Deduplicator:
 
         if expired_keys:
             await self._redis.hdel(self.DEDUP_KEY, *expired_keys)
-            log.info("dedup_cleanup", removed=len(expired_keys), remaining=len(all_entries) - len(expired_keys))
+            log.info(
+                "dedup_cleanup",
+                removed=len(expired_keys),
+                remaining=len(all_entries) - len(expired_keys),
+            )
 
         return len(expired_keys)
 

@@ -1,16 +1,17 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """RSS/Atom feed parser with incremental fetching."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 import feedparser
 
+from core.observability.logging import get_logger
 from modules.fetcher.base import BaseFetcher
 from modules.source.base import BaseSourceParser
 from modules.source.models import NewsItem, SourceConfig
-from core.observability.logging import get_logger
 
 log = get_logger("rss_parser")
 
@@ -106,7 +107,8 @@ class RSSParser(BaseSourceParser):
         if published:
             try:
                 from time import mktime
-                return datetime.fromtimestamp(mktime(published), tz=timezone.utc)
+
+                return datetime.fromtimestamp(mktime(published), tz=UTC)
             except (OverflowError, ValueError):
                 return None
         return None

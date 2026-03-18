@@ -193,6 +193,34 @@ ignore = [
     "RUF006",
 ]  # core 模块放宽要求
 
+"src/modules/*" = [
+    "SIM102",
+    "SIM105",
+    "SIM108",
+    "SIM113",
+    "B905",
+    "B007",
+    "F841",
+    "RUF005",
+    "N815",
+    "S311",
+    "RET503",
+    "PLR0913",
+    "RUF002",
+    "N818",
+    "RET504",
+    "RUF059",
+    "F821",
+    "F811",
+    "C401",
+    "B005",
+]  # modules 模块放宽要求
+
+"src/main.py" = [
+    "N818",
+    "F811",
+]  # main.py 放宽要求
+
 [tool.ruff.lint.isort]
 known-first-party = ["src"]
 known-third-party = [

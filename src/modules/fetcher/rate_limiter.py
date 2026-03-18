@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Per-host rate limiter for fetcher module."""
 
 from __future__ import annotations
