@@ -1,4 +1,5 @@
 #!/bin/bash
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 set -e
 
 # Colors for output
