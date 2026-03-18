@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.models import Article, PersistStatus
 from core.db.postgres import PostgresPool
+from core.exceptions import InvalidStateTransitionError
 from core.observability.logging import get_logger
 from modules.pipeline.state import PipelineState
 
@@ -254,13 +255,49 @@ class ArticleRepo:
     async def update_persist_status(
         self, article_id: uuid.UUID, status: str
     ) -> None:
-        """Update the persist status of an article."""
+        """Update the persist status of an article with state validation.
+
+        Args:
+            article_id: UUID of the article to update.
+            status: Target persist status.
+
+        Raises:
+            InvalidStateTransitionError: If the state transition is invalid.
+        """
+        # Convert string status to enum if needed
+        if isinstance(status, str):
+            new_status = PersistStatus(status)
+        else:
+            new_status = status
+
         async with self._pool.session() as session:
+            # Get current status
+            result = await session.execute(
+                select(Article.persist_status).where(Article.id == article_id)
+            )
+            row = result.scalar_one_or_none()
+            if row is None:
+                log.warning(
+                    "update_persist_status_article_not_found",
+                    article_id=str(article_id),
+                )
+                return
+
+            current_status = row
+
+            # Validate state transition
+            if not PersistStatus.is_valid_transition(current_status, new_status):
+                raise InvalidStateTransitionError(
+                    from_status=current_status.value,
+                    to_status=new_status.value,
+                )
+
+            # Update status
             await session.execute(
                 update(Article)
                 .where(Article.id == article_id)
                 .values(
-                    persist_status=status,
+                    persist_status=new_status,
                     updated_at=datetime.now(timezone.utc),
                 )
             )
@@ -322,7 +359,7 @@ class ArticleRepo:
             )
             return list(result.scalars().all())
 
-    async def insert_raw(self, article: Any) -> uuid.UUID:
+    async def insert_raw(self, article: Any, task_id: uuid.UUID | None = None) -> uuid.UUID:
         """Insert a raw article directly into the database.
 
         This is used for initial insertion of crawled articles before
@@ -330,6 +367,7 @@ class ArticleRepo:
 
         Args:
             article: Raw article data from crawler (ArticleRaw or NewsItem).
+            task_id: Optional task ID for tracking the source pipeline run.
 
         Returns:
             The article UUID.
@@ -385,6 +423,7 @@ class ArticleRepo:
                 is_news=True,
                 persist_status=PersistStatus.PENDING,
             )
+            article.task_id = task_id
             if raw.publish_time:
                 article.publish_time = raw.publish_time
 
@@ -595,3 +634,50 @@ class ArticleRepo:
                 current_id = next_id
 
         return None
+
+    async def get_task_progress_stats(self, task_id: uuid.UUID) -> dict[str, int]:
+        """Get progress statistics for a specific task.
+
+        Args:
+            task_id: The task UUID to query.
+
+        Returns:
+            Dictionary with total_processed, processing_count, completed_count,
+            failed_count, pending_count.
+        """
+        from sqlalchemy import func, case
+
+        async with self._pool.session() as session:
+            result = await session.execute(
+                select(
+                    func.count(Article.id).label("total_processed"),
+                    func.sum(
+                        case((Article.persist_status == PersistStatus.PROCESSING, 1), else_=0)
+                    ).label("processing_count"),
+                    func.sum(
+                        case(
+                            (
+                                Article.persist_status.in_(
+                                    [PersistStatus.NEO4J_DONE, PersistStatus.PG_DONE]
+                                ),
+                                1,
+                            ),
+                            else_=0,
+                        )
+                    ).label("completed_count"),
+                    func.sum(
+                        case((Article.persist_status == PersistStatus.FAILED, 1), else_=0)
+                    ).label("failed_count"),
+                    func.sum(
+                        case((Article.persist_status == PersistStatus.PENDING, 1), else_=0)
+                    ).label("pending_count"),
+                ).where(Article.task_id == task_id)
+            )
+            row = result.one()
+            return {
+                "total_processed": row.total_processed or 0,
+                "processing_count": int(row.processing_count or 0),
+                "completed_count": int(row.completed_count or 0),
+                "failed_count": int(row.failed_count or 0),
+                "pending_count": int(row.pending_count or 0),
+            }

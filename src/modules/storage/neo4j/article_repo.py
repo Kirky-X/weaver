@@ -275,3 +275,47 @@ class Neo4jArticleRepo:
         SET a.score = $score
         """
         await self._pool.execute_query(query, {"pg_id": pg_id, "score": score})
+
+    async def delete_orphan_articles(self, valid_pg_ids: list[str]) -> int:
+        """Delete Article nodes whose pg_id is not in the valid list.
+
+        This cleans up orphan articles that exist in Neo4j but not in PostgreSQL.
+
+        Args:
+            valid_pg_ids: List of valid PostgreSQL article IDs.
+
+        Returns:
+            Number of articles deleted.
+        """
+        if not valid_pg_ids:
+            query = """
+            MATCH (a:Article)
+            WITH a, count(a) AS total
+            DETACH DELETE a
+            RETURN total
+            """
+            result = await self._pool.execute_query(query)
+            return result[0]["total"] if result else 0
+
+        query = """
+        MATCH (a:Article)
+        WHERE NOT a.pg_id IN $valid_pg_ids
+        WITH a, count(a) AS orphan_count
+        DETACH DELETE a
+        RETURN orphan_count
+        """
+        result = await self._pool.execute_query(query, {"valid_pg_ids": valid_pg_ids})
+        return result[0]["orphan_count"] if result else 0
+
+    async def list_all_article_pg_ids(self) -> list[str]:
+        """List all article pg_ids in Neo4j.
+
+        Returns:
+            List of pg_id strings.
+        """
+        query = """
+        MATCH (a:Article)
+        RETURN a.pg_id AS pg_id
+        """
+        result = await self._pool.execute_query(query)
+        return [r["pg_id"] for r in result if r.get("pg_id")]

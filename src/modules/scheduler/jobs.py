@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -257,18 +258,53 @@ class SchedulerJobs:
             log.error("cleanup_orphan_entity_vectors_failed", error=str(exc))
             return 0
 
+    async def sync_neo4j_with_postgres(self) -> int:
+        """Synchronize Neo4j articles with PostgreSQL.
+
+        Deletes Neo4j Article nodes that don't have corresponding
+        records in PostgreSQL (orphan articles).
+
+        Returns:
+            Number of orphan articles deleted.
+        """
+        log.info("sync_neo4j_with_postgres_start")
+
+        try:
+            async with self._postgres.session() as session:
+                result = await session.execute(select(Article.id))
+                pg_ids = {str(row[0]) for row in result}
+
+            neo4j_ids = await self._neo4j_writer.article_repo.list_all_article_pg_ids()
+
+            orphan_ids = set(neo4j_ids) - pg_ids
+
+            if orphan_ids:
+                count = await self._neo4j_writer.article_repo.delete_orphan_articles(list(pg_ids))
+                log.info("sync_neo4j_with_postgres_complete", deleted=count, orphan_ids=len(orphan_ids))
+                return count
+
+            log.info("sync_neo4j_with_postgres_complete", deleted=0)
+            return 0
+        except Exception as exc:
+            log.error("sync_neo4j_with_postgres_failed", error=str(exc))
+            return 0
+
     async def retry_pipeline_processing(self) -> int:
         """Retry failed or stuck pipeline processing.
 
         Scans for:
-        1. Articles in PROCESSING state beyond timeout (stuck)
-        2. Articles in FAILED state with retry_count < max_retries
+        1. Articles in PENDING state (never processed)
+        2. Articles in PROCESSING state beyond timeout (stuck)
+        3. Articles in FAILED state with retry_count < max_retries
 
         Then re-processes them through the pipeline.
+        Also checks task completion status for articles with task_id.
 
         Returns:
             Number of articles retried.
         """
+        import collections
+
         if not self._pipeline or not self._article_repo:
             log.warning("retry_pipeline_processing_no_pipeline")
             return 0
@@ -278,13 +314,16 @@ class SchedulerJobs:
         retry_count = 0
 
         try:
-            # 1. Get stuck articles (PROCESSING beyond timeout)
+            # 1. Get pending articles (never processed)
+            pending_articles = await self._article_repo.get_pending(limit=20)
+
+            # 2. Get stuck articles (PROCESSING beyond timeout)
             stuck_articles = await self._article_repo.get_stuck_articles(timeout_minutes=30)
 
-            # 2. Get failed articles (eligible for retry)
+            # 3. Get failed articles (eligible for retry)
             failed_articles = await self._article_repo.get_failed_articles(max_retries=3)
 
-            articles = stuck_articles + failed_articles
+            articles = pending_articles + stuck_articles + failed_articles
 
             if not articles:
                 log.info("retry_pipeline_processing_no_items")
@@ -292,13 +331,52 @@ class SchedulerJobs:
 
             log.info(
                 "retry_pipeline_processing_found",
+                pending=len(pending_articles),
                 stuck=len(stuck_articles),
                 failed=len(failed_articles),
             )
 
+            # Check task completion status for articles with task_id
+            # Group articles by task_id
+            task_articles: dict[uuid.UUID, list[Article]] = collections.defaultdict(list)
+            for article in articles:
+                if article.task_id:
+                    task_articles[article.task_id].append(article)
+
+            # For each task, check if all articles are in terminal states
+            # If so, update Redis task status to "completed"
+            terminal_statuses = {PersistStatus.NEO4J_DONE, PersistStatus.PG_DONE, PersistStatus.FAILED}
+            for task_id, task_arts in task_articles.items():
+                all_terminal = all(
+                    art.persist_status in terminal_statuses for art in task_arts
+                )
+                if all_terminal:
+                    try:
+                        import json
+                        task_key = "pipeline:task_status"
+                        existing = await self._redis.client.hget(task_key, str(task_id))
+                        if existing:
+                            task_data = json.loads(existing)
+                            if task_data.get("status") not in ("completed", "failed"):
+                                task_data["status"] = "completed"
+                                task_data["completed_at"] = datetime.now(timezone.utc).isoformat()
+                                await self._redis.client.hset(
+                                    task_key, str(task_id), json.dumps(task_data)
+                                )
+                                log.info(
+                                    "task_auto_completed",
+                                    task_id=str(task_id),
+                                    article_count=len(task_arts),
+                                )
+                    except Exception as exc:
+                        log.warning(
+                            "task_completion_check_failed",
+                            task_id=str(task_id),
+                            error=str(exc),
+                        )
+
             for article in articles:
                 try:
-                    # Reconstruct ArticleRaw
                     from modules.collector.models import ArticleRaw
 
                     raw = ArticleRaw(
@@ -309,7 +387,6 @@ class SchedulerJobs:
                         source_host=article.source_host,
                     )
 
-                    # Process through pipeline
                     await self._pipeline.process_batch([raw])
                     retry_count += 1
 
@@ -324,7 +401,6 @@ class SchedulerJobs:
                         article_id=str(article.id),
                         error=str(exc),
                     )
-                    # Mark as failed
                     try:
                         await self._article_repo.mark_failed(
                             article.id, f"Retry error: {str(exc)}"
