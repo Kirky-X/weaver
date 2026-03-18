@@ -237,8 +237,10 @@ class TestQueueStatsEndpoint:
             postgres_pool=mock_postgres,
         )
 
-        # Should skip bad task and count good one
-        assert result["total_tasks"] == 1
+        # total_tasks counts all Redis entries (including malformed ones)
+        # Only malformed JSON is skipped from status_counts
+        assert result["total_tasks"] == 2
+        # status_counts only includes valid entries
         assert result["status_counts"]["completed"] == 1
         assert "bad" not in result["status_counts"]
 
