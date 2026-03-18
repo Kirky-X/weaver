@@ -55,6 +55,7 @@ class Container:
         self._crawler: Crawler | None = None
         self._pipeline: Pipeline | None = None
         self._deduplicator: Deduplicator | None = None
+        self._shutdown: bool = False  # Idempotency protection
 
     def configure(self, settings: Settings) -> "Container":
         """Configure the container with settings.
@@ -97,7 +98,7 @@ class Container:
             log.info("init_neo4j_start", uri=self._settings.neo4j.uri, password="***")
             self._neo4j_pool = Neo4jPool(
                 self._settings.neo4j.uri,
-                ("neo4j", self._settings.neo4j.password),
+                (self._settings.neo4j.user, self._settings.neo4j.password),
             )
             await self._neo4j_pool.startup()
             log.info("neo4j_initialized")
@@ -382,7 +383,17 @@ class Container:
 
     async def startup(self) -> None:
         """Initialize all services."""
+        import os
         log.info("container_starting")
+
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        
+        from core.db.initializer import initialize_database
+        await initialize_database(
+            self._settings.postgres.dsn,
+            alembic_ini_path=os.path.join(project_root, "alembic.ini"),
+            script_location=os.path.join(project_root, "src", "alembic"),
+        )
 
         await self.init_postgres()
         await self.init_redis()
@@ -405,25 +416,50 @@ class Container:
         log.info("container_started")
 
     async def shutdown(self) -> None:
-        """Shutdown all services in reverse order."""
+        """Shutdown all services in reverse order.
+
+        This method is idempotent - calling it multiple times has no effect
+        after the first call.
+        """
+        # Idempotency protection
+        if self._shutdown:
+            log.debug("shutdown_already_called")
+            return
+
+        self._shutdown = True
         log.info("container_shutting_down")
 
         # Stop scheduler first
         if self._source_scheduler:
             self._source_scheduler.stop()
+            log.info("source_scheduler_stopped")
+
+        # Shutdown LLM queue manager (cancel worker tasks)
+        if self._llm_client:
+            try:
+                queue_manager = self._llm_client._queue_manager
+                if queue_manager:
+                    await queue_manager.shutdown()
+                    log.info("llm_queue_manager_stopped")
+            except Exception as e:
+                log.warning("llm_queue_manager_shutdown_error", error=str(e))
 
         # Shutdown pools
         if self._playwright_pool:
             await self._playwright_pool.shutdown()
+            log.info("playwright_pool_shutdown")
 
         if self._redis_client:
             await self._redis_client.shutdown()
+            log.info("redis_client_shutdown")
 
         if self._postgres_pool:
             await self._postgres_pool.shutdown()
+            log.info("postgres_pool_shutdown")
 
         if self._neo4j_pool:
             await self._neo4j_pool.shutdown()
+            log.info("neo4j_pool_shutdown")
 
         log.info("container_shutdown_complete")
 
