@@ -29,6 +29,8 @@ class Neo4jPool:
             log.info("neo4j_connection_verified")
         except Exception as exc:
             log.warning("neo4j_connection_verify_failed", error=str(exc))
+            self._driver = None
+            raise ConnectionError(f"Failed to connect to Neo4j at {self._uri}: {exc}") from exc
 
     async def shutdown(self) -> None:
         """Close the Neo4j driver."""
