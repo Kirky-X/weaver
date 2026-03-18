@@ -200,12 +200,12 @@ class VectorRepo:
                 SELECT
                     a.id::text as article_id,
                     a.category,
-                    1 - (av.embedding <=> :embedding::vector) as similarity
+                    1 - (av.embedding <=> cast(:embedding as vector)) as similarity
                 FROM article_vectors av
                 JOIN articles a ON a.id = av.article_id
                 WHERE av.vector_type = 'content'
                   AND a.is_merged = FALSE
-                  AND 1 - (av.embedding <=> :embedding::vector) > :threshold
+                  AND 1 - (av.embedding <=> cast(:embedding as vector)) > :threshold
                   AND (:category IS NULL OR a.category = :category)
                   AND (:model_id IS NULL OR av.model_id = :model_id)
                 ORDER BY similarity DESC
@@ -269,12 +269,12 @@ class VectorRepo:
                     SELECT
                         a.id::text as article_id,
                         a.category,
-                        1 - (av.embedding <=> :embedding::vector) as similarity
+                        1 - (av.embedding <=> cast(:embedding as vector)) as similarity
                     FROM article_vectors av
                     JOIN articles a ON a.id = av.article_id
                     WHERE av.vector_type = 'content'
                       AND a.is_merged = FALSE
-                      AND 1 - (av.embedding <=> :embedding::vector) > :threshold
+                      AND 1 - (av.embedding <=> cast(:embedding as vector)) > :threshold
                       AND (:category IS NULL OR a.category = :category)
                       AND (:model_id IS NULL OR av.model_id = :model_id)
                     ORDER BY similarity DESC
@@ -354,12 +354,14 @@ class VectorRepo:
         async with self._pool.session() as session:
             await session.execute(text("SET hnsw.ef_search = 200;"))
 
+            vector_str = f"[{','.join(map(str, x) for x in embedding)}]"
+
             query = text("""
                 SELECT
                     neo4j_id,
-                    1 - (embedding <=> :embedding::vector) as similarity
+                    1 - (embedding <=> cast(:embedding as vector)) as similarity
                 FROM entity_vectors
-                WHERE 1 - (embedding <=> :embedding::vector) > :threshold
+                WHERE 1 - (embedding <=> cast(:embedding as vector)) > :threshold
                 ORDER BY similarity DESC
                 LIMIT :limit
             """)
@@ -367,7 +369,7 @@ class VectorRepo:
             result = await session.execute(
                 query,
                 {
-                    "embedding": str(embedding),
+                    "embedding": vector_str,
                     "threshold": threshold,
                     "limit": limit,
                 },

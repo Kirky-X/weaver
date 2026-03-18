@@ -113,6 +113,18 @@ class EntityResolver:
                     "confidence": 0.95,
                 }
 
+        if not embedding:
+            canonical = self._rules.get_canonical_suggestion(name, entity_type)
+            return await self._create_entity(
+                name=canonical,
+                entity_type=entity_type,
+                embedding=embedding,
+                description=description,
+                is_new=True,
+                match_type="new",
+                confidence=1.0,
+            )
+
         similar = await self._vector_repo.find_similar_entities(
             embedding=embedding,
             threshold=self.SIMILARITY_THRESHOLD,
@@ -232,7 +244,8 @@ class EntityResolver:
                     entity_type=entity_type,
                     description=description,
                 )
-                await self._vector_repo.upsert_entity_vector(neo4j_id, embedding)
+                if embedding:
+                    await self._vector_repo.upsert_entity_vector(neo4j_id, embedding)
                 return {
                     "neo4j_id": neo4j_id,
                     "canonical_name": name,
@@ -280,7 +293,8 @@ class EntityResolver:
         if new_name != canonical_name:
             await self._entity_repo.add_alias(canonical_name, entity_type, new_name)
 
-        await self._vector_repo.upsert_entity_vector(neo4j_id, embedding)
+        if embedding:
+            await self._vector_repo.upsert_entity_vector(neo4j_id, embedding)
 
         return {
             "neo4j_id": neo4j_id,
