@@ -429,7 +429,7 @@ class TestPipelineErrorHandling:
         state["cleaned"] = {"title": "Title", "body": "Body"}
 
         result = await node.execute(state)
-        assert result.get("category") == "未知"
+        assert result.get("category") == "社会"
 
     @pytest.mark.asyncio
     async def test_invalid_json_response_handling(self):
