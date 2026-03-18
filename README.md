@@ -345,25 +345,28 @@ graph TB
 所有 API 请求需要在 Header 中携带 API Key：
 
 ```
-Authorization: Bearer your-api-key
+X-API-Key: your-api-key
 ```
 
 ### 端点列表
 
 | 端点 | 方法 | 描述 |
 |------|------|------|
-| `/health` | GET | 健康检查 |
+| `/health` | GET | 健康检查（无需认证） |
 | `/api/v1/sources` | GET | 获取源列表 |
 | `/api/v1/sources` | POST | 添加新源 |
 | `/api/v1/sources/{source_id}` | PUT | 更新源配置 |
 | `/api/v1/sources/{source_id}` | DELETE | 删除源 |
-| `/api/v1/pipeline/process` | POST | 处理待处理文章 |
+| `/api/v1/pipeline/trigger` | POST | 触发 Pipeline 任务 |
+| `/api/v1/pipeline/tasks/{task_id}` | GET | 获取任务状态 |
+| `/api/v1/pipeline/queue/stats` | GET | 获取队列统计 |
 | `/api/v1/articles` | GET | 查询文章列表（支持分页、过滤、排序） |
 | `/api/v1/articles/{id}` | GET | 获取文章详情 |
 | `/api/v1/graph/entities/{name}` | GET | 查询实体及其关系 |
 | `/api/v1/graph/articles/{id}/graph` | GET | 获取文章的知识图谱 |
+| `/api/v1/graph/metrics/*` | GET | 图谱指标端点 |
 | `/api/v1/admin/sources/authority` | GET | 获取源权威度 |
-| `/api/v1/metrics` | GET | Prometheus 指标 |
+| `/metrics` | GET | Prometheus 指标 |
 
 <details style="padding:16px; margin: 16px 0">
 <summary style="cursor:pointer; font-weight:600; color:#166534">📖 API 示例</summary>
@@ -372,14 +375,14 @@ Authorization: Bearer your-api-key
 
 ```bash
 curl -X GET "http://localhost:8000/api/v1/articles?page=1&page_size=20&category=politics&min_credibility=0.7" \
-  -H "Authorization: Bearer your-api-key"
+  -H "X-API-Key: your-api-key"
 ```
 
 #### 创建源
 
 ```bash
 curl -X POST "http://localhost:8000/api/v1/sources" \
-  -H "Authorization: Bearer your-api-key" \
+  -H "X-API-Key: your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
     "id": "bbc-news",
@@ -395,7 +398,7 @@ curl -X POST "http://localhost:8000/api/v1/sources" \
 
 ```bash
 curl -X GET "http://localhost:8000/api/v1/graph/entities/Apple%20Inc?limit=10" \
-  -H "Authorization: Bearer your-api-key"
+  -H "X-API-Key: your-api-key"
 ```
 
 </details>
@@ -412,7 +415,7 @@ flowchart LR
     B --> C[Cleaner]
     C --> D[Categorizer]
     D --> E[Vectorize]
-    
+
     B -->|非新闻| F[终止]
 ```
 
@@ -500,23 +503,128 @@ flowchart LR
 
 ## <span id="development">🧪 开发指南</span>
 
+### 测试概述
+
+Weaver 使用分层测试策略：
+
+| 层级 | 位置 | 数量 | 特点 |
+|------|------|------|------|
+| 单元测试 | `tests/unit/` | ~940 | Mock 外部依赖，快速执行 |
+| 集成测试 | `tests/integration/` | ~22 | 测试多组件交互 |
+| E2E 测试 | `tests/e2e/` | ~24 | 完整 API 流程，真实服务 |
+| 性能测试 | `tests/performance/` | ~10 | 向量索引性能基准 |
+
 ### 运行测试
 
 ```bash
-# 运行所有测试
+# 运行所有测试（不包括 E2E）
 uv run pytest
 
 # 运行单元测试
-uv run pytest tests/unit/
+uv run pytest tests/unit/ -v
 
 # 运行集成测试
-uv run pytest tests/integration/
+uv run pytest tests/integration/ -v
+
+# 运行带标记的测试
+uv run pytest -m unit -v
+uv run pytest -m integration -v
+
+# 带覆盖率报告
+uv run pytest --cov=src --cov-report=html
+
+# 跳过慢速测试
+uv run pytest -m "not slow"
+
+# E2E 测试（需要 Docker）
+cd tests/e2e
+docker compose up -d
+pytest tests/e2e/ -v
+docker compose down
+```
+
+### 测试覆盖率
+
+项目要求 80% 覆盖率阈值。查看详细报告：
+
+```bash
+# HTML 覆盖率报告
+uv run pytest --cov=src --cov-report=html
+open htmlcov/index.html
+
+# 覆盖率摘要
+uv run pytest --cov=src --cov-report=term-missing
+```
+
+### 测试目录结构
+
+```
+tests/
+├── unit/                    # 单元测试
+│   ├── test_analyze.py     # Analyze 节点
+│   ├── test_categorizer.py # Categorizer 节点
+│   ├── test_classifier.py  # Classifier 节点
+│   ├── test_vectorize.py   # Vectorize 节点
+│   ├── test_global_search.py
+│   ├── test_local_search.py
+│   └── ...
+├── integration/            # 集成测试
+│   ├── test_pipeline_integration.py
+│   ├── test_search_integration.py
+│   └── test_source_integration.py
+├── e2e/                    # E2E 测试
+│   ├── conftest.py        # Docker fixtures
+│   ├── base/client.py     # API 客户端
+│   ├── test_health.py
+│   ├── test_sources.py
+│   └── test_workflows.py
+└── performance/           # 性能测试
+    └── test_hnsw_performance.py
+```
+
+### E2E 测试环境
+
+E2E 测试使用隔离的 Docker 服务：
+
+```bash
+# 启动 E2E 测试服务
+docker compose -f tests/e2e/docker-compose.yml up -d
+
+# 等待服务就绪
+docker compose -f tests/e2e/docker-compose.yml ps
 
 # 运行 E2E 测试
-uv run pytest tests/e2e/
+uv run pytest tests/e2e/ -v
 
-# 带覆盖率
-uv run pytest --cov=src tests/
+# 清理
+docker compose -f tests/e2e/docker-compose.yml down -v
+```
+
+### Mock Fixtures
+
+常用测试 fixtures（定义在 `tests/conftest.py`）：
+
+| Fixture | 描述 |
+|---------|------|
+| `mock_redis` | Redis mock |
+| `mock_postgres_pool` | PostgreSQL mock |
+| `mock_neo4j_pool` | Neo4j mock |
+| `mock_llm_client` | LLM 客户端 mock |
+| `mock_settings` | 配置对象 mock |
+| `sample_article` | 示例文章数据 |
+
+### 测试数据工厂
+
+使用 `tests/factories.py` 中的工厂类生成测试数据：
+
+```python
+from tests.factories import ArticleRawFactory, SourceConfigFactory
+
+# 创建单个对象
+article = ArticleRawFactory.create()
+
+# 批量创建
+articles = ArticleRawFactory.create_batch(10)
 ```
 
 ### 数据库迁移
@@ -580,17 +688,43 @@ uv run alembic downgrade -1
 2. **Clone** 你的 fork：`git clone https://github.com/yourusername/weaver.git`
 3. **创建** 分支：`git checkout -b feature/amazing-feature`
 4. **进行** 修改
-5. **测试** 修改：`uv run pytest`
-6. **提交** 修改：`git commit -m 'feat: 添加某功能'`
-7. **推送** 到分支：`git push origin feature/amazing-feature`
-8. **创建** Pull Request
+5. **测试** 修改：
+   ```bash
+   uv run pytest tests/unit/ -v
+   uv run pytest tests/integration/ -v
+   ```
+6. **检查** 覆盖率：
+   ```bash
+   uv run pytest --cov=src --cov-report=term-missing
+   ```
+7. **提交** 修改：`git commit -m 'feat: 添加某功能'`
+8. **推送** 到分支：`git push origin feature/amazing-feature`
+9. **创建** Pull Request
 
 ### 📋 代码规范
 
 - ✅ 遵循 Python 标准编码规范 (PEP 8)
-- ✅ 编写全面的测试
+- ✅ 使用 `ruff` 格式化代码：`uv run ruff check --fix src/`
+- ✅ 编写全面的测试（新增功能必须有测试覆盖）
 - ✅ 更新文档
 - ✅ 类型注解完整
+
+### 🧪 测试要求
+
+- 所有新功能必须包含单元测试
+- 公共 API 必须包含集成测试
+- 覆盖率阈值：80%
+- 测试命名：`test_<模块>_<功能>.py`
+- 使用 Mock 隔离外部依赖
+
+### 🔍 代码审查清单
+
+- [ ] 新代码有测试覆盖
+- [ ] 所有测试通过
+- [ ] 覆盖率不低于阈值
+- [ ] 无新增 linting 错误
+- [ ] 类型注解完整
+- [ ] 文档已更新
 
 </details>
 
