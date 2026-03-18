@@ -7,21 +7,15 @@ import pytest
 import os
 
 
-def get_neo4j_pool():
+@pytest.fixture
+async def neo4j_pool():
     """Get real Neo4j pool."""
     from core.db.neo4j import Neo4jPool
-    uri = os.getenv("NEO4J_URI", "bolt://localhost:7688")
+    uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
     user = os.getenv("NEO4J_USER", "neo4j")
     password = os.getenv("NEO4J_PASSWORD", "testpassword123")
     pool = Neo4jPool(uri, (user, password))
-    import asyncio
-    asyncio.run(pool.startup())
-    return pool
-
-
-@pytest.fixture(scope="module")
-def neo4j_pool():
-    pool = get_neo4j_pool()
+    await pool.startup()
     yield pool
 
 
