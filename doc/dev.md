@@ -45,7 +45,7 @@
 | 图数据库 | Neo4j 5 (官方 async driver) | ^5.27 |
 | 缓存 | Redis 7 (redis-py) | ^5.2 |
 | 依赖注入 | python-dependency-injector | ^4.43 |
-| 任务调度 | APScheduler | ^4.0 |
+| 任务调度 | APScheduler | ^3.10 |
 | 配置管理 | pydantic-settings + tomllib(内置) | ^2.7 |
 | NLP | spaCy | ^3.8 |
 | 结构化日志 | structlog | ^24.4 |
