@@ -5,6 +5,7 @@ Tests the integration between pipeline nodes and their dependencies.
 
 from __future__ import annotations
 
+import asyncio
 import pytest
 import uuid
 from datetime import datetime, timezone
@@ -884,3 +885,475 @@ class TestPipelineNodeChain:
 
         state = await cleaner.execute(state)
         assert "cleaned" not in state
+
+
+# =============================================================================
+# Migrated from E2E tests (tests/e2e/test_full_pipeline.py)
+# =============================================================================
+
+class TestPipelineStateIntegration:
+    """Integration tests for PipelineState behavior (migrated from E2E)."""
+
+    @pytest.mark.asyncio
+    async def test_pipeline_state_initialization(self, pipeline_state, sample_raw_article):
+        """Test pipeline state initializes correctly."""
+        assert pipeline_state["raw"] == sample_raw_article
+        assert "raw" in pipeline_state
+
+    @pytest.mark.asyncio
+    async def test_pipeline_state_field_updates(self, pipeline_state):
+        """Test pipeline state field updates."""
+        pipeline_state["is_news"] = True
+        pipeline_state["category"] = "tech"
+        pipeline_state["language"] = "zh"
+        pipeline_state["score"] = 0.85
+
+        assert pipeline_state["is_news"] is True
+        assert pipeline_state["category"] == "tech"
+        assert pipeline_state["language"] == "zh"
+        assert pipeline_state["score"] == 0.85
+
+    @pytest.mark.asyncio
+    async def test_pipeline_state_cleaned_data(self, pipeline_state):
+        """Test pipeline state with cleaned data."""
+        pipeline_state["cleaned"] = {
+            "title": "Cleaned Title",
+            "body": "Cleaned body content",
+        }
+
+        assert pipeline_state["cleaned"]["title"] == "Cleaned Title"
+        assert pipeline_state["cleaned"]["body"] == "Cleaned body content"
+
+    @pytest.mark.asyncio
+    async def test_pipeline_state_summary_info(self, pipeline_state):
+        """Test pipeline state with summary info."""
+        pipeline_state["summary_info"] = {
+            "summary": "Article summary",
+            "subjects": ["AI", "Technology"],
+            "key_data": ["Data point 1"],
+            "impact": "high",
+            "has_data": True,
+            "event_time": "2024-01-15T10:00:00",
+        }
+
+        assert pipeline_state["summary_info"]["summary"] == "Article summary"
+        assert "AI" in pipeline_state["summary_info"]["subjects"]
+
+    @pytest.mark.asyncio
+    async def test_pipeline_state_sentiment(self, pipeline_state):
+        """Test pipeline state with sentiment data."""
+        pipeline_state["sentiment"] = {
+            "sentiment": "positive",
+            "sentiment_score": 0.75,
+            "primary_emotion": "joy",
+            "emotion_targets": ["technology", "innovation"],
+        }
+
+        assert pipeline_state["sentiment"]["sentiment"] == "positive"
+        assert pipeline_state["sentiment"]["sentiment_score"] == 0.75
+
+    @pytest.mark.asyncio
+    async def test_pipeline_state_credibility(self, pipeline_state):
+        """Test pipeline state with credibility data."""
+        pipeline_state["credibility"] = {
+            "score": 0.9,
+            "source_credibility": 0.85,
+            "cross_verification": 0.8,
+            "content_check": 0.95,
+            "flags": ["verified"],
+            "verified_by_sources": 3,
+        }
+
+        assert pipeline_state["credibility"]["score"] == 0.9
+        assert pipeline_state["credibility"]["source_credibility"] == 0.85
+
+    @pytest.mark.asyncio
+    async def test_pipeline_state_entities(self, pipeline_state):
+        """Test pipeline state with extracted entities."""
+        pipeline_state["entities"] = [
+            {"text": "OpenAI", "label": "ORG", "start": 0, "end": 6},
+            {"text": "人工智能", "label": "TECH", "start": 50, "end": 54},
+        ]
+
+        assert len(pipeline_state["entities"]) == 2
+        assert pipeline_state["entities"][0]["text"] == "OpenAI"
+
+    @pytest.mark.asyncio
+    async def test_pipeline_state_vector(self, pipeline_state):
+        """Test pipeline state with vector embedding."""
+        pipeline_state["vector"] = [0.1] * 1536
+
+        assert len(pipeline_state["vector"]) == 1536
+
+    @pytest.mark.asyncio
+    async def test_pipeline_state_merge_info(self, pipeline_state):
+        """Test pipeline state with merge information."""
+        pipeline_state["is_merged"] = True
+        pipeline_state["merged_source_ids"] = [
+            str(uuid.uuid4()),
+            str(uuid.uuid4()),
+        ]
+
+        assert pipeline_state["is_merged"] is True
+        assert len(pipeline_state["merged_source_ids"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_pipeline_state_prompt_versions(self, pipeline_state):
+        """Test pipeline state tracks prompt versions."""
+        pipeline_state["prompt_versions"] = {
+            "classify": "v1.0",
+            "analyze": "v1.2",
+            "entity": "v1.1",
+        }
+
+        assert pipeline_state["prompt_versions"]["classify"] == "v1.0"
+
+
+class TestPipelineConcurrencyIntegration:
+    """Integration tests for pipeline concurrency (migrated from E2E)."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_pipeline_execution(self):
+        """Test multiple pipeline states can be processed concurrently."""
+        from modules.collector.models import ArticleRaw
+
+        states = []
+        for i in range(5):
+            raw = ArticleRaw(
+                url=f"https://example.com/concurrent-{i}",
+                title=f"Concurrent Article {i}",
+                body=f"Body content {i}",
+                source="Example",
+                publish_time=datetime.now(timezone.utc),
+                source_host="example.com",
+            )
+            states.append(PipelineState(raw=raw))
+
+        async def process_state(state):
+            state["is_news"] = True
+            state["category"] = "tech"
+            state["score"] = 0.8
+            await asyncio.sleep(0.01)
+            return state
+
+        results = await asyncio.gather(*[process_state(s) for s in states])
+
+        assert len(results) == 5
+        for result in results:
+            assert result["is_news"] is True
+            assert result["category"] == "tech"
+
+    @pytest.mark.asyncio
+    async def test_pipeline_batch_processing(self):
+        """Test pipeline can process batch of articles."""
+        from modules.collector.models import ArticleRaw
+
+        batch = []
+        for i in range(10):
+            raw = ArticleRaw(
+                url=f"https://example.com/batch-{i}",
+                title=f"Batch Article {i}",
+                body=f"Content {i}",
+                source="Batch Source",
+                publish_time=datetime.now(timezone.utc),
+                source_host="example.com",
+            )
+            batch.append(raw)
+
+        processed = []
+        for raw in batch:
+            state = PipelineState(raw=raw)
+            state["is_news"] = True
+            processed.append(state)
+
+        assert len(processed) == 10
+        for state in processed:
+            assert "raw" in state
+            assert state["is_news"] is True
+
+
+class TestPipelineErrorHandlingIntegration:
+    """Integration tests for pipeline error handling (migrated from E2E)."""
+
+    @pytest.mark.asyncio
+    async def test_llm_timeout_handling(self):
+        """Test pipeline handles LLM timeout."""
+        from modules.pipeline.nodes.classifier import ClassifierNode
+        from core.llm.client import LLMClient
+        from core.llm.token_budget import TokenBudgetManager
+        from core.prompt.loader import PromptLoader
+
+        mock_llm = AsyncMock(spec=LLMClient)
+        mock_llm.call.side_effect = asyncio.TimeoutError("LLM timeout")
+
+        mock_budget = MagicMock(spec=TokenBudgetManager)
+        mock_budget.truncate = lambda x, y: x
+        mock_prompt_loader = MagicMock(spec=PromptLoader)
+        mock_prompt_loader.get_version.return_value = "v1.0"
+
+        node = ClassifierNode(llm=mock_llm, budget=mock_budget, prompt_loader=mock_prompt_loader)
+
+        state = PipelineState(raw=MagicMock(
+            url="https://example.com/news",
+            title="News",
+            body="Content",
+        ))
+
+        with pytest.raises(asyncio.TimeoutError):
+            await node.execute(state)
+
+    @pytest.mark.asyncio
+    async def test_llm_rate_limit_handling(self):
+        """Test pipeline handles LLM rate limit gracefully."""
+        from modules.pipeline.nodes.categorizer import CategorizerNode
+        from core.llm.client import LLMClient
+        from core.prompt.loader import PromptLoader
+
+        mock_llm = AsyncMock(spec=LLMClient)
+        mock_llm.call.side_effect = Exception("Rate limit exceeded")
+
+        mock_prompt_loader = MagicMock(spec=PromptLoader)
+        mock_prompt_loader.get_version.return_value = "v1.0"
+
+        node = CategorizerNode(llm=mock_llm, prompt_loader=mock_prompt_loader)
+
+        state = PipelineState(raw=MagicMock(url="https://example.com/article"))
+        state["cleaned"] = {"title": "Title", "body": "Body"}
+
+        result = await node.execute(state)
+        assert result.get("category") == "社会"
+
+    @pytest.mark.asyncio
+    async def test_invalid_json_response_handling(self):
+        """Test pipeline handles invalid JSON from LLM."""
+        from modules.pipeline.nodes.classifier import ClassifierNode
+        from core.llm.client import LLMClient
+        from core.llm.token_budget import TokenBudgetManager
+        from core.prompt.loader import PromptLoader
+
+        mock_llm = AsyncMock(spec=LLMClient)
+        mock_llm.call.side_effect = ValueError("Invalid JSON response")
+
+        mock_budget = MagicMock(spec=TokenBudgetManager)
+        mock_budget.truncate = lambda x, y: x
+        mock_prompt_loader = MagicMock(spec=PromptLoader)
+        mock_prompt_loader.get_version.return_value = "v1.0"
+
+        node = ClassifierNode(llm=mock_llm, budget=mock_budget, prompt_loader=mock_prompt_loader)
+
+        state = PipelineState(raw=MagicMock(
+            url="https://example.com/news",
+            title="News",
+            body="Content",
+        ))
+
+        with pytest.raises(ValueError):
+            await node.execute(state)
+
+
+class TestCleanerNodeExtra:
+    """Extra integration tests for CleanerNode migrated from unit tests."""
+
+    @pytest.mark.asyncio
+    async def test_cleaner_node_truncation(
+        self,
+        mock_prompt_loader,
+        pipeline_state,
+    ):
+        """Test cleaner uses token truncation."""
+        from modules.pipeline.nodes.cleaner import CleanerNode
+        from core.llm.output_validator import CleanerOutput, CleanerContent
+
+        mock_llm = AsyncMock()
+        mock_llm.call = AsyncMock(
+            return_value=CleanerOutput(
+                content=CleanerContent(title="Title", body="Body"),
+                tags=[],
+                entities=[],
+            )
+        )
+
+        mock_budget = MagicMock()
+        mock_budget.truncate = MagicMock(return_value="truncated text")
+
+        node = CleanerNode(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+        )
+        await node.execute(pipeline_state)
+        mock_budget.truncate.assert_called()
+
+
+class TestAnalyzeNodeExtra:
+    """Extra integration tests for AnalyzeNode migrated from unit tests."""
+
+    @pytest.mark.asyncio
+    async def test_analyze_node_summary(
+        self,
+        mock_llm_client,
+        mock_budget,
+        mock_prompt_loader,
+        pipeline_state,
+    ):
+        """Test analyze generates summary."""
+        from modules.pipeline.nodes.analyze import AnalyzeNode
+        from core.llm.output_validator import AnalyzeOutput
+
+        mock_llm_client.call = AsyncMock(
+            return_value=AnalyzeOutput(
+                summary="Test summary",
+                event_time=None,
+                subjects=[],
+                key_data=[],
+                impact="Impact",
+                has_data=False,
+                sentiment="neutral",
+                sentiment_score=0.5,
+                primary_emotion="平静",
+                emotion_targets=[],
+                score=0.5,
+            )
+        )
+        pipeline_state["cleaned"] = {"title": "Title", "body": "Body"}
+        pipeline_state["category"] = "科技"
+
+        node = AnalyzeNode(
+            llm=mock_llm_client,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+        )
+        result = await node.execute(pipeline_state)
+        assert "summary_info" in result
+
+    @pytest.mark.asyncio
+    async def test_analyze_node_sentiment(
+        self,
+        mock_llm_client,
+        mock_budget,
+        mock_prompt_loader,
+        pipeline_state,
+    ):
+        """Test analyze extracts sentiment."""
+        from modules.pipeline.nodes.analyze import AnalyzeNode
+        from core.llm.output_validator import AnalyzeOutput
+
+        mock_llm_client.call = AsyncMock(
+            return_value=AnalyzeOutput(
+                summary="Summary",
+                event_time=None,
+                subjects=[],
+                key_data=[],
+                impact="Impact",
+                has_data=False,
+                sentiment="positive",
+                sentiment_score=0.9,
+                primary_emotion="振奋",
+                emotion_targets=["target"],
+                score=0.8,
+            )
+        )
+        pipeline_state["cleaned"] = {"title": "Title", "body": "Body"}
+        pipeline_state["category"] = "科技"
+
+        node = AnalyzeNode(
+            llm=mock_llm_client,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+        )
+        result = await node.execute(pipeline_state)
+        assert "sentiment" in result
+
+    @pytest.mark.asyncio
+    async def test_analyze_node_score(
+        self,
+        mock_llm_client,
+        mock_budget,
+        mock_prompt_loader,
+        pipeline_state,
+    ):
+        """Test analyze calculates score."""
+        from modules.pipeline.nodes.analyze import AnalyzeNode
+        from core.llm.output_validator import AnalyzeOutput
+
+        mock_llm_client.call = AsyncMock(
+            return_value=AnalyzeOutput(
+                summary="Summary",
+                event_time=None,
+                subjects=[],
+                key_data=[],
+                impact="Impact",
+                has_data=False,
+                sentiment="neutral",
+                sentiment_score=0.5,
+                primary_emotion="平静",
+                emotion_targets=[],
+                score=0.85,
+            )
+        )
+        pipeline_state["cleaned"] = {"title": "Title", "body": "Body"}
+        pipeline_state["category"] = "科技"
+
+        node = AnalyzeNode(
+            llm=mock_llm_client,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+        )
+        result = await node.execute(pipeline_state)
+        assert result.get("score") == 0.85
+
+
+class TestEntityExtractorNodeExtra:
+    """Extra integration tests for EntityExtractorNode migrated from unit tests."""
+
+    @pytest.mark.asyncio
+    async def test_entity_extractor_spacy(
+        self,
+        mock_llm_client,
+        mock_budget,
+        mock_prompt_loader,
+        mock_spacy_extractor,
+        mock_vector_repo,
+        pipeline_state,
+    ):
+        """Test entity extractor uses spaCy."""
+        from modules.pipeline.nodes.entity_extractor import EntityExtractorNode
+        from core.llm.output_validator import EntityExtractorOutput
+        from modules.nlp.spacy_extractor import SpacyEntity
+
+        mock_spacy_entity = MagicMock(spec=SpacyEntity)
+        mock_spacy_entity.name = "张三"
+        mock_spacy_entity.type = "人物"
+        mock_spacy_entity.label = "PER"
+        mock_spacy_extractor.extract = MagicMock(return_value=[mock_spacy_entity])
+
+        mock_llm_client.call = AsyncMock(
+            return_value=EntityExtractorOutput(
+                entities=[{"name": "张三", "type": "人物"}],
+                relations=[],
+            )
+        )
+        mock_llm_client.batch_embed = AsyncMock(return_value=[[0.1] * 1024])
+
+        pipeline_state["cleaned"] = {"title": "Title", "body": "Body"}
+        pipeline_state["language"] = "zh"
+
+        node = EntityExtractorNode(
+            llm=mock_llm_client,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            spacy=mock_spacy_extractor,
+            vector_repo=mock_vector_repo,
+        )
+        result = await node.execute(pipeline_state)
+        mock_spacy_extractor.extract.assert_called()
+
+
+class TestUnionFindAlgorithm:
+    """Integration tests for UnionFind algorithm from BatchMergerNode."""
+
+    def test_similarity_threshold(self):
+        """Test similarity threshold is 0.80."""
+        from modules.pipeline.nodes.batch_merger import BatchMergerNode
+
+        assert BatchMergerNode.SIMILARITY_THRESHOLD == 0.80
