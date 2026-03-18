@@ -1,8 +1,10 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for scheduler jobs."""
 
+from datetime import UTC, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
 
 
 class TestSchedulerJobsInit:
@@ -79,7 +81,9 @@ class TestRetryNeo4jWrites:
         mock_session.execute = AsyncMock(return_value=mock_result)
 
         scheduler_jobs._postgres.session = MagicMock()
-        scheduler_jobs._postgres.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        scheduler_jobs._postgres.session.return_value.__aenter__ = AsyncMock(
+            return_value=mock_session
+        )
         scheduler_jobs._postgres.session.return_value.__aexit__ = AsyncMock(return_value=None)
 
         result = await scheduler_jobs.retry_neo4j_writes()
@@ -104,7 +108,9 @@ class TestRetryNeo4jWrites:
         mock_session.commit = AsyncMock()
 
         scheduler_jobs._postgres.session = MagicMock()
-        scheduler_jobs._postgres.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        scheduler_jobs._postgres.session.return_value.__aenter__ = AsyncMock(
+            return_value=mock_session
+        )
         scheduler_jobs._postgres.session.return_value.__aexit__ = AsyncMock(return_value=None)
 
         scheduler_jobs._neo4j_writer.write = AsyncMock()
@@ -130,7 +136,9 @@ class TestRetryNeo4jWrites:
         mock_session.execute = AsyncMock(return_value=mock_result)
 
         scheduler_jobs._postgres.session = MagicMock()
-        scheduler_jobs._postgres.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        scheduler_jobs._postgres.session.return_value.__aenter__ = AsyncMock(
+            return_value=mock_session
+        )
         scheduler_jobs._postgres.session.return_value.__aexit__ = AsyncMock(return_value=None)
 
         scheduler_jobs._neo4j_writer.write = AsyncMock(side_effect=Exception("Neo4j error"))
@@ -177,11 +185,13 @@ class TestFlushRetryQueue:
     @pytest.mark.asyncio
     async def test_flush_retry_queue_multiple_hosts(self, scheduler_jobs):
         """Test flushing items from multiple hosts."""
-        scheduler_jobs._redis.keys = AsyncMock(return_value=[
-            "crawl:retry:host1.com",
-            "crawl:retry:host2.com",
-        ])
-        scheduler_jobs._redis.zrangebyscore = AsyncMock(return_value=[b'item1', b'item2'])
+        scheduler_jobs._redis.keys = AsyncMock(
+            return_value=[
+                "crawl:retry:host1.com",
+                "crawl:retry:host2.com",
+            ]
+        )
+        scheduler_jobs._redis.zrangebyscore = AsyncMock(return_value=[b"item1", b"item2"])
         scheduler_jobs._redis.zrem = AsyncMock(return_value=2)
         scheduler_jobs._redis.lpush = AsyncMock(return_value=1)
 
@@ -215,7 +225,9 @@ class TestUpdateSourceAutoScores:
         mock_session.execute = AsyncMock(return_value=mock_result)
 
         scheduler_jobs._postgres.session = MagicMock()
-        scheduler_jobs._postgres.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        scheduler_jobs._postgres.session.return_value.__aenter__ = AsyncMock(
+            return_value=mock_session
+        )
         scheduler_jobs._postgres.session.return_value.__aexit__ = AsyncMock(return_value=None)
 
         result = await scheduler_jobs.update_source_auto_scores()
@@ -225,19 +237,21 @@ class TestUpdateSourceAutoScores:
     async def test_update_source_auto_scores_with_sources(self, scheduler_jobs):
         """Test updating scores for sources."""
         mock_session = AsyncMock()
-        
+
         mock_hosts_result = MagicMock()
         mock_hosts_result.__iter__ = MagicMock(return_value=iter([("example.com",)]))
-        
+
         mock_article = MagicMock()
         mock_article.credibility_score = 0.8
         mock_articles_result = MagicMock()
         mock_articles_result.scalars().all.return_value = [mock_article]
-        
+
         mock_session.execute = AsyncMock(side_effect=[mock_hosts_result, mock_articles_result])
 
         scheduler_jobs._postgres.session = MagicMock()
-        scheduler_jobs._postgres.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        scheduler_jobs._postgres.session.return_value.__aenter__ = AsyncMock(
+            return_value=mock_session
+        )
         scheduler_jobs._postgres.session.return_value.__aexit__ = AsyncMock(return_value=None)
 
         scheduler_jobs._source_authority_repo.update_auto_score = AsyncMock()
@@ -304,9 +318,11 @@ class TestCleanupOrphanEntityVectors:
     async def test_cleanup_orphan_vectors(self, scheduler_jobs):
         """Test cleanup of orphan vectors."""
         mock_session = AsyncMock()
-        
+
         scheduler_jobs._postgres.session = MagicMock()
-        scheduler_jobs._postgres.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        scheduler_jobs._postgres.session.return_value.__aenter__ = AsyncMock(
+            return_value=mock_session
+        )
         scheduler_jobs._postgres.session.return_value.__aexit__ = AsyncMock(return_value=None)
 
         scheduler_jobs._neo4j_writer.entity_repo.list_all_entity_ids = AsyncMock(return_value=[])
@@ -373,7 +389,9 @@ class TestRetryPipelineProcessing:
         mock_article.body = "Body"
         mock_article.source_host = "example.com"
 
-        scheduler_jobs_with_pipeline._article_repo.get_stuck_articles = AsyncMock(return_value=[mock_article])
+        scheduler_jobs_with_pipeline._article_repo.get_stuck_articles = AsyncMock(
+            return_value=[mock_article]
+        )
         scheduler_jobs_with_pipeline._article_repo.get_failed_articles = AsyncMock(return_value=[])
         scheduler_jobs_with_pipeline._pipeline.process_batch = AsyncMock()
 
@@ -408,7 +426,7 @@ class TestReconstructState:
         mock_article.source_url = "https://example.com/test"
         mock_article.title = "Test Article"
         mock_article.body = "Test body"
-        mock_article.publish_time = datetime.now(timezone.utc)
+        mock_article.publish_time = datetime.now(UTC)
         mock_article.source_host = "example.com"
         mock_article.category = "tech"
         mock_article.score = 0.85
@@ -441,7 +459,7 @@ class TestRetryManager:
         await retry_manager.add_to_retry(
             host="example.com",
             item='{"url": "test"}',
-            retry_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+            retry_at=datetime.now(UTC) + timedelta(minutes=5),
         )
 
         retry_manager._redis.zadd.assert_called_once()
@@ -449,7 +467,7 @@ class TestRetryManager:
     @pytest.mark.asyncio
     async def test_get_retry_items(self, retry_manager):
         """Test getting retry items."""
-        retry_manager._redis.zrangebyscore = AsyncMock(return_value=[b'item1', b'item2'])
+        retry_manager._redis.zrangebyscore = AsyncMock(return_value=[b"item1", b"item2"])
 
         items = await retry_manager.get_retry_items("example.com")
 

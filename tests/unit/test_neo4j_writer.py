@@ -1,9 +1,11 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for Neo4jWriter."""
 
-import pytest
 import uuid
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from modules.graph_store.neo4j_writer import Neo4jWriter
 from modules.pipeline.state import PipelineState
@@ -16,7 +18,7 @@ class TestNeo4jWriterInit:
         """Test basic initialization."""
         mock_pool = MagicMock()
         writer = Neo4jWriter(mock_pool)
-        
+
         assert writer._pool == mock_pool
         assert writer._entity_repo is not None
         assert writer._article_repo is not None
@@ -25,7 +27,7 @@ class TestNeo4jWriterInit:
         """Test entity_repo property."""
         mock_pool = MagicMock()
         writer = Neo4jWriter(mock_pool)
-        
+
         repo = writer.entity_repo
         assert repo is not None
 
@@ -33,7 +35,7 @@ class TestNeo4jWriterInit:
         """Test article_repo property."""
         mock_pool = MagicMock()
         writer = Neo4jWriter(mock_pool)
-        
+
         repo = writer.article_repo
         assert repo is not None
 
@@ -71,7 +73,7 @@ class TestNeo4jWriterWrite:
     async def test_write_no_article_id(self, writer):
         """Test write raises when no article_id."""
         state = PipelineState(raw=MagicMock())
-        
+
         with pytest.raises(ValueError, match="article_id not found"):
             await writer.write(state)
 
@@ -79,29 +81,29 @@ class TestNeo4jWriterWrite:
     async def test_write_creates_article(self, writer):
         """Test write creates article node."""
         article_id = str(uuid.uuid4())
-        
+
         writer._article_repo.create_article = AsyncMock(return_value="neo4j_article_id")
         writer._entity_repo.find_entity = AsyncMock(return_value=None)
         writer._entity_repo.merge_entity = AsyncMock(return_value="entity_id")
         writer._entity_repo.add_alias = AsyncMock()
         writer._entity_repo.merge_mentions_relation = AsyncMock()
-        
+
         raw = MagicMock()
         raw.title = "Test Article"
         raw.body = "Test body"
         raw.url = "https://example.com/test"
-        raw.publish_time = datetime.now(timezone.utc)
+        raw.publish_time = datetime.now(UTC)
         raw.source_host = "example.com"
-        
+
         state = PipelineState(raw=raw)
         state["article_id"] = article_id
         state["cleaned"] = {"title": "Cleaned Title", "body": "Cleaned Body"}
         state["category"] = "科技"
         state["score"] = 0.85
         state["entities"] = []
-        
+
         result = await writer.write(state)
-        
+
         writer._article_repo.create_article.assert_called_once()
 
     @pytest.mark.asyncio
@@ -110,11 +112,15 @@ class TestNeo4jWriterWrite:
         article_id = str(uuid.uuid4())
 
         writer._article_repo.create_article = AsyncMock(return_value="neo4j_article_id")
-        writer._entity_repo.find_entity = AsyncMock(return_value={
-            "neo4j_id": "entity_id",
-            "canonical_name": "张三",
-        })
-        writer._entity_repo.merge_entities_batch = AsyncMock(return_value={"created": 2, "updated": 0})
+        writer._entity_repo.find_entity = AsyncMock(
+            return_value={
+                "neo4j_id": "entity_id",
+                "canonical_name": "张三",
+            }
+        )
+        writer._entity_repo.merge_entities_batch = AsyncMock(
+            return_value={"created": 2, "updated": 0}
+        )
         writer._entity_repo.add_aliases_batch = AsyncMock()
         writer._entity_repo.merge_mentions_batch = AsyncMock(return_value=2)
 
@@ -122,7 +128,7 @@ class TestNeo4jWriterWrite:
         raw.title = "Test Article"
         raw.body = "Test body"
         raw.url = "https://example.com/test"
-        raw.publish_time = datetime.now(timezone.utc)
+        raw.publish_time = datetime.now(UTC)
         raw.source_host = "example.com"
 
         state = PipelineState(raw=raw)
@@ -142,17 +148,17 @@ class TestNeo4jWriterWrite:
     async def test_write_entity_without_name_skipped(self, writer):
         """Test write skips entities without name."""
         article_id = str(uuid.uuid4())
-        
+
         writer._article_repo.create_article = AsyncMock(return_value="neo4j_article_id")
         writer._entity_repo.merge_entity = AsyncMock()
-        
+
         raw = MagicMock()
         raw.title = "Test Article"
         raw.body = "Test body"
         raw.url = "https://example.com/test"
-        raw.publish_time = datetime.now(timezone.utc)
+        raw.publish_time = datetime.now(UTC)
         raw.source_host = "example.com"
-        
+
         state = PipelineState(raw=raw)
         state["article_id"] = article_id
         state["cleaned"] = {"title": "Title", "body": "Body"}
@@ -160,9 +166,9 @@ class TestNeo4jWriterWrite:
         state["entities"] = [
             {"type": "人物", "role": "主角"},
         ]
-        
+
         result = await writer.write(state)
-        
+
         assert len(result) == 0
         writer._entity_repo.merge_entity.assert_not_called()
 
@@ -170,17 +176,17 @@ class TestNeo4jWriterWrite:
     async def test_write_entity_without_type_skipped(self, writer):
         """Test write skips entities without type."""
         article_id = str(uuid.uuid4())
-        
+
         writer._article_repo.create_article = AsyncMock(return_value="neo4j_article_id")
         writer._entity_repo.merge_entity = AsyncMock()
-        
+
         raw = MagicMock()
         raw.title = "Test Article"
         raw.body = "Test body"
         raw.url = "https://example.com/test"
-        raw.publish_time = datetime.now(timezone.utc)
+        raw.publish_time = datetime.now(UTC)
         raw.source_host = "example.com"
-        
+
         state = PipelineState(raw=raw)
         state["article_id"] = article_id
         state["cleaned"] = {"title": "Title", "body": "Body"}
@@ -188,9 +194,9 @@ class TestNeo4jWriterWrite:
         state["entities"] = [
             {"name": "张三", "role": "主角"},
         ]
-        
+
         result = await writer.write(state)
-        
+
         assert len(result) == 0
         writer._entity_repo.merge_entity.assert_not_called()
 
@@ -198,18 +204,18 @@ class TestNeo4jWriterWrite:
     async def test_write_entity_merge_failure_handled(self, writer):
         """Test write handles entity merge failure."""
         article_id = str(uuid.uuid4())
-        
+
         writer._article_repo.create_article = AsyncMock(return_value="neo4j_article_id")
         writer._entity_repo.find_entity = AsyncMock(return_value=None)
         writer._entity_repo.merge_entity = AsyncMock(side_effect=Exception("Merge error"))
-        
+
         raw = MagicMock()
         raw.title = "Test Article"
         raw.body = "Test body"
         raw.url = "https://example.com/test"
-        raw.publish_time = datetime.now(timezone.utc)
+        raw.publish_time = datetime.now(UTC)
         raw.source_host = "example.com"
-        
+
         state = PipelineState(raw=raw)
         state["article_id"] = article_id
         state["cleaned"] = {"title": "Title", "body": "Body"}
@@ -217,9 +223,9 @@ class TestNeo4jWriterWrite:
         state["entities"] = [
             {"name": "张三", "type": "人物"},
         ]
-        
+
         result = await writer.write(state)
-        
+
         assert len(result) == 0
 
     @pytest.mark.asyncio
@@ -227,29 +233,29 @@ class TestNeo4jWriterWrite:
         """Test write creates FOLLOWED_BY relations for merged articles."""
         article_id = str(uuid.uuid4())
         source_id = str(uuid.uuid4())
-        
+
         writer._article_repo.create_article = AsyncMock(return_value="neo4j_article_id")
-        writer._article_repo.find_article_by_pg_id = AsyncMock(return_value={
-            "publish_time": datetime.now(timezone.utc) - timedelta(hours=2)
-        })
+        writer._article_repo.find_article_by_pg_id = AsyncMock(
+            return_value={"publish_time": datetime.now(UTC) - timedelta(hours=2)}
+        )
         writer._article_repo.create_followed_by_relation = AsyncMock()
-        
+
         raw = MagicMock()
         raw.title = "Test Article"
         raw.body = "Test body"
         raw.url = "https://example.com/test"
-        raw.publish_time = datetime.now(timezone.utc)
+        raw.publish_time = datetime.now(UTC)
         raw.source_host = "example.com"
-        
+
         state = PipelineState(raw=raw)
         state["article_id"] = article_id
         state["cleaned"] = {"title": "Title", "body": "Body"}
         state["category"] = "科技"
         state["entities"] = []
         state["merged_source_ids"] = [source_id]
-        
+
         await writer.write(state)
-        
+
         writer._article_repo.create_followed_by_relation.assert_called_once()
 
 
@@ -268,23 +274,27 @@ class TestNeo4jWriterWriteEntities:
         """Test write entities with empty list."""
         state = PipelineState(raw=MagicMock())
         state["language"] = "zh"
-        
+
         result = await writer._write_entities(
             article_neo4j_id="article_id",
             entities=[],
             state=state,
         )
-        
+
         assert result == []
 
     @pytest.mark.asyncio
     async def test_write_entities_adds_alias(self, writer):
         """Test write entities adds alias when name differs."""
-        writer._entity_repo.find_entity = AsyncMock(return_value={
-            "neo4j_id": "entity_id",
-            "canonical_name": "张三",
-        })
-        writer._entity_repo.merge_entities_batch = AsyncMock(return_value={"created": 1, "updated": 0})
+        writer._entity_repo.find_entity = AsyncMock(
+            return_value={
+                "neo4j_id": "entity_id",
+                "canonical_name": "张三",
+            }
+        )
+        writer._entity_repo.merge_entities_batch = AsyncMock(
+            return_value={"created": 1, "updated": 0}
+        )
         writer._entity_repo.add_aliases_batch = AsyncMock()
         writer._entity_repo.merge_mentions_batch = AsyncMock(return_value=1)
 
@@ -305,11 +315,15 @@ class TestNeo4jWriterWriteEntities:
     @pytest.mark.asyncio
     async def test_write_entities_handles_mentions_error(self, writer):
         """Test write entities handles MENTIONS relation error."""
-        writer._entity_repo.find_entity = AsyncMock(return_value={
-            "neo4j_id": "entity_id",
-            "canonical_name": "张三",
-        })
-        writer._entity_repo.merge_entities_batch = AsyncMock(return_value={"created": 1, "updated": 0})
+        writer._entity_repo.find_entity = AsyncMock(
+            return_value={
+                "neo4j_id": "entity_id",
+                "canonical_name": "张三",
+            }
+        )
+        writer._entity_repo.merge_entities_batch = AsyncMock(
+            return_value={"created": 1, "updated": 0}
+        )
         writer._entity_repo.add_aliases_batch = AsyncMock()
         writer._entity_repo.merge_mentions_batch = AsyncMock(
             side_effect=Exception("Relation error")
@@ -343,21 +357,23 @@ class TestNeo4jWriterResolveCanonicalName:
     @pytest.mark.asyncio
     async def test_resolve_existing_entity(self, writer):
         """Test resolve returns existing entity name."""
-        writer._entity_repo.find_entity = AsyncMock(return_value={
-            "canonical_name": "张三",
-        })
-        
+        writer._entity_repo.find_entity = AsyncMock(
+            return_value={
+                "canonical_name": "张三",
+            }
+        )
+
         result = await writer._resolve_canonical_name("张三", "人物")
-        
+
         assert result == "张三"
 
     @pytest.mark.asyncio
     async def test_resolve_new_entity(self, writer):
         """Test resolve returns provided name for new entity."""
         writer._entity_repo.find_entity = AsyncMock(return_value=None)
-        
+
         result = await writer._resolve_canonical_name("李四", "人物")
-        
+
         assert result == "李四"
 
 
@@ -374,20 +390,22 @@ class TestNeo4jWriterCreateFollowedRelations:
     @pytest.mark.asyncio
     async def test_create_followed_relations(self, writer):
         """Test create FOLLOWED_BY relations."""
-        publish_time = datetime.now(timezone.utc)
+        publish_time = datetime.now(UTC)
         source_time = publish_time - timedelta(hours=2)
-        
-        writer._article_repo.find_article_by_pg_id = AsyncMock(return_value={
-            "publish_time": source_time,
-        })
+
+        writer._article_repo.find_article_by_pg_id = AsyncMock(
+            return_value={
+                "publish_time": source_time,
+            }
+        )
         writer._article_repo.create_followed_by_relation = AsyncMock()
-        
+
         await writer._create_followed_relations(
             article_id="target_id",
             source_ids=["source_id"],
             publish_time=publish_time,
         )
-        
+
         writer._article_repo.create_followed_by_relation.assert_called_once()
 
     @pytest.mark.asyncio
@@ -395,42 +413,42 @@ class TestNeo4jWriterCreateFollowedRelations:
         """Test create FOLLOWED_BY when source article not found."""
         writer._article_repo.find_article_by_pg_id = AsyncMock(return_value=None)
         writer._article_repo.create_followed_by_relation = AsyncMock()
-        
+
         await writer._create_followed_relations(
             article_id="target_id",
             source_ids=["source_id"],
-            publish_time=datetime.now(timezone.utc),
+            publish_time=datetime.now(UTC),
         )
-        
+
         writer._article_repo.create_followed_by_relation.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_create_followed_relations_handles_error(self, writer):
         """Test create FOLLOWED_BY handles errors."""
-        writer._article_repo.find_article_by_pg_id = AsyncMock(
-            side_effect=Exception("Find error")
-        )
-        
+        writer._article_repo.find_article_by_pg_id = AsyncMock(side_effect=Exception("Find error"))
+
         await writer._create_followed_relations(
             article_id="target_id",
             source_ids=["source_id"],
-            publish_time=datetime.now(timezone.utc),
+            publish_time=datetime.now(UTC),
         )
 
     @pytest.mark.asyncio
     async def test_create_followed_relations_multiple_sources(self, writer):
         """Test create FOLLOWED_BY for multiple sources."""
-        writer._article_repo.find_article_by_pg_id = AsyncMock(return_value={
-            "publish_time": datetime.now(timezone.utc) - timedelta(hours=1),
-        })
+        writer._article_repo.find_article_by_pg_id = AsyncMock(
+            return_value={
+                "publish_time": datetime.now(UTC) - timedelta(hours=1),
+            }
+        )
         writer._article_repo.create_followed_by_relation = AsyncMock()
-        
+
         await writer._create_followed_relations(
             article_id="target_id",
             source_ids=["source1", "source2", "source3"],
-            publish_time=datetime.now(timezone.utc),
+            publish_time=datetime.now(UTC),
         )
-        
+
         assert writer._article_repo.create_followed_by_relation.call_count == 3
 
 
@@ -448,9 +466,9 @@ class TestNeo4jWriterCleanupOrphanEntities:
     async def test_cleanup_orphan_entities(self, writer):
         """Test cleanup orphan entities."""
         writer._entity_repo.delete_orphan_entities = AsyncMock(return_value=5)
-        
+
         result = await writer.cleanup_orphan_entities()
-        
+
         assert result == 5
         writer._entity_repo.delete_orphan_entities.assert_called_once()
 
@@ -472,7 +490,7 @@ class TestNeo4jWriterArchiveOldArticles:
     async def test_archive_old_articles_default_days(self, writer):
         """Test archive old articles with default days."""
         result = await writer.archive_old_articles()
-        
+
         assert result == 10
         writer._article_repo.delete_old_articles.assert_called_once_with(90)
 
@@ -480,7 +498,7 @@ class TestNeo4jWriterArchiveOldArticles:
     async def test_archive_old_articles_custom_days(self, writer):
         """Test archive old articles with custom days."""
         result = await writer.archive_old_articles(days=30)
-        
+
         assert result == 10
         writer._article_repo.delete_old_articles.assert_called_once_with(30)
 
@@ -488,7 +506,7 @@ class TestNeo4jWriterArchiveOldArticles:
     async def test_archive_old_articles_cleans_orphans(self, writer):
         """Test archive old articles cleans orphan entities."""
         await writer.archive_old_articles()
-        
+
         writer._entity_repo.delete_orphan_entities.assert_called_once()
 
 

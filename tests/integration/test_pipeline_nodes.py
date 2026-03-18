@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Integration tests for pipeline nodes.
 
 Tests the integration between pipeline nodes and their dependencies.
@@ -6,14 +7,15 @@ Tests the integration between pipeline nodes and their dependencies.
 from __future__ import annotations
 
 import asyncio
-import pytest
 import uuid
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
 
-from modules.pipeline.state import PipelineState
-from modules.collector.models import ArticleRaw
+import pytest
+
 from core.llm.output_validator import CleanerContent
+from modules.collector.models import ArticleRaw
+from modules.pipeline.state import PipelineState
 
 
 @pytest.fixture
@@ -26,7 +28,7 @@ def sample_raw_article():
         "The article discusses innovations in artificial intelligence and machine learning. "
         "Experts believe this will transform the industry significantly.",
         source="Example News",
-        publish_time=datetime.now(timezone.utc),
+        publish_time=datetime.now(UTC),
         source_host="example.com",
     )
 
@@ -86,8 +88,8 @@ class TestClassifierNodeIntegration:
         pipeline_state,
     ):
         """Test classification of a news article."""
-        from modules.pipeline.nodes.classifier import ClassifierNode
         from core.llm.output_validator import ClassifierOutput
+        from modules.pipeline.nodes.classifier import ClassifierNode
 
         mock_llm_client.call = AsyncMock(
             return_value=ClassifierOutput(is_news=True, confidence=0.95)
@@ -114,8 +116,8 @@ class TestClassifierNodeIntegration:
         pipeline_state,
     ):
         """Test classification of non-news content."""
-        from modules.pipeline.nodes.classifier import ClassifierNode
         from core.llm.output_validator import ClassifierOutput
+        from modules.pipeline.nodes.classifier import ClassifierNode
 
         mock_llm_client.call = AsyncMock(
             return_value=ClassifierOutput(is_news=False, confidence=0.90)
@@ -140,9 +142,9 @@ class TestClassifierNodeIntegration:
         pipeline_state,
     ):
         """Test classification with long content that needs truncation."""
-        from modules.pipeline.nodes.classifier import ClassifierNode
         from core.llm.output_validator import ClassifierOutput
         from core.llm.token_budget import TokenBudgetManager
+        from modules.pipeline.nodes.classifier import ClassifierNode
 
         real_budget = TokenBudgetManager()
 
@@ -177,8 +179,8 @@ class TestCleanerNodeIntegration:
         pipeline_state,
     ):
         """Test cleaning article content."""
-        from modules.pipeline.nodes.cleaner import CleanerNode
         from core.llm.output_validator import CleanerOutput
+        from modules.pipeline.nodes.cleaner import CleanerNode
 
         mock_llm_client.call = AsyncMock(
             return_value=CleanerOutput(
@@ -261,8 +263,8 @@ class TestCategorizerNodeIntegration:
         pipeline_state,
     ):
         """Test article categorization."""
-        from modules.pipeline.nodes.categorizer import CategorizerNode
         from core.llm.output_validator import CategorizerOutput
+        from modules.pipeline.nodes.categorizer import CategorizerNode
 
         mock_llm_client.call = AsyncMock(
             return_value=CategorizerOutput(
@@ -296,8 +298,8 @@ class TestCategorizerNodeIntegration:
         pipeline_state,
     ):
         """Test category normalization to Chinese."""
-        from modules.pipeline.nodes.categorizer import CategorizerNode, normalize_category
         from core.llm.output_validator import CategorizerOutput
+        from modules.pipeline.nodes.categorizer import CategorizerNode
 
         test_cases = [
             ("politics", "政治"),
@@ -415,8 +417,8 @@ class TestBatchMergerNodeIntegration:
         mock_vector_repo,
     ):
         """Test merging similar articles in a batch."""
-        from modules.pipeline.nodes.batch_merger import BatchMergerNode
         from core.llm.output_validator import MergerOutput
+        from modules.pipeline.nodes.batch_merger import BatchMergerNode
 
         mock_llm_client.call = AsyncMock(
             return_value=MergerOutput(
@@ -432,7 +434,7 @@ class TestBatchMergerNodeIntegration:
                 title=f"Similar Article {i}",
                 body="Similar content about the same topic.",
                 source=f"Source {i}",
-                publish_time=datetime.now(timezone.utc),
+                publish_time=datetime.now(UTC),
                 source_host="example.com",
             )
             state = PipelineState(raw=raw)
@@ -473,7 +475,7 @@ class TestBatchMergerNodeIntegration:
                 title=f"Article {i}",
                 body="Content",
                 source="Source",
-                publish_time=datetime.now(timezone.utc),
+                publish_time=datetime.now(UTC),
                 source_host="example.com",
             )
             state = PipelineState(raw=raw)
@@ -506,8 +508,8 @@ class TestAnalyzeNodeIntegration:
         pipeline_state,
     ):
         """Test article analysis for summary and sentiment."""
-        from modules.pipeline.nodes.analyze import AnalyzeNode
         from core.llm.output_validator import AnalyzeOutput
+        from modules.pipeline.nodes.analyze import AnalyzeNode
 
         mock_llm_client.call = AsyncMock(
             return_value=AnalyzeOutput(
@@ -583,18 +585,14 @@ class TestCredibilityCheckerNodeIntegration:
         pipeline_state,
     ):
         """Test credibility checking."""
-        from modules.pipeline.nodes.credibility_checker import CredibilityCheckerNode
-        from core.llm.output_validator import CredibilityOutput
         from core.event.bus import EventBus
+        from core.llm.output_validator import CredibilityOutput
+        from modules.pipeline.nodes.credibility_checker import CredibilityCheckerNode
 
-        mock_llm_client.call = AsyncMock(
-            return_value=CredibilityOutput(score=0.85, flags=[])
-        )
+        mock_llm_client.call = AsyncMock(return_value=CredibilityOutput(score=0.85, flags=[]))
 
         mock_source_auth_repo = AsyncMock()
-        mock_source_auth_repo.get_or_create = AsyncMock(
-            return_value=MagicMock(authority=0.80)
-        )
+        mock_source_auth_repo.get_or_create = AsyncMock(return_value=MagicMock(authority=0.80))
 
         mock_event_bus = MagicMock(spec=EventBus)
         mock_event_bus.publish = AsyncMock()
@@ -628,18 +626,14 @@ class TestCredibilityCheckerNodeIntegration:
         pipeline_state,
     ):
         """Test credibility with cross-verification sources."""
-        from modules.pipeline.nodes.credibility_checker import CredibilityCheckerNode
-        from core.llm.output_validator import CredibilityOutput
         from core.event.bus import EventBus
+        from core.llm.output_validator import CredibilityOutput
+        from modules.pipeline.nodes.credibility_checker import CredibilityCheckerNode
 
-        mock_llm_client.call = AsyncMock(
-            return_value=CredibilityOutput(score=0.90, flags=[])
-        )
+        mock_llm_client.call = AsyncMock(return_value=CredibilityOutput(score=0.90, flags=[]))
 
         mock_source_auth_repo = AsyncMock()
-        mock_source_auth_repo.get_or_create = AsyncMock(
-            return_value=MagicMock(authority=0.85)
-        )
+        mock_source_auth_repo.get_or_create = AsyncMock(return_value=MagicMock(authority=0.85))
 
         mock_event_bus = MagicMock(spec=EventBus)
         mock_event_bus.publish = AsyncMock()
@@ -682,9 +676,9 @@ class TestEntityExtractorNodeIntegration:
         pipeline_state,
     ):
         """Test entity extraction."""
-        from modules.pipeline.nodes.entity_extractor import EntityExtractorNode
         from core.llm.output_validator import EntityExtractorOutput
         from modules.nlp.spacy_extractor import SpacyEntity
+        from modules.pipeline.nodes.entity_extractor import EntityExtractorNode
 
         mock_spacy_entity = MagicMock(spec=SpacyEntity)
         mock_spacy_entity.name = "OpenAI"
@@ -730,8 +724,8 @@ class TestEntityExtractorNodeIntegration:
         pipeline_state,
     ):
         """Test entity extractor handles spaCy failure gracefully."""
-        from modules.pipeline.nodes.entity_extractor import EntityExtractorNode
         from core.llm.output_validator import EntityExtractorOutput
+        from modules.pipeline.nodes.entity_extractor import EntityExtractorNode
 
         mock_spacy = MagicMock()
         mock_spacy.extract = MagicMock(side_effect=Exception("spaCy error"))
@@ -772,29 +766,24 @@ class TestPipelineNodeChain:
         sample_raw_article,
     ):
         """Test executing full pipeline node chain."""
-        from modules.pipeline.nodes.classifier import ClassifierNode
-        from modules.pipeline.nodes.cleaner import CleanerNode
-        from modules.pipeline.nodes.categorizer import CategorizerNode
-        from modules.pipeline.nodes.vectorize import VectorizeNode
-        from modules.pipeline.nodes.analyze import AnalyzeNode
         from core.llm.output_validator import (
+            AnalyzeOutput,
+            CategorizerOutput,
             ClassifierOutput,
             CleanerOutput,
-            CategorizerOutput,
-            AnalyzeOutput,
         )
+        from modules.pipeline.nodes.analyze import AnalyzeNode
+        from modules.pipeline.nodes.categorizer import CategorizerNode
+        from modules.pipeline.nodes.classifier import ClassifierNode
+        from modules.pipeline.nodes.cleaner import CleanerNode
+        from modules.pipeline.nodes.vectorize import VectorizeNode
 
         state = PipelineState(raw=sample_raw_article)
 
         mock_llm_client.call = AsyncMock()
         mock_llm_client.call.side_effect = [
             ClassifierOutput(is_news=True, confidence=0.95),
-            CleanerOutput(
-                content=CleanerContent(
-                    title="Cleaned Title",
-                    body="Cleaned body"
-                )
-            ),
+            CleanerOutput(content=CleanerContent(title="Cleaned Title", body="Cleaned body")),
             CategorizerOutput(category="technology", language="zh", region="CN"),
             AnalyzeOutput(
                 summary="Summary",
@@ -858,9 +847,9 @@ class TestPipelineNodeChain:
         sample_raw_article,
     ):
         """Test pipeline stops processing for non-news content."""
+        from core.llm.output_validator import ClassifierOutput
         from modules.pipeline.nodes.classifier import ClassifierNode
         from modules.pipeline.nodes.cleaner import CleanerNode
-        from core.llm.output_validator import ClassifierOutput
 
         state = PipelineState(raw=sample_raw_article)
 
@@ -890,6 +879,7 @@ class TestPipelineNodeChain:
 # =============================================================================
 # Migrated from E2E tests (tests/e2e/test_full_pipeline.py)
 # =============================================================================
+
 
 class TestPipelineStateIntegration:
     """Integration tests for PipelineState behavior (migrated from E2E)."""
@@ -1024,7 +1014,7 @@ class TestPipelineConcurrencyIntegration:
                 title=f"Concurrent Article {i}",
                 body=f"Body content {i}",
                 source="Example",
-                publish_time=datetime.now(timezone.utc),
+                publish_time=datetime.now(UTC),
                 source_host="example.com",
             )
             states.append(PipelineState(raw=raw))
@@ -1055,7 +1045,7 @@ class TestPipelineConcurrencyIntegration:
                 title=f"Batch Article {i}",
                 body=f"Content {i}",
                 source="Batch Source",
-                publish_time=datetime.now(timezone.utc),
+                publish_time=datetime.now(UTC),
                 source_host="example.com",
             )
             batch.append(raw)
@@ -1078,13 +1068,13 @@ class TestPipelineErrorHandlingIntegration:
     @pytest.mark.asyncio
     async def test_llm_timeout_handling(self):
         """Test pipeline handles LLM timeout."""
-        from modules.pipeline.nodes.classifier import ClassifierNode
         from core.llm.client import LLMClient
         from core.llm.token_budget import TokenBudgetManager
         from core.prompt.loader import PromptLoader
+        from modules.pipeline.nodes.classifier import ClassifierNode
 
         mock_llm = AsyncMock(spec=LLMClient)
-        mock_llm.call.side_effect = asyncio.TimeoutError("LLM timeout")
+        mock_llm.call.side_effect = TimeoutError("LLM timeout")
 
         mock_budget = MagicMock(spec=TokenBudgetManager)
         mock_budget.truncate = lambda x, y: x
@@ -1093,11 +1083,13 @@ class TestPipelineErrorHandlingIntegration:
 
         node = ClassifierNode(llm=mock_llm, budget=mock_budget, prompt_loader=mock_prompt_loader)
 
-        state = PipelineState(raw=MagicMock(
-            url="https://example.com/news",
-            title="News",
-            body="Content",
-        ))
+        state = PipelineState(
+            raw=MagicMock(
+                url="https://example.com/news",
+                title="News",
+                body="Content",
+            )
+        )
 
         with pytest.raises(asyncio.TimeoutError):
             await node.execute(state)
@@ -1105,9 +1097,9 @@ class TestPipelineErrorHandlingIntegration:
     @pytest.mark.asyncio
     async def test_llm_rate_limit_handling(self):
         """Test pipeline handles LLM rate limit gracefully."""
-        from modules.pipeline.nodes.categorizer import CategorizerNode
         from core.llm.client import LLMClient
         from core.prompt.loader import PromptLoader
+        from modules.pipeline.nodes.categorizer import CategorizerNode
 
         mock_llm = AsyncMock(spec=LLMClient)
         mock_llm.call.side_effect = Exception("Rate limit exceeded")
@@ -1126,10 +1118,10 @@ class TestPipelineErrorHandlingIntegration:
     @pytest.mark.asyncio
     async def test_invalid_json_response_handling(self):
         """Test pipeline handles invalid JSON from LLM."""
-        from modules.pipeline.nodes.classifier import ClassifierNode
         from core.llm.client import LLMClient
         from core.llm.token_budget import TokenBudgetManager
         from core.prompt.loader import PromptLoader
+        from modules.pipeline.nodes.classifier import ClassifierNode
 
         mock_llm = AsyncMock(spec=LLMClient)
         mock_llm.call.side_effect = ValueError("Invalid JSON response")
@@ -1141,11 +1133,13 @@ class TestPipelineErrorHandlingIntegration:
 
         node = ClassifierNode(llm=mock_llm, budget=mock_budget, prompt_loader=mock_prompt_loader)
 
-        state = PipelineState(raw=MagicMock(
-            url="https://example.com/news",
-            title="News",
-            body="Content",
-        ))
+        state = PipelineState(
+            raw=MagicMock(
+                url="https://example.com/news",
+                title="News",
+                body="Content",
+            )
+        )
 
         with pytest.raises(ValueError):
             await node.execute(state)
@@ -1161,8 +1155,8 @@ class TestCleanerNodeExtra:
         pipeline_state,
     ):
         """Test cleaner uses token truncation."""
+        from core.llm.output_validator import CleanerContent, CleanerOutput
         from modules.pipeline.nodes.cleaner import CleanerNode
-        from core.llm.output_validator import CleanerOutput, CleanerContent
 
         mock_llm = AsyncMock()
         mock_llm.call = AsyncMock(
@@ -1197,8 +1191,8 @@ class TestAnalyzeNodeExtra:
         pipeline_state,
     ):
         """Test analyze generates summary."""
-        from modules.pipeline.nodes.analyze import AnalyzeNode
         from core.llm.output_validator import AnalyzeOutput
+        from modules.pipeline.nodes.analyze import AnalyzeNode
 
         mock_llm_client.call = AsyncMock(
             return_value=AnalyzeOutput(
@@ -1235,8 +1229,8 @@ class TestAnalyzeNodeExtra:
         pipeline_state,
     ):
         """Test analyze extracts sentiment."""
-        from modules.pipeline.nodes.analyze import AnalyzeNode
         from core.llm.output_validator import AnalyzeOutput
+        from modules.pipeline.nodes.analyze import AnalyzeNode
 
         mock_llm_client.call = AsyncMock(
             return_value=AnalyzeOutput(
@@ -1273,8 +1267,8 @@ class TestAnalyzeNodeExtra:
         pipeline_state,
     ):
         """Test analyze calculates score."""
-        from modules.pipeline.nodes.analyze import AnalyzeNode
         from core.llm.output_validator import AnalyzeOutput
+        from modules.pipeline.nodes.analyze import AnalyzeNode
 
         mock_llm_client.call = AsyncMock(
             return_value=AnalyzeOutput(
@@ -1317,9 +1311,9 @@ class TestEntityExtractorNodeExtra:
         pipeline_state,
     ):
         """Test entity extractor uses spaCy."""
-        from modules.pipeline.nodes.entity_extractor import EntityExtractorNode
         from core.llm.output_validator import EntityExtractorOutput
         from modules.nlp.spacy_extractor import SpacyEntity
+        from modules.pipeline.nodes.entity_extractor import EntityExtractorNode
 
         mock_spacy_entity = MagicMock(spec=SpacyEntity)
         mock_spacy_entity.name = "张三"

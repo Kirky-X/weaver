@@ -1,9 +1,8 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for TokenBudgetManager."""
 
-import pytest
-
+from core.llm.token_budget import DEFAULT_LIMIT, LIMITS, TokenBudgetManager
 from core.llm.types import CallPoint
-from core.llm.token_budget import TokenBudgetManager, LIMITS, DEFAULT_LIMIT
 
 
 class TestTokenBudgetManager:
@@ -107,6 +106,6 @@ class TestTokenBudgetManager:
         limit = LIMITS[CallPoint.CLASSIFIER]
         tokens = manager._enc.encode("test ")
         exact_text = manager._enc.decode(tokens * (limit // len(tokens) + 1))
-        exact_text = exact_text[:limit * 4]
+        exact_text = exact_text[: limit * 4]
         result = manager.truncate(exact_text, CallPoint.CLASSIFIER)
         assert isinstance(result, str)

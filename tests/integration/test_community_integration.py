@@ -1,16 +1,19 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Integration tests for community detection - NO MOCKS.
 
 Tests Leiden clustering and modularity with real graph data.
 """
 
-import pytest
 import os
+
+import pytest
 
 
 @pytest.fixture
 async def neo4j_pool():
     """Get real Neo4j pool."""
     from core.db.neo4j import Neo4jPool
+
     uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
     user = os.getenv("NEO4J_USER", "neo4j")
     password = os.getenv("NEO4J_PASSWORD", "testpassword123")
@@ -43,17 +46,14 @@ async def setup_communities(neo4j_pool):
 async def test_leiden_clustering_real_graph(neo4j_pool, setup_communities):
     """Test Leiden clustering with real Neo4j data."""
     from modules.community.leiden import LeidenClustering
-    
+
     edges_data = await neo4j_pool.execute_query("""
         MATCH (e1:Entity)-[r:RELATED_TO]->(e2:Entity)
         RETURN e1.canonical_name AS source, e2.canonical_name AS target, r.weight AS weight
     """)
-    
-    edges = [
-        (r["source"], r["target"], r.get("weight") or 1.0)
-        for r in edges_data
-    ]
-    
+
+    edges = [(r["source"], r["target"], r.get("weight") or 1.0) for r in edges_data]
+
     clustering = LeidenClustering(resolution=1.0, random_seed=42)
     result = clustering.cluster(edges)
 
@@ -66,20 +66,20 @@ async def test_leiden_clustering_real_graph(neo4j_pool, setup_communities):
 async def test_modularity_real_graph(neo4j_pool, setup_communities):
     """Test modularity calculation with real data."""
     from modules.community.modularity import ModularityCalculator
-    
+
     edges_data = await neo4j_pool.execute_query("""
         MATCH (e1:Entity)-[r:RELATED_TO]->(e2:Entity)
         RETURN e1.canonical_name AS source, e2.canonical_name AS target
     """)
-    
+
     edges = [(r["source"], r["target"], 1.0) for r in edges_data]
-    
+
     if edges_data:
         partitions = {}
         for r in edges_data:
             partitions[r["source"]] = 0
             partitions[r["target"]] = 1
-        
+
         calc = ModularityCalculator(resolution=1.0)
         result = calc.calculate(edges, partitions)
 
@@ -90,16 +90,16 @@ async def test_modularity_real_graph(neo4j_pool, setup_communities):
 async def test_hierarchical_leiden(neo4j_pool, setup_communities):
     """Test hierarchical Leiden clustering."""
     from modules.community.leiden import LeidenClustering
-    
+
     edges_data = await neo4j_pool.execute_query("""
         MATCH (e1:Entity)-[r:RELATED_TO]->(e2:Entity)
         RETURN e1.canonical_name AS source, e2.canonical_name AS target
     """)
-    
+
     edges = [(r["source"], r["target"], 1.0) for r in edges_data]
-    
+
     if len(edges) >= 2:
         clustering = LeidenClustering(random_seed=42)
         result = clustering.cluster_with_hierarchy(edges)
-        
+
         assert result.hierarchy is not None

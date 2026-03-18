@@ -1,15 +1,16 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Integration tests for OpenTelemetry tracing."""
 
+from unittest.mock import MagicMock
+
 import pytest
-import asyncio
-from unittest.mock import MagicMock, patch, AsyncMock
 from opentelemetry import trace
+from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 from opentelemetry.trace import SpanKind
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 
 @pytest.fixture
@@ -65,10 +66,7 @@ class TestTracingInitialization:
 
         # Configure with custom endpoint
         custom_endpoint = "http://custom-otlp:4317"
-        configure_tracing(
-            service_name="custom-weaver",
-            endpoint=custom_endpoint
-        )
+        configure_tracing(service_name="custom-weaver", endpoint=custom_endpoint)
 
         # Verify tracer provider is set and functional
         provider = trace.get_tracer_provider()
@@ -87,7 +85,7 @@ class TestTracingInitialization:
 
     def test_get_tracer_returns_valid_tracer(self):
         """Test that get_tracer returns a valid tracer instance."""
-        from core.observability.tracing import get_tracer, configure_tracing
+        from core.observability.tracing import configure_tracing, get_tracer
 
         # Reset global tracer provider
         trace._TRACER_PROVIDER = None
@@ -402,8 +400,8 @@ class TestTracingWithApplicationLifecycle:
 
     def test_tracing_in_application_startup(self):
         """Test that tracing is initialized during application startup."""
-        from core.observability.tracing import configure_tracing
         from config.settings import Settings
+        from core.observability.tracing import configure_tracing
 
         # Reset global tracer provider
         trace._TRACER_PROVIDER = None
@@ -412,15 +410,12 @@ class TestTracingWithApplicationLifecycle:
         settings = Settings()
 
         # Configure tracing as in main.py
-        if hasattr(settings, 'observability') and hasattr(settings.observability, 'otlp_endpoint'):
+        if hasattr(settings, "observability") and hasattr(settings.observability, "otlp_endpoint"):
             endpoint = settings.observability.otlp_endpoint
         else:
             endpoint = "http://localhost:4317"
 
-        configure_tracing(
-            service_name="weaver",
-            endpoint=endpoint
-        )
+        configure_tracing(service_name="weaver", endpoint=endpoint)
 
         # Verify tracing is configured and functional
         provider = trace.get_tracer_provider()
@@ -450,12 +445,12 @@ class TestTracingWithApplicationLifecycle:
         # Test that we can force flush and shutdown without error
         # This tests the cleanup functionality
         try:
-            if hasattr(provider, 'force_flush'):
+            if hasattr(provider, "force_flush"):
                 result = provider.force_flush(timeout_millis=5000)
                 # force_flush should succeed
                 assert result is True
 
-            if hasattr(provider, 'shutdown'):
+            if hasattr(provider, "shutdown"):
                 provider.shutdown()
         except Exception as e:
             pytest.fail(f"Cleanup should not raise exception: {e}")

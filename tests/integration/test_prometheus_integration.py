@@ -1,12 +1,12 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Integration tests for Prometheus metrics endpoint."""
 
-import pytest
 import re
+
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST, Counter
-
-from config.settings import Settings
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 
 @pytest.fixture
@@ -21,6 +21,7 @@ def minimal_app():
     async def metrics_endpoint():
         """Prometheus metrics endpoint."""
         from fastapi.responses import PlainTextResponse
+
         return PlainTextResponse(
             content=generate_latest(),
             media_type=CONTENT_TYPE_LATEST,
@@ -59,8 +60,9 @@ class TestPrometheusMetricsEndpoint:
         expected_content_type = CONTENT_TYPE_LATEST
         actual_content_type = response.headers.get("content-type", "")
 
-        assert actual_content_type == expected_content_type, \
-            f"Expected Content-Type '{expected_content_type}', got '{actual_content_type}'"
+        assert (
+            actual_content_type == expected_content_type
+        ), f"Expected Content-Type '{expected_content_type}', got '{actual_content_type}'"
 
     def test_metrics_format_valid_prometheus(self, test_client):
         """Test that metrics format follows Prometheus standard format.
@@ -83,7 +85,7 @@ class TestPrometheusMetricsEndpoint:
         # 3. 指标行: metric_name{labels} value
         # 4. 空行
 
-        lines = content.strip().split('\n')
+        lines = content.strip().split("\n")
         valid_lines = 0
 
         for line in lines:
@@ -94,9 +96,9 @@ class TestPrometheusMetricsEndpoint:
                 continue
 
             # TYPE 或 HELP 注释
-            if line.startswith('# TYPE ') or line.startswith('# HELP '):
+            if line.startswith("# TYPE ") or line.startswith("# HELP "):
                 # 验证注释格式
-                if line.startswith('# TYPE '):
+                if line.startswith("# TYPE "):
                     # 格式: # TYPE metric_name type
                     parts = line.split()
                     assert len(parts) >= 3, f"Invalid TYPE line: {line}"
@@ -110,9 +112,8 @@ class TestPrometheusMetricsEndpoint:
             # 指标行格式: metric_name{labels} value 或 metric_name value
             # 使用正则匹配 Prometheus 格式
             # 格式: metric_name[{label="value"[,label2="value2"]*}] value [timestamp]
-            metric_pattern = r'^[a-zA-Z_:][a-zA-Z0-9_:]*({[^}]+})?\s+[\d\.eE+-]+(\s+\d+)?$'
-            assert re.match(metric_pattern, line), \
-                f"Line does not match Prometheus format: {line}"
+            metric_pattern = r"^[a-zA-Z_:][a-zA-Z0-9_:]*({[^}]+})?\s+[\d\.eE+-]+(\s+\d+)?$"
+            assert re.match(metric_pattern, line), f"Line does not match Prometheus format: {line}"
             valid_lines += 1
 
         # 至少应该有一些有效的指标行
@@ -132,16 +133,16 @@ class TestPrometheusMetricsEndpoint:
         has_metrics = False
         metric_names = set()
 
-        for line in content.split('\n'):
+        for line in content.split("\n"):
             line = line.strip()
 
             # 跳过注释和空行
-            if not line or line.startswith('#'):
+            if not line or line.startswith("#"):
                 continue
 
             # 提取指标名称
             # 格式: metric_name{...} value 或 metric_name value
-            match = re.match(r'^([a-zA-Z_:][a-zA-Z0-9_:]*)', line)
+            match = re.match(r"^([a-zA-Z_:][a-zA-Z0-9_:]*)", line)
             if match:
                 metric_names.add(match.group(1))
                 has_metrics = True
@@ -172,8 +173,9 @@ class TestPrometheusMetricsEndpoint:
 
         # 验证所有请求都成功
         for i, response in enumerate(responses):
-            assert response.status_code == 200, \
-                f"Request {i} failed with status {response.status_code}"
+            assert (
+                response.status_code == 200
+            ), f"Request {i} failed with status {response.status_code}"
             assert response.headers.get("content-type") == CONTENT_TYPE_LATEST
             assert len(response.text) > 0, f"Request {i} returned empty content"
 
@@ -189,8 +191,9 @@ class TestPrometheusMetricsEndpoint:
         # 如果超过这个大小，可能需要考虑优化
         max_reasonable_size = 1 * 1024 * 1024  # 1MB
 
-        assert content_size < max_reasonable_size, \
-            f"Metrics content size {content_size} bytes exceeds reasonable limit {max_reasonable_size} bytes"
+        assert (
+            content_size < max_reasonable_size
+        ), f"Metrics content size {content_size} bytes exceeds reasonable limit {max_reasonable_size} bytes"
 
         # 同时验证内容不为空
         assert content_size > 0, "Metrics content should not be empty"
@@ -204,12 +207,13 @@ class TestPrometheusMetricsEndpoint:
 
         # 验证 Content-Type 包含 charset=utf-8
         content_type = response.headers.get("content-type", "")
-        assert "charset=utf-8" in content_type.lower(), \
-            f"Content-Type should include 'charset=utf-8', got: {content_type}"
+        assert (
+            "charset=utf-8" in content_type.lower()
+        ), f"Content-Type should include 'charset=utf-8', got: {content_type}"
 
         # 验证内容可以正确解码为 UTF-8
         try:
-            content = response.content.decode('utf-8')
+            content = response.content.decode("utf-8")
             assert len(content) > 0
         except UnicodeDecodeError as e:
             pytest.fail(f"Metrics content is not valid UTF-8: {e}")
@@ -240,9 +244,9 @@ class TestPrometheusMetricsIntegration:
 
             # 验证内容包含 Prometheus 格式
             has_valid_content = False
-            for line in response.text.split('\n'):
+            for line in response.text.split("\n"):
                 line = line.strip()
-                if line and not line.startswith('#'):
+                if line and not line.startswith("#"):
                     # 至少有一行指标数据
                     has_valid_content = True
                     break

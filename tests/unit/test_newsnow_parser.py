@@ -1,12 +1,14 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for NewsNow Parser."""
 
-import pytest
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
+from modules.source.models import SourceConfig
 from modules.source.newsnow_parser import NewsNowParser
-from modules.source.models import NewsItem, SourceConfig
 
 
 class TestNewsNowParserInit:
@@ -151,7 +153,9 @@ class TestNewsNowParserParse:
         assert len(items) == 0
 
     @pytest.mark.asyncio
-    async def test_parse_cache_status(self, parser, mock_fetcher, sample_config, sample_api_response):
+    async def test_parse_cache_status(
+        self, parser, mock_fetcher, sample_config, sample_api_response
+    ):
         """Test handling cache status (should work like success)."""
         sample_api_response["status"] = "cache"
         content = json.dumps(sample_api_response)
@@ -217,9 +221,11 @@ class TestNewsNowParserParse:
         assert items[0].title == "Valid Article"
 
     @pytest.mark.asyncio
-    async def test_parse_filter_by_last_crawl_time(self, parser, mock_fetcher, sample_config, sample_api_response):
+    async def test_parse_filter_by_last_crawl_time(
+        self, parser, mock_fetcher, sample_config, sample_api_response
+    ):
         """Test filtering items by last_crawl_time."""
-        sample_config.last_crawl_time = datetime(2026, 4, 1, 0, 0, 0, tzinfo=timezone.utc)
+        sample_config.last_crawl_time = datetime(2026, 4, 1, 0, 0, 0, tzinfo=UTC)
         content = json.dumps(sample_api_response)
         mock_fetcher.fetch = AsyncMock(return_value=(200, content, {}))
 

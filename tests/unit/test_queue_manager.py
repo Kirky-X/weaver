@@ -1,17 +1,18 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for LLMQueueManager module."""
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-import asyncio
 
 from core.llm.queue_manager import (
-    ProviderQueue,
-    LLMQueueManager,
     FALLBACK_ERRORS,
-    SELF_RETRY_ERRORS,
     NON_RETRYABLE_STATUS,
+    SELF_RETRY_ERRORS,
+    LLMQueueManager,
+    ProviderQueue,
 )
-from core.llm.types import LLMTask, CallPoint, LLMType
+from core.llm.types import CallPoint, LLMTask, LLMType
 
 
 class TestProviderQueue:
@@ -30,13 +31,11 @@ class TestProviderQueue:
         mock_provider = MagicMock()
         queue = ProviderQueue("openai", concurrency=1, provider=mock_provider)
         task = LLMTask(
-            call_point=CallPoint.CLASSIFIER,
-            llm_type=LLMType.CHAT,
-            payload={"prompt": "test"}
+            call_point=CallPoint.CLASSIFIER, llm_type=LLMType.CHAT, payload={"prompt": "test"}
         )
-        
+
         future = await queue.enqueue(task)
-        
+
         assert future is not None
         assert task.future is future
 
@@ -44,7 +43,7 @@ class TestProviderQueue:
         """Test circuit breaker is attached to queue."""
         mock_provider = MagicMock()
         queue = ProviderQueue("openai", concurrency=1, provider=mock_provider)
-        assert hasattr(queue, 'circuit_breaker')
+        assert hasattr(queue, "circuit_breaker")
 
 
 class TestLLMQueueManager:
@@ -55,10 +54,9 @@ class TestLLMQueueManager:
         """Mock config manager."""
         manager = MagicMock()
         manager.list_providers = MagicMock(return_value=[])
-        manager.get_call_point_config = MagicMock(return_value=MagicMock(
-            primary=MagicMock(provider="openai", rpm_limit=60),
-            fallbacks=[]
-        ))
+        manager.get_call_point_config = MagicMock(
+            return_value=MagicMock(primary=MagicMock(provider="openai", rpm_limit=60), fallbacks=[])
+        )
         manager.get_embedding_config = MagicMock(return_value=None)
         return manager
 
@@ -81,22 +79,24 @@ class TestLLMQueueManager:
         manager = LLMQueueManager(
             config_manager=mock_config_manager,
             rate_limiter=mock_rate_limiter,
-            event_bus=mock_event_bus
+            event_bus=mock_event_bus,
         )
         assert manager._config is mock_config_manager
         assert manager._rate_limiter is mock_rate_limiter
 
     @pytest.mark.asyncio
-    async def test_startup_no_providers(self, mock_config_manager, mock_rate_limiter, mock_event_bus):
+    async def test_startup_no_providers(
+        self, mock_config_manager, mock_rate_limiter, mock_event_bus
+    ):
         """Test startup with no providers."""
         manager = LLMQueueManager(
             config_manager=mock_config_manager,
             rate_limiter=mock_rate_limiter,
-            event_bus=mock_event_bus
+            event_bus=mock_event_bus,
         )
-        
+
         await manager.startup()
-        
+
         mock_config_manager.list_providers.assert_called_once()
 
 
@@ -126,9 +126,7 @@ class TestLLMTask:
     def test_task_creation(self):
         """Test task creation."""
         task = LLMTask(
-            call_point=CallPoint.CLASSIFIER,
-            llm_type=LLMType.CHAT,
-            payload={"prompt": "test"}
+            call_point=CallPoint.CLASSIFIER, llm_type=LLMType.CHAT, payload={"prompt": "test"}
         )
         assert task.call_point == CallPoint.CLASSIFIER
         assert task.llm_type == LLMType.CHAT
@@ -138,19 +136,13 @@ class TestLLMTask:
     def test_task_priority(self):
         """Test task priority."""
         task = LLMTask(
-            call_point=CallPoint.CLASSIFIER,
-            llm_type=LLMType.CHAT,
-            payload={},
-            priority=1
+            call_point=CallPoint.CLASSIFIER, llm_type=LLMType.CHAT, payload={}, priority=1
         )
         assert task.priority == 1
 
     def test_task_attempt_count(self):
         """Test task attempt count."""
         task = LLMTask(
-            call_point=CallPoint.CLASSIFIER,
-            llm_type=LLMType.CHAT,
-            payload={},
-            attempt=2
+            call_point=CallPoint.CLASSIFIER, llm_type=LLMType.CHAT, payload={}, attempt=2
         )
         assert task.attempt == 2

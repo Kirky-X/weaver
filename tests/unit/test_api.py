@@ -1,11 +1,12 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for API endpoints."""
 
-import pytest
-import uuid
 import json
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
-from fastapi.testclient import TestClient
+import uuid
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 from fastapi import HTTPException
 
 
@@ -121,7 +122,7 @@ class TestSourcesEndpoint:
     @pytest.mark.asyncio
     async def test_list_sources_endpoint(self):
         """Test GET /sources endpoint."""
-        from api.endpoints.sources import list_sources, get_source_registry
+        from api.endpoints.sources import list_sources
 
         mock_registry = MagicMock()
         mock_config = MagicMock()
@@ -147,7 +148,7 @@ class TestSourcesEndpoint:
     @pytest.mark.asyncio
     async def test_create_source_endpoint_success(self):
         """Test POST /sources endpoint creates new source."""
-        from api.endpoints.sources import create_source, SourceCreateRequest
+        from api.endpoints.sources import SourceCreateRequest, create_source
 
         mock_registry = MagicMock()
         mock_registry.get_source.return_value = None
@@ -169,7 +170,7 @@ class TestSourcesEndpoint:
     @pytest.mark.asyncio
     async def test_create_source_endpoint_conflict(self):
         """Test POST /sources returns 409 for existing source."""
-        from api.endpoints.sources import create_source, SourceCreateRequest
+        from api.endpoints.sources import SourceCreateRequest, create_source
 
         mock_registry = MagicMock()
         mock_registry.get_source.return_value = MagicMock()
@@ -191,7 +192,7 @@ class TestSourcesEndpoint:
     @pytest.mark.asyncio
     async def test_update_source_endpoint_success(self):
         """Test PUT /sources/{source_id} endpoint."""
-        from api.endpoints.sources import update_source, SourceUpdateRequest
+        from api.endpoints.sources import SourceUpdateRequest, update_source
 
         mock_existing = MagicMock()
         mock_existing.id = "source-1"
@@ -221,7 +222,7 @@ class TestSourcesEndpoint:
     @pytest.mark.asyncio
     async def test_update_source_endpoint_not_found(self):
         """Test PUT /sources/{source_id} returns 404 for missing source."""
-        from api.endpoints.sources import update_source, SourceUpdateRequest
+        from api.endpoints.sources import SourceUpdateRequest, update_source
 
         mock_registry = MagicMock()
         mock_registry.get_source.return_value = None
@@ -330,7 +331,7 @@ class TestPipelineEndpoint:
     @pytest.mark.asyncio
     async def test_trigger_pipeline_specific_source(self):
         """Test POST /pipeline/trigger with specific source."""
-        from api.endpoints.pipeline import trigger_pipeline, TriggerRequest
+        from api.endpoints.pipeline import TriggerRequest, trigger_pipeline
 
         mock_redis = MagicMock()
         mock_redis.client = MagicMock()
@@ -341,7 +342,10 @@ class TestPipelineEndpoint:
 
         request = TriggerRequest(source_id="source-1")
 
-        with patch("api.endpoints.pipeline.uuid.uuid4", return_value=uuid.UUID("12345678-1234-5678-1234-567812345678")):
+        with patch(
+            "api.endpoints.pipeline.uuid.uuid4",
+            return_value=uuid.UUID("12345678-1234-5678-1234-567812345678"),
+        ):
             result = await trigger_pipeline(
                 request=request,
                 _="test-key",
@@ -355,7 +359,7 @@ class TestPipelineEndpoint:
     @pytest.mark.asyncio
     async def test_trigger_pipeline_all_sources(self):
         """Test POST /pipeline/trigger for all enabled sources."""
-        from api.endpoints.pipeline import trigger_pipeline, TriggerRequest
+        from api.endpoints.pipeline import TriggerRequest, trigger_pipeline
 
         mock_redis = MagicMock()
         mock_redis.client = MagicMock()
@@ -373,7 +377,10 @@ class TestPipelineEndpoint:
 
         request = TriggerRequest()
 
-        with patch("api.endpoints.pipeline.uuid.uuid4", return_value=uuid.UUID("12345678-1234-5678-1234-567812345678")):
+        with patch(
+            "api.endpoints.pipeline.uuid.uuid4",
+            return_value=uuid.UUID("12345678-1234-5678-1234-567812345678"),
+        ):
             result = await trigger_pipeline(
                 request=request,
                 _="test-key",
@@ -386,7 +393,7 @@ class TestPipelineEndpoint:
     @pytest.mark.asyncio
     async def test_trigger_pipeline_failure(self):
         """Test POST /pipeline/trigger handles errors."""
-        from api.endpoints.pipeline import trigger_pipeline, TriggerRequest
+        from api.endpoints.pipeline import TriggerRequest, trigger_pipeline
 
         mock_redis = MagicMock()
         mock_redis.client = MagicMock()
@@ -397,7 +404,10 @@ class TestPipelineEndpoint:
 
         request = TriggerRequest(source_id="source-1")
 
-        with patch("api.endpoints.pipeline.uuid.uuid4", return_value=uuid.UUID("12345678-1234-5678-1234-567812345678")):
+        with patch(
+            "api.endpoints.pipeline.uuid.uuid4",
+            return_value=uuid.UUID("12345678-1234-5678-1234-567812345678"),
+        ):
             with pytest.raises(HTTPException) as exc_info:
                 await trigger_pipeline(
                     request=request,
@@ -414,12 +424,16 @@ class TestPipelineEndpoint:
 
         mock_redis = MagicMock()
         mock_redis.client = MagicMock()
-        mock_redis.client.hget = AsyncMock(return_value=json.dumps({
-            "task_id": "task-123",
-            "status": "completed",
-            "source_id": "source-1",
-            "queued_at": "2024-01-01T00:00:00",
-        }))
+        mock_redis.client.hget = AsyncMock(
+            return_value=json.dumps(
+                {
+                    "task_id": "task-123",
+                    "status": "completed",
+                    "source_id": "source-1",
+                    "queued_at": "2024-01-01T00:00:00",
+                }
+            )
+        )
 
         result = await get_task_status(
             task_id="task-123",
@@ -454,10 +468,12 @@ class TestPipelineEndpoint:
         mock_redis = MagicMock()
         mock_redis.client = MagicMock()
         mock_redis.client.llen = AsyncMock(return_value=5)
-        mock_redis.client.hgetall = AsyncMock(return_value={
-            "task-1": json.dumps({"status": "completed"}),
-            "task-2": json.dumps({"status": "running"}),
-        })
+        mock_redis.client.hgetall = AsyncMock(
+            return_value={
+                "task-1": json.dumps({"status": "completed"}),
+                "task-2": json.dumps({"status": "running"}),
+            }
+        )
 
         result = await get_queue_stats(
             _="test-key",
@@ -578,9 +594,9 @@ class TestArticlesEndpoint:
         article.source_credibility = 0.8
         article.cross_verification = 0.7
         article.content_check_score = 0.95
-        article.publish_time = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        article.created_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        article.updated_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        article.publish_time = datetime(2024, 1, 1, tzinfo=UTC)
+        article.created_at = datetime(2024, 1, 1, tzinfo=UTC)
+        article.updated_at = datetime(2024, 1, 1, tzinfo=UTC)
 
         result = _article_to_dict(article)
         assert result["title"] == "Test Title"
@@ -616,8 +632,8 @@ class TestArticlesEndpoint:
         mock_article.cross_verification = None
         mock_article.content_check_score = None
         mock_article.publish_time = None
-        mock_article.created_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        mock_article.updated_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        mock_article.created_at = datetime(2024, 1, 1, tzinfo=UTC)
+        mock_article.updated_at = datetime(2024, 1, 1, tzinfo=UTC)
 
         mock_count_result = MagicMock()
         mock_count_result.scalar.return_value = 1
@@ -632,8 +648,9 @@ class TestArticlesEndpoint:
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
 
-        from starlette.requests import Request
         from unittest.mock import MagicMock as ReqMock
+
+        from starlette.requests import Request
 
         mock_request = ReqMock(spec=Request)
         mock_request.client = ReqMock()
@@ -683,8 +700,8 @@ class TestArticlesEndpoint:
         mock_article.cross_verification = None
         mock_article.content_check_score = None
         mock_article.publish_time = None
-        mock_article.created_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        mock_article.updated_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        mock_article.created_at = datetime(2024, 1, 1, tzinfo=UTC)
+        mock_article.updated_at = datetime(2024, 1, 1, tzinfo=UTC)
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_article
@@ -784,7 +801,7 @@ class TestGraphEndpoint:
 
     def test_entity_with_relations_model(self):
         """Test EntityWithRelations model."""
-        from api.endpoints.graph import EntityWithRelations, EntityResponse
+        from api.endpoints.graph import EntityResponse, EntityWithRelations
 
         entity = EntityResponse(
             id="123",
@@ -805,10 +822,8 @@ class TestGraphEndpoint:
     def test_article_graph_response_model(self):
         """Test ArticleGraphResponse model."""
         from api.endpoints.graph import (
-            ArticleGraphResponse,
             ArticleGraphNode,
-            EntityResponse,
-            ArticleGraphRelationship,
+            ArticleGraphResponse,
         )
 
         response = ArticleGraphResponse(
@@ -875,25 +890,29 @@ class TestGraphEndpoint:
         mock_session = AsyncMock()
 
         entity_result = AsyncMock()
-        entity_result.single = AsyncMock(return_value={
-            "id": "entity-123",
-            "canonical_name": "Test Entity",
-            "type": "person",
-            "aliases": ["alias1"],
-            "description": "Test description",
-            "updated_at": datetime(2024, 1, 1, tzinfo=timezone.utc),
-        })
+        entity_result.single = AsyncMock(
+            return_value={
+                "id": "entity-123",
+                "canonical_name": "Test Entity",
+                "type": "person",
+                "aliases": ["alias1"],
+                "description": "Test description",
+                "updated_at": datetime(2024, 1, 1, tzinfo=UTC),
+            }
+        )
 
         empty_result = AsyncMock()
         empty_result.__aiter__ = lambda self: AsyncIterator([]).__aiter__()
         empty_result.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
 
-        mock_session.run = AsyncMock(side_effect=[
-            entity_result,
-            empty_result,
-            empty_result,
-            empty_result,
-        ])
+        mock_session.run = AsyncMock(
+            side_effect=[
+                entity_result,
+                empty_result,
+                empty_result,
+                empty_result,
+            ]
+        )
 
         mock_neo4j = MagicMock()
         mock_neo4j.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
@@ -955,24 +974,28 @@ class TestGraphEndpoint:
         mock_session = AsyncMock()
 
         mock_article_result = AsyncMock()
-        mock_article_result.single = AsyncMock(return_value={
-            "id": "article-123",
-            "title": "Test Article",
-            "category": "tech",
-            "publish_time": datetime(2024, 1, 1, tzinfo=timezone.utc),
-            "score": 0.85,
-        })
+        mock_article_result.single = AsyncMock(
+            return_value={
+                "id": "article-123",
+                "title": "Test Article",
+                "category": "tech",
+                "publish_time": datetime(2024, 1, 1, tzinfo=UTC),
+                "score": 0.85,
+            }
+        )
 
         empty_result = AsyncMock()
         empty_result.__aiter__ = lambda self: AsyncIterator([]).__aiter__()
         empty_result.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
 
-        mock_session.run = AsyncMock(side_effect=[
-            mock_article_result,
-            empty_result,
-            empty_result,
-            empty_result,
-        ])
+        mock_session.run = AsyncMock(
+            side_effect=[
+                mock_article_result,
+                empty_result,
+                empty_result,
+                empty_result,
+            ]
+        )
 
         mock_neo4j = MagicMock()
         mock_neo4j.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
@@ -1052,8 +1075,9 @@ class TestAdminEndpoint:
 
     def test_update_authority_request_validation(self):
         """Test UpdateAuthorityRequest field validation."""
-        from api.endpoints.admin import UpdateAuthorityRequest
         from pydantic import ValidationError
+
+        from api.endpoints.admin import UpdateAuthorityRequest
 
         with pytest.raises(ValidationError):
             UpdateAuthorityRequest(authority=1.5)
@@ -1087,7 +1111,7 @@ class TestAdminEndpoint:
         mock_authority.description = "Test"
         mock_authority.needs_review = False
         mock_authority.auto_score = 0.80
-        mock_authority.updated_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        mock_authority.updated_at = datetime(2024, 1, 1, tzinfo=UTC)
 
         mock_repo = MagicMock()
         mock_repo.get_needs_review = AsyncMock(return_value=[mock_authority])
@@ -1103,7 +1127,7 @@ class TestAdminEndpoint:
     @pytest.mark.asyncio
     async def test_update_authority_endpoint_success(self):
         """Test PATCH /admin/sources/{host}/authority endpoint."""
-        from api.endpoints.admin import update_authority, UpdateAuthorityRequest
+        from api.endpoints.admin import UpdateAuthorityRequest, update_authority
 
         mock_authority = MagicMock()
         mock_authority.authority = 0.7
@@ -1127,7 +1151,7 @@ class TestAdminEndpoint:
     @pytest.mark.asyncio
     async def test_update_authority_endpoint_no_fields(self):
         """Test PATCH /admin/sources/{host}/authority returns 400 when no fields."""
-        from api.endpoints.admin import update_authority, UpdateAuthorityRequest
+        from api.endpoints.admin import UpdateAuthorityRequest, update_authority
 
         mock_repo = MagicMock()
 
@@ -1155,7 +1179,7 @@ class TestAdminEndpoint:
         mock_authority.description = "Test"
         mock_authority.needs_review = False
         mock_authority.auto_score = 0.80
-        mock_authority.updated_at = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        mock_authority.updated_at = datetime(2024, 1, 1, tzinfo=UTC)
 
         mock_repo = MagicMock()
         mock_repo.get_or_create = AsyncMock(return_value=mock_authority)
@@ -1208,20 +1232,20 @@ class TestMetricsEndpoint:
         """Test metrics has expected counters."""
         from core.observability.metrics import metrics
 
-        assert hasattr(metrics, 'llm_call_total')
-        assert hasattr(metrics, 'fallback_total')
-        assert hasattr(metrics, 'fetch_total')
+        assert hasattr(metrics, "llm_call_total")
+        assert hasattr(metrics, "fallback_total")
+        assert hasattr(metrics, "fetch_total")
 
     def test_metrics_has_gauges(self):
         """Test metrics has expected gauges."""
         from core.observability.metrics import metrics
 
-        assert hasattr(metrics, 'pipeline_queue_depth')
+        assert hasattr(metrics, "pipeline_queue_depth")
 
     def test_metrics_has_histograms(self):
         """Test metrics has expected histograms."""
         from core.observability.metrics import metrics
 
-        assert hasattr(metrics, 'llm_call_latency')
-        assert hasattr(metrics, 'pipeline_stage_latency')
-        assert hasattr(metrics, 'fetch_latency')
+        assert hasattr(metrics, "llm_call_latency")
+        assert hasattr(metrics, "pipeline_stage_latency")
+        assert hasattr(metrics, "fetch_latency")

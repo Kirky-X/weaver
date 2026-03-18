@@ -1,9 +1,9 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for context builder module."""
 
-import pytest
 from modules.search.context.builder import (
-    SearchContext,
     ContextSection,
+    SearchContext,
 )
 
 

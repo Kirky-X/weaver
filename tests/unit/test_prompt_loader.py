@@ -1,8 +1,8 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for PromptLoader."""
 
-import pytest
 from pathlib import Path
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import mock_open, patch
 
 from core.prompt.loader import PromptLoader
 
@@ -18,11 +18,11 @@ class TestPromptLoader:
 
     def test_get_system_prompt(self):
         """Test getting system prompt from TOML file."""
-        toml_content = b'''
+        toml_content = b"""
 version = "1.0.0"
 system = "You are a helpful assistant."
 user = "Please help me."
-'''
+"""
         with patch("builtins.open", mock_open(read_data=toml_content)):
             loader = PromptLoader("config/prompts")
             result = loader.get("test_prompt", "system")
@@ -30,10 +30,10 @@ user = "Please help me."
 
     def test_get_version(self):
         """Test getting version from TOML file."""
-        toml_content = b'''
+        toml_content = b"""
 version = "2.1.0"
 system = "Test prompt"
-'''
+"""
         with patch("builtins.open", mock_open(read_data=toml_content)):
             loader = PromptLoader("config/prompts")
             version = loader.get_version("test_prompt")
@@ -41,9 +41,9 @@ system = "Test prompt"
 
     def test_get_version_unknown_when_missing(self):
         """Test version returns 'unknown' when not specified."""
-        toml_content = b'''
+        toml_content = b"""
 system = "Test prompt"
-'''
+"""
         with patch("builtins.open", mock_open(read_data=toml_content)):
             loader = PromptLoader("config/prompts")
             version = loader.get_version("test_prompt")
@@ -51,10 +51,10 @@ system = "Test prompt"
 
     def test_caching(self):
         """Test that loaded prompts are cached."""
-        toml_content = b'''
+        toml_content = b"""
 version = "1.0.0"
 system = "Cached prompt"
-'''
+"""
         with patch("builtins.open", mock_open(read_data=toml_content)) as mock_file:
             loader = PromptLoader("config/prompts")
             loader.get("test", "system")
@@ -64,11 +64,11 @@ system = "Cached prompt"
 
     def test_get_user_prompt(self):
         """Test getting user prompt from TOML file."""
-        toml_content = b'''
+        toml_content = b"""
 version = "1.0.0"
 system = "System prompt"
 user = "User prompt"
-'''
+"""
         with patch("builtins.open", mock_open(read_data=toml_content)):
             loader = PromptLoader("config/prompts")
             result = loader.get("test", "user")
@@ -76,10 +76,10 @@ user = "User prompt"
 
     def test_get_default_key(self):
         """Test getting default key (system) when not specified."""
-        toml_content = b'''
+        toml_content = b"""
 version = "1.0.0"
 system = "Default system prompt"
-'''
+"""
         with patch("builtins.open", mock_open(read_data=toml_content)):
             loader = PromptLoader("config/prompts")
             result = loader.get("test")
@@ -92,10 +92,10 @@ system = "Default system prompt"
 
     def test_cache_populated_after_get(self):
         """Test cache is populated after first get."""
-        toml_content = b'''
+        toml_content = b"""
 version = "1.0.0"
 system = "Test"
-'''
+"""
         with patch("builtins.open", mock_open(read_data=toml_content)):
             loader = PromptLoader("config/prompts")
             assert "test_prompt" not in loader._cache
@@ -112,7 +112,7 @@ system = "Test"
                 return mock_open(read_data=toml_content_1)()
             elif "prompt2" in str(file):
                 return mock_open(read_data=toml_content_2)()
-            return mock_open(read_data=b'')()
+            return mock_open(read_data=b"")()
 
         with patch("builtins.open", side_effect=side_effect_open):
             loader = PromptLoader("config/prompts")

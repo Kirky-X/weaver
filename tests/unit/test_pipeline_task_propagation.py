@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for task_id propagation through pipeline components."""
 
 from __future__ import annotations
@@ -10,7 +11,6 @@ import pytest
 
 from core.db.models import Article
 from modules.collector.models import ArticleRaw
-from modules.source.models import NewsItem, SourceConfig
 from modules.storage.article_repo import ArticleRepo
 
 
@@ -125,8 +125,8 @@ class TestSourceSchedulerTaskIdPropagation:
 
     def test_scheduler_on_items_callback_accepts_task_id(self):
         """Test that on_items_discovered callback type hints include task_id."""
+
         from modules.source.scheduler import SourceScheduler
-        import typing
 
         sig = inspect.signature(SourceScheduler.__init__)
         params = sig.parameters

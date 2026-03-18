@@ -1,8 +1,10 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for credibility calculation."""
 
-import pytest
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from modules.pipeline.nodes.credibility_checker import CredibilityCheckerNode
 
@@ -51,7 +53,7 @@ class TestTimelinessCalculation:
 
     def test_timeliness_within_6_hours(self):
         """Test timeliness score for article within 6 hours."""
-        publish_time = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+        publish_time = datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
         event_time = "2024-01-01T10:00:00"  # 2 hours earlier
 
         score = self.calc_timeliness(publish_time, event_time)
@@ -60,7 +62,7 @@ class TestTimelinessCalculation:
 
     def test_timeliness_within_24_hours(self):
         """Test timeliness score for article within 24 hours."""
-        publish_time = datetime(2024, 1, 1, 20, 0, tzinfo=timezone.utc)
+        publish_time = datetime(2024, 1, 1, 20, 0, tzinfo=UTC)
         event_time = "2024-01-01T10:00:00"  # 10 hours earlier
 
         score = self.calc_timeliness(publish_time, event_time)
@@ -69,7 +71,7 @@ class TestTimelinessCalculation:
 
     def test_timeliness_within_72_hours(self):
         """Test timeliness score for article within 72 hours."""
-        publish_time = datetime(2024, 1, 3, 12, 0, tzinfo=timezone.utc)
+        publish_time = datetime(2024, 1, 3, 12, 0, tzinfo=UTC)
         event_time = "2024-01-01T10:00:00"  # ~50 hours earlier
 
         score = self.calc_timeliness(publish_time, event_time)
@@ -78,7 +80,7 @@ class TestTimelinessCalculation:
 
     def test_timeliness_within_168_hours(self):
         """Test timeliness score for article within 168 hours (1 week)."""
-        publish_time = datetime(2024, 1, 7, 12, 0, tzinfo=timezone.utc)
+        publish_time = datetime(2024, 1, 7, 12, 0, tzinfo=UTC)
         event_time = "2024-01-01T10:00:00"  # ~146 hours earlier
 
         score = self.calc_timeliness(publish_time, event_time)
@@ -87,7 +89,7 @@ class TestTimelinessCalculation:
 
     def test_timeliness_over_168_hours(self):
         """Test timeliness score for article over 1 week old."""
-        publish_time = datetime(2024, 1, 15, 12, 0, tzinfo=timezone.utc)
+        publish_time = datetime(2024, 1, 15, 12, 0, tzinfo=UTC)
         event_time = "2024-01-01T10:00:00"  # ~338 hours earlier
 
         score = self.calc_timeliness(publish_time, event_time)
@@ -102,7 +104,7 @@ class TestTimelinessCalculation:
 
     def test_timeliness_missing_event_time(self):
         """Test timeliness with missing event time returns neutral."""
-        publish_time = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+        publish_time = datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
 
         score = self.calc_timeliness(publish_time, None)
 
@@ -110,7 +112,7 @@ class TestTimelinessCalculation:
 
     def test_timeliness_invalid_event_time(self):
         """Test timeliness with invalid event time format returns neutral."""
-        publish_time = datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc)
+        publish_time = datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
 
         score = self.calc_timeliness(publish_time, "invalid-date")
 
@@ -159,10 +161,7 @@ class TestCredibilityFlags:
 
     def test_flags_accepted_as_list(self):
         """Test that flags are accepted as a list."""
-        output = {
-            "score": 0.5,
-            "flags": ["low_source_authority", "no_cross_verification"]
-        }
+        output = {"score": 0.5, "flags": ["low_source_authority", "no_cross_verification"]}
         assert len(output["flags"]) == 2
         assert "low_source_authority" in output["flags"]
 
@@ -176,10 +175,10 @@ class TestCredibilityScoreRange:
 
         # Calculate minimum possible score
         min_score = (
-            0.0 * weights["source"] +
-            0.4 * weights["cross"] +  # minimum cross with 0 sources
-            0.0 * weights["content"] +
-            0.3 * weights["timeliness"]  # minimum timeliness
+            0.0 * weights["source"]
+            + 0.4 * weights["cross"]  # minimum cross with 0 sources
+            + 0.0 * weights["content"]
+            + 0.3 * weights["timeliness"]  # minimum timeliness
         )
 
         assert min_score >= 0.0
@@ -190,10 +189,10 @@ class TestCredibilityScoreRange:
 
         # Calculate maximum possible score
         max_score = (
-            1.0 * weights["source"] +
-            1.0 * weights["cross"] +
-            1.0 * weights["content"] +
-            1.0 * weights["timeliness"]
+            1.0 * weights["source"]
+            + 1.0 * weights["cross"]
+            + 1.0 * weights["content"]
+            + 1.0 * weights["timeliness"]
         )
 
         assert max_score <= 1.0
@@ -245,19 +244,23 @@ class TestCredibilityNodeExecution:
     def test_node_execution_full(self):
         """Test full node execution exists."""
         from modules.pipeline.nodes.credibility_checker import CredibilityCheckerNode
-        assert hasattr(CredibilityCheckerNode, 'execute')
 
-    def test_llm_content_check(self, mock_llm, mock_source_auth_repo, mock_event_bus, mock_budget, mock_prompt_loader):
+        assert hasattr(CredibilityCheckerNode, "execute")
+
+    def test_llm_content_check(
+        self, mock_llm, mock_source_auth_repo, mock_event_bus, mock_budget, mock_prompt_loader
+    ):
         """Test LLM content check is called."""
         assert mock_llm.call is not None
 
     def test_event_publish(self, mock_event_bus):
         """Test event bus publish method exists."""
-        assert hasattr(mock_event_bus, 'publish')
+        assert hasattr(mock_event_bus, "publish")
 
     def test_dynamic_update_method(self):
         """Test dynamic update method exists."""
         from core.event.bus import EventBus
+
         bus = EventBus()
-        assert hasattr(bus, 'publish')
-        assert hasattr(bus, 'subscribe')
+        assert hasattr(bus, "publish")
+        assert hasattr(bus, "subscribe")

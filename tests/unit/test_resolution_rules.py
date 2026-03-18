@@ -1,10 +1,10 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for entity resolution rules module."""
 
-import pytest
 from modules.graph_store.resolution_rules import (
     EntityResolutionRules,
-    ResolutionResult,
     MatchType,
+    ResolutionResult,
     ResolutionRule,
 )
 
@@ -110,30 +110,26 @@ class TestEntityResolutionRules:
     def test_person_name_variant_match(self):
         """Test person name variant matching."""
         rules = EntityResolutionRules()
-        
+
         name_with_title = "张三先生"
         canonical = "张三"
-        
+
         result = rules._person_name_variant_match(name_with_title, canonical, "人物")
-        
+
         if result:
             assert result.match_type == MatchType.ALIAS
 
     def test_person_name_variant_no_match(self):
         """Test person name variant with no match."""
         rules = EntityResolutionRules()
-        result = rules._person_name_variant_match(
-            "王五", "张三", "人物"
-        )
+        result = rules._person_name_variant_match("王五", "张三", "人物")
 
         assert result is None
 
     def test_organization_variant_match(self):
         """Test organization variant matching."""
         rules = EntityResolutionRules()
-        result = rules._organization_variant_match(
-            "阿里巴巴公司", "阿里巴巴集团", "组织机构"
-        )
+        result = rules._organization_variant_match("阿里巴巴公司", "阿里巴巴集团", "组织机构")
 
         assert result is not None
         assert result.should_merge is True

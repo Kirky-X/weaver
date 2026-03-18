@@ -1,9 +1,10 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Test edge cases for cancel_all_tasks utility."""
 
-import pytest
 import asyncio
-from unittest.mock import patch, MagicMock
 import logging
+
+import pytest
 
 
 @pytest.mark.asyncio

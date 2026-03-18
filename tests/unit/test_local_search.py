@@ -1,7 +1,9 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for local search engine module."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from modules.search.engines.local_search import (
     LocalSearchEngine,
@@ -60,12 +62,14 @@ class TestLocalSearchEngine:
     async def test_search_with_entities(self):
         """Test search with matching entities."""
         mock_pool = MagicMock()
-        mock_pool.execute_query = AsyncMock(side_effect=[
-            [{"name": "TestEntity"}],
-            [{"canonical_name": "TestEntity", "type": "人物", "description": "A test"}],
-            [],
-            [],
-        ])
+        mock_pool.execute_query = AsyncMock(
+            side_effect=[
+                [{"name": "TestEntity"}],
+                [{"canonical_name": "TestEntity", "type": "人物", "description": "A test"}],
+                [],
+                [],
+            ]
+        )
         mock_llm = MagicMock()
         mock_response = MagicMock()
         mock_response.content = "Test answer"

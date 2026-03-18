@@ -1,19 +1,21 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for database initializer module."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
+
 import asyncpg
+import pytest
 
 from core.db.initializer import (
-    parse_dsn,
+    REQUIRED_TABLES,
     ParsedDSN,
     check_database_exists,
     create_database,
-    wait_for_postgres,
-    verify_tables,
-    run_migrations,
     initialize_database,
-    REQUIRED_TABLES,
+    parse_dsn,
+    run_migrations,
+    verify_tables,
+    wait_for_postgres,
 )
 
 
@@ -137,9 +139,7 @@ class TestCreateDatabase:
         )
 
         mock_conn = AsyncMock()
-        mock_conn.execute = AsyncMock(
-            side_effect=asyncpg.DuplicateDatabaseError()
-        )
+        mock_conn.execute = AsyncMock(side_effect=asyncpg.DuplicateDatabaseError())
         mock_conn.close = AsyncMock()
 
         with patch("asyncpg.connect", AsyncMock(return_value=mock_conn)):
@@ -158,9 +158,7 @@ class TestCreateDatabase:
         )
 
         mock_conn = AsyncMock()
-        mock_conn.execute = AsyncMock(
-            side_effect=asyncpg.InsufficientPrivilegeError()
-        )
+        mock_conn.execute = AsyncMock(side_effect=asyncpg.InsufficientPrivilegeError())
         mock_conn.close = AsyncMock()
 
         with patch("asyncpg.connect", AsyncMock(return_value=mock_conn)):
@@ -230,13 +228,15 @@ class TestWaitForPostgres:
             database="weaver",
         )
 
-        with patch(
-            "asyncpg.connect",
-            AsyncMock(side_effect=OSError("Connection refused")),
+        with (
+            patch(
+                "asyncpg.connect",
+                AsyncMock(side_effect=OSError("Connection refused")),
+            ),
+            patch("asyncio.sleep", AsyncMock()),
         ):
-            with patch("asyncio.sleep", AsyncMock()):
-                with pytest.raises(RuntimeError, match="not available after"):
-                    await wait_for_postgres(parsed, timeout=1.0)
+            with pytest.raises(RuntimeError, match="not available after"):
+                await wait_for_postgres(parsed, timeout=1.0)
 
 
 class TestVerifyTables:
@@ -405,6 +405,6 @@ class TestInitializeDatabase:
             patch(
                 "core.db.initializer.run_migrations",
             ),
+            pytest.raises(RuntimeError, match="Tables still missing"),
         ):
-            with pytest.raises(RuntimeError, match="Tables still missing"):
-                await initialize_database(dsn)
+            await initialize_database(dsn)

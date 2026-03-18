@@ -1,6 +1,8 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for Union-Find algorithm used in batch merger."""
 
 import pytest
+
 from modules.pipeline.nodes.batch_merger import UnionFind
 
 

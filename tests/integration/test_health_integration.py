@@ -1,16 +1,16 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Integration tests for health check endpoints with real service connections."""
 
-import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
-from fastapi.responses import JSONResponse
 
-from api.endpoints.health import health_check as check_health
 from api.endpoints.health import (
-    set_postgres_pool,
+    health_check as check_health,
     set_neo4j_pool,
+    set_postgres_pool,
     set_redis_client,
 )
 
@@ -171,9 +171,7 @@ class TestHealthEndpointIntegration:
     ):
         """Test health endpoint returns 503 when Neo4j is unhealthy."""
         # Make Neo4j fail
-        mock_neo4j_pool.execute_query = AsyncMock(
-            side_effect=Exception("ServiceUnavailable")
-        )
+        mock_neo4j_pool.execute_query = AsyncMock(side_effect=Exception("ServiceUnavailable"))
 
         # Set global pools
         set_postgres_pool(mock_postgres_pool)
@@ -202,9 +200,7 @@ class TestHealthEndpointIntegration:
     ):
         """Test health endpoint returns 503 when Redis is unhealthy."""
         # Make Redis fail
-        mock_redis_client.client.ping = AsyncMock(
-            side_effect=Exception("Connection refused")
-        )
+        mock_redis_client.client.ping = AsyncMock(side_effect=Exception("Connection refused"))
 
         # Set global pools
         set_postgres_pool(mock_postgres_pool)
@@ -271,14 +267,14 @@ class TestHealthEndpointIntegration:
         """Test health endpoint handles timeout gracefully."""
         # Make all services timeout
         session = AsyncMock()
-        session.execute = AsyncMock(side_effect=asyncio.TimeoutError())
+        session.execute = AsyncMock(side_effect=TimeoutError())
         async_context = AsyncMock()
         async_context.__aenter__ = AsyncMock(return_value=session)
         async_context.__aexit__ = AsyncMock(return_value=None)
         mock_postgres_pool.session_context = MagicMock(return_value=async_context)
 
-        mock_neo4j_pool.execute_query = AsyncMock(side_effect=asyncio.TimeoutError())
-        mock_redis_client.client.ping = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_neo4j_pool.execute_query = AsyncMock(side_effect=TimeoutError())
+        mock_redis_client.client.ping = AsyncMock(side_effect=TimeoutError())
 
         # Set global pools
         set_postgres_pool(mock_postgres_pool)
@@ -357,7 +353,7 @@ class TestHealthEndpointIntegration:
         """Test health endpoint properly reports degraded service."""
         # Make PostgreSQL timeout (degraded but not down)
         session = AsyncMock()
-        session.execute = AsyncMock(side_effect=asyncio.TimeoutError())
+        session.execute = AsyncMock(side_effect=TimeoutError())
         async_context = AsyncMock()
         async_context.__aenter__ = AsyncMock(return_value=session)
         async_context.__aexit__ = AsyncMock(return_value=None)
@@ -391,9 +387,7 @@ class TestHealthEndpointIntegration:
         """Test health endpoint includes error messages in failed checks."""
         # Make services fail with specific errors
         session = AsyncMock()
-        session.execute = AsyncMock(
-            side_effect=Exception("PostgreSQL connection failed")
-        )
+        session.execute = AsyncMock(side_effect=Exception("PostgreSQL connection failed"))
         async_context = AsyncMock()
         async_context.__aenter__ = AsyncMock(return_value=session)
         async_context.__aexit__ = AsyncMock(return_value=None)
@@ -402,9 +396,7 @@ class TestHealthEndpointIntegration:
         mock_neo4j_pool.execute_query = AsyncMock(
             side_effect=Exception("Neo4j service unavailable")
         )
-        mock_redis_client.client.ping = AsyncMock(
-            side_effect=Exception("Redis connection refused")
-        )
+        mock_redis_client.client.ping = AsyncMock(side_effect=Exception("Redis connection refused"))
 
         # Set global pools
         set_postgres_pool(mock_postgres_pool)

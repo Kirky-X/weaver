@@ -1,7 +1,9 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Integration tests for API endpoints."""
 
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 
 class TestContainerIntegration:
@@ -9,8 +11,8 @@ class TestContainerIntegration:
 
     def test_container_creation(self):
         """Test container can be created."""
-        from container import Container
         from config.settings import Settings
+        from container import Container
 
         settings = Settings()
         container = Container().configure(settings)
@@ -20,17 +22,17 @@ class TestContainerIntegration:
 
     def test_container_initializes_components(self):
         """Test container initializes all components."""
-        from container import Container
         from config.settings import Settings
+        from container import Container
 
         settings = Settings()
         container = Container().configure(settings)
 
         # Verify all component getters exist
-        assert hasattr(container, 'settings')
-        assert hasattr(container, 'source_registry')
-        assert hasattr(container, 'article_repo')
-        assert hasattr(container, 'source_authority_repo')
+        assert hasattr(container, "settings")
+        assert hasattr(container, "source_registry")
+        assert hasattr(container, "article_repo")
+        assert hasattr(container, "source_authority_repo")
 
 
 class TestSourceRegistryIntegration:
@@ -38,8 +40,8 @@ class TestSourceRegistryIntegration:
 
     def test_registry_creation(self):
         """Test source registry can be created."""
-        from modules.source.registry import SourceRegistry
         from modules.fetcher.base import BaseFetcher
+        from modules.source.registry import SourceRegistry
 
         mock_fetcher = MagicMock(spec=BaseFetcher)
         registry = SourceRegistry(mock_fetcher)
@@ -47,8 +49,8 @@ class TestSourceRegistryIntegration:
 
     def test_registry_default_parsers(self):
         """Test registry has default parsers."""
-        from modules.source.registry import SourceRegistry
         from modules.fetcher.base import BaseFetcher
+        from modules.source.registry import SourceRegistry
 
         mock_fetcher = MagicMock(spec=BaseFetcher)
         registry = SourceRegistry(mock_fetcher)
@@ -57,9 +59,9 @@ class TestSourceRegistryIntegration:
 
     def test_source_management(self):
         """Test adding and retrieving sources."""
-        from modules.source.registry import SourceRegistry
-        from modules.source.models import SourceConfig
         from modules.fetcher.base import BaseFetcher
+        from modules.source.models import SourceConfig
+        from modules.source.registry import SourceRegistry
 
         mock_fetcher = MagicMock(spec=BaseFetcher)
         registry = SourceRegistry(mock_fetcher)
@@ -101,7 +103,6 @@ class TestLLMClientIntegration:
 
     def test_llm_client_requires_config(self):
         """Test LLM client requires config."""
-        from core.llm.client import LLMClient
 
         config = {
             "providers": {
@@ -151,37 +152,37 @@ class TestDatabaseModelsIntegration:
         from core.db.models import Article
 
         # Check key fields exist
-        assert hasattr(Article, 'id')
-        assert hasattr(Article, 'source_url')
-        assert hasattr(Article, 'title')
-        assert hasattr(Article, 'body')
-        assert hasattr(Article, 'category')
-        assert hasattr(Article, 'score')
-        assert hasattr(Article, 'credibility_score')
+        assert hasattr(Article, "id")
+        assert hasattr(Article, "source_url")
+        assert hasattr(Article, "title")
+        assert hasattr(Article, "body")
+        assert hasattr(Article, "category")
+        assert hasattr(Article, "score")
+        assert hasattr(Article, "credibility_score")
 
     def test_article_vector_model(self):
         """Test ArticleVector model."""
         from core.db.models import ArticleVector
 
-        assert hasattr(ArticleVector, 'article_id')
-        assert hasattr(ArticleVector, 'vector_type')
-        assert hasattr(ArticleVector, 'embedding')
+        assert hasattr(ArticleVector, "article_id")
+        assert hasattr(ArticleVector, "vector_type")
+        assert hasattr(ArticleVector, "embedding")
 
     def test_source_authority_model(self):
         """Test SourceAuthority model."""
         from core.db.models import SourceAuthority
 
-        assert hasattr(SourceAuthority, 'host')
-        assert hasattr(SourceAuthority, 'authority')
-        assert hasattr(SourceAuthority, 'tier')
+        assert hasattr(SourceAuthority, "host")
+        assert hasattr(SourceAuthority, "authority")
+        assert hasattr(SourceAuthority, "tier")
 
     def test_article_entity_model(self):
         """Test ArticleEntity model."""
         from core.db.models import ArticleEntity
 
-        assert hasattr(ArticleEntity, 'article_id')
-        assert hasattr(ArticleEntity, 'neo4j_id')
-        assert hasattr(ArticleEntity, 'entity_name')
+        assert hasattr(ArticleEntity, "article_id")
+        assert hasattr(ArticleEntity, "neo4j_id")
+        assert hasattr(ArticleEntity, "entity_name")
 
 
 class TestSettingsIntegration:
@@ -199,7 +200,7 @@ class TestSettingsIntegration:
         from config.settings import Settings
 
         settings = Settings()
-        assert hasattr(settings, 'postgres')
-        assert hasattr(settings, 'redis')
-        assert hasattr(settings, 'llm')
-        assert hasattr(settings, 'api')
+        assert hasattr(settings, "postgres")
+        assert hasattr(settings, "redis")
+        assert hasattr(settings, "llm")
+        assert hasattr(settings, "api")

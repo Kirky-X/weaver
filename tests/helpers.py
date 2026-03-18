@@ -1,11 +1,12 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Test helper utilities."""
 
-import uuid
 import random
 import string
-from datetime import datetime, timezone, timedelta
+import uuid
+from datetime import UTC, datetime
 from typing import Any
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 
 def generate_random_string(length: int = 10) -> str:
@@ -60,8 +61,8 @@ def create_mock_article(
     article.cross_verification = kwargs.get("cross_verification")
     article.content_check_score = kwargs.get("content_check_score")
     article.publish_time = kwargs.get("publish_time")
-    article.created_at = kwargs.get("created_at", datetime.now(timezone.utc))
-    article.updated_at = kwargs.get("updated_at", datetime.now(timezone.utc))
+    article.created_at = kwargs.get("created_at", datetime.now(UTC))
+    article.updated_at = kwargs.get("updated_at", datetime.now(UTC))
     return article
 
 
@@ -78,8 +79,8 @@ def create_mock_entity(
     entity.type = entity_type or "PERSON"
     entity.aliases = kwargs.get("aliases", [])
     entity.description = kwargs.get("description")
-    entity.created_at = kwargs.get("created_at", datetime.now(timezone.utc))
-    entity.updated_at = kwargs.get("updated_at", datetime.now(timezone.utc))
+    entity.created_at = kwargs.get("created_at", datetime.now(UTC))
+    entity.updated_at = kwargs.get("updated_at", datetime.now(UTC))
     return entity
 
 
@@ -105,6 +106,7 @@ def create_mock_source_config(
 def create_mock_llm_response(data: dict[str, Any]) -> str:
     """Create a mock LLM JSON response."""
     import json
+
     return json.dumps(data)
 
 
@@ -164,7 +166,9 @@ def assert_dict_contains(expected: dict[str, Any], actual: dict[str, Any]) -> No
     """Assert that actual dict contains all keys from expected with matching values."""
     for key, value in expected.items():
         assert key in actual, f"Key '{key}' not found in actual dict"
-        assert actual[key] == value, f"Value mismatch for key '{key}': expected {value}, got {actual[key]}"
+        assert (
+            actual[key] == value
+        ), f"Value mismatch for key '{key}': expected {value}, got {actual[key]}"
 
 
 def assert_datetime_close(
@@ -174,7 +178,9 @@ def assert_datetime_close(
 ) -> None:
     """Assert that two datetimes are within tolerance of each other."""
     diff = abs((dt1 - dt2).total_seconds())
-    assert diff <= tolerance_seconds, f"Datetimes differ by {diff} seconds (tolerance: {tolerance_seconds})"
+    assert (
+        diff <= tolerance_seconds
+    ), f"Datetimes differ by {diff} seconds (tolerance: {tolerance_seconds})"
 
 
 class AsyncContextManagerMock:

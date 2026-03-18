@@ -1,16 +1,19 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Integration tests for graph metrics - NO MOCKS.
 
 Tests with real Neo4j database.
 """
 
-import pytest
 import os
+
+import pytest
 
 
 @pytest.fixture
 async def neo4j_pool():
     """Get real Neo4j pool."""
     from core.db.neo4j import Neo4jPool
+
     uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
     user = os.getenv("NEO4J_USER", "neo4j")
     password = os.getenv("NEO4J_PASSWORD", "testpassword123")
@@ -41,10 +44,10 @@ async def setup_test_graph(neo4j_pool):
 async def test_graph_metrics_calculation(neo4j_pool, setup_test_graph):
     """Test graph metrics with real data."""
     from modules.graph_store.metrics import GraphQualityMetrics
-    
+
     metrics = GraphQualityMetrics(neo4j_pool)
     result = await metrics.calculate_all_metrics()
-    
+
     assert result.total_entities >= 3
     assert result.total_relationships >= 2
 
@@ -53,10 +56,10 @@ async def test_graph_metrics_calculation(neo4j_pool, setup_test_graph):
 async def test_connected_components(neo4j_pool, setup_test_graph):
     """Test connected components detection."""
     from modules.graph_store.metrics import GraphQualityMetrics
-    
+
     metrics = GraphQualityMetrics(neo4j_pool)
     components = await metrics.get_connected_components()
-    
+
     assert isinstance(components, list)
 
 
@@ -64,16 +67,16 @@ async def test_connected_components(neo4j_pool, setup_test_graph):
 async def test_orphan_entities(neo4j_pool):
     """Test orphan entity detection."""
     from modules.graph_store.metrics import GraphQualityMetrics
-    
+
     await neo4j_pool.execute_query("""
         MERGE (e:Entity {canonical_name: 'MetricsTest_Orphan', type: '人物'})
     """)
-    
+
     metrics = GraphQualityMetrics(neo4j_pool)
     orphans = await metrics.find_orphan_entities(limit=10)
-    
+
     assert isinstance(orphans, list)
-    
+
     await neo4j_pool.execute_query("""
         MATCH (e:Entity {canonical_name: 'MetricsTest_Orphan'})
         DETACH DELETE e
@@ -84,8 +87,8 @@ async def test_orphan_entities(neo4j_pool):
 async def test_modularity_calculation(neo4j_pool, setup_test_graph):
     """Test modularity with real graph."""
     from modules.graph_store.metrics import GraphQualityMetrics
-    
+
     metrics = GraphQualityMetrics(neo4j_pool)
     score = await metrics.calculate_modularity()
-    
+
     assert -1.0 <= score <= 1.0

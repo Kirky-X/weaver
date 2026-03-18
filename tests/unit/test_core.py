@@ -1,8 +1,9 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for core modules."""
 
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone
 
 
 class TestPipelineState:
@@ -82,7 +83,7 @@ class TestEventBus:
     @pytest.mark.asyncio
     async def test_event_bus_publish_subscribe(self):
         """Test event bus publish and subscribe."""
-        from core.event.bus import EventBus, BaseEvent
+        from core.event.bus import BaseEvent, EventBus
 
         bus = EventBus()
         received_events = []
@@ -101,7 +102,7 @@ class TestEventBus:
     @pytest.mark.asyncio
     async def test_event_bus_no_handlers(self):
         """Test event bus handles no handlers gracefully."""
-        from core.event.bus import EventBus, BaseEvent
+        from core.event.bus import BaseEvent, EventBus
 
         bus = EventBus()
         event = BaseEvent()
@@ -115,7 +116,7 @@ class TestLLMTypes:
 
     def test_llm_task_creation(self):
         """Test LLMTask can be created."""
-        from core.llm.types import LLMTask, CallPoint, LLMType
+        from core.llm.types import CallPoint, LLMTask, LLMType
 
         task = LLMTask(
             call_point=CallPoint.CLASSIFIER,
@@ -139,7 +140,7 @@ class TestCircuitBreaker:
 
     def test_circuit_breaker_initial_state(self):
         """Test circuit breaker starts in closed state."""
-        from core.resilience.circuit_breaker import CircuitBreaker, CBState
+        from core.resilience.circuit_breaker import CBState, CircuitBreaker
 
         cb = CircuitBreaker(
             threshold=3,
@@ -149,7 +150,7 @@ class TestCircuitBreaker:
 
     async def test_circuit_breaker_record_success(self):
         """Test circuit breaker records success."""
-        from core.resilience.circuit_breaker import CircuitBreaker, CBState
+        from core.resilience.circuit_breaker import CBState, CircuitBreaker
 
         cb = CircuitBreaker(
             threshold=3,
@@ -160,7 +161,7 @@ class TestCircuitBreaker:
 
     async def test_circuit_breaker_record_failure(self):
         """Test circuit breaker records failure."""
-        from core.resilience.circuit_breaker import CircuitBreaker, CBState
+        from core.resilience.circuit_breaker import CircuitBreaker
 
         cb = CircuitBreaker(
             threshold=3,
@@ -191,8 +192,9 @@ class TestPromptLoader:
 
     def test_prompt_loader_initialization(self):
         """Test prompt loader initializes."""
-        from core.prompt.loader import PromptLoader
         from pathlib import Path
+
+        from core.prompt.loader import PromptLoader
 
         loader = PromptLoader("config/prompts")
         assert loader._path == Path("config/prompts")
@@ -203,7 +205,7 @@ class TestTokenBudget:
 
     def test_token_budget_manager_initialization(self):
         """Test TokenBudgetManager can be created."""
-        from core.llm.token_budget import TokenBudgetManager, DEFAULT_LIMIT
+        from core.llm.token_budget import DEFAULT_LIMIT, TokenBudgetManager
 
         manager = TokenBudgetManager()
         assert manager is not None

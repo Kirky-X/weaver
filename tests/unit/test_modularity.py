@@ -1,6 +1,6 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for modularity calculation module."""
 
-import pytest
 from modules.community.modularity import (
     ModularityCalculator,
     ModularityResult,

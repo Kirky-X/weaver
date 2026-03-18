@@ -1,9 +1,11 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Integration tests for VectorRepo - requires real PostgreSQL database."""
 
-import pytest
 import uuid
 
-from modules.storage.vector_repo import VectorRepo, SimilarArticle, SimilarEntity
+import pytest
+
+from modules.storage.vector_repo import SimilarArticle, SimilarEntity, VectorRepo
 
 
 class TestSimilarArticle:

@@ -1,7 +1,9 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for RedisTokenBucket rate limiter."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from core.llm.rate_limiter import RedisTokenBucket
 
@@ -108,6 +110,7 @@ class TestRedisTokenBucket:
     def test_lua_script_content(self):
         """Test Lua script contains expected logic."""
         from core.llm.rate_limiter import _LUA_CONSUME
+
         assert "HMGET" in _LUA_CONSUME
         assert "HMSET" in _LUA_CONSUME
         assert "EXPIRE" in _LUA_CONSUME

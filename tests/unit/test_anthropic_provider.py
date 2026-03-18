@@ -1,7 +1,9 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for Anthropic Provider."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from core.llm.providers.anthropic import AnthropicProvider
 
@@ -138,6 +140,7 @@ class TestAnthropicProviderEmbed:
 
             with pytest.raises(NotImplementedError) as exc_info:
                 import asyncio
+
                 asyncio.run(provider.embed(["test"]))
 
             assert "EmbeddingProvider" in str(exc_info.value)

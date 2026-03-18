@@ -1,13 +1,14 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Integration tests for ArticleRepo."""
 
-import pytest
 import uuid
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
-from modules.storage.article_repo import ArticleRepo
+import pytest
+
+from core.db.models import Article
 from modules.pipeline.state import PipelineState
-from core.db.models import Article, PersistStatus
+from modules.storage.article_repo import ArticleRepo
 
 
 class TestArticleRepoIntegration:

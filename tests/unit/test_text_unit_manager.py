@@ -1,12 +1,14 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for text unit manager module."""
 
-import pytest
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
-from datetime import datetime, timezone
+
+import pytest
 
 from modules.community.text_unit_manager import (
-    TextUnitManager,
     TextUnit,
+    TextUnitManager,
 )
 
 
@@ -128,15 +130,19 @@ class TestTextUnitManager:
     async def test_get_text_unit(self):
         """Test getting text unit by ID."""
         mock_pool = MagicMock()
-        mock_pool.execute_query = AsyncMock(return_value=[{
-            "id": "unit-1",
-            "content": "Test content",
-            "source_article_id": "article-1",
-            "chunk_index": 0,
-            "token_count": 100,
-            "entity_names": ["Entity1"],
-            "created_at": datetime.now(timezone.utc),
-        }])
+        mock_pool.execute_query = AsyncMock(
+            return_value=[
+                {
+                    "id": "unit-1",
+                    "content": "Test content",
+                    "source_article_id": "article-1",
+                    "chunk_index": 0,
+                    "token_count": 100,
+                    "entity_names": ["Entity1"],
+                    "created_at": datetime.now(UTC),
+                }
+            ]
+        )
         manager = TextUnitManager(mock_pool)
 
         unit = await manager.get_text_unit("unit-1")
@@ -159,15 +165,19 @@ class TestTextUnitManager:
     async def test_get_entity_text_units(self):
         """Test getting text units for an entity."""
         mock_pool = MagicMock()
-        mock_pool.execute_query = AsyncMock(return_value=[{
-            "id": "unit-1",
-            "content": "Content with Entity1",
-            "source_article_id": "article-1",
-            "chunk_index": 0,
-            "token_count": 50,
-            "entity_names": ["Entity1"],
-            "created_at": datetime.now(timezone.utc),
-        }])
+        mock_pool.execute_query = AsyncMock(
+            return_value=[
+                {
+                    "id": "unit-1",
+                    "content": "Content with Entity1",
+                    "source_article_id": "article-1",
+                    "chunk_index": 0,
+                    "token_count": 50,
+                    "entity_names": ["Entity1"],
+                    "created_at": datetime.now(UTC),
+                }
+            ]
+        )
         manager = TextUnitManager(mock_pool)
 
         units = await manager.get_entity_text_units("Entity1")
@@ -186,7 +196,7 @@ class TestTextUnitManager:
             "chunk_index": 0,
             "token_count": 100,
             "entity_names": ["Entity1"],
-            "created_at": datetime.now(timezone.utc),
+            "created_at": datetime.now(UTC),
         }
 
         unit = manager._row_to_unit(row)

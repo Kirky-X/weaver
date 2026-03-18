@@ -1,12 +1,14 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for community report generator module."""
 
-import pytest
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
-from datetime import datetime, timezone
+
+import pytest
 
 from modules.community.report_generator import (
-    CommunityReportGenerator,
     CommunityReport,
+    CommunityReportGenerator,
 )
 
 
@@ -25,7 +27,7 @@ class TestCommunityReport:
             rank=0.8,
             entity_count=10,
             relationship_count=5,
-            created_at=datetime.now(timezone.utc),
+            created_at=datetime.now(UTC),
             metadata={},
         )
 
@@ -65,10 +67,12 @@ class TestCommunityReportGenerator:
     async def test_generate_report_with_entities(self):
         """Test report generation with entities."""
         mock_pool = MagicMock()
-        mock_pool.execute_query = AsyncMock(side_effect=[
-            [{"name": "Entity1", "type": "人物", "description": "Desc1"}],
-            [{"source": "Entity1", "target": "Entity2", "type": "工作于", "weight": 1.0}],
-        ])
+        mock_pool.execute_query = AsyncMock(
+            side_effect=[
+                [{"name": "Entity1", "type": "人物", "description": "Desc1"}],
+                [{"source": "Entity1", "target": "Entity2", "type": "工作于", "weight": 1.0}],
+            ]
+        )
         mock_llm = MagicMock()
         mock_response = MagicMock()
         mock_response.content = "标题: 测试社区\n摘要: 这是一个测试社区。\n\n详细报告内容。"
@@ -98,18 +102,22 @@ class TestCommunityReportGenerator:
     async def test_get_report_exists(self):
         """Test getting existing report."""
         mock_pool = MagicMock()
-        mock_pool.execute_query = AsyncMock(return_value=[{
-            "id": "report-1",
-            "community_id": "comm-1",
-            "level": 0,
-            "title": "Test",
-            "summary": "Summary",
-            "full_content": "Content",
-            "rank": 0.5,
-            "entity_count": 10,
-            "relationship_count": 5,
-            "created_at": datetime.now(timezone.utc),
-        }])
+        mock_pool.execute_query = AsyncMock(
+            return_value=[
+                {
+                    "id": "report-1",
+                    "community_id": "comm-1",
+                    "level": 0,
+                    "title": "Test",
+                    "summary": "Summary",
+                    "full_content": "Content",
+                    "rank": 0.5,
+                    "entity_count": 10,
+                    "relationship_count": 5,
+                    "created_at": datetime.now(UTC),
+                }
+            ]
+        )
         mock_llm = MagicMock()
 
         generator = CommunityReportGenerator(mock_pool, mock_llm)

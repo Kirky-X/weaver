@@ -1,9 +1,10 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Integration tests for Neo4jEntityRepo."""
 
-import pytest
-import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from modules.storage.neo4j.entity_repo import Neo4jEntityRepo
 
@@ -82,16 +83,18 @@ class TestNeo4jEntityRepoIntegration:
     @pytest.mark.asyncio
     async def test_find_entity_found(self, entity_repo, mock_pool):
         """Test find_entity returns entity when found."""
-        mock_pool.execute_query.return_value = [{
-            "neo4j_id": "test-id",
-            "id": "uuid-123",
-            "canonical_name": "Test Entity",
-            "type": "person",
-            "aliases": ["alias1"],
-            "description": "Test",
-            "created_at": datetime.now(timezone.utc),
-            "updated_at": datetime.now(timezone.utc),
-        }]
+        mock_pool.execute_query.return_value = [
+            {
+                "neo4j_id": "test-id",
+                "id": "uuid-123",
+                "canonical_name": "Test Entity",
+                "type": "person",
+                "aliases": ["alias1"],
+                "description": "Test",
+                "created_at": datetime.now(UTC),
+                "updated_at": datetime.now(UTC),
+            }
+        ]
 
         result = await entity_repo.find_entity("Test Entity", "person")
 
@@ -111,16 +114,18 @@ class TestNeo4jEntityRepoIntegration:
     @pytest.mark.asyncio
     async def test_find_entity_by_id_found(self, entity_repo, mock_pool):
         """Test find_entity_by_id returns entity."""
-        mock_pool.execute_query.return_value = [{
-            "neo4j_id": "test-neo4j-id",
-            "id": "uuid-123",
-            "canonical_name": "Test Entity",
-            "type": "person",
-            "aliases": [],
-            "description": None,
-            "created_at": None,
-            "updated_at": None,
-        }]
+        mock_pool.execute_query.return_value = [
+            {
+                "neo4j_id": "test-neo4j-id",
+                "id": "uuid-123",
+                "canonical_name": "Test Entity",
+                "type": "person",
+                "aliases": [],
+                "description": None,
+                "created_at": None,
+                "updated_at": None,
+            }
+        ]
 
         result = await entity_repo.find_entity_by_id("test-neo4j-id")
 
@@ -139,9 +144,7 @@ class TestNeo4jEntityRepoIntegration:
     @pytest.mark.asyncio
     async def test_add_alias_success(self, entity_repo, mock_pool):
         """Test add_alias adds alias to entity."""
-        mock_pool.execute_query.return_value = [{
-            "aliases": ["Original", "New Alias"]
-        }]
+        mock_pool.execute_query.return_value = [{"aliases": ["Original", "New Alias"]}]
 
         result = await entity_repo.add_alias(
             canonical_name="Test Entity",

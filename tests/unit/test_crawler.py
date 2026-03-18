@@ -1,10 +1,12 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for Crawler module."""
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
 
-from modules.collector.crawler import Crawler, GLOBAL_MAX_CONCURRENCY
+import pytest
+
+from modules.collector.crawler import GLOBAL_MAX_CONCURRENCY, Crawler
 
 
 class TestCrawler:
@@ -26,7 +28,7 @@ class TestCrawler:
             item.url = f"https://example{i}.com/article{i}"
             item.title = f"Article {i}"
             item.source = f"source_{i}"
-            item.pubDate = datetime.now(timezone.utc)
+            item.pubDate = datetime.now(UTC)
             yield item
         return items
 
@@ -52,11 +54,11 @@ class TestCrawler:
         item.url = "https://example.com/article"
         item.title = "Test Article"
         item.source = "test_source"
-        item.pubDate = datetime.now(timezone.utc)
-        
+        item.pubDate = datetime.now(UTC)
+
         crawler = Crawler(smart_fetcher=mock_fetcher)
         results = await crawler.crawl_batch([item])
-        
+
         assert len(results) == 1
         assert not isinstance(results[0], Exception)
 
@@ -71,10 +73,10 @@ class TestCrawler:
             item.source = "test"
             item.pubDate = None
             items.append(item)
-        
+
         crawler = Crawler(smart_fetcher=mock_fetcher)
         results = await crawler.crawl_batch(items)
-        
+
         assert len(results) == 100
 
     @pytest.mark.asyncio
@@ -88,10 +90,10 @@ class TestCrawler:
             item.source = "test"
             item.pubDate = None
             items.append(item)
-        
+
         crawler = Crawler(smart_fetcher=mock_fetcher, default_per_host=2)
         results = await crawler.crawl_batch(items)
-        
+
         assert len(results) == 10
 
     @pytest.mark.asyncio
@@ -102,47 +104,45 @@ class TestCrawler:
         item.title = "Test"
         item.source = "test"
         item.pubDate = None
-        
+
         crawler = Crawler(smart_fetcher=mock_fetcher)
         results = await crawler.crawl_batch([item], per_host_config={"example.com": 5})
-        
+
         assert len(results) == 1
 
     @pytest.mark.asyncio
     async def test_return_exceptions(self, mock_fetcher):
         """Test exceptions are returned in results."""
         mock_fetcher.fetch = AsyncMock(side_effect=Exception("Network error"))
-        
+
         item = MagicMock()
         item.url = "https://example.com/article"
         item.title = "Test"
         item.source = "test"
         item.pubDate = None
-        
+
         crawler = Crawler(smart_fetcher=mock_fetcher)
         results = await crawler.crawl_batch([item])
-        
+
         assert len(results) == 1
         assert isinstance(results[0], Exception)
 
     @pytest.mark.asyncio
     async def test_trafilatura_extraction(self, mock_fetcher):
         """Test trafilatura content extraction."""
-        mock_fetcher.fetch = AsyncMock(return_value=(
-            200,
-            "<html><body><p>Article content here</p></body></html>",
-            {}
-        ))
-        
+        mock_fetcher.fetch = AsyncMock(
+            return_value=(200, "<html><body><p>Article content here</p></body></html>", {})
+        )
+
         item = MagicMock()
         item.url = "https://example.com/article"
         item.title = "Test"
         item.source = "test"
         item.pubDate = None
-        
+
         crawler = Crawler(smart_fetcher=mock_fetcher)
         results = await crawler.crawl_batch([item])
-        
+
         assert len(results) == 1
         assert not isinstance(results[0], Exception)
 
@@ -158,10 +158,10 @@ class TestCrawler:
             item.source = "test"
             item.pubDate = None
             items.append(item)
-        
+
         crawler = Crawler(smart_fetcher=mock_fetcher)
         results = await crawler.crawl_batch(items)
-        
+
         assert len(results) == 3
 
     @pytest.mark.asyncio
@@ -169,5 +169,5 @@ class TestCrawler:
         """Test crawling empty batch."""
         crawler = Crawler(smart_fetcher=mock_fetcher)
         results = await crawler.crawl_batch([])
-        
+
         assert results == []

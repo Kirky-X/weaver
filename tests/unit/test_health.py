@@ -1,22 +1,22 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for health check endpoints."""
 
-import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from sqlalchemy import text
 
 from api.endpoints.health import (
-    check_postgres_health,
     check_neo4j_health,
+    check_postgres_health,
     check_redis_health,
     health_check,
-    set_postgres_pool,
     set_neo4j_pool,
+    set_postgres_pool,
     set_redis_client,
 )
-from core.db.postgres import PostgresPool
-from core.db.neo4j import Neo4jPool
 from core.cache.redis import RedisClient
+from core.db.neo4j import Neo4jPool
+from core.db.postgres import PostgresPool
 
 
 class TestCheckPostgresHealth:
@@ -54,7 +54,7 @@ class TestCheckPostgresHealth:
         """Test PostgreSQL health check when connection times out."""
         # Mock execute to raise TimeoutError
         mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_session.execute = AsyncMock(side_effect=TimeoutError())
 
         async_context = AsyncMock()
         async_context.__aenter__ = AsyncMock(return_value=mock_session)
@@ -119,7 +119,7 @@ class TestCheckNeo4jHealth:
     @pytest.mark.asyncio
     async def test_neo4j_health_timeout(self, mock_neo4j_pool):
         """Test Neo4j health check when connection times out."""
-        mock_neo4j_pool.execute_query = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_neo4j_pool.execute_query = AsyncMock(side_effect=TimeoutError())
 
         result = await check_neo4j_health(mock_neo4j_pool)
 
@@ -130,9 +130,7 @@ class TestCheckNeo4jHealth:
     @pytest.mark.asyncio
     async def test_neo4j_health_error(self, mock_neo4j_pool):
         """Test Neo4j health check when connection fails."""
-        mock_neo4j_pool.execute_query = AsyncMock(
-            side_effect=Exception("ServiceUnavailable")
-        )
+        mock_neo4j_pool.execute_query = AsyncMock(side_effect=Exception("ServiceUnavailable"))
 
         result = await check_neo4j_health(mock_neo4j_pool)
 
@@ -175,7 +173,7 @@ class TestCheckRedisHealth:
     @pytest.mark.asyncio
     async def test_redis_health_timeout(self, mock_redis_client):
         """Test Redis health check when connection times out."""
-        mock_redis_client.client.ping = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_redis_client.client.ping = AsyncMock(side_effect=TimeoutError())
 
         result = await check_redis_health(mock_redis_client)
 
@@ -186,9 +184,7 @@ class TestCheckRedisHealth:
     @pytest.mark.asyncio
     async def test_redis_health_error(self, mock_redis_client):
         """Test Redis health check when connection fails."""
-        mock_redis_client.client.ping = AsyncMock(
-            side_effect=Exception("Connection refused")
-        )
+        mock_redis_client.client.ping = AsyncMock(side_effect=Exception("Connection refused"))
 
         result = await check_redis_health(mock_redis_client)
 
@@ -252,9 +248,7 @@ class TestHealthCheck:
         return client
 
     @pytest.mark.asyncio
-    async def test_all_healthy(
-        self, mock_postgres_pool, mock_neo4j_pool, mock_redis_client
-    ):
+    async def test_all_healthy(self, mock_postgres_pool, mock_neo4j_pool, mock_redis_client):
         """Test health check when all dependencies are healthy."""
         set_postgres_pool(mock_postgres_pool)
         set_neo4j_pool(mock_neo4j_pool)
@@ -269,9 +263,7 @@ class TestHealthCheck:
         assert result["checks"]["redis"]["status"] == "ok"
 
     @pytest.mark.asyncio
-    async def test_postgres_unhealthy(
-        self, mock_postgres_pool, mock_neo4j_pool, mock_redis_client
-    ):
+    async def test_postgres_unhealthy(self, mock_postgres_pool, mock_neo4j_pool, mock_redis_client):
         """Test health check when PostgreSQL is unhealthy."""
         # Make PostgreSQL fail
         mock_session = AsyncMock()
@@ -293,13 +285,9 @@ class TestHealthCheck:
         assert result["checks"]["redis"]["status"] == "ok"
 
     @pytest.mark.asyncio
-    async def test_neo4j_unhealthy(
-        self, mock_postgres_pool, mock_neo4j_pool, mock_redis_client
-    ):
+    async def test_neo4j_unhealthy(self, mock_postgres_pool, mock_neo4j_pool, mock_redis_client):
         """Test health check when Neo4j is unhealthy."""
-        mock_neo4j_pool.execute_query = AsyncMock(
-            side_effect=Exception("ServiceUnavailable")
-        )
+        mock_neo4j_pool.execute_query = AsyncMock(side_effect=Exception("ServiceUnavailable"))
 
         set_postgres_pool(mock_postgres_pool)
         set_neo4j_pool(mock_neo4j_pool)
@@ -313,13 +301,9 @@ class TestHealthCheck:
         assert result["checks"]["redis"]["status"] == "ok"
 
     @pytest.mark.asyncio
-    async def test_redis_unhealthy(
-        self, mock_postgres_pool, mock_neo4j_pool, mock_redis_client
-    ):
+    async def test_redis_unhealthy(self, mock_postgres_pool, mock_neo4j_pool, mock_redis_client):
         """Test health check when Redis is unhealthy."""
-        mock_redis_client.client.ping = AsyncMock(
-            side_effect=Exception("Connection refused")
-        )
+        mock_redis_client.client.ping = AsyncMock(side_effect=Exception("Connection refused"))
 
         set_postgres_pool(mock_postgres_pool)
         set_neo4j_pool(mock_neo4j_pool)
@@ -333,9 +317,7 @@ class TestHealthCheck:
         assert result["checks"]["redis"]["status"] == "error"
 
     @pytest.mark.asyncio
-    async def test_all_unhealthy(
-        self, mock_postgres_pool, mock_neo4j_pool, mock_redis_client
-    ):
+    async def test_all_unhealthy(self, mock_postgres_pool, mock_neo4j_pool, mock_redis_client):
         """Test health check when all dependencies are unhealthy."""
         # Make all services fail
         mock_session = AsyncMock()
@@ -373,9 +355,7 @@ class TestHealthCheck:
         assert "not initialized" in result["checks"]["redis"]["error"]
 
     @pytest.mark.asyncio
-    async def test_partial_pools_initialized(
-        self, mock_neo4j_pool, mock_redis_client
-    ):
+    async def test_partial_pools_initialized(self, mock_neo4j_pool, mock_redis_client):
         """Test health check when only some pools are initialized."""
         set_neo4j_pool(mock_neo4j_pool)
         set_redis_client(mock_redis_client)
@@ -389,20 +369,18 @@ class TestHealthCheck:
         assert result["checks"]["redis"]["status"] == "ok"
 
     @pytest.mark.asyncio
-    async def test_timeout_scenarios(
-        self, mock_postgres_pool, mock_neo4j_pool, mock_redis_client
-    ):
+    async def test_timeout_scenarios(self, mock_postgres_pool, mock_neo4j_pool, mock_redis_client):
         """Test health check when dependencies timeout."""
         # Make all services timeout
         mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_session.execute = AsyncMock(side_effect=TimeoutError())
         async_context = AsyncMock()
         async_context.__aenter__ = AsyncMock(return_value=mock_session)
         async_context.__aexit__ = AsyncMock(return_value=None)
         mock_postgres_pool.session_context = MagicMock(return_value=async_context)
 
-        mock_neo4j_pool.execute_query = AsyncMock(side_effect=asyncio.TimeoutError())
-        mock_redis_client.client.ping = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_neo4j_pool.execute_query = AsyncMock(side_effect=TimeoutError())
+        mock_redis_client.client.ping = AsyncMock(side_effect=TimeoutError())
 
         set_postgres_pool(mock_postgres_pool)
         set_neo4j_pool(mock_neo4j_pool)
@@ -422,16 +400,14 @@ class TestHealthCheck:
         """Test health check with mixed failure types."""
         # PostgreSQL: timeout
         mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_session.execute = AsyncMock(side_effect=TimeoutError())
         async_context = AsyncMock()
         async_context.__aenter__ = AsyncMock(return_value=mock_session)
         async_context.__aexit__ = AsyncMock(return_value=None)
         mock_postgres_pool.session_context = MagicMock(return_value=async_context)
 
         # Neo4j: error
-        mock_neo4j_pool.execute_query = AsyncMock(
-            side_effect=Exception("ServiceUnavailable")
-        )
+        mock_neo4j_pool.execute_query = AsyncMock(side_effect=Exception("ServiceUnavailable"))
 
         # Redis: healthy (default)
 
@@ -470,20 +446,14 @@ class TestHealthCheck:
         """Test that error messages are included in failed checks."""
         # Make services fail with specific errors
         mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(
-            side_effect=Exception("PostgreSQL connection failed")
-        )
+        mock_session.execute = AsyncMock(side_effect=Exception("PostgreSQL connection failed"))
         async_context = AsyncMock()
         async_context.__aenter__ = AsyncMock(return_value=mock_session)
         async_context.__aexit__ = AsyncMock(return_value=None)
         mock_postgres_pool.session_context = MagicMock(return_value=async_context)
 
-        mock_neo4j_pool.execute_query = AsyncMock(
-            side_effect=Exception("Neo4j connection failed")
-        )
-        mock_redis_client.client.ping = AsyncMock(
-            side_effect=Exception("Redis connection failed")
-        )
+        mock_neo4j_pool.execute_query = AsyncMock(side_effect=Exception("Neo4j connection failed"))
+        mock_redis_client.client.ping = AsyncMock(side_effect=Exception("Redis connection failed"))
 
         set_postgres_pool(mock_postgres_pool)
         set_neo4j_pool(mock_neo4j_pool)
@@ -539,7 +509,7 @@ class TestGlobalPoolSetters:
         set_neo4j_pool(None)
         set_redis_client(None)
 
-        from api.endpoints.health import _postgres_pool, _neo4j_pool, _redis_client
+        from api.endpoints.health import _neo4j_pool, _postgres_pool, _redis_client
 
         assert _postgres_pool is None
         assert _neo4j_pool is None

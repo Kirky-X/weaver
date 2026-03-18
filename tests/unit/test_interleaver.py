@@ -1,7 +1,9 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for Interleaver module."""
 
-import pytest
 from unittest.mock import MagicMock
+
+import pytest
 
 from modules.collector.interleaver import Interleaver
 
@@ -63,9 +65,9 @@ class TestInterleaver:
             item.source_host = "a.com"
             item.order = i
             items.append(item)
-        
+
         result = interleaver.interleave(items)
-        
+
         a_items = [item for item in result if item.source_host == "a.com"]
         orders = [item.order for item in a_items]
         assert orders == sorted(orders)
@@ -83,9 +85,9 @@ class TestInterleaver:
             item.url = f"https://b.com/article{i}"
             item.source_host = "b.com"
             items.append(item)
-        
+
         result = interleaver.interleave(items)
-        
+
         host_sequence = [item.source_host for item in result[:6]]
         assert host_sequence.count("b.com") >= 2
 
@@ -101,7 +103,7 @@ class TestInterleaver:
         item = MagicMock()
         item.url = "https://example.com/article"
         item.source_host = "example.com"
-        
+
         result = interleaver.interleave([item])
         assert len(result) == 1
         assert result[0] is item
@@ -114,14 +116,14 @@ class TestInterleaver:
             item_a.url = f"https://a.com/article{i}"
             item_a.source_host = "a.com"
             items.append(item_a)
-            
+
             item_b = MagicMock()
             item_b.url = f"https://b.com/article{i}"
             item_b.source_host = "b.com"
             items.append(item_b)
-        
+
         result = interleaver.interleave(items)
-        
+
         for i in range(len(result) - 1):
             if result[i].source_host == result[i + 1].source_host:
                 pass
@@ -139,9 +141,9 @@ class TestInterleaver:
             item.url = f"https://b.com/article{i}"
             item.source_host = "b.com"
             items.append(item)
-        
+
         result = interleaver.interleave(items)
-        
+
         assert len(result) == 12
         b_count = sum(1 for item in result if item.source_host == "b.com")
         assert b_count == 2

@@ -1,14 +1,16 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for Graph Quality Metrics module."""
 
-import pytest
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from modules.graph_store.metrics import (
-    GraphQualityMetrics,
-    GraphMetrics,
-    EntityDegree,
     ConnectedComponent,
+    EntityDegree,
+    GraphMetrics,
+    GraphQualityMetrics,
 )
 
 
@@ -148,6 +150,7 @@ class TestGraphQualityMetricsCalculateAll:
     async def test_calculate_all_with_data(self, metrics):
         """Test calculation with data - verifies method runs without error."""
         call_count = 0
+
         def mock_query(query, params=None):
             nonlocal call_count
             call_count += 1
@@ -194,11 +197,13 @@ class TestGraphQualityMetricsConnectedComponents:
     @pytest.mark.asyncio
     async def test_get_connected_components_single(self, metrics):
         """Test get_connected_components with single component."""
-        metrics._pool.execute_query = AsyncMock(return_value=[
-            {"entity": "A", "type": "人物", "neighbors": ["B", "C"]},
-            {"entity": "B", "type": "组织", "neighbors": ["A"]},
-            {"entity": "C", "type": "人物", "neighbors": ["A"]},
-        ])
+        metrics._pool.execute_query = AsyncMock(
+            return_value=[
+                {"entity": "A", "type": "人物", "neighbors": ["B", "C"]},
+                {"entity": "B", "type": "组织", "neighbors": ["A"]},
+                {"entity": "C", "type": "人物", "neighbors": ["A"]},
+            ]
+        )
 
         result = await metrics.get_connected_components()
 
@@ -208,12 +213,14 @@ class TestGraphQualityMetricsConnectedComponents:
     @pytest.mark.asyncio
     async def test_get_connected_components_multiple(self, metrics):
         """Test get_connected_components with multiple components."""
-        metrics._pool.execute_query = AsyncMock(return_value=[
-            {"entity": "A", "type": "人物", "neighbors": ["B"]},
-            {"entity": "B", "type": "组织", "neighbors": ["A"]},
-            {"entity": "C", "type": "人物", "neighbors": ["D"]},
-            {"entity": "D", "type": "组织", "neighbors": ["C"]},
-        ])
+        metrics._pool.execute_query = AsyncMock(
+            return_value=[
+                {"entity": "A", "type": "人物", "neighbors": ["B"]},
+                {"entity": "B", "type": "组织", "neighbors": ["A"]},
+                {"entity": "C", "type": "人物", "neighbors": ["D"]},
+                {"entity": "D", "type": "组织", "neighbors": ["C"]},
+            ]
+        )
 
         result = await metrics.get_connected_components()
 
@@ -223,13 +230,15 @@ class TestGraphQualityMetricsConnectedComponents:
     @pytest.mark.asyncio
     async def test_get_largest_connected_component(self, metrics):
         """Test get_largest_connected_component."""
-        metrics._pool.execute_query = AsyncMock(return_value=[
-            {"entity": "A", "type": "人物", "neighbors": ["B", "C", "D"]},
-            {"entity": "B", "type": "组织", "neighbors": ["A"]},
-            {"entity": "C", "type": "人物", "neighbors": ["A"]},
-            {"entity": "D", "type": "地点", "neighbors": ["A"]},
-            {"entity": "E", "type": "人物", "neighbors": []},
-        ])
+        metrics._pool.execute_query = AsyncMock(
+            return_value=[
+                {"entity": "A", "type": "人物", "neighbors": ["B", "C", "D"]},
+                {"entity": "B", "type": "组织", "neighbors": ["A"]},
+                {"entity": "C", "type": "人物", "neighbors": ["A"]},
+                {"entity": "D", "type": "地点", "neighbors": ["A"]},
+                {"entity": "E", "type": "人物", "neighbors": []},
+            ]
+        )
 
         result = await metrics.get_largest_connected_component()
 
@@ -250,10 +259,12 @@ class TestGraphQualityMetricsOrphans:
     @pytest.mark.asyncio
     async def test_find_orphan_entities(self, metrics):
         """Test find_orphan_entities."""
-        metrics._pool.execute_query = AsyncMock(return_value=[
-            {"name": "Orphan1", "type": "人物", "created_at": datetime.now()},
-            {"name": "Orphan2", "type": "组织", "created_at": datetime.now()},
-        ])
+        metrics._pool.execute_query = AsyncMock(
+            return_value=[
+                {"name": "Orphan1", "type": "人物", "created_at": datetime.now()},
+                {"name": "Orphan2", "type": "组织", "created_at": datetime.now()},
+            ]
+        )
 
         result = await metrics.find_orphan_entities(limit=10)
 
@@ -283,10 +294,24 @@ class TestGraphQualityMetricsHighDegree:
     @pytest.mark.asyncio
     async def test_get_high_degree_entities(self, metrics):
         """Test get_high_degree_entities."""
-        metrics._pool.execute_query = AsyncMock(return_value=[
-            {"name": "Hub1", "type": "人物", "in_degree": 10, "out_degree": 5, "total_degree": 15},
-            {"name": "Hub2", "type": "组织", "in_degree": 8, "out_degree": 8, "total_degree": 16},
-        ])
+        metrics._pool.execute_query = AsyncMock(
+            return_value=[
+                {
+                    "name": "Hub1",
+                    "type": "人物",
+                    "in_degree": 10,
+                    "out_degree": 5,
+                    "total_degree": 15,
+                },
+                {
+                    "name": "Hub2",
+                    "type": "组织",
+                    "in_degree": 8,
+                    "out_degree": 8,
+                    "total_degree": 16,
+                },
+            ]
+        )
 
         result = await metrics.get_high_degree_entities(min_degree=10, limit=50)
 
@@ -325,11 +350,13 @@ class TestGraphQualityMetricsModularity:
     @pytest.mark.asyncio
     async def test_calculate_modularity_with_edges(self, metrics):
         """Test calculate_modularity with edges."""
-        metrics._pool.execute_query = AsyncMock(return_value=[
-            {"source": "A", "target": "B", "weight": 1.0},
-            {"source": "B", "target": "C", "weight": 1.0},
-            {"source": "C", "target": "A", "weight": 1.0},
-        ])
+        metrics._pool.execute_query = AsyncMock(
+            return_value=[
+                {"source": "A", "target": "B", "weight": 1.0},
+                {"source": "B", "target": "C", "weight": 1.0},
+                {"source": "C", "target": "A", "weight": 1.0},
+            ]
+        )
 
         result = await metrics.calculate_modularity()
 
@@ -386,6 +413,7 @@ class TestGraphQualityMetricsHealthSummary:
     @pytest.mark.asyncio
     async def test_get_health_summary_healthy(self, metrics):
         """Test get_health_summary on healthy graph."""
+
         def mock_query(query, params=None):
             if "entity" in query.lower() and "count" in query.lower():
                 return [{"count": 100}]
@@ -503,24 +531,26 @@ class TestGraphQualityMetricsEntityDegrees:
     @pytest.mark.asyncio
     async def test_calculate_entity_degrees(self, metrics):
         """Test calculate_entity_degrees."""
-        metrics._pool.execute_query = AsyncMock(return_value=[
-            {
-                "entity_id": "id1",
-                "name": "Entity1",
-                "type": "人物",
-                "in_degree": 5,
-                "out_degree": 3,
-                "mention_count": 10,
-            },
-            {
-                "entity_id": "id2",
-                "name": "Entity2",
-                "type": "组织",
-                "in_degree": 2,
-                "out_degree": 8,
-                "mention_count": 5,
-            },
-        ])
+        metrics._pool.execute_query = AsyncMock(
+            return_value=[
+                {
+                    "entity_id": "id1",
+                    "name": "Entity1",
+                    "type": "人物",
+                    "in_degree": 5,
+                    "out_degree": 3,
+                    "mention_count": 10,
+                },
+                {
+                    "entity_id": "id2",
+                    "name": "Entity2",
+                    "type": "组织",
+                    "in_degree": 2,
+                    "out_degree": 8,
+                    "mention_count": 5,
+                },
+            ]
+        )
 
         result = await metrics.calculate_entity_degrees()
 
@@ -544,6 +574,7 @@ class TestGraphQualityMetricsDistributions:
     @pytest.mark.asyncio
     async def test_calculate_distributions(self, metrics):
         """Test _calculate_distributions."""
+
         def mock_query(query, params=None):
             if "e.type" in query:
                 return [

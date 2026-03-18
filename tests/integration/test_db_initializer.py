@@ -1,16 +1,16 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Integration tests for database initializer module."""
 
 import os
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from core.db.initializer import (
-    parse_dsn,
     check_database_exists,
-    create_database,
-    verify_tables,
     initialize_database,
-    REQUIRED_TABLES,
+    parse_dsn,
+    verify_tables,
 )
 
 
@@ -61,12 +61,14 @@ class TestDatabaseInitializerIntegration:
     @pytest.mark.asyncio
     async def test_initialize_database_with_missing_tables(self, test_dsn):
         """Test initialization when tables might be missing."""
-        with patch(
-            "core.db.initializer.verify_tables",
-            AsyncMock(side_effect=[False, True]),
+        with (
+            patch(
+                "core.db.initializer.verify_tables",
+                AsyncMock(side_effect=[False, True]),
+            ),
+            patch("core.db.initializer.run_migrations") as mock_migrate,
         ):
-            with patch("core.db.initializer.run_migrations") as mock_migrate:
-                result = await initialize_database(test_dsn)
+            result = await initialize_database(test_dsn)
 
         assert result["migrations_run"] is True
         mock_migrate.assert_called_once()
@@ -115,21 +117,19 @@ class TestDatabaseInitializerWithMock:
     @pytest.mark.asyncio
     async def test_initialization_with_connection_failure(self, mock_dsn):
         """Test initialization when PostgreSQL is not available."""
-        import asyncio
 
-        with patch(
-            "core.db.initializer.wait_for_postgres",
-            AsyncMock(
-                side_effect=RuntimeError("PostgreSQL not available after 5s")
+        with (
+            patch(
+                "core.db.initializer.wait_for_postgres",
+                AsyncMock(side_effect=RuntimeError("PostgreSQL not available after 5s")),
             ),
+            pytest.raises(RuntimeError, match="not available"),
         ):
-            with pytest.raises(RuntimeError, match="not available"):
-                await initialize_database(mock_dsn, timeout=5.0)
+            await initialize_database(mock_dsn, timeout=5.0)
 
     @pytest.mark.asyncio
     async def test_initialization_with_permission_denied(self, mock_dsn):
         """Test initialization when user lacks CREATEDB privilege."""
-        import asyncpg
 
         with (
             patch(
@@ -143,14 +143,12 @@ class TestDatabaseInitializerWithMock:
             patch(
                 "core.db.initializer.create_database",
                 AsyncMock(
-                    side_effect=RuntimeError(
-                        "Permission denied to create database 'testdb'"
-                    )
+                    side_effect=RuntimeError("Permission denied to create database 'testdb'")
                 ),
             ),
+            pytest.raises(RuntimeError, match="Permission denied"),
         ):
-            with pytest.raises(RuntimeError, match="Permission denied"):
-                await initialize_database(mock_dsn)
+            await initialize_database(mock_dsn)
 
     @pytest.mark.asyncio
     async def test_initialization_with_migration_failure(self, mock_dsn):
@@ -172,14 +170,12 @@ class TestDatabaseInitializerWithMock:
                 "core.db.initializer.run_migrations",
                 side_effect=Exception("Migration failed: syntax error"),
             ),
+            pytest.raises(Exception, match="Migration failed"),
         ):
-            with pytest.raises(Exception, match="Migration failed"):
-                await initialize_database(mock_dsn)
+            await initialize_database(mock_dsn)
 
     @pytest.mark.asyncio
-    async def test_initialization_tables_still_missing_after_migration(
-        self, mock_dsn
-    ):
+    async def test_initialization_tables_still_missing_after_migration(self, mock_dsn):
         """Test initialization when tables are still missing after migration."""
         with (
             patch(
@@ -197,6 +193,6 @@ class TestDatabaseInitializerWithMock:
             patch(
                 "core.db.initializer.run_migrations",
             ),
+            pytest.raises(RuntimeError, match="Tables still missing"),
         ):
-            with pytest.raises(RuntimeError, match="Tables still missing"):
-                await initialize_database(mock_dsn)
+            await initialize_database(mock_dsn)

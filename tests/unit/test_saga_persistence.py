@@ -1,8 +1,9 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for Saga pattern batch persistence."""
 
 import uuid
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -61,7 +62,7 @@ class TestPersistBatchSagaSuccess:
             raw.title = f"Test Article {i}"
             raw.body = f"Test body content {i}"
             raw.source = "test_source"
-            raw.publish_time = datetime.now(timezone.utc)
+            raw.publish_time = datetime.now(UTC)
 
             state = PipelineState(
                 raw=raw,
@@ -205,7 +206,7 @@ class TestPersistBatchSagaPhase1Failure:
             raw.title = f"Test Article {i}"
             raw.body = f"Test body content {i}"
             raw.source = "test_source"
-            raw.publish_time = datetime.now(timezone.utc)
+            raw.publish_time = datetime.now(UTC)
 
             state = PipelineState(
                 raw=raw,
@@ -322,7 +323,7 @@ class TestPersistBatchSagaPhase2Failure:
             raw.title = f"Test Article {i}"
             raw.body = f"Test body content {i}"
             raw.source = "test_source"
-            raw.publish_time = datetime.now(timezone.utc)
+            raw.publish_time = datetime.now(UTC)
 
             state = PipelineState(
                 raw=raw,
@@ -468,7 +469,7 @@ class TestPersistBatchSagaCompensationFailure:
             raw.title = f"Test Article {i}"
             raw.body = f"Test body content {i}"
             raw.source = "test_source"
-            raw.publish_time = datetime.now(timezone.utc)
+            raw.publish_time = datetime.now(UTC)
 
             state = PipelineState(
                 raw=raw,
@@ -557,7 +558,7 @@ class TestPersistBatchSagaIdempotency:
             raw.title = f"Test Article {i}"
             raw.body = f"Test body content {i}"
             raw.source = "test_source"
-            raw.publish_time = datetime.now(timezone.utc)
+            raw.publish_time = datetime.now(UTC)
 
             state = PipelineState(
                 raw=raw,
@@ -699,7 +700,7 @@ class TestPersistBatchSagaVectorPersistence:
         raw.title = "Test Article"
         raw.body = "Test body"
         raw.source = "test_source"
-        raw.publish_time = datetime.now(timezone.utc)
+        raw.publish_time = datetime.now(UTC)
 
         state = PipelineState(
             raw=raw,
@@ -755,7 +756,7 @@ class TestPersistBatchSagaVectorPersistence:
         raw.title = "Test Article"
         raw.body = "Test body"
         raw.source = "test_source"
-        raw.publish_time = datetime.now(timezone.utc)
+        raw.publish_time = datetime.now(UTC)
 
         state = PipelineState(
             raw=raw,
@@ -794,7 +795,7 @@ class TestPersistBatchSagaVectorPersistence:
         raw.title = "Test Article"
         raw.body = "Test body"
         raw.source = "test_source"
-        raw.publish_time = datetime.now(timezone.utc)
+        raw.publish_time = datetime.now(UTC)
 
         state = PipelineState(
             raw=raw,
@@ -865,7 +866,7 @@ class TestPersistBatchSagaStatusUpdates:
             raw.title = f"Test Article {i}"
             raw.body = f"Test body content {i}"
             raw.source = "test_source"
-            raw.publish_time = datetime.now(timezone.utc)
+            raw.publish_time = datetime.now(UTC)
 
             state = PipelineState(
                 raw=raw,
@@ -904,7 +905,8 @@ class TestPersistBatchSagaStatusUpdates:
 
         # Verify PG_DONE status updates
         pg_done_calls = [
-            call for call in mock_article_repo.update_persist_status.call_args_list
+            call
+            for call in mock_article_repo.update_persist_status.call_args_list
             if call[0][1] == PersistStatus.PG_DONE
         ]
         assert len(pg_done_calls) == 2
@@ -930,7 +932,8 @@ class TestPersistBatchSagaStatusUpdates:
 
         # Verify NEO4J_DONE status updates
         neo4j_done_calls = [
-            call for call in mock_article_repo.update_persist_status.call_args_list
+            call
+            for call in mock_article_repo.update_persist_status.call_args_list
             if call[0][1] == PersistStatus.NEO4J_DONE
         ]
         assert len(neo4j_done_calls) == 2
@@ -946,9 +949,7 @@ class TestPersistBatchSagaStatusUpdates:
     ):
         """Test saga marks articles as failed on Phase 1 error."""
         # Make Phase 1 fail
-        mock_article_repo.bulk_upsert = AsyncMock(
-            side_effect=Exception("PostgreSQL error")
-        )
+        mock_article_repo.bulk_upsert = AsyncMock(side_effect=Exception("PostgreSQL error"))
 
         node = BatchMergerNode(
             llm=mock_llm,
@@ -990,7 +991,7 @@ class TestPersistBatchSagaIntegration:
             raw.title = f"Test Article {i}"
             raw.body = f"Test body content {i}"
             raw.source = "test_source"
-            raw.publish_time = datetime.now(timezone.utc)
+            raw.publish_time = datetime.now(UTC)
 
             state = PipelineState(
                 raw=raw,

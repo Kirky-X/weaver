@@ -1,11 +1,9 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for Article model task_id field."""
 
 from __future__ import annotations
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock
-
-import pytest
 
 from core.db.models import Article, PersistStatus
 
@@ -76,33 +74,21 @@ class TestArticlePersistStatusTransitions:
 
     def test_valid_transition_pending_to_processing(self):
         """Test valid transition: PENDING -> PROCESSING."""
-        assert PersistStatus.is_valid_transition(
-            PersistStatus.PENDING, PersistStatus.PROCESSING
-        )
+        assert PersistStatus.is_valid_transition(PersistStatus.PENDING, PersistStatus.PROCESSING)
 
     def test_valid_transition_processing_to_pg_done(self):
         """Test valid transition: PROCESSING -> PG_DONE."""
-        assert PersistStatus.is_valid_transition(
-            PersistStatus.PROCESSING, PersistStatus.PG_DONE
-        )
+        assert PersistStatus.is_valid_transition(PersistStatus.PROCESSING, PersistStatus.PG_DONE)
 
     def test_valid_transition_pg_done_to_neo4j_done(self):
         """Test valid transition: PG_DONE -> NEO4J_DONE."""
-        assert PersistStatus.is_valid_transition(
-            PersistStatus.PG_DONE, PersistStatus.NEO4J_DONE
-        )
+        assert PersistStatus.is_valid_transition(PersistStatus.PG_DONE, PersistStatus.NEO4J_DONE)
 
     def test_valid_transition_any_to_failed(self):
         """Test valid transition to FAILED from any state."""
-        assert PersistStatus.is_valid_transition(
-            PersistStatus.PENDING, PersistStatus.FAILED
-        )
-        assert PersistStatus.is_valid_transition(
-            PersistStatus.PROCESSING, PersistStatus.FAILED
-        )
-        assert PersistStatus.is_valid_transition(
-            PersistStatus.PG_DONE, PersistStatus.FAILED
-        )
+        assert PersistStatus.is_valid_transition(PersistStatus.PENDING, PersistStatus.FAILED)
+        assert PersistStatus.is_valid_transition(PersistStatus.PROCESSING, PersistStatus.FAILED)
+        assert PersistStatus.is_valid_transition(PersistStatus.PG_DONE, PersistStatus.FAILED)
 
     def test_invalid_transition_pending_to_neo4j_done(self):
         """Test invalid transition: PENDING -> NEO4J_DONE."""
@@ -121,12 +107,6 @@ class TestArticlePersistStatusTransitions:
 
     def test_idempotent_same_status(self):
         """Test that staying in the same status is allowed (idempotent)."""
-        assert PersistStatus.is_valid_transition(
-            PersistStatus.PENDING, PersistStatus.PENDING
-        )
-        assert PersistStatus.is_valid_transition(
-            PersistStatus.PROCESSING, PersistStatus.PROCESSING
-        )
-        assert PersistStatus.is_valid_transition(
-            PersistStatus.PG_DONE, PersistStatus.PG_DONE
-        )
+        assert PersistStatus.is_valid_transition(PersistStatus.PENDING, PersistStatus.PENDING)
+        assert PersistStatus.is_valid_transition(PersistStatus.PROCESSING, PersistStatus.PROCESSING)
+        assert PersistStatus.is_valid_transition(PersistStatus.PG_DONE, PersistStatus.PG_DONE)

@@ -1,14 +1,15 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for output validator."""
 
 import pytest
 
 from core.llm.output_validator import (
-    parse_llm_json,
-    OutputParserException,
-    ClassifierOutput,
     AnalyzeOutput,
+    ClassifierOutput,
     CredibilityOutput,
     EntityExtractorOutput,
+    OutputParserException,
+    parse_llm_json,
 )
 
 
@@ -37,7 +38,7 @@ class TestParseLlmJson:
 
     def test_parse_invalid_json_raises(self):
         """Test invalid JSON raises OutputParserException."""
-        raw = 'not valid json'
+        raw = "not valid json"
         with pytest.raises(OutputParserException):
             parse_llm_json(raw, ClassifierOutput)
 
@@ -169,12 +170,8 @@ class TestEntityExtractorOutput:
     def test_valid_output(self):
         """Test valid EntityExtractorOutput."""
         output = EntityExtractorOutput(
-            entities=[
-                {"name": "张三", "type": "人物", "description": "测试人物"}
-            ],
-            relations=[
-                {"source": "张三", "target": "公司A", "type": "任职"}
-            ],
+            entities=[{"name": "张三", "type": "人物", "description": "测试人物"}],
+            relations=[{"source": "张三", "target": "公司A", "type": "任职"}],
         )
         assert len(output.entities) == 1
         assert len(output.relations) == 1

@@ -1,11 +1,11 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for CircuitBreaker."""
 
 import asyncio
 
 import pytest
-import time
 
-from core.resilience.circuit_breaker import CircuitBreaker, CBState
+from core.resilience.circuit_breaker import CBState, CircuitBreaker
 
 
 class TestCircuitBreaker:

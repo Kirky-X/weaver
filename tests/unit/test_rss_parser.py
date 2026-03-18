@@ -1,12 +1,13 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for RSS Parser."""
 
-import pytest
-from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
-from time import mktime
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
 
+import pytest
+
+from modules.source.models import SourceConfig
 from modules.source.rss_parser import RSSParser
-from modules.source.models import NewsItem, SourceConfig
 
 
 class TestRSSParserInit:
@@ -16,7 +17,7 @@ class TestRSSParserInit:
         """Test basic initialization."""
         mock_fetcher = MagicMock()
         parser = RSSParser(mock_fetcher)
-        
+
         assert parser._fetcher == mock_fetcher
 
 
@@ -71,9 +72,9 @@ class TestRSSParserParse:
     async def test_parse_basic(self, parser, mock_fetcher, sample_config, sample_rss_content):
         """Test basic RSS parsing."""
         mock_fetcher.fetch = AsyncMock(return_value=(200, sample_rss_content, {}))
-        
+
         items = await parser.parse(sample_config)
-        
+
         assert len(items) == 2
         assert items[0].title == "Article 1"
         assert items[0].url == "https://example.com/article1"
@@ -85,21 +86,29 @@ class TestRSSParserParse:
         """Test parsing with ETag header."""
         sample_config.etag = "test-etag"
         mock_fetcher.fetch = AsyncMock(return_value=(200, sample_rss_content, {"ETag": "new-etag"}))
-        
+
         items = await parser.parse(sample_config)
-        
+
         call_args = mock_fetcher.fetch.call_args
         assert "If-None-Match" in call_args[1]["headers"]
         assert sample_config.etag == "new-etag"
 
     @pytest.mark.asyncio
-    async def test_parse_with_last_modified(self, parser, mock_fetcher, sample_config, sample_rss_content):
+    async def test_parse_with_last_modified(
+        self, parser, mock_fetcher, sample_config, sample_rss_content
+    ):
         """Test parsing with Last-Modified header."""
         sample_config.last_modified = "Mon, 01 Jan 2024 00:00:00 GMT"
-        mock_fetcher.fetch = AsyncMock(return_value=(200, sample_rss_content, {"Last-Modified": "Tue, 02 Jan 2024 00:00:00 GMT"}))
-        
+        mock_fetcher.fetch = AsyncMock(
+            return_value=(
+                200,
+                sample_rss_content,
+                {"Last-Modified": "Tue, 02 Jan 2024 00:00:00 GMT"},
+            )
+        )
+
         items = await parser.parse(sample_config)
-        
+
         call_args = mock_fetcher.fetch.call_args
         assert "If-Modified-Since" in call_args[1]["headers"]
         assert sample_config.last_modified == "Tue, 02 Jan 2024 00:00:00 GMT"
@@ -108,37 +117,39 @@ class TestRSSParserParse:
     async def test_parse_not_modified_304(self, parser, mock_fetcher, sample_config):
         """Test handling 304 Not Modified response."""
         mock_fetcher.fetch = AsyncMock(return_value=(304, "", {}))
-        
+
         items = await parser.parse(sample_config)
-        
+
         assert len(items) == 0
 
     @pytest.mark.asyncio
     async def test_parse_unexpected_status(self, parser, mock_fetcher, sample_config):
         """Test handling unexpected status code."""
         mock_fetcher.fetch = AsyncMock(return_value=(500, "Server Error", {}))
-        
+
         items = await parser.parse(sample_config)
-        
+
         assert len(items) == 0
 
     @pytest.mark.asyncio
     async def test_parse_fetch_error(self, parser, mock_fetcher, sample_config):
         """Test handling fetch error."""
         mock_fetcher.fetch = AsyncMock(side_effect=Exception("Network error"))
-        
+
         items = await parser.parse(sample_config)
-        
+
         assert len(items) == 0
 
     @pytest.mark.asyncio
-    async def test_parse_filter_by_last_crawl_time(self, parser, mock_fetcher, sample_config, sample_rss_content):
+    async def test_parse_filter_by_last_crawl_time(
+        self, parser, mock_fetcher, sample_config, sample_rss_content
+    ):
         """Test filtering items by last_crawl_time."""
-        sample_config.last_crawl_time = datetime(2024, 1, 3, 0, 0, 0, tzinfo=timezone.utc)
+        sample_config.last_crawl_time = datetime(2024, 1, 3, 0, 0, 0, tzinfo=UTC)
         mock_fetcher.fetch = AsyncMock(return_value=(200, sample_rss_content, {}))
-        
+
         items = await parser.parse(sample_config)
-        
+
         assert len(items) == 0
 
     @pytest.mark.asyncio
@@ -159,9 +170,9 @@ class TestRSSParserParse:
 </channel>
 </rss>"""
         mock_fetcher.fetch = AsyncMock(return_value=(200, rss_content, {}))
-        
+
         items = await parser.parse(sample_config)
-        
+
         assert len(items) == 1
         assert items[0].title == "Valid Article"
 
@@ -180,9 +191,9 @@ class TestRSSParserParse:
 </channel>
 </rss>"""
         mock_fetcher.fetch = AsyncMock(return_value=(200, rss_content, {}))
-        
+
         items = await parser.parse(sample_config)
-        
+
         assert len(items) == 1
         assert items[0].description == "This is a summary"
 
@@ -200,9 +211,9 @@ class TestRSSParserParse:
     </entry>
 </feed>"""
         mock_fetcher.fetch = AsyncMock(return_value=(200, atom_content, {}))
-        
+
         items = await parser.parse(sample_config)
-        
+
         assert len(items) == 1
         assert items[0].title == "Atom Article"
 
@@ -213,13 +224,11 @@ class TestRSSParserParseDate:
     def test_parse_date_with_published_parsed(self):
         """Test parsing date from published_parsed."""
         from time import struct_time
-        
-        entry = {
-            "published_parsed": struct_time((2024, 1, 15, 10, 30, 0, 0, 15, 0))
-        }
-        
+
+        entry = {"published_parsed": struct_time((2024, 1, 15, 10, 30, 0, 0, 15, 0))}
+
         result = RSSParser._parse_date(entry)
-        
+
         assert result is not None
         assert result.year == 2024
         assert result.month == 1
@@ -228,13 +237,11 @@ class TestRSSParserParseDate:
     def test_parse_date_with_updated_parsed(self):
         """Test parsing date from updated_parsed."""
         from time import struct_time
-        
-        entry = {
-            "updated_parsed": struct_time((2024, 2, 20, 14, 45, 0, 1, 51, 0))
-        }
-        
+
+        entry = {"updated_parsed": struct_time((2024, 2, 20, 14, 45, 0, 1, 51, 0))}
+
         result = RSSParser._parse_date(entry)
-        
+
         assert result is not None
         assert result.year == 2024
         assert result.month == 2
@@ -243,21 +250,19 @@ class TestRSSParserParseDate:
     def test_parse_date_no_date(self):
         """Test parsing when no date available."""
         entry = {}
-        
+
         result = RSSParser._parse_date(entry)
-        
+
         assert result is None
 
     def test_parse_date_invalid_struct(self):
         """Test handling invalid struct_time."""
         from time import struct_time
-        
-        entry = {
-            "published_parsed": struct_time((9999, 99, 99, 99, 99, 99, 0, 0, 0))
-        }
-        
+
+        entry = {"published_parsed": struct_time((9999, 99, 99, 99, 99, 99, 0, 0, 0))}
+
         result = RSSParser._parse_date(entry)
-        
+
         assert result is None
 
 
@@ -268,5 +273,5 @@ class TestRSSParserClose:
     async def test_close(self):
         """Test close method (no-op)."""
         parser = RSSParser(MagicMock())
-        
+
         await parser.close()

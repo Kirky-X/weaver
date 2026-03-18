@@ -1,14 +1,15 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Pytest configuration and fixtures."""
+
+import asyncio
+import logging
+import os
+import uuid
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
-import asyncio
-import uuid
-import os
-import logging
-from datetime import datetime, timezone
-from typing import Generator, Any
-from unittest.mock import AsyncMock, MagicMock
 
 logger = logging.getLogger(__name__)
 
@@ -35,21 +36,18 @@ async def cancel_all_tasks() -> None:
 
     # Wait for all cancellations to complete with timeout
     try:
-        await asyncio.wait_for(
-            asyncio.gather(*tasks, return_exceptions=True),
-            timeout=5.0
-        )
+        await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=5.0)
         logger.info("all_tasks_cancelled", count=len(tasks))
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning(
             "task_cancellation_timeout",
-            message="Some tasks did not respond to cancellation within timeout"
+            message="Some tasks did not respond to cancellation within timeout",
         )
     except Exception as exc:
         logger.warning(
             "task_cancellation_error",
             error=str(exc),
-            message="Errors occurred during task cancellation but continuing"
+            message="Errors occurred during task cancellation but continuing",
         )
 
 
@@ -204,23 +202,23 @@ def sample_article():
     article.cross_verification = None
     article.content_check_score = None
     article.publish_time = None
-    article.created_at = datetime.now(timezone.utc)
-    article.updated_at = datetime.now(timezone.utc)
+    article.created_at = datetime.now(UTC)
+    article.updated_at = datetime.now(UTC)
     return article
 
 
 @pytest.fixture
 def sample_pipeline_state():
     """Sample pipeline state for testing."""
-    from modules.pipeline.state import PipelineState
     from modules.collector.models import ArticleRaw
+    from modules.pipeline.state import PipelineState
 
     raw = ArticleRaw(
         url="https://example.com/pipeline-test",
         title="Pipeline Test Article",
         body="Content for pipeline testing",
         source="test_source",
-        publish_time=datetime.now(timezone.utc),
+        publish_time=datetime.now(UTC),
         source_host="example.com",
     )
     return PipelineState(raw=raw)
@@ -252,7 +250,7 @@ def mock_settings():
 @pytest.fixture
 def mock_circuit_breaker():
     """Mock circuit breaker for testing."""
-    from core.resilience.circuit_breaker import CircuitBreaker, CBState
+    from core.resilience.circuit_breaker import CBState, CircuitBreaker
 
     cb = MagicMock(spec=CircuitBreaker)
     cb.state = CBState.CLOSED
@@ -281,10 +279,12 @@ def mock_token_budget_manager():
     manager = MagicMock(spec=TokenBudgetManager)
     manager.count_tokens = MagicMock(return_value=100)
     manager.truncate_text = MagicMock(return_value="truncated text")
-    manager.build_messages = MagicMock(return_value=[
-        {"role": "system", "content": "system"},
-        {"role": "user", "content": "user"},
-    ])
+    manager.build_messages = MagicMock(
+        return_value=[
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "user"},
+        ]
+    )
     return manager
 
 
@@ -292,10 +292,12 @@ def mock_token_budget_manager():
 def mock_spacy_extractor():
     """Mock spaCy extractor for testing."""
     extractor = MagicMock()
-    extractor.extract = MagicMock(return_value=[
-        {"text": "OpenAI", "label": "ORG", "start": 0, "end": 6},
-        {"text": "GPT-4", "label": "PRODUCT", "start": 10, "end": 15},
-    ])
+    extractor.extract = MagicMock(
+        return_value=[
+            {"text": "OpenAI", "label": "ORG", "start": 0, "end": 6},
+            {"text": "GPT-4", "label": "PRODUCT", "start": 10, "end": 15},
+        ]
+    )
     return extractor
 
 
@@ -376,5 +378,5 @@ def pytest_sessionfinish(session, exitstatus):
         logger.warning(
             "session_cleanup_error",
             error=str(e),
-            message="Cleanup encountered errors but continuing shutdown"
+            message="Cleanup encountered errors but continuing shutdown",
         )

@@ -1,12 +1,13 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Integration tests for task progress statistics query."""
+
 from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import select, delete
+from sqlalchemy import delete, select
 
 from core.db.models import Article, PersistStatus
 
@@ -14,6 +15,7 @@ from core.db.models import Article, PersistStatus
 def get_test_pool():
     """Create a new PostgresPool for testing."""
     from core.db.postgres import PostgresPool
+
     dsn = os.getenv("POSTGRES_DSN", "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver")
     return PostgresPool(dsn)
 
@@ -61,15 +63,17 @@ class TestTaskProgressStats:
                 persist_status=status,
                 task_id=task_id,
             )
-            for i, status in enumerate([
-                PersistStatus.PENDING,
-                PersistStatus.PROCESSING,
-                PersistStatus.PG_DONE,
-                PersistStatus.NEO4J_DONE,
-                PersistStatus.FAILED,
-                PersistStatus.PENDING,
-                PersistStatus.PROCESSING,
-            ])
+            for i, status in enumerate(
+                [
+                    PersistStatus.PENDING,
+                    PersistStatus.PROCESSING,
+                    PersistStatus.PG_DONE,
+                    PersistStatus.NEO4J_DONE,
+                    PersistStatus.FAILED,
+                    PersistStatus.PENDING,
+                    PersistStatus.PROCESSING,
+                ]
+            )
         ]
 
         try:
@@ -241,10 +245,9 @@ class TestTaskCompletionDetermination:
                 result = await session.execute(
                     select(Article).where(
                         Article.task_id == task_id,
-                        Article.persist_status.notin_([
-                            PersistStatus.NEO4J_DONE,
-                            PersistStatus.FAILED
-                        ])
+                        Article.persist_status.notin_(
+                            [PersistStatus.NEO4J_DONE, PersistStatus.FAILED]
+                        ),
                     )
                 )
                 pending = result.scalars().all()
@@ -293,10 +296,9 @@ class TestTaskCompletionDetermination:
                 result = await session.execute(
                     select(Article).where(
                         Article.task_id == task_id,
-                        Article.persist_status.notin_([
-                            PersistStatus.NEO4J_DONE,
-                            PersistStatus.FAILED
-                        ])
+                        Article.persist_status.notin_(
+                            [PersistStatus.NEO4J_DONE, PersistStatus.FAILED]
+                        ),
                     )
                 )
                 pending = result.scalars().all()
@@ -336,10 +338,9 @@ class TestTaskCompletionDetermination:
                 result = await session.execute(
                     select(Article).where(
                         Article.task_id == task_id,
-                        Article.persist_status.notin_([
-                            PersistStatus.NEO4J_DONE,
-                            PersistStatus.FAILED
-                        ])
+                        Article.persist_status.notin_(
+                            [PersistStatus.NEO4J_DONE, PersistStatus.FAILED]
+                        ),
                     )
                 )
                 pending = result.scalars().all()
@@ -388,10 +389,9 @@ class TestTaskCompletionDetermination:
                 result = await session.execute(
                     select(Article).where(
                         Article.task_id == task_id,
-                        Article.persist_status.notin_([
-                            PersistStatus.NEO4J_DONE,
-                            PersistStatus.FAILED
-                        ])
+                        Article.persist_status.notin_(
+                            [PersistStatus.NEO4J_DONE, PersistStatus.FAILED]
+                        ),
                     )
                 )
                 pending = result.scalars().all()
@@ -434,10 +434,9 @@ class TestTaskCompletionDetermination:
                 result = await session.execute(
                     select(Article).where(
                         Article.task_id == task_id,
-                        Article.persist_status.notin_([
-                            PersistStatus.NEO4J_DONE,
-                            PersistStatus.FAILED
-                        ])
+                        Article.persist_status.notin_(
+                            [PersistStatus.NEO4J_DONE, PersistStatus.FAILED]
+                        ),
                     )
                 )
                 pending = result.scalars().all()

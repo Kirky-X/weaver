@@ -1,10 +1,10 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for name normalizer module."""
 
-import pytest
 from modules.graph_store.name_normalizer import (
     NameNormalizer,
-    NormalizationResult,
     NameScript,
+    NormalizationResult,
 )
 
 
@@ -143,9 +143,7 @@ class TestNameNormalizer:
     def test_are_equivalent_suffix(self):
         """Test suffix-based equivalence."""
         normalizer = NameNormalizer()
-        is_equiv, _ = normalizer.are_equivalent(
-            "Apple Inc", "Apple Corp", "组织机构"
-        )
+        is_equiv, _ = normalizer.are_equivalent("Apple Inc", "Apple Corp", "组织机构")
 
         assert is_equiv is True
 

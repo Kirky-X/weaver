@@ -1,9 +1,9 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for Leiden clustering algorithm."""
 
-import pytest
 from modules.community.leiden import (
-    LeidenClustering,
     GraphPartition,
+    LeidenClustering,
 )
 
 

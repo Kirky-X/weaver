@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for PersistStatus state machine validation."""
 
 import pytest
@@ -64,28 +65,18 @@ class TestPersistStatusStateMachine:
     def test_complete_processing_workflow(self):
         """Test complete workflow from PENDING to NEO4J_DONE."""
         # PENDING → PROCESSING
-        assert PersistStatus.is_valid_transition(
-            PersistStatus.PENDING, PersistStatus.PROCESSING
-        )
+        assert PersistStatus.is_valid_transition(PersistStatus.PENDING, PersistStatus.PROCESSING)
         # PROCESSING → PG_DONE
-        assert PersistStatus.is_valid_transition(
-            PersistStatus.PROCESSING, PersistStatus.PG_DONE
-        )
+        assert PersistStatus.is_valid_transition(PersistStatus.PROCESSING, PersistStatus.PG_DONE)
         # PG_DONE → NEO4J_DONE
-        assert PersistStatus.is_valid_transition(
-            PersistStatus.PG_DONE, PersistStatus.NEO4J_DONE
-        )
+        assert PersistStatus.is_valid_transition(PersistStatus.PG_DONE, PersistStatus.NEO4J_DONE)
 
     def test_retry_workflow_from_failed(self):
         """Test retry workflow: FAILED → PENDING → PROCESSING."""
         # FAILED → PENDING
-        assert PersistStatus.is_valid_transition(
-            PersistStatus.FAILED, PersistStatus.PENDING
-        )
+        assert PersistStatus.is_valid_transition(PersistStatus.FAILED, PersistStatus.PENDING)
         # PENDING → PROCESSING
-        assert PersistStatus.is_valid_transition(
-            PersistStatus.PENDING, PersistStatus.PROCESSING
-        )
+        assert PersistStatus.is_valid_transition(PersistStatus.PENDING, PersistStatus.PROCESSING)
 
     def test_failure_from_any_state(self):
         """Test that transition to FAILED is allowed from non-terminal states."""
@@ -104,9 +95,7 @@ class TestPersistStatusStateMachine:
 
         for target_status in PersistStatus:
             if target_status != terminal_state:
-                assert (
-                    PersistStatus.is_valid_transition(terminal_state, target_status) is False
-                )
+                assert PersistStatus.is_valid_transition(terminal_state, target_status) is False
 
     def test_all_transition_combinations(self):
         """Test all possible transition combinations for completeness."""
@@ -159,39 +148,29 @@ class TestPersistStatusStateMachine:
         """Test that error message follows expected format."""
         error = InvalidStateTransitionError("pending", "neo4j_done")
 
-        expected_message = "Invalid state transition: cannot transition from 'pending' to 'neo4j_done'"
+        expected_message = (
+            "Invalid state transition: cannot transition from 'pending' to 'neo4j_done'"
+        )
         assert error.message == expected_message
         assert str(error) == expected_message
 
     def test_retry_scenario_after_processing_failure(self):
         """Test retry scenario when processing fails."""
         # PROCESSING → FAILED
-        assert PersistStatus.is_valid_transition(
-            PersistStatus.PROCESSING, PersistStatus.FAILED
-        )
+        assert PersistStatus.is_valid_transition(PersistStatus.PROCESSING, PersistStatus.FAILED)
         # FAILED → PENDING
-        assert PersistStatus.is_valid_transition(
-            PersistStatus.FAILED, PersistStatus.PENDING
-        )
+        assert PersistStatus.is_valid_transition(PersistStatus.FAILED, PersistStatus.PENDING)
         # PENDING → PROCESSING (retry)
-        assert PersistStatus.is_valid_transition(
-            PersistStatus.PENDING, PersistStatus.PROCESSING
-        )
+        assert PersistStatus.is_valid_transition(PersistStatus.PENDING, PersistStatus.PROCESSING)
 
     def test_retry_scenario_after_pg_done_failure(self):
         """Test retry scenario when Neo4j persistence fails after PG_DONE."""
         # PG_DONE → FAILED
-        assert PersistStatus.is_valid_transition(
-            PersistStatus.PG_DONE, PersistStatus.FAILED
-        )
+        assert PersistStatus.is_valid_transition(PersistStatus.PG_DONE, PersistStatus.FAILED)
         # FAILED → PENDING
-        assert PersistStatus.is_valid_transition(
-            PersistStatus.FAILED, PersistStatus.PENDING
-        )
+        assert PersistStatus.is_valid_transition(PersistStatus.FAILED, PersistStatus.PENDING)
         # Full workflow must restart
-        assert PersistStatus.is_valid_transition(
-            PersistStatus.PENDING, PersistStatus.PROCESSING
-        )
+        assert PersistStatus.is_valid_transition(PersistStatus.PENDING, PersistStatus.PROCESSING)
 
     @pytest.mark.parametrize("status", list(PersistStatus))
     def test_transition_to_itself_always_valid(self, status):

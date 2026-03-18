@@ -1,9 +1,9 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Test data factories for creating test objects."""
 
-import uuid
 import random
-import string
-from datetime import datetime, timezone, timedelta
+import uuid
+from datetime import UTC, datetime
 from typing import Any
 
 
@@ -27,7 +27,7 @@ class ArticleRawFactory:
             "body": body or "This is a test article body with some content.",
             "source": source or "Test Source",
             "source_host": source_host or "example.com",
-            "publish_time": publish_time or datetime.now(timezone.utc),
+            "publish_time": publish_time or datetime.now(UTC),
             **kwargs,
         }
 
@@ -57,7 +57,7 @@ class NewsItemFactory:
             "description": description or "News item description",
             "source": source or "Test News Source",
             "source_host": source_host or "news.example.com",
-            "pubDate": pub_date or datetime.now(timezone.utc),
+            "pubDate": pub_date or datetime.now(UTC),
             **kwargs,
         }
 
@@ -121,8 +121,8 @@ class EntityFactory:
             "type": entity_type or random.choice(EntityFactory.ENTITY_TYPES),
             "aliases": aliases or [name],
             "description": description or f"Description for {name}",
-            "created_at": datetime.now(timezone.utc),
-            "updated_at": datetime.now(timezone.utc),
+            "created_at": datetime.now(UTC),
+            "updated_at": datetime.now(UTC),
             **kwargs,
         }
 
@@ -154,7 +154,7 @@ class PipelineStateFactory:
                 "body": body or "Pipeline test article body content.",
                 "source": "Test Source",
                 "source_host": "example.com",
-                "publish_time": datetime.now(timezone.utc),
+                "publish_time": datetime.now(UTC),
             },
             "is_news": is_news,
             "language": language,
@@ -172,41 +172,43 @@ class PipelineStateFactory:
     def create_with_full_data(**kwargs) -> dict[str, Any]:
         """Create a complete PipelineState with all fields."""
         state = PipelineStateFactory.create(**kwargs)
-        state.update({
-            "cleaned": {
-                "title": state["raw"]["title"],
-                "body": state["raw"]["body"],
-            },
-            "category": kwargs.get("category", "tech"),
-            "language": kwargs.get("language", "zh"),
-            "region": kwargs.get("region", "CN"),
-            "summary_info": {
-                "summary": "Article summary text",
-                "subjects": ["AI", "Technology"],
-                "key_data": ["Key data point"],
-                "impact": "high",
-                "has_data": True,
-            },
-            "score": kwargs.get("score", 0.85),
-            "sentiment": {
-                "sentiment": "positive",
-                "sentiment_score": 0.75,
-                "primary_emotion": "joy",
-            },
-            "credibility": {
-                "score": 0.9,
-                "source_credibility": 0.85,
-                "cross_verification": 0.8,
-                "content_check": 0.95,
-                "flags": [],
-                "verified_by_sources": 2,
-            },
-            "entities": [
-                {"text": "OpenAI", "label": "ORG"},
-                {"text": "GPT-4", "label": "PRODUCT"},
-            ],
-            "vector": [random.random() for _ in range(1536)],
-        })
+        state.update(
+            {
+                "cleaned": {
+                    "title": state["raw"]["title"],
+                    "body": state["raw"]["body"],
+                },
+                "category": kwargs.get("category", "tech"),
+                "language": kwargs.get("language", "zh"),
+                "region": kwargs.get("region", "CN"),
+                "summary_info": {
+                    "summary": "Article summary text",
+                    "subjects": ["AI", "Technology"],
+                    "key_data": ["Key data point"],
+                    "impact": "high",
+                    "has_data": True,
+                },
+                "score": kwargs.get("score", 0.85),
+                "sentiment": {
+                    "sentiment": "positive",
+                    "sentiment_score": 0.75,
+                    "primary_emotion": "joy",
+                },
+                "credibility": {
+                    "score": 0.9,
+                    "source_credibility": 0.85,
+                    "cross_verification": 0.8,
+                    "content_check": 0.95,
+                    "flags": [],
+                    "verified_by_sources": 2,
+                },
+                "entities": [
+                    {"text": "OpenAI", "label": "ORG"},
+                    {"text": "GPT-4", "label": "PRODUCT"},
+                ],
+                "vector": [random.random() for _ in range(1536)],
+            }
+        )
         return state
 
 
@@ -217,10 +219,13 @@ class LLMResponseFactory:
     def classify_response(is_news: bool = True, confidence: float = 0.95) -> str:
         """Create a classify LLM response."""
         import json
-        return json.dumps({
-            "is_news": is_news,
-            "confidence": confidence,
-        })
+
+        return json.dumps(
+            {
+                "is_news": is_news,
+                "confidence": confidence,
+            }
+        )
 
     @staticmethod
     def categorize_response(
@@ -230,11 +235,14 @@ class LLMResponseFactory:
     ) -> str:
         """Create a categorize LLM response."""
         import json
-        return json.dumps({
-            "category": category,
-            "language": language,
-            "region": region,
-        })
+
+        return json.dumps(
+            {
+                "category": category,
+                "language": language,
+                "region": region,
+            }
+        )
 
     @staticmethod
     def analyze_response(
@@ -245,27 +253,36 @@ class LLMResponseFactory:
     ) -> str:
         """Create an analyze LLM response."""
         import json
-        return json.dumps({
-            "summary": summary,
-            "subjects": subjects or ["Topic"],
-            "key_data": [],
-            "impact": "medium",
-            "has_data": False,
-            "sentiment": sentiment,
-            "sentiment_score": sentiment_score,
-            "primary_emotion": None,
-        })
+
+        return json.dumps(
+            {
+                "summary": summary,
+                "subjects": subjects or ["Topic"],
+                "key_data": [],
+                "impact": "medium",
+                "has_data": False,
+                "sentiment": sentiment,
+                "sentiment_score": sentiment_score,
+                "primary_emotion": None,
+            }
+        )
 
     @staticmethod
     def entity_response(entities: list[dict[str, str]] | None = None) -> str:
         """Create an entity extraction LLM response."""
         import json
-        return json.dumps({
-            "entities": entities or [
-                {"text": "Entity1", "type": "PERSON"},
-                {"text": "Entity2", "type": "ORG"},
-            ],
-        })
+
+        return json.dumps(
+            {
+                "entities": (
+                    entities
+                    or [
+                        {"text": "Entity1", "type": "PERSON"},
+                        {"text": "Entity2", "type": "ORG"},
+                    ]
+                ),
+            }
+        )
 
 
 class VectorFactory:
@@ -285,10 +302,7 @@ class VectorFactory:
     ) -> list[float]:
         """Create an embedding similar to the base."""
         noise_level = 1 - similarity
-        return [
-            v + (random.random() - 0.5) * 2 * noise_level
-            for v in base
-        ]
+        return [v + (random.random() - 0.5) * 2 * noise_level for v in base]
 
     @staticmethod
     def create_batch(count: int, dimensions: int = 1536) -> list[list[float]]:

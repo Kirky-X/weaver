@@ -1,13 +1,15 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Test cleanup behavior when tests fail."""
 
-import pytest
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 
 @pytest.mark.asyncio
 async def test_cleanup_happens_on_failure():
     """Verify cleanup runs even when tests fail."""
+
     # Create a background task
     async def background_worker():
         while True:
@@ -26,9 +28,10 @@ async def test_cleanup_happens_on_failure():
 @pytest.mark.asyncio
 async def test_multiple_container_shutdown_calls():
     """Verify Container.shutdown() is idempotent."""
-    from container import Container
+    from unittest.mock import AsyncMock, MagicMock
+
     from config.settings import Settings
-    from unittest.mock import AsyncMock, MagicMock, patch
+    from container import Container
 
     # Create a mock container
     container = Container()

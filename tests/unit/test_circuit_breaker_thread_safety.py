@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for CircuitBreaker thread safety.
 
 Tests for concurrent state transitions, lock timeout handling,
@@ -9,7 +10,7 @@ import time
 
 import pytest
 
-from core.resilience.circuit_breaker import CircuitBreaker, CBState
+from core.resilience.circuit_breaker import CBState, CircuitBreaker
 
 
 class TestCircuitBreakerThreadSafety:

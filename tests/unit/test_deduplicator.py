@@ -1,8 +1,9 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for deduplicator module."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
-from datetime import datetime, timezone
+
+import pytest
 
 from modules.collector.deduplicator import Deduplicator
 
@@ -103,7 +104,7 @@ class TestDeduplicatorRedisLevel:
     async def test_write_new_urls_to_redis(self, mock_redis, mock_repo):
         """Test new URLs are written to Redis."""
         dedup = Deduplicator(redis=mock_redis, article_repo=mock_repo)
-        assert hasattr(dedup, '_hash')
+        assert hasattr(dedup, "_hash")
 
     @pytest.mark.asyncio
     async def test_pipeline_execution(self, mock_redis, mock_repo, mock_items):

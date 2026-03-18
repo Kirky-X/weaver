@@ -1,13 +1,14 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for Pipeline graph."""
 
-import pytest
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, MagicMock
 
-from modules.pipeline.state import PipelineState
-from modules.pipeline.graph import Pipeline, PHASE1_STAGES, PHASE3_STAGES
+import pytest
+
 from modules.collector.models import ArticleRaw
+from modules.pipeline.graph import PHASE1_STAGES, PHASE3_STAGES, Pipeline
+from modules.pipeline.state import PipelineState
 
 
 class TestPipelineConstants:
@@ -68,7 +69,9 @@ class TestPipelineInit:
         assert pipeline._phase1_concurrency == Pipeline.DEFAULT_PHASE1_CONCURRENCY
         assert pipeline._phase3_concurrency == Pipeline.DEFAULT_PHASE3_CONCURRENCY
 
-    def test_init_custom_concurrency(self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus):
+    def test_init_custom_concurrency(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
         """Test initialization with custom concurrency."""
         pipeline = Pipeline(
             llm=mock_llm,
@@ -82,7 +85,9 @@ class TestPipelineInit:
         assert pipeline._phase1_concurrency == 5
         assert pipeline._phase3_concurrency == 3
 
-    def test_init_with_optional_deps(self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus):
+    def test_init_with_optional_deps(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
         """Test initialization with optional dependencies."""
         mock_spacy = MagicMock()
         mock_vector_repo = MagicMock()
@@ -158,9 +163,9 @@ class TestPipelineProcessBatch:
     def mock_llm(self):
         """Mock LLM client."""
         from core.llm.types import CallPoint
-        
+
         llm = MagicMock()
-        
+
         def mock_call(call_point, data, output_model=None):
             if call_point == CallPoint.CLASSIFIER:
                 return MagicMock(is_news=True, confidence=0.95)
@@ -189,7 +194,7 @@ class TestPipelineProcessBatch:
             elif call_point == CallPoint.MERGER:
                 return MagicMock(merged_title="Merged Title", merged_body="Merged Body")
             return MagicMock()
-        
+
         llm.call = AsyncMock(side_effect=mock_call)
         llm.batch_embed = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
         return llm
@@ -223,7 +228,9 @@ class TestPipelineProcessBatch:
         return repo
 
     @pytest.fixture
-    def pipeline(self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus, mock_source_auth_repo):
+    def pipeline(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus, mock_source_auth_repo
+    ):
         """Create Pipeline instance with mocks."""
         return Pipeline(
             llm=mock_llm,
@@ -242,14 +249,14 @@ class TestPipelineProcessBatch:
             body="Test article body content for processing.",
             source="test_source",
             source_host="example.com",
-            publish_time=datetime.now(timezone.utc),
+            publish_time=datetime.now(UTC),
         )
 
     @pytest.mark.asyncio
     async def test_process_batch_not_accepting(self, pipeline, sample_article_raw):
         """Test process_batch raises when not accepting."""
         await pipeline.stop_accepting()
-        
+
         with pytest.raises(RuntimeError, match="not accepting"):
             await pipeline.process_batch([sample_article_raw])
 
@@ -257,7 +264,7 @@ class TestPipelineProcessBatch:
     async def test_process_batch_single_article(self, pipeline, sample_article_raw):
         """Test processing a single article."""
         results = await pipeline.process_batch([sample_article_raw])
-        
+
         assert len(results) == 1
         assert "raw" in results[0]
 
@@ -274,16 +281,16 @@ class TestPipelineProcessBatch:
             )
             for i in range(3)
         ]
-        
+
         results = await pipeline.process_batch(articles)
-        
+
         assert len(results) == 3
 
     @pytest.mark.asyncio
     async def test_process_batch_empty(self, pipeline):
         """Test processing empty batch."""
         results = await pipeline.process_batch([])
-        
+
         assert len(results) == 0
 
 
@@ -294,9 +301,9 @@ class TestPipelinePhase1:
     def mock_llm(self):
         """Mock LLM client."""
         from core.llm.types import CallPoint
-        
+
         llm = MagicMock()
-        
+
         def mock_call(call_point, data, output_model=None):
             if call_point == CallPoint.CLASSIFIER:
                 return MagicMock(is_news=True, confidence=0.95)
@@ -305,7 +312,7 @@ class TestPipelinePhase1:
             elif call_point == CallPoint.CATEGORIZER:
                 return MagicMock(category="科技", language="zh", region="中国")
             return MagicMock()
-        
+
         llm.call = AsyncMock(side_effect=mock_call)
         llm.batch_embed = AsyncMock(return_value=[[0.1] * 1024])
         return llm
@@ -341,10 +348,10 @@ class TestPipelinePhase1:
         raw.title = "Test"
         raw.body = "Body"
         raw.url = "https://example.com/test"
-        
+
         state = PipelineState(raw=raw)
         result = await pipeline._phase1_per_article(state)
-        
+
         assert "is_news" in result
         assert "cleaned" in result
         assert "category" in result
@@ -357,11 +364,11 @@ class TestPipelinePhase1:
         raw.title = "Test"
         raw.body = "Body"
         raw.url = "https://example.com/test"
-        
+
         state = PipelineState(raw=raw)
-        
+
         result = await pipeline._phase1_per_article(state)
-        
+
         assert result.get("is_news") is True
         assert result.get("cleaned") is not None
         assert result.get("category") is not None
@@ -374,9 +381,9 @@ class TestPipelinePhase3:
     def mock_llm(self):
         """Mock LLM client."""
         from core.llm.types import CallPoint
-        
+
         llm = MagicMock()
-        
+
         def mock_call(call_point, data, output_model=None):
             if call_point == CallPoint.ANALYZE:
                 return MagicMock(
@@ -397,7 +404,7 @@ class TestPipelinePhase3:
             elif call_point == CallPoint.ENTITY_EXTRACTOR:
                 return MagicMock(entities=[], relations=[])
             return MagicMock()
-        
+
         llm.call = AsyncMock(side_effect=mock_call)
         llm.batch_embed = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
         return llm
@@ -431,7 +438,9 @@ class TestPipelinePhase3:
         return repo
 
     @pytest.fixture
-    def pipeline(self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus, mock_source_auth_repo):
+    def pipeline(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus, mock_source_auth_repo
+    ):
         """Create Pipeline instance."""
         return Pipeline(
             llm=mock_llm,
@@ -449,13 +458,13 @@ class TestPipelinePhase3:
         raw.body = "Body"
         raw.url = "https://example.com/test"
         raw.source_host = "example.com"
-        
+
         state = PipelineState(raw=raw)
         state["cleaned"] = {"title": "Title", "body": "Body"}
         state["category"] = "科技"
-        
+
         result = await pipeline._phase3_per_article(state)
-        
+
         assert "vectors" in result
         assert "summary_info" in result
         assert "credibility" in result
@@ -465,9 +474,9 @@ class TestPipelinePhase3:
         """Test phase3 skips terminal articles."""
         state = PipelineState(raw=MagicMock())
         state["terminal"] = True
-        
+
         result = await pipeline._phase3_per_article(state)
-        
+
         assert result.get("terminal") is True
 
     @pytest.mark.asyncio
@@ -475,9 +484,9 @@ class TestPipelinePhase3:
         """Test phase3 skips merged articles."""
         state = PipelineState(raw=MagicMock())
         state["is_merged"] = True
-        
+
         result = await pipeline._phase3_per_article(state)
-        
+
         assert result.get("is_merged") is True
 
 
@@ -505,7 +514,9 @@ class TestPipelinePersist:
         return MagicMock()
 
     @pytest.mark.asyncio
-    async def test_persist_skips_terminal(self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus):
+    async def test_persist_skips_terminal(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
         """Test persist skips terminal articles."""
         pipeline = Pipeline(
             llm=mock_llm,
@@ -513,14 +524,16 @@ class TestPipelinePersist:
             prompt_loader=mock_prompt_loader,
             event_bus=mock_event_bus,
         )
-        
+
         state = PipelineState(raw=MagicMock())
         state["terminal"] = True
-        
+
         await pipeline._persist(state)
 
     @pytest.mark.asyncio
-    async def test_persist_without_repos(self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus):
+    async def test_persist_without_repos(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
         """Test persist without article_repo and neo4j_writer."""
         pipeline = Pipeline(
             llm=mock_llm,
@@ -528,21 +541,23 @@ class TestPipelinePersist:
             prompt_loader=mock_prompt_loader,
             event_bus=mock_event_bus,
         )
-        
+
         state = PipelineState(raw=MagicMock())
         state["cleaned"] = {"title": "Title", "body": "Body"}
-        
+
         await pipeline._persist(state)
 
     @pytest.mark.asyncio
-    async def test_persist_with_article_repo(self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus):
+    async def test_persist_with_article_repo(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
         """Test persist with article_repo."""
         import uuid
-        
+
         mock_article_repo = MagicMock()
         mock_article_repo.upsert = AsyncMock(return_value=uuid.uuid4())
         mock_article_repo.update_persist_status = AsyncMock()
-        
+
         pipeline = Pipeline(
             llm=mock_llm,
             budget=mock_budget,
@@ -550,30 +565,32 @@ class TestPipelinePersist:
             event_bus=mock_event_bus,
             article_repo=mock_article_repo,
         )
-        
+
         raw = MagicMock()
         raw.url = "https://example.com/test"
-        
+
         state = PipelineState(raw=raw)
         state["cleaned"] = {"title": "Title", "body": "Body"}
-        
+
         await pipeline._persist(state)
-        
+
         assert "article_id" in state
         mock_article_repo.upsert.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_persist_with_neo4j_writer(self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus):
+    async def test_persist_with_neo4j_writer(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
         """Test persist with neo4j_writer."""
         import uuid
-        
+
         mock_article_repo = MagicMock()
         mock_article_repo.upsert = AsyncMock(return_value=uuid.uuid4())
         mock_article_repo.update_persist_status = AsyncMock()
-        
+
         mock_neo4j_writer = MagicMock()
         mock_neo4j_writer.write = AsyncMock(return_value=["entity1", "entity2"])
-        
+
         pipeline = Pipeline(
             llm=mock_llm,
             budget=mock_budget,
@@ -582,26 +599,27 @@ class TestPipelinePersist:
             article_repo=mock_article_repo,
             neo4j_writer=mock_neo4j_writer,
         )
-        
+
         raw = MagicMock()
         raw.url = "https://example.com/test"
-        
+
         state = PipelineState(raw=raw)
         state["cleaned"] = {"title": "Title", "body": "Body"}
-        
+
         await pipeline._persist(state)
-        
+
         assert "neo4j_ids" in state
 
     @pytest.mark.asyncio
-    async def test_persist_handles_pg_error(self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus):
+    async def test_persist_handles_pg_error(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
         """Test persist handles PostgreSQL errors."""
-        import uuid
-        
+
         mock_article_repo = MagicMock()
         mock_article_repo.upsert = AsyncMock(side_effect=Exception("PG error"))
         mock_article_repo.mark_failed = AsyncMock()
-        
+
         pipeline = Pipeline(
             llm=mock_llm,
             budget=mock_budget,
@@ -609,28 +627,30 @@ class TestPipelinePersist:
             event_bus=mock_event_bus,
             article_repo=mock_article_repo,
         )
-        
+
         raw = MagicMock()
         raw.url = "https://example.com/test"
-        
+
         state = PipelineState(raw=raw)
         state["cleaned"] = {"title": "Title", "body": "Body"}
-        
+
         await pipeline._persist(state)
 
     @pytest.mark.asyncio
-    async def test_persist_handles_neo4j_error(self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus):
+    async def test_persist_handles_neo4j_error(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
         """Test persist handles Neo4j errors."""
         import uuid
-        
+
         mock_article_repo = MagicMock()
         mock_article_repo.upsert = AsyncMock(return_value=uuid.uuid4())
         mock_article_repo.update_persist_status = AsyncMock()
         mock_article_repo.mark_failed = AsyncMock()
-        
+
         mock_neo4j_writer = MagicMock()
         mock_neo4j_writer.write = AsyncMock(side_effect=Exception("Neo4j error"))
-        
+
         pipeline = Pipeline(
             llm=mock_llm,
             budget=mock_budget,
@@ -639,13 +659,13 @@ class TestPipelinePersist:
             article_repo=mock_article_repo,
             neo4j_writer=mock_neo4j_writer,
         )
-        
+
         raw = MagicMock()
         raw.url = "https://example.com/test"
-        
+
         state = PipelineState(raw=raw)
         state["cleaned"] = {"title": "Title", "body": "Body"}
-        
+
         await pipeline._persist(state)
 
 
@@ -678,29 +698,29 @@ class TestPipelineUpdateProcessingStage:
         """Test update stage without article_repo."""
         state = PipelineState(raw=MagicMock())
         state["article_id"] = "test-id"
-        
+
         await pipeline_no_repo._update_processing_stage(state, "test_stage")
 
     @pytest.mark.asyncio
     async def test_update_stage_no_article_id(self, pipeline_with_repo):
         """Test update stage without article_id."""
         state = PipelineState(raw=MagicMock())
-        
+
         await pipeline_with_repo._update_processing_stage(state, "test_stage")
 
     @pytest.mark.asyncio
     async def test_update_stage_success(self, pipeline_with_repo):
         """Test successful update of processing stage."""
         import uuid
-        
+
         article_id = uuid.uuid4()
         pipeline_with_repo._article_repo.update_processing_stage = AsyncMock()
-        
+
         state = PipelineState(raw=MagicMock())
         state["article_id"] = str(article_id)
-        
+
         await pipeline_with_repo._update_processing_stage(state, "phase1_classifier")
-        
+
         pipeline_with_repo._article_repo.update_processing_stage.assert_called_once()
 
 
@@ -727,30 +747,30 @@ class TestPipelineMarkProcessing:
             prompt_loader=MagicMock(),
             event_bus=MagicMock(),
         )
-        
+
         state = PipelineState(raw=MagicMock())
         state["article_id"] = "test-id"
-        
+
         await pipeline._mark_processing(state)
 
     @pytest.mark.asyncio
     async def test_mark_processing_no_article_id(self, pipeline_with_repo):
         """Test mark processing without article_id."""
         state = PipelineState(raw=MagicMock())
-        
+
         await pipeline_with_repo._mark_processing(state)
 
     @pytest.mark.asyncio
     async def test_mark_processing_success(self, pipeline_with_repo):
         """Test successful mark processing."""
         import uuid
-        
+
         article_id = uuid.uuid4()
         pipeline_with_repo._article_repo.mark_processing = AsyncMock()
-        
+
         state = PipelineState(raw=MagicMock())
         state["article_id"] = str(article_id)
-        
+
         await pipeline_with_repo._mark_processing(state)
-        
+
         pipeline_with_repo._article_repo.mark_processing.assert_called_once()
