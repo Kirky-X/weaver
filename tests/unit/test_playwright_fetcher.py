@@ -41,6 +41,8 @@ class TestPlaywrightFetcherFetch:
         pool = MagicMock()
         pool.random_delay = AsyncMock()
         pool.apply_stealth_to_page = AsyncMock()
+        # Explicitly delete acquire_page to prevent MagicMock from auto-creating it
+        delattr(pool, 'acquire_page')
         return pool
 
     @pytest.fixture
@@ -67,10 +69,13 @@ class TestPlaywrightFetcherFetch:
     @pytest.fixture
     def mock_response(self):
         """Create mock response."""
-        response = MagicMock()
-        response.status = 200
-        response.headers = {"Content-Type": "text/html", "X-Custom": "value"}
-        return response
+        # Use a simple object instead of MagicMock to avoid attribute interception
+        class MockResponse:
+            def __init__(self):
+                self.status = 200
+                self.headers = {"Content-Type": "text/html", "X-Custom": "value"}
+
+        return MockResponse()
 
     @pytest.fixture
     def fetcher(self, mock_pool):
@@ -162,9 +167,13 @@ class TestPlaywrightFetcherFetch:
     async def test_fetch_various_status_codes(self, fetcher, mock_pool, mock_context, mock_page):
         """Test various status codes."""
         for status_code in [200, 201, 301, 404, 500]:
-            mock_response = MagicMock()
-            mock_response.status = status_code
-            mock_response.headers = {}
+            # Create a simple mock response
+            class MockResponse:
+                def __init__(self, status):
+                    self.status = status
+                    self.headers = {}
+
+            mock_response = MockResponse(status_code)
 
             mock_page.goto = AsyncMock(return_value=mock_response)
             mock_context.new_page = AsyncMock(return_value=mock_page)
@@ -206,6 +215,8 @@ class TestPlaywrightFetcherHumanLike:
         pool = MagicMock()
         pool.random_delay = AsyncMock()
         pool.apply_stealth_to_page = AsyncMock()
+        # Explicitly delete acquire_page to prevent MagicMock from auto-creating it
+        delattr(pool, 'acquire_page')
         return pool
 
     @pytest.fixture
@@ -234,9 +245,12 @@ class TestPlaywrightFetcherHumanLike:
         """Test random delay is called when human_like_delay is enabled."""
         fetcher = PlaywrightFetcher(mock_pool_with_delay, human_like_delay=True)
 
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.headers = {}
+        class MockResponse:
+            def __init__(self):
+                self.status = 200
+                self.headers = {}
+
+        mock_response = MockResponse()
 
         mock_page_for_human.goto = AsyncMock(return_value=mock_response)
         mock_context_for_human.new_page = AsyncMock(return_value=mock_page_for_human)
@@ -251,9 +265,12 @@ class TestPlaywrightFetcherHumanLike:
         """Test random delay is not called when human_like_delay is disabled."""
         fetcher = PlaywrightFetcher(mock_pool_with_delay, human_like_delay=False)
 
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.headers = {}
+        class MockResponse:
+            def __init__(self):
+                self.status = 200
+                self.headers = {}
+
+        mock_response = MockResponse()
 
         mock_page_for_human.goto = AsyncMock(return_value=mock_response)
         mock_context_for_human.new_page = AsyncMock(return_value=mock_page_for_human)
@@ -268,9 +285,12 @@ class TestPlaywrightFetcherHumanLike:
         """Test _wait_for_content is called when human_like_delay is enabled."""
         fetcher = PlaywrightFetcher(mock_pool_with_delay, human_like_delay=True)
 
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.headers = {}
+        class MockResponse:
+            def __init__(self):
+                self.status = 200
+                self.headers = {}
+
+        mock_response = MockResponse()
 
         mock_page_for_human.goto = AsyncMock(return_value=mock_response)
         mock_context_for_human.new_page = AsyncMock(return_value=mock_page_for_human)
@@ -285,9 +305,12 @@ class TestPlaywrightFetcherHumanLike:
         """Test scroll is triggered when human_like_delay is enabled."""
         fetcher = PlaywrightFetcher(mock_pool_with_delay, human_like_delay=True)
 
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.headers = {}
+        class MockResponse:
+            def __init__(self):
+                self.status = 200
+                self.headers = {}
+
+        mock_response = MockResponse()
 
         mock_page_for_human.goto = AsyncMock(return_value=mock_response)
         mock_context_for_human.new_page = AsyncMock(return_value=mock_page_for_human)
