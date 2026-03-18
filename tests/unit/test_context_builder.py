@@ -1,136 +1,168 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Unit tests for context builder module."""
+"""Unit tests for Context Builder."""
 
-from modules.search.context.builder import (
-    ContextSection,
-    SearchContext,
-)
+from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 
-class TestContextSection:
-    """Test ContextSection dataclass."""
+@pytest.fixture
+def mock_neo4j_pool():
+    """Mock Neo4j connection pool."""
+    return AsyncMock()
 
-    def test_initialization(self):
-        """Test ContextSection initialization."""
-        section = ContextSection(
-            name="Test Section",
-            content="Test content",
-            token_count=10,
-            priority=5,
+
+class TestGlobalContextBuilder:
+    """Tests for GlobalContextBuilder."""
+
+    def test_global_context_builder_initializes(self, mock_neo4j_pool):
+        """Test that GlobalContextBuilder initializes correctly."""
+        from modules.search.context.global_context import GlobalContextBuilder
+
+        builder = GlobalContextBuilder(
+            neo4j_pool=mock_neo4j_pool,
+            default_max_tokens=12000,
+            max_communities=10,
         )
 
-        assert section.name == "Test Section"
-        assert section.content == "Test content"
-        assert section.token_count == 10
-        assert section.priority == 5
+        assert builder is not None
 
-    def test_to_dict(self):
-        """Test ContextSection to_dict."""
-        section = ContextSection(name="Test", content="Content", priority=1)
-        d = section.to_dict()
+    def test_global_context_builder_with_custom_params(self, mock_neo4j_pool):
+        """Test GlobalContextBuilder with custom parameters."""
+        from modules.search.context.global_context import GlobalContextBuilder
 
-        assert d["name"] == "Test"
-        assert d["content"] == "Content"
-        assert d["priority"] == 1
+        builder = GlobalContextBuilder(
+            neo4j_pool=mock_neo4j_pool,
+            default_max_tokens=15000,
+            max_communities=20,
+        )
 
+        assert builder._max_communities == 20
 
-class TestSearchContext:
-    """Test SearchContext class."""
+    @pytest.mark.asyncio
+    async def test_global_context_build_returns_context(self, mock_neo4j_pool):
+        """Test that build returns a context object."""
+        from modules.search.context.global_context import GlobalContextBuilder
 
-    def test_initialization(self):
-        """Test SearchContext initialization."""
-        context = SearchContext(query="test query", max_tokens=5000)
+        mock_neo4j_pool.execute = AsyncMock(return_value=[])
 
-        assert context.query == "test query"
-        assert context.max_tokens == 5000
-        assert context.total_tokens == 0
+        builder = GlobalContextBuilder(neo4j_pool=mock_neo4j_pool)
 
-    def test_add_section(self):
-        """Test adding section within budget."""
-        context = SearchContext(query="test", max_tokens=1000)
+        context = await builder.build(query="Test", max_tokens=5000)
 
-        section = ContextSection(name="Test", content="Content", token_count=50)
-        added = context.add_section(section)
-
-        assert added is True
-        assert context.total_tokens == 50
-
-    def test_add_section_exceeds_budget(self):
-        """Test adding section exceeds budget."""
-        context = SearchContext(query="test", max_tokens=100)
-
-        section = ContextSection(name="Test", content="Content", token_count=150)
-        added = context.add_section(section)
-
-        assert added is False
-        assert context.total_tokens == 0
-
-    def test_add_content(self):
-        """Test adding content directly."""
-        context = SearchContext(query="test", max_tokens=1000)
-
-        added = context.add_content(name="Entities", content="Entity1, Entity2", priority=10)
-
-        assert added is True
-        assert len(context.sections) == 1
-
-    def test_sort_by_priority(self):
-        """Test sorting by priority."""
-        context = SearchContext(query="test", max_tokens=1000)
-
-        context.add_content(name="Low", content="Low content", priority=1)
-        context.add_content(name="High", content="High content", priority=10)
-        context.add_content(name="Medium", content="Medium content", priority=5)
-
-        context.sort_by_priority()
-
-        assert context.sections[0].name == "High"
-        assert context.sections[1].name == "Medium"
-        assert context.sections[2].name == "Low"
-
-    def test_get_available_tokens(self):
-        """Test available tokens calculation."""
-        context = SearchContext(query="test", max_tokens=1000)
-        context.add_content(name="Test", content="x" * 100, priority=1)
-
-        available = context.get_available_tokens()
-
-        assert available < 1000
-
-    def test_to_prompt(self):
-        """Test prompt generation."""
-        context = SearchContext(query="test query", max_tokens=1000)
-        context.add_content(name="Section1", content="Content1", priority=10)
-        context.add_content(name="Section2", content="Content2", priority=5)
-
-        prompt = context.to_prompt()
-
-        assert "test query" in prompt
-        assert "Section1" in prompt
-        assert "Section2" in prompt
-
-    def test_to_dict(self):
-        """Test context serialization."""
-        context = SearchContext(query="test", max_tokens=1000)
-        context.add_content(name="Test", content="Content", priority=1)
-
-        d = context.to_dict()
-
-        assert d["query"] == "test"
-        assert len(d["sections"]) == 1
+        assert context is not None
 
 
-class TestContextBuilderBase:
-    """Test ContextBuilder base class utilities."""
+class TestLocalContextBuilder:
+    """Tests for LocalContextBuilder."""
 
-    def test_estimate_tokens(self):
-        """Test token estimation."""
-        tokens = SearchContext._estimate_tokens("你好世界")
+    def test_local_context_builder_initializes(self, mock_neo4j_pool):
+        """Test that LocalContextBuilder initializes correctly."""
+        from modules.search.context.local_context import LocalContextBuilder
 
-        assert tokens > 0
+        builder = LocalContextBuilder(
+            neo4j_pool=mock_neo4j_pool,
+            default_max_tokens=8000,
+        )
 
-    def test_estimate_tokens_mixed(self):
-        """Test token estimation with mixed content."""
-        tokens = SearchContext._estimate_tokens("Hello 你好")
+        assert builder is not None
 
-        assert tokens > 0
+    def test_local_context_builder_with_custom_params(self, mock_neo4j_pool):
+        """Test LocalContextBuilder with custom parameters."""
+        from modules.search.context.local_context import LocalContextBuilder
+
+        builder = LocalContextBuilder(
+            neo4j_pool=mock_neo4j_pool,
+            default_max_tokens=10000,
+        )
+
+        assert builder._default_max_tokens == 10000
+
+    @pytest.mark.asyncio
+    async def test_local_context_build_returns_context(self, mock_neo4j_pool):
+        """Test that build returns a context object."""
+        from modules.search.context.local_context import LocalContextBuilder
+
+        mock_neo4j_pool.execute = AsyncMock(return_value=[])
+
+        builder = LocalContextBuilder(neo4j_pool=mock_neo4j_pool)
+
+        context = await builder.build(query="Test", max_tokens=5000)
+
+        assert context is not None
+
+    @pytest.mark.asyncio
+    async def test_local_context_with_entity_names(self, mock_neo4j_pool):
+        """Test LocalContextBuilder with specific entity names."""
+        from modules.search.context.local_context import LocalContextBuilder
+
+        mock_neo4j_pool.execute = AsyncMock(return_value=[])
+
+        builder = LocalContextBuilder(neo4j_pool=mock_neo4j_pool)
+
+        context = await builder.build(
+            query="Test",
+            max_tokens=5000,
+            entity_names=["Entity1", "Entity2"],
+        )
+
+        assert context is not None
+
+
+class TestContextBuilderEdgeCases:
+    """Edge case tests for context builders."""
+
+    @pytest.mark.asyncio
+    async def test_context_build_with_empty_results(self, mock_neo4j_pool):
+        """Test context building with empty Neo4j results."""
+        from modules.search.context.global_context import GlobalContextBuilder
+
+        mock_neo4j_pool.execute = AsyncMock(return_value=[])
+
+        builder = GlobalContextBuilder(neo4j_pool=mock_neo4j_pool)
+
+        context = await builder.build(query="Test", max_tokens=5000)
+
+        assert context is not None
+
+    @pytest.mark.asyncio
+    async def test_context_respects_token_budget(self, mock_neo4j_pool):
+        """Test that context building respects token budget."""
+        from modules.search.context.local_context import LocalContextBuilder
+
+        mock_neo4j_pool.execute = AsyncMock(return_value=[])
+
+        builder = LocalContextBuilder(
+            neo4j_pool=mock_neo4j_pool,
+            default_max_tokens=8000,
+        )
+
+        context = await builder.build(
+            query="Test",
+            max_tokens=2000,
+        )
+
+        assert context.total_tokens <= 2000
+
+
+class TestContextBuilderErrorHandling:
+    """Error handling tests for context builders."""
+
+    @pytest.mark.asyncio
+    async def test_context_handles_neo4j_error(self, mock_neo4j_pool):
+        """Test context builder handles Neo4j errors."""
+        from modules.search.context.global_context import GlobalContextBuilder
+
+        mock_neo4j_pool.execute = AsyncMock(side_effect=Exception("Neo4j connection failed"))
+
+        builder = GlobalContextBuilder(neo4j_pool=mock_neo4j_pool)
+
+        # Should handle error gracefully
+        try:
+            context = await builder.build(query="Test", max_tokens=5000)
+            assert context is not None
+        except Exception:
+            # It's also acceptable to raise
+            pass

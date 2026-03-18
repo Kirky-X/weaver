@@ -528,6 +528,13 @@ message = [
 testpaths = ["tests"]
 pythonpath = ["src"]
 asyncio_mode = "auto"
+addopts = [
+    "--cov=src",
+    "--cov-report=html",
+    "--cov-report=xml",
+    "--cov-report=term-missing",
+    "--cov-fail-under=80",
+]
 markers = [
     "performance: mark test as performance test",
     "slow: mark test as slow running",
@@ -536,4 +543,36 @@ filterwarnings = [
     "ignore:The pynvml package is deprecated:FutureWarning:torch.cuda",
     "ignore:Can't initialize NVML:UserWarning:torch.cuda",
     "ignore:Stealth has already been applied:UserWarning:playwright_stealth",
+]
+
+# ────────────────────────────────────────────────────────────
+# Coverage Configuration
+# ────────────────────────────────────────────────────────────
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    "*/.venv/*",
+    "*/alembic/*",
+    "*/scripts/*",
+    "*/temp/*",
+]
+branch = true
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "def __str__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "if typing.TYPE_CHECKING:",
+    "@abstractmethod",
 ]
