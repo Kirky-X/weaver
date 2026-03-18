@@ -65,7 +65,9 @@ def mock_prompt_loader():
 @pytest.fixture
 def mock_vector_repo():
     """Mock vector repository."""
-    return AsyncMock()
+    mock = AsyncMock()
+    mock.batch_find_similar = AsyncMock(return_value={})
+    return mock
 
 
 @pytest.fixture

@@ -1,9 +1,11 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Integration tests for VectorRepo - requires real PostgreSQL database."""
 
+import os
 import uuid
 
 import pytest
+from sqlalchemy import text
 
 from modules.storage.vector_repo import SimilarArticle, SimilarEntity, VectorRepo
 
@@ -45,48 +47,112 @@ class TestSimilarEntity:
         assert entity.similarity == 0.92
 
 
-@pytest.mark.skip(reason="Requires real PostgreSQL database - use conftest postgres_pool fixture")
 class TestVectorRepoIntegration:
     """Integration tests for VectorRepo with PostgreSQL."""
 
     @pytest.fixture
-    def vector_repo(self, postgres_pool):
-        """Create VectorRepo instance with real pool."""
-        return VectorRepo(postgres_pool)
+    async def pool(self):
+        """Create a fresh PostgreSQL pool for each test."""
+        from core.db.postgres import PostgresPool
 
-    def test_vector_repo_initialization(self, postgres_pool):
+        dsn = os.getenv(
+            "POSTGRES_DSN", "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver"
+        )
+        pool = PostgresPool(dsn)
+        await pool.startup()
+        yield pool
+        await pool.shutdown()
+
+    @pytest.mark.asyncio
+    async def test_vector_repo_initialization(self, pool):
         """Test VectorRepo initializes correctly with real pool."""
-        repo = VectorRepo(postgres_pool)
-        assert repo._pool is postgres_pool
+        repo = VectorRepo(pool)
+        assert repo._pool is pool
 
     @pytest.mark.asyncio
-    async def test_upsert_article_vectors(self, vector_repo):
+    async def test_upsert_article_vectors(self, pool):
         """Test upsert_article_vectors creates vectors."""
+        vector_repo = VectorRepo(pool)
         article_id = uuid.uuid4()
-        title_embedding = [0.1] * 1024
-        content_embedding = [0.2] * 1024
 
-        await vector_repo.upsert_article_vectors(
-            article_id=article_id,
-            title_embedding=title_embedding,
-            content_embedding=content_embedding,
-            model_id="text-embedding-3-large",
-        )
+        # Create test article
+        async with pool.session_context() as session:
+            await session.execute(
+                text("""
+                    INSERT INTO articles (id, source_url, is_news, title, body, is_merged, verified_by_sources)
+                    VALUES (:id, :url, :is_news, :title, :body, :is_merged, :verified_by)
+                """),
+                {
+                    "id": article_id,
+                    "url": f"https://test.example.com/{article_id}",
+                    "is_news": True,
+                    "title": "Test Article",
+                    "body": "Test body content",
+                    "is_merged": False,
+                    "verified_by": 0,
+                },
+            )
+
+        try:
+            title_embedding = [0.1] * 1024
+            content_embedding = [0.2] * 1024
+
+            await vector_repo.upsert_article_vectors(
+                article_id=article_id,
+                title_embedding=title_embedding,
+                content_embedding=content_embedding,
+                model_id="text-embedding-3-large",
+            )
+        finally:
+            # Cleanup
+            async with pool.session_context() as session:
+                await session.execute(
+                    text("DELETE FROM articles WHERE id = :id"),
+                    {"id": article_id},
+                )
 
     @pytest.mark.asyncio
-    async def test_find_similar(self, vector_repo):
+    async def test_find_similar(self, pool):
         """Test find_similar returns similar articles."""
+        vector_repo = VectorRepo(pool)
         article_id = uuid.uuid4()
-        embedding = [0.1] * 1024
 
-        await vector_repo.upsert_article_vectors(
-            article_id=article_id,
-            title_embedding=embedding,
-            content_embedding=None,
-        )
+        # Create test article
+        async with pool.session_context() as session:
+            await session.execute(
+                text("""
+                    INSERT INTO articles (id, source_url, is_news, title, body, is_merged, verified_by_sources)
+                    VALUES (:id, :url, :is_news, :title, :body, :is_merged, :verified_by)
+                """),
+                {
+                    "id": article_id,
+                    "url": f"https://test.example.com/{article_id}",
+                    "is_news": True,
+                    "title": "Test Article",
+                    "body": "Test body content",
+                    "is_merged": False,
+                    "verified_by": 0,
+                },
+            )
 
-        results = await vector_repo.find_similar(
-            embedding=embedding,
-            limit=5,
-        )
-        assert isinstance(results, list)
+        try:
+            embedding = [0.1] * 1024
+
+            await vector_repo.upsert_article_vectors(
+                article_id=article_id,
+                title_embedding=embedding,
+                content_embedding=None,
+            )
+
+            results = await vector_repo.find_similar(
+                embedding=embedding,
+                limit=5,
+            )
+            assert isinstance(results, list)
+        finally:
+            # Cleanup
+            async with pool.session_context() as session:
+                await session.execute(
+                    text("DELETE FROM articles WHERE id = :id"),
+                    {"id": article_id},
+                )

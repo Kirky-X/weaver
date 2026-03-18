@@ -27,23 +27,28 @@ class TestPlaywrightContextPool:
     @pytest.mark.asyncio
     async def test_startup_creates_pool(self):
         """Test startup creates browser contexts."""
-        pool = PlaywrightContextPool(pool_size=3)
+        with patch("modules.fetcher.playwright_pool.Stealth") as mock_stealth_class:
+            mock_stealth_instance = MagicMock()
+            mock_stealth_instance.apply_stealth_async = AsyncMock()
+            mock_stealth_class.return_value = mock_stealth_instance
 
-        with patch("modules.fetcher.playwright_pool.async_playwright") as mock_pw:
-            mock_pw_instance = MagicMock()
-            mock_browser = MagicMock()
-            mock_context = MagicMock()
-            mock_page = MagicMock()
+            pool = PlaywrightContextPool(pool_size=3)
 
-            mock_pw.return_value.start = AsyncMock(return_value=mock_pw_instance)
-            mock_pw_instance.chromium.launch = AsyncMock(return_value=mock_browser)
-            mock_browser.new_context = AsyncMock(return_value=mock_context)
-            mock_context.new_page = AsyncMock(return_value=mock_page)
+            with patch("modules.fetcher.playwright_pool.async_playwright") as mock_pw:
+                mock_pw_instance = MagicMock()
+                mock_browser = MagicMock()
+                mock_context = MagicMock()
+                mock_page = MagicMock()
 
-            await pool.startup()
+                mock_pw.return_value.start = AsyncMock(return_value=mock_pw_instance)
+                mock_pw_instance.chromium.launch = AsyncMock(return_value=mock_browser)
+                mock_browser.new_context = AsyncMock(return_value=mock_context)
+                mock_context.new_page = AsyncMock(return_value=mock_page)
 
-            mock_pw_instance.chromium.launch.assert_called_once()
-            assert mock_browser.new_context.call_count == 3
+                await pool.startup()
+
+                mock_pw_instance.chromium.launch.assert_called_once()
+                assert mock_browser.new_context.call_count == 3
 
     @pytest.mark.asyncio
     async def test_shutdown_closes_all(self):
@@ -172,23 +177,28 @@ class TestPlaywrightContextPool:
     @pytest.mark.asyncio
     async def test_user_agent_set(self):
         """Test user agent is set on context creation."""
-        pool = PlaywrightContextPool(pool_size=1)
+        with patch("modules.fetcher.playwright_pool.Stealth") as mock_stealth_class:
+            mock_stealth_instance = MagicMock()
+            mock_stealth_instance.apply_stealth_async = AsyncMock()
+            mock_stealth_class.return_value = mock_stealth_instance
 
-        with patch("modules.fetcher.playwright_pool.async_playwright") as mock_pw:
-            mock_pw_instance = MagicMock()
-            mock_browser = MagicMock()
-            mock_context = MagicMock()
-            mock_page = MagicMock()
+            pool = PlaywrightContextPool(pool_size=1)
 
-            mock_pw.return_value.start = AsyncMock(return_value=mock_pw_instance)
-            mock_pw_instance.chromium.launch = AsyncMock(return_value=mock_browser)
-            mock_browser.new_context = AsyncMock(return_value=mock_context)
-            mock_context.new_page = AsyncMock(return_value=mock_page)
+            with patch("modules.fetcher.playwright_pool.async_playwright") as mock_pw:
+                mock_pw_instance = MagicMock()
+                mock_browser = MagicMock()
+                mock_context = MagicMock()
+                mock_page = MagicMock()
 
-            await pool.startup()
+                mock_pw.return_value.start = AsyncMock(return_value=mock_pw_instance)
+                mock_pw_instance.chromium.launch = AsyncMock(return_value=mock_browser)
+                mock_browser.new_context = AsyncMock(return_value=mock_context)
+                mock_context.new_page = AsyncMock(return_value=mock_page)
 
-            call_kwargs = mock_browser.new_context.call_args[1]
-            assert "user_agent" in call_kwargs
+                await pool.startup()
+
+                call_kwargs = mock_browser.new_context.call_args[1]
+                assert "user_agent" in call_kwargs
 
 
 class TestPlaywrightContextPoolStealth:
@@ -303,22 +313,27 @@ class TestPlaywrightContextPoolStealth:
     @pytest.mark.asyncio
     async def test_browser_launch_args(self):
         """Test browser is launched with anti-detection args."""
-        pool = PlaywrightContextPool(pool_size=1)
+        with patch("modules.fetcher.playwright_pool.Stealth") as mock_stealth_class:
+            mock_stealth_instance = MagicMock()
+            mock_stealth_instance.apply_stealth_async = AsyncMock()
+            mock_stealth_class.return_value = mock_stealth_instance
 
-        with patch("modules.fetcher.playwright_pool.async_playwright") as mock_pw:
-            mock_pw_instance = MagicMock()
-            mock_browser = MagicMock()
-            mock_context = MagicMock()
-            mock_page = MagicMock()
+            pool = PlaywrightContextPool(pool_size=1)
 
-            mock_pw.return_value.start = AsyncMock(return_value=mock_pw_instance)
-            mock_pw_instance.chromium.launch = AsyncMock(return_value=mock_browser)
-            mock_browser.new_context = AsyncMock(return_value=mock_context)
-            mock_context.new_page = AsyncMock(return_value=mock_page)
+            with patch("modules.fetcher.playwright_pool.async_playwright") as mock_pw:
+                mock_pw_instance = MagicMock()
+                mock_browser = MagicMock()
+                mock_context = MagicMock()
+                mock_page = MagicMock()
 
-            await pool.startup()
+                mock_pw.return_value.start = AsyncMock(return_value=mock_pw_instance)
+                mock_pw_instance.chromium.launch = AsyncMock(return_value=mock_browser)
+                mock_browser.new_context = AsyncMock(return_value=mock_context)
+                mock_context.new_page = AsyncMock(return_value=mock_page)
 
-            call_kwargs = mock_pw_instance.chromium.launch.call_args[1]
-            assert "args" in call_kwargs
-            args = call_kwargs["args"]
-            assert "--disable-blink-features=AutomationControlled" in args
+                await pool.startup()
+
+                call_kwargs = mock_pw_instance.chromium.launch.call_args[1]
+                assert "args" in call_kwargs
+                args = call_kwargs["args"]
+                assert "--disable-blink-features=AutomationControlled" in args

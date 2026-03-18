@@ -156,6 +156,7 @@ class TestPipelineDrain:
         await pipeline.drain()
 
 
+@pytest.mark.filterwarnings("ignore::DeprecationWarning:torch.jit")
 class TestPipelineProcessBatch:
     """Test process_batch method."""
 
