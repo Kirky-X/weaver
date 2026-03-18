@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Rate limiting middleware using slowapi."""
 
 from __future__ import annotations

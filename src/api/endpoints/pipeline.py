@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Pipeline API endpoints for triggering and monitoring crawl tasks."""
 
 from __future__ import annotations
@@ -5,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,7 +17,6 @@ from core.cache.redis import RedisClient
 from core.db.postgres import PostgresPool
 from core.observability.metrics import metrics
 from modules.source.scheduler import SourceScheduler
-from modules.collector.models import ArticleRaw
 from modules.storage.article_repo import ArticleRepo
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
@@ -72,9 +72,9 @@ class TaskStatusResponse(BaseModel):
 
 # ── Dependency for Redis Client ─────────────────────────────────
 
-_redis_client: "RedisClient | None" = None
-_postgres_pool: "PostgresPool | None" = None
-_source_scheduler: "SourceScheduler | None" = None
+_redis_client: RedisClient | None = None
+_postgres_pool: PostgresPool | None = None
+_source_scheduler: SourceScheduler | None = None
 
 
 def set_redis_client(client: RedisClient) -> None:
@@ -155,50 +155,53 @@ async def trigger_pipeline(
     """
     print(f"[DEBUG] trigger_pipeline called, redis id={id(redis)}")
     task_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
-
-    task_data = {
-        "task_id": task_id,
-        "source_id": request.source_id,
-        "force": request.force,
-        "queued_at": now,
-        "status": "running",
-    }
+    now = datetime.now(UTC).isoformat()
 
     # Update task status to running
     await redis.client.hset(
         TASK_STATUS_KEY,
         task_id,
-        json.dumps({
-            "task_id": task_id,
-            "status": "running",
-            "source_id": request.source_id,
-            "queued_at": now,
-            "started_at": now,
-        }),
+        json.dumps(
+            {
+                "task_id": task_id,
+                "status": "running",
+                "source_id": request.source_id,
+                "queued_at": now,
+                "started_at": now,
+            }
+        ),
     )
 
     # Trigger the source scheduler to crawl
     try:
         if request.source_id:
-            await scheduler.trigger_now(request.source_id, max_items=request.max_items, task_id=uuid.UUID(task_id))
+            await scheduler.trigger_now(
+                request.source_id, max_items=request.max_items, task_id=uuid.UUID(task_id)
+            )
         else:
             sources = scheduler._registry.list_sources(enabled_only=True)
-            tasks = [scheduler.trigger_now(source.id, max_items=request.max_items, task_id=uuid.UUID(task_id)) for source in sources]
+            tasks = [
+                scheduler.trigger_now(
+                    source.id, max_items=request.max_items, task_id=uuid.UUID(task_id)
+                )
+                for source in sources
+            ]
             await asyncio.gather(*tasks, return_exceptions=True)
 
         # Update task status to completed
         await redis.client.hset(
             TASK_STATUS_KEY,
             task_id,
-            json.dumps({
-                "task_id": task_id,
-                "status": "completed",
-                "source_id": request.source_id,
-                "queued_at": now,
-                "started_at": now,
-                "completed_at": datetime.now(timezone.utc).isoformat(),
-            }),
+            json.dumps(
+                {
+                    "task_id": task_id,
+                    "status": "completed",
+                    "source_id": request.source_id,
+                    "queued_at": now,
+                    "started_at": now,
+                    "completed_at": datetime.now(UTC).isoformat(),
+                }
+            ),
         )
 
     except Exception as exc:
@@ -206,18 +209,20 @@ async def trigger_pipeline(
         await redis.client.hset(
             TASK_STATUS_KEY,
             task_id,
-            json.dumps({
-                "task_id": task_id,
-                "status": "failed",
-                "source_id": request.source_id,
-                "queued_at": now,
-                "started_at": now,
-                "error": str(exc),
-            }),
+            json.dumps(
+                {
+                    "task_id": task_id,
+                    "status": "failed",
+                    "source_id": request.source_id,
+                    "queued_at": now,
+                    "started_at": now,
+                    "error": str(exc),
+                }
+            ),
         )
         raise HTTPException(
             status_code=500,
-            detail=f"Pipeline trigger failed: {str(exc)}",
+            detail=f"Pipeline trigger failed: {exc!s}",
         )
 
     return TriggerResponse(task_id=task_id, queued_at=now)
@@ -303,7 +308,7 @@ async def get_queue_stats(
     Returns:
         Queue statistics including article-level stats.
     """
-    from sqlalchemy import func, case, select
+    from sqlalchemy import case, func, select
 
     queue_depth = await redis.client.llen(TASK_QUEUE_KEY)
 
@@ -339,12 +344,12 @@ async def get_queue_stats(
                         else_=0,
                     )
                 ).label("completed_count"),
-                func.sum(
-                    case((Article.persist_status == PersistStatus.FAILED, 1), else_=0)
-                ).label("failed_count"),
-                func.sum(
-                    case((Article.persist_status == PersistStatus.PENDING, 1), else_=0)
-                ).label("pending_count"),
+                func.sum(case((Article.persist_status == PersistStatus.FAILED, 1), else_=0)).label(
+                    "failed_count"
+                ),
+                func.sum(case((Article.persist_status == PersistStatus.PENDING, 1), else_=0)).label(
+                    "pending_count"
+                ),
             )
         )
         row = result.one()

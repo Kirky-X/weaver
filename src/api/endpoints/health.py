@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Health check endpoints for monitoring service dependencies."""
 
 import asyncio
@@ -47,7 +48,7 @@ async def check_postgres_health(pool: PostgresPool) -> dict[str, Any]:
                 await session.execute(text("SELECT 1"))
         latency_ms = (time.monotonic() - start) * 1000
         return {"status": "ok", "latency_ms": latency_ms}
-    except asyncio.TimeoutError:
+    except TimeoutError:
         latency_ms = (time.monotonic() - start) * 1000
         return {"status": "timeout", "latency_ms": latency_ms}
     except Exception as e:
@@ -67,7 +68,7 @@ async def check_neo4j_health(pool: Neo4jPool) -> dict[str, Any]:
             await pool.execute_query("RETURN 1")
         latency_ms = (time.monotonic() - start) * 1000
         return {"status": "ok", "latency_ms": latency_ms}
-    except asyncio.TimeoutError:
+    except TimeoutError:
         latency_ms = (time.monotonic() - start) * 1000
         return {"status": "timeout", "latency_ms": latency_ms}
     except Exception as e:
@@ -87,7 +88,7 @@ async def check_redis_health(client: RedisClient) -> dict[str, Any]:
             await client.client.ping()
         latency_ms = (time.monotonic() - start) * 1000
         return {"status": "ok", "latency_ms": latency_ms}
-    except asyncio.TimeoutError:
+    except TimeoutError:
         latency_ms = (time.monotonic() - start) * 1000
         return {"status": "timeout", "latency_ms": latency_ms}
     except Exception as e:
@@ -132,7 +133,4 @@ async def health_check() -> dict[str, Any]:
         checks["redis"] = {"status": "unavailable", "error": "Client not initialized"}
         all_healthy = False
 
-    return {
-        "status": "healthy" if all_healthy else "unhealthy",
-        "checks": checks
-    }
+    return {"status": "healthy" if all_healthy else "unhealthy", "checks": checks}

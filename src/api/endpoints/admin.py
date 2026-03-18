@@ -1,16 +1,14 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Admin API endpoints for source authority management."""
 
 from __future__ import annotations
-
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from api.middleware.auth import verify_api_key
-from core.db.postgres import PostgresPool
-from modules.storage.source_authority_repo import SourceAuthorityRepo
 from core.observability.logging import get_logger
+from modules.storage.source_authority_repo import SourceAuthorityRepo
 
 log = get_logger("admin_api")
 
@@ -52,7 +50,7 @@ class UpdateAuthorityResponse(BaseModel):
 
 # ── Dependency for Source Authority Repo ───────────────────────
 
-_source_authority_repo: "SourceAuthorityRepo | None" = None
+_source_authority_repo: SourceAuthorityRepo | None = None
 
 
 def set_source_authority_repo(repo: SourceAuthorityRepo) -> None:
@@ -141,7 +139,9 @@ async def update_authority(
 
     # Get current authority to preserve values
     authority = await repo.get_or_create(host)
-    new_authority = request.authority if request.authority is not None else float(authority.authority)
+    new_authority = (
+        request.authority if request.authority is not None else float(authority.authority)
+    )
     new_tier = request.tier if request.tier is not None else authority.tier
 
     # Update

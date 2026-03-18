@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """API endpoints module - FastAPI route handlers.
 
 This module contains all API endpoint routers:
@@ -15,22 +16,22 @@ Example usage:
     app.include_router(articles.router)
 """
 
+from api.endpoints.admin import router as admin_router
 from api.endpoints.articles import router as articles_router
-from api.endpoints.sources import router as sources_router
-from api.endpoints.pipeline import router as pipeline_router
 from api.endpoints.graph import router as graph_router
 from api.endpoints.graph_metrics import router as graph_metrics_router
 from api.endpoints.graph_visualization import router as graph_visualization_router
-from api.endpoints.admin import router as admin_router
 from api.endpoints.metrics import router as metrics_router
+from api.endpoints.pipeline import router as pipeline_router
+from api.endpoints.sources import router as sources_router
 
 __all__ = [
-    "articles_router",
-    "sources_router",
-    "pipeline_router",
-    "graph_router",
-    "graph_metrics_router",
-    "graph_visualization_router",
     "admin_router",
+    "articles_router",
+    "graph_metrics_router",
+    "graph_router",
+    "graph_visualization_router",
     "metrics_router",
+    "pipeline_router",
+    "sources_router",
 ]

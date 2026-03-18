@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Graph quality metrics API endpoints."""
 
 from __future__ import annotations
@@ -11,14 +12,12 @@ from api.middleware.auth import verify_api_key
 from core.db.neo4j import Neo4jPool
 from modules.graph_store.metrics import (
     GraphQualityMetrics,
-    GraphMetrics,
-    ConnectedComponent,
 )
 
 router = APIRouter(prefix="/graph/metrics", tags=["graph-metrics"])
 
 
-_neo4j_pool: "Neo4jPool | None" = None
+_neo4j_pool: Neo4jPool | None = None
 
 
 def set_neo4j_pool(pool: Neo4jPool) -> None:
@@ -45,7 +44,9 @@ class HealthSummaryResponse(BaseModel):
     entity_count: int = Field(..., ge=0, description="Total number of entities")
     relationship_count: int = Field(..., ge=0, description="Total number of relationships")
     orphan_ratio: float = Field(..., ge=0, le=1, description="Ratio of orphan entities")
-    connectedness: float = Field(..., ge=0, le=1, description="Ratio of entities in largest component")
+    connectedness: float = Field(
+        ..., ge=0, le=1, description="Ratio of entities in largest component"
+    )
     average_degree: float = Field(..., ge=0, description="Average entity degree")
     recommendations: list[str] = Field(default_factory=list, description="Health recommendations")
 

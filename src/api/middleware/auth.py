@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """API authentication middleware."""
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ async def verify_api_key(
         HTTPException: If the API key is missing or invalid.
     """
     from container import get_settings
+
     settings = get_settings()
 
     if key is None:

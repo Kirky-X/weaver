@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Graph visualization API endpoints for enhanced knowledge graph exploration.
 
 Provides API endpoints for:
@@ -20,7 +21,7 @@ from core.db.neo4j import Neo4jPool
 router = APIRouter(prefix="/graph/visualization", tags=["graph-visualization"])
 
 
-_neo4j_pool: "Neo4jPool | None" = None
+_neo4j_pool: Neo4jPool | None = None
 
 
 def set_neo4j_pool(pool: Neo4jPool) -> None:
@@ -139,12 +140,14 @@ async def get_graph_snapshot(
     node_ids = set()
 
     for r in results:
-        nodes.append(NodeResponse(
-            id=r.get("id", ""),
-            label=r.get("label", ""),
-            type=r.get("type", "未知"),
-            properties={"description": r.get("description"), "degree": r.get("degree", 0)},
-        ))
+        nodes.append(
+            NodeResponse(
+                id=r.get("id", ""),
+                label=r.get("label", ""),
+                type=r.get("type", "未知"),
+                properties={"description": r.get("description"), "degree": r.get("degree", 0)},
+            )
+        )
         node_ids.add(r.get("id"))
 
     if not node_ids:
@@ -161,10 +164,13 @@ async def get_graph_snapshot(
     """
 
     edge_limit = limit * 3
-    edge_results = await neo4j.execute_query(edge_query, {
-        "node_ids": list(node_ids),
-        "edge_limit": edge_limit,
-    })
+    edge_results = await neo4j.execute_query(
+        edge_query,
+        {
+            "node_ids": list(node_ids),
+            "edge_limit": edge_limit,
+        },
+    )
 
     edges = [
         EdgeResponse(
@@ -229,12 +235,14 @@ async def get_subgraph(
     for r in results:
         if request.exclude_types and r.get("type") in request.exclude_types:
             continue
-        nodes.append(NodeResponse(
-            id=r.get("id", ""),
-            label=r.get("label", ""),
-            type=r.get("type", "未知"),
-            properties={"description": r.get("description")},
-        ))
+        nodes.append(
+            NodeResponse(
+                id=r.get("id", ""),
+                label=r.get("label", ""),
+                type=r.get("type", "未知"),
+                properties={"description": r.get("description")},
+            )
+        )
         node_ids.add(r.get("id"))
 
     if not node_ids:
@@ -286,8 +294,8 @@ async def get_force_directed_layout(
     This is a simplified layout - for production, consider using
     a proper graph layout library like d3-force or cytoscape.js.
     """
-    import math
     import random
+
     random.seed(42)
 
     subgraph = await _extract_subgraph_nodes(neo4j, center_entity, max_hops)
@@ -306,16 +314,18 @@ async def get_force_directed_layout(
         color = TYPE_COLORS.get(node["type"], "#9E9E9E")
         size = min(40, 10 + node.get("degree", 0) * 2)
 
-        layout_nodes.append(LayoutNode(
-            id=node["id"],
-            label=node["label"],
-            type=node["type"],
-            x=pos["x"],
-            y=pos["y"],
-            size=size,
-            color=color,
-            properties={"description": node.get("description")},
-        ))
+        layout_nodes.append(
+            LayoutNode(
+                id=node["id"],
+                label=node["label"],
+                type=node["type"],
+                x=pos["x"],
+                y=pos["y"],
+                size=size,
+                color=color,
+                properties={"description": node.get("description")},
+            )
+        )
 
     layout_edges = [
         LayoutEdge(
@@ -391,9 +401,10 @@ def _compute_simple_layout(
     """Compute a simple circular layout with force simulation approximation."""
     import math
     import random
+
     random.seed(42)
 
-    positions = {}
+    positions: dict[str, dict[str, float]] = {}
     n = len(nodes)
 
     if n == 0:
@@ -407,8 +418,9 @@ def _compute_simple_layout(
         base_y = height / 2 + radius * math.sin(angle)
 
         jitter = 30
-        x = base_x + random.uniform(-jitter, jitter)
-        y = base_y + random.uniform(-jitter, jitter)
+        # Using deterministic random for consistent layout (not cryptographic)
+        x = base_x + random.uniform(-jitter, jitter)  # noqa: S311
+        y = base_y + random.uniform(-jitter, jitter)  # noqa: S311
 
         positions[node["id"]] = {"x": x, "y": y}
 
@@ -452,7 +464,7 @@ def _compute_simple_layout(
             forces[s] = (fx1 + fx, fy1 + fy)
             forces[t] = (fx2 - fx, fy2 - fy)
 
-        for i, node in enumerate(nodes):
+        for _i, node in enumerate(nodes):
             nid = node["id"]
             fx, fy = forces.get(nid, (0, 0))
 

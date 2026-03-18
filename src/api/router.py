@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unified API router."""
 
 from __future__ import annotations
@@ -5,14 +6,14 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from api.endpoints import (
-    sources,
-    pipeline,
+    admin,
     articles,
     graph,
     graph_metrics,
     graph_visualization,
-    admin,
     metrics,
+    pipeline,
+    sources,
 )
 
 api_router = APIRouter(prefix="/api/v1")

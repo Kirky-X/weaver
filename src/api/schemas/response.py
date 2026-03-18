@@ -1,9 +1,10 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unified API response schemas."""
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Generic, Optional, TypeVar
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, Field
 
@@ -22,7 +23,7 @@ class APIResponse(BaseModel, Generic[T]):
 
     code: int = Field(default=0, description="Response code, 0 for success")
     message: str = Field(default="success", description="Response message")
-    data: Optional[T] = Field(default=None, description="Response payload")
+    data: T | None = Field(default=None, description="Response payload")
     timestamp: datetime = Field(
         default_factory=lambda: datetime.now(),
         description="Response timestamp",
@@ -40,9 +41,7 @@ class ErrorResponse(BaseModel):
 
     code: int = Field(description="Error code")
     message: str = Field(description="Error message")
-    details: Optional[dict[str, Any]] = Field(
-        default=None, description="Optional error details"
-    )
+    details: dict[str, Any] | None = Field(default=None, description="Optional error details")
 
 
 class PaginatedResponse(BaseModel, Generic[T]):
@@ -69,7 +68,7 @@ class PaginatedResponse(BaseModel, Generic[T]):
         total: int,
         page: int,
         page_size: int,
-    ) -> "PaginatedResponse[T]":
+    ) -> PaginatedResponse[T]:
         """Create a paginated response.
 
         Args:

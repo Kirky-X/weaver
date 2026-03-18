@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Articles API endpoints."""
 
 from __future__ import annotations
@@ -7,13 +8,12 @@ from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field
-from sqlalchemy import select, desc, asc
-from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel
+from sqlalchemy import asc, desc, select
 
 from api.middleware.auth import verify_api_key
 from api.middleware.rate_limit import limiter
-from core.db.models import Article, CategoryType, PersistStatus
+from core.db.models import Article, CategoryType
 from core.db.postgres import PostgresPool
 from core.observability.logging import get_logger
 
@@ -67,7 +67,7 @@ class ArticleDetailResponse(BaseModel):
 
 # ── Dependency for Postgres Pool ─────────────────────────────────
 
-_postgres_pool: "PostgresPool | None" = None
+_postgres_pool: PostgresPool | None = None
 
 
 def set_postgres_pool(pool: PostgresPool) -> None:
@@ -107,10 +107,18 @@ def _article_to_dict(article: Article) -> dict[str, Any]:
         "sentiment": article.sentiment,
         "sentiment_score": float(article.sentiment_score) if article.sentiment_score else None,
         "primary_emotion": article.primary_emotion.value if article.primary_emotion else None,
-        "credibility_score": float(article.credibility_score) if article.credibility_score else None,
-        "source_credibility": float(article.source_credibility) if article.source_credibility else None,
-        "cross_verification": float(article.cross_verification) if article.cross_verification else None,
-        "content_check_score": float(article.content_check_score) if article.content_check_score else None,
+        "credibility_score": (
+            float(article.credibility_score) if article.credibility_score else None
+        ),
+        "source_credibility": (
+            float(article.source_credibility) if article.source_credibility else None
+        ),
+        "cross_verification": (
+            float(article.cross_verification) if article.cross_verification else None
+        ),
+        "content_check_score": (
+            float(article.content_check_score) if article.content_check_score else None
+        ),
         "publish_time": article.publish_time.isoformat() if article.publish_time else None,
         "created_at": article.created_at.isoformat(),
         "updated_at": article.updated_at.isoformat(),
@@ -129,8 +137,12 @@ async def list_articles(
     category: str | None = Query(None, description="Filter by category"),
     source_host: str | None = Query(None, description="Filter by source host"),
     min_score: float | None = Query(None, ge=0, le=1, description="Minimum score filter"),
-    min_credibility: float | None = Query(None, ge=0, le=1, description="Minimum credibility filter"),
-    sort_by: str = Query("publish_time", description="Sort field: publish_time, score, credibility_score, created_at"),
+    min_credibility: float | None = Query(
+        None, ge=0, le=1, description="Minimum credibility filter"
+    ),
+    sort_by: str = Query(
+        "publish_time", description="Sort field: publish_time, score, credibility_score, created_at"
+    ),
     sort_order: str = Query("desc", description="Sort order: asc, desc"),
     _: str = Depends(verify_api_key),
     pool: PostgresPool = Depends(get_postgres_pool),
@@ -229,9 +241,7 @@ async def get_article(
         )
 
     async with pool.session() as session:
-        result = await session.execute(
-            select(Article).where(Article.id == article_uuid)
-        )
+        result = await session.execute(select(Article).where(Article.id == article_uuid))
         article = result.scalar_one_or_none()
 
         if article is None:

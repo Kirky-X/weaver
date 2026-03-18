@@ -1,15 +1,17 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Sources API endpoints."""
 
 from __future__ import annotations
 
-from typing import Any
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from api.middleware.auth import verify_api_key
 from modules.source.models import SourceConfig
+from modules.source.registry import SourceRegistry
 
 router = APIRouter(prefix="/sources", tags=["sources"])
 
@@ -53,7 +55,7 @@ class SourceResponse(BaseModel):
     last_crawl_time: datetime | None = None
 
     @classmethod
-    def from_config(cls, config: SourceConfig) -> "SourceResponse":
+    def from_config(cls, config: SourceConfig) -> SourceResponse:
         return cls(
             id=config.id,
             name=config.name,
@@ -69,7 +71,7 @@ class SourceResponse(BaseModel):
 # ── Dependency for Source Registry ───────────────────────────────
 
 # This will be injected via container
-_source_registry: "SourceRegistry | None" = None
+_source_registry: SourceRegistry | None = None
 
 
 def set_source_registry(registry: Any) -> None:

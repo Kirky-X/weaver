@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Graph API endpoints for entity and relationship queries."""
 
 from __future__ import annotations
@@ -75,7 +76,7 @@ class ArticleGraphResponse(BaseModel):
 
 # ── Dependency for Neo4j Client ─────────────────────────────────
 
-_neo4j_client: "Neo4jPool | None" = None
+_neo4j_client: Neo4jPool | None = None
 
 
 def set_neo4j_client(client: Neo4jPool) -> None:
@@ -102,7 +103,7 @@ async def get_entity(
     name: str,
     limit: int = Query(10, ge=1, le=100, description="Max related entities to return"),
     _: str = Depends(verify_api_key),
-    neo4j: Neo4jClient = Depends(get_neo4j_client),
+    neo4j: Neo4jPool = Depends(get_neo4j_client),
 ) -> EntityWithRelations:
     """Get entity information and its relationships.
 
@@ -212,13 +213,17 @@ async def get_entity(
 
         mentioned_in_articles = []
         async for row in articles_result:
-            mentioned_in_articles.append({
-                "id": row["id"],
-                "title": row["title"],
-                "category": row.get("category"),
-                "publish_time": row["publish_time"].isoformat() if row.get("publish_time") else None,
-                "score": row.get("score"),
-            })
+            mentioned_in_articles.append(
+                {
+                    "id": row["id"],
+                    "title": row["title"],
+                    "category": row.get("category"),
+                    "publish_time": (
+                        row["publish_time"].isoformat() if row.get("publish_time") else None
+                    ),
+                    "score": row.get("score"),
+                }
+            )
 
         return EntityWithRelations(
             entity=entity,
@@ -232,7 +237,7 @@ async def get_entity(
 async def get_article_graph(
     article_id: str,
     _: str = Depends(verify_api_key),
-    neo4j: Neo4jClient = Depends(get_neo4j_client),
+    neo4j: Neo4jPool = Depends(get_neo4j_client),
 ) -> ArticleGraphResponse:
     """Get the knowledge graph for a specific article.
 
@@ -266,7 +271,11 @@ async def get_article_graph(
             id=article_record["id"],
             title=article_record["title"],
             category=article_record.get("category"),
-            publish_time=article_record["publish_time"].isoformat() if article_record.get("publish_time") else None,
+            publish_time=(
+                article_record["publish_time"].isoformat()
+                if article_record.get("publish_time")
+                else None
+            ),
             score=article_record.get("score"),
         )
 
@@ -315,7 +324,9 @@ async def get_article_graph(
                     relation_type=row["relation_type"],
                     properties={
                         "source_article_id": row.get("source_article_id"),
-                        "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+                        "created_at": (
+                            row["created_at"].isoformat() if row.get("created_at") else None
+                        ),
                     },
                 )
             )
@@ -340,7 +351,9 @@ async def get_article_graph(
                     id=row["id"],
                     title=row["title"],
                     category=row.get("category"),
-                    publish_time=row["publish_time"].isoformat() if row.get("publish_time") else None,
+                    publish_time=(
+                        row["publish_time"].isoformat() if row.get("publish_time") else None
+                    ),
                     score=row.get("score"),
                 )
             )

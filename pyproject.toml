@@ -130,6 +130,8 @@ ignore = [
     "E501",
     # B023 — 函数内绑定后期静默赋值（误报较多）
     "B023",
+    # B008 — FastAPI Depends 在默认参数中使用（标准模式）
+    "B008",
     # B904 — 异常链中的 raise（pydantic 场景误报）
     "B904",
     # UP007 — 使用 X | Y 而非 Union[X, Y]（py312 原生支持但 pydantic 2.x 兼容）
@@ -156,6 +158,7 @@ ignore = [
     # RUF001 — 非 PEP 604 类型注解（pydantic 兼容）
     "RUF001",
     "RUF012",
+    "UP046",   # pydantic GenericModel 模式（与 pydantic 2.x 兼容）
 ]
 
 [tool.ruff.lint.per-file-ignores]

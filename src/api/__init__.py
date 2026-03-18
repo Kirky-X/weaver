@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """API module - FastAPI application and endpoints.
 
 This module provides:
