@@ -1,0 +1,333 @@
+# Prometheus Alert Rules for Weaver
+# 告警规则配置文件
+
+groups:
+  # ============================================================================
+  # Circuit Breaker 告警规则
+  # ============================================================================
+  - name: circuit_breaker_alerts
+    rules:
+      # 熔断器打开告警 - Critical
+      - alert: CircuitBreakerOpen
+        expr: circuit_breaker_state == 1
+        for: 1m
+        labels:
+          severity: critical
+          component: circuit_breaker
+        annotations:
+          summary: "Circuit Breaker 处于 OPEN 状态"
+          description: "Provider {{ $labels.provider }} 的 Circuit Breaker 已打开，服务熔断。所有请求将被快速失败。"
+          runbook_url: "https://wiki.example.com/runbooks/circuit-breaker-open"
+
+      # 熔断器半开告警 - Warning
+      - alert: CircuitBreakerHalfOpen
+        expr: circuit_breaker_state == 2
+        for: 5m
+        labels:
+          severity: warning
+          component: circuit_breaker
+        annotations:
+          summary: "Circuit Breaker 处于 HALF_OPEN 状态"
+          description: "Provider {{ $labels.provider }} 的 Circuit Breaker 处于半开状态超过 5 分钟，正在尝试恢复。"
+          runbook_url: "https://wiki.example.com/runbooks/circuit-breaker-half-open"
+
+      # 高熔断频率告警
+      - alert: HighCircuitBreakerFailureRate
+        expr: increase(circuit_breaker_failures_total[5m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+          component: circuit_breaker
+        annotations:
+          summary: "Circuit Breaker 失败频率过高"
+          description: "Provider {{ $labels.provider }} 在过去 5 分钟内触发熔断 {{ $value }} 次，可能存在上游服务不稳定。"
+
+  # ============================================================================
+  # LLM 服务质量告警规则
+  # ============================================================================
+  - name: llm_quality_alerts
+    rules:
+      # LLM 调用高错误率告警
+      - alert: LLMHighErrorRate
+        expr: |
+          (sum(rate(llm_call_total{status="error"}[5m])) by (provider)
+          /
+          sum(rate(llm_call_total[5m])) by (provider)) * 100 > 10
+        for: 5m
+        labels:
+          severity: critical
+          component: llm
+        annotations:
+          summary: "LLM 调用错误率过高"
+          description: "Provider {{ $labels.provider }} 的 LLM 调用错误率达到 {{ $value | printf \"%.2f\" }}%，超过 10% 阈值。"
+          runbook_url: "https://wiki.example.com/runbooks/llm-high-error-rate"
+
+      # LLM 调用高延迟告警 (P99 > 10s)
+      - alert: LLMHighLatency
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(llm_call_latency_seconds_bucket[5m])) by (le, provider)
+          ) > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: llm
+        annotations:
+          summary: "LLM 调用延迟过高"
+          description: "Provider {{ $labels.provider }} 的 P99 延迟为 {{ $value | printf \"%.2f\" }}s，超过 10s 阈值。"
+
+      # Fallback 频繁触发告警
+      - alert: FrequentFallbackTriggered
+        expr: increase(llm_fallback_total[1h]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: llm
+        annotations:
+          summary: "LLM Fallback 频繁触发"
+          description: "在过去 1 小时内，从 {{ $labels.from_provider }} 触发 {{ $value }} 次 Fallback（原因：{{ $labels.reason }}）。"
+
+  # ============================================================================
+  # API 性能告警规则
+  # ============================================================================
+  - name: api_performance_alerts
+    rules:
+      # API 高延迟告警 (P99 > 1s)
+      - alert: APIHighLatency
+        expr: |
+          histogram_quantile(0.99,
+            sum(rate(api_request_latency_seconds_bucket[5m])) by (le, endpoint)
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+        annotations:
+          summary: "API 响应延迟过高"
+          description: "端点 {{ $labels.endpoint }} 的 P99 延迟为 {{ $value | printf \"%.3f\" }}s，超过 1s 阈值。"
+          runbook_url: "https://wiki.example.com/runbooks/api-high-latency"
+
+      # API 错误率告警 (5xx > 5%)
+      - alert: APIHighErrorRate
+        expr: |
+          (sum(rate(api_request_total{status=~"5.."}[5m])) by (endpoint)
+          /
+          sum(rate(api_request_total[5m])) by (endpoint)) * 100 > 5
+        for: 5m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "API 错误率过高"
+          description: "端点 {{ $labels.endpoint }} 的 5xx 错误率达到 {{ $value | printf \"%.2f\" }}%，超过 5% 阈值。"
+          runbook_url: "https://wiki.example.com/runbooks/api-high-error-rate"
+
+  # ============================================================================
+  # 数据库连接池告警规则
+  # ============================================================================
+  - name: database_pool_alerts
+    rules:
+      # 数据库连接池饱和告警
+      - alert: DatabasePoolSaturation
+        expr: db_pool_utilization > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "数据库连接池接近饱和"
+          description: "数据库 {{ $labels.pool }} 的连接池利用率达到 {{ $value | printf \"%.2f\" }}%，超过 90% 阈值。可能导致请求排队或超时。"
+          runbook_url: "https://wiki.example.com/runbooks/database-pool-saturation"
+
+      # 数据库连接池耗尽告警 - Critical
+      - alert: DatabasePoolExhausted
+        expr: db_pool_utilization > 0.95
+        for: 2m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "数据库连接池即将耗尽"
+          description: "数据库 {{ $labels.pool }} 的连接池利用率达到 {{ $value | printf \"%.2f\" }}%，即将耗尽。紧急需要扩容或优化连接使用。"
+
+  # ============================================================================
+  # 健康检查告警规则
+  # ============================================================================
+  - name: health_check_alerts
+    rules:
+      # 服务健康检查失败告警
+      # 注意：此告警依赖 /health 端点的 health_check_status 指标
+      # 指标值: 1=ok, 0=error, -1=timeout, -2=unavailable
+      - alert: ServiceHealthCheckFailed
+        expr: health_check_status != 1
+        for: 2m
+        labels:
+          severity: critical
+          component: health
+        annotations:
+          summary: "服务健康检查失败"
+          description: "服务 {{ $labels.service }} 健康检查失败。当前状态：{{ $value }} (0=error, -1=timeout, -2=unavailable)。"
+          runbook_url: "https://wiki.example.com/runbooks/health-check-failed"
+
+      # 健康检查高延迟告警
+      - alert: HealthCheckHighLatency
+        expr: health_check_latency_ms > 1000
+        for: 5m
+        labels:
+          severity: warning
+          component: health
+        annotations:
+          summary: "健康检查延迟过高"
+          description: "服务 {{ $labels.service }} 的健康检查延迟为 {{ $value }}ms，超过 1s 阈值。可能存在网络或数据库性能问题。"
+
+      # 多服务健康检查失败告警 - Critical
+      - alert: MultipleServicesUnhealthy
+        expr: count(health_check_status != 1) >= 2
+        for: 1m
+        labels:
+          severity: critical
+          component: health
+        annotations:
+          summary: "多个服务健康检查失败"
+          description: "当前有 {{ $value }} 个服务健康检查失败。系统可能存在严重的底层故障。"
+          runbook_url: "https://wiki.example.com/runbooks/multiple-services-unhealthy"
+
+  # ============================================================================
+  # 数据一致性告警规则
+  # ============================================================================
+  - name: data_consistency_alerts
+    rules:
+      # PostgreSQL 与 Neo4j 数据不一致告警
+      # 注意：此告警依赖定期同步任务产生的指标
+      # abs() 计算绝对值差异
+      - alert: DataInconsistencyDetected
+        expr: |
+          abs(
+            pg_stat_user_tables_n_live_tup{datname="weaver"}
+            -
+            neo4j_node_count{label="Entity"}
+          ) > 50
+        for: 10m
+        labels:
+          severity: warning
+          component: consistency
+        annotations:
+          summary: "检测到数据不一致"
+          description: "PostgreSQL 与 Neo4j 的记录数差异为 {{ $value }}，超过 50 条阈值。可能需要手动同步或检查同步任务。"
+          runbook_url: "https://wiki.example.com/runbooks/data-inconsistency"
+
+      # 数据不一致严重告警 - Critical
+      - alert: SevereDataInconsistency
+        expr: |
+          abs(
+            pg_stat_user_tables_n_live_tup{datname="weaver"}
+            -
+            neo4j_node_count{label="Entity"}
+          ) > 100
+        for: 15m
+        labels:
+          severity: critical
+          component: consistency
+        annotations:
+          summary: "严重的数据不一致"
+          description: "PostgreSQL 与 Neo4j 的记录数差异达到 {{ $value }}，超过 100 条阈值。数据一致性严重受损，需要立即处理。"
+
+      # 数据库事务错误率高告警
+      - alert: HighTransactionErrorRate
+        expr: increase(db_transaction_errors_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: consistency
+        annotations:
+          summary: "数据库事务错误率高"
+          description: "数据库 {{ $labels.database }} 在过去 5 分钟内发生 {{ $value }} 次 {{ $labels.error_type }} 错误。"
+
+      # Pipeline 队列积压告警
+      - alert: PipelineQueueBacklog
+        expr: pipeline_queue_depth > 1000
+        for: 10m
+        labels:
+          severity: warning
+          component: pipeline
+        annotations:
+          summary: "Pipeline 队列积压"
+          description: "Pipeline 队列深度达到 {{ $value }}，超过 1000 阈值。可能存在处理性能瓶颈或下游服务慢。"
+          runbook_url: "https://wiki.example.com/runbooks/pipeline-queue-backlog"
+
+      # Pipeline 同步延迟告警
+      - alert: PipelineSyncDelay
+        expr: pipeline_stage_latency_seconds{stage="batch_merger"} > 30
+        for: 10m
+        labels:
+          severity: warning
+          component: pipeline
+        annotations:
+          summary: "Pipeline 同步延迟过高"
+          description: "阶段 {{ $labels.stage }} 的同步延迟为 {{ $value }}s，超过 30s 阈值。可能影响数据一致性。"
+
+      # 持久化失败率告警
+      - alert: HighPersistenceFailureRate
+        expr: |
+          (sum(persist_status_count{status="failed"})
+          /
+          sum(persist_status_count)) * 100 > 5
+        for: 10m
+        labels:
+          severity: warning
+          component: consistency
+        annotations:
+          summary: "持久化失败率过高"
+          description: "当前持久化失败率达到 {{ $value | printf \"%.2f\" }}%，超过 5% 阈值。可能影响数据完整性。"
+
+  # ============================================================================
+  # 系统资源告警规则 (可选)
+  # ============================================================================
+  - name: system_resource_alerts
+    rules:
+      # 内存使用率告警 - 需要配置 node_exporter
+      # - alert: HighMemoryUsage
+      #   expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 85
+      #   for: 5m
+      #   labels:
+      #     severity: warning
+      #   annotations:
+      #     summary: "内存使用率过高"
+      #     description: "内存使用率达到 {{ $value }}%，超过 85% 阈值。"
+
+      # CPU 使用率告警 - 需要配置 node_exporter
+      # - alert: HighCPUUsage
+      #   expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+      #   for: 5m
+      #   labels:
+      #     severity: warning
+      #   annotations:
+      #     summary: "CPU 使用率过高"
+      #     description: "CPU 使用率达到 {{ $value }}%，超过 80% 阈值。"
+
+# ============================================================================
+# 告警配置说明
+# ============================================================================
+#
+# 严重级别定义：
+# - critical: 需要立即处理，影响核心功能
+# - warning: 需要关注，可能影响服务质量
+#
+# 告警持续时间 (for) 说明：
+# - 短时间（1-2分钟）：适合快速失败的严重问题
+# - 中等时间（5-10分钟）：适合需要观察的趋势性问题
+# - 长时间（10-15分钟）：适合缓慢恶化的数据问题
+#
+# 依赖说明：
+# 1. Circuit Breaker 告警依赖 circuit_breaker_state 指标
+# 2. API 告警依赖 api_request_total 和 api_request_latency_seconds_bucket 指标
+# 3. 健康检查告警依赖 health_check_status 指标（由 /health 端点提供）
+# 4. 数据一致性告警依赖 pg_stat_user_tables_n_live_tup 和 neo4j_node_count 指标
+#
+# 使用方法：
+# 1. 将此文件放置在 Prometheus 配置目录
+# 2. 在 prometheus.yml 中添加：
+#    rule_files:
+#      - "alerts.yml"
+# 3. 重启 Prometheus 使配置生效
+# 4. 配置 Alertmanager 接收告警通知
