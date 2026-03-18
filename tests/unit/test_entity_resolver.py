@@ -37,15 +37,53 @@ class TestEntityResolver:
         return llm
 
     @pytest.fixture
-    def resolver(self, mock_entity_repo, mock_vector_repo, mock_llm):
+    def mock_normalizer(self):
+        """Mock name normalizer."""
+        normalizer = MagicMock()
+        normalizer.normalize = MagicMock(
+            return_value=MagicMock(normalized="张三", text="张三", lang="zh")
+        )
+        normalizer.select_canonical = MagicMock(return_value=MagicMock(text="张三"))
+        return normalizer
+
+    @pytest.fixture
+    def mock_rules(self):
+        """Mock resolution rules."""
+        from modules.graph_store.resolution_rules import MatchType
+
+        rules = MagicMock()
+        rules.get_canonical_suggestion = MagicMock(return_value="张三")
+        rules.resolve = MagicMock(
+            return_value=MagicMock(
+                match_type=MatchType.FUZZY, confidence=0.95, canonical_name="张三"
+            )
+        )
+        rules.get_all_aliases = MagicMock(return_value=[])
+        rules._alias_map = {}
+        rules._abbreviation_map = []
+        rules._translation_map = []
+        rules._rules = []
+        return rules
+
+    @pytest.fixture
+    def resolver(self, mock_entity_repo, mock_vector_repo, mock_llm, mock_normalizer, mock_rules):
         """Create entity resolver instance."""
         return EntityResolver(
-            entity_repo=mock_entity_repo, vector_repo=mock_vector_repo, llm=mock_llm
+            entity_repo=mock_entity_repo,
+            vector_repo=mock_vector_repo,
+            llm=mock_llm,
+            name_normalizer=mock_normalizer,
+            resolution_rules=mock_rules,
         )
 
-    def test_initialization(self, mock_entity_repo, mock_vector_repo):
+    def test_initialization(self, mock_entity_repo, mock_vector_repo, mock_normalizer, mock_rules):
         """Test resolver initializes correctly."""
-        resolver = EntityResolver(entity_repo=mock_entity_repo, vector_repo=mock_vector_repo)
+        resolver = EntityResolver(
+            entity_repo=mock_entity_repo,
+            vector_repo=mock_vector_repo,
+            name_normalizer=mock_normalizer,
+            resolution_rules=mock_rules,
+        )
         assert resolver._entity_repo is mock_entity_repo
         assert resolver._vector_repo is mock_vector_repo
 
@@ -200,12 +238,22 @@ class TestEntityResolver:
 
         assert len(results) == 2
 
-    @pytest.mark.asyncio
-    async def test_no_llm_uses_first_candidate(self, mock_entity_repo, mock_vector_repo):
-        """Test without LLM, uses first candidate."""
-        resolver = EntityResolver(
-            entity_repo=mock_entity_repo, vector_repo=mock_vector_repo, llm=None
+    @pytest.fixture
+    def resolver_no_llm(self, mock_entity_repo, mock_vector_repo, mock_normalizer, mock_rules):
+        """Create entity resolver instance without LLM."""
+        return EntityResolver(
+            entity_repo=mock_entity_repo,
+            vector_repo=mock_vector_repo,
+            llm=None,
+            name_normalizer=mock_normalizer,
+            resolution_rules=mock_rules,
         )
+
+    @pytest.mark.asyncio
+    async def test_no_llm_uses_first_candidate(
+        self, resolver_no_llm, mock_entity_repo, mock_vector_repo
+    ):
+        """Test without LLM, uses first candidate."""
         mock_entity_repo.find_entity = AsyncMock(return_value=None)
         mock_vector_repo.find_similar_entities = AsyncMock(
             return_value=[MagicMock(neo4j_id="candidate_1", similarity=0.9)]
@@ -214,7 +262,7 @@ class TestEntityResolver:
             return_value={"neo4j_id": "candidate_1", "canonical_name": "张三", "similarity": 0.9}
         )
 
-        result = await resolver.resolve_entity(
+        result = await resolver_no_llm.resolve_entity(
             name="张三", entity_type="人物", embedding=[0.1] * 1024
         )
 

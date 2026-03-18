@@ -354,7 +354,11 @@ class TestPipelineEndpoint:
             )
 
         assert result.task_id == "12345678-1234-5678-1234-567812345678"
-        mock_scheduler.trigger_now.assert_called_once_with("source-1")
+        mock_scheduler.trigger_now.assert_called_once_with(
+            "source-1",
+            max_items=None,
+            task_id=uuid.UUID("12345678-1234-5678-1234-567812345678"),
+        )
 
     @pytest.mark.asyncio
     async def test_trigger_pipeline_all_sources(self):
@@ -475,9 +479,24 @@ class TestPipelineEndpoint:
             }
         )
 
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.one.return_value = MagicMock(
+            total_articles=10,
+            processing_count=2,
+            completed_count=7,
+            failed_count=1,
+        )
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_postgres = MagicMock()
+        mock_postgres.session = MagicMock(return_value=mock_session)
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+
         result = await get_queue_stats(
             _="test-key",
             redis=mock_redis,
+            postgres_pool=mock_postgres,
         )
         assert result["queue_depth"] == 5
         assert result["total_tasks"] == 2

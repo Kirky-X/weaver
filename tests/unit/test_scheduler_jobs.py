@@ -389,6 +389,7 @@ class TestRetryPipelineProcessing:
         mock_article.body = "Body"
         mock_article.source_host = "example.com"
 
+        scheduler_jobs_with_pipeline._article_repo.get_pending = AsyncMock(return_value=[])
         scheduler_jobs_with_pipeline._article_repo.get_stuck_articles = AsyncMock(
             return_value=[mock_article]
         )
