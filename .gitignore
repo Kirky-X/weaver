@@ -20,3 +20,10 @@ docker/docker-compose.dev.yml
 
 # Configuration files
 config/settings.toml
+
+# Project specific ignores
+openspec/
+.claude/
+docs/report/
+REQUIREMENT_COMPLIANCE_REPORT.md
+REVIEW_REPORT.md

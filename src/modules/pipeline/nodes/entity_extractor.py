@@ -59,10 +59,15 @@ class EntityExtractorNode:
             spacy_entities = []
 
         # Phase 2: Batch embed entities
+        entity_name_to_embedding: dict[str, list[float]] = {}
         if spacy_entities:
             try:
                 entity_texts = [f"{e.name}（{e.type}）" for e in spacy_entities]
                 entity_embeds = await self._llm.batch_embed(entity_texts)
+
+                for i, e in enumerate(spacy_entities):
+                    if i < len(entity_embeds) and entity_embeds[i]:
+                        entity_name_to_embedding[e.name] = entity_embeds[i]
 
                 if self._vector_repo:
                     try:
@@ -100,6 +105,12 @@ class EntityExtractorNode:
             state["entities"] = result.entities
             state["relations"] = result.relations
             entity_count = len(result.entities)
+
+            for entity in state["entities"]:
+                name = entity.get("name", "")
+                if name in entity_name_to_embedding:
+                    entity["embedding"] = entity_name_to_embedding[name]
+
         except Exception as e:
             log.warning("entity_llm_failed_using_empty", error=str(e), url=state["raw"].url)
             state["entities"] = []

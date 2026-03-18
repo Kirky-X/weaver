@@ -13,9 +13,11 @@ from pydantic import BaseModel, Field
 
 from api.middleware.auth import verify_api_key
 from core.cache.redis import RedisClient
+from core.db.postgres import PostgresPool
 from core.observability.metrics import metrics
 from modules.source.scheduler import SourceScheduler
 from modules.collector.models import ArticleRaw
+from modules.storage.article_repo import ArticleRepo
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
@@ -33,6 +35,10 @@ class TriggerRequest(BaseModel):
     force: bool = Field(
         default=False,
         description="Force re-crawl even for recently fetched URLs.",
+    )
+    max_items: int | None = Field(
+        default=None,
+        description="Maximum number of items to process per source (None for unlimited).",
     )
 
 
@@ -56,11 +62,18 @@ class TaskStatusResponse(BaseModel):
     progress: int | None = None
     total: int | None = None
     error: str | None = None
+    # Progress statistics fields
+    total_processed: int = 0
+    processing_count: int = 0
+    completed_count: int = 0
+    failed_count: int = 0
+    pending_count: int = 0
 
 
 # ── Dependency for Redis Client ─────────────────────────────────
 
 _redis_client: "RedisClient | None" = None
+_postgres_pool: "PostgresPool | None" = None
 _source_scheduler: "SourceScheduler | None" = None
 
 
@@ -78,6 +91,22 @@ def get_redis_client() -> RedisClient:
             detail="Redis client not initialized",
         )
     return _redis_client
+
+
+def set_postgres_pool(pool: PostgresPool) -> None:
+    """Set the global PostgresPool instance."""
+    global _postgres_pool
+    _postgres_pool = pool
+
+
+def get_postgres_pool() -> PostgresPool:
+    """Get the PostgresPool instance."""
+    if _postgres_pool is None:
+        raise HTTPException(
+            status_code=503,
+            detail="PostgresPool not initialized",
+        )
+    return _postgres_pool
 
 
 def set_source_scheduler(scheduler: SourceScheduler) -> None:
@@ -152,12 +181,11 @@ async def trigger_pipeline(
     # Trigger the source scheduler to crawl
     try:
         if request.source_id:
-            # Crawl specific source
-            await scheduler.trigger_now(request.source_id)
+            await scheduler.trigger_now(request.source_id, max_items=request.max_items, task_id=uuid.UUID(task_id))
         else:
-            # Crawl all enabled sources
-            for source in scheduler._registry.list_sources(enabled_only=True):
-                await scheduler.trigger_now(source.id)
+            sources = scheduler._registry.list_sources(enabled_only=True)
+            tasks = [scheduler.trigger_now(source.id, max_items=request.max_items, task_id=uuid.UUID(task_id)) for source in sources]
+            await asyncio.gather(*tasks, return_exceptions=True)
 
         # Update task status to completed
         await redis.client.hset(
@@ -200,6 +228,7 @@ async def get_task_status(
     task_id: str,
     _: str = Depends(verify_api_key),
     redis: RedisClient = Depends(get_redis_client),
+    postgres_pool: PostgresPool = Depends(get_postgres_pool),
 ) -> TaskStatusResponse:
     """Query the status of a pipeline task.
 
@@ -207,6 +236,7 @@ async def get_task_status(
         task_id: The task ID to query.
         _: Verified API key.
         redis: Redis client for task status.
+        postgres_pool: PostgreSQL pool for article stats.
 
     Returns:
         Task status information.
@@ -223,6 +253,22 @@ async def get_task_status(
         )
 
     data = json.loads(status_data)
+
+    # Get article progress statistics for this task
+    article_repo = ArticleRepo(postgres_pool)
+    try:
+        task_uuid = uuid.UUID(task_id)
+        stats = await article_repo.get_task_progress_stats(task_uuid)
+    except Exception:
+        # If stats retrieval fails, use defaults
+        stats = {
+            "total_processed": 0,
+            "processing_count": 0,
+            "completed_count": 0,
+            "failed_count": 0,
+            "pending_count": 0,
+        }
+
     return TaskStatusResponse(
         task_id=data.get("task_id", task_id),
         status=data.get("status", "unknown"),
@@ -233,6 +279,11 @@ async def get_task_status(
         progress=data.get("progress"),
         total=data.get("total"),
         error=data.get("error"),
+        total_processed=stats["total_processed"],
+        processing_count=stats["processing_count"],
+        completed_count=stats["completed_count"],
+        failed_count=stats["failed_count"],
+        pending_count=stats["pending_count"],
     )
 
 
@@ -240,16 +291,20 @@ async def get_task_status(
 async def get_queue_stats(
     _: str = Depends(verify_api_key),
     redis: RedisClient = Depends(get_redis_client),
+    postgres_pool: PostgresPool = Depends(get_postgres_pool),
 ) -> dict[str, Any]:
     """Get pipeline queue statistics.
 
     Args:
         _: Verified API key.
         redis: Redis client.
+        postgres_pool: PostgreSQL pool for article stats.
 
     Returns:
-        Queue statistics.
+        Queue statistics including article-level stats.
     """
+    from sqlalchemy import func, case, select
+
     queue_depth = await redis.client.llen(TASK_QUEUE_KEY)
 
     # Count tasks by status
@@ -263,8 +318,46 @@ async def get_queue_stats(
         except (json.JSONDecodeError, TypeError):
             continue
 
+    # Get article-level statistics from PostgreSQL
+    from core.db.models import Article, PersistStatus
+
+    async with postgres_pool.session() as session:
+        result = await session.execute(
+            select(
+                func.count(Article.id).label("total_articles"),
+                func.sum(
+                    case((Article.persist_status == PersistStatus.PROCESSING, 1), else_=0)
+                ).label("processing_count"),
+                func.sum(
+                    case(
+                        (
+                            Article.persist_status.in_(
+                                [PersistStatus.NEO4J_DONE, PersistStatus.PG_DONE]
+                            ),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ).label("completed_count"),
+                func.sum(
+                    case((Article.persist_status == PersistStatus.FAILED, 1), else_=0)
+                ).label("failed_count"),
+                func.sum(
+                    case((Article.persist_status == PersistStatus.PENDING, 1), else_=0)
+                ).label("pending_count"),
+            )
+        )
+        row = result.one()
+
     return {
         "queue_depth": queue_depth,
         "status_counts": status_counts,
         "total_tasks": len(all_tasks),
+        "article_stats": {
+            "total_articles": row.total_articles or 0,
+            "processing_count": int(row.processing_count or 0),
+            "completed_count": int(row.completed_count or 0),
+            "failed_count": int(row.failed_count or 0),
+            "pending_count": int(row.pending_count or 0),
+        },
     }

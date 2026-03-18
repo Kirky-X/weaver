@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 from typing import Callable, Coroutine, Any
 
@@ -26,7 +27,7 @@ class SourceScheduler:
         self,
         registry: SourceRegistry,
         on_items_discovered: Callable[
-            [list[NewsItem], SourceConfig], Coroutine[Any, Any, None]
+            [list[NewsItem], SourceConfig, uuid.UUID | None], Coroutine[Any, Any, None]
         ],
     ) -> None:
         self._registry = registry
@@ -51,7 +52,7 @@ class SourceScheduler:
             self._crawl_source,
             "interval",
             minutes=source.interval_minutes,
-            args=[source.id],
+            args=[source.id, None, None],
             id=f"source_{source.id}",
             max_instances=1,
             coalesce=True,
@@ -59,8 +60,14 @@ class SourceScheduler:
         )
         log.debug("source_scheduled", source_id=source.id, interval=source.interval_minutes)
 
-    async def _crawl_source(self, source_id: str) -> None:
-        """Execute a single crawl for one source."""
+    async def _crawl_source(self, source_id: str, max_items: int | None = None, task_id: uuid.UUID | None = None) -> None:
+        """Execute a single crawl for one source.
+
+        Args:
+            source_id: The source ID to crawl.
+            max_items: Maximum number of items to process.
+            task_id: Optional task ID for tracking.
+        """
         source = self._registry.get_source(source_id)
         if not source or not source.enabled:
             return
@@ -74,25 +81,30 @@ class SourceScheduler:
             items = await parser.parse(source)
             if items:
                 source.last_crawl_time = datetime.now(timezone.utc)
-                await self._on_items(items, source)
+                await self._on_items(items, source, max_items, task_id)
                 log.info(
                     "source_crawled",
                     source_id=source_id,
                     items_found=len(items),
+                    max_items=max_items,
                 )
             else:
                 log.debug("source_no_new_items", source_id=source_id)
         except Exception as exc:
+            import traceback
             log.error(
                 "source_crawl_failed",
                 source_id=source_id,
                 error=str(exc),
+                traceback=traceback.format_exc(),
             )
 
-    async def trigger_now(self, source_id: str) -> None:
+    async def trigger_now(self, source_id: str, max_items: int | None = None, task_id: uuid.UUID | None = None) -> None:
         """Trigger an immediate crawl for a source.
 
         Args:
             source_id: The source ID to crawl.
+            max_items: Maximum number of items to process.
+            task_id: Optional task ID for tracking.
         """
-        await self._crawl_source(source_id)
+        await self._crawl_source(source_id, max_items, task_id)

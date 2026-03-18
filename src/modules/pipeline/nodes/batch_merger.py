@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import traceback
+import uuid
 from typing import Any
 
 import numpy as np
@@ -12,6 +14,7 @@ from core.llm.types import CallPoint
 from core.llm.output_validator import MergerOutput
 from core.prompt.loader import PromptLoader
 from core.observability.logging import get_logger
+from core.db.models import PersistStatus
 from modules.pipeline.state import PipelineState
 
 log = get_logger("node.batch_merger")
@@ -72,6 +75,8 @@ class BatchMergerNode:
         llm: LLM client for merge calls.
         prompt_loader: Prompt loader for version tracking.
         vector_repo: Vector repository for pgvector queries.
+        article_repo: Article repository for PostgreSQL operations.
+        neo4j_writer: Neo4j writer for graph operations.
     """
 
     SIMILARITY_THRESHOLD = 0.80
@@ -82,10 +87,14 @@ class BatchMergerNode:
         llm: LLMClient,
         prompt_loader: PromptLoader,
         vector_repo: Any = None,
+        article_repo: Any = None,
+        neo4j_writer: Any = None,
     ) -> None:
         self._llm = llm
         self._prompt_loader = prompt_loader
         self._vector_repo = vector_repo
+        self._article_repo = article_repo
+        self._neo4j_writer = neo4j_writer
 
     async def execute_batch(
         self, states: list[PipelineState]
@@ -143,16 +152,22 @@ class BatchMergerNode:
     ) -> None:
         """Use pgvector batch similarity query for O(n log n) complexity."""
         try:
+            queries = [
+                (uuid.uuid4(), vec)
+                for vec in vectors
+            ]
             batch_results = await self._vector_repo.batch_find_similar(
-                embeddings=vectors,
+                queries=queries,
                 threshold=self.SIMILARITY_THRESHOLD,
                 limit=self.BATCH_SIMILARITY_LIMIT,
             )
 
-            for i, hits in enumerate(batch_results):
+            url_to_index = {s["raw"].url: i for i, s in enumerate(states)}
+            for i, (query_id, _) in enumerate(queries):
+                hits = batch_results.get(query_id, [])
                 for hit in hits:
-                    if hit.get("article_id") and hit.get("similarity", 0) > self.SIMILARITY_THRESHOLD:
-                        j = hit.get("batch_index")
+                    if hit.similarity > self.SIMILARITY_THRESHOLD:
+                        j = url_to_index.get(hit.article_id)
                         if j is not None and i != j:
                             if states[i].get("category") == states[j].get("category"):
                                 uf.union(states[i]["raw"].url, states[j]["raw"].url)
@@ -198,7 +213,13 @@ class BatchMergerNode:
                 if state.get("category") == hit.category:
                     uf.union(state["raw"].url, hit.article_id)
         except Exception as exc:
-            log.warning("cross_query_failed", url=state["raw"].url, error=str(exc))
+            log.warning(
+                "cross_query_failed",
+                url=state["raw"].url,
+                category=state.get("category"),
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
 
     async def _llm_merge(self, group_states: list[PipelineState]) -> None:
         """Merge a group of similar articles via LLM."""
@@ -236,3 +257,197 @@ class BatchMergerNode:
         primary.setdefault("prompt_versions", {})["merger"] = (
             self._prompt_loader.get_version("merger")
         )
+
+    async def persist_batch_saga(
+        self,
+        states: list[PipelineState],
+    ) -> dict[str, Any]:
+        """Persist batch with Saga pattern for atomic cross-database consistency.
+
+        Implements two-phase commit with compensation:
+        1. Phase 1: Persist to PostgreSQL, record successful IDs
+        2. Phase 2: Persist to Neo4j
+        3. Compensation: If Phase 2 fails, delete PostgreSQL records
+
+        Args:
+            states: List of pipeline states to persist.
+
+        Returns:
+            Dict containing:
+            - success: Whether the entire saga completed
+            - pg_ids: List of PostgreSQL article IDs
+            - neo4j_ids: List of Neo4j node IDs
+            - compensation_executed: Whether compensation was triggered
+            - error: Error message if failed
+        """
+        result = {
+            "success": False,
+            "pg_ids": [],
+            "neo4j_ids": [],
+            "compensation_executed": False,
+            "error": None,
+        }
+
+        valid_states = [s for s in states if not s.get("terminal")]
+        if not valid_states:
+            result["success"] = True
+            return result
+
+        # Idempotency: Check for duplicate articles by URL
+        urls_to_check = [s["raw"].url for s in valid_states]
+        existing_urls = await self._article_repo.get_existing_urls(urls_to_check)
+
+        # Filter out duplicates, keep only new articles
+        new_states = [
+            s for s in valid_states
+            if s["raw"].url not in existing_urls
+        ]
+        skipped_count = len(valid_states) - len(new_states)
+
+        if skipped_count > 0:
+            log.info(
+                "saga_duplicates_skipped",
+                total=len(valid_states),
+                skipped=skipped_count,
+                new_articles=len(new_states),
+            )
+
+        if not new_states:
+            log.info("saga_all_duplicates")
+            result["success"] = True
+            return result
+
+        # Phase 1: Persist to PostgreSQL
+        try:
+            if not self._article_repo:
+                raise RuntimeError("Article repository not configured")
+
+            article_ids = await self._article_repo.bulk_upsert(new_states)
+            result["pg_ids"] = [str(aid) for aid in article_ids]
+
+            # Update persist status and link IDs to states
+            for state, aid in zip(new_states, article_ids):
+                state["article_id"] = str(aid)
+                await self._article_repo.update_persist_status(aid, PersistStatus.PG_DONE)
+
+            # Persist vectors
+            if self._vector_repo:
+                vector_data = []
+                for state in new_states:
+                    if "vectors" in state:
+                        vectors = state["vectors"]
+                        if isinstance(vectors, dict) and "title" in vectors and "content" in vectors:
+                            vector_data.append((
+                                uuid.UUID(state["article_id"]),
+                                vectors.get("title"),
+                                vectors.get("content"),
+                                vectors.get("model_id", "unknown"),
+                            ))
+                if vector_data:
+                    await self._vector_repo.bulk_upsert_article_vectors(vector_data)
+
+            log.info(
+                "saga_phase1_complete",
+                pg_count=len(article_ids),
+            )
+
+        except Exception as exc:
+            error_msg = f"Phase 1 (PostgreSQL) failed: {type(exc).__name__}: {exc}"
+            result["error"] = error_msg
+            log.error(
+                "saga_phase1_failed",
+                error=error_msg,
+                traceback=traceback.format_exc(),
+            )
+            # Mark failed for all attempted states
+            for state in valid_states:
+                if state.get("article_id"):
+                    try:
+                        await self._article_repo.mark_failed(
+                            uuid.UUID(state["article_id"]),
+                            error_msg,
+                        )
+                    except Exception:
+                        pass
+            return result
+
+        # Phase 2: Persist to Neo4j
+        neo4j_errors = []
+        successful_neo4j_ids = []
+
+        for state in new_states:
+            if not self._neo4j_writer:
+                continue
+
+            try:
+                neo4j_ids = await self._neo4j_writer.write(state)
+                state["neo4j_ids"] = neo4j_ids
+                successful_neo4j_ids.extend(neo4j_ids)
+
+                if self._article_repo and state.get("article_id"):
+                    await self._article_repo.update_persist_status(
+                        uuid.UUID(state["article_id"]),
+                        PersistStatus.NEO4J_DONE,
+                    )
+            except Exception as exc:
+                error_msg = f"Neo4j write failed: {type(exc).__name__}: {exc}"
+                neo4j_errors.append((state.get("article_id"), error_msg))
+                log.error(
+                    "saga_phase2_article_failed",
+                    article_id=state.get("article_id"),
+                    error=error_msg,
+                )
+
+        result["neo4j_ids"] = successful_neo4j_ids
+
+        # Check if Phase 2 had failures
+        if neo4j_errors:
+            log.warning(
+                "saga_phase2_partial_failure",
+                failed_count=len(neo4j_errors),
+                total=len(new_states),
+            )
+
+            # Trigger compensation transaction
+            result["compensation_executed"] = True
+            compensation_errors = []
+
+            for pg_id_str, error_msg in neo4j_errors:
+                try:
+                    pg_id = uuid.UUID(pg_id_str)
+                    # Delete from PostgreSQL
+                    await self._article_repo.delete(pg_id)
+                    log.info(
+                        "saga_compensation_deleted",
+                        article_id=str(pg_id),
+                    )
+                except Exception as comp_exc:
+                    comp_error = f"Compensation failed for {pg_id_str}: {comp_exc}"
+                    compensation_errors.append(comp_error)
+                    log.error(
+                        "saga_compensation_failed",
+                        article_id=str(pg_id),
+                        error=comp_error,
+                    )
+
+            if compensation_errors:
+                log.error(
+                    "saga_compensation_incomplete",
+                    errors=compensation_errors,
+                    message="sync_neo4j_with_postgres background task will reconcile",
+                )
+                # Alert would be raised here in production
+                # For now, rely on the sync_neo4j_with_postgres scheduled job
+
+            result["error"] = f"Phase 2 failed for {len(neo4j_errors)} articles"
+            result["success"] = False
+            return result
+
+        # All phases succeeded
+        result["success"] = True
+        log.info(
+            "saga_complete",
+            pg_count=len(result["pg_ids"]),
+            neo4j_count=len(result["neo4j_ids"]),
+        )
+        return result
