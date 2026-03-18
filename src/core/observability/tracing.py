@@ -3,23 +3,27 @@
 from __future__ import annotations
 
 from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor, ConsoleSpanExporter
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 
-def configure_tracing(service_name: str = "weaver") -> None:
-    """Configure OpenTelemetry tracing with a console exporter.
-
-    In production, replace ConsoleSpanExporter with an OTLP exporter
-    pointing to your collector (e.g. Jaeger, Tempo).
+def configure_tracing(service_name: str = "weaver", endpoint: str | None = None) -> None:
+    """Configure OpenTelemetry tracing with OTLP exporter.
 
     Args:
         service_name: The service name for tracing resource.
+        endpoint: OTLP collector endpoint (e.g. http://localhost:4317).
+                  If None, defaults to http://localhost:4317.
     """
     resource = Resource.create({"service.name": service_name})
     provider = TracerProvider(resource=resource)
-    provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
+
+    # Use OTLP exporter with configurable endpoint
+    otlp_endpoint = endpoint or "http://localhost:4317"
+    provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=otlp_endpoint)))
+
     trace.set_tracer_provider(provider)
 
 

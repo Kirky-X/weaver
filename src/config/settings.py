@@ -24,10 +24,11 @@ class PostgresSettings(BaseSettings):
 
 class Neo4jSettings(BaseSettings):
     """Neo4j connection settings."""
-    
+
     model_config = SettingsConfigDict(env_prefix="NEO4J_")
 
     uri: str = "bolt://localhost:7687"
+    user: str = "neo4j"
     password: str = "neo4j_password"
 
 
@@ -173,6 +174,15 @@ class SchedulerSettings(BaseSettings):
     retry_flush_interval_seconds: int = 30
 
 
+class ObservabilitySettings(BaseSettings):
+    """Observability settings (tracing, metrics, logging)."""
+
+    model_config = SettingsConfigDict(env_prefix="OBS_")
+
+    otlp_endpoint: str = "http://localhost:4317"
+    """OTLP collector endpoint for OpenTelemetry tracing."""
+
+
 def settings_customize_settings(
     settings: type[BaseSettings],
     init_settings: PydanticBaseSettingsSource,
@@ -216,11 +226,61 @@ class Settings(BaseSettings):
     prompt: PromptSettings = Field(default_factory=PromptSettings)
     api: APISettings = Field(default_factory=APISettings)
     scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
+    observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
 
     def validate_security(self) -> list[str]:
         """Validate all security settings.
 
         Returns:
             List of security warning messages.
+
+        Raises:
+            ValueError: If production environment has insecure credentials.
         """
-        return self.api.validate_security()
+        warnings = []
+        import os
+
+        # Check environment
+        environment = os.environ.get("ENVIRONMENT", os.environ.get("ENV", "development"))
+
+        # Check API key security
+        api_warnings = self.api.validate_security()
+        warnings.extend(api_warnings)
+
+        # Check Neo4j credentials
+        if self.neo4j.password in ["neo4j_password", "your_password_here", "password", "neo4j"]:
+            if environment == "production":
+                raise ValueError(
+                    "Production environment requires secure Neo4j credentials. "
+                    "Set NEO4J_PASSWORD environment variable to a secure value."
+                )
+            warnings.append(
+                "Using default Neo4j password. Set NEO4J_PASSWORD for production."
+            )
+
+        # Check PostgreSQL credentials
+        if "postgres:postgres@" in self.postgres.dsn or ":@localhost" in self.postgres.dsn:
+            if environment == "production":
+                raise ValueError(
+                    "Production environment requires secure PostgreSQL credentials. "
+                    "Set POSTGRES_PASSWORD environment variable or use a secure DSN."
+                )
+            warnings.append(
+                "Using default PostgreSQL credentials. Set POSTGRES_PASSWORD for production."
+            )
+
+        # Check LLM API keys
+        openai_config = self.llm.providers.get("openai", {})
+        openai_api_key = openai_config.get("api_key", "")
+
+        if not openai_api_key or openai_api_key == "":
+            if environment == "production":
+                raise ValueError(
+                    "Production environment requires LLM API key. "
+                    "Set LLM_API_KEY_OPENAI or WEAVER_LLM__PROVIDERS__OPENAI__API_KEY environment variable."
+                )
+            warnings.append(
+                "LLM API key not set. Set LLM_API_KEY_OPENAI for production."
+            )
+
+        return warnings

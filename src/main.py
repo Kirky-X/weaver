@@ -10,10 +10,11 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
 from config.settings import Settings
 from container import Container, set_container, set_settings
@@ -22,11 +23,23 @@ from api.endpoints.sources import set_source_registry
 from api.endpoints.pipeline import set_redis_client, set_source_scheduler
 from api.endpoints.articles import set_postgres_pool
 from api.endpoints.graph import set_neo4j_client
-from api.endpoints.admin import set_source_authority_repo
+from api.endpoints.health import (
+    check_postgres_health,
+    check_neo4j_health,
+    check_redis_health,
+    health_check as check_health,
+    set_postgres_pool,
+    set_neo4j_pool,
+    set_redis_client,
+)
 from api.middleware.rate_limit import limiter
-from core.observability.logging import get_logger
+from core.observability.logging import get_logger, configure_logging
+from core.observability.tracing import configure_tracing
 
 log = get_logger("main")
+configure_logging(debug=os.environ.get("DEBUG", "").lower() in ("true", "1", "yes"))
+
+_scheduler = None
 
 async def _setup_scheduler(container: Container) -> Any:
     """Setup APScheduler with compensation jobs.
@@ -122,6 +135,16 @@ async def _setup_scheduler(container: Container) -> Any:
         coalesce=True,
     )
 
+    # 7. sync_neo4j_with_postgres: ensure data consistency
+    scheduler.add_job(
+        jobs.sync_neo4j_with_postgres,
+        trigger=IntervalTrigger(hours=1),
+        id="sync_neo4j_with_postgres",
+        name="Sync Neo4j with PostgreSQL",
+        max_instances=1,
+        coalesce=True,
+    )
+
     # Start scheduler
     scheduler.start()
     _scheduler = scheduler
@@ -141,6 +164,14 @@ async def lifespan(app: FastAPI) -> None:
 
     # Startup
     container = app.state.container
+
+    # Initialize OpenTelemetry tracing
+    configure_tracing(
+        service_name="weaver",
+        endpoint=container.settings.observability.otlp_endpoint
+    )
+    log.debug("tracing_initialized", endpoint=container.settings.observability.otlp_endpoint)
+
     await container.startup()
 
     # Register services for API endpoints
@@ -156,7 +187,8 @@ async def lifespan(app: FastAPI) -> None:
     log.debug("source_scheduler_set")
 
     set_postgres_pool(container.postgres_pool())
-    set_neo4j_client(container.neo4j_pool())
+    set_neo4j_pool(container.neo4j_pool())
+    set_redis_client(redis_client)
     set_source_authority_repo(container.source_authority_repo())
 
     # Setup APScheduler
@@ -164,7 +196,8 @@ async def lifespan(app: FastAPI) -> None:
         scheduler = await _setup_scheduler(container)
         app.state.scheduler = scheduler
     except Exception as exc:
-        log.warning("scheduler_setup_failed", error=str(exc))
+        import traceback
+        log.error("scheduler_setup_failed", error=str(exc), traceback=traceback.format_exc())
 
     log.info("application_started", host=container.settings.api.host, port=container.settings.api.port)
 
@@ -225,7 +258,7 @@ async def _graceful_shutdown(app: FastAPI) -> None:
     global _scheduler
     if _scheduler:
         try:
-            await _scheduler.shutdown()
+            _scheduler.shutdown()
             log.info("scheduler_stopped")
         except Exception as exc:
             log.warning("scheduler_shutdown_failed", error=str(exc))
@@ -333,9 +366,20 @@ def create_app(container: Container | None = None) -> FastAPI:
     app.include_router(api_router)
 
     @app.get("/health")
-    async def health_check() -> dict:
-        """Health check endpoint."""
-        return {"status": "healthy"}
+    async def health_check_endpoint() -> dict:
+        """Health check endpoint with dependency checks."""
+        result = await check_health()
+        if result["status"] != "healthy":
+            raise HTTPException(status_code=503, detail=result)
+        return result
+
+    @app.get("/metrics")
+    async def metrics_endpoint() -> PlainTextResponse:
+        """Prometheus metrics endpoint."""
+        return PlainTextResponse(
+            content=generate_latest(),
+            media_type=CONTENT_TYPE_LATEST,
+        )
 
     return app
 
