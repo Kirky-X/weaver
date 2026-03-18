@@ -57,6 +57,43 @@ class PersistStatus(str, enum.Enum):
     NEO4J_DONE = "neo4j_done"
     FAILED = "failed"
 
+    @classmethod
+    def is_valid_transition(
+        cls,
+        from_status: "PersistStatus",
+        to_status: "PersistStatus",
+    ) -> bool:
+        """Validate if a status transition is allowed.
+
+        Valid transitions:
+        - PENDING → PROCESSING, FAILED
+        - PROCESSING → PG_DONE, FAILED
+        - PG_DONE → NEO4J_DONE, FAILED
+        - FAILED → PENDING (allows retry)
+
+        Args:
+            from_status: Current status.
+            to_status: Target status.
+
+        Returns:
+            True if the transition is valid, False otherwise.
+        """
+        # Allow staying in same state (idempotent)
+        if from_status == to_status:
+            return True
+
+        # Define valid transitions
+        valid_transitions = {
+            cls.PENDING: {cls.PROCESSING, cls.FAILED},
+            cls.PROCESSING: {cls.PG_DONE, cls.FAILED},
+            cls.PG_DONE: {cls.NEO4J_DONE, cls.FAILED},
+            cls.FAILED: {cls.PENDING},  # Allow retry
+            cls.NEO4J_DONE: set(),  # Terminal state
+        }
+
+        allowed = valid_transitions.get(from_status, set())
+        return to_status in allowed
+
 
 class EmotionType(str, enum.Enum):
     OPTIMISTIC = "乐观"
@@ -159,6 +196,12 @@ class Article(Base):
         ),
         nullable=False,
         default=PersistStatus.PENDING,
+    )
+
+    # Task tracking
+    task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=True,
     )
 
     # Processing tracking
