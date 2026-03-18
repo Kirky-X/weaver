@@ -1,0 +1,150 @@
+# ============================================================
+# .pre-commit-config.yaml
+# Weaver 项目 - 工业级代码质量检查配置
+# Python 3.12 | FastAPI | SQLAlchemy | Neo4j | Redis | LangGraph | spaCy
+# ============================================================
+#
+# 安装步骤:
+#   1. 安装开发依赖:              uv sync --group dev
+#   2. 安装 git hook 脚本:        pre-commit install
+#   3. 首次运行所有 hook:         pre-commit run --all-files
+#
+# 跳过特定文件的检查:
+#   git commit --no-verify -m "..."
+#   SKIP=ruff,black git commit -m "..."
+#
+# ============================================================
+
+ci:
+  autoupdate_schedule: monthly
+
+default_install_hook_types:
+  - pre-commit
+
+default_stages:
+  - pre-commit
+
+repos:
+  # ==========================================================
+  # 0. 基础设施检查
+  # ==========================================================
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+        types: [python, yaml, toml, markdown, json, shell]
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+        args: ['--assume-in-merge']
+      - id: check-case-conflict
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: check-added-large-files
+        args: ['--maxkb=2048']
+
+  # ==========================================================
+  # 1. 本地工具调用（使用已安装的工具，避免网络下载）
+  # ==========================================================
+
+  # isort — import 排序
+  - repo: local
+    hooks:
+      - id: isort
+        name: isort (local)
+        entry: isort
+        language: system
+        types: [python]
+        args:
+          - --settings-path=pyproject.toml
+          - --filter-files
+        files: ^src/|^tests/|^scripts/
+
+  # black — 代码格式化
+  - repo: local
+    hooks:
+      - id: black
+        name: black (local)
+        entry: black
+        language: system
+        types: [python]
+        args:
+          - --config=pyproject.toml
+        files: ^src/|^tests/|^scripts/
+
+  # ruff — linter + fix
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff (linter)
+        entry: ruff
+        language: system
+        types: [python]
+        args:
+          - check
+          - --config=pyproject.toml
+          - --fix
+          - --exit-non-zero-on-fix
+        files: ^src/|^tests/|^scripts/
+        pass_filenames: true
+
+  # ruff-format
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff-format
+        entry: ruff
+        language: system
+        types: [python]
+        args:
+          - format
+          - --config=pyproject.toml
+        files: ^src/|^tests/|^scripts/
+        pass_filenames: true
+
+  # mypy — 静态类型检查
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy (local)
+        entry: mypy
+        language: system
+        types: [python]
+        args:
+          - --config-file=pyproject.toml
+          - --show-error-codes
+          - --pretty
+        files: ^src/
+        pass_filenames: true
+
+  # bandit — 安全漏洞扫描
+  - repo: local
+    hooks:
+      - id: bandit
+        name: bandit (local)
+        entry: bandit
+        language: system
+        types: [python]
+        args:
+          - --config=pyproject.toml
+          - -ll
+          - --exclude=tests
+          - -r
+        files: ^src/
+        pass_filenames: false
+
+  # detect-secrets
+  - repo: local
+    hooks:
+      - id: detect-secrets
+        name: detect-secrets (local)
+        entry: detect-secrets-hook
+        language: system
+        types: [python]
+        args: ['--baseline', '.secrets.baseline']
+        files: ^src/
+        pass_filenames: false
+        stages: [pre-commit]

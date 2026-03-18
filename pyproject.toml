@@ -17,7 +17,7 @@ dependencies = [
     "langchain-core>=0.3.29",
     "langchain-openai>=1.1.11",
     "langgraph>=1.1.2",
-    "neo4j==5.18.0",
+    "neo4j>=5.27,<6.0",
     "numpy>=2.4.3",
     "opentelemetry-instrumentation-fastapi>=0.61b0",
     "opentelemetry-sdk>=1.40.0",
@@ -34,6 +34,7 @@ dependencies = [
     "tiktoken>=0.12.0",
     "trafilatura>=2.0.0",
     "uvicorn[standard]>=0.41.0",
+    "opentelemetry-exporter-otlp>=1.40.0",
 ]
 
 [build-system]
@@ -50,12 +51,406 @@ dev = [
     "pytest-asyncio>=1.3.0",
     "pytest-mock>=3.15.1",
     "testcontainers>=4.14.1",
+    # ── Pre-commit hooks ──────────────────────────────────
+    "pre-commit>=4.0.0",
+    # ── Code formatting ───────────────────────────────────
+    "black>=25.1.0",
+    "isort>=5.14.0",
+    "ruff>=0.11.4",
+    # ── Type checking ──────────────────────────────────────
+    "mypy>=1.14.0",
+    "types-redis>=4.6.0",
+    "types-PyYAML>=6.0.0",
+    "types-aiofiles>=23.0.0",
+    # ── Security ───────────────────────────────────────────
+    "bandit>=1.8.0",
+    # ── Docstring style ────────────────────────────────────
+    "pydocstyle>=6.4.0",
+    # ── Commit validation ──────────────────────────────────
+    "commitizen>=3.29.0",
+    # ── Secret detection (baseline generation) ─────────────
+    "detect-secrets>=1.5.0",
 ]
 
+# ────────────────────────────────────────────────────────────
+# Tool Configurations
+# ────────────────────────────────────────────────────────────
+
+# Ruff — fast Python linter & formatter
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+indent-width = 4
+fix = true
+show-fixes = true
+output-format = "full"
+
+# Exclude patterns
+exclude = [
+    ".bzr",
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "alembic/versions",        # 自动生成的迁移文件
+    "docs",
+    "monitoring",
+    "scripts/rollback",         # 回滚脚本
+    "temp",
+    ".venv",
+]
+
+[tool.ruff.lint]
+# 启用规则
+select = [
+    # ── 错误级别 ─────────────────────────────────────────
+    "E",      # pycodestyle errors（保留 E501 由 black 处理）
+    "F",      # Pyflakes（错误级别）
+    "W",      # pycodestyle warnings
+    # ── 代码风格 ─────────────────────────────────────────
+    "UP",     # pyupgrade（现代化语法）
+    "B",      # flake8-bugbear（谨慎，W 级别）
+    "C4",     # 列表/字典推导式优化
+    "SIM",    # 代码简化
+    "PGH",    # pygrep-hooks
+    "RET",    # return 语句优化
+    "N",      # 命名规范（部分）
+    "RUF",    # Ruff 特有规则
+    # ── 安全 ─────────────────────────────────────────────
+    "S",      # bandit
+    "PD",     # pandas-avoidance（部分）
+]
+# 忽略的规则
+ignore = [
+    # E501 — 由 black 处理行长度，在此忽略
+    "E501",
+    # B023 — 函数内绑定后期静默赋值（误报较多）
+    "B023",
+    # B904 — 异常链中的 raise（pydantic 场景误报）
+    "B904",
+    # UP007 — 使用 X | Y 而非 Union[X, Y]（py312 原生支持但 pydantic 2.x 兼容）
+    "UP007",
+    # UP038 — 使用 Union 而非 X | Y（pydantic 兼容性）
+    "UP038",
+    # S101 — 使用 assert（测试文件中可接受，生产代码由 bandit B101 检查）
+    "S101",
+    # S105 — 硬编码字符串中的 password/key/secrets（配置文件场景）
+    "S105",
+    # S110 — try-except-pass（业务需要时使用）
+    "S110",
+    # SIM108 — 三元表达式简化（可读性问题）
+    "SIM108",
+    # RET505/507/508 — else-after-return/break（有时更可读）
+    "RET505",
+    "RET507",
+    "RET508",
+    # N802/N803/N806/N816 — 函数/参数/变量命名（部分过于严格）
+    "N802",
+    "N803",
+    "N806",
+    "N816",
+    # RUF001 — 非 PEP 604 类型注解（pydantic 兼容）
+    "RUF001",
+    "RUF012",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401", "F403"]          # __init__ 允许未使用导入
+"tests/*.py" = [
+    "E402",   # 测试文件导入顺序不严格
+    "S101",   # 测试允许 assert
+    "F811",   # 测试中重复函数名（pytest parametrize）
+    "B018",   # 测试中 l=[] 不视为无用表达式
+    "F841",   # 测试中允许未使用变量（fixture 模式）
+]
+"alembic/env.py" = ["E402", "F401", "F811"]
+"src/scripts/*.py" = ["S603", "S607"]      # 脚本允许 subprocess 调用
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+known-third-party = [
+    "alembic",
+    "fastapi",
+    "langchain",
+    "langgraph",
+    "pydantic",
+    "pydantic_settings",
+    "redis",
+    "sqlalchemy",
+    "starlette",
+    "neo4j",
+]
+force-single-line = false
+lines-after-imports = 2
+combine-as-imports = true
+
+[tool.ruff.format]
+# 使用 black 兼容格式
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "lf"
+
+# ────────────────────────────────────────────────────────────
+# Black — 代码格式化（双重保障）
+# ────────────────────────────────────────────────────────────
+[tool.black]
+target-version = ["py312"]
+line-length = 100
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.mypy_cache
+  | \.nox
+  | \.venv
+  | \.tox
+  | __pycache__
+  | alembic/versions
+  | docs
+  | monitoring
+  | scripts/rollback
+  | temp
+)/
+'''
+extend-exclude = '''
+^src/scripts/rollback/
+'''
+preview = true       # 启用 preview 功能
+
+# ────────────────────────────────────────────────────────────
+# isort — import 排序
+# ────────────────────────────────────────────────────────────
+[tool.isort]
+profile = "black"
+py_version = 312
+line_length = 100
+skip_gitignore = true
+skip = [
+    ".bzr",
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "alembic/versions",
+    "docs",
+    "monitoring",
+    "scripts/rollback",
+    "temp",
+]
+known_first_party = ["src"]
+known_third_party = [
+    "alembic",
+    "fastapi",
+    "httpx",
+    "langchain",
+    "langgraph",
+    "pydantic",
+    "pydantic_settings",
+    "redis",
+    "sqlalchemy",
+    "starlette",
+    "neo4j",
+    "spacy",
+    "numpy",
+    "pandas",
+    "pytest",
+    "loguru",
+]
+combine_as_imports = true
+force_single_line = false
+
+# ────────────────────────────────────────────────────────────
+# Mypy — 静态类型检查
+# ────────────────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.12"
+files = ["src"]
+show_error_codes = true
+show_column_numbers = true
+show_error_context = true
+pretty = true
+color_output = true
+no_color_output = false
+
+# 严格程度：basic（平衡速度和覆盖率）
+strict = false
+strict_optional = true
+implicit_reexport = false
+disallow_untyped_defs = false       # 部分遗留代码
+disallow_incomplete_defs = false    # 允许部分类型
+check_untyped_defs = true           # 检查无注解函数的类型
+disallow_untyped_decorators = false
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_concatenate = true
+strict_slice = false
+
+# 增量模式
+incremental = true
+cache_dir = ".mypy_cache"
+
+[[tool.mypy.overrides]]
+module = [
+    # ── 第三方库 stubs ───────────────────────────────────
+    "alembic.*",
+    "pytest.*",
+    "testcontainers.*",
+    "starlette.*",
+    "slowapi.*",
+    "apscheduler.*",
+    "feedparser.*",
+    "tiktoken.*",
+    "trafilatura.*",
+    "playwright.*",
+    "playwright_stealth.*",
+    "prometheus_client.*",
+    "langchain.*",
+    "langgraph.*",
+    "spacy.*",
+    "httpx.*",
+    "neo4j.*",
+    "asyncpg.*",
+    "pgvector.*",
+    "dependency_injector.*",
+    "opentelemetry.*",
+    "loguru.*",
+    # ── 已忽略的模块 ─────────────────────────────────────
+    "numpy.*",                       # 类型覆盖率低
+    "_pytest.*",
+]
+ignore_missing_imports = true
+follow_imports = "silent"
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+strict = false
+ignore_errors = false
+follow_imports = "skip"
+
+# ────────────────────────────────────────────────────────────
+# Bandit — 安全漏洞扫描
+# ────────────────────────────────────────────────────────────
+[tool.bandit]
+targets = ["src"]
+recursive = true
+exclude = [
+    "tests",
+    "docs",
+    "scripts/rollback",
+    "monitoring",
+    ".venv",
+    "alembic/versions",
+]
+skips = [
+    # S001 — 缩进检查（black 已处理）
+    "S001",
+    # B101 — assert 语句（测试文件中使用）
+    "B101",
+    # B104 — 0.0.0.0 监听（仅在明确配置控制下使用）
+    "B104",
+    # B105 — 硬编码密码（.env 配置已规范化）
+    "B105",
+    # B108 — 硬编码路径（非危险操作）
+    "B108",
+    # B110 — try-except-pass（业务需要）
+    "B110",
+    # B112 — 异常链过深（业务逻辑）
+    "B112",
+    # B301 — pickle（仅用于缓存/序列化已知对象）
+    "B301",
+    # B303/B305 — MD5/SHA1（非密码学用途）
+    "B303",
+    "B305",
+    # B506 — YAML load（config 使用 safe_load）
+    "B506",
+    # B608 — SQL 硬编码（SQLAlchemy 参数化防护）
+    "B608",
+    # B701 — jinja2 自动转义（默认开启）
+    "B701",
+]
+severity = "medium"
+confidence = "high"
+
+[tool.bandit.formatter]
+output_format = "screen"
+
+# ────────────────────────────────────────────────────────────
+# pydocstyle — Docstring 风格检查（PEP 257 + Google 风格）
+# ────────────────────────────────────────────────────────────
+[tool.pydocstyle]
+convention = "google"
+match = "(?!test_).*\\.py$"
+match_dir = "^(?!migrations|alembic|tests|scripts/rollback)"
+add_select = [
+    "D100",   # 模块顶部缺少 docstring
+    "D101",   # 类缺少 docstring
+    "D102",   # 公共方法缺少 docstring
+    "D103",   # 公共函数缺少 docstring
+    "D104",   # 包缺少 docstring（可选）
+    "D105",   # 魔术方法缺少 docstring
+    "D107",   # __init__ 缺少 docstring
+    "D200",   # 单行 docstring fits in one line
+    "D205",   # 单行 docstring 需要空行
+    "D400",   # docstring 首行应以句点结尾
+    "D415",   # docstring 首行应以动词开头
+]
+ignore = [
+    "D100",   # 初创期放松要求
+    "D104",
+    "D107",
+    "D203",   # 与 D211 冲突
+    "D212",   # 多行 docstring 首行应为 summary（与 D213 冲突）
+    "D413",   # 最后一行空行（过度严格）
+]
+
+# ────────────────────────────────────────────────────────────
+# Commitizen — 约定式提交
+# ────────────────────────────────────────────────────────────
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.1.0"
+tag_format = "v$version"
+version_files = []
+changelog_encode = true
+
+[tool.commitizen.allowed_prefixes]
+message = [
+    "feat",
+    "fix",
+    "docs",
+    "style",
+    "refactor",
+    "perf",
+    "test",
+    "build",
+    "chore",
+    "revert",
+    "ci",
+    "wip",
+]
+
+# ────────────────────────────────────────────────────────────
+# pytest 配置（已存在，此处仅标注引用）
+# ────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
 asyncio_mode = "auto"
+markers = [
+    "performance: mark test as performance test",
+    "slow: mark test as slow running",
+]
 filterwarnings = [
     "ignore:The pynvml package is deprecated:FutureWarning:torch.cuda",
     "ignore:Can't initialize NVML:UserWarning:torch.cuda",
