@@ -163,6 +163,16 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401", "F403"]          # __init__ 允许未使用导入
+"tests/e2e/*.py" = [
+    "S603",   # E2E tests需要subprocess调用Docker
+    "S607",   # E2E tests需要subprocess调用Docker
+]  # E2E测试文件允许subprocess调用
+
+"tests/e2e/conftest.py" = [
+    "S603",   # conftest需要subprocess管理Docker
+    "S607",   # conftest需要subprocess调用docker compose
+]  # conftest允许subprocess调用
+
 "tests/*.py" = [
     "E402",   # 测试文件导入顺序不严格
     "S101",   # 测试允许 assert
@@ -534,6 +544,7 @@ addopts = [
     "--cov-report=xml",
     "--cov-report=term-missing",
     "--cov-fail-under=80",
+    "--ignore=tests/e2e",
 ]
 markers = [
     "performance: mark test as performance test",
