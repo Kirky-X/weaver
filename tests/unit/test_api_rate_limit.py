@@ -22,7 +22,8 @@ class TestRateLimiterConfiguration:
 
         from api.middleware.rate_limit import limiter
 
-        assert limiter.key_func is get_remote_address
+        # slowapi stores key_func as _key_func internally
+        assert limiter._key_func is get_remote_address
 
     def test_limiter_is_limiter_instance(self):
         """Test that limiter is a slowapi Limiter instance."""
@@ -49,19 +50,24 @@ class TestRateLimiterConfiguration:
         ip = get_remote_address(mock_request)
         assert ip == "192.168.1.100"
 
-    def test_limiter_key_func_handles_x_forwarded_for(self):
-        """Test that get_remote_address respects X-Forwarded-For header."""
+    def test_limiter_key_func_uses_client_host(self):
+        """Test that get_remote_address uses the request's client host.
+
+        Note: slowapi's get_remote_address does NOT parse X-Forwarded-For;
+        it returns request.client.host directly. This is the expected behavior.
+        """
+        from unittest.mock import MagicMock
+
         from slowapi.util import get_remote_address
 
-        # When X-Forwarded-For is present, get_remote_address may use it
         mock_request = MagicMock()
         mock_request.client = MagicMock()
-        mock_request.client.host = "127.0.0.1"
-        mock_request.headers = {"X-Forwarded-For": "203.0.113.50, 70.41.3.18"}
+        mock_request.client.host = "10.0.0.5"
+        mock_request.headers = {"X-Forwarded-For": "203.0.113.50"}
 
+        # slowapi ignores X-Forwarded-For; uses client.host directly
         ip = get_remote_address(mock_request)
-        # slowapi returns the first IP in X-Forwarded-For chain
-        assert "203.0.113.50" in ip or ip == "127.0.0.1"
+        assert ip == "10.0.0.5"
 
     def test_limiter_exported_from_module(self):
         """Test that limiter can be imported directly from the module."""
