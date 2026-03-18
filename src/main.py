@@ -20,8 +20,7 @@ from config.settings import Settings
 from container import Container, set_container, set_settings
 from api.router import api_router
 from api.endpoints.sources import set_source_registry
-from api.endpoints.pipeline import set_redis_client, set_source_scheduler
-from api.endpoints.articles import set_postgres_pool
+from api.endpoints.pipeline import set_redis_client, set_source_scheduler, set_postgres_pool
 from api.endpoints.graph import set_neo4j_client
 from api.endpoints.health import (
     check_postgres_health,

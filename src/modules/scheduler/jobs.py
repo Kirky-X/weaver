@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import collections
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -303,8 +305,6 @@ class SchedulerJobs:
         Returns:
             Number of articles retried.
         """
-        import collections
-
         if not self._pipeline or not self._article_repo:
             log.warning("retry_pipeline_processing_no_pipeline")
             return 0

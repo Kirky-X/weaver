@@ -121,6 +121,10 @@ def parse_llm_json(raw: str, model_cls: Type[T]) -> T:
             return model_cls.model_validate(data)
         except Exception:
             pass
+    except Exception as e:
+        raise OutputParserException(
+            f"验证失败: {str(e)}\n原始内容: {raw[:200]}"
+        )
     
     raise OutputParserException(
         f"解析失败: 无法解析为有效的 JSON\n原始内容: {raw[:200]}"
