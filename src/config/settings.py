@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Global application settings using pydantic-settings + TOML."""
 
 from __future__ import annotations
@@ -60,36 +61,40 @@ class LLMCallPointConfig(BaseSettings):
 class LLMSettings(BaseSettings):
     """LLM module settings."""
 
-    providers: dict[str, dict[str, Any]] = Field(default_factory=lambda: {
-        "openai": {
-            "provider": "openai",
-            "model": "gpt-4o",
-            "api_key": "",
-            "base_url": "https://api.openai.com/v1",
-            "rpm_limit": 60,
-            "concurrency": 5,
-            "timeout": 120.0,
-        },
-        "ollama": {
-            "provider": "ollama",
-            "model": "qwen3.5:9b",
-            "api_key": "",
-            "base_url": "http://172.24.160.1:11434",
-            "rpm_limit": 60,
-            "concurrency": 3,
-            "timeout": 300.0,
-        },
-    })
-    call_points: dict[str, dict[str, Any]] = Field(default_factory=lambda: {
-        "classifier": {"primary": "ollama", "fallbacks": ["openai"]},
-        "cleaner": {"primary": "ollama", "fallbacks": ["openai"]},
-        "categorizer": {"primary": "ollama", "fallbacks": ["openai"]},
-        "merger": {"primary": "ollama", "fallbacks": ["openai"]},
-        "analyze": {"primary": "ollama", "fallbacks": ["openai"]},
-        "credibility_checker": {"primary": "ollama", "fallbacks": ["openai"]},
-        "entity_extractor": {"primary": "ollama", "fallbacks": ["openai"]},
-        "entity_resolver": {"primary": "ollama", "fallbacks": ["openai"]},
-    })
+    providers: dict[str, dict[str, Any]] = Field(
+        default_factory=lambda: {
+            "openai": {
+                "provider": "openai",
+                "model": "gpt-4o",
+                "api_key": "",
+                "base_url": "https://api.openai.com/v1",
+                "rpm_limit": 60,
+                "concurrency": 5,
+                "timeout": 120.0,
+            },
+            "ollama": {
+                "provider": "ollama",
+                "model": "qwen3.5:9b",
+                "api_key": "",
+                "base_url": "http://172.24.160.1:11434",
+                "rpm_limit": 60,
+                "concurrency": 3,
+                "timeout": 300.0,
+            },
+        }
+    )
+    call_points: dict[str, dict[str, Any]] = Field(
+        default_factory=lambda: {
+            "classifier": {"primary": "ollama", "fallbacks": ["openai"]},
+            "cleaner": {"primary": "ollama", "fallbacks": ["openai"]},
+            "categorizer": {"primary": "ollama", "fallbacks": ["openai"]},
+            "merger": {"primary": "ollama", "fallbacks": ["openai"]},
+            "analyze": {"primary": "ollama", "fallbacks": ["openai"]},
+            "credibility_checker": {"primary": "ollama", "fallbacks": ["openai"]},
+            "entity_extractor": {"primary": "ollama", "fallbacks": ["openai"]},
+            "entity_resolver": {"primary": "ollama", "fallbacks": ["openai"]},
+        }
+    )
     embedding_provider: str = "openai"
     embedding_model: str = "text-embedding-3-large"
     rerank_provider: str = "openai"
@@ -106,7 +111,9 @@ class FetcherSettings(BaseSettings):
     user_agent: str = "Mozilla/5.0 (compatible; NewsBot/1.0)"
 
     stealth_enabled: bool = True
-    stealth_user_agent: str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    stealth_user_agent: str = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    )
     stealth_viewport_width: int = 1920
     stealth_viewport_height: int = 1080
     stealth_locale: str = "zh-CN"
@@ -150,15 +157,11 @@ class APISettings(BaseSettings):
                     "API_KEY must be set in production environment. "
                     "Set the WEAVER_API__API_KEY environment variable."
                 )
-            warnings.append(
-                "Using default API key. Set WEAVER_API__API_KEY for production."
-            )
+            warnings.append("Using default API key. Set WEAVER_API__API_KEY for production.")
 
         if len(self.api_key) < 32:
             if environment == "production":
-                raise ValueError(
-                    "API key must be at least 32 characters in production."
-                )
+                raise ValueError("API key must be at least 32 characters in production.")
             warnings.append(
                 f"API key length ({len(self.api_key)}) is less than recommended 32 characters."
             )
@@ -254,9 +257,7 @@ class Settings(BaseSettings):
                     "Production environment requires secure Neo4j credentials. "
                     "Set NEO4J_PASSWORD environment variable to a secure value."
                 )
-            warnings.append(
-                "Using default Neo4j password. Set NEO4J_PASSWORD for production."
-            )
+            warnings.append("Using default Neo4j password. Set NEO4J_PASSWORD for production.")
 
         # Check PostgreSQL credentials
         if "postgres:postgres@" in self.postgres.dsn or ":@localhost" in self.postgres.dsn:
@@ -279,8 +280,6 @@ class Settings(BaseSettings):
                     "Production environment requires LLM API key. "
                     "Set LLM_API_KEY_OPENAI or WEAVER_LLM__PROVIDERS__OPENAI__API_KEY environment variable."
                 )
-            warnings.append(
-                "LLM API key not set. Set LLM_API_KEY_OPENAI for production."
-            )
+            warnings.append("LLM API key not set. Set LLM_API_KEY_OPENAI for production.")
 
         return warnings

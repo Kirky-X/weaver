@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Dependency injection container for the weaver application."""
 
 from __future__ import annotations
@@ -5,24 +6,24 @@ from __future__ import annotations
 from typing import Any
 
 from config.settings import Settings
-from core.db import PostgresPool, Neo4jPool
 from core.cache import RedisClient
-from core.observability import get_logger
+from core.db import Neo4jPool, PostgresPool
+from core.event import EventBus
 from core.llm.client import LLMClient
 from core.llm.config_manager import LLMConfigManager
-from core.llm.token_budget import TokenBudgetManager
-from core.llm.rate_limiter import RedisTokenBucket
 from core.llm.queue_manager import LLMQueueManager
-from core.event import EventBus
+from core.llm.rate_limiter import RedisTokenBucket
+from core.llm.token_budget import TokenBudgetManager
+from core.observability import get_logger
 from core.prompt import PromptLoader
-from modules.source import SourceRegistry, SourceScheduler
-from modules.storage import ArticleRepo, VectorRepo, SourceAuthorityRepo
-from modules.storage.neo4j import Neo4jEntityRepo, Neo4jArticleRepo
-from modules.graph_store import Neo4jWriter, EntityResolver
-from modules.fetcher import SmartFetcher, PlaywrightContextPool
 from modules.collector import Deduplicator
 from modules.collector.crawler import Crawler
+from modules.fetcher import PlaywrightContextPool, SmartFetcher
+from modules.graph_store import EntityResolver, Neo4jWriter
 from modules.pipeline.graph import Pipeline
+from modules.source import SourceRegistry, SourceScheduler
+from modules.storage import ArticleRepo, SourceAuthorityRepo, VectorRepo
+from modules.storage.neo4j import Neo4jArticleRepo, Neo4jEntityRepo
 
 log = get_logger("container")
 
@@ -57,7 +58,7 @@ class Container:
         self._deduplicator: Deduplicator | None = None
         self._shutdown: bool = False  # Idempotency protection
 
-    def configure(self, settings: Settings) -> "Container":
+    def configure(self, settings: Settings) -> Container:
         """Configure the container with settings.
 
         Args:
@@ -171,7 +172,9 @@ class Container:
         """Get source registry."""
         if self._source_registry is None:
             if self._smart_fetcher is None:
-                raise RuntimeError("Smart fetcher not initialized. Call init_smart_fetcher() first.")
+                raise RuntimeError(
+                    "Smart fetcher not initialized. Call init_smart_fetcher() first."
+                )
             self._source_registry = SourceRegistry(self._smart_fetcher)
         return self._source_registry
 
@@ -197,7 +200,9 @@ class Container:
     def source_scheduler(self) -> SourceScheduler:
         """Get source scheduler."""
         if self._source_scheduler is None:
-            raise RuntimeError("Source scheduler not initialized. Call init_source_scheduler() first.")
+            raise RuntimeError(
+                "Source scheduler not initialized. Call init_source_scheduler() first."
+            )
         return self._source_scheduler
 
     # ── Repositories ──────────────────────────────────────────────
@@ -280,7 +285,9 @@ class Container:
     def playwright_pool(self) -> PlaywrightContextPool:
         """Get Playwright pool."""
         if self._playwright_pool is None:
-            raise RuntimeError("Playwright pool not initialized. Call init_playwright_pool() first.")
+            raise RuntimeError(
+                "Playwright pool not initialized. Call init_playwright_pool() first."
+            )
         return self._playwright_pool
 
     async def init_smart_fetcher(self) -> SmartFetcher:
@@ -346,11 +353,11 @@ class Container:
 
     # ── Pipeline ─────────────────────────────────────────────────
 
-    async def init_pipeline(self) -> "Pipeline":
+    async def init_pipeline(self) -> Pipeline:
         """Initialize the processing pipeline."""
         if self._pipeline is None:
-            from core.llm.token_budget import TokenBudgetManager
             from core.event.bus import EventBus
+            from core.llm.token_budget import TokenBudgetManager
             from modules.nlp.spacy_extractor import SpacyExtractor
 
             event_bus = EventBus()
@@ -373,7 +380,7 @@ class Container:
             log.info("pipeline_initialized")
         return self._pipeline
 
-    def pipeline(self) -> "Pipeline":
+    def pipeline(self) -> Pipeline:
         """Get the processing pipeline."""
         if self._pipeline is None:
             raise RuntimeError("Pipeline not initialized. Call init_pipeline() first.")
@@ -384,11 +391,13 @@ class Container:
     async def startup(self) -> None:
         """Initialize all services."""
         import os
+
         log.info("container_starting")
 
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        
+
         from core.db.initializer import initialize_database
+
         await initialize_database(
             self._settings.postgres.dsn,
             alembic_ini_path=os.path.join(project_root, "alembic.ini"),
@@ -403,6 +412,7 @@ class Container:
         await self.init_smart_fetcher()
 
         from modules.collector.processor import DiscoveryProcessor
+
         processor = DiscoveryProcessor(
             crawler=self.crawler(),
             article_repo=self.article_repo(),
@@ -490,6 +500,7 @@ def get_settings() -> Settings:
     global _settings_instance
     if _settings_instance is None:
         from config.settings import Settings
+
         _settings_instance = Settings()
     return _settings_instance
 

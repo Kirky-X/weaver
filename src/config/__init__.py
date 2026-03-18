@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Configuration module - Application settings and configuration.
 
 This module provides:
