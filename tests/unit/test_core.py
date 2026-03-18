@@ -147,7 +147,7 @@ class TestCircuitBreaker:
         )
         assert cb.state == CBState.CLOSED
 
-    def test_circuit_breaker_record_success(self):
+    async def test_circuit_breaker_record_success(self):
         """Test circuit breaker records success."""
         from core.resilience.circuit_breaker import CircuitBreaker, CBState
 
@@ -155,10 +155,10 @@ class TestCircuitBreaker:
             threshold=3,
             timeout_secs=60.0,
         )
-        cb.record_success()
+        await cb.record_success()
         assert cb.state == CBState.CLOSED
 
-    def test_circuit_breaker_record_failure(self):
+    async def test_circuit_breaker_record_failure(self):
         """Test circuit breaker records failure."""
         from core.resilience.circuit_breaker import CircuitBreaker, CBState
 
@@ -166,8 +166,8 @@ class TestCircuitBreaker:
             threshold=3,
             timeout_secs=60.0,
         )
-        cb.record_failure()
-        cb.record_failure()
+        await cb.record_failure()
+        await cb.record_failure()
         assert cb._fail_count == 2
 
 
