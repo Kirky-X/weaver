@@ -91,20 +91,6 @@ repos:
         files: ^src/|^tests/|^scripts/
         pass_filenames: true
 
-  # ruff-format
-  - repo: local
-    hooks:
-      - id: ruff-format
-        name: ruff-format
-        entry: ruff
-        language: system
-        types: [python]
-        args:
-          - format
-          - --config=pyproject.toml
-        files: ^src/|^tests/|^scripts/
-        pass_filenames: true
-
   # mypy — 静态类型检查
   - repo: local
     hooks:

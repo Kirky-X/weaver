@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Test script to verify playwright-stealth anti-detection functionality."""
 
 import asyncio
@@ -44,7 +45,9 @@ async def test_stealth():
         },
         {
             "name": "Intoli Chrome Headless Test",
-            "url": "https://intoli.com/blog/not-possible-to-block-chrome-headless/chrome-headless-test.html",
+            "url": (
+                "https://intoli.com/blog/not-possible-to-block-chrome-headless/chrome-headless-test.html"
+            ),
             "check": "检查 Chrome headless 检测绕过",
         },
     ]
@@ -53,12 +56,14 @@ async def test_stealth():
         page = await ctx.new_page()
         try:
             for i, site in enumerate(test_sites, 1):
-                print(f"\n[{i+1}/4] 测试: {site['name']}")
+                print(f"\n[{i + 1}/4] 测试: {site['name']}")
                 print(f"     URL: {site['url']}")
                 print(f"     检查: {site['check']}")
 
                 try:
-                    response = await page.goto(site["url"], timeout=30000, wait_until="domcontentloaded")
+                    response = await page.goto(
+                        site["url"], timeout=30000, wait_until="domcontentloaded"
+                    )
                     await asyncio.sleep(2)
 
                     if response and response.status == 200:
@@ -67,15 +72,17 @@ async def test_stealth():
                         title = await page.title()
                         print(f"     页面标题: {title}")
                     else:
-                        print(f"     ⚠️ 页面加载异常 (状态码: {response.status if response else 'N/A'})")
+                        print(
+                            f"     ⚠️ 页面加载异常 (状态码: {response.status if response else 'N/A'})"
+                        )
                 except Exception as e:
                     print(f"     ❌ 访问失败: {e}")
 
-            print(f"\n[4/4] 检查 navigator.webdriver 属性...")
+            print("\n[4/4] 检查 navigator.webdriver 属性...")
             webdriver_value = await page.evaluate("navigator.webdriver")
             print(f"     navigator.webdriver = {webdriver_value}")
 
-            if webdriver_value is None or webdriver_value == False:
+            if webdriver_value is None or not webdriver_value:
                 print("     ✅ webdriver 属性已被隐藏")
             else:
                 print("     ⚠️ webdriver 属性仍可见")

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Nuitka Build Script - 极致性能优化的生产构建"""
 
 from __future__ import annotations
@@ -86,11 +87,13 @@ def build_command() -> list[str]:
         "--windows-onefile-icon=None",
     ]
 
-    cmd.extend([
-        "--lto=yes",
-        "--clang",
-        "--prefer-chrome-driver=yes",
-    ])
+    cmd.extend(
+        [
+            "--lto=yes",
+            "--clang",
+            "--prefer-chrome-driver=yes",
+        ]
+    )
 
     hidden_imports = [
         "asyncio",

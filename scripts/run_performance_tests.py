@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """
 HNSW 性能测试运行脚本
 
@@ -15,8 +16,9 @@ from pathlib import Path
 # 添加 src 到 Python 路径
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-import numpy as np
 import uuid
+
+import numpy as np
 from sqlalchemy import text
 
 from core.db.postgres import PostgresPool
@@ -61,9 +63,9 @@ async def check_prerequisites(pool: PostgresPool):
         print(f"✓ PostgreSQL 版本: {version.split(',')[0]}")
 
         # 检查 pgvector 扩展
-        result = await session.execute(text(
-            "SELECT extversion FROM pg_extension WHERE extname = 'vector'"
-        ))
+        result = await session.execute(
+            text("SELECT extversion FROM pg_extension WHERE extname = 'vector'")
+        )
         ext_version = result.scalar_one_or_none()
         if ext_version:
             print(f"✓ pgvector 版本: {ext_version}")
@@ -90,9 +92,7 @@ async def check_prerequisites(pool: PostgresPool):
 
 
 async def test_bulk_insert_performance(
-    repo: VectorRepo,
-    report: PerformanceReport,
-    num_vectors: int = 1000
+    repo: VectorRepo, report: PerformanceReport, num_vectors: int = 1000
 ):
     """测试批量插入性能"""
     print(f"\n测试批量插入性能 ({num_vectors} 向量)...")
@@ -101,8 +101,10 @@ async def test_bulk_insert_performance(
     vector_dim = 1024
 
     # 生成测试数据
-    all_vectors = (np.random.randn(num_vectors, vector_dim) /
-                   np.linalg.norm(np.random.randn(num_vectors, vector_dim), axis=1, keepdims=True)).tolist()
+    all_vectors = (
+        np.random.randn(num_vectors, vector_dim)
+        / np.linalg.norm(np.random.randn(num_vectors, vector_dim), axis=1, keepdims=True)
+    ).tolist()
 
     start_time = time.time()
     total_inserted = 0
@@ -113,12 +115,7 @@ async def test_bulk_insert_performance(
         batch_vectors = all_vectors[batch_start:batch_end]
 
         articles = [
-            (
-                uuid.uuid4(),
-                np.random.randn(vector_dim).tolist(),
-                batch_vectors[i],
-                "perf-test"
-            )
+            (uuid.uuid4(), np.random.randn(vector_dim).tolist(), batch_vectors[i], "perf-test")
             for i in range(len(batch_vectors))
         ]
 
@@ -136,18 +133,15 @@ async def test_bulk_insert_performance(
             "总向量数": f"{total_inserted}",
             "总耗时": f"{total_time:.2f} 秒",
             "插入速率": f"{rate:.1f} 向量/秒",
-            "性能标准": "✓ PASS" if rate >= 100 else "✗ FAIL"
-        }
+            "性能标准": "✓ PASS" if rate >= 100 else "✗ FAIL",
+        },
     )
 
     return rate >= 100
 
 
 async def test_query_performance(
-    pool: PostgresPool,
-    repo: VectorRepo,
-    report: PerformanceReport,
-    num_queries: int = 20
+    pool: PostgresPool, repo: VectorRepo, report: PerformanceReport, num_queries: int = 20
 ):
     """测试查询性能"""
     print(f"\n测试查询性能 ({num_queries} 次查询)...")
@@ -156,22 +150,21 @@ async def test_query_performance(
     query_times = []
 
     # 生成查询向量
-    query_vectors = (np.random.randn(num_queries, vector_dim) /
-                     np.linalg.norm(np.random.randn(num_queries, vector_dim), axis=1, keepdims=True)).tolist()
+    query_vectors = (
+        np.random.randn(num_queries, vector_dim)
+        / np.linalg.norm(np.random.randn(num_queries, vector_dim), axis=1, keepdims=True)
+    ).tolist()
 
     for i, query_vec in enumerate(query_vectors):
         start = time.time()
         results = await repo.find_similar(
-            embedding=query_vec,
-            threshold=0.5,
-            limit=20,
-            model_id="perf-test"
+            embedding=query_vec, threshold=0.5, limit=20, model_id="perf-test"
         )
         query_time = (time.time() - start) * 1000  # ms
         query_times.append(query_time)
 
         if (i + 1) % 5 == 0:
-            print(f"  进度: {i+1}/{num_queries}")
+            print(f"  进度: {i + 1}/{num_queries}")
 
     avg_time = np.mean(query_times)
     max_time = np.max(query_times)
@@ -187,8 +180,8 @@ async def test_query_performance(
             "最大时间": f"{max_time:.2f} ms",
             "最小时间": f"{min_time:.2f} ms",
             "标准差": f"{std_time:.2f} ms",
-            "性能标准": "✓ PASS" if max_time < 100 else "✗ FAIL"
-        }
+            "性能标准": "✓ PASS" if max_time < 100 else "✗ FAIL",
+        },
     )
 
     return max_time < 100
@@ -202,7 +195,8 @@ async def test_index_usage(pool: PostgresPool, report: PerformanceReport):
     query_vector = np.random.randn(vector_dim).tolist()
 
     async with pool.session() as session:
-        result = await session.execute(text("""
+        result = await session.execute(
+            text("""
             EXPLAIN (ANALYZE, BUFFERS)
             SELECT
                 a.id::text as article_id,
@@ -213,7 +207,9 @@ async def test_index_usage(pool: PostgresPool, report: PerformanceReport):
               AND a.is_merged = FALSE
             ORDER BY similarity DESC
             LIMIT 20
-        """), {"embedding": str(query_vector)})
+        """),
+            {"embedding": str(query_vector)},
+        )
 
         plan_lines = [row[0] for row in result]
 
@@ -222,6 +218,7 @@ async def test_index_usage(pool: PostgresPool, report: PerformanceReport):
 
     # 提取执行时间
     import re
+
     time_match = re.search(r"Execution Time: ([\d.]+) ms", plan_text)
     exec_time = float(time_match.group(1)) if time_match else 0
 
@@ -233,8 +230,8 @@ async def test_index_usage(pool: PostgresPool, report: PerformanceReport):
         {
             "使用 HNSW 索引": "是" if uses_hnsw else "否",
             "执行时间": f"{exec_time:.2f} ms",
-            "性能标准": status
-        }
+            "性能标准": status,
+        },
     )
 
     return uses_hnsw
@@ -247,10 +244,7 @@ async def main():
     print("=" * 80)
 
     # 数据库连接
-    dsn = os.getenv(
-        "POSTGRES_DSN",
-        "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver"
-    )
+    dsn = os.getenv("POSTGRES_DSN", "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver")
 
     pool = PostgresPool(dsn)
     repo = VectorRepo(pool)
@@ -287,6 +281,7 @@ async def main():
     except Exception as e:
         print(f"\n✗ 测试失败: {e}")
         import traceback
+
         traceback.print_exc()
         return 1
 
