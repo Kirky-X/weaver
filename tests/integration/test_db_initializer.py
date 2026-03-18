@@ -43,14 +43,12 @@ class TestDatabaseInitializerIntegration:
         assert result is True
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason="Requires database with all tables - run after migrations")
     async def test_verify_tables_real(self, test_dsn):
         """Test verifying tables with real connection."""
         result = await verify_tables(test_dsn)
         assert result is True
 
     @pytest.mark.asyncio
-    @pytest.mark.skip(reason="Requires database setup - run after migrations")
     async def test_initialize_database_idempotent(self, test_dsn):
         """Test that initialize_database is idempotent."""
         result = await initialize_database(test_dsn)
