@@ -6,6 +6,7 @@ import asyncio
 import pytest
 
 
+@pytest.mark.xfail(reason="Intentional test failure to verify cleanup behavior")
 @pytest.mark.asyncio
 async def test_cleanup_happens_on_failure():
     """Verify cleanup runs even when tests fail."""
