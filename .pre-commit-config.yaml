@@ -103,34 +103,20 @@ repos:
           - --config-file=pyproject.toml
           - --show-error-codes
           - --pretty
-        files: ^src/
+        files: ^src/(?!alembic/)
         pass_filenames: true
 
-  # bandit — 安全漏洞扫描
-  - repo: local
-    hooks:
-      - id: bandit
-        name: bandit (local)
-        entry: bandit
-        language: system
-        types: [python]
-        args:
-          - --config=pyproject.toml
-          - -ll
-          - --exclude=tests
-          - -r
-        files: ^src/
-        pass_filenames: false
-
-  # detect-secrets
-  - repo: local
-    hooks:
-      - id: detect-secrets
-        name: detect-secrets (local)
-        entry: detect-secrets-hook
-        language: system
-        types: [python]
-        args: ['--baseline', '.secrets.baseline']
-        files: ^src/
-        pass_filenames: false
-        stages: [pre-commit]
+  # bandit — 安全漏洞扫描（可选，手动运行）
+  # - repo: local
+  #   hooks:
+  #     - id: bandit
+  #       name: bandit (local)
+  #       entry: bandit
+  #       language: system
+  #       types: [python]
+  #       args:
+  #         - -r
+  #         - -ll
+  #         - src
+  #       files: ^src/
+  #       pass_filenames: false

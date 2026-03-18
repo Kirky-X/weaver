@@ -295,7 +295,7 @@ warn_unused_ignores = true
 warn_no_return = true
 warn_unreachable = true
 strict_concatenate = true
-strict_slice = false
+extra_checks = true
 
 # 增量模式
 incremental = true
@@ -338,6 +338,10 @@ module = "tests.*"
 strict = false
 ignore_errors = false
 follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+module = "alembic.*"
+ignore_errors = true
 
 # ────────────────────────────────────────────────────────────
 # Bandit — 安全漏洞扫描

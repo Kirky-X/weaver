@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Alembic environment configuration for async SQLAlchemy."""
 
 from __future__ import annotations
@@ -5,15 +6,15 @@ from __future__ import annotations
 import asyncio
 from logging.config import fileConfig
 
+from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from alembic import context
+from config.settings import Settings
 
 # Import your models' Base for autogenerate support
 from core.db.models import Base
-from config.settings import Settings
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

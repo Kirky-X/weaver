@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Add HNSW indexes to vector tables
 
 Revision ID: e283f4aed36a
@@ -5,14 +6,16 @@ Revises: c619ab9ba95a
 Create Date: 2026-03-18
 
 """
+
 import os
-from typing import Sequence, Union
+from collections.abc import Sequence
+from typing import Union
 
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision: str = 'e283f4aed36a'
-down_revision: Union[str, None] = 'c619ab9ba95a'
+revision: str = "e283f4aed36a"
+down_revision: Union[str, None] = "c619ab9ba95a"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -30,8 +33,8 @@ def upgrade() -> None:
     - HNSW_EF_CONSTRUCTION=128 (larger candidate list)
     """
     # Get parameters from environment or use defaults
-    m = int(os.getenv('HNSW_M', '16'))
-    ef_construction = int(os.getenv('HNSW_EF_CONSTRUCTION', '64'))
+    m = int(os.getenv("HNSW_M", "16"))
+    ef_construction = int(os.getenv("HNSW_EF_CONSTRUCTION", "64"))
 
     # Create HNSW index on article_vectors
     # Note: CONCURRENTLY cannot be used inside a transaction block
