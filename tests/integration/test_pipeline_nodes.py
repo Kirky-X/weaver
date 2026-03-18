@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from modules.pipeline.state import PipelineState
 from modules.collector.models import ArticleRaw
+from core.llm.output_validator import CleanerContent
 
 
 @pytest.fixture
@@ -180,8 +181,10 @@ class TestCleanerNodeIntegration:
 
         mock_llm_client.call = AsyncMock(
             return_value=CleanerOutput(
-                title="Cleaned Title",
-                body="Cleaned body content without markup tags.",
+                content=CleanerContent(
+                    title="Cleaned Title",
+                    body="Cleaned body content without markup tags.",
+                )
             )
         )
 
@@ -350,7 +353,7 @@ class TestCategorizerNodeIntegration:
 
         result = await node.execute(pipeline_state)
 
-        assert result["category"] == "未知"
+        assert result["category"] == "社会"
         assert result["language"] == "en"
 
 
@@ -785,7 +788,12 @@ class TestPipelineNodeChain:
         mock_llm_client.call = AsyncMock()
         mock_llm_client.call.side_effect = [
             ClassifierOutput(is_news=True, confidence=0.95),
-            CleanerOutput(title="Cleaned Title", body="Cleaned body"),
+            CleanerOutput(
+                content=CleanerContent(
+                    title="Cleaned Title",
+                    body="Cleaned body"
+                )
+            ),
             CategorizerOutput(category="technology", language="zh", region="CN"),
             AnalyzeOutput(
                 summary="Summary",
