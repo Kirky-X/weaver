@@ -116,11 +116,14 @@ class TestApiKeyHeader:
         assert api_key_header.model.name == "X-API-Key"
 
     def test_api_key_header_auto_error_false(self):
-        """Test that auto_error is False so missing header does not raise immediately."""
+        """Test that auto_error is False so missing header does not raise immediately.
+
+        auto_error=False means FastAPI won't auto-raise HTTP 403 — we handle None manually.
+        """
         from api.middleware.auth import api_key_header
 
-        # auto_error=False means FastAPI won't auto-raise — we handle None manually
-        assert api_key_header.model.auto_error is False
+        # auto_error=False on the instance means FastAPI won't auto-raise 403
+        assert api_key_header.auto_error is False
 
     def test_api_key_header_is_not_none(self):
         """Test api_key_header is not None."""
@@ -180,7 +183,7 @@ class TestAuthMiddlewareIntegration:
 
     def test_articles_endpoint_with_valid_api_key_returns_200_or_503(self):
         """Test GET /articles with correct X-API-Key does not fail on auth (may fail on pool)."""
-        from unittest.mock import MagicMock
+        from unittest.mock import AsyncMock, MagicMock
 
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
@@ -190,7 +193,16 @@ class TestAuthMiddlewareIntegration:
         app = FastAPI()
         app.include_router(router)
 
+        # Properly mock the async pool session
+        mock_count_result = MagicMock()
+        mock_count_result.scalar.return_value = 0
+
+        mock_session = MagicMock()
+        mock_session.execute = AsyncMock(return_value=mock_count_result)
+
         mock_pool = MagicMock()
+        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
         set_postgres_pool(mock_pool)
 
         mock_settings = MagicMock()
