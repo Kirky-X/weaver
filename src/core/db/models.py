@@ -1,10 +1,11 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """SQLAlchemy 2.0 ORM models for the weaver system."""
 
 from __future__ import annotations
 
 import enum
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from pgvector.sqlalchemy import Vector
@@ -60,8 +61,8 @@ class PersistStatus(str, enum.Enum):
     @classmethod
     def is_valid_transition(
         cls,
-        from_status: "PersistStatus",
-        to_status: "PersistStatus",
+        from_status: PersistStatus,
+        to_status: PersistStatus,
     ) -> bool:
         """Validate if a status transition is allowed.
 
@@ -147,9 +148,7 @@ class Article(Base):
         UUID(as_uuid=True), ForeignKey("articles.id")
     )
     is_merged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    merged_source_ids: Mapped[list[uuid.UUID] | None] = mapped_column(
-        ARRAY(UUID(as_uuid=True))
-    )
+    merged_source_ids: Mapped[list[uuid.UUID] | None] = mapped_column(ARRAY(UUID(as_uuid=True)))
 
     # Summary & analysis
     summary: Mapped[str | None] = mapped_column(Text)
@@ -182,9 +181,7 @@ class Article(Base):
     cross_verification: Mapped[float | None] = mapped_column(Numeric(3, 2))
     content_check_score: Mapped[float | None] = mapped_column(Numeric(3, 2))
     credibility_flags: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
-    verified_by_sources: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0
-    )
+    verified_by_sources: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Persist status
     persist_status: Mapped[PersistStatus] = mapped_column(
@@ -216,21 +213,21 @@ class Article(Base):
     publish_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default=text("NOW()"),
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default=text("NOW()"),
-        onupdate=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(UTC),
     )
 
     # Relationships
-    vectors: Mapped[list["ArticleVector"]] = relationship(
+    vectors: Mapped[list[ArticleVector]] = relationship(
         back_populates="article", cascade="all, delete-orphan"
     )
-    entities: Mapped[list["ArticleEntity"]] = relationship(
+    entities: Mapped[list[ArticleEntity]] = relationship(
         back_populates="article", cascade="all, delete-orphan"
     )
 
@@ -249,9 +246,7 @@ class Article(Base):
             "credibility_score >= 0 AND credibility_score <= 1",
             name="chk_credibility_score_range",
         ),
-        CheckConstraint(
-            "merged_into IS DISTINCT FROM id", name="chk_no_self_merge"
-        ),
+        CheckConstraint("merged_into IS DISTINCT FROM id", name="chk_no_self_merge"),
         Index("idx_articles_category", "category"),
         Index("idx_articles_publish_time", publish_time.desc()),
         Index("idx_articles_score", score.desc()),
@@ -290,18 +285,18 @@ class ArticleVector(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default=text("NOW()"),
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default=text("NOW()"),
-        onupdate=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(UTC),
     )
 
     # Relationships
-    article: Mapped["Article"] = relationship(back_populates="vectors")
+    article: Mapped[Article] = relationship(back_populates="vectors")
 
     __table_args__ = (
         Index(
@@ -319,18 +314,16 @@ class EntityVector(Base):
     __tablename__ = "entity_vectors"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    neo4j_id: Mapped[str] = mapped_column(
-        String(100), unique=True, nullable=False
-    )
+    neo4j_id: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     embedding: Mapped[Any] = mapped_column(Vector(1024), nullable=False)
     model_id: Mapped[str] = mapped_column(
         String(64), nullable=False, default="text-embedding-3-large"
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default=text("NOW()"),
-        onupdate=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(UTC),
     )
 
 
@@ -341,16 +334,14 @@ class SourceAuthority(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     host: Mapped[str] = mapped_column(String(200), unique=True, nullable=False)
-    authority: Mapped[float] = mapped_column(
-        Numeric(3, 2), nullable=False, default=0.50
-    )
+    authority: Mapped[float] = mapped_column(Numeric(3, 2), nullable=False, default=0.50)
     tier: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     description: Mapped[str | None] = mapped_column(Text)
     needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     auto_score: Mapped[float | None] = mapped_column(Numeric(3, 2))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         server_default=text("NOW()"),
     )
 
@@ -372,7 +363,7 @@ class ArticleEntity(Base):
     role: Mapped[str | None] = mapped_column(String(100))
 
     # Relationships
-    article: Mapped["Article"] = relationship(back_populates="entities")
+    article: Mapped[Article] = relationship(back_populates="entities")
 
     __table_args__ = (
         Index("idx_ae_article", "article_id"),

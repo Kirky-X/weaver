@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Redis Token Bucket rate limiter (multi-process safe via Lua script)."""
 
 from __future__ import annotations
@@ -65,9 +66,7 @@ class RedisTokenBucket:
         rate = rpm_limit / 60.0
         now = time.time()
 
-        result = await self._script(
-            keys=[key], args=[str(capacity), str(rate), str(now), "1"]
-        )
+        result = await self._script(keys=[key], args=[str(capacity), str(rate), str(now), "1"])
         allowed = int(result[0])
         wait = float(result[1])
         return 0.0 if allowed else wait

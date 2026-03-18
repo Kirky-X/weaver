@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """OpenTelemetry tracing configuration."""
 
 from __future__ import annotations

@@ -1,10 +1,11 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """redis-py async wrapper."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from redis.asyncio import Redis, ConnectionPool
+from redis.asyncio import ConnectionPool, Redis
 
 from core.observability.logging import get_logger
 
@@ -108,7 +109,11 @@ class RedisClient:
     ) -> list[str]:
         """Return members in a sorted set by score range."""
         return await self.client.zrangebyscore(
-            name, min_score, max_score, start=start, num=num,
+            name,
+            min_score,
+            max_score,
+            start=start,
+            num=num,
         )
 
     async def zrem(self, name: str, *members: str) -> int:

@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """LLM module type definitions: enums and data classes."""
 
 from __future__ import annotations
@@ -54,6 +55,6 @@ class LLMTask:
     provider_cfg: Any = field(default=None, init=False)
     future: asyncio.Future | None = field(default=None, init=False)
 
-    def __lt__(self, other: "LLMTask") -> bool:
+    def __lt__(self, other: LLMTask) -> bool:
         """Support PriorityQueue ordering."""
         return self.priority < other.priority

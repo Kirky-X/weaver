@@ -1,9 +1,10 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """PostgreSQL async connection pool and SQLAlchemy session factory."""
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -156,12 +157,8 @@ class PostgresPool:
         stats = self.get_pool_stats()
 
         MetricsCollector.db_pool_size.labels(pool="postgres").set(stats["pool_size"])
-        MetricsCollector.db_pool_checked_out.labels(pool="postgres").set(
-            stats["checked_out"]
-        )
-        MetricsCollector.db_pool_utilization.labels(pool="postgres").set(
-            stats["utilization"]
-        )
+        MetricsCollector.db_pool_checked_out.labels(pool="postgres").set(stats["checked_out"])
+        MetricsCollector.db_pool_utilization.labels(pool="postgres").set(stats["utilization"])
 
         log.debug(
             "postgres_pool_stats",

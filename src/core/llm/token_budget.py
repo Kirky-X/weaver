@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Token budget management with tiktoken truncation."""
 
 from __future__ import annotations

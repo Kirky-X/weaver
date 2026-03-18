@@ -1,10 +1,12 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Cache decorator for API responses."""
 
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from functools import wraps
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 
 from core.cache.redis import RedisClient
 from core.observability.logging import get_logger
@@ -22,6 +24,7 @@ def get_redis_client() -> RedisClient | None:
     """
     try:
         from container import get_container
+
         container = get_container()
         return container.redis_client()
     except Exception:

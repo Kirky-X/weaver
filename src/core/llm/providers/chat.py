@@ -1,12 +1,12 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Chat LLM provider using LangChain's ChatOpenAI."""
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
-from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
 
 from core.llm.providers.base import BaseLLMProvider
 from core.observability.logging import get_logger

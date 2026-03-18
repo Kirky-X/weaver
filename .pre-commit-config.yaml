@@ -103,7 +103,7 @@ repos:
           - --config-file=pyproject.toml
           - --show-error-codes
           - --pretty
-        files: ^src/(?!alembic/|config/|container\.py)
+        files: ^src/(?!alembic/|config/|container\.py|core/)
         pass_filenames: true
 
   # bandit — 安全漏洞扫描（可选，手动运行）

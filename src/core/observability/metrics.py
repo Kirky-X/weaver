@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Prometheus metrics definitions for the weaver system."""
 
 from __future__ import annotations

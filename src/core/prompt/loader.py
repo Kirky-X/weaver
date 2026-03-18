@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """TOML Prompt loader with caching and versioning."""
 
 from __future__ import annotations

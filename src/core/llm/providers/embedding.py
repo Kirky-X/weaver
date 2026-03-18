@@ -1,8 +1,7 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Embedding LLM provider using LangChain's OpenAIEmbeddings."""
 
 from __future__ import annotations
-
-from typing import Any
 
 from langchain_openai import OpenAIEmbeddings
 

@@ -1,11 +1,18 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Core event module - Event bus and domain events."""
 
-from core.event.bus import EventBus, BaseEvent, FallbackEvent, CredibilityComputedEvent, EmbeddingModelMismatchEvent
+from core.event.bus import (
+    BaseEvent,
+    CredibilityComputedEvent,
+    EmbeddingModelMismatchEvent,
+    EventBus,
+    FallbackEvent,
+)
 
 __all__ = [
-    "EventBus",
     "BaseEvent",
-    "FallbackEvent",
     "CredibilityComputedEvent",
     "EmbeddingModelMismatchEvent",
+    "EventBus",
+    "FallbackEvent",
 ]

@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Core module - Foundation components for the weaver application.
 
 This module provides the core infrastructure including:
@@ -16,56 +17,56 @@ Example usage:
     from core.observability import get_logger
 """
 
+from core.cache import RedisClient, cache_result, get_redis_client, invalidate_cache
 from core.db import (
-    PostgresPool,
-    Neo4jPool,
-    Base,
     Article,
-    ArticleVector,
-    EntityVector,
-    SourceAuthority,
     ArticleEntity,
+    ArticleVector,
+    Base,
     CategoryType,
-    PersistStatus,
     EmotionType,
+    EntityVector,
+    Neo4jPool,
+    PersistStatus,
+    PostgresPool,
+    SourceAuthority,
     VectorType,
 )
-from core.cache import RedisClient, get_redis_client, cache_result, invalidate_cache
-from core.event import EventBus, BaseEvent, FallbackEvent
-from core.llm import LLMType, CallPoint, LLMTask
-from core.observability import get_logger, MetricsCollector, configure_tracing, get_tracer
+from core.event import BaseEvent, EventBus, FallbackEvent
+from core.llm import CallPoint, LLMTask, LLMType
+from core.observability import MetricsCollector, configure_tracing, get_logger, get_tracer
 from core.prompt import PromptLoader
 from core.resilience import CircuitBreaker
 from core.utils import get_current_time_with_timezone
 
 __all__ = [
-    "PostgresPool",
-    "Neo4jPool",
-    "Base",
     "Article",
-    "ArticleVector",
-    "EntityVector",
-    "SourceAuthority",
     "ArticleEntity",
-    "CategoryType",
-    "PersistStatus",
-    "EmotionType",
-    "VectorType",
-    "RedisClient",
-    "get_redis_client",
-    "cache_result",
-    "invalidate_cache",
-    "EventBus",
+    "ArticleVector",
+    "Base",
     "BaseEvent",
-    "FallbackEvent",
-    "LLMType",
     "CallPoint",
-    "LLMTask",
-    "get_logger",
-    "MetricsCollector",
-    "configure_tracing",
-    "get_tracer",
-    "PromptLoader",
+    "CategoryType",
     "CircuitBreaker",
+    "EmotionType",
+    "EntityVector",
+    "EventBus",
+    "FallbackEvent",
+    "LLMTask",
+    "LLMType",
+    "MetricsCollector",
+    "Neo4jPool",
+    "PersistStatus",
+    "PostgresPool",
+    "PromptLoader",
+    "RedisClient",
+    "SourceAuthority",
+    "VectorType",
+    "cache_result",
+    "configure_tracing",
     "get_current_time_with_timezone",
+    "get_logger",
+    "get_redis_client",
+    "get_tracer",
+    "invalidate_cache",
 ]

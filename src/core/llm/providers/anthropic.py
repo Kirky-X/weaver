@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Anthropic Claude API provider using LangChain's ChatAnthropic."""
 
 from __future__ import annotations
@@ -85,7 +86,7 @@ class AnthropicProvider(BaseLLMProvider):
 
         content = response.content
         result = ""
-        
+
         # Handle list of content blocks (Claude extended thinking format)
         if isinstance(content, list):
             for block in content:

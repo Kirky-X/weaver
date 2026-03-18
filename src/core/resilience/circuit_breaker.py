@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Generic circuit breaker for fault tolerance.
 
 State machine:
@@ -84,10 +85,11 @@ class CircuitBreaker:
         except TimeoutError:
             # Lock acquisition timeout - skip state transition
             import logging
+
             logger = logging.getLogger(__name__)
             logger.warning(
                 "circuit_breaker_lock_timeout",
-                extra={"current_state": self._state.value, "target_state": new_state.value}
+                extra={"current_state": self._state.value, "target_state": new_state.value},
             )
             return False
 
@@ -107,6 +109,7 @@ class CircuitBreaker:
                     return True
         except TimeoutError:
             import logging
+
             logger = logging.getLogger(__name__)
             logger.warning("circuit_breaker_record_success_timeout")
             return False
@@ -129,6 +132,7 @@ class CircuitBreaker:
                     return True
         except TimeoutError:
             import logging
+
             logger = logging.getLogger(__name__)
             logger.warning("circuit_breaker_record_failure_timeout")
             return False
@@ -150,6 +154,7 @@ class CircuitBreaker:
                     return True
         except TimeoutError:
             import logging
+
             logger = logging.getLogger(__name__)
             logger.warning("circuit_breaker_reset_timeout")
             return False

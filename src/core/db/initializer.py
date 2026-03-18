@@ -1,10 +1,10 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Database initializer for automatic database creation and migration."""
 
 from __future__ import annotations
 
 import asyncio
 import concurrent.futures
-import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -49,7 +49,7 @@ def parse_dsn(dsn: str) -> ParsedDSN:
     Example:
         postgresql+asyncpg://user:pass@host:5432/dbname
     """
-    from urllib.parse import urlparse, parse_qs, unquote
+    from urllib.parse import unquote, urlparse
 
     parsed = urlparse(dsn)
     if not parsed.scheme or not parsed.hostname:
@@ -106,9 +106,7 @@ async def create_database(parsed: ParsedDSN) -> None:
     )
     try:
         await conn.execute(
-            f'CREATE DATABASE "{parsed.database}" '
-            f"OWNER {parsed.user} "
-            f"ENCODING 'UTF8'"
+            f'CREATE DATABASE "{parsed.database}" ' f"OWNER {parsed.user} " f"ENCODING 'UTF8'"
         )
         log.info("database_created", database=parsed.database)
     except asyncpg.DuplicateDatabaseError:
@@ -149,7 +147,7 @@ async def wait_for_postgres(parsed: ParsedDSN, timeout: float = 30.0) -> None:
             await conn.close()
             log.info("postgres_available", host=parsed.host, port=parsed.port)
             return
-        except (asyncpg.PostgresError, OSError, asyncio.TimeoutError) as e:
+        except (TimeoutError, asyncpg.PostgresError, OSError) as e:
             elapsed = asyncio.get_event_loop().time() - start_time
             if elapsed >= timeout:
                 raise RuntimeError(
@@ -174,6 +172,7 @@ def _run_migrations_sync(alembic_ini_path: str, script_location: str, dsn: str) 
         dsn: Database connection string.
     """
     import traceback
+
     config = Config(alembic_ini_path)
     config.set_main_option("script_location", script_location)
     config.set_main_option("sqlalchemy.url", dsn)

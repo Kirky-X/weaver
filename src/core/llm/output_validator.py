@@ -1,13 +1,13 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Structured output validation and Pydantic output models for LLM responses."""
 
 from __future__ import annotations
 
 import json
 import re
-from typing import TypeVar, Type
+from typing import TypeVar
 
 from pydantic import BaseModel, Field
-
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -18,7 +18,7 @@ class OutputParserException(Exception):
     pass
 
 
-def parse_llm_json(raw: str, model_cls: Type[T]) -> T:
+def parse_llm_json(raw: str, model_cls: type[T]) -> T:
     """Parse raw LLM output into a Pydantic model.
 
     Handles common LLM quirks:
@@ -39,45 +39,36 @@ def parse_llm_json(raw: str, model_cls: Type[T]) -> T:
         OutputParserException: If parsing or validation fails.
     """
     import ast
-    
-    if isinstance(raw, list):
-        raw = "".join(
-            block.text if hasattr(block, "text") else str(block)
-            for block in raw
-        )
 
-    clean = (
-        raw.strip()
-        .removeprefix("```json")
-        .removeprefix("```")
-        .removesuffix("```")
-        .strip()
-    )
+    if isinstance(raw, list):
+        raw = "".join(block.text if hasattr(block, "text") else str(block) for block in raw)
+
+    clean = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
 
     # Handle Claude extended thinking format: {'thinking': '...', 'signature': '...'}
     # The actual JSON output should be after the thinking block
     # Simple approach: find the last complete JSON object
     if clean.startswith("{'") or clean.startswith('{"'):
         # Find the last complete JSON object by finding the last } and matching {
-        last_brace = clean.rfind('}')
+        last_brace = clean.rfind("}")
         if last_brace != -1:
             # Work backwards to find the matching {
             brace_count = 0
             in_string = False
             escape_next = False
             string_char = None
-            
+
             for i in range(last_brace, -1, -1):
                 char = clean[i]
-                
+
                 # Handle escape sequences
                 if escape_next:
                     escape_next = False
                     continue
-                if i > 0 and clean[i-1] == '\\':
+                if i > 0 and clean[i - 1] == "\\":
                     escape_next = True
                     continue
-                
+
                 # Track string boundaries
                 if char in ('"', "'") and not in_string:
                     in_string = True
@@ -86,18 +77,18 @@ def parse_llm_json(raw: str, model_cls: Type[T]) -> T:
                     in_string = False
                     string_char = None
                 elif not in_string:
-                    if char == '}':
+                    if char == "}":
                         brace_count += 1
-                    elif char == '{':
+                    elif char == "{":
                         brace_count -= 1
                         if brace_count == 0:
                             # Found the matching opening brace
-                            clean = clean[i:last_brace+1]
+                            clean = clean[i : last_brace + 1]
                             break
 
     # Handle plain float output for QualityScorerOutput
     if model_cls.__name__ == "QualityScorerOutput":
-        float_match = re.search(r'^([0-9]*\.?[0-9]+)$', clean)
+        float_match = re.search(r"^([0-9]*\.?[0-9]+)$", clean)
         if float_match:
             try:
                 score = float(float_match.group(1))
@@ -107,7 +98,7 @@ def parse_llm_json(raw: str, model_cls: Type[T]) -> T:
 
     # Try to find valid JSON within the output
     # Handle cases where model outputs extra text after JSON
-    json_match = re.search(r'\{[\s\S]*\}', clean)
+    json_match = re.search(r"\{[\s\S]*\}", clean)
     if json_match:
         clean = json_match.group(0)
 
@@ -122,13 +113,9 @@ def parse_llm_json(raw: str, model_cls: Type[T]) -> T:
         except Exception:
             pass
     except Exception as e:
-        raise OutputParserException(
-            f"验证失败: {str(e)}\n原始内容: {raw[:200]}"
-        )
-    
-    raise OutputParserException(
-        f"解析失败: 无法解析为有效的 JSON\n原始内容: {raw[:200]}"
-    )
+        raise OutputParserException(f"验证失败: {e!s}\n原始内容: {raw[:200]}")
+
+    raise OutputParserException(f"解析失败: 无法解析为有效的 JSON\n原始内容: {raw[:200]}")
 
 
 # ── Output Models ────────────────────────────────────────────

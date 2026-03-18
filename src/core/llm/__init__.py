@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Core LLM module - LLM client, queue manager, and providers.
 
 Note: Import specific modules directly to avoid circular imports:
@@ -6,10 +7,10 @@ Note: Import specific modules directly to avoid circular imports:
     etc.
 """
 
-from core.llm.types import LLMType, CallPoint, LLMTask
+from core.llm.types import CallPoint, LLMTask, LLMType
 
 __all__ = [
-    "LLMType",
     "CallPoint",
     "LLMTask",
+    "LLMType",
 ]

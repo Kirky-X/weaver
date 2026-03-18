@@ -1,19 +1,20 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unified LLM client — single entry point for all LLM operations."""
 
 from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Type
+from typing import Any
 
 from pydantic import BaseModel
 
-from core.llm.types import LLMTask, LLMType, CallPoint
+from core.llm.output_validator import parse_llm_json
 from core.llm.queue_manager import LLMQueueManager
-from core.llm.output_validator import parse_llm_json, OutputParserException
 from core.llm.token_budget import TokenBudgetManager
-from core.prompt.loader import PromptLoader
+from core.llm.types import CallPoint, LLMTask, LLMType
 from core.observability.logging import get_logger
+from core.prompt.loader import PromptLoader
 from core.utils.time_utils import get_current_time_with_timezone
 
 log = get_logger("llm_client")
@@ -55,7 +56,7 @@ class LLMClient:
         self,
         call_point: CallPoint,
         payload: dict[str, Any],
-        output_model: Type[BaseModel] | None = None,
+        output_model: type[BaseModel] | None = None,
         priority: int = 5,
     ) -> Any:
         """Make an LLM call through the queue system.
@@ -93,7 +94,12 @@ class LLMClient:
 
         raw_result = await self._queue.enqueue(task)
 
-        log.debug("llm_raw_result", call_point=call_point.value, raw_result_len=len(raw_result) if raw_result else 0, raw_result_preview=raw_result[:200] if raw_result else "EMPTY")
+        log.debug(
+            "llm_raw_result",
+            call_point=call_point.value,
+            raw_result_len=len(raw_result) if raw_result else 0,
+            raw_result_preview=raw_result[:200] if raw_result else "EMPTY",
+        )
 
         if output_model:
             return parse_llm_json(raw_result, output_model)
@@ -130,6 +136,7 @@ class LLMClient:
                     cached = await self._redis.get(cache_key)
                     if cached:
                         import json as json_mod
+
                         all_embeddings[i] = json_mod.loads(cached)
                         continue
                 except Exception as exc:
@@ -166,6 +173,7 @@ class LLMClient:
                     cache_key = self._make_cache_key(texts[idx])
                     try:
                         import json as json_mod
+
                         await self._redis.setex(
                             cache_key,
                             EMBEDDING_CACHE_TTL,

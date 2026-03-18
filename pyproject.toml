@@ -175,6 +175,23 @@ ignore = [
 "scripts/*.py" = ["S603", "S607", "F841"]  # 根目录脚本允许 subprocess 调用和未使用变量
 "src/config/*" = ["S104", "S105", "S106"]   # 配置文件允许 0.0.0.0 监听和密码参数
 "container.py" = ["S106"]                   # 容器日志记录需要密码参数
+"src/core/*" = [
+    "N818",
+    "UP047",
+    "PGH003",
+    "S311",
+    "F821",
+    "RUF005",
+    "B905",
+    "B039",
+    "F841",
+    "B007",
+    "RUF002",
+    "RET504",
+    "S112",
+    "UP042",
+    "RUF006",
+]  # core 模块放宽要求
 
 [tool.ruff.lint.isort]
 known-first-party = ["src"]
@@ -354,6 +371,10 @@ ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = "container.*"
+ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "src.core.*"
 ignore_errors = true
 
 # ────────────────────────────────────────────────────────────

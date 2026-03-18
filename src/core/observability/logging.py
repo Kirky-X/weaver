@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """loguru configuration for formatted logging."""
 
 from __future__ import annotations
@@ -9,7 +10,6 @@ from typing import Any
 
 from loguru import logger
 from opentelemetry import trace
-
 
 _context_vars: ContextVar[dict[str, Any]] = ContextVar("context_vars", default={})
 
@@ -25,7 +25,7 @@ def get_trace_id() -> str:
 
     if span_context and span_context.is_valid:
         # Format trace_id as 32-character hex string
-        return format(span_context.trace_id, '032x')
+        return format(span_context.trace_id, "032x")
 
     return "N/A"
 
@@ -33,17 +33,20 @@ def get_trace_id() -> str:
 # Patterns for sensitive data detection
 SENSITIVE_PATTERNS = [
     # Password patterns
-    (re.compile(r'(password|pwd|passwd)=([^\s,;]+)', re.IGNORECASE), r'\1=***REDACTED***'),
+    (re.compile(r"(password|pwd|passwd)=([^\s,;]+)", re.IGNORECASE), r"\1=***REDACTED***"),
     (re.compile(r'(password|pwd|passwd)":"([^"]+)"', re.IGNORECASE), r'\1":"***REDACTED***"'),
-    (re.compile(r'(password|pwd|passwd)\'([^\']+)\'', re.IGNORECASE), r'\1\'***REDACTED***\''),
+    (re.compile(r"(password|pwd|passwd)\'([^\']+)\'", re.IGNORECASE), r"\1\'***REDACTED***\'"),
     # API key patterns
-    (re.compile(r'(api_key|apikey|api-key)=([^\s,;]+)', re.IGNORECASE), r'\1=***REDACTED***'),
+    (re.compile(r"(api_key|apikey|api-key)=([^\s,;]+)", re.IGNORECASE), r"\1=***REDACTED***"),
     (re.compile(r'(api_key|apikey|api-key)":"([^"]+)"', re.IGNORECASE), r'\1":"***REDACTED***"'),
-    (re.compile(r'(api_key|apikey|api-key)\'([^\']+)\'', re.IGNORECASE), r'\1\'***REDACTED***\''),
+    (re.compile(r"(api_key|apikey|api-key)\'([^\']+)\'", re.IGNORECASE), r"\1\'***REDACTED***\'"),
     # Connection string patterns
-    (re.compile(r'(postgres|mysql|mongodb|redis)://([^:]+):([^@]+)@', re.IGNORECASE), r'\1://\2:***REDACTED***@'),
+    (
+        re.compile(r"(postgres|mysql|mongodb|redis)://([^:]+):([^@]+)@", re.IGNORECASE),
+        r"\1://\2:***REDACTED***@",
+    ),
     # Bearer token patterns
-    (re.compile(r'(bearer|token)\s+([^\s]+)', re.IGNORECASE), r'\1 ***REDACTED***'),
+    (re.compile(r"(bearer|token)\s+([^\s]+)", re.IGNORECASE), r"\1 ***REDACTED***"),
 ]
 
 
@@ -72,17 +75,17 @@ def log_filter(record: Any) -> bool:
         Always True (allows the record), but modifies the message in-place.
     """
     # Add trace_id to the record's extra fields
-    record['extra']['trace_id'] = get_trace_id()
+    record["extra"]["trace_id"] = get_trace_id()
 
     # Sanitize the log message
-    if hasattr(record, 'message') and isinstance(record['message'], str):
-        record['message'] = redact_sensitive_data(record['message'])
+    if hasattr(record, "message") and isinstance(record["message"], str):
+        record["message"] = redact_sensitive_data(record["message"])
 
     # Sanitize any extra fields
-    if hasattr(record, 'extra'):
-        for key, value in record['extra'].items():
+    if hasattr(record, "extra"):
+        for key, value in record["extra"].items():
             if isinstance(value, str):
-                record['extra'][key] = redact_sensitive_data(value)
+                record["extra"][key] = redact_sensitive_data(value)
 
     return True
 

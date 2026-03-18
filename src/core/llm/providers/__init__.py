@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """LLM providers module - Base and concrete LLM provider implementations.
 
 Note: Import specific providers directly to avoid circular imports:

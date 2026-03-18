@@ -1,11 +1,9 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Base LLM provider interface."""
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Type
-
-from pydantic import BaseModel
 
 
 class BaseLLMProvider(ABC):

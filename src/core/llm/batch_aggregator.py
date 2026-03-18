@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """LLM Batch Aggregator for request coalescing."""
 
 from __future__ import annotations
@@ -5,11 +6,11 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass, field
-from typing import Any, Type
+from typing import Any
 
 from pydantic import BaseModel
 
-from core.llm.types import CallPoint, LLMTask, LLMType
+from core.llm.types import CallPoint
 from core.observability.logging import get_logger
 
 log = get_logger("batch_aggregator")
@@ -21,7 +22,7 @@ class BatchRequest:
 
     call_point: CallPoint
     payload: dict[str, Any]
-    output_model: Type[BaseModel] | None
+    output_model: type[BaseModel] | None
     future: asyncio.Future
     created_at: float = field(default_factory=time.monotonic)
 
@@ -82,7 +83,7 @@ class LLMBatchAggregator:
         self,
         call_point: CallPoint,
         payload: dict[str, Any],
-        output_model: Type[BaseModel] | None = None,
+        output_model: type[BaseModel] | None = None,
     ) -> Any:
         """Submit a request for potential batching.
 
@@ -110,9 +111,7 @@ class LLMBatchAggregator:
         async with self._lock:
             if call_point not in self._pending:
                 self._pending[call_point] = []
-                self._timers[call_point] = asyncio.create_task(
-                    self._timer_dispatch(call_point)
-                )
+                self._timers[call_point] = asyncio.create_task(self._timer_dispatch(call_point))
 
             self._pending[call_point].append(request)
 
@@ -125,7 +124,7 @@ class LLMBatchAggregator:
         """Dispatch batch after window expires."""
         await asyncio.sleep(self._window_ms / 1000.0)
         async with self._lock:
-            if call_point in self._pending and self._pending[call_point]:
+            if self._pending.get(call_point):
                 await self._dispatch_batch(call_point)
 
     async def _dispatch_batch(self, call_point: CallPoint) -> None:
@@ -145,9 +144,7 @@ class LLMBatchAggregator:
 
         for request in requests:
             if not request.future.done():
-                request.future.set_exception(
-                    RuntimeError("Batch aggregator not connected to LLM")
-                )
+                request.future.set_exception(RuntimeError("Batch aggregator not connected to LLM"))
 
     def get_stats(self) -> dict[str, Any]:
         """Get aggregator statistics."""

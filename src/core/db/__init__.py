@@ -1,43 +1,44 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Core database module - PostgreSQL and Neo4j connection pools."""
 
-from core.db.postgres import PostgresPool
-from core.db.neo4j import Neo4jPool
 from core.db.initializer import (
-    initialize_database,
     check_database_exists,
     create_database,
-    verify_tables,
+    initialize_database,
     run_migrations,
+    verify_tables,
 )
 from core.db.models import (
-    Base,
     Article,
-    ArticleVector,
-    EntityVector,
-    SourceAuthority,
     ArticleEntity,
+    ArticleVector,
+    Base,
     CategoryType,
-    PersistStatus,
     EmotionType,
+    EntityVector,
+    PersistStatus,
+    SourceAuthority,
     VectorType,
 )
+from core.db.neo4j import Neo4jPool
+from core.db.postgres import PostgresPool
 
 __all__ = [
-    "PostgresPool",
+    "Article",
+    "ArticleEntity",
+    "ArticleVector",
+    "Base",
+    "CategoryType",
+    "EmotionType",
+    "EntityVector",
     "Neo4jPool",
-    "initialize_database",
+    "PersistStatus",
+    "PostgresPool",
+    "SourceAuthority",
+    "VectorType",
     "check_database_exists",
     "create_database",
-    "verify_tables",
+    "initialize_database",
     "run_migrations",
-    "Base",
-    "Article",
-    "ArticleVector",
-    "EntityVector",
-    "SourceAuthority",
-    "ArticleEntity",
-    "CategoryType",
-    "PersistStatus",
-    "EmotionType",
-    "VectorType",
+    "verify_tables",
 ]

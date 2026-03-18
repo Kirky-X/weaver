@@ -1,3 +1,4 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Multi-provider LLM configuration manager."""
 
 from __future__ import annotations
@@ -131,11 +132,7 @@ class LLMConfigManager:
                 )
                 continue
 
-            fallbacks = [
-                self._providers[fb]
-                for fb in fallback_names
-                if fb in self._providers
-            ]
+            fallbacks = [self._providers[fb] for fb in fallback_names if fb in self._providers]
 
             self._call_points[cp_name] = CallPointConfig(
                 primary=primary,

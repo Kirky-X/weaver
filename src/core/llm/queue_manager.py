@@ -1,20 +1,21 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """LLM Queue Manager with Fallback Chain and priority queuing."""
 
 from __future__ import annotations
 
 import asyncio
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
-from core.llm.types import LLMTask, CallPoint
-from core.llm.config_manager import LLMConfigManager, ProviderConfig
-from core.llm.rate_limiter import RedisTokenBucket
-from core.llm.providers.base import BaseLLMProvider
-from core.resilience.circuit_breaker import CircuitBreaker
 from core.event.bus import EventBus, FallbackEvent
+from core.llm.config_manager import LLMConfigManager
+from core.llm.providers.base import BaseLLMProvider
+from core.llm.rate_limiter import RedisTokenBucket
+from core.llm.types import CallPoint, LLMTask
 from core.observability.logging import get_logger
 from core.observability.metrics import MetricsCollector
+from core.resilience.circuit_breaker import CircuitBreaker
 
 log = get_logger("queue_manager")
 
@@ -153,7 +154,12 @@ class ProviderQueue:
                 provider=self.name,
                 status="success",
             ).inc()
-            log.info("llm_call_success", call_point=task.call_point.value, provider=self.name, latency=latency)
+            log.info(
+                "llm_call_success",
+                call_point=task.call_point.value,
+                provider=self.name,
+                latency=latency,
+            )
             return result
         except Exception as exc:
             latency = time.monotonic() - start
@@ -282,12 +288,14 @@ class LLMQueueManager:
 
             # Circuit breaker check
             if queue.circuit_breaker.is_open():
-                await self._event_bus.publish(FallbackEvent(
-                    call_point=task.call_point.value,
-                    from_provider=pcfg_name,
-                    reason="circuit_open",
-                    attempt=idx,
-                ))
+                await self._event_bus.publish(
+                    FallbackEvent(
+                        call_point=task.call_point.value,
+                        from_provider=pcfg_name,
+                        reason="circuit_open",
+                        attempt=idx,
+                    )
+                )
                 MetricsCollector.fallback_total.labels(
                     call_point=task.call_point.value,
                     from_provider=pcfg_name,
@@ -307,13 +315,15 @@ class LLMQueueManager:
                 result = await future
 
                 if idx > 0:
-                    await self._event_bus.publish(FallbackEvent(
-                        call_point=task.call_point.value,
-                        from_provider=provider_chain_names[0],
-                        to_provider=pcfg_name,
-                        reason="fallback_success",
-                        attempt=idx,
-                    ))
+                    await self._event_bus.publish(
+                        FallbackEvent(
+                            call_point=task.call_point.value,
+                            from_provider=provider_chain_names[0],
+                            to_provider=pcfg_name,
+                            reason="fallback_success",
+                            attempt=idx,
+                        )
+                    )
                 return result
 
             except Exception as exc:
@@ -331,7 +341,7 @@ class LLMQueueManager:
                 # Retry logic for timeout and transient errors
                 if exc_name in RETRY_ERRORS and task.attempt < MAX_RETRIES:
                     task.attempt += 1
-                    retry_delay = RETRY_DELAY_BASE * (2 ** task.attempt)  # Exponential backoff
+                    retry_delay = RETRY_DELAY_BASE * (2**task.attempt)  # Exponential backoff
                     log.warning(
                         "llm_retry",
                         call_point=task.call_point.value,
@@ -370,12 +380,14 @@ class LLMQueueManager:
                     raise
 
                 last_exc = exc
-                await self._event_bus.publish(FallbackEvent(
-                    call_point=task.call_point.value,
-                    from_provider=pcfg_name,
-                    reason=exc_name,
-                    attempt=idx,
-                ))
+                await self._event_bus.publish(
+                    FallbackEvent(
+                        call_point=task.call_point.value,
+                        from_provider=pcfg_name,
+                        reason=exc_name,
+                        attempt=idx,
+                    )
+                )
                 MetricsCollector.fallback_total.labels(
                     call_point=task.call_point.value,
                     from_provider=pcfg_name,

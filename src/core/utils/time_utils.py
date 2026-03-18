@@ -1,8 +1,9 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """时间工具模块 - 支持 NTP 网络时间获取"""
 
 import socket
 import struct
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def get_current_time_with_timezone() -> str:
@@ -47,13 +48,13 @@ def _get_ntp_time() -> datetime | None:
 
 def _query_ntp(server: str) -> datetime:
     """查询单个 NTP 服务器"""
-    NTP_PACKET = b'\x1b' + 47 * b'\0'
+    NTP_PACKET = b"\x1b" + 47 * b"\0"
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.settimeout(3)
     sock.sendto(NTP_PACKET, (server, 123))
     response, _ = sock.recvfrom(1024)
     sock.close()
 
-    unpacked = struct.unpack('!12I', response)
+    unpacked = struct.unpack("!12I", response)
     timestamp = unpacked[10] - 2208988800
-    return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+    return datetime.fromtimestamp(timestamp, tz=UTC)

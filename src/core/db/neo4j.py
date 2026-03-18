@@ -1,7 +1,12 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Neo4j async driver wrapper."""
+
 from __future__ import annotations
+
 from typing import Any
+
 from neo4j import AsyncDriver, AsyncGraphDatabase
+
 from core.observability.logging import get_logger
 
 log = get_logger("neo4j")
@@ -34,6 +39,7 @@ class Neo4jPool:
     def close(self) -> None:
         """Synchronously close the Neo4j driver."""
         import asyncio
+
         if self._driver:
             asyncio.get_event_loop().run_until_complete(self._driver.close())
             log.info("neo4j_pool_closed")

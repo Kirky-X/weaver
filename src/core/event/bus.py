@@ -1,11 +1,13 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Internal event bus for decoupled component communication."""
 
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Callable, Coroutine
+from datetime import UTC, datetime
+from typing import Any
 
 from core.observability.logging import get_logger
 
@@ -19,7 +21,7 @@ log = get_logger("event_bus")
 class BaseEvent:
     """Base class for all domain events."""
 
-    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
 @dataclass
