@@ -1,41 +1,81 @@
 """Pytest configuration and fixtures."""
 
 import pytest
+import pytest_asyncio
 import asyncio
 import uuid
 import os
+import logging
 from datetime import datetime, timezone
 from typing import Generator, Any
 from unittest.mock import AsyncMock, MagicMock
 
+logger = logging.getLogger(__name__)
+
+
+async def cancel_all_tasks() -> None:
+    """Cancel all pending asyncio tasks from the current event loop.
+
+    Retrieves all tasks, cancels each one, waits for cancellation to complete,
+    and suppresses CancelledError exceptions. Includes timeout handling for
+    tasks that don't respond to cancellation.
+    """
+    loop = asyncio.get_running_loop()
+    tasks = [t for t in asyncio.all_tasks(loop) if t is not asyncio.current_task()]
+
+    if not tasks:
+        logger.debug("no_pending_tasks_to_cancel")
+        return
+
+    logger.info("cancelling_tasks", count=len(tasks))
+
+    # Cancel all tasks
+    for task in tasks:
+        task.cancel()
+
+    # Wait for all cancellations to complete with timeout
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*tasks, return_exceptions=True),
+            timeout=5.0
+        )
+        logger.info("all_tasks_cancelled", count=len(tasks))
+    except asyncio.TimeoutError:
+        logger.warning(
+            "task_cancellation_timeout",
+            message="Some tasks did not respond to cancellation within timeout"
+        )
+    except Exception as exc:
+        logger.warning(
+            "task_cancellation_error",
+            error=str(exc),
+            message="Errors occurred during task cancellation but continuing"
+        )
+
 
 @pytest.fixture(scope="session")
-def event_loop() -> Generator:
-    """Create an instance of the default event loop for each test case."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
+def event_loop():
+    """Create an instance of the default event loop for each test case.
+
+    This is required for session-scoped async fixtures to work with pytest-asyncio.
+    """
+    policy = asyncio.get_event_loop_policy()
+    loop = policy.new_event_loop()
     yield loop
     loop.close()
 
 
-@pytest.fixture(scope="session")
-def postgres_pool():
+@pytest_asyncio.fixture(scope="session")
+async def postgres_pool():
     """Create PostgreSQL pool for integration tests."""
     from core.db.postgres import PostgresPool
-    
+
     dsn = os.getenv("POSTGRES_DSN", "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver")
     pool = PostgresPool(dsn)
-    
-    async def startup():
-        await pool.startup()
-    
-    asyncio.get_event_loop_policy().new_event_loop().run_until_complete(startup())
-    
+
+    await pool.startup()
     yield pool
-    
-    async def shutdown():
-        await pool.shutdown()
-    
-    asyncio.get_event_loop_policy().new_event_loop().run_until_complete(shutdown())
+    await pool.shutdown()
 
 
 @pytest.fixture
@@ -309,3 +349,32 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(pytest.mark.integration)
         elif "e2e" in str(item.fspath):
             item.add_marker(pytest.mark.e2e)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Global cleanup hook that runs after all tests complete.
+
+    Ensures all background asyncio tasks are cancelled before pytest exits.
+    This hook runs even when tests fail.
+    """
+    logger.info("session_cleanup_starting", exit_status=exitstatus)
+
+    # Get the current event loop if one exists
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # If loop is still running, schedule cleanup
+            asyncio.run_coroutine_threadsafe(cancel_all_tasks(), loop).result(timeout=10)
+        else:
+            # If loop is not running, run cleanup directly
+            loop.run_until_complete(cancel_all_tasks())
+        logger.info("session_cleanup_complete")
+    except RuntimeError as e:
+        # No event loop exists, which is fine
+        logger.debug("no_event_loop_during_cleanup", error=str(e))
+    except Exception as e:
+        logger.warning(
+            "session_cleanup_error",
+            error=str(e),
+            message="Cleanup encountered errors but continuing shutdown"
+        )
