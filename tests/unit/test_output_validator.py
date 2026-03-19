@@ -9,6 +9,7 @@ from core.llm.output_validator import (
     CredibilityOutput,
     EntityExtractorOutput,
     OutputParserException,
+    QualityScorerOutput,
     parse_llm_json,
 )
 
@@ -53,6 +54,50 @@ class TestParseLlmJson:
         raw = '  \n  {"is_news": true, "confidence": 0.95}  \n  '
         result = parse_llm_json(raw, ClassifierOutput)
         assert result.is_news is True
+
+    def test_parse_trailing_comma(self):
+        """Test parsing JSON with trailing comma (json_repair repair)."""
+        raw = '{"is_news": true, "confidence": 0.95,}'
+        result = parse_llm_json(raw, ClassifierOutput)
+        assert result.is_news is True
+        assert result.confidence == 0.95
+
+    def test_parse_single_quoted_dict(self):
+        """Test parsing JSON with single quotes (json_repair repair)."""
+        raw = "{'is_news': true, 'confidence': 0.95}"
+        result = parse_llm_json(raw, ClassifierOutput)
+        assert result.is_news is True
+        assert result.confidence == 0.95
+
+    def test_parse_missing_comma(self):
+        """Test parsing JSON with missing comma between fields (json_repair repair)."""
+        raw = '{"is_news": true "confidence": 0.95}'
+        result = parse_llm_json(raw, ClassifierOutput)
+        assert result.is_news is True
+        assert result.confidence == 0.95
+
+    def test_parse_json_with_comment(self):
+        """Test parsing JSON with inline comments (json_repair strips)."""
+        raw = '{"is_news": true, // confidence score\n"confidence": 0.95}'
+        result = parse_llm_json(raw, ClassifierOutput)
+        assert result.is_news is True
+        assert result.confidence == 0.95
+
+    def test_parse_trailing_text(self):
+        """Test parsing JSON with trailing explanatory text (json_repair extracts)."""
+        raw = '{"is_news": true, "confidence": 0.95}\n\nBased on the content analysis...'
+        result = parse_llm_json(raw, ClassifierOutput)
+        assert result.is_news is True
+        assert result.confidence == 0.95
+
+    def test_parse_plain_float_for_quality_scorer(self):
+        """Test parsing plain float output for QualityScorerOutput.
+
+        json_repair returns the string '0.85', then json.loads converts to float 0.85.
+        """
+        raw = "0.85"
+        result = parse_llm_json(raw, QualityScorerOutput)
+        assert result.score == 0.85
 
 
 class TestClassifierOutput:
@@ -193,3 +238,82 @@ class TestEntityExtractorOutput:
             relations=[],
         )
         assert len(output.entities) == 3
+
+
+class TestJsonRepairLoads:
+    """Tests for json_repair.loads (directly parses and returns Python objects)."""
+
+    def test_loads_valid_json_returns_dict(self):
+        """json_repair.loads returns a dict for valid JSON object."""
+        import json_repair
+
+        raw = '{"key": "value"}'
+        result = json_repair.loads(raw)
+        assert result == {"key": "value"}
+
+    def test_loads_trailing_comma(self):
+        """json_repair.loads repairs trailing comma."""
+        import json_repair
+
+        raw = '{"key": "value",}'
+        result = json_repair.loads(raw)
+        assert result == {"key": "value"}
+
+    def test_loads_single_quotes(self):
+        """json_repair.loads converts single quotes to double quotes."""
+        import json_repair
+
+        raw = "{'key': 'value'}"
+        result = json_repair.loads(raw)
+        assert result == {"key": "value"}
+
+    def test_loads_missing_comma(self):
+        """json_repair.loads infers missing comma."""
+        import json_repair
+
+        raw = '{"a": "b" "c": "d"}'
+        result = json_repair.loads(raw)
+        assert result == {"a": "b", "c": "d"}
+
+    def test_loads_inline_comment(self):
+        """json_repair.loads strips inline comments."""
+        import json_repair
+
+        raw = '{"key": "value" // comment\n}'
+        result = json_repair.loads(raw)
+        assert "comment" not in str(result)
+
+    def test_loads_trailing_text(self):
+        """json_repair.loads extracts JSON from text with trailing content."""
+        import json_repair
+
+        raw = '{"key": "value"}\n\nsome explanation'
+        result = json_repair.loads(raw)
+        assert result == {"key": "value"}
+
+    def test_loads_with_schema(self):
+        """json_repair.loads accepts a JSON schema dict."""
+        import json_repair
+
+        schema = {"type": "object", "properties": {"score": {"type": "number"}}}
+        raw = '{"score": 0.9}'
+        result = json_repair.loads(raw, schema=schema)
+        assert result == {"score": 0.9}
+
+    def test_loads_invalid_json_returns_empty_string(self):
+        """json_repair.loads returns empty string for completely invalid input."""
+        import json_repair
+
+        raw = "totally broken"
+        result = json_repair.loads(raw)
+        # json_repair returns '' when it cannot repair at all
+        assert result == ""
+
+    def test_loads_plain_float(self):
+        """json_repair.loads returns float for plain float input."""
+        import json_repair
+
+        raw = "0.85"
+        result = json_repair.loads(raw)
+        assert result == 0.85
+        assert isinstance(result, float)
