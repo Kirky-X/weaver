@@ -13,7 +13,6 @@ dependencies = [
     "feedparser>=6.0.12",
     "httpx>=0.28.1",
     "json_repair>=0.58.6",
-    "jsonschema>=4.26.0",
     "langchain>=1.2.20",
     "langchain-anthropic>=1.4.0",
     "langchain-core>=1.2.20",
