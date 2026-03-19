@@ -3,10 +3,10 @@
 
 from __future__ import annotations
 
-import json
 import re
 from typing import TypeVar
 
+import json_repair
 from pydantic import BaseModel, Field
 
 T = TypeVar("T", bound=BaseModel)
@@ -21,12 +21,16 @@ class OutputParserException(Exception):
 def parse_llm_json(raw: str, model_cls: type[T]) -> T:
     """Parse raw LLM output into a Pydantic model.
 
-    Handles common LLM quirks:
-    - Strips Markdown code block wrappers (```json ... ```)
-    - Handles trailing content after valid JSON
-    - Handles plain float output for QualityScorerOutput
-    - Handles Claude extended thinking format (dict with 'thinking' key)
-    - Validates against the Pydantic model schema
+    Uses json_repair to handle LLM JSON quirks:
+    - Markdown code block wrappers (```json ... ```)
+    - Trailing content after valid JSON
+    - Trailing commas, missing commas
+    - Single-quoted keys/values
+    - Inline comments
+    - Claude extended thinking format
+
+    json_repair.loads returns a parsed object directly (no separate json.loads step).
+    Pydantic model_validate is always the final validation layer.
 
     Args:
         raw: Raw string output from the LLM.
@@ -38,84 +42,36 @@ def parse_llm_json(raw: str, model_cls: type[T]) -> T:
     Raises:
         OutputParserException: If parsing or validation fails.
     """
-    import ast
-
     if isinstance(raw, list):
         raw = "".join(block.text if hasattr(block, "text") else str(block) for block in raw)
 
+    # Strip Markdown code block wrappers
     clean = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
 
-    # Handle Claude extended thinking format: {'thinking': '...', 'signature': '...'}
-    # The actual JSON output should be after the thinking block
-    # Simple approach: find the last complete JSON object
-    if clean.startswith("{'") or clean.startswith('{"'):
-        # Find the last complete JSON object by finding the last } and matching {
-        last_brace = clean.rfind("}")
-        if last_brace != -1:
-            # Work backwards to find the matching {
-            brace_count = 0
-            in_string = False
-            escape_next = False
-            string_char = None
-
-            for i in range(last_brace, -1, -1):
-                char = clean[i]
-
-                # Handle escape sequences
-                if escape_next:
-                    escape_next = False
-                    continue
-                if i > 0 and clean[i - 1] == "\\":
-                    escape_next = True
-                    continue
-
-                # Track string boundaries
-                if char in ('"', "'") and not in_string:
-                    in_string = True
-                    string_char = char
-                elif in_string and char == string_char:
-                    in_string = False
-                    string_char = None
-                elif not in_string:
-                    if char == "}":
-                        brace_count += 1
-                    elif char == "{":
-                        brace_count -= 1
-                        if brace_count == 0:
-                            # Found the matching opening brace
-                            clean = clean[i : last_brace + 1]
-                            break
-
-    # Handle plain float output for QualityScorerOutput
-    if model_cls.__name__ == "QualityScorerOutput":
-        float_match = re.search(r"^([0-9]*\.?[0-9]+)$", clean)
-        if float_match:
-            try:
-                score = float(float_match.group(1))
-                return model_cls(score=score)  # type: ignore
-            except ValueError:
-                pass
-
-    # Try to find valid JSON within the output
-    # Handle cases where model outputs extra text after JSON
+    # Extract JSON object if there's trailing text (safety net; repair also handles this)
     json_match = re.search(r"\{[\s\S]*\}", clean)
     if json_match:
         clean = json_match.group(0)
 
     try:
-        data = json.loads(clean)
+        # json_repair.loads returns parsed object directly
+        # Schema guides repair; ValueError fallback to unguided repair
+        data = json_repair.loads(clean, schema=model_cls.model_json_schema())
+    except ValueError:
+        # Schema validation failed (e.g., plain float with object schema);
+        # fall back to non-schema repair
+        data = json_repair.loads(clean)
+    # Handle completely invalid input (returns empty string)
+    if data == "":
+        raise OutputParserException(f"解析失败: 无法修复为有效 JSON\n原始内容: {raw[:200]}")
+    # Handle plain numeric output (e.g., "0.85" → 0.85) for single-field
+    # numeric models like QualityScorerOutput(score: float).
+    if isinstance(data, (int, float)) and model_cls.__name__ == "QualityScorerOutput":
+        return model_cls(score=float(data))  # type: ignore
+    try:
         return model_cls.model_validate(data)
-    except json.JSONDecodeError:
-        # Try ast.literal_eval for Python dict format (single quotes)
-        try:
-            data = ast.literal_eval(clean)
-            return model_cls.model_validate(data)
-        except Exception:
-            pass
-    except Exception as e:
+    except Exception as e:  # Pydantic ValidationError
         raise OutputParserException(f"验证失败: {e!s}\n原始内容: {raw[:200]}")
-
-    raise OutputParserException(f"解析失败: 无法解析为有效的 JSON\n原始内容: {raw[:200]}")
 
 
 # ── Output Models ────────────────────────────────────────────
