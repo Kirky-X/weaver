@@ -8,6 +8,8 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Any, TypeVar
 
+import json_repair
+
 from core.cache.redis import RedisClient
 from core.observability.logging import get_logger
 
@@ -65,7 +67,7 @@ def cache_result(
                 cached = await redis.get(cache_key)
                 if cached:
                     log.debug("cache_hit", key=cache_key)
-                    return json.loads(cached)
+                    return json_repair.loads(cached)
             except Exception as e:
                 log.warning("cache_read_failed", key=cache_key, error=str(e))
 

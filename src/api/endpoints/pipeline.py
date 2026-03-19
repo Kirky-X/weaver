@@ -9,6 +9,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+import json_repair
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -257,7 +258,7 @@ async def get_task_status(
             detail=f"Task '{task_id}' not found",
         )
 
-    data = json.loads(status_data)
+    data = json_repair.loads(status_data)
 
     # Get article progress statistics for this task
     article_repo = ArticleRepo(postgres_pool)
@@ -317,7 +318,7 @@ async def get_queue_stats(
     status_counts: dict[str, int] = {}
     for task_data in all_tasks.values():
         try:
-            data = json.loads(task_data)
+            data = json_repair.loads(task_data)
             status = data.get("status", "unknown")
             status_counts[status] = status_counts.get(status, 0) + 1
         except (json.JSONDecodeError, TypeError):

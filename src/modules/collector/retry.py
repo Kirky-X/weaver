@@ -6,6 +6,8 @@ from __future__ import annotations
 import json
 import time
 
+import json_repair
+
 from core.cache.redis import RedisClient
 from core.observability.logging import get_logger
 
@@ -91,11 +93,11 @@ class RetryQueue:
         items = await self._redis.zrangebyscore(key, 0, now, num=50)
         result = []
         for item_str in items:
-            try:
-                item = json.loads(item_str)
-                result.append(item)
-            except json.JSONDecodeError:
+            item = json_repair.loads(item_str)
+            # json_repair.loads returns '' for invalid JSON (instead of raising)
+            if not isinstance(item, (dict, list)):
                 continue
+            result.append(item)
 
         # Remove fetched items from the sorted set
         if items:

@@ -354,13 +354,14 @@ Consider:
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
             )
-            import json
             import re
+
+            import json_repair
 
             content = result.content if hasattr(result, "content") else str(result)
             json_match = re.search(r"\{.*\}", content, re.DOTALL)
             if json_match:
-                return json.loads(json_match.group())
+                return json_repair.loads(json_match.group())
         except Exception as e:
             log.warning("llm_dedupe_failed", error=str(e))
 

@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import collections
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import json_repair
 from sqlalchemy import and_, select
 
 from core.cache.redis import RedisClient
@@ -356,12 +358,10 @@ class SchedulerJobs:
                 all_terminal = all(art.persist_status in terminal_statuses for art in task_arts)
                 if all_terminal:
                     try:
-                        import json
-
                         task_key = "pipeline:task_status"
                         existing = await self._redis.client.hget(task_key, str(task_id))
                         if existing:
-                            task_data = json.loads(existing)
+                            task_data = json_repair.loads(existing)
                             if task_data.get("status") not in ("completed", "failed"):
                                 task_data["status"] = "completed"
                                 task_data["completed_at"] = datetime.now(UTC).isoformat()

@@ -3,9 +3,10 @@
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
 from urllib.parse import urlparse
+
+import json_repair
 
 from core.observability.logging import get_logger
 from modules.fetcher.base import BaseFetcher
@@ -53,10 +54,14 @@ class NewsNowParser(BaseSourceParser):
             )
             return []
 
-        try:
-            data = json.loads(content)
-        except json.JSONDecodeError as exc:
-            log.warning("newsnow_json_parse_failed", url=config.url, error=str(exc))
+        data = json_repair.loads(content)
+        # json_repair.loads returns '' for invalid JSON (instead of raising)
+        if not isinstance(data, (dict, list)):
+            log.warning(
+                "newsnow_json_parse_failed",
+                url=config.url,
+                error="invalid JSON returned empty string",
+            )
             return []
 
         status = data.get("status")
