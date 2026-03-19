@@ -1,12 +1,13 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Initial migration - create all tables
+"""Consolidated initial migration - all tables and indexes
 
-Revision ID: 001_initial
-Revises:
-Create Date: 2024-01-01 00:00:00
+Revision ID: 01_initial
+Revises: None
+Create Date: 2026-03-20
 
 """
 
+import os
 from collections.abc import Sequence
 from typing import Union
 
@@ -14,22 +15,18 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-# Import pgvector Vector type
 try:
     from pgvector.sqlalchemy import Vector
 except ImportError:
-    # Fallback for when pgvector is not installed
     Vector = sa.LargeBinary
 
-# revision identifiers, used by Alembic.
-revision: str = "001_initial"
+revision: str = "01_initial"
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    # Create enum types using DO blocks for PostgreSQL compatibility
     op.execute("""
         DO $$ BEGIN
             CREATE TYPE category_type AS ENUM ('政治', '军事', '经济', '科技', '社会', '文化', '体育', '国际');
@@ -39,7 +36,7 @@ def upgrade() -> None:
     """)
     op.execute("""
         DO $$ BEGIN
-            CREATE TYPE persist_status AS ENUM ('pending', 'pg_done', 'neo4j_done', 'failed');
+            CREATE TYPE persist_status AS ENUM ('pending', 'processing', 'pg_done', 'neo4j_done', 'failed');
         EXCEPTION
             WHEN duplicate_object THEN null;
         END $$;
@@ -59,10 +56,8 @@ def upgrade() -> None:
         END $$;
     """)
 
-    # Create pgvector extension
     op.execute("CREATE EXTENSION IF NOT EXISTS vector")
 
-    # Reference enum types for column definitions (create_type=False since we created them above)
     category_type = postgresql.ENUM(
         "政治",
         "军事",
@@ -76,7 +71,13 @@ def upgrade() -> None:
         create_type=False,
     )
     persist_status = postgresql.ENUM(
-        "pending", "pg_done", "neo4j_done", "failed", name="persist_status", create_type=False
+        "pending",
+        "processing",
+        "pg_done",
+        "neo4j_done",
+        "failed",
+        name="persist_status",
+        create_type=False,
     )
     emotion_type = postgresql.ENUM(
         "乐观",
@@ -93,7 +94,6 @@ def upgrade() -> None:
     )
     vector_type = postgresql.ENUM("title", "content", name="vector_type", create_type=False)
 
-    # Create articles table
     op.create_table(
         "articles",
         sa.Column(
@@ -152,7 +152,15 @@ def upgrade() -> None:
             nullable=False,
             server_default=sa.text("NOW()"),
         ),
+        sa.Column("processing_stage", sa.String(50), nullable=True),
+        sa.Column("processing_error", sa.Text(), nullable=True),
+        sa.Column("retry_count", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("quality_score", sa.Numeric(3, 2), nullable=True),
+        sa.Column("task_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.CheckConstraint("score >= 0 AND score <= 1", name="chk_score_range"),
+        sa.CheckConstraint(
+            "quality_score >= 0 AND quality_score <= 1", name="chk_quality_score_range"
+        ),
         sa.CheckConstraint(
             "sentiment_score >= 0 AND sentiment_score <= 1", name="chk_sentiment_score_range"
         ),
@@ -162,16 +170,59 @@ def upgrade() -> None:
         sa.CheckConstraint("merged_into IS DISTINCT FROM id", name="chk_no_self_merge"),
     )
 
-    # Create indexes for articles
     op.create_index("idx_articles_category", "articles", ["category"])
-    op.create_index("idx_articles_publish_time", "articles", ["publish_time"])
-    op.create_index("idx_articles_score", "articles", ["score"])
-    op.create_index("idx_articles_credibility", "articles", ["credibility_score"])
-    op.create_index("idx_articles_sentiment_score", "articles", ["sentiment_score"])
+    op.create_index(
+        "idx_articles_publish_time",
+        "articles",
+        [sa.literal_column("publish_time DESC")],
+        unique=False,
+    )
+    op.create_index(
+        "idx_articles_score", "articles", [sa.literal_column("score DESC")], unique=False
+    )
+    op.create_index(
+        "idx_articles_credibility",
+        "articles",
+        [sa.literal_column("credibility_score DESC")],
+        unique=False,
+    )
+    op.create_index(
+        "idx_articles_sentiment_score",
+        "articles",
+        [sa.literal_column("sentiment_score DESC")],
+        unique=False,
+    )
     op.create_index("idx_articles_primary_emotion", "articles", ["primary_emotion"])
     op.create_index("idx_articles_merged_into", "articles", ["merged_into"])
+    op.create_index(
+        "idx_articles_category_publish",
+        "articles",
+        ["category", sa.literal_column("publish_time DESC")],
+        unique=False,
+    )
+    op.create_index(
+        "idx_articles_host_publish",
+        "articles",
+        ["source_host", sa.literal_column("publish_time DESC")],
+        unique=False,
+    )
+    op.create_index(
+        "idx_articles_persist_status",
+        "articles",
+        ["persist_status"],
+        unique=False,
+        postgresql_where=sa.text("persist_status IN ('pending', 'pg_done')"),
+    )
+    op.create_index(
+        "idx_articles_status_created",
+        "articles",
+        ["persist_status", sa.literal_column("created_at ASC")],
+        unique=False,
+    )
+    op.create_index(
+        "idx_articles_task_status", "articles", ["task_id", "persist_status"], unique=False
+    )
 
-    # Create article_vectors table
     op.create_table(
         "article_vectors",
         sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
@@ -192,10 +243,25 @@ def upgrade() -> None:
             nullable=False,
             server_default=sa.text("NOW()"),
         ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.text("NOW()"),
+        ),
     )
     op.create_index("idx_av_unique", "article_vectors", ["article_id", "vector_type"], unique=True)
 
-    # Create entity_vectors table
+    m = int(os.getenv("HNSW_M", "16"))
+    ef_construction = int(os.getenv("HNSW_EF_CONSTRUCTION", "64"))
+
+    op.execute(f"""
+        CREATE INDEX IF NOT EXISTS idx_article_vectors_hnsw
+        ON article_vectors
+        USING hnsw (embedding vector_cosine_ops)
+        WITH (m = {m}, ef_construction = {ef_construction});
+    """)
+
     op.create_table(
         "entity_vectors",
         sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
@@ -212,7 +278,13 @@ def upgrade() -> None:
         ),
     )
 
-    # Create source_authorities table
+    op.execute(f"""
+        CREATE INDEX IF NOT EXISTS idx_entity_vectors_hnsw
+        ON entity_vectors
+        USING hnsw (embedding vector_cosine_ops)
+        WITH (m = {m}, ef_construction = {ef_construction});
+    """)
+
     op.create_table(
         "source_authorities",
         sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
@@ -230,7 +302,6 @@ def upgrade() -> None:
         ),
     )
 
-    # Create article_entities junction table
     op.create_table(
         "article_entities",
         sa.Column("id", sa.BigInteger(), primary_key=True, autoincrement=True),
@@ -250,14 +321,21 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Drop tables in reverse order
     op.drop_table("article_entities")
     op.drop_table("source_authorities")
+
+    op.execute("""
+        DROP INDEX CONCURRENTLY IF EXISTS idx_entity_vectors_hnsw;
+    """)
     op.drop_table("entity_vectors")
+
+    op.execute("""
+        DROP INDEX CONCURRENTLY IF EXISTS idx_article_vectors_hnsw;
+    """)
     op.drop_table("article_vectors")
+
     op.drop_table("articles")
 
-    # Drop enum types
     op.execute("DROP TYPE IF EXISTS vector_type")
     op.execute("DROP TYPE IF EXISTS emotion_type")
     op.execute("DROP TYPE IF EXISTS persist_status")

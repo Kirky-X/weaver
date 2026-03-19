@@ -262,6 +262,7 @@ class Article(Base):
         Index("idx_articles_category_publish", "category", publish_time.desc()),
         Index("idx_articles_host_publish", "source_host", publish_time.desc()),
         Index("idx_articles_status_created", "persist_status", created_at.asc()),
+        Index("idx_articles_task_status", "task_id", "persist_status"),
     )
 
 
