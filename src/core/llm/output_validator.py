@@ -53,14 +53,8 @@ def parse_llm_json(raw: str, model_cls: type[T]) -> T:
     if json_match:
         clean = json_match.group(0)
 
-    try:
-        # json_repair.loads returns parsed object directly
-        # Schema guides repair; ValueError fallback to unguided repair
-        data = json_repair.loads(clean, schema=model_cls.model_json_schema())
-    except ValueError:
-        # Schema validation failed (e.g., plain float with object schema);
-        # fall back to non-schema repair
-        data = json_repair.loads(clean)
+    # json_repair.loads returns parsed object directly
+    data = json_repair.loads(clean)
     # Handle completely invalid input (returns empty string)
     if data == "":
         raise OutputParserException(f"解析失败: 无法修复为有效 JSON\n原始内容: {raw[:200]}")

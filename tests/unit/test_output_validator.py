@@ -291,15 +291,6 @@ class TestJsonRepairLoads:
         result = json_repair.loads(raw)
         assert result == {"key": "value"}
 
-    def test_loads_with_schema(self):
-        """json_repair.loads accepts a JSON schema dict."""
-        import json_repair
-
-        schema = {"type": "object", "properties": {"score": {"type": "number"}}}
-        raw = '{"score": 0.9}'
-        result = json_repair.loads(raw, schema=schema)
-        assert result == {"score": 0.9}
-
     def test_loads_invalid_json_returns_empty_string(self):
         """json_repair.loads returns empty string for completely invalid input."""
         import json_repair
