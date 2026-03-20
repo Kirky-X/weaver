@@ -67,18 +67,23 @@ class Crawler:
 
         async def crawl_one(item: NewsItem) -> ArticleRaw:
             host = urlparse(item.url).netloc
-            async with global_sem, host_sems[host]:
-                status, html, _ = await self._fetcher.fetch(item.url)
-                body = trafilatura.extract(html, include_comments=False) or ""
-                return ArticleRaw(
-                    url=item.url,
-                    title=item.title,
-                    body=body,
-                    source=item.source,
-                    publish_time=item.pubDate,
-                    source_host=host,
-                    description=item.description or "",
-                )
+            if item.body:
+                # Body already extracted from content:encoded in the RSS feed.
+                # No need to re-fetch and re-parse the page.
+                body = item.body
+            else:
+                async with global_sem, host_sems[host]:
+                    _, html, _ = await self._fetcher.fetch(item.url)
+                    body = trafilatura.extract(html, include_comments=False) or ""
+            return ArticleRaw(
+                url=item.url,
+                title=item.title,
+                body=body,
+                source=item.source,
+                publish_time=item.pubDate,
+                source_host=host,
+                description=item.description or "",
+            )
 
         results = await asyncio.gather(
             *[crawl_one(i) for i in items],

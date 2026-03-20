@@ -266,6 +266,136 @@ class TestRSSParserParseDate:
         assert result is None
 
 
+class TestRSSParserExtractBody:
+    """Test RSSParser._extract_body() static method."""
+
+    def _full_html(self, article_body: str) -> str:
+        """Wrap article content in a full HTML document for trafilatura compatibility."""
+        return (
+            "<html><head><title>Test</title></head>"
+            "<body><article>" + article_body + "</article></body></html>"
+        )
+
+    def test_extracts_from_content_encoded_html(self):
+        """Trafilatura extracts plain text from content:encoded HTML."""
+        html = self._full_html(
+            "<p>国际黄金和白银期价在经历前一个交易日的暴跌后反弹。</p>"
+            "<p>截至北京时间20日15点50分，纽约商品交易所黄金主力合约期价报每盎司4698.50美元。</p>"
+        )
+        entry = {"content": [{"value": html}]}
+        result = RSSParser._extract_body(entry)
+        assert "国际黄金和白银期价" in result
+        assert "4698.50" in result
+        assert "<div" not in result  # HTML stripped
+
+    def test_extracts_from_summary_when_no_content(self):
+        """Falls back to summary when content:encoded is absent."""
+        entry = {
+            "summary": "<p>黄金市场近期出现显著回调，金价跌幅超过16%。</p>",
+        }
+        result = RSSParser._extract_body(entry)
+        assert "黄金市场" in result
+        assert "16%" in result
+
+    def test_strips_html_tags_from_plain_summary(self):
+        """Plain text summary (no HTML) passes through as-is."""
+        entry = {
+            "summary": "这是一段中文摘要文本。",
+        }
+        result = RSSParser._extract_body(entry)
+        assert result == "这是一段中文摘要文本。"
+
+    def test_returns_empty_string_when_no_content_or_summary(self):
+        """Returns empty string when entry has no content or summary."""
+        entry = {}
+        result = RSSParser._extract_body(entry)
+        assert result == ""
+
+    def test_prefers_content_over_summary(self):
+        """content:encoded takes priority over summary."""
+        html = self._full_html(
+            "<p>来自content:encoded的完整正文，包含更多细节信息。第二段内容说明。</p>"
+        )
+        entry = {
+            "content": [{"value": html}],
+            "summary": "<p>这只是摘要。</p>",
+        }
+        result = RSSParser._extract_body(entry)
+        assert "完整正文" in result
+        assert "只是摘要" not in result
+
+
+class TestRSSParserParsePopulatesBody:
+    """Test that parse() correctly populates NewsItem.body from content:encoded."""
+
+    @pytest.fixture
+    def mock_fetcher(self):
+        fetcher = MagicMock()
+        fetcher.fetch = AsyncMock()
+        return fetcher
+
+    @pytest.fixture
+    def parser(self, mock_fetcher):
+        return RSSParser(mock_fetcher)
+
+    @pytest.fixture
+    def sample_config(self):
+        return SourceConfig(
+            id="test-source-id",
+            name="test_source",
+            url="https://example.com/feed.xml",
+        )
+
+    @pytest.mark.asyncio
+    async def test_parse_sets_body_from_content_encoded(self, parser, mock_fetcher, sample_config):
+        """Integration: parse() populates NewsItem.body from content:encoded."""
+        # Note: CDATA in RSS strips <html>/<head>/<body> wrappers via feedparser,
+        # so we only put the article body markup here. _extract_body wraps it in
+        # a proper HTML document before calling trafilatura.
+        feed_xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">'
+            "<channel><title>Test Feed</title>"
+            "<item>"
+            "<title>Test Article</title>"
+            "<link>https://example.com/article1</link>"
+            "<description>A short description.</description>"
+            "<content:encoded><![CDATA[<article><p>这是从content:encoded提取的完整正文，包含更多细节信息。</p><p>第二段内容说明。</p></article>]]></content:encoded>"
+            "<pubDate>Mon, 01 Jan 2024 12:00:00 +0000</pubDate>"
+            "</item></channel></rss>"
+        )
+        mock_fetcher.fetch = AsyncMock(return_value=(200, feed_xml, {}))
+
+        items = await parser.parse(sample_config)
+
+        assert len(items) == 1
+        assert items[0].body != ""
+        assert "正文" in items[0].body
+
+    @pytest.mark.asyncio
+    async def test_parse_body_falls_back_to_description(self, parser, mock_fetcher, sample_config):
+        """When content:encoded is absent, body falls back to stripped summary."""
+        feed_xml = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<rss version="2.0">'
+            "<channel><title>Test Feed</title>"
+            "<item>"
+            "<title>Simple Article</title>"
+            "<link>https://example.com/article2</link>"
+            "<description>简短的描述内容。</description>"
+            "<pubDate>Mon, 01 Jan 2024 12:00:00 +0000</pubDate>"
+            "</item></channel></rss>"
+        )
+        mock_fetcher.fetch = AsyncMock(return_value=(200, feed_xml, {}))
+
+        items = await parser.parse(sample_config)
+
+        assert len(items) == 1
+        # trafilatura returns empty for short plain text → manual strip yields text as-is
+        assert items[0].body == "简短的描述内容。"
+        assert items[0].description == "简短的描述内容。"
+
+
 class TestRSSParserExtractWechatUrl:
     """Test RSSParser._extract_wechat_url static method (anyfeeder WeChat feeds)."""
 

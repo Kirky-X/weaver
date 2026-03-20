@@ -18,6 +18,8 @@ class NewsItem:
         source_host: The hostname of the source.
         pubDate: Publication date from the feed.
         description: Brief description/summary from the feed.
+        body: Full article body text. When present (e.g. from content:encoded
+            in RSS), the Crawler will use it directly without re-fetching the URL.
     """
 
     url: str
@@ -26,6 +28,7 @@ class NewsItem:
     source_host: str = ""
     pubDate: datetime | None = None
     description: str = ""
+    body: str = ""
 
 
 @dataclass

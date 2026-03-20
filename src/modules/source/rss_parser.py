@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 import feedparser
+import trafilatura
 
 from core.observability.logging import get_logger
 from modules.fetcher.base import BaseFetcher
@@ -98,6 +99,11 @@ class RSSParser(BaseSourceParser):
                     continue
 
             host = urlparse(url).netloc
+
+            # Extract full article body from <content:encoded> HTML when available.
+            # Falls back to description (summary) if no HTML content or extraction fails.
+            body = self._extract_body(entry)
+
             items.append(
                 NewsItem(
                     url=url,
@@ -106,6 +112,7 @@ class RSSParser(BaseSourceParser):
                     source_host=host,
                     pubDate=pub_date,
                     description=entry.get("summary", ""),
+                    body=body,
                 )
             )
 
@@ -144,6 +151,53 @@ class RSSParser(BaseSourceParser):
         biz = biz_match.group(1).rstrip("=")
         mid = mid_match.group(1)
         return f"https://mp.weixin.qq.com/s?__biz={biz}&mid={mid}"
+
+    @staticmethod
+    def _extract_body(entry: dict) -> str:
+        """Extract full article body text from an RSS entry.
+
+        Prefers ``<content:encoded>`` HTML (via feedparser's ``entry.content``)
+        and runs trafilatura on it to strip HTML markup. Falls back to the
+        entry's ``summary`` field when no HTML content is available or when
+        trafilatura returns nothing.
+
+        Note: feedparser strips ``<html>``/``<head>``/``<body>`` wrappers from
+        CDATA content, so trafilatura may fail to parse bare HTML fragments.
+        In that case, we wrap the content in a full HTML document before
+        attempting extraction again.
+
+        Returns:
+            Plain-text article body, or empty string if all sources are empty.
+        """
+        content_list = entry.get("content")
+        if isinstance(content_list, list) and len(content_list) > 0:
+            raw_html = content_list[0].get("value", "") if isinstance(content_list[0], dict) else ""
+            if raw_html:
+                text = trafilatura.extract(raw_html, include_comments=False) or ""
+                if text:
+                    return text
+                # feedparser strips document wrappers from CDATA — try with a
+                # proper HTML shell in case the content is a bare fragment.
+                wrapped = (
+                    "<html><head><title></title></head>" "<body>" + raw_html + "</body></html>"
+                )
+                text = trafilatura.extract(wrapped, include_comments=False) or ""
+                if text:
+                    return text
+
+        # Fallback: description/summary
+        summary = entry.get("summary", "")
+        if summary:
+            # summaries from feedparser may be HTML; strip tags for plain text
+            text = trafilatura.extract(summary, include_comments=False) or ""
+            if text:
+                return text
+            # If trafilatura can't extract (e.g. already plain text), strip manually
+            text = re.sub(r"<[^>]+>", "", summary).strip()
+            if text:
+                return text
+
+        return ""
 
     @staticmethod
     def _parse_date(entry: dict) -> datetime | None:

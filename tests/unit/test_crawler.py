@@ -105,6 +105,7 @@ class TestCrawler:
         item.title = "Test"
         item.source = "test"
         item.pubDate = None
+        item.body = ""
 
         crawler = Crawler(smart_fetcher=mock_fetcher)
         results = await crawler.crawl_batch([item], per_host_config={"example.com": 5})
@@ -121,6 +122,7 @@ class TestCrawler:
         item.title = "Test"
         item.source = "test"
         item.pubDate = None
+        item.body = ""
 
         crawler = Crawler(smart_fetcher=mock_fetcher)
         results = await crawler.crawl_batch([item])
@@ -140,6 +142,7 @@ class TestCrawler:
         item.title = "Test"
         item.source = "test"
         item.pubDate = None
+        item.body = ""
 
         crawler = Crawler(smart_fetcher=mock_fetcher)
         results = await crawler.crawl_batch([item])
@@ -158,6 +161,7 @@ class TestCrawler:
             item.title = "Test"
             item.source = "test"
             item.pubDate = None
+            item.body = ""
             items.append(item)
 
         crawler = Crawler(smart_fetcher=mock_fetcher)
@@ -184,6 +188,7 @@ class TestCrawler:
         item.title = "Test"
         item.source = "test"
         item.pubDate = None
+        item.body = ""
 
         crawler = Crawler(smart_fetcher=mock_fetcher)
         results = await crawler.crawl_batch([item])
@@ -206,6 +211,7 @@ class TestCrawler:
             item.title = f"Article {i}"
             item.source = "test"
             item.pubDate = None
+            item.body = ""
             items.append(item)
 
         crawler = Crawler(smart_fetcher=mock_fetcher)
