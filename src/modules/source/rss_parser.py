@@ -174,7 +174,7 @@ class RSSParser(BaseSourceParser):
             raw_html = content_list[0].get("value", "") if isinstance(content_list[0], dict) else ""
             if raw_html:
                 text = trafilatura.extract(raw_html, include_comments=False) or ""
-                if text:
+                if text and not text.startswith("<"):
                     return text
                 # feedparser strips document wrappers from CDATA — try with a
                 # proper HTML shell in case the content is a bare fragment.
@@ -182,8 +182,12 @@ class RSSParser(BaseSourceParser):
                     "<html><head><title></title></head>" "<body>" + raw_html + "</body></html>"
                 )
                 text = trafilatura.extract(wrapped, include_comments=False) or ""
-                if text:
+                if text and not text.startswith("<"):
                     return text
+                # trafilatura returned HTML or nothing — strip tags as last resort
+                stripped = re.sub(r"<[^>]+>", "", raw_html).strip()
+                if stripped:
+                    return stripped
 
         # Fallback: description/summary
         summary = entry.get("summary", "")

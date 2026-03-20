@@ -311,6 +311,23 @@ class TestRSSParserExtractBody:
         result = RSSParser._extract_body(entry)
         assert result == ""
 
+    def test_strips_html_when_trafilatura_returns_html_fragment(self):
+        """Strips HTML tags as last resort when trafilatura returns HTML."""
+        # Bare HTML fragment without document wrappers — trafilatura may return
+        # the HTML itself (starts with '<') rather than plain text.
+        html = (
+            "<div><div><div class='rich_media_content'>"
+            '<p>伊朗伊斯兰革命卫队针对美国及其盟友发动代号为"真实承诺-4"的密集攻势。'
+            "伊朗使用重型弹道导弹和大规模无人机群打击科威特美军基地。</p>"
+            "</div></div></div>"
+        )
+        entry = {"content": [{"value": html}]}
+        result = RSSParser._extract_body(entry)
+        # Should contain the Chinese text without any HTML tags
+        assert "伊朗伊斯兰革命卫队" in result
+        assert "<div" not in result
+        assert "<p>" not in result
+
     def test_prefers_content_over_summary(self):
         """content:encoded takes priority over summary."""
         html = self._full_html(
