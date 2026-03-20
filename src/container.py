@@ -335,7 +335,6 @@ class Container:
             httpx_fetcher = HttpxFetcher(
                 timeout=settings.httpx_timeout,
                 user_agent=settings.user_agent,
-                rate_limiter=rate_limiter,
             )
             playwright_fetcher = PlaywrightFetcher(
                 pool=self._playwright_pool,

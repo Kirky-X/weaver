@@ -11,6 +11,7 @@ import trafilatura
 
 from core.observability.logging import get_logger
 from modules.collector.models import ArticleRaw
+from modules.fetcher.base import BaseFetcher
 from modules.source.models import NewsItem
 
 log = get_logger("crawler")
@@ -30,7 +31,7 @@ class Crawler:
         default_per_host: Default per-host concurrency limit.
     """
 
-    def __init__(self, smart_fetcher: object, default_per_host: int = 2) -> None:
+    def __init__(self, smart_fetcher: BaseFetcher, default_per_host: int = 2) -> None:
         self._fetcher = smart_fetcher
         self._default_per_host = default_per_host
 

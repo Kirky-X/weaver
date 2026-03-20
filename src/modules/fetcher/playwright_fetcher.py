@@ -120,5 +120,10 @@ class PlaywrightFetcher(BaseFetcher):
             pass
 
     async def close(self) -> None:
-        """Nothing to close — pool is managed externally."""
+        """Close resources held by this fetcher.
+
+        Note: The underlying PlaywrightContextPool is managed by Container
+        and must be shut down separately via Container.shutdown(). This
+        method is a no-op for historical compatibility.
+        """
         pass

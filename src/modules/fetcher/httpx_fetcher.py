@@ -12,7 +12,7 @@ from core.observability.metrics import MetricsCollector
 from modules.fetcher.base import BaseFetcher
 
 if TYPE_CHECKING:
-    from modules.fetcher.rate_limiter import HostRateLimiter
+    pass
 
 log = get_logger("httpx_fetcher")
 
@@ -23,7 +23,6 @@ class HttpxFetcher(BaseFetcher):
     Args:
         timeout: Request timeout in seconds.
         user_agent: User-Agent header value.
-        rate_limiter: Optional rate limiter for per-host delays.
         http2: Enable HTTP/2 multiplexing (default True).
         max_connections: Maximum connections in pool.
         max_keepalive: Maximum keepalive connections.
@@ -33,7 +32,6 @@ class HttpxFetcher(BaseFetcher):
         self,
         timeout: float = 15.0,
         user_agent: str = "Mozilla/5.0 (compatible; NewsBot/1.0)",
-        rate_limiter: HostRateLimiter | None = None,
         http2: bool = True,
         max_connections: int = 100,
         max_keepalive: int = 20,
@@ -50,7 +48,6 @@ class HttpxFetcher(BaseFetcher):
             http2=http2,
             limits=limits,
         )
-        self._rate_limiter = rate_limiter
         self._http2_enabled = http2
 
     async def fetch(
@@ -66,9 +63,6 @@ class HttpxFetcher(BaseFetcher):
             Tuple of (status_code, response_text, response_headers).
         """
         import time
-
-        if self._rate_limiter:
-            await self._rate_limiter.acquire(url)
 
         start = time.monotonic()
         try:
