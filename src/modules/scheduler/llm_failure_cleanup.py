@@ -43,13 +43,29 @@ class LLMFailureCleanupThread:
         asyncio.set_event_loop(loop)
         try:
             # Immediate cleanup on startup
-            loop.run_until_complete(self._repo.cleanup_older_than(3))
+            self._execute_cleanup(loop)
             # Then loop: sleep 24h between runs
             while not self._stop_event.wait(86400):
-                loop.run_until_complete(self._repo.cleanup_older_than(3))
+                # Each iteration gets a fresh loop to avoid loop-state corruption
+                # if the postgres pool was closed by container.shutdown().
+                loop.close()
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                self._execute_cleanup(loop)
         finally:
             loop.close()
             log.info("llm_failure_cleanup_thread_stopped")
+
+    def _execute_cleanup(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Run one cleanup cycle on the given loop, catching loop/pool errors."""
+        try:
+            loop.run_until_complete(self._repo.cleanup_older_than(3))
+        except RuntimeError as e:
+            # Raised when the loop is already closed (container shut down mid-sleep).
+            log.debug("llm_failure_cleanup_loop_closed", error=str(e))
+        except Exception as e:
+            # Raised when asyncpg connection is already closed (pool shut down).
+            log.warning("llm_failure_cleanup_error", error=str(e))
 
     def stop(self) -> None:
         """Signal the thread to stop and wait for it to terminate."""

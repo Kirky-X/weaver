@@ -1,6 +1,7 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for LLMFailureCleanupThread module."""
 
+import asyncio
 import threading
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -121,3 +122,85 @@ class TestLLMFailureCleanupThread:
                     thread._run()
 
         mock_repo.cleanup_older_than.assert_called_with(3)
+
+
+class TestLLMFailureCleanupExecuteCleanup:
+    """Tests for LLMFailureCleanupThread._execute_cleanup()."""
+
+    @pytest.fixture
+    def mock_repo(self):
+        repo = MagicMock()
+        repo.cleanup_older_than = AsyncMock(return_value=5)
+        return repo
+
+    def test_runs_cleanup_on_given_loop(self, mock_repo):
+        """_execute_cleanup calls run_until_complete on the provided loop."""
+        thread = LLMFailureCleanupThread(mock_repo)
+        mock_loop = MagicMock()
+        mock_loop.run_until_complete = MagicMock(return_value=None)
+
+        thread._execute_cleanup(mock_loop)
+
+        mock_loop.run_until_complete.assert_called_once()
+        mock_repo.cleanup_older_than.assert_called_once_with(3)
+
+    def test_catches_runtime_error_when_loop_closed(self, mock_repo):
+        """RuntimeError (loop already closed) is caught and does not propagate."""
+        thread = LLMFailureCleanupThread(mock_repo)
+        mock_loop = MagicMock()
+        mock_loop.run_until_complete.side_effect = RuntimeError("Event loop is closed")
+
+        # Must not raise
+        thread._execute_cleanup(mock_loop)
+        mock_repo.cleanup_older_than.assert_called_once()
+
+    def test_catches_exception_from_closed_pool(self, mock_repo):
+        """Exception from closed asyncpg pool is caught and logged as warning."""
+        thread = LLMFailureCleanupThread(mock_repo)
+        mock_loop = MagicMock()
+        mock_loop.run_until_complete.side_effect = Exception("connection pool is closed")
+
+        # Must not raise
+        thread._execute_cleanup(mock_loop)
+        mock_repo.cleanup_older_than.assert_called_once()
+
+
+class TestLLMFailureCleanupRunFreshLoop:
+    """Tests for _run() creating a fresh loop on each iteration."""
+
+    @pytest.fixture
+    def mock_repo(self):
+        repo = MagicMock()
+        repo.cleanup_older_than = AsyncMock(return_value=5)
+        return repo
+
+    def test_creates_fresh_loop_on_second_iteration(self, mock_repo):
+        """On the second iteration (after wait returns), a new loop is created."""
+        thread = LLMFailureCleanupThread(mock_repo)
+
+        loops_created = []
+        mock_loop_1 = MagicMock()
+        mock_loop_1.run_until_complete = MagicMock(return_value=None)
+        mock_loop_1.close = MagicMock()
+        mock_loop_2 = MagicMock()
+        mock_loop_2.run_until_complete = MagicMock(return_value=None)
+        mock_loop_2.close = MagicMock()
+
+        def fake_new_event_loop():
+            loop = mock_loop_2 if loops_created else mock_loop_1
+            loops_created.append(loop)
+            return loop
+
+        with patch("asyncio.new_event_loop", side_effect=fake_new_event_loop):
+            with patch("asyncio.set_event_loop"):
+                with patch.object(thread, "_stop_event", MagicMock()) as mock_stop:
+                    # First wait returns False (continue), second returns True (stop)
+                    mock_stop.wait.side_effect = [False, True]
+                    thread._run()
+
+        # Both loops should have been closed (first after creating second, second at exit)
+        assert mock_loop_1.close.call_count == 1
+        assert mock_loop_2.close.call_count == 1
+        # Both loops should have run cleanup
+        assert mock_loop_1.run_until_complete.call_count == 1
+        assert mock_loop_2.run_until_complete.call_count == 1
