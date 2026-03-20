@@ -661,7 +661,12 @@ class TestCredibilityCheckerNodeIntegration:
 
         result = await node.execute(pipeline_state)
 
-        assert result["credibility"]["verified_by_sources"] == 3
+        # Cross-verification was removed; verify the credibility dict
+        assert "score" in result["credibility"]
+        assert "source_credibility" in result["credibility"]
+        assert "content_check" in result["credibility"]
+        assert "timeliness" in result["credibility"]
+        assert "flags" in result["credibility"]
 
 
 class TestEntityExtractorNodeIntegration:

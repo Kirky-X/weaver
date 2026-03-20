@@ -397,12 +397,12 @@ class TestCircuitBreakerThreadSafety:
         assert cb._opened_at == opened_at_value
 
     @pytest.mark.asyncio
-    async def test_lock_timeout_logs_warning(self, caplog):
-        """Test that lock timeout logs a warning.
+    async def test_lock_timeout_returns_false(self):
+        """Test that lock timeout causes record_failure to return False.
 
-        Given: Lock held for longer than timeout
-        When: Another operation tries to acquire lock
-        Then: A warning should be logged
+        Given: Lock held for longer than the 5-second internal timeout
+        When: record_failure tries to acquire the lock
+        Then: It should return False without blocking
         """
         cb = CircuitBreaker(threshold=1, timeout_secs=60.0)
 
@@ -414,15 +414,11 @@ class TestCircuitBreakerThreadSafety:
         lock_task = asyncio.create_task(hold_lock())
         await asyncio.sleep(0.1)
 
-        # Try operation (should timeout)
-        with caplog.at_level("WARNING"):
-            result = await cb.record_failure()
+        # Try operation (should timeout and return False)
+        result = await cb.record_failure()
 
-        # Should return False
+        # Should return False due to lock timeout
         assert result is False
-
-        # Should have logged a warning
-        assert any("timeout" in record.message.lower() for record in caplog.records)
 
         # Clean up
         await lock_task

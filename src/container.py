@@ -23,7 +23,7 @@ from modules.graph_store import EntityResolver, Neo4jWriter
 from modules.graph_store.name_normalizer import name_normalizer
 from modules.graph_store.resolution_rules import resolution_rules
 from modules.pipeline.graph import Pipeline
-from modules.source import SourceRegistry, SourceScheduler
+from modules.source import SourceConfigRepo, SourceRegistry, SourceScheduler
 from modules.storage import ArticleRepo, SourceAuthorityRepo, VectorRepo
 from modules.storage.neo4j import Neo4jArticleRepo, Neo4jEntityRepo
 
@@ -58,6 +58,7 @@ class Container:
         self._llm_client: LLMClient | None = None
         self._prompt_loader: PromptLoader | None = None
         self._source_registry: SourceRegistry | None = None
+        self._source_config_repo: SourceConfigRepo | None = None
         self._source_scheduler: SourceScheduler | None = None
         self._article_repo: ArticleRepo | None = None
         self._vector_repo: VectorRepo | None = None
@@ -196,6 +197,14 @@ class Container:
                 )
             self._source_registry = SourceRegistry(self._smart_fetcher)
         return self._source_registry
+
+    def source_config_repo(self) -> SourceConfigRepo:
+        """Get source config repository (database-backed)."""
+        if self._source_config_repo is None:
+            if self._postgres_pool is None:
+                raise RuntimeError("PostgreSQL pool not initialized. Call init_postgres() first.")
+            self._source_config_repo = SourceConfigRepo(self._postgres_pool)
+        return self._source_config_repo
 
     async def init_source_scheduler(
         self,

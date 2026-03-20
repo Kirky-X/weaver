@@ -6,8 +6,14 @@ Enhanced version with rule-based resolution and name normalization.
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
+
+from tenacity import (
+    AsyncRetrying,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential_jitter,
+)
 
 from core.llm.client import LLMClient
 from core.observability.logging import get_logger
@@ -22,6 +28,17 @@ from modules.storage.neo4j.entity_repo import Neo4jEntityRepo
 from modules.storage.vector_repo import VectorRepo
 
 log = get_logger("entity_resolver")
+
+
+class ConstraintError(Exception):
+    """Exception raised when Neo4j constraint is violated."""
+
+    pass
+
+
+def _is_constraint_error(exc: Exception) -> bool:
+    """Check if exception is a Constraint error."""
+    return "ConstraintError" in str(type(exc).__name__)
 
 
 class EntityResolver:
@@ -238,43 +255,52 @@ class EntityResolver:
         match_type: str,
         confidence: float,
     ) -> dict[str, Any]:
-        """Create a new entity with retry on constraint violation."""
-        for attempt in range(self.MAX_MERGE_RETRIES):
-            try:
-                neo4j_id = await self._entity_repo.merge_entity(
-                    canonical_name=name,
-                    entity_type=entity_type,
-                    description=description,
-                )
-                if embedding:
-                    await self._vector_repo.upsert_entity_vector(neo4j_id, embedding)
-                return {
-                    "neo4j_id": neo4j_id,
-                    "canonical_name": name,
-                    "is_new": is_new,
-                    "merged": False,
-                    "match_type": match_type,
-                    "confidence": confidence,
-                }
-            except Exception as exc:
-                if "ConstraintError" in str(type(exc).__name__):
-                    if attempt == self.MAX_MERGE_RETRIES - 1:
-                        raise
-                    existing = await self._entity_repo.find_entity(name, entity_type)
-                    if existing:
-                        await self._vector_repo.upsert_entity_vector(
-                            existing["neo4j_id"], embedding
-                        )
-                        return {
-                            "neo4j_id": existing["neo4j_id"],
-                            "canonical_name": existing["canonical_name"],
-                            "is_new": False,
-                            "merged": False,
-                            "match_type": "concurrent_create",
-                            "confidence": 0.95,
-                        }
-                    await asyncio.sleep(0.05 * (attempt + 1))
-                else:
+        """Create a new entity with retry on constraint violation.
+
+        Uses tenacity for exponential backoff.
+        Handles Constraint violation errors from Neo4j.
+        """
+        retryer = AsyncRetrying(
+            reraise=True,
+            stop=stop_after_attempt(3),
+            wait=wait_exponential_jitter(initial=0.05, max=0.5, jitter=0.02),
+            retry=retry_if_exception_type(ConstraintError),
+        )
+
+        async for attempt in retryer:
+            with attempt:
+                try:
+                    neo4j_id = await self._entity_repo.merge_entity(
+                        canonical_name=name,
+                        entity_type=entity_type,
+                        description=description,
+                    )
+                    if embedding:
+                        await self._vector_repo.upsert_entity_vector(neo4j_id, embedding)
+                    return {
+                        "neo4j_id": neo4j_id,
+                        "canonical_name": name,
+                        "is_new": is_new,
+                        "merged": False,
+                        "match_type": match_type,
+                        "confidence": confidence,
+                    }
+                except Exception as exc:
+                    if _is_constraint_error(exc):
+                        existing = await self._entity_repo.find_entity(name, entity_type)
+                        if existing:
+                            await self._vector_repo.upsert_entity_vector(
+                                existing["neo4j_id"], embedding
+                            )
+                            return {
+                                "neo4j_id": existing["neo4j_id"],
+                                "canonical_name": existing["canonical_name"],
+                                "is_new": False,
+                                "merged": False,
+                                "match_type": "concurrent_create",
+                                "confidence": 0.95,
+                            }
+                        raise ConstraintError(str(exc)) from exc
                     raise
 
         raise RuntimeError("Failed to create entity after retries")

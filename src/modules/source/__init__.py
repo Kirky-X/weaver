@@ -5,11 +5,13 @@ from modules.source.models import NewsItem, SourceConfig
 from modules.source.registry import SourceRegistry
 from modules.source.rss_parser import RSSParser
 from modules.source.scheduler import SourceScheduler
+from modules.source.source_config_repo import SourceConfigRepo
 
 __all__ = [
     "NewsItem",
     "RSSParser",
     "SourceConfig",
+    "SourceConfigRepo",
     "SourceRegistry",
     "SourceScheduler",
 ]

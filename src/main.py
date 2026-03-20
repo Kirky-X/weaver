@@ -31,7 +31,7 @@ from api.endpoints.pipeline import (
     set_redis_client as set_pipeline_redis,
     set_source_scheduler,
 )
-from api.endpoints.sources import set_source_registry
+from api.endpoints.sources import set_source_config_repo
 from api.middleware.rate_limit import limiter
 from api.router import api_router
 from config.settings import Settings
@@ -180,7 +180,7 @@ async def lifespan(app: FastAPI) -> None:
     # Register services for API endpoints
     set_container(container)
     set_settings(container.settings)
-    set_source_registry(container.source_registry())
+    set_source_config_repo(container.source_config_repo())
 
     redis_client = container.redis_client()
     set_redis_client(redis_client)
