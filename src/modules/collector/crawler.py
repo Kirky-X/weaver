@@ -77,6 +77,7 @@ class Crawler:
                     source=item.source,
                     publish_time=item.pubDate,
                     source_host=host,
+                    description=item.description or "",
                 )
 
         results = await asyncio.gather(

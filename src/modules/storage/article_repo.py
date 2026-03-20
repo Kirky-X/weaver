@@ -380,10 +380,11 @@ class ArticleRepo:
             raw = RawModel(
                 url=article.url,
                 title=article.title,
-                body=article.description or "",  # Use description as body
+                body=article.description or "",
                 source=article.source,
                 publish_time=article.pubDate,
                 source_host=article.source_host,
+                description=article.description or "",
             )
         else:
             # Try to extract attributes from arbitrary object
@@ -395,10 +396,24 @@ class ArticleRepo:
                 publish_time=getattr(article, "pubDate", None)
                 or getattr(article, "publish_time", None),
                 source_host=getattr(article, "source_host", ""),
+                description=getattr(article, "description", ""),
             )
 
         if not raw.url:
             raise ValueError("Article URL is required")
+
+        # Fall back to RSS description when body is too short (e.g. anti-bot error pages).
+        # A typical article body is hundreds of characters; error pages are < 200 chars.
+        MIN_BODY_LENGTH = 200
+        effective_body = raw.body
+        if len(effective_body) < MIN_BODY_LENGTH and raw.description:
+            effective_body = raw.description
+            log.debug(
+                "body_too_short_using_description",
+                url=raw.url,
+                body_len=len(raw.body),
+                desc_len=len(raw.description),
+            )
 
         normalized_url = Deduplicator.normalize_url(raw.url)
         async with self._pool.session() as session:
@@ -418,7 +433,7 @@ class ArticleRepo:
                 source_url=raw.url,
                 source_host=raw.source_host or "",
                 title=raw.title or "",
-                body=raw.body or "",
+                body=effective_body,
                 is_news=True,
                 persist_status=PersistStatus.PENDING,
             )
