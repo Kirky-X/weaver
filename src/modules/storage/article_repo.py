@@ -14,6 +14,7 @@ from core.db.models import Article, PersistStatus
 from core.db.postgres import PostgresPool
 from core.exceptions import InvalidStateTransitionError
 from core.observability.logging import get_logger
+from modules.collector.deduplicator import Deduplicator
 from modules.pipeline.state import PipelineState
 
 log = get_logger("article_repo")
@@ -239,9 +240,10 @@ class ArticleRepo:
         if not urls:
             return set()
 
+        normalized_urls = [Deduplicator.normalize_url(u) for u in urls]
         async with self._pool.session() as session:
             result = await session.execute(
-                select(Article.source_url).where(Article.source_url.in_(urls))
+                select(Article.source_url).where(Article.source_url.in_(normalized_urls))
             )
             return {row[0] for row in result}
 
@@ -394,9 +396,12 @@ class ArticleRepo:
         if not raw.url:
             raise ValueError("Article URL is required")
 
+        normalized_url = Deduplicator.normalize_url(raw.url)
         async with self._pool.session() as session:
-            # Check if exists
-            result = await session.execute(select(Article).where(Article.source_url == raw.url))
+            # Check if exists using normalized URL
+            result = await session.execute(
+                select(Article).where(Article.source_url == normalized_url)
+            )
             existing = result.scalar_one_or_none()
 
             if existing:

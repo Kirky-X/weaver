@@ -163,6 +163,44 @@ class Deduplicator:
         return len(expired_keys)
 
     @staticmethod
+    def normalize_url(url: str) -> str:
+        """Normalize a URL for consistent deduplication.
+
+        - Removes the `www.` prefix (including protocol-relative `//www.`).
+        - Clears the query string (everything after `?`).
+        - Preserves path and fragment (after `#`).
+
+        Examples:
+            https://www.36kr.com/p/123?f=rss  ->  https://36kr.com/p/123
+            //www.36kr.com/p/123              ->  //36kr.com/p/123
+            https://36kr.com/p/123#anchor     ->  https://36kr.com/p/123#anchor
+        """
+        # Extract fragment first so stripping query string doesn't lose it
+        if "#" in url:
+            base, fragment = url.split("#", 1)
+            url = base
+        else:
+            fragment = None
+
+        # Remove www. prefix (strip it from the hostname position)
+        if url.startswith("//www."):
+            url = "//" + url.removeprefix("//www.")
+        elif url.startswith("http://www."):
+            url = "http://" + url.removeprefix("http://www.")
+        elif url.startswith("https://www."):
+            url = "https://" + url.removeprefix("https://www.")
+
+        # Clear query string
+        if "?" in url:
+            url = url.split("?", 1)[0]
+
+        # Restore fragment
+        if fragment is not None:
+            url = url + "#" + fragment
+
+        return url
+
+    @staticmethod
     def _hash(url: str) -> str:
         """Generate a short hash for a URL."""
-        return hashlib.sha256(url.encode()).hexdigest()[:16]
+        return hashlib.sha256(Deduplicator.normalize_url(url).encode()).hexdigest()[:16]
