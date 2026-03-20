@@ -217,6 +217,11 @@ class Container:
                 log.info("items_discovered", count=len(items), source=source.id)
 
             registry = self.source_registry()
+            # Bridge DB sources into the in-memory registry so the scheduler
+            # discovers and crawls all DB-persisted sources on startup.
+            db_sources = await self.source_config_repo().list_sources(enabled_only=True)
+            for cfg in db_sources:
+                registry.add_source(cfg)
             self._source_scheduler = SourceScheduler(
                 registry=registry,
                 on_items_discovered=on_items_discovered or default_callback,

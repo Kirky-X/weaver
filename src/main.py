@@ -6,8 +6,13 @@ from __future__ import annotations
 import asyncio
 import os
 import signal
+import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
+
+# Fix: allow `from api` style imports to resolve correctly regardless of CWD.
+sys.path.insert(0, str(Path(__file__).parent))
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware

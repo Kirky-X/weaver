@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 from urllib.parse import urlparse
 
@@ -14,6 +15,11 @@ from modules.source.base import BaseSourceParser
 from modules.source.models import NewsItem, SourceConfig
 
 log = get_logger("rss_parser")
+
+# Pattern to extract biz and mid from HTML content (e.g. content:encoded).
+_WECHAT_BIZ_MID_RE = re.compile(r'(?:biz|__biz)=([^&"\'<>]+)', re.IGNORECASE)
+_WECHAT_MID_RE = re.compile(r'\bmid=([^&"\'<>]+)', re.IGNORECASE)
+_WECHAT_SOGOU_RE = re.compile(r"https?://(?:www\.)?weixin\.sogou\.com/", re.IGNORECASE)
 
 
 class RSSParser(BaseSourceParser):
@@ -79,6 +85,12 @@ class RSSParser(BaseSourceParser):
             if not url:
                 continue
 
+            # anyfeeder WeChat feeds: extract real mp.weixin.qq.com URL from HTML.
+            if _WECHAT_SOGOU_RE.match(url):
+                maybe = self._extract_wechat_url(entry)
+                if maybe:
+                    url = maybe
+
             pub_date = self._parse_date(entry)
 
             if config.last_crawl_time and pub_date:
@@ -99,6 +111,39 @@ class RSSParser(BaseSourceParser):
 
         log.info("rss_parsed", url=config.url, items_found=len(items))
         return items
+
+    @staticmethod
+    def _extract_wechat_url(entry: dict) -> str | None:
+        """Extract real WeChat article URL from a Sogou-proxied RSS entry.
+
+        anyfeeder WeChat feeds publish all articles under the same Sogou search-page
+        link. The real article identifiers (``biz`` + ``mid``) live in the
+        ``<content:encoded>`` HTML and can be used to construct a
+        ``mp.weixin.qq.com`` URL.
+
+        Falls back to ``None`` if either identifier is missing; callers should
+        use the original ``<link>`` value in that case.
+        """
+        # content:encoded is available as entry.content[0].value in feedparser.
+        # Use .get() (works for both FeedParserDict and plain dict) and check
+        # for non-empty list before indexing.
+        content_list = entry.get("content")
+        if not isinstance(content_list, list) or len(content_list) == 0:
+            return None
+        html = content_list[0].get("value", "") if isinstance(content_list[0], dict) else None
+
+        if not html:
+            return None
+
+        biz_match = _WECHAT_BIZ_MID_RE.search(html)
+        mid_match = _WECHAT_MID_RE.search(html)
+
+        if not biz_match or not mid_match:
+            return None
+
+        biz = biz_match.group(1).rstrip("=")
+        mid = mid_match.group(1)
+        return f"https://mp.weixin.qq.com/s?__biz={biz}&mid={mid}"
 
     @staticmethod
     def _parse_date(entry: dict) -> datetime | None:

@@ -266,6 +266,180 @@ class TestRSSParserParseDate:
         assert result is None
 
 
+class TestRSSParserExtractWechatUrl:
+    """Test RSSParser._extract_wechat_url static method (anyfeeder WeChat feeds)."""
+
+    def test_extracts_biz_and_mid_from_content(self):
+        """Scenario: Real WeChat URL constructed from biz and mid."""
+        entry = {
+            "link": "http://weixin.sogou.com/weixin?type=2&query=央视财经",
+            "content": [
+                {"value": '<p>...<a href="biz=MjM5NzQ5MTkyMA">..&mid=2658216812&idx=1..</a></p>'}
+            ],
+        }
+        result = RSSParser._extract_wechat_url(entry)
+        assert result == "https://mp.weixin.qq.com/s?__biz=MjM5NzQ5MTkyMA&mid=2658216812"
+
+    def test_no_content_returns_none(self):
+        """Scenario: WeChat entry without biz in content falls back to link."""
+        entry = {
+            "link": "http://weixin.sogou.com/weixin?type=2&query=央视财经",
+            "content": [{"value": "<p>no biz here</p>"}],
+        }
+        result = RSSParser._extract_wechat_url(entry)
+        assert result is None
+
+    def test_missing_mid_returns_none(self):
+        """Scenario: WeChat entry without mid falls back to link."""
+        entry = {
+            "link": "http://weixin.sogou.com/weixin?type=2&query=央视财经",
+            "content": [{"value": "<p>...biz=MjM5NzQ5MTkyMA...</p>"}],
+        }
+        result = RSSParser._extract_wechat_url(entry)
+        assert result is None
+
+    def test_empty_content_returns_none(self):
+        """Scenario: WeChat entry with no content:encoded field."""
+        entry = {"link": "http://weixin.sogou.com/weixin?type=2&query=央视财经", "content": []}
+        result = RSSParser._extract_wechat_url(entry)
+        assert result is None
+
+    def test_base64_padding_stripped(self):
+        """Scenario: biz value with base64 padding stripped."""
+        entry = {
+            "link": "http://weixin.sogou.com/weixin",
+            "content": [{"value": "<p>...biz=MjM5NzQ5MTkyMA==&mid=123456789&idx=1...</p>"}],
+        }
+        result = RSSParser._extract_wechat_url(entry)
+        assert result == "https://mp.weixin.qq.com/s?__biz=MjM5NzQ5MTkyMA&mid=123456789"
+
+    def test_different_mid_values_produce_unique_urls(self):
+        """Scenario: Multiple WeChat articles each get unique URLs."""
+        mids = ["2658216812", "2658216813", "2658216814", "2658216815", "2658216816"]
+        entry_base = {
+            "link": "http://weixin.sogou.com/weixin?type=2&query=央视财经",
+            "content": [{"value": "<p>...biz=MjM5NzQ5MTkyMA...</p>"}],
+        }
+        urls = []
+        for mid in mids:
+            entry = {
+                **entry_base,
+                "content": [{"value": f"<p>...biz=MjM5NzQ5MTkyMA&mid={mid}...</p>"}],
+            }
+            url = RSSParser._extract_wechat_url(entry)
+            assert url is not None
+            urls.append(url)
+        assert len(set(urls)) == len(mids), "All URLs must be unique"
+
+    def test_normalized_wechat_url_format(self):
+        """Scenario: Normalized WeChat URL for deduplication."""
+        entry = {
+            "link": "http://weixin.sogou.com/weixin",
+            "content": [{"value": "<p>...biz=MjM5NzQ5MTkyMA&mid=2658216812...</p>"}],
+        }
+        url = RSSParser._extract_wechat_url(entry)
+        # mp.weixin.qq.com domain is dedup-able and stable
+        assert url.startswith("https://mp.weixin.qq.com/s?")
+        assert "__biz=" in url
+        assert "&mid=" in url
+
+    def test_non_wechat_link_returns_none(self):
+        """Scenario: Non-WeChat RSS links passed through unchanged (helper returns None)."""
+        entry = {
+            "link": "https://example.com/article/123",
+            "content": [{"value": "<p>some content</p>"}],
+        }
+        result = RSSParser._extract_wechat_url(entry)
+        assert result is None
+
+    def test_title_and_description_not_modified(self):
+        """Scenario: Only the NewsItem.url field is affected by WeChat extraction."""
+        # This is validated by the parse() integration tests below.
+
+    @pytest.mark.asyncio
+    async def test_parse_anyfeeder_wechat_replaces_link(self):
+        """Integration test: parse() replaces Sogou link with real WeChat URL."""
+        rss_content = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+<channel>
+    <title>CCTV财经</title>
+    <item>
+        <title>CCTV Article 1</title>
+        <link>http://weixin.sogou.com/weixin?type=2&query=央视财经</link>
+        <content:encoded><![CDATA[<p>...biz=MjM5NzQ5MTkyMA&mid=2658216812...</p>]]></content:encoded>
+    </item>
+    <item>
+        <title>CCTV Article 2</title>
+        <link>http://weixin.sogou.com/weixin?type=2&query=央视财经</link>
+        <content:encoded><![CDATA[<p>...biz=MjM5NzQ5MTkyMA&mid=2658216813...</p>]]></content:encoded>
+    </item>
+</channel>
+</rss>"""
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch = AsyncMock(return_value=(200, rss_content, {}))
+        parser = RSSParser(mock_fetcher)
+        config = SourceConfig(id="cctv", name="cctv", url="https://plink.anyfeeder.com/weixin/cctv")
+
+        items = await parser.parse(config)
+
+        assert len(items) == 2
+        assert all("mp.weixin.qq.com" in item.url for item in items)
+        assert all("weixin.sogou.com" not in item.url for item in items)
+        assert items[0].title == "CCTV Article 1"
+        assert items[1].title == "CCTV Article 2"
+        # Verify URLs are unique
+        assert items[0].url != items[1].url
+
+    @pytest.mark.asyncio
+    async def test_parse_non_wechat_unchanged(self):
+        """Integration test: non-WeChat feeds are not affected."""
+        rss_content = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+<channel>
+    <title>Normal Feed</title>
+    <item>
+        <title>Normal Article</title>
+        <link>https://example.com/article/123</link>
+    </item>
+</channel>
+</rss>"""
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch = AsyncMock(return_value=(200, rss_content, {}))
+        parser = RSSParser(mock_fetcher)
+        config = SourceConfig(id="normal", name="normal", url="https://example.com/feed")
+
+        items = await parser.parse(config)
+
+        assert len(items) == 1
+        assert items[0].url == "https://example.com/article/123"
+
+    @pytest.mark.asyncio
+    async def test_parse_wechat_fallback_to_raw_link(self):
+        """Integration test: WeChat entry without biz falls back to raw Sogou link."""
+        rss_content = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+<channel>
+    <item>
+        <title>Partial WeChat</title>
+        <link>http://weixin.sogou.com/weixin?type=2&query=央视财经</link>
+        <content:encoded><![CDATA[<p>no biz here</p>]]></content:encoded>
+    </item>
+</channel>
+</rss>"""
+        mock_fetcher = MagicMock()
+        mock_fetcher.fetch = AsyncMock(return_value=(200, rss_content, {}))
+        parser = RSSParser(mock_fetcher)
+        config = SourceConfig(
+            id="wechat", name="wechat", url="https://plink.anyfeeder.com/weixin/test"
+        )
+
+        items = await parser.parse(config)
+
+        # Falls back to the raw sogou link (not skipped)
+        assert len(items) == 1
+        assert "weixin.sogou.com" in items[0].url
+
+
 class TestRSSParserClose:
     """Test RSSParser close method."""
 
