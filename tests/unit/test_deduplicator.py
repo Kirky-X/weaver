@@ -221,3 +221,68 @@ class TestNormalizeUrl:
         """Empty URL should be handled gracefully."""
         result = Deduplicator.normalize_url("")
         assert isinstance(result, str)
+
+    # --- Tests migrated from test_normalize_url.py ---
+
+    def test_removes_default_https_port(self):
+        """Default HTTPS port 443 should be removed."""
+        result = Deduplicator.normalize_url("https://example.com:443/path")
+        assert result == "https://example.com/path"
+
+    def test_removes_default_http_port(self):
+        """Default HTTP port 80 should be removed (after upgrading to HTTPS)."""
+        result = Deduplicator.normalize_url("http://example.com:80/path")
+        assert result == "https://example.com/path"
+
+    def test_preserves_non_default_port(self):
+        """Non-default ports should be preserved."""
+        result = Deduplicator.normalize_url("https://example.com:8443/path")
+        assert result == "https://example.com:8443/path"
+
+    def test_normalizes_relative_path_dots(self):
+        """Relative path segments (.. and .) should be resolved."""
+        result = Deduplicator.normalize_url("https://example.com/a/../b/./c")
+        assert result == "https://example.com/b/c"
+
+    def test_removes_root_trailing_slash(self):
+        """Trailing slash on root path should be removed."""
+        result = Deduplicator.normalize_url("https://example.com/")
+        assert result == "https://example.com"
+
+    def test_percent_encoded_and_decoded_deduplicate(self):
+        """Both percent-encoded and decoded URLs should produce same normalized form."""
+        result1 = Deduplicator.normalize_url("https://example.com/path/%E4%B8%AD%E6%96%87")
+        result2 = Deduplicator.normalize_url("https://example.com/path/中文")
+        assert result1 == result2
+
+    def test_handles_percent_encoding_chinese(self):
+        """Percent-encoded Chinese should be handled correctly."""
+        result = Deduplicator.normalize_url("https://example.com/path/%E4%B8%AD%E6%96%87")
+        assert result.startswith("https://example.com/path/")
+
+    def test_handles_already_decoded_chinese(self):
+        """Already decoded Chinese should be handled correctly."""
+        result = Deduplicator.normalize_url("https://example.com/path/中文")
+        assert result.startswith("https://example.com/path/")
+
+    def test_protocol_relative_with_www(self):
+        """Protocol-relative URL with www should be normalized."""
+        result = Deduplicator.normalize_url("//www.example.com/path")
+        assert result == "https://example.com/path"
+
+    def test_query_params_deduplicate(self):
+        """URLs with and without query params should produce same normalized form."""
+        result1 = Deduplicator.normalize_url("https://36kr.com/p/123")
+        result2 = Deduplicator.normalize_url("https://36kr.com/p/123?f=rss")
+        assert result1 == result2
+
+    def test_www_and_non_www_deduplicate(self):
+        """www and non-www URLs should produce same normalized form."""
+        result1 = Deduplicator.normalize_url("https://www.36kr.com/p/123")
+        result2 = Deduplicator.normalize_url("https://36kr.com/p/123")
+        assert result1 == result2
+
+    def test_full_normalization(self):
+        """Full normalization with all transformations."""
+        result = Deduplicator.normalize_url("http://www.EXAMPLE.COM:80/a/../b/./c?f=rss#anchor")
+        assert result == "https://example.com/b/c"
