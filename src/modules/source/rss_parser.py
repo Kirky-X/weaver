@@ -8,7 +8,6 @@ from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 import feedparser
-import trafilatura
 
 from core.observability.logging import get_logger
 from modules.fetcher.base import BaseFetcher
@@ -153,51 +152,57 @@ class RSSParser(BaseSourceParser):
         return f"https://mp.weixin.qq.com/s?__biz={biz}&mid={mid}"
 
     @staticmethod
+    def _strip_html_tags(html_text: str) -> str:
+        """Remove HTML/XML tags and decode common HTML entities.
+
+        Based on the dify rss-parser approach: regex stripping is more robust
+        than trafilatura for bare HTML fragments from RSS feeds, as it does not
+        depend on having a full document structure.
+        """
+        if not html_text:
+            return ""
+
+        # Remove HTML/XML tags
+        text = re.sub(r"<[^>]+>", "", html_text)
+
+        # Decode common HTML entities (dify pattern)
+        text = text.replace("&nbsp;", " ")
+        text = text.replace("&amp;", "&")
+        text = text.replace("&lt;", "<")
+        text = text.replace("&gt;", ">")
+        text = text.replace("&quot;", '"')
+        text = text.replace("&#39;", "'")
+        text = text.replace("&apos;", "'")
+
+        # Remove extra whitespace and normalize
+        text = re.sub(r"\s+", " ", text).strip()
+
+        return text
+
+    @staticmethod
     def _extract_body(entry: dict) -> str:
         """Extract full article body text from an RSS entry.
 
         Prefers ``<content:encoded>`` HTML (via feedparser's ``entry.content``)
-        and runs trafilatura on it to strip HTML markup. Falls back to the
-        entry's ``summary`` field when no HTML content is available or when
-        trafilatura returns nothing.
+        and strips HTML tags using regex. Falls back to the entry's ``summary``
+        field when no content is available.
 
-        Note: feedparser strips ``<html>``/``<head>``/``<body>`` wrappers from
-        CDATA content, so trafilatura may fail to parse bare HTML fragments.
-        In that case, we wrap the content in a full HTML document before
-        attempting extraction again.
-
-        Returns:
-            Plain-text article body, or empty string if all sources are empty.
+        Uses the dify rss-parser approach: regex tag stripping is more robust
+        than trafilatura for bare HTML fragments that feedparser produces from
+        CDATA content, since it does not require a full document structure.
         """
         content_list = entry.get("content")
         if isinstance(content_list, list) and len(content_list) > 0:
             raw_html = content_list[0].get("value", "") if isinstance(content_list[0], dict) else ""
             if raw_html:
-                text = trafilatura.extract(raw_html, include_comments=False) or ""
-                if text and not text.startswith("<"):
+                text = RSSParser._strip_html_tags(raw_html)
+                if text:
                     return text
-                # feedparser strips document wrappers from CDATA — try with a
-                # proper HTML shell in case the content is a bare fragment.
-                wrapped = (
-                    "<html><head><title></title></head>" "<body>" + raw_html + "</body></html>"
-                )
-                text = trafilatura.extract(wrapped, include_comments=False) or ""
-                if text and not text.startswith("<"):
-                    return text
-                # trafilatura returned HTML or nothing — strip tags as last resort
-                stripped = re.sub(r"<[^>]+>", "", raw_html).strip()
-                if stripped:
-                    return stripped
 
         # Fallback: description/summary
         summary = entry.get("summary", "")
         if summary:
-            # summaries from feedparser may be HTML; strip tags for plain text
-            text = trafilatura.extract(summary, include_comments=False) or ""
-            if text:
-                return text
-            # If trafilatura can't extract (e.g. already plain text), strip manually
-            text = re.sub(r"<[^>]+>", "", summary).strip()
+            text = RSSParser._strip_html_tags(summary)
             if text:
                 return text
 

@@ -266,19 +266,62 @@ class TestRSSParserParseDate:
         assert result is None
 
 
+class TestRSSParserStripHtmlTags:
+    """Test RSSParser._strip_html_tags() static method (dify approach)."""
+
+    def test_strips_all_html_tags(self):
+        """Removes all HTML/XML tags; adjacent text separated by whitespace."""
+        # Use \n between tags so whitespace normalization creates a space
+        html = "<p>第一段</p>\n<div>第二段</div>\n<span>第三段</span>"
+        result = RSSParser._strip_html_tags(html)
+        assert result == "第一段 第二段 第三段"
+
+    def test_decodes_common_html_entities(self):
+        """Decodes common HTML entities."""
+        html = "&nbsp;&amp;&lt;&gt;&quot;&#39;&apos;"
+        result = RSSParser._strip_html_tags(html)
+        # .strip() removes the leading space from &nbsp; decode
+        assert result == "&<>\"''"
+
+    def test_normalizes_whitespace(self):
+        """Collapses multiple whitespace into single space."""
+        html = "<p>第一段    </p>\n\n   <div>第二段</div>"
+        result = RSSParser._strip_html_tags(html)
+        assert "  " not in result
+        assert "第一段" in result
+        assert "第二段" in result
+
+    def test_empty_string(self):
+        """Returns empty string for empty/None input."""
+        assert RSSParser._strip_html_tags("") == ""
+        assert RSSParser._strip_html_tags(None) == ""  # type: ignore[arg-type]
+
+    def test_strips_wechat_bare_fragment(self):
+        """Strips bare WeChat HTML fragment without document wrapper."""
+        html = (
+            "<div><div><div class='rich_media_content' id='js_content'>"
+            "<p style='line-height:1.75em;'>伊朗伊斯兰革命卫队发动密集攻势。"
+            "伊朗使用重型弹道导弹和大规模无人机群打击科威特美军基地。</p>"
+            "<section></section>"
+            "<p>数千名海军陆战队员将从圣迭戈出发。</p>"
+            "</div></div></div>"
+        )
+        result = RSSParser._strip_html_tags(html)
+        assert "伊朗伊斯兰革命卫队" in result
+        assert "科威特美军基地" in result
+        assert "圣迭戈" in result
+        assert "<div" not in result
+        assert "<p" not in result
+        assert "<section" not in result
+
+
 class TestRSSParserExtractBody:
     """Test RSSParser._extract_body() static method."""
 
-    def _full_html(self, article_body: str) -> str:
-        """Wrap article content in a full HTML document for trafilatura compatibility."""
-        return (
-            "<html><head><title>Test</title></head>"
-            "<body><article>" + article_body + "</article></body></html>"
-        )
-
     def test_extracts_from_content_encoded_html(self):
-        """Trafilatura extracts plain text from content:encoded HTML."""
-        html = self._full_html(
+        """Strips HTML tags from content:encoded via _strip_html_tags."""
+        # Bare HTML fragment — no document wrapper needed with dify approach
+        html = (
             "<p>国际黄金和白银期价在经历前一个交易日的暴跌后反弹。</p>"
             "<p>截至北京时间20日15点50分，纽约商品交易所黄金主力合约期价报每盎司4698.50美元。</p>"
         )
@@ -286,7 +329,7 @@ class TestRSSParserExtractBody:
         result = RSSParser._extract_body(entry)
         assert "国际黄金和白银期价" in result
         assert "4698.50" in result
-        assert "<div" not in result  # HTML stripped
+        assert "<p>" not in result
 
     def test_extracts_from_summary_when_no_content(self):
         """Falls back to summary when content:encoded is absent."""
@@ -311,28 +354,9 @@ class TestRSSParserExtractBody:
         result = RSSParser._extract_body(entry)
         assert result == ""
 
-    def test_strips_html_when_trafilatura_returns_html_fragment(self):
-        """Strips HTML tags as last resort when trafilatura returns HTML."""
-        # Bare HTML fragment without document wrappers — trafilatura may return
-        # the HTML itself (starts with '<') rather than plain text.
-        html = (
-            "<div><div><div class='rich_media_content'>"
-            '<p>伊朗伊斯兰革命卫队针对美国及其盟友发动代号为"真实承诺-4"的密集攻势。'
-            "伊朗使用重型弹道导弹和大规模无人机群打击科威特美军基地。</p>"
-            "</div></div></div>"
-        )
-        entry = {"content": [{"value": html}]}
-        result = RSSParser._extract_body(entry)
-        # Should contain the Chinese text without any HTML tags
-        assert "伊朗伊斯兰革命卫队" in result
-        assert "<div" not in result
-        assert "<p>" not in result
-
     def test_prefers_content_over_summary(self):
         """content:encoded takes priority over summary."""
-        html = self._full_html(
-            "<p>来自content:encoded的完整正文，包含更多细节信息。第二段内容说明。</p>"
-        )
+        html = "<p>来自content:encoded的完整正文，包含更多细节信息。第二段内容说明。</p>"
         entry = {
             "content": [{"value": html}],
             "summary": "<p>这只是摘要。</p>",
@@ -367,8 +391,8 @@ class TestRSSParserParsePopulatesBody:
     async def test_parse_sets_body_from_content_encoded(self, parser, mock_fetcher, sample_config):
         """Integration: parse() populates NewsItem.body from content:encoded."""
         # Note: CDATA in RSS strips <html>/<head>/<body> wrappers via feedparser,
-        # so we only put the article body markup here. _extract_body wraps it in
-        # a proper HTML document before calling trafilatura.
+        # so we only put the article body markup here. _extract_body uses regex
+        # tag stripping (dify approach), which handles bare fragments reliably.
         feed_xml = (
             '<?xml version="1.0" encoding="UTF-8"?>'
             '<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">'

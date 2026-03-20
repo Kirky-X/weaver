@@ -249,7 +249,24 @@ class Deduplicator:
             path = ""
 
         # 4. Remove query string and fragment
-        return urlunparse((scheme, netloc, path, "", "", ""))
+        # Special case: WeChat articles are uniquely identified by __biz + mid
+        # in the query string, so these must be preserved.
+        if netloc == "mp.weixin.qq.com":
+            query_params = parsed.query.split("&") if parsed.query else []
+            kept = []
+            dropped = []
+            for param in query_params:
+                if param.startswith(("__biz=", "mid=")):
+                    kept.append(param)
+                else:
+                    dropped.append(param)
+            if dropped:
+                log.debug("wechat_query_params_dropped", count=len(dropped))
+            query = "&".join(kept) if kept else ""
+        else:
+            query = ""
+
+        return urlunparse((scheme, netloc, path, "", query, ""))
 
     @staticmethod
     def _hash(url: str) -> str:
