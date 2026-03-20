@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.event.bus import EventBus, FallbackEvent, LLMFailureEvent
 from core.llm.config_manager import LLMConfigManager
@@ -16,6 +16,9 @@ from core.llm.types import CallPoint, LLMTask
 from core.observability.logging import get_logger
 from core.observability.metrics import MetricsCollector
 from core.resilience.circuit_breaker import CircuitBreaker
+
+if TYPE_CHECKING:
+    from core.llm.rate_limiter_pro import RateLimiter as ProRateLimiter
 
 log = get_logger("queue_manager")
 

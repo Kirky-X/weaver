@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from core.observability.logging import get_logger
 from modules.collector.crawler import Crawler
@@ -13,9 +13,6 @@ from modules.collector.simhash_dedup import SimHashDeduplicator, TitleItem
 from modules.fetcher.exceptions import FetchError
 from modules.pipeline.graph import Pipeline
 from modules.storage.article_repo import ArticleRepo
-
-if TYPE_CHECKING:
-    pass
 
 log = get_logger("discovery_processor")
 

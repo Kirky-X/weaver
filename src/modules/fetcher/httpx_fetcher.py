@@ -3,16 +3,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import httpx
 
 from core.observability.logging import get_logger
 from core.observability.metrics import MetricsCollector
 from modules.fetcher.base import BaseFetcher
-
-if TYPE_CHECKING:
-    pass
 
 log = get_logger("httpx_fetcher")
 

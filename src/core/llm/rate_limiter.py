@@ -1,5 +1,13 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Redis Token Bucket rate limiter (multi-process safe via Lua script)."""
+"""Redis Token Bucket rate limiter (multi-process safe via Lua script).
+
+适用场景:
+- 生产环境代码 (container.py, queue_manager.py)
+- 需要与 Redis 集成的场景
+- 高性能、低延迟需求
+
+对于独立脚本和开发测试，可使用 rate_limiter_pro.py 中的 RateLimiter。
+"""
 
 from __future__ import annotations
 

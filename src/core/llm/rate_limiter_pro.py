@@ -1,5 +1,13 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Rate limiter using the professional `limits` library."""
+"""Rate limiter using the professional `limits` library.
+
+适用场景:
+- 独立脚本和工具 (scripts/process_pending.py)
+- 需要多种限流策略（固定窗口、滑动窗口、令牌桶）
+- 本地测试和开发环境
+
+对于生产环境代码，推荐使用 rate_limiter.py 中的 RedisTokenBucket。
+"""
 
 from __future__ import annotations
 
