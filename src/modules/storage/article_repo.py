@@ -57,7 +57,8 @@ class ArticleRepo:
                     article_ids.append(aid)
                 except Exception as exc:
                     log.error("bulk_upsert_single_failed", error=str(exc))
-            await session.commit()
+            # Each _upsert_single commits individually to ensure persist_status
+            # is visible to subsequent operations (e.g. update_persist_status).
             return article_ids
 
     async def _upsert_single(self, session: AsyncSession, state: PipelineState) -> uuid.UUID:
@@ -125,8 +126,10 @@ class ArticleRepo:
 
         article.publish_time = raw.publish_time
         article.updated_at = datetime.now(UTC)
+        article.persist_status = PersistStatus.PG_DONE
 
         await session.flush()
+        await session.commit()
         return article.id
 
     async def upsert(self, state: PipelineState) -> uuid.UUID:
@@ -209,6 +212,7 @@ class ArticleRepo:
 
                 article.publish_time = raw.publish_time
                 article.updated_at = datetime.now(UTC)
+                article.persist_status = PersistStatus.PG_DONE
 
                 await session.commit()
                 await session.refresh(article)

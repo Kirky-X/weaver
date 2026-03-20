@@ -485,7 +485,7 @@ class Pipeline:
                 )
                 for state, aid in zip(valid_states, article_ids):
                     state["article_id"] = str(aid)
-                    # persist_status is already set to PG_DONE in bulk_upsert
+                    # persist_status is set to PG_DONE in bulk_upsert._upsert_single
 
                 if self._vector_repo:
                     vector_data = []
