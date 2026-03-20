@@ -1,9 +1,9 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Core resilience module - Circuit breaker and retry patterns."""
 
+from core.llm.output_validator import OutputParserException
 from core.resilience.circuit_breaker import CircuitBreaker
 from core.resilience.retry import (
-    OutputParserException,
     retry_db,
     retry_llm,
     retry_network,

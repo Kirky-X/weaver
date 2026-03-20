@@ -39,25 +39,6 @@ class RedisSettings(BaseModel):
     url: str = "redis://localhost:6379/0"
 
 
-class LLMProviderConfig(BaseModel):
-    """Single LLM provider configuration."""
-
-    provider: str = "openai"
-    model: str = "gpt-4o"
-    api_key: str = ""
-    base_url: str = "https://api.openai.com/v1"
-    rpm_limit: int = 60
-    concurrency: int = 5
-    timeout: float = 30.0
-
-
-class LLMCallPointConfig(BaseModel):
-    """Call-point level LLM configuration (primary + fallbacks)."""
-
-    primary: str = "openai"
-    fallbacks: list[str] = Field(default_factory=list)
-
-
 class LLMSettings(BaseModel):
     """LLM module settings."""
 

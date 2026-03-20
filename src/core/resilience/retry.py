@@ -19,6 +19,7 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
+from core.llm.output_validator import OutputParserException
 from core.observability.logging import get_logger
 
 log = get_logger("retry")
@@ -50,12 +51,6 @@ DB_EXCEPTIONS: tuple[type[Exception], ...] = (
     TimeoutError,
     OSError,
 )
-
-
-class OutputParserException(Exception):
-    """Exception raised when LLM output parsing fails."""
-
-    pass
 
 
 def _log_retry_attempt(retry_state: RetryCallState) -> None:
