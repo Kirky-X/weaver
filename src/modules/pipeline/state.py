@@ -8,6 +8,24 @@ from typing import Any, TypedDict
 from modules.collector.models import ArticleRaw
 
 
+class CredibilityInfo(TypedDict, total=False):
+    """Credibility assessment result.
+
+    Attributes:
+        score: Final credibility score (0.0-1.0).
+        source_credibility: Source authority score.
+        content_check: LLM content analysis score.
+        timeliness: Timeliness score.
+        flags: List of credibility flags/issues.
+    """
+
+    score: float
+    source_credibility: float
+    content_check: float
+    timeliness: float
+    flags: list[str]
+
+
 class PipelineState(TypedDict, total=False):
     """Typed dictionary representing the state flowing through the pipeline.
 
@@ -45,8 +63,8 @@ class PipelineState(TypedDict, total=False):
     score: float
     quality_score: float
 
-    # Credibility
-    credibility: dict[str, Any]
+    # Credibility (updated: removed cross_verification, verified_by_sources)
+    credibility: CredibilityInfo
 
     # Entity extraction
     entities: list[dict[str, Any]]

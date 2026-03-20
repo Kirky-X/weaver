@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field
 
 from api.middleware.auth import verify_api_key
 from modules.source.models import SourceConfig
-from modules.source.registry import SourceRegistry
 
 router = APIRouter(prefix="/sources", tags=["sources"])
 
@@ -27,8 +26,22 @@ class SourceCreateRequest(BaseModel):
     url: str = Field(..., description="Feed URL (RSS/Atom)")
     source_type: str = Field(default="rss", description="Type of source")
     enabled: bool = Field(default=True, description="Whether the source is active")
-    interval_minutes: int = Field(default=30, description="Crawl interval in minutes")
-    per_host_concurrency: int = Field(default=2, description="Max concurrent requests")
+    interval_minutes: int = Field(
+        default=30, ge=5, le=1440, description="Crawl interval in minutes"
+    )
+    per_host_concurrency: int = Field(default=2, ge=1, le=10, description="Max concurrent requests")
+    credibility: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Preset credibility score (0.0-1.0)",
+    )
+    tier: int | None = Field(
+        default=None,
+        ge=1,
+        le=3,
+        description="Source tier: 1=authoritative, 2=credible, 3=ordinary",
+    )
 
 
 class SourceUpdateRequest(BaseModel):
@@ -38,8 +51,10 @@ class SourceUpdateRequest(BaseModel):
     url: str | None = None
     source_type: str | None = None
     enabled: bool | None = None
-    interval_minutes: int | None = None
-    per_host_concurrency: int | None = None
+    interval_minutes: int | None = Field(default=None, ge=5, le=1440)
+    per_host_concurrency: int | None = Field(default=None, ge=1, le=10)
+    credibility: float | None = Field(default=None, ge=0.0, le=1.0)
+    tier: int | None = Field(default=None, ge=1, le=3)
 
 
 class SourceResponse(BaseModel):
@@ -52,6 +67,8 @@ class SourceResponse(BaseModel):
     enabled: bool
     interval_minutes: int
     per_host_concurrency: int
+    credibility: float | None = None
+    tier: int | None = None
     last_crawl_time: datetime | None = None
 
     @classmethod
@@ -64,30 +81,31 @@ class SourceResponse(BaseModel):
             enabled=config.enabled,
             interval_minutes=config.interval_minutes,
             per_host_concurrency=config.per_host_concurrency,
+            credibility=config.credibility,
+            tier=config.tier,
             last_crawl_time=config.last_crawl_time,
         )
 
 
-# ── Dependency for Source Registry ───────────────────────────────
+# ── Dependency for Source Config Repo ───────────────────────────────
 
-# This will be injected via container
-_source_registry: SourceRegistry | None = None
-
-
-def set_source_registry(registry: Any) -> None:
-    """Set the global source registry instance."""
-    global _source_registry
-    _source_registry = registry
+_source_config_repo: Any = None
 
 
-def get_source_registry() -> Any:
-    """Get the source registry instance."""
-    if _source_registry is None:
+def set_source_config_repo(repo: Any) -> None:
+    """Set the global source config repository instance."""
+    global _source_config_repo
+    _source_config_repo = repo
+
+
+def get_source_config_repo() -> Any:
+    """Get the source config repository instance."""
+    if _source_config_repo is None:
         raise HTTPException(
             status_code=503,
-            detail="Source registry not initialized",
+            detail="Source config repository not initialized",
         )
-    return _source_registry
+    return _source_config_repo
 
 
 # ── Endpoints ───────────────────────────────────────────────────
@@ -97,34 +115,59 @@ def get_source_registry() -> Any:
 async def list_sources(
     enabled_only: bool = True,
     _: str = Depends(verify_api_key),
-    registry: Any = Depends(get_source_registry),
+    repo: Any = Depends(get_source_config_repo),
 ) -> list[SourceResponse]:
     """Get all registered sources.
 
     Args:
         enabled_only: If True, only return enabled sources.
         _: Verified API key.
-        registry: Source registry instance.
+        repo: Source config repository instance.
 
     Returns:
         List of source configurations.
     """
-    sources = registry.list_sources(enabled_only=enabled_only)
+    sources = await repo.list_sources(enabled_only=enabled_only)
     return [SourceResponse.from_config(s) for s in sources]
+
+
+@router.get("/{source_id}", response_model=SourceResponse)
+async def get_source(
+    source_id: str,
+    _: str = Depends(verify_api_key),
+    repo: Any = Depends(get_source_config_repo),
+) -> SourceResponse:
+    """Get a single source by ID.
+
+    Args:
+        source_id: The unique source identifier.
+        _: Verified API key.
+        repo: Source config repository instance.
+
+    Returns:
+        Source configuration.
+
+    Raises:
+        HTTPException: 404 if source not found.
+    """
+    source = await repo.get(source_id)
+    if source is None:
+        raise HTTPException(status_code=404, detail=f"Source '{source_id}' not found")
+    return SourceResponse.from_config(source)
 
 
 @router.post("", response_model=SourceResponse, status_code=201)
 async def create_source(
     request: SourceCreateRequest,
     _: str = Depends(verify_api_key),
-    registry: Any = Depends(get_source_registry),
+    repo: Any = Depends(get_source_config_repo),
 ) -> SourceResponse:
     """Create a new news source.
 
     Args:
         request: Source configuration to create.
         _: Verified API key.
-        registry: Source registry instance.
+        repo: Source config repository instance.
 
     Returns:
         The created source configuration.
@@ -132,7 +175,7 @@ async def create_source(
     Raises:
         HTTPException: If source ID already exists.
     """
-    existing = registry.get_source(request.id)
+    existing = await repo.get(request.id)
     if existing is not None:
         raise HTTPException(
             status_code=409,
@@ -147,9 +190,11 @@ async def create_source(
         enabled=request.enabled,
         interval_minutes=request.interval_minutes,
         per_host_concurrency=request.per_host_concurrency,
+        credibility=request.credibility,
+        tier=request.tier,
     )
-    registry.add_source(config)
-    return SourceResponse.from_config(config)
+    saved = await repo.upsert(config)
+    return SourceResponse.from_config(saved)
 
 
 @router.put("/{source_id}", response_model=SourceResponse)
@@ -157,7 +202,7 @@ async def update_source(
     source_id: str,
     request: SourceUpdateRequest,
     _: str = Depends(verify_api_key),
-    registry: Any = Depends(get_source_registry),
+    repo: Any = Depends(get_source_config_repo),
 ) -> SourceResponse:
     """Update an existing news source.
 
@@ -165,7 +210,7 @@ async def update_source(
         source_id: The source ID to update.
         request: Fields to update.
         _: Verified API key.
-        registry: Source registry instance.
+        repo: Source config repository instance.
 
     Returns:
         The updated source configuration.
@@ -173,7 +218,7 @@ async def update_source(
     Raises:
         HTTPException: If source not found.
     """
-    existing = registry.get_source(source_id)
+    existing = await repo.get(source_id)
     if existing is None:
         raise HTTPException(
             status_code=404,
@@ -193,32 +238,34 @@ async def update_source(
         existing.interval_minutes = request.interval_minutes
     if request.per_host_concurrency is not None:
         existing.per_host_concurrency = request.per_host_concurrency
+    if request.credibility is not None:
+        existing.credibility = request.credibility
+    if request.tier is not None:
+        existing.tier = request.tier
 
-    registry.add_source(existing)
-    return SourceResponse.from_config(existing)
+    saved = await repo.upsert(existing)
+    return SourceResponse.from_config(saved)
 
 
 @router.delete("/{source_id}", status_code=204)
 async def delete_source(
     source_id: str,
     _: str = Depends(verify_api_key),
-    registry: Any = Depends(get_source_registry),
+    repo: Any = Depends(get_source_config_repo),
 ) -> None:
     """Delete a news source.
 
     Args:
         source_id: The source ID to delete.
         _: Verified API key.
-        registry: Source registry instance.
+        repo: Source config repository instance.
 
     Raises:
         HTTPException: If source not found.
     """
-    existing = registry.get_source(source_id)
-    if existing is None:
+    deleted = await repo.delete(source_id)
+    if not deleted:
         raise HTTPException(
             status_code=404,
             detail=f"Source '{source_id}' not found",
         )
-
-    registry.remove_source(source_id)

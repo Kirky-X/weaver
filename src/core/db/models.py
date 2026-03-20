@@ -375,3 +375,44 @@ class LLMFailure(Base):
         Index("idx_llm_failures_call_point", "call_point"),
         Index("idx_llm_failures_provider", "provider"),
     )
+
+
+class Source(Base):
+    """News source configuration with preset credibility."""
+
+    __tablename__ = "sources"
+
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    source_type: Mapped[str] = mapped_column(String(50), nullable=False, default="rss")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    per_host_concurrency: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
+    credibility: Mapped[float | None] = mapped_column(Numeric(3, 2), nullable=True)
+    tier: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_crawl_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    etag: Mapped[str | None] = mapped_column(String(200))
+    last_modified: Mapped[str | None] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "credibility >= 0 AND credibility <= 1",
+            name="chk_sources_credibility_range",
+        ),
+        CheckConstraint(
+            "tier >= 1 AND tier <= 3",
+            name="chk_sources_tier_range",
+        ),
+    )

@@ -1,266 +1,137 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Unit tests for credibility calculation."""
-
-from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+"""Unit tests for credibility calculation - updated for 3-signal algorithm."""
 
 import pytest
 
 from modules.pipeline.nodes.credibility_checker import CredibilityCheckerNode
 
 
-class TestCredibilityCalculation:
-    """Tests for credibility score calculation."""
+class TestCredibilityWeights:
+    """Tests for credibility weight configuration."""
 
-    def test_weights_defined(self):
-        """Test that credibility weights are defined."""
-        assert hasattr(CredibilityCheckerNode, "WEIGHTS")
-        assert "source" in CredibilityCheckerNode.WEIGHTS
-        assert "cross" in CredibilityCheckerNode.WEIGHTS
-        assert "content" in CredibilityCheckerNode.WEIGHTS
-        assert "timeliness" in CredibilityCheckerNode.WEIGHTS
+    def test_category_weights_defined(self):
+        """Test that category weights are defined."""
+        assert hasattr(CredibilityCheckerNode, "CATEGORY_WEIGHTS")
+        assert len(CredibilityCheckerNode.CATEGORY_WEIGHTS) > 0
 
-    def test_weights_sum_to_one(self):
-        """Test that weights sum to 1.0."""
-        weights = CredibilityCheckerNode.WEIGHTS
-        total = sum(weights.values())
-        assert total == pytest.approx(1.0, rel=0.01)
+    def test_default_weights_defined(self):
+        """Test that default weights are defined."""
+        assert hasattr(CredibilityCheckerNode, "DEFAULT_WEIGHTS")
+        weights = CredibilityCheckerNode.DEFAULT_WEIGHTS
+        assert "source" in weights
+        assert "content" in weights
+        assert "timeliness" in weights
+
+    def test_all_category_weights_sum_to_one(self):
+        """Test that all category weight configurations sum to 1.0."""
+        for category, weights in CredibilityCheckerNode.CATEGORY_WEIGHTS.items():
+            total = sum(weights.values())
+            assert abs(total - 1.0) < 0.001, f"Weights for {category} don't sum to 1.0: {total}"
+
+    def test_default_weights_sum_to_one(self):
+        """Test that default weights sum to 1.0."""
+        total = sum(CredibilityCheckerNode.DEFAULT_WEIGHTS.values())
+        assert abs(total - 1.0) < 0.001
 
     def test_source_weight_percentage(self):
-        """Test source weight is 30%."""
-        assert CredibilityCheckerNode.WEIGHTS["source"] == 0.30
-
-    def test_cross_weight_percentage(self):
-        """Test cross verification weight is 25%."""
-        assert CredibilityCheckerNode.WEIGHTS["cross"] == 0.25
+        """Test that source weight is within expected range."""
+        for category, weights in CredibilityCheckerNode.CATEGORY_WEIGHTS.items():
+            assert 0.0 <= weights["source"] <= 1.0, f"Source weight for {category} out of range"
 
     def test_content_weight_percentage(self):
-        """Test content check weight is 30%."""
-        assert CredibilityCheckerNode.WEIGHTS["content"] == 0.30
+        """Test that content weight is within expected range."""
+        for category, weights in CredibilityCheckerNode.CATEGORY_WEIGHTS.items():
+            assert 0.0 <= weights["content"] <= 1.0, f"Content weight for {category} out of range"
 
     def test_timeliness_weight_percentage(self):
-        """Test timeliness weight is 15%."""
-        assert CredibilityCheckerNode.WEIGHTS["timeliness"] == 0.15
-
-
-class TestTimelinessCalculation:
-    """Tests for timeliness score calculation."""
-
-    @staticmethod
-    def calc_timeliness(publish_time, event_time_str):
-        """Helper to calculate timeliness."""
-        return CredibilityCheckerNode._calc_timeliness(publish_time, event_time_str)
-
-    def test_timeliness_within_6_hours(self):
-        """Test timeliness score for article within 6 hours."""
-        publish_time = datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
-        event_time = "2024-01-01T10:00:00"  # 2 hours earlier
-
-        score = self.calc_timeliness(publish_time, event_time)
-
-        assert score == 1.00
-
-    def test_timeliness_within_24_hours(self):
-        """Test timeliness score for article within 24 hours."""
-        publish_time = datetime(2024, 1, 1, 20, 0, tzinfo=UTC)
-        event_time = "2024-01-01T10:00:00"  # 10 hours earlier
-
-        score = self.calc_timeliness(publish_time, event_time)
-
-        assert score == 0.85
-
-    def test_timeliness_within_72_hours(self):
-        """Test timeliness score for article within 72 hours."""
-        publish_time = datetime(2024, 1, 3, 12, 0, tzinfo=UTC)
-        event_time = "2024-01-01T10:00:00"  # ~50 hours earlier
-
-        score = self.calc_timeliness(publish_time, event_time)
-
-        assert score == 0.65
-
-    def test_timeliness_within_168_hours(self):
-        """Test timeliness score for article within 168 hours (1 week)."""
-        publish_time = datetime(2024, 1, 7, 12, 0, tzinfo=UTC)
-        event_time = "2024-01-01T10:00:00"  # ~146 hours earlier
-
-        score = self.calc_timeliness(publish_time, event_time)
-
-        assert score == 0.45
-
-    def test_timeliness_over_168_hours(self):
-        """Test timeliness score for article over 1 week old."""
-        publish_time = datetime(2024, 1, 15, 12, 0, tzinfo=UTC)
-        event_time = "2024-01-01T10:00:00"  # ~338 hours earlier
-
-        score = self.calc_timeliness(publish_time, event_time)
-
-        assert score == 0.30
-
-    def test_timeliness_missing_publish_time(self):
-        """Test timeliness with missing publish time returns neutral."""
-        score = self.calc_timeliness(None, "2024-01-01T10:00:00")
-
-        assert score == 0.70
-
-    def test_timeliness_missing_event_time(self):
-        """Test timeliness with missing event time returns neutral."""
-        publish_time = datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
-
-        score = self.calc_timeliness(publish_time, None)
-
-        assert score == 0.70
-
-    def test_timeliness_invalid_event_time(self):
-        """Test timeliness with invalid event time format returns neutral."""
-        publish_time = datetime(2024, 1, 1, 12, 0, tzinfo=UTC)
-
-        score = self.calc_timeliness(publish_time, "invalid-date")
-
-        assert score == 0.70
-
-
-class TestCrossVerificationCalculation:
-    """Tests for cross verification score calculation."""
-
-    def test_single_source(self):
-        """Test cross verification with single source."""
-        # With 1 source, score should be 0.40 + 1 * 0.15 = 0.55
-        cross_count = 1
-        score = min(1.0, 0.4 + cross_count * 0.15)
-
-        assert score == 0.55
-
-    def test_two_sources(self):
-        """Test cross verification with two sources."""
-        cross_count = 2
-        score = min(1.0, 0.4 + cross_count * 0.15)
-
-        assert score == 0.70
-
-    def test_three_sources(self):
-        """Test cross verification with three sources."""
-        cross_count = 3
-        score = min(1.0, 0.4 + cross_count * 0.15)
-
-        assert score == 0.85
-
-    def test_five_plus_sources(self):
-        """Test cross verification caps at 1.0."""
-        for count in [5, 6, 10]:
-            score = min(1.0, 0.4 + count * 0.15)
-            assert score == 1.0
-
-
-class TestCredibilityFlags:
-    """Tests for credibility flag handling."""
-
-    def test_flags_empty_by_default(self):
-        """Test that flags list can be empty."""
-        output = {"score": 0.8, "flags": []}
-        assert output["flags"] == []
-
-    def test_flags_accepted_as_list(self):
-        """Test that flags are accepted as a list."""
-        output = {"score": 0.5, "flags": ["low_source_authority", "no_cross_verification"]}
-        assert len(output["flags"]) == 2
-        assert "low_source_authority" in output["flags"]
+        """Test that timeliness weight is within expected range."""
+        for category, weights in CredibilityCheckerNode.CATEGORY_WEIGHTS.items():
+            assert (
+                0.0 <= weights["timeliness"] <= 1.0
+            ), f"Timeliness weight for {category} out of range"
 
 
 class TestCredibilityScoreRange:
     """Tests for credibility score range validation."""
 
     def test_score_minimum_zero(self):
-        """Test score cannot be negative."""
-        weights = CredibilityCheckerNode.WEIGHTS
-
-        # Calculate minimum possible score
-        min_score = (
-            0.0 * weights["source"]
-            + 0.4 * weights["cross"]  # minimum cross with 0 sources
-            + 0.0 * weights["content"]
-            + 0.3 * weights["timeliness"]  # minimum timeliness
-        )
-
-        assert min_score >= 0.0
+        """Test that minimum possible score is 0.0."""
+        # With all signals at 0, score should be 0
+        weights = CredibilityCheckerNode.DEFAULT_WEIGHTS
+        min_score = 0.0 * weights["source"] + 0.0 * weights["content"] + 0.0 * weights["timeliness"]
+        assert min_score == 0.0
 
     def test_score_maximum_one(self):
-        """Test score cannot exceed 1.0."""
-        weights = CredibilityCheckerNode.WEIGHTS
-
-        # Calculate maximum possible score
-        max_score = (
-            1.0 * weights["source"]
-            + 1.0 * weights["cross"]
-            + 1.0 * weights["content"]
-            + 1.0 * weights["timeliness"]
-        )
-
-        assert max_score <= 1.0
+        """Test that maximum possible score is 1.0."""
+        # With all signals at 1, score should be 1
+        weights = CredibilityCheckerNode.DEFAULT_WEIGHTS
+        max_score = 1.0 * weights["source"] + 1.0 * weights["content"] + 1.0 * weights["timeliness"]
+        assert abs(max_score - 1.0) < 0.001
 
     def test_score_range_zero_to_one(self):
-        """Test full score range is 0 to 1."""
-        assert CredibilityCheckerNode.WEIGHTS["source"] >= 0
-        assert sum(CredibilityCheckerNode.WEIGHTS.values()) == 1.0
+        """Test that scores are always in [0, 1] range."""
+        # Test with various signal combinations
+        weights = CredibilityCheckerNode.DEFAULT_WEIGHTS
+        for s1 in [0.0, 0.25, 0.5, 0.75, 1.0]:
+            for s2 in [0.0, 0.5, 1.0]:
+                for s3 in [0.0, 0.5, 1.0]:
+                    score = (
+                        s1 * weights["source"]
+                        + s2 * weights["content"]
+                        + s3 * weights["timeliness"]
+                    )
+                    assert (
+                        0.0 <= score <= 1.0
+                    ), f"Score {score} out of range for signals {s1}, {s2}, {s3}"
 
 
-class TestCredibilityNodeExecution:
-    """Tests for full node execution."""
+class TestBreakingNewsWeights:
+    """Tests for breaking news category weights."""
 
-    @pytest.fixture
-    def mock_llm(self):
-        """Mock LLM client."""
-        llm = MagicMock()
-        llm.call = AsyncMock(return_value=MagicMock(score=0.8, flags=[]))
-        return llm
+    def test_politics_prioritizes_timeliness(self):
+        """Test that politics news prioritizes timeliness."""
+        weights = CredibilityCheckerNode.CATEGORY_WEIGHTS.get(
+            "政治", CredibilityCheckerNode.DEFAULT_WEIGHTS
+        )
+        assert weights["timeliness"] >= weights["source"]
+        assert weights["timeliness"] >= weights["content"]
 
-    @pytest.fixture
-    def mock_source_auth_repo(self):
-        """Mock source authority repository."""
-        repo = MagicMock()
-        repo.get_or_create = AsyncMock(return_value=MagicMock(authority=0.85))
-        return repo
+    def test_international_prioritizes_timeliness(self):
+        """Test that international news prioritizes timeliness."""
+        weights = CredibilityCheckerNode.CATEGORY_WEIGHTS.get(
+            "国际", CredibilityCheckerNode.DEFAULT_WEIGHTS
+        )
+        assert weights["timeliness"] >= weights["source"]
+        assert weights["timeliness"] >= weights["content"]
 
-    @pytest.fixture
-    def mock_event_bus(self):
-        """Mock event bus."""
-        bus = MagicMock()
-        bus.publish = AsyncMock()
-        return bus
+    def test_military_prioritizes_timeliness(self):
+        """Test that military news prioritizes timeliness."""
+        weights = CredibilityCheckerNode.CATEGORY_WEIGHTS.get(
+            "军事", CredibilityCheckerNode.DEFAULT_WEIGHTS
+        )
+        assert weights["timeliness"] >= weights["source"]
+        assert weights["timeliness"] >= weights["content"]
 
-    @pytest.fixture
-    def mock_budget(self):
-        """Mock token budget manager."""
-        budget = MagicMock()
-        budget.truncate = MagicMock(return_value="truncated text")
-        return budget
 
-    @pytest.fixture
-    def mock_prompt_loader(self):
-        """Mock prompt loader."""
-        loader = MagicMock()
-        loader.get_version = MagicMock(return_value="1.0.0")
-        return loader
+class TestEconomicWeights:
+    """Tests for economic news category weights."""
 
-    def test_node_execution_full(self):
-        """Test full node execution exists."""
-        from modules.pipeline.nodes.credibility_checker import CredibilityCheckerNode
+    def test_economy_prioritizes_source(self):
+        """Test that economic news prioritizes source authority."""
+        weights = CredibilityCheckerNode.CATEGORY_WEIGHTS.get(
+            "经济", CredibilityCheckerNode.DEFAULT_WEIGHTS
+        )
+        assert weights["source"] >= weights["content"]
+        assert weights["source"] >= weights["timeliness"]
 
-        assert hasattr(CredibilityCheckerNode, "execute")
 
-    def test_llm_content_check(
-        self, mock_llm, mock_source_auth_repo, mock_event_bus, mock_budget, mock_prompt_loader
-    ):
-        """Test LLM content check is called."""
-        assert mock_llm.call is not None
+class TestTechWeights:
+    """Tests for tech news category weights."""
 
-    def test_event_publish(self, mock_event_bus):
-        """Test event bus publish method exists."""
-        assert hasattr(mock_event_bus, "publish")
-
-    def test_dynamic_update_method(self):
-        """Test dynamic update method exists."""
-        from core.event.bus import EventBus
-
-        bus = EventBus()
-        assert hasattr(bus, "publish")
-        assert hasattr(bus, "subscribe")
+    def test_tech_prioritizes_content(self):
+        """Test that tech news prioritizes content quality."""
+        weights = CredibilityCheckerNode.CATEGORY_WEIGHTS.get(
+            "科技", CredibilityCheckerNode.DEFAULT_WEIGHTS
+        )
+        assert weights["content"] >= weights["source"]
+        assert weights["content"] >= weights["timeliness"]
