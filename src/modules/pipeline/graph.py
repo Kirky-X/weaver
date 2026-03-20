@@ -290,23 +290,25 @@ class Pipeline:
         """Phase 3: re-vectorize → (analyze || quality_scorer) → credibility → entity_extraction.
 
         DAG execution:
-        - re_vectorize runs first (updates vectors)
+        - re_vectorize runs first (updates vectors); skipped for terminal articles
         - analyze and quality_scorer can run in parallel (both only depend on cleaned)
         - credibility depends on analyze.summary_info
         - entity_extractor runs last
         """
         async with self._phase3_semaphore:
-            if state.get("terminal") or state.get("is_merged"):
+            if state.get("is_merged"):
                 return state
 
             import time
 
-            start = time.monotonic()
-            state = await self._re_vectorize.execute(state)
-            MetricsCollector.pipeline_stage_latency.labels(stage="re_vectorize").observe(
-                time.monotonic() - start
-            )
-            await self._update_processing_stage(state, PHASE3_STAGES["re_vectorize"])
+            # re_vectorize requires article vectors — skip for terminal (non-news) articles
+            if not state.get("terminal"):
+                start = time.monotonic()
+                state = await self._re_vectorize.execute(state)
+                MetricsCollector.pipeline_stage_latency.labels(stage="re_vectorize").observe(
+                    time.monotonic() - start
+                )
+                await self._update_processing_stage(state, PHASE3_STAGES["re_vectorize"])
 
             async def run_analyze(s: PipelineState) -> PipelineState:
                 st = time.monotonic()

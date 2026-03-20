@@ -481,6 +481,95 @@ class TestPipelinePhase3:
         assert result.get("terminal") is True
 
     @pytest.mark.asyncio
+    async def test_phase3_terminal_runs_enrichment_skips_revectorize(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus, mock_source_auth_repo
+    ):
+        """Test terminal article: re_vectorize skipped, but analyze/quality/credibility/entity run."""
+
+        def node_execute(s):
+            return dict(s)
+
+        pipeline = Pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+            source_auth_repo=mock_source_auth_repo,
+        )
+        pipeline._re_vectorize = MagicMock(execute=AsyncMock(side_effect=node_execute))
+        pipeline._analyze = MagicMock(execute=AsyncMock(side_effect=node_execute))
+        pipeline._quality_scorer = MagicMock(execute=AsyncMock(side_effect=node_execute))
+        pipeline._credibility = MagicMock(execute=AsyncMock(side_effect=node_execute))
+        pipeline._entity_extractor = MagicMock(execute=AsyncMock(side_effect=node_execute))
+        pipeline._entity_resolver = MagicMock(execute=AsyncMock(side_effect=node_execute))
+
+        raw = MagicMock()
+        raw.title = "Test"
+        raw.body = "Body"
+        raw.url = "https://example.com/test"
+        raw.source_host = "example.com"
+
+        state = PipelineState(raw=raw)
+        state["cleaned"] = {"title": "Title", "body": "Body"}
+        state["category"] = "科技"
+        state["terminal"] = True  # ← terminal article
+
+        result = await pipeline._phase3_per_article(state)
+
+        # re_vectorize MUST NOT be called for terminal articles
+        pipeline._re_vectorize.execute.assert_not_awaited()
+        # All enrichment nodes MUST be called
+        pipeline._analyze.execute.assert_awaited_once()
+        pipeline._quality_scorer.execute.assert_awaited_once()
+        pipeline._credibility.execute.assert_awaited_once()
+        pipeline._entity_extractor.execute.assert_awaited_once()
+        # Terminal flag preserved in result
+        assert result.get("terminal") is True
+
+    @pytest.mark.asyncio
+    async def test_phase3_non_terminal_runs_all_nodes(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus, mock_source_auth_repo
+    ):
+        """Test non-terminal article: all Phase 3 nodes run including re_vectorize."""
+
+        def node_execute(s):
+            return dict(s)
+
+        pipeline = Pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+            source_auth_repo=mock_source_auth_repo,
+        )
+        pipeline._re_vectorize = MagicMock(execute=AsyncMock(side_effect=node_execute))
+        pipeline._analyze = MagicMock(execute=AsyncMock(side_effect=node_execute))
+        pipeline._quality_scorer = MagicMock(execute=AsyncMock(side_effect=node_execute))
+        pipeline._credibility = MagicMock(execute=AsyncMock(side_effect=node_execute))
+        pipeline._entity_extractor = MagicMock(execute=AsyncMock(side_effect=node_execute))
+        pipeline._entity_resolver = MagicMock(execute=AsyncMock(side_effect=node_execute))
+
+        raw = MagicMock()
+        raw.title = "Test"
+        raw.body = "Body"
+        raw.url = "https://example.com/test"
+        raw.source_host = "example.com"
+
+        state = PipelineState(raw=raw)
+        state["cleaned"] = {"title": "Title", "body": "Body"}
+        state["category"] = "科技"
+        # terminal=False (default)
+
+        await pipeline._phase3_per_article(state)
+
+        # All nodes MUST be called including re_vectorize
+        pipeline._re_vectorize.execute.assert_awaited_once()
+        pipeline._analyze.execute.assert_awaited_once()
+        pipeline._quality_scorer.execute.assert_awaited_once()
+        pipeline._credibility.execute.assert_awaited_once()
+        pipeline._entity_extractor.execute.assert_awaited_once()
+
+    @pytest.mark.asyncio
     async def test_phase3_skips_merged(self, pipeline):
         """Test phase3 skips merged articles."""
         state = PipelineState(raw=MagicMock())
