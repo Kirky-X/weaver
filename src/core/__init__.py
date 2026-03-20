@@ -20,7 +20,6 @@ Example usage:
 from core.cache import RedisClient, cache_result, get_redis_client, invalidate_cache
 from core.db import (
     Article,
-    ArticleEntity,
     ArticleVector,
     Base,
     CategoryType,
@@ -41,7 +40,6 @@ from core.utils import get_current_time_with_timezone
 
 __all__ = [
     "Article",
-    "ArticleEntity",
     "ArticleVector",
     "Base",
     "BaseEvent",

@@ -10,7 +10,6 @@ from core.db.initializer import (
 )
 from core.db.models import (
     Article,
-    ArticleEntity,
     ArticleVector,
     Base,
     CategoryType,
@@ -25,7 +24,6 @@ from core.db.postgres import PostgresPool
 
 __all__ = [
     "Article",
-    "ArticleEntity",
     "ArticleVector",
     "Base",
     "CategoryType",

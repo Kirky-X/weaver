@@ -176,14 +176,6 @@ class TestDatabaseModelsIntegration:
         assert hasattr(SourceAuthority, "authority")
         assert hasattr(SourceAuthority, "tier")
 
-    def test_article_entity_model(self):
-        """Test ArticleEntity model."""
-        from core.db.models import ArticleEntity
-
-        assert hasattr(ArticleEntity, "article_id")
-        assert hasattr(ArticleEntity, "neo4j_id")
-        assert hasattr(ArticleEntity, "entity_name")
-
 
 class TestSettingsIntegration:
     """Integration tests for settings."""

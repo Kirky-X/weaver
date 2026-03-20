@@ -21,7 +21,6 @@ REQUIRED_TABLES = [
     "article_vectors",
     "entity_vectors",
     "source_authorities",
-    "article_entities",
 ]
 
 

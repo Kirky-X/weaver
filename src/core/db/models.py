@@ -227,9 +227,6 @@ class Article(Base):
     vectors: Mapped[list[ArticleVector]] = relationship(
         back_populates="article", cascade="all, delete-orphan"
     )
-    entities: Mapped[list[ArticleEntity]] = relationship(
-        back_populates="article", cascade="all, delete-orphan"
-    )
 
     # Constraints
     __table_args__ = (
@@ -344,31 +341,6 @@ class SourceAuthority(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
         server_default=text("NOW()"),
-    )
-
-
-class ArticleEntity(Base):
-    """Junction table linking articles to Neo4j entities."""
-
-    __tablename__ = "article_entities"
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    article_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("articles.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    neo4j_id: Mapped[str] = mapped_column(String(100), nullable=False)
-    entity_name: Mapped[str] = mapped_column(String(500), nullable=False)
-    entity_type: Mapped[str] = mapped_column(String(50), nullable=False)
-    role: Mapped[str | None] = mapped_column(String(100))
-
-    # Relationships
-    article: Mapped[Article] = relationship(back_populates="entities")
-
-    __table_args__ = (
-        Index("idx_ae_article", "article_id"),
-        Index("idx_ae_neo4j", "neo4j_id"),
     )
 
 
