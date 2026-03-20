@@ -154,11 +154,18 @@ class Pipeline:
         except Exception as e:
             log.warning("failed_to_mark_processing", article_id=article_id, error=str(e))
 
-    async def process_batch(self, articles: list[ArticleRaw]) -> list[PipelineState]:
+    async def process_batch(
+        self,
+        articles: list[ArticleRaw],
+        article_ids: list[Any] | None = None,
+        task_id: Any | None = None,
+    ) -> list[PipelineState]:
         """Process a batch of articles through the full pipeline.
 
         Args:
             articles: List of raw articles to process.
+            article_ids: Optional list of article UUIDs aligned with articles list.
+            task_id: Optional pipeline task UUID for failure correlation.
 
         Returns:
             List of completed pipeline states.
@@ -168,39 +175,57 @@ class Pipeline:
 
         log.info("pipeline_batch_start", batch_size=len(articles))
 
-        # Initialize states
-        states: list[PipelineState] = [PipelineState(raw=article) for article in articles]
+        # Initialize states with optional article_id and task_id
+        states: list[PipelineState] = []
+        for i, article in enumerate(articles):
+            state = PipelineState(raw=article)
+            if article_ids is not None and i < len(article_ids):
+                state["article_id"] = str(article_ids[i])
+            if task_id is not None:
+                state["task_id"] = str(task_id)
+            states.append(state)
 
         # Phase 1: Per-article concurrent nodes
         phase1_tasks = [self._phase1_per_article(state) for state in states]
         states = await asyncio.gather(*phase1_tasks)
 
         # Phase 2: Batch merger (serial)
-        import time
+        try:
+            import time
 
-        start = time.monotonic()
-        states = await self._batch_merger.execute_batch(list(states))
-        MetricsCollector.pipeline_stage_latency.labels(stage="batch_merger").observe(
-            time.monotonic() - start
-        )
+            start = time.monotonic()
+            states = await self._batch_merger.execute_batch(list(states))
+            MetricsCollector.pipeline_stage_latency.labels(stage="batch_merger").observe(
+                time.monotonic() - start
+            )
 
-        # Phase 3: Per-article post-merge nodes (concurrent)
-        phase3_tasks = [self._phase3_per_article(state) for state in states]
-        states = list(await asyncio.gather(*phase3_tasks))
+            # Phase 3: Per-article post-merge nodes (concurrent)
+            phase3_tasks = [self._phase3_per_article(state) for state in states]
+            states = list(await asyncio.gather(*phase3_tasks))
 
-        # Phase 4: Persist (批量持久化)
-        await self._persist_batch(states)
+            # Phase 4: Persist (批量持久化)
+            await self._persist_batch(states)
 
-        # Phase 5: Checkpoint cleanup
-        cleanup_tasks = [self._checkpoint_cleanup.execute(state) for state in states]
-        await asyncio.gather(*cleanup_tasks)
+            # Phase 5: Checkpoint cleanup
+            cleanup_tasks = [self._checkpoint_cleanup.execute(state) for state in states]
+            await asyncio.gather(*cleanup_tasks)
 
-        log.info(
-            "pipeline_batch_complete",
-            batch_size=len(articles),
-            processed=sum(1 for s in states if not s.get("terminal")),
-        )
-        return states
+            log.info(
+                "pipeline_batch_complete",
+                batch_size=len(articles),
+                processed=sum(1 for s in states if not s.get("terminal")),
+            )
+            return states
+        except Exception as exc:
+            import traceback as tb
+
+            log.error(
+                "process_batch_internal_failed",
+                error=str(exc),
+                exc_type=type(exc).__name__,
+                traceback=tb.format_exc(),
+            )
+            raise
 
     async def _phase1_per_article(self, state: PipelineState) -> PipelineState:
         """Phase 1: classify → clean → (categorize || vectorize).
@@ -414,16 +439,51 @@ class Pipeline:
         Args:
             states: List of pipeline states to persist.
         """
+        log.info("persist_batch_called", count=len(states))
         valid_states = [s for s in states if not s.get("terminal")]
+        terminal_states = [s for s in states if s.get("terminal")]
+
+        # Handle terminal articles: update persist_status so they don't stay stuck in PENDING
+        if terminal_states and self._article_repo:
+            for state in terminal_states:
+                try:
+                    from sqlalchemy import select
+
+                    async with self._article_repo._pool.session() as session:
+                        from core.db.models import Article
+
+                        result = await session.execute(
+                            select(Article).where(Article.source_url == state["raw"].url)
+                        )
+                        article = result.scalar_one_or_none()
+                        if article and article.persist_status == PersistStatus.PENDING:
+                            article.persist_status = PersistStatus.PG_DONE
+                            await session.commit()
+                            log.info(
+                                "terminal_article_status_updated",
+                                url=state["raw"].url[:50],
+                            )
+                except Exception as exc:
+                    log.warning(
+                        "terminal_article_status_update_failed",
+                        url=state["raw"].url[:50],
+                        error=str(exc),
+                    )
+
         if not valid_states:
             return
 
         if self._article_repo:
             try:
                 article_ids = await self._article_repo.bulk_upsert(valid_states)
+                log.info(
+                    "persist_articles_committed",
+                    article_ids=[str(aid) for aid in article_ids],
+                    count=len(article_ids),
+                )
                 for state, aid in zip(valid_states, article_ids):
                     state["article_id"] = str(aid)
-                    await self._article_repo.update_persist_status(aid, PersistStatus.PG_DONE)
+                    # persist_status is already set to PG_DONE in bulk_upsert
 
                 if self._vector_repo:
                     vector_data = []
@@ -446,12 +506,31 @@ class Pipeline:
                                     )
                                 )
                     if vector_data:
+                        log.info(
+                            "persist_vectors_about_to_insert",
+                            article_ids=[str(v[0]) for v in vector_data],
+                            count=len(vector_data),
+                        )
                         count = await self._vector_repo.bulk_upsert_article_vectors(vector_data)
                         log.debug("vectors_bulk_persisted", count=count)
 
                 log.info("batch_pg_persisted", count=len(article_ids))
             except Exception as exc:
-                log.error("persist_batch_pg_failed", error=str(exc))
+                import traceback as tb
+
+                log.error(
+                    "persist_batch_pg_failed",
+                    error=str(exc),
+                    exc_type=type(exc).__name__,
+                    traceback=tb.format_exc(),
+                )
+                # Log article IDs for debugging
+                for state in valid_states:
+                    if state.get("article_id"):
+                        log.warning(
+                            "persist_debug_article_exists",
+                            article_id=state["article_id"],
+                        )
                 for state in valid_states:
                     if state.get("article_id"):
                         try:

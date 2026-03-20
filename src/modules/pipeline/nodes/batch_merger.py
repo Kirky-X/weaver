@@ -227,7 +227,11 @@ class BatchMergerNode:
 
         result: MergerOutput = await self._llm.call(
             CallPoint.MERGER,
-            {"articles": articles_payload},
+            {
+                "articles": articles_payload,
+                "article_id": group_states[0].get("article_id"),
+                "task_id": group_states[0].get("task_id"),
+            },
             output_model=MergerOutput,
         )
 

@@ -8,7 +8,7 @@ from typing import Any
 from config.settings import Settings
 from core.cache import RedisClient
 from core.db import Neo4jPool, PostgresPool
-from core.event import EventBus
+from core.event import EventBus, LLMFailureEvent
 from core.llm.client import LLMClient
 from core.llm.config_manager import LLMConfigManager
 from core.llm.queue_manager import LLMQueueManager
@@ -20,12 +20,27 @@ from modules.collector import Deduplicator
 from modules.collector.crawler import Crawler
 from modules.fetcher import PlaywrightContextPool, SmartFetcher
 from modules.graph_store import EntityResolver, Neo4jWriter
+from modules.graph_store.name_normalizer import name_normalizer
+from modules.graph_store.resolution_rules import resolution_rules
 from modules.pipeline.graph import Pipeline
 from modules.source import SourceRegistry, SourceScheduler
 from modules.storage import ArticleRepo, SourceAuthorityRepo, VectorRepo
 from modules.storage.neo4j import Neo4jArticleRepo, Neo4jEntityRepo
 
 log = get_logger("container")
+
+
+async def _handle_llm_failure_async(event: LLMFailureEvent, repo: Any) -> None:
+    """Async handler for LLMFailureEvent — runs in the container's async context."""
+    try:
+        await repo.record(event)
+    except Exception as exc:
+        log.error(
+            "llm_failure_handler_error",
+            call_point=event.call_point,
+            provider=event.provider,
+            error=str(exc),
+        )
 
 
 class Container:
@@ -56,6 +71,9 @@ class Container:
         self._crawler: Crawler | None = None
         self._pipeline: Pipeline | None = None
         self._deduplicator: Deduplicator | None = None
+        self._event_bus: EventBus | None = None
+        self._llm_failure_repo: Any = None
+        self._llm_failure_cleanup_thread: Any = None
         self._shutdown: bool = False  # Idempotency protection
 
     def configure(self, settings: Settings) -> Container:
@@ -134,11 +152,12 @@ class Container:
 
             rate_limiter = RedisTokenBucket(self._redis_client.client)
 
-            event_bus = EventBus()
+            self._event_bus = EventBus()
+            log.info("event_bus_initialized_in_llm", event_bus_id=id(self._event_bus))
             queue_manager = LLMQueueManager(
                 config_manager=config_manager,
                 rate_limiter=rate_limiter,
-                event_bus=event_bus,
+                event_bus=self._event_bus,
             )
             await queue_manager.startup()
 
@@ -246,6 +265,8 @@ class Container:
                 entity_repo=self.neo4j_entity_repo(),
                 vector_repo=self.vector_repo(),
                 llm=self._llm_client,
+                resolution_rules=resolution_rules,
+                name_normalizer=name_normalizer,
             )
         return self._entity_resolver
 
@@ -356,11 +377,12 @@ class Container:
     async def init_pipeline(self) -> Pipeline:
         """Initialize the processing pipeline."""
         if self._pipeline is None:
-            from core.event.bus import EventBus
             from core.llm.token_budget import TokenBudgetManager
             from modules.nlp.spacy_extractor import SpacyExtractor
 
-            event_bus = EventBus()
+            if self._event_bus is None:
+                self._event_bus = EventBus()
+                log.info("event_bus_created_in_pipeline", event_bus_id=id(self._event_bus))
             budget = TokenBudgetManager()
             spacy_extractor = SpacyExtractor()
 
@@ -368,7 +390,7 @@ class Container:
                 llm=self._llm_client,
                 budget=budget,
                 prompt_loader=self._prompt_loader,
-                event_bus=event_bus,
+                event_bus=self._event_bus,
                 spacy=spacy_extractor,
                 vector_repo=self.vector_repo(),
                 article_repo=self.article_repo(),
@@ -423,6 +445,19 @@ class Container:
         await self.init_pipeline()
         processor.set_pipeline(self.pipeline())
 
+        # Initialize LLM failure logging
+        from modules.scheduler.llm_failure_cleanup import LLMFailureCleanupThread
+        from modules.storage.llm_failure_repo import LLMFailureRepo
+
+        self._llm_failure_repo = LLMFailureRepo(self._postgres_pool)
+        self._event_bus.subscribe(
+            LLMFailureEvent,
+            lambda e: _handle_llm_failure_async(e, self._llm_failure_repo),
+        )
+        self._llm_failure_cleanup_thread = LLMFailureCleanupThread(self._llm_failure_repo)
+        self._llm_failure_cleanup_thread.start()
+        log.info("llm_failure_logging_initialized", event_bus_id=id(self._event_bus))
+
         log.info("container_started")
 
     async def shutdown(self) -> None:
@@ -438,6 +473,11 @@ class Container:
 
         self._shutdown = True
         log.info("container_shutting_down")
+
+        # Stop LLM failure cleanup thread
+        if self._llm_failure_cleanup_thread:
+            self._llm_failure_cleanup_thread.stop()
+            log.info("llm_failure_cleanup_thread_stopped")
 
         # Stop scheduler first
         if self._source_scheduler:

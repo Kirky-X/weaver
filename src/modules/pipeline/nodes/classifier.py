@@ -36,6 +36,8 @@ class ClassifierNode:
         payload = {
             "title": raw.title,
             "body_snippet": self._budget.truncate(raw.body, CallPoint.CLASSIFIER),
+            "article_id": state.get("article_id"),
+            "task_id": state.get("task_id"),
         }
         result: ClassifierOutput = await self._llm.call(
             CallPoint.CLASSIFIER, payload, output_model=ClassifierOutput

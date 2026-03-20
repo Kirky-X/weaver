@@ -62,6 +62,21 @@ class PipelineStageCompletedEvent(BaseEvent):
     latency_ms: float = 0.0
 
 
+@dataclass
+class LLMFailureEvent(BaseEvent):
+    """Emitted when all providers in the fallback chain have failed for an LLM call."""
+
+    call_point: str = ""
+    provider: str = ""
+    error_type: str = ""
+    error_detail: str = ""
+    latency_ms: float = 0.0
+    article_id: str | None = None
+    task_id: str | None = None
+    attempt: int = 0
+    fallback_tried: bool = False
+
+
 # ── Event Bus ────────────────────────────────────────────────
 
 EventHandler = Callable[[Any], Coroutine[Any, Any, None]]

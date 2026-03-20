@@ -7,6 +7,7 @@ from core.event.bus import (
     EmbeddingModelMismatchEvent,
     EventBus,
     FallbackEvent,
+    LLMFailureEvent,
 )
 
 __all__ = [
@@ -15,4 +16,5 @@ __all__ = [
     "EmbeddingModelMismatchEvent",
     "EventBus",
     "FallbackEvent",
+    "LLMFailureEvent",
 ]

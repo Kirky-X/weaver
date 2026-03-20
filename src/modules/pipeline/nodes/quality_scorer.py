@@ -47,7 +47,12 @@ class QualityScorerNode:
         try:
             result: QualityScorerOutput = await self._llm.call(
                 CallPoint.QUALITY_SCORER,
-                {"title": state["cleaned"]["title"], "body": body},
+                {
+                    "title": state["cleaned"]["title"],
+                    "body": body,
+                    "article_id": state.get("article_id"),
+                    "task_id": state.get("task_id"),
+                },
                 output_model=QualityScorerOutput,
             )
 

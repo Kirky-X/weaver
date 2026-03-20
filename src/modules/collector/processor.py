@@ -113,7 +113,11 @@ class DiscoveryProcessor:
 
             if article_ids and self._pipeline:
                 try:
-                    await self._pipeline.process_batch(successful_articles)
+                    await self._pipeline.process_batch(
+                        successful_articles,
+                        article_ids=article_ids,
+                        task_id=task_id,
+                    )
                     log.info("pipeline_batch_processed", count=len(successful_articles))
                 except Exception as exc:
                     log.error(

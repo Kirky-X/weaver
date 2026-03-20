@@ -41,7 +41,12 @@ class AnalyzeNode:
         try:
             result: AnalyzeOutput = await self._llm.call(
                 CallPoint.ANALYZE,
-                {"title": state["cleaned"]["title"], "body": body},
+                {
+                    "title": state["cleaned"]["title"],
+                    "body": body,
+                    "article_id": state.get("article_id"),
+                    "task_id": state.get("task_id"),
+                },
                 output_model=AnalyzeOutput,
             )
 

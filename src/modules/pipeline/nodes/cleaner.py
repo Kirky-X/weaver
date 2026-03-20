@@ -38,7 +38,12 @@ class CleanerNode:
         try:
             result: CleanerOutput = await self._llm.call(
                 CallPoint.CLEANER,
-                {"title": raw.title, "body": body_trunc},
+                {
+                    "title": raw.title,
+                    "body": body_trunc,
+                    "article_id": state.get("article_id"),
+                    "task_id": state.get("task_id"),
+                },
                 output_model=CleanerOutput,
             )
 

@@ -370,3 +370,36 @@ class ArticleEntity(Base):
         Index("idx_ae_article", "article_id"),
         Index("idx_ae_neo4j", "neo4j_id"),
     )
+
+
+class LLMFailure(Base):
+    """LLM request failure record for persistent logging and 3-day rolling cleanup."""
+
+    __tablename__ = "llm_failures"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    call_point: Mapped[str] = mapped_column(String(50), nullable=False)
+    provider: Mapped[str] = mapped_column(String(64), nullable=False)
+    error_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    error_detail: Mapped[str | None] = mapped_column(Text)
+    latency_ms: Mapped[float | None] = mapped_column(Numeric(10, 2))
+    article_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("articles.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    task_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    attempt: Mapped[int] = mapped_column(Integer, default=0)
+    fallback_tried: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+    )
+
+    __table_args__ = (
+        Index("idx_llm_failures_created", "created_at"),
+        Index("idx_llm_failures_article", "article_id"),
+        Index("idx_llm_failures_call_point", "call_point"),
+        Index("idx_llm_failures_provider", "provider"),
+    )

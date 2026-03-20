@@ -88,6 +88,7 @@ class LLMClient:
             payload={
                 "system_prompt": system_prompt,
                 "user_content": user_content,
+                **payload,  # spread injected fields so they survive into LLMTask
             },
             priority=priority,
         )

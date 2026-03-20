@@ -77,6 +77,8 @@ class CredibilityCheckerNode:
                     "title": state["cleaned"]["title"],
                     "body": body_trunc,
                     "summary": state.get("summary_info", {}).get("summary", ""),
+                    "article_id": state.get("article_id"),
+                    "task_id": state.get("task_id"),
                 },
                 output_model=CredibilityOutput,
             )

@@ -55,6 +55,7 @@ class PipelineState(TypedDict, total=False):
 
     # Persist
     article_id: str
+    task_id: str
     neo4j_ids: list[str]
 
     # Prompt version tracking

@@ -98,6 +98,8 @@ class EntityExtractorNode:
                         }
                         for e in spacy_entities
                     ],
+                    "article_id": state.get("article_id"),
+                    "task_id": state.get("task_id"),
                 },
                 output_model=EntityExtractorOutput,
             )

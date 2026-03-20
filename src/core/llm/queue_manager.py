@@ -8,7 +8,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
-from core.event.bus import EventBus, FallbackEvent
+from core.event.bus import EventBus, FallbackEvent, LLMFailureEvent
 from core.llm.config_manager import LLMConfigManager
 from core.llm.providers.base import BaseLLMProvider
 from core.llm.rate_limiter import RedisTokenBucket
@@ -125,11 +125,11 @@ class ProviderQueue:
                 async with self._semaphore:
                     try:
                         result = await self._dispatch(task)
-                        self.circuit_breaker.record_success()
+                        await self.circuit_breaker.record_success()
                         if not task.future.done():
                             task.future.set_result(result)
                     except Exception as exc:
-                        self.circuit_breaker.record_failure()
+                        await self.circuit_breaker.record_failure()
                         if not task.future.done():
                             task.future.set_exception(exc)
                 self._queue.task_done()
@@ -170,6 +170,10 @@ class ProviderQueue:
                 error=type(exc).__name__,
                 error_detail=str(exc),
                 latency=latency,
+            )
+            # Also print for visibility in logs
+            print(
+                f"[ERROR] llm_dispatch_failed: call_point={task.call_point.value}, provider={self.name}, error={type(exc).__name__}: {str(exc)[:200]}"
             )
             raise
 
@@ -394,5 +398,21 @@ class LLMQueueManager:
                     reason=exc_name,
                 ).inc()
                 continue
+
+        # Record final failure to EventBus before raising
+        if last_exc is not None:
+            await self._event_bus.publish(
+                LLMFailureEvent(
+                    call_point=task.call_point.value,
+                    provider=provider_chain_names[-1],
+                    error_type=type(last_exc).__name__,
+                    error_detail=str(last_exc),
+                    latency_ms=0.0,
+                    article_id=task.payload.get("article_id"),
+                    task_id=task.payload.get("task_id"),
+                    attempt=task.attempt,
+                    fallback_tried=(len(provider_chain_names) > 1),
+                )
+            )
 
         raise AllProvidersFailedError(task.call_point, provider_chain_names) from last_exc
