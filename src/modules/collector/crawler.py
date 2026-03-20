@@ -12,6 +12,7 @@ import trafilatura
 from core.observability.logging import get_logger
 from modules.collector.models import ArticleRaw
 from modules.fetcher.base import BaseFetcher
+from modules.fetcher.exceptions import FetchError
 from modules.source.models import NewsItem
 
 log = get_logger("crawler")
@@ -39,7 +40,7 @@ class Crawler:
         self,
         items: list[NewsItem],
         per_host_config: dict[str, int] | None = None,
-    ) -> list[ArticleRaw | Exception]:
+    ) -> list[ArticleRaw | FetchError]:
         """Crawl a batch of URLs concurrently.
 
         Args:
@@ -47,7 +48,7 @@ class Crawler:
             per_host_config: Optional per-host concurrency overrides.
 
         Returns:
-            List of ArticleRaw results or Exception for failed items.
+            List of ArticleRaw results or FetchError for failed items.
         """
         per_host_config = per_host_config or {}
 
@@ -83,9 +84,26 @@ class Crawler:
             return_exceptions=True,
         )
 
+        # Wrap non-FetchError exceptions with URL context
+        wrapped_results: list[ArticleRaw | FetchError] = []
+        for item, result in zip(items, results):
+            if isinstance(result, FetchError):
+                wrapped_results.append(result)
+            elif isinstance(result, Exception):
+                wrapped_results.append(
+                    FetchError(
+                        url=item.url,
+                        message=str(result),
+                        cause=result,
+                    )
+                )
+            elif isinstance(result, ArticleRaw):
+                wrapped_results.append(result)
+            # else: BaseException (like KeyboardInterrupt) - skip
+
         # Log results
-        successes = sum(1 for r in results if not isinstance(r, Exception))
-        failures = sum(1 for r in results if isinstance(r, Exception))
+        successes = sum(1 for r in wrapped_results if isinstance(r, ArticleRaw))
+        failures = sum(1 for r in wrapped_results if isinstance(r, FetchError))
         log.info(
             "crawl_batch_complete",
             total=len(items),
@@ -93,4 +111,4 @@ class Crawler:
             failures=failures,
         )
 
-        return results
+        return wrapped_results

@@ -19,12 +19,12 @@ class TestDatabaseInitializerIntegration:
     """Integration tests for database initializer with real PostgreSQL."""
 
     @pytest.fixture
-    def test_dsn(self):
-        """Get test DSN from environment."""
-        return os.getenv(
-            "POSTGRES_DSN",
-            "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver",
-        )
+    def test_dsn(self, monkeypatch):
+        """Get test DSN. Override env to avoid E2E test pollution."""
+        # Prevent E2E test env vars from leaking into this test
+        monkeypatch.delenv("WEAVER_POSTGRES__DSN", raising=False)
+        monkeypatch.delenv("POSTGRES_DSN", raising=False)
+        return "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver"
 
     @pytest.mark.asyncio
     async def test_parse_dsn_from_settings(self, test_dsn):

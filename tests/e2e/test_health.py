@@ -5,8 +5,6 @@ from __future__ import annotations
 
 import pytest
 
-from tests.e2e.base import E2EClient
-
 
 @pytest.mark.e2e
 class TestHealthEndpoint:
@@ -28,8 +26,12 @@ class TestHealthEndpoint:
         response = client.get("/health")
         data = response.json()
 
-        # Should have status for postgres, neo4j, redis
-        assert "postgres" in data or "services" in data
+        # The health endpoint returns {"status": "...", "checks": {"postgres": {...}, ...}}
+        # Check the structure matches the actual API response format.
+        assert "checks" in data, f"Expected 'checks' key in health response: {data}"
+        assert "postgres" in data["checks"], f"Expected 'postgres' in checks: {data['checks']}"
+        assert data["checks"]["postgres"]["status"] == "ok"
+        assert data["status"] in ("healthy", "unhealthy")
 
     def test_health_no_auth_required(
         self,

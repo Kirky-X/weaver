@@ -343,8 +343,14 @@ class Container:
                 httpx_fetcher=httpx_fetcher,
                 playwright_fetcher=playwright_fetcher,
                 rate_limiter=rate_limiter,
+                circuit_breaker_enabled=settings.circuit_breaker_enabled,
+                circuit_breaker_threshold=settings.circuit_breaker_threshold,
+                circuit_breaker_timeout=settings.circuit_breaker_timeout,
             )
-            log.info("smart_fetcher_initialized")
+            log.info(
+                "smart_fetcher_initialized",
+                circuit_breaker_enabled=settings.circuit_breaker_enabled,
+            )
         return self._smart_fetcher
 
     def smart_fetcher(self) -> SmartFetcher:

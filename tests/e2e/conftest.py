@@ -224,7 +224,9 @@ async def _run_alembic_migrations(dsn: str, project_root: Path) -> None:
         cwd=str(project_root.parent),
         capture_output=True,
         text=True,
-        env={**os.environ, "POSTGRES_DSN": dsn},
+        # WEAVER_POSTGRES__DSN is what Settings().postgres.dsn reads
+        # (env_prefix="WEAVER_", nested delimiter="__")
+        env={**os.environ, "WEAVER_POSTGRES__DSN": dsn},
     )
     if result.returncode != 0:
         raise RuntimeError(
@@ -271,10 +273,13 @@ async def _truncate_tables(dsn: str) -> None:
         await conn.close()
 
 
-def _create_e2e_app() -> FastAPI:
+def _create_e2e_app(e2e_env: dict[str, str]) -> FastAPI:
     """Create the FastAPI app with E2E test settings.
 
     This imports lazily to avoid loading the full app during pytest collection.
+
+    Args:
+        e2e_env: Dict of environment variable names to values loaded from test_env.env.
 
     Returns:
         Configured FastAPI application.
@@ -283,11 +288,26 @@ def _create_e2e_app() -> FastAPI:
     from container import Container
     from main import create_app
 
-    # Override via environment (loaded by Settings)
+    # Set E2E environment variables in os.environ (they are read by Settings()
+    # on first instantiation and cached). The first Settings() call in the process
+    # caches the env vars from os.environ, so we must set them before any Settings()
+    # call AND directly patch the api.api_key to be safe.
+    for key, value in e2e_env.items():
+        os.environ[key] = value
+
+    # CRITICAL: Settings reads WEAVER_POSTGRES__DSN for postgres.dsn, but test_env.env
+    # uses POSTGRES_DSN. Ensure WEAVER_POSTGRES__DSN is set so the app connects to the
+    # same E2E database that clean_tables truncates.
+    if "POSTGRES_DSN" in e2e_env:
+        os.environ["WEAVER_POSTGRES__DSN"] = e2e_env["POSTGRES_DSN"]
+
     os.environ.setdefault("ENVIRONMENT", "testing")
     os.environ.setdefault("DEBUG", "true")
 
     settings = Settings()
+    # pydantic-settings caches env vars on first instantiation. Directly set the
+    # api_key to ensure the E2E value is used regardless of caching.
+    settings.api.api_key = e2e_env.get("WEAVER_API__API_KEY", settings.api.api_key)
     container = Container().configure(settings)
     return create_app(container)
 
@@ -389,6 +409,7 @@ async def clean_tables(
 def e2e_app(
     docker_compose: DockerComposeManager,
     db_migrations: None,
+    e2e_env: dict[str, str],
 ) -> FastAPI:
     """Create the FastAPI application instance for E2E testing.
 
@@ -399,11 +420,12 @@ def e2e_app(
     Args:
         docker_compose: Docker compose manager.
         db_migrations: Migration fixture (ensures DB is ready).
+        e2e_env: E2E environment variables (provides API key, DSN, etc.).
 
     Returns:
         Configured FastAPI application.
     """
-    return _create_e2e_app()
+    return _create_e2e_app(e2e_env)
 
 
 @pytest.fixture(scope="session")
@@ -457,6 +479,30 @@ def unique_source_id(unique_id: str) -> str:
         Source ID string.
     """
     return f"e2e_source_{unique_id}"
+
+
+# ── Tracer Cleanup (prevent E2E state pollution in subsequent tests) ─────────────
+
+
+@pytest.fixture(scope="session", autouse=True)
+def reset_tracer_provider() -> None:
+    """Reset global OpenTelemetry tracer provider after E2E session.
+
+    The OpenTelemetry SDK uses a Once guard that allows only one
+    set_tracer_provider call per process. E2E app startup calls
+    configure_tracing which sets the global tracer provider. Without
+    cleanup, subsequent non-E2E tests fail because set_tracer_provider
+    is locked and cannot be re-called.
+    """
+    yield
+    # Cleanup after all E2E tests complete
+    try:
+        from opentelemetry import trace as otel_trace
+
+        otel_trace._TRACER_PROVIDER = None
+        otel_trace._TRACER_PROVIDER_SET_ONCE._done = False
+    except Exception:
+        pass  # Best-effort cleanup
 
 
 # ── Marker Registration ─────────────────────────────────────────────

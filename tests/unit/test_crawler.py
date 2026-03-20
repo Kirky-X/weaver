@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from modules.collector.crawler import GLOBAL_MAX_CONCURRENCY, Crawler
+from modules.fetcher.exceptions import FetchError
 
 
 class TestCrawler:
@@ -171,3 +172,46 @@ class TestCrawler:
         results = await crawler.crawl_batch([])
 
         assert results == []
+
+    @pytest.mark.asyncio
+    async def test_fetch_error_wrapping(self, mock_fetcher):
+        """Test exceptions are wrapped as FetchError with URL context."""
+        original_error = ConnectionError("Connection refused")
+        mock_fetcher.fetch = AsyncMock(side_effect=original_error)
+
+        item = MagicMock()
+        item.url = "https://example.com/article"
+        item.title = "Test"
+        item.source = "test"
+        item.pubDate = None
+
+        crawler = Crawler(smart_fetcher=mock_fetcher)
+        results = await crawler.crawl_batch([item])
+
+        assert len(results) == 1
+        assert isinstance(results[0], FetchError)
+        assert results[0].url == "https://example.com/article"
+        assert "Connection refused" in results[0].message
+        assert results[0].cause is original_error
+
+    @pytest.mark.asyncio
+    async def test_fetch_error_preserves_all_errors(self, mock_fetcher):
+        """Test all errors are preserved in FetchError."""
+        mock_fetcher.fetch = AsyncMock(side_effect=ValueError("Invalid URL"))
+
+        items = []
+        for i in range(3):
+            item = MagicMock()
+            item.url = f"https://example{i}.com/article"
+            item.title = f"Article {i}"
+            item.source = "test"
+            item.pubDate = None
+            items.append(item)
+
+        crawler = Crawler(smart_fetcher=mock_fetcher)
+        results = await crawler.crawl_batch(items)
+
+        assert len(results) == 3
+        for i, result in enumerate(results):
+            assert isinstance(result, FetchError)
+            assert result.url == f"https://example{i}.com/article"

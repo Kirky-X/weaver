@@ -6,6 +6,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -60,12 +61,21 @@ class PostgresPool:
             class_=AsyncSession,
             expire_on_commit=False,
         )
-        log.info(
-            "postgres_pool_started",
-            dsn=self._dsn.split("@")[-1],
-            pool_size=self._pool_size,
-            max_overflow=self._max_overflow,
-        )
+        try:
+            async with self._engine.connect() as conn:
+                await conn.execute(text("SELECT 1"))
+            log.info(
+                "postgres_pool_started",
+                dsn=self._dsn.split("@")[-1],
+                pool_size=self._pool_size,
+                max_overflow=self._max_overflow,
+            )
+        except Exception as exc:
+            await self._engine.dispose()
+            self._engine = None
+            self._session_factory = None
+            log.error("postgres_connection_failed", error=str(exc))
+            raise ConnectionError(f"Failed to connect to PostgreSQL: {exc}") from exc
 
     async def shutdown(self) -> None:
         """Close the async engine and release connections."""

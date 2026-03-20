@@ -28,12 +28,15 @@ class RedisClient:
             max_connections=50,
         )
         self._redis = Redis(connection_pool=self._pool)
-        # Verify connectivity
         try:
             await self._redis.ping()
             log.info("redis_client_started", url=self._url.split("@")[-1])
         except Exception as exc:
-            log.warning("redis_connectivity_check_failed", error=str(exc))
+            await self._redis.aclose()
+            self._redis = None
+            self._pool = None
+            log.error("redis_connection_failed", error=str(exc))
+            raise ConnectionError(f"Failed to connect to Redis: {exc}") from exc
 
     async def shutdown(self) -> None:
         """Close the Redis connection pool."""

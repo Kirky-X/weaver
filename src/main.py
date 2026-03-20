@@ -17,13 +17,20 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from api.endpoints.admin import set_source_authority_repo
+from api.endpoints.articles import set_postgres_pool as set_articles_postgres_pool
+from api.endpoints.graph import set_neo4j_client
 from api.endpoints.health import (
     health_check as check_health,
     set_neo4j_pool,
+    set_postgres_pool as set_health_postgres_pool,
     set_redis_client,
-    set_source_authority_repo,
 )
-from api.endpoints.pipeline import set_postgres_pool, set_redis_client, set_source_scheduler
+from api.endpoints.pipeline import (
+    set_postgres_pool as set_pipeline_postgres_pool,
+    set_redis_client as set_pipeline_redis,
+    set_source_scheduler,
+)
 from api.endpoints.sources import set_source_registry
 from api.middleware.rate_limit import limiter
 from api.router import api_router
@@ -177,15 +184,21 @@ async def lifespan(app: FastAPI) -> None:
 
     redis_client = container.redis_client()
     set_redis_client(redis_client)
+    set_pipeline_redis(redis_client)
     log.debug("redis_client_set", client_id=id(redis_client))
 
     set_source_scheduler(container.source_scheduler())
     log.debug("source_scheduler_set")
 
-    set_postgres_pool(container.postgres_pool())
+    set_health_postgres_pool(container.postgres_pool())
     set_neo4j_pool(container.neo4j_pool())
+    set_neo4j_client(container.neo4j_pool())
     set_redis_client(redis_client)
     set_source_authority_repo(container.source_authority_repo())
+
+    # Also set postgres pool for pipeline and articles modules
+    set_pipeline_postgres_pool(container.postgres_pool())
+    set_articles_postgres_pool(container.postgres_pool())
 
     # Setup APScheduler
     try:

@@ -568,6 +568,8 @@ filterwarnings = [
     "ignore:The pynvml package is deprecated:FutureWarning:torch.cuda",
     "ignore:Can't initialize NVML:UserWarning:torch.cuda",
     "ignore:Stealth has already been applied:UserWarning:playwright_stealth",
+    # pytest/mock compatibility issue (known side effect)
+    "ignore:coroutine.*was never awaited:RuntimeWarning",
 ]
 
 # ────────────────────────────────────────────────────────────

@@ -203,7 +203,7 @@ class VectorRepo:
                 WHERE av.vector_type = 'content'
                   AND a.is_merged = FALSE
                   AND 1 - (av.embedding <=> cast(:embedding as vector)) > :threshold
-                  AND (cast(:category as text) IS NULL OR a.category = cast(:category as category_type))
+                  AND (cast(:category as category_type) IS NULL OR a.category = cast(:category as category_type))
                   AND (cast(:model_id as text) IS NULL OR av.model_id = cast(:model_id as text))
                 ORDER BY similarity DESC
                 LIMIT :limit
@@ -272,8 +272,8 @@ class VectorRepo:
                     WHERE av.vector_type = 'content'
                       AND a.is_merged = FALSE
                       AND 1 - (av.embedding <=> cast(:embedding as vector)) > :threshold
-                      AND (:category IS NULL OR a.category = :category)
-                      AND (:model_id IS NULL OR av.model_id = :model_id)
+                      AND (cast(:category as category_type) IS NULL OR a.category = cast(:category as category_type))
+                      AND (cast(:model_id as text) IS NULL OR av.model_id = cast(:model_id as text))
                     ORDER BY similarity DESC
                     LIMIT :limit
                 """)
@@ -347,7 +347,7 @@ class VectorRepo:
         async with self._pool.session() as session:
             await session.execute(text("SET hnsw.ef_search = 200;"))
 
-            vector_str = f"[{','.join(map(str, x) for x in embedding)}]"
+            vector_str = f"[{','.join(map(str, embedding))}]"
 
             query = text("""
                 SELECT

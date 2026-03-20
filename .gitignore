@@ -28,3 +28,12 @@ docs/report/
 REQUIREMENT_COMPLIANCE_REPORT.md
 doc/
 REVIEW_REPORT.md
+
+# IDE/Tool directories
+.iflow/
+.opencode/
+
+# Coverage files
+.coverage
+coverage.xml
+htmlcov/

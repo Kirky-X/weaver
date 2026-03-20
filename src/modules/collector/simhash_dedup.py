@@ -4,9 +4,13 @@
 from __future__ import annotations
 
 import time
+import warnings
 from dataclasses import dataclass
 
-from simhash import Simhash
+# Suppress SyntaxWarning from simhash library (third-party, cannot fix directly)
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore", category=SyntaxWarning)
+    from simhash import Simhash
 
 from core.cache.redis import RedisClient
 from core.observability.logging import get_logger

@@ -296,9 +296,24 @@ class Settings(BaseSettings):
 
                 warnings.warn(f"Failed to load TOML config: {e}", stacklevel=2)
 
-        # Merge TOML data with defaults (TOML has lower priority than env)
-        # This allows env vars to override TOML settings
+        # Merge TOML data with defaults (TOML has lower priority than env).
+        # This allows env vars to override TOML settings.
         merged_kwargs = self._deep_merge(toml_data, kwargs)
+
+        # CRITICAL: pydantic-settings processes init_kwargs BEFORE env vars.
+        # If we pass postgres={"dsn": "toml_value"} as init kwargs, pydantic
+        # cannot override it with WEAVER_POSTGRES__DSN from the environment.
+        # Fix: when WEAVER_POSTGRES__DSN is set in the environment, remove the
+        # postgres.dsn from merged_kwargs so pydantic can read it from env vars.
+        import os as _os
+
+        if _os.environ.get("WEAVER_POSTGRES__DSN") and (
+            "postgres" in merged_kwargs and isinstance(merged_kwargs["postgres"], dict)
+        ):
+            merged_kwargs["postgres"] = dict(merged_kwargs["postgres"])
+            merged_kwargs["postgres"].pop("dsn", None)
+            if not merged_kwargs["postgres"]:
+                merged_kwargs.pop("postgres", None)
 
         # Call parent __init__ which will process env vars and dotenv
         # with higher priority than the merged data

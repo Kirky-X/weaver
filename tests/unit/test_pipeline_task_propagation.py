@@ -162,14 +162,16 @@ class TestDiscoveryProcessorTaskIdPropagation:
         from modules.collector.processor import DiscoveryProcessor
 
         mock_crawler = AsyncMock()
-        mock_article = MagicMock()
-        mock_article.url = "https://example.com/test"
-        mock_article.title = "Test"
-        mock_article.body = "Body"
-        mock_article.source = "test"
-        mock_article.source_host = "example.com"
-        mock_article.publish_time = None
-        mock_crawler.crawl_batch.return_value = [mock_article]
+        mock_crawler.crawl_batch.return_value = [
+            ArticleRaw(
+                url="https://example.com/test",
+                title="Test",
+                body="Body",
+                source="test",
+                source_host="example.com",
+                publish_time=None,
+            )
+        ]
 
         mock_repo = AsyncMock()
         mock_repo.insert_raw.return_value = uuid.uuid4()
@@ -200,14 +202,16 @@ class TestDiscoveryProcessorTaskIdPropagation:
         from modules.collector.processor import DiscoveryProcessor
 
         mock_crawler = AsyncMock()
-        mock_article = MagicMock()
-        mock_article.url = "https://example.com/test2"
-        mock_article.title = "Test"
-        mock_article.body = "Body"
-        mock_article.source = "test"
-        mock_article.source_host = "example.com"
-        mock_article.publish_time = None
-        mock_crawler.crawl_batch.return_value = [mock_article]
+        mock_crawler.crawl_batch.return_value = [
+            ArticleRaw(
+                url="https://example.com/test2",
+                title="Test",
+                body="Body",
+                source="test",
+                source_host="example.com",
+                publish_time=None,
+            )
+        ]
 
         mock_repo = AsyncMock()
         mock_repo.insert_raw.return_value = uuid.uuid4()

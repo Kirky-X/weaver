@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 from core.observability.logging import get_logger
+from core.resilience.circuit_breaker import CircuitBreaker
 from modules.fetcher.base import BaseFetcher
+from modules.fetcher.exceptions import CircuitOpenError
 from modules.fetcher.httpx_fetcher import HttpxFetcher
 from modules.fetcher.playwright_fetcher import PlaywrightFetcher
 
@@ -31,14 +34,19 @@ class SmartFetcher(BaseFetcher):
     """Intelligent fetcher that tries httpx first, falls back to Playwright.
 
     Strategy:
-    1. If host is known to need JS → use Playwright directly.
-    2. Otherwise → try httpx first.
-    3. If httpx result is too short (< 500 chars) → retry with Playwright.
+    1. If circuit breaker is open for host → raise CircuitOpenError.
+    2. If host is known to need JS → use Playwright directly.
+    3. Otherwise → try httpx first.
+    4. If httpx result is too short (< 500 chars) → retry with Playwright.
+    5. Record success/failure to circuit breaker.
 
     Args:
         httpx_fetcher: The httpx-based fetcher.
         playwright_fetcher: The Playwright-based fetcher.
         rate_limiter: Optional rate limiter for per-host delays.
+        circuit_breaker_enabled: Whether to enable circuit breaker protection.
+        circuit_breaker_threshold: Consecutive failures before opening circuit.
+        circuit_breaker_timeout: Cooldown period in seconds before retry.
     """
 
     def __init__(
@@ -46,10 +54,33 @@ class SmartFetcher(BaseFetcher):
         httpx_fetcher: HttpxFetcher,
         playwright_fetcher: PlaywrightFetcher,
         rate_limiter: HostRateLimiter | None = None,
+        circuit_breaker_enabled: bool = True,
+        circuit_breaker_threshold: int = 5,
+        circuit_breaker_timeout: float = 60.0,
     ) -> None:
         self._httpx = httpx_fetcher
         self._playwright = playwright_fetcher
         self._rate_limiter = rate_limiter
+        self._circuit_breaker_enabled = circuit_breaker_enabled
+        self._circuit_breaker_threshold = circuit_breaker_threshold
+        self._circuit_breaker_timeout = circuit_breaker_timeout
+        self._breakers: dict[str, CircuitBreaker] = {}
+
+    def _get_breaker(self, host: str) -> CircuitBreaker:
+        """Get or create a circuit breaker for the given host.
+
+        Args:
+            host: The host name to get a breaker for.
+
+        Returns:
+            CircuitBreaker instance for the host.
+        """
+        if host not in self._breakers:
+            self._breakers[host] = CircuitBreaker(
+                threshold=self._circuit_breaker_threshold,
+                timeout_secs=self._circuit_breaker_timeout,
+            )
+        return self._breakers[host]
 
     async def fetch(
         self, url: str, headers: dict[str, str] | None = None
@@ -62,14 +93,49 @@ class SmartFetcher(BaseFetcher):
 
         Returns:
             Tuple of (status_code, HTML content, response_headers).
-        """
-        from urllib.parse import urlparse
 
+        Raises:
+            CircuitOpenError: If circuit breaker is open for the host.
+        """
+        host = urlparse(url).netloc
+
+        # Check circuit breaker first
+        if self._circuit_breaker_enabled:
+            breaker = self._get_breaker(host)
+            if breaker.is_open():
+                log.warning("circuit_breaker_open", url=url, host=host)
+                raise CircuitOpenError(host)
+
+        # Rate limiting
         if self._rate_limiter:
             await self._rate_limiter.acquire(url)
 
-        host = urlparse(url).netloc
+        # Execute fetch with circuit breaker tracking
+        try:
+            result = await self._do_fetch(url, headers, host)
+            if self._circuit_breaker_enabled:
+                await self._get_breaker(host).record_success()
+            return result
+        except CircuitOpenError:
+            raise  # Don't record failure for circuit open
+        except Exception as exc:
+            if self._circuit_breaker_enabled:
+                await self._get_breaker(host).record_failure()
+            raise
 
+    async def _do_fetch(
+        self, url: str, headers: dict[str, str] | None, host: str
+    ) -> tuple[int, str, dict[str, str]]:
+        """Internal fetch logic without circuit breaker concerns.
+
+        Args:
+            url: The URL to fetch.
+            headers: Optional HTTP headers.
+            host: Parsed host name.
+
+        Returns:
+            Tuple of (status_code, HTML content, response_headers).
+        """
         if any(js_host in host for js_host in JS_REQUIRED_HOSTS):
             log.debug("smart_fetch_playwright_direct", url=url, host=host)
             return await self._playwright.fetch(url, headers)

@@ -35,17 +35,23 @@ def isolated_tracer_provider():
 class TestTracingInitialization:
     """Test OpenTelemetry tracing initialization."""
 
-    def test_configure_tracing_with_default_endpoint(self):
+    def test_configure_tracing_with_default_endpoint(self, monkeypatch):
         """Test tracing configuration with default endpoint."""
         from core.observability.tracing import configure_tracing
 
-        # Reset global tracer provider first
+        # Prevent E2E env vars from affecting this test
+        monkeypatch.delenv("WEAVER_OBSERVABILITY__OTLP_ENDPOINT", raising=False)
+
+        # Reset global tracer provider. The tracer SDK uses a Once guard that
+        # allows only one set_tracer_provider call per process, so we must also
+        # reset the guard's _done flag.
         trace._TRACER_PROVIDER = None
+        trace._TRACER_PROVIDER_SET_ONCE._done = False
 
         # Configure tracing with default endpoint
         configure_tracing(service_name="test-weaver")
 
-        # Verify tracer provider is set
+        # Verify tracer provider is set and works
         provider = trace.get_tracer_provider()
         assert provider is not None
         assert isinstance(provider, TracerProvider)
@@ -54,8 +60,9 @@ class TestTracingInitialization:
         resource = provider.resource
         assert resource.attributes.get("service.name") == "test-weaver"
 
-        # Cleanup
+        # Cleanup: reset again for subsequent tests
         trace._TRACER_PROVIDER = None
+        trace._TRACER_PROVIDER_SET_ONCE._done = False
 
     def test_configure_tracing_with_custom_endpoint(self):
         """Test tracing configuration with custom OTLP endpoint."""

@@ -5,8 +5,6 @@ from __future__ import annotations
 
 import pytest
 
-from tests.e2e.base import E2EClient
-
 
 @pytest.mark.e2e
 class TestSourcesCRUD:
