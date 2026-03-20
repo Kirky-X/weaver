@@ -265,8 +265,9 @@ class SchedulerJobs:
     async def sync_neo4j_with_postgres(self) -> int:
         """Synchronize Neo4j articles with PostgreSQL.
 
-        Deletes Neo4j Article nodes that don't have corresponding
-        records in PostgreSQL (orphan articles).
+        Detects and cleans up two types of inconsistency:
+        1. Orphan Neo4j nodes (in Neo4j but not in PostgreSQL)
+        2. Enrichment gaps (NEO4J_DONE status but NULL enrichment fields)
 
         Returns:
             Number of orphan articles deleted.
@@ -274,23 +275,37 @@ class SchedulerJobs:
         log.info("sync_neo4j_with_postgres_start")
 
         try:
-            async with self._postgres.session() as session:
-                result = await session.execute(select(Article.id))
-                pg_ids = {str(row[0]) for row in result}
+            pg_ids = await self._article_repo.get_all_article_ids()
 
+            # 1. Detect and clean up orphan Neo4j nodes
             neo4j_ids = await self._neo4j_writer.article_repo.list_all_article_pg_ids()
-
             orphan_ids = set(neo4j_ids) - pg_ids
 
+            deleted = 0
             if orphan_ids:
-                count = await self._neo4j_writer.article_repo.delete_orphan_articles(list(pg_ids))
-                log.info(
-                    "sync_neo4j_with_postgres_complete", deleted=count, orphan_ids=len(orphan_ids)
+                deleted = await self._neo4j_writer.article_repo.delete_orphan_articles(
+                    list(orphan_ids)
                 )
-                return count
+                log.info(
+                    "sync_neo4j_with_postgres_orphans_cleaned",
+                    deleted=deleted,
+                    orphan_count=len(orphan_ids),
+                )
 
-            log.info("sync_neo4j_with_postgres_complete", deleted=0)
-            return 0
+            # 2. Detect enrichment gaps (NEO4J_DONE but NULL enrichment fields)
+            incomplete = await self._article_repo.get_incomplete_articles(limit=100)
+            for article in incomplete:
+                log.warning(
+                    "enrichment_gap_detected",
+                    article_id=str(article.id),
+                    url=article.source_url,
+                )
+                # Revert to PG_DONE so retry pipeline picks it up
+                await self._article_repo.revert_to_pg_done(article.id)
+                log.info("enrichment_gap_reverted", article_id=str(article.id))
+
+            log.info("sync_neo4j_with_postgres_complete", deleted=deleted, gaps=len(incomplete))
+            return deleted
         except Exception as exc:
             log.error("sync_neo4j_with_postgres_failed", error=str(exc))
             return 0
@@ -392,7 +407,7 @@ class SchedulerJobs:
                         source_host=article.source_host,
                     )
 
-                    await self._pipeline.process_batch([raw])
+                    await self._pipeline.process_batch([raw], article_ids=[article.id])
                     retry_count += 1
 
                     log.debug(

@@ -455,6 +455,118 @@ class ArticleRepo:
             )
             return list(result.scalars().all())
 
+    async def get_all_article_ids(self) -> set[str]:
+        """Get all article IDs from PostgreSQL.
+
+        Returns:
+            Set of article ID strings.
+        """
+        async with self._pool.session() as session:
+            result = await session.execute(select(Article.id))
+            return {str(row[0]) for row in result}
+
+    async def revert_to_pg_done(self, article_id: uuid.UUID) -> bool:
+        """Force-revert an article to PG_DONE for enrichment retry.
+
+        This bypasses state machine validation because it's a recovery
+        action for data integrity issues.
+
+        Returns:
+            True if reverted, False if article not found.
+        """
+        async with self._pool.session() as session:
+            result = await session.execute(
+                update(Article)
+                .where(Article.id == article_id)
+                .values(
+                    persist_status=PersistStatus.PG_DONE,
+                    updated_at=datetime.now(UTC),
+                )
+            )
+            await session.commit()
+            return result.rowcount > 0
+
+    async def get_incomplete_articles(self, limit: int = 50) -> list[Article]:
+        """Get articles with neo4j_done status but missing enrichment data.
+
+        These are articles that were marked complete but have NULL enrichment
+        fields, indicating a terminal-path data gap.
+
+        Args:
+            limit: Maximum number of articles to return.
+
+        Returns:
+            List of incomplete articles.
+        """
+        async with self._pool.session() as session:
+            result = await session.execute(
+                select(Article)
+                .where(
+                    and_(
+                        Article.persist_status == PersistStatus.NEO4J_DONE,
+                        Article.category.is_(None),
+                        Article.score.is_(None),
+                        Article.credibility_score.is_(None),
+                        Article.summary.is_(None),
+                    )
+                )
+                .limit(limit)
+            )
+            return list(result.scalars().all())
+
+    async def update_enrichment_if_null(
+        self,
+        article_id: uuid.UUID,
+        category: str | None = None,
+        score: float | None = None,
+        credibility_score: float | None = None,
+        summary: str | None = None,
+        quality_score: float | None = None,
+    ) -> bool:
+        """Update enrichment fields only where they are currently NULL (idempotent).
+
+        This method only updates fields that are NULL, leaving existing values
+        untouched. Running multiple times produces the same result (idempotent).
+
+        Args:
+            article_id: UUID of the article to update.
+            category: Category to set if currently NULL.
+            score: Score to set if currently NULL.
+            credibility_score: Credibility score to set if currently NULL.
+            summary: Summary to set if currently NULL.
+            quality_score: Quality score to set if currently NULL.
+
+        Returns:
+            True if any field was updated, False otherwise.
+        """
+        async with self._pool.session() as session:
+            result = await session.execute(select(Article).where(Article.id == article_id))
+            article = result.scalar_one_or_none()
+            if not article:
+                return False
+
+            updated = False
+            if category is not None and article.category is None:
+                article.category = category
+                updated = True
+            if score is not None and article.score is None:
+                article.score = score
+                updated = True
+            if credibility_score is not None and article.credibility_score is None:
+                article.credibility_score = credibility_score
+                updated = True
+            if summary is not None and article.summary is None:
+                article.summary = summary
+                updated = True
+            if quality_score is not None and article.quality_score is None:
+                article.quality_score = quality_score
+                updated = True
+
+            if updated:
+                article.updated_at = datetime.now(UTC)
+                await session.commit()
+            return updated
+
     async def get_failed_articles(self, max_retries: int = 3) -> list[Article]:
         """Get failed articles that are eligible for retry.
 

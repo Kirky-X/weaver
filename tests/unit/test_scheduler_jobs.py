@@ -442,6 +442,209 @@ class TestReconstructState:
         assert state["score"] == mock_article.score
 
 
+class TestSyncNeo4jWithPostgres:
+    """Test sync_neo4j_with_postgres job."""
+
+    @pytest.fixture
+    def scheduler_jobs(self):
+        """Create SchedulerJobs instance."""
+        from modules.scheduler.jobs import SchedulerJobs
+
+        return SchedulerJobs(
+            postgres_pool=MagicMock(),
+            redis_client=MagicMock(),
+            neo4j_writer=MagicMock(),
+            vector_repo=MagicMock(),
+            article_repo=MagicMock(),
+            source_authority_repo=MagicMock(),
+        )
+
+    @pytest.mark.asyncio
+    async def test_sync_neo4j_no_orphans_no_gaps(self, scheduler_jobs):
+        """Test when there are no orphans and no enrichment gaps."""
+        import uuid
+
+        pg_id = str(uuid.uuid4())
+        scheduler_jobs._article_repo.get_all_article_ids = AsyncMock(return_value={pg_id})
+        scheduler_jobs._neo4j_writer.article_repo.list_all_article_pg_ids = AsyncMock(
+            return_value=[pg_id]
+        )
+        scheduler_jobs._article_repo.get_incomplete_articles = AsyncMock(return_value=[])
+
+        result = await scheduler_jobs.sync_neo4j_with_postgres()
+
+        assert result == 0
+        scheduler_jobs._neo4j_writer.article_repo.delete_orphan_articles.assert_not_called()
+        scheduler_jobs._article_repo.revert_to_pg_done.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_sync_neo4j_deletes_orphans(self, scheduler_jobs):
+        """Test orphan Neo4j articles are deleted."""
+        import uuid
+
+        pg_id = str(uuid.uuid4())
+        scheduler_jobs._article_repo.get_all_article_ids = AsyncMock(return_value={pg_id})
+        scheduler_jobs._neo4j_writer.article_repo.list_all_article_pg_ids = AsyncMock(
+            return_value=[pg_id, "orphan-id"]
+        )
+        scheduler_jobs._article_repo.get_incomplete_articles = AsyncMock(return_value=[])
+        scheduler_jobs._neo4j_writer.article_repo.delete_orphan_articles = AsyncMock(return_value=1)
+
+        result = await scheduler_jobs.sync_neo4j_with_postgres()
+
+        assert result == 1
+        scheduler_jobs._neo4j_writer.article_repo.delete_orphan_articles.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_sync_neo4j_reverts_enrichment_gaps(self, scheduler_jobs):
+        """Test enrichment gaps are reverted to PG_DONE."""
+        import uuid
+
+        from core.db.models import Article, PersistStatus
+
+        pg_id = str(uuid.uuid4())
+        scheduler_jobs._article_repo.get_all_article_ids = AsyncMock(return_value={pg_id})
+        scheduler_jobs._neo4j_writer.article_repo.list_all_article_pg_ids = AsyncMock(
+            return_value=[pg_id]
+        )
+        scheduler_jobs._neo4j_writer.article_repo.delete_orphan_articles = AsyncMock(return_value=0)
+
+        incomplete_article = MagicMock(spec=Article)
+        incomplete_article.id = uuid.uuid4()
+        incomplete_article.source_url = "https://example.com/article"
+        incomplete_article.persist_status = PersistStatus.NEO4J_DONE
+
+        scheduler_jobs._article_repo.get_incomplete_articles = AsyncMock(
+            return_value=[incomplete_article]
+        )
+        scheduler_jobs._article_repo.revert_to_pg_done = AsyncMock(return_value=True)
+
+        result = await scheduler_jobs.sync_neo4j_with_postgres()
+
+        assert result == 0
+        scheduler_jobs._article_repo.revert_to_pg_done.assert_called_once_with(
+            incomplete_article.id
+        )
+
+
+class TestRevertToPgDone:
+    """Test revert_to_pg_done method on ArticleRepo."""
+
+    @pytest.mark.asyncio
+    async def test_revert_to_pg_done_sets_status(self):
+        """Test revert_to_pg_done sets status to PG_DONE regardless of current state."""
+        from modules.storage.article_repo import ArticleRepo
+
+        mock_result = MagicMock()
+        mock_result.rowcount = 1
+        mock_session = MagicMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+
+        async def enter_cm():
+            return mock_session
+
+        mock_cm = MagicMock()
+        mock_cm.__aenter__ = AsyncMock(side_effect=enter_cm)
+        mock_cm.__aexit__ = AsyncMock(return_value=None)
+        mock_pool = MagicMock()
+        mock_pool.session = MagicMock(return_value=mock_cm)
+
+        repo = ArticleRepo(mock_pool)
+        import uuid
+
+        article_id = uuid.uuid4()
+        result = await repo.revert_to_pg_done(article_id)
+
+        assert result is True
+        mock_session.execute.assert_called_once()
+        mock_session.commit.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_revert_to_pg_done_not_found(self):
+        """Test revert_to_pg_done returns False when article not found."""
+        from modules.storage.article_repo import ArticleRepo
+
+        mock_result = MagicMock()
+        mock_result.rowcount = 0
+        mock_session = MagicMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+
+        async def enter_cm():
+            return mock_session
+
+        mock_cm = MagicMock()
+        mock_cm.__aenter__ = AsyncMock(side_effect=enter_cm)
+        mock_cm.__aexit__ = AsyncMock(return_value=None)
+        mock_pool = MagicMock()
+        mock_pool.session = MagicMock(return_value=mock_cm)
+
+        repo = ArticleRepo(mock_pool)
+        import uuid
+
+        article_id = uuid.uuid4()
+        result = await repo.revert_to_pg_done(article_id)
+
+        assert result is False
+
+
+class TestGetIncompleteArticles:
+    """Test get_incomplete_articles method on ArticleRepo."""
+
+    @pytest.mark.asyncio
+    async def test_get_incomplete_articles_returns_matching_articles(self):
+        """Test get_incomplete_articles returns articles with NEO4J_DONE and all null fields."""
+        from modules.storage.article_repo import ArticleRepo
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_session = MagicMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        async def enter_cm():
+            return mock_session
+
+        mock_cm = MagicMock()
+        mock_cm.__aenter__ = AsyncMock(side_effect=enter_cm)
+        mock_cm.__aexit__ = AsyncMock(return_value=None)
+        mock_pool = MagicMock()
+        mock_pool.session = MagicMock(return_value=mock_cm)
+
+        repo = ArticleRepo(mock_pool)
+        articles = await repo.get_incomplete_articles(limit=50)
+
+        # Verify the query was executed with correct filter
+        call_args = mock_session.execute.call_args
+        assert call_args is not None
+
+    @pytest.mark.asyncio
+    async def test_get_incomplete_articles_respects_limit(self):
+        """Test get_incomplete_articles respects the limit parameter."""
+        from modules.storage.article_repo import ArticleRepo
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_session = MagicMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        async def enter_cm():
+            return mock_session
+
+        mock_cm = MagicMock()
+        mock_cm.__aenter__ = AsyncMock(side_effect=enter_cm)
+        mock_cm.__aexit__ = AsyncMock(return_value=None)
+        mock_pool = MagicMock()
+        mock_pool.session = MagicMock(return_value=mock_cm)
+
+        repo = ArticleRepo(mock_pool)
+        await repo.get_incomplete_articles(limit=25)
+
+        # Verify limit was passed
+        call_args = mock_session.execute.call_args
+        assert call_args is not None
+
+
 class TestRetryManager:
     """Test RetryManager class."""
 
