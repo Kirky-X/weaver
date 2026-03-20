@@ -36,7 +36,7 @@ from fastapi.testclient import TestClient
 E2E_DIR = Path(__file__).parent
 E2E_COMPOSE_FILE = E2E_DIR / "docker-compose.yml"
 E2E_ENV_FILE = E2E_DIR / "test_env.env"
-PROJECT_ROOT = E2E_DIR.parent.parent.parent / "src"
+PROJECT_ROOT = E2E_DIR.parent.parent / "src"
 
 
 def _load_env_file(env_file: Path) -> dict[str, str]:
@@ -208,17 +208,20 @@ async def _run_alembic_migrations(dsn: str, project_root: Path) -> None:
         dsn: PostgreSQL connection string.
         project_root: Path to the project root.
     """
+    alembic_ini = project_root.parent / "alembic.ini"
     result = subprocess.run(
         [
             "python",
             "-m",
             "alembic",
+            "-c",
+            str(alembic_ini),
             "-x",
             f"postgres_dsn={dsn}",
             "upgrade",
             "head",
         ],
-        cwd=str(project_root),
+        cwd=str(project_root.parent),
         capture_output=True,
         text=True,
         env={**os.environ, "POSTGRES_DSN": dsn},

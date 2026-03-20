@@ -25,6 +25,6 @@ config/settings.toml
 openspec/
 .claude/
 docs/report/
-tests/performance/
 REQUIREMENT_COMPLIANCE_REPORT.md
+doc/
 REVIEW_REPORT.md
