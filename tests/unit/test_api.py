@@ -114,6 +114,8 @@ class TestSourcesEndpoint:
             enabled=True,
             interval_minutes=30,
             per_host_concurrency=2,
+            credibility=None,
+            tier=None,
         )
         response = SourceResponse.from_config(config)
         assert response.id == "test-id"
@@ -124,7 +126,7 @@ class TestSourcesEndpoint:
         """Test GET /sources endpoint."""
         from api.endpoints.sources import list_sources
 
-        mock_registry = MagicMock()
+        mock_repo = MagicMock()
         mock_config = MagicMock()
         mock_config.id = "source-1"
         mock_config.name = "Test Source"
@@ -133,14 +135,16 @@ class TestSourcesEndpoint:
         mock_config.enabled = True
         mock_config.interval_minutes = 30
         mock_config.per_host_concurrency = 2
+        mock_config.credibility = None
+        mock_config.tier = None
         mock_config.last_crawl_time = None
-        mock_registry.list_sources.return_value = [mock_config]
+        mock_repo.list_sources = AsyncMock(return_value=[mock_config])
 
-        with patch("api.endpoints.sources.get_source_registry", return_value=mock_registry):
+        with patch("api.endpoints.sources.get_source_config_repo", return_value=mock_repo):
             result = await list_sources(
                 enabled_only=True,
                 _="test-key",
-                registry=mock_registry,
+                repo=mock_repo,
             )
             assert len(result) == 1
             assert result[0].id == "source-1"
@@ -150,8 +154,9 @@ class TestSourcesEndpoint:
         """Test POST /sources endpoint creates new source."""
         from api.endpoints.sources import SourceCreateRequest, create_source
 
-        mock_registry = MagicMock()
-        mock_registry.get_source.return_value = None
+        mock_repo = MagicMock()
+        mock_repo.get = AsyncMock(return_value=None)
+        mock_repo.upsert = AsyncMock(side_effect=lambda cfg: cfg)
 
         request = SourceCreateRequest(
             id="new-source",
@@ -162,18 +167,18 @@ class TestSourcesEndpoint:
         result = await create_source(
             request=request,
             _="test-key",
-            registry=mock_registry,
+            repo=mock_repo,
         )
         assert result.id == "new-source"
-        mock_registry.add_source.assert_called_once()
+        mock_repo.upsert.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_create_source_endpoint_conflict(self):
         """Test POST /sources returns 409 for existing source."""
         from api.endpoints.sources import SourceCreateRequest, create_source
 
-        mock_registry = MagicMock()
-        mock_registry.get_source.return_value = MagicMock()
+        mock_repo = MagicMock()
+        mock_repo.get = AsyncMock(return_value=MagicMock())
 
         request = SourceCreateRequest(
             id="existing-source",
@@ -185,7 +190,7 @@ class TestSourcesEndpoint:
             await create_source(
                 request=request,
                 _="test-key",
-                registry=mock_registry,
+                repo=mock_repo,
             )
         assert exc_info.value.status_code == 409
 
@@ -202,10 +207,13 @@ class TestSourcesEndpoint:
         mock_existing.enabled = True
         mock_existing.interval_minutes = 30
         mock_existing.per_host_concurrency = 2
+        mock_existing.credibility = None
+        mock_existing.tier = None
         mock_existing.last_crawl_time = None
 
-        mock_registry = MagicMock()
-        mock_registry.get_source.return_value = mock_existing
+        mock_repo = MagicMock()
+        mock_repo.get = AsyncMock(return_value=mock_existing)
+        mock_repo.upsert = AsyncMock(side_effect=lambda cfg: cfg)
 
         request = SourceUpdateRequest(name="New Name", enabled=False)
 
@@ -213,19 +221,19 @@ class TestSourcesEndpoint:
             source_id="source-1",
             request=request,
             _="test-key",
-            registry=mock_registry,
+            repo=mock_repo,
         )
         assert mock_existing.name == "New Name"
         assert mock_existing.enabled is False
-        mock_registry.add_source.assert_called_once()
+        mock_repo.upsert.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_update_source_endpoint_not_found(self):
         """Test PUT /sources/{source_id} returns 404 for missing source."""
         from api.endpoints.sources import SourceUpdateRequest, update_source
 
-        mock_registry = MagicMock()
-        mock_registry.get_source.return_value = None
+        mock_repo = MagicMock()
+        mock_repo.get = AsyncMock(return_value=None)
 
         request = SourceUpdateRequest(name="New Name")
 
@@ -234,7 +242,7 @@ class TestSourcesEndpoint:
                 source_id="missing-source",
                 request=request,
                 _="test-key",
-                registry=mock_registry,
+                repo=mock_repo,
             )
         assert exc_info.value.status_code == 404
 
@@ -243,39 +251,41 @@ class TestSourcesEndpoint:
         """Test DELETE /sources/{source_id} endpoint."""
         from api.endpoints.sources import delete_source
 
-        mock_registry = MagicMock()
-        mock_registry.get_source.return_value = MagicMock()
+        mock_repo = MagicMock()
+        mock_repo.get = AsyncMock(return_value=MagicMock())
+        mock_repo.delete = AsyncMock(return_value=True)
 
         await delete_source(
             source_id="source-1",
             _="test-key",
-            registry=mock_registry,
+            repo=mock_repo,
         )
-        mock_registry.remove_source.assert_called_once_with("source-1")
+        mock_repo.delete.assert_called_once_with("source-1")
 
     @pytest.mark.asyncio
     async def test_delete_source_endpoint_not_found(self):
         """Test DELETE /sources/{source_id} returns 404 for missing source."""
         from api.endpoints.sources import delete_source
 
-        mock_registry = MagicMock()
-        mock_registry.get_source.return_value = None
+        mock_repo = MagicMock()
+        mock_repo.get = AsyncMock(return_value=None)
+        mock_repo.delete = AsyncMock(return_value=False)
 
         with pytest.raises(HTTPException) as exc_info:
             await delete_source(
                 source_id="missing-source",
                 _="test-key",
-                registry=mock_registry,
+                repo=mock_repo,
             )
         assert exc_info.value.status_code == 404
 
-    def test_get_source_registry_not_initialized(self):
-        """Test get_source_registry raises 503 when not initialized."""
-        from api.endpoints.sources import get_source_registry
+    def test_get_source_config_repo_not_initialized(self):
+        """Test get_source_config_repo raises 503 when not initialized."""
+        from api.endpoints.sources import get_source_config_repo
 
-        with patch("api.endpoints.sources._source_registry", None):
+        with patch("api.endpoints.sources._source_config_repo", None):
             with pytest.raises(HTTPException) as exc_info:
-                get_source_registry()
+                get_source_config_repo()
             assert exc_info.value.status_code == 503
 
 
