@@ -14,6 +14,10 @@ import asyncio
 import time
 from enum import Enum
 
+from core.observability.logging import get_logger
+
+log = get_logger("circuit_breaker")
+
 
 class CBState(Enum):
     """Circuit breaker states."""
@@ -43,8 +47,6 @@ class CircuitBreaker:
     @property
     def state(self) -> CBState:
         """Current circuit breaker state."""
-        # Note: This property remains sync for backward compatibility.
-        # For thread-safe state transitions, use async methods.
         return self._state
 
     def is_open(self) -> bool:
@@ -83,13 +85,10 @@ class CircuitBreaker:
                         self._opened_at = time.monotonic()
                     return True
         except TimeoutError:
-            # Lock acquisition timeout - skip state transition
-            import logging
-
-            logger = logging.getLogger(__name__)
-            logger.warning(
+            log.warning(
                 "circuit_breaker_lock_timeout",
-                extra={"current_state": self._state.value, "target_state": new_state.value},
+                current_state=self._state.value,
+                target_state=new_state.value,
             )
             return False
 
@@ -108,10 +107,7 @@ class CircuitBreaker:
                     self._state = CBState.CLOSED
                     return True
         except TimeoutError:
-            import logging
-
-            logger = logging.getLogger(__name__)
-            logger.warning("circuit_breaker_record_success_timeout")
+            log.warning("circuit_breaker_record_success_timeout")
             return False
 
     async def record_failure(self) -> bool:
@@ -131,10 +127,7 @@ class CircuitBreaker:
                         self._opened_at = time.monotonic()
                     return True
         except TimeoutError:
-            import logging
-
-            logger = logging.getLogger(__name__)
-            logger.warning("circuit_breaker_record_failure_timeout")
+            log.warning("circuit_breaker_record_failure_timeout")
             return False
 
     async def reset(self) -> bool:
@@ -153,8 +146,5 @@ class CircuitBreaker:
                     self._opened_at = 0.0
                     return True
         except TimeoutError:
-            import logging
-
-            logger = logging.getLogger(__name__)
-            logger.warning("circuit_breaker_reset_timeout")
+            log.warning("circuit_breaker_reset_timeout")
             return False

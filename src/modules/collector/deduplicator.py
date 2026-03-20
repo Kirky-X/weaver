@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import time
+from urllib.parse import quote, unquote, urlparse, urlunparse
 
 from core.cache.redis import RedisClient
 from core.observability.logging import get_logger
@@ -64,7 +65,6 @@ class Deduplicator:
 
         if not candidates:
             log.debug("dedup_all_filtered_by_redis", original=len(items))
-            # Record metrics
             elapsed = time.perf_counter() - start_time
             metrics.dedup_total.labels(stage="url").inc(redis_filtered)
             metrics.dedup_processing_time.labels(stage="url").observe(elapsed)
@@ -89,14 +89,12 @@ class Deduplicator:
                 pipe.hset(self.DEDUP_KEY, self._hash(item.url), now)
             await pipe.execute()
 
-        # Record metrics
         elapsed = time.perf_counter() - start_time
         metrics.dedup_total.labels(stage="url").inc(total_filtered)
         metrics.dedup_processing_time.labels(stage="url").observe(elapsed)
         metrics.articles_processed_total.inc(original_count)
         metrics.articles_deduped_total.inc(total_filtered)
 
-        # Update ratio gauge
         if original_count > 0:
             ratio = total_filtered / original_count
             metrics.dedup_ratio.labels(stage="url").set(ratio)
@@ -110,14 +108,7 @@ class Deduplicator:
         return new_items
 
     async def dedup_urls(self, urls: list[str]) -> list[str]:
-        """Deduplicate a list of URLs (without full item objects).
-
-        Args:
-            urls: List of URL strings.
-
-        Returns:
-            Filtered list of URLs not seen before.
-        """
+        """Deduplicate a list of URLs (without full item objects)."""
         if not urls:
             return []
 
@@ -155,14 +146,7 @@ class Deduplicator:
         return new_urls
 
     async def cleanup_expired(self, max_age_seconds: int | None = None) -> int:
-        """Clean up expired entries from Redis Hash.
-
-        Args:
-            max_age_seconds: Maximum age in seconds (default: use TTL).
-
-        Returns:
-            Number of entries removed.
-        """
+        """Clean up expired entries from Redis Hash."""
         max_age = max_age_seconds or self._ttl
         cutoff = int(time.time()) - max_age
 
@@ -190,65 +174,82 @@ class Deduplicator:
 
     @staticmethod
     def normalize_url(url: str) -> str:
-        """Normalize a URL for consistent deduplication.
+        """Normalize a URL for consistent deduplication using urllib.parse.
 
-        Normalization rules (in order):
-        1. Unify protocol to HTTPS (http:// → https://)
-        2. Remove Fragment (#anchor)
-        3. Convert domain to lowercase
-        4. Remove trailing slash from path
-        5. Remove www. prefix
-        6. Remove query string
+        Normalization rules:
+        1. Protocol-relative URLs → HTTPS (//example.com → https://example.com)
+        2. HTTP → HTTPS upgrade
+        3. Domain lowercase
+        4. Remove www. prefix
+        5. Remove default ports (80 for HTTP, 443 for HTTPS)
+        6. Decode percent-encoded characters, then re-encode consistently
+        7. Normalize path (resolve . and ..)
+        8. Remove query string
+        9. Remove fragment
+        10. Remove trailing slash (except for root which becomes no slash)
 
-        Examples:
-            http://www.36kr.com/p/123/?f=rss#comments  ->  https://36kr.com/p/123
-            https://EXAMPLE.COM/Article/123/           ->  https://example.com/Article/123
-            //www.36kr.com/p/123                       ->  https://36kr.com/p/123
+        Args:
+            url: The URL to normalize.
+
+        Returns:
+            Normalized URL string.
         """
+        import posixpath
+
         # Handle protocol-relative URLs
         if url.startswith("//"):
             url = "https:" + url
-        # Unify HTTP to HTTPS
-        elif url.startswith("http://"):
-            url = "https://" + url.removeprefix("http://")
 
-        # Remove fragment (#anchor)
-        if "#" in url:
-            url = url.split("#", 1)[0]
+        # Parse the URL
+        parsed = urlparse(url)
 
-        # Remove query string
-        if "?" in url:
-            url = url.split("?", 1)[0]
+        # 1. Normalize scheme: HTTP → HTTPS
+        scheme = parsed.scheme.lower()
+        original_scheme = scheme
+        if scheme == "http":
+            scheme = "https"
 
-        # Parse URL for domain and path manipulation
-        # Format: https://domain/path
-        if "://" in url:
-            proto, rest = url.split("://", 1)
-            # Split domain and path
-            if "/" in rest:
-                domain, path = rest.split("/", 1)
-                # Lowercase domain
-                domain = domain.lower()
-                # Remove www. prefix
-                if domain.startswith("www."):
-                    domain = domain.removeprefix("www.")
-                # Reconstruct
-                url = f"{proto}://{domain}/{path}"
-            else:
-                # No path, just domain
-                domain = rest.lower()
-                if domain.startswith("www."):
-                    domain = domain.removeprefix("www.")
-                url = f"{proto}://{domain}"
+        # 2. Normalize netloc: lowercase, remove www., remove default ports
+        netloc = parsed.netloc.lower()
 
-        # Remove trailing slash (but keep root path)
-        if url.endswith("/") and not url.endswith("://"):
-            url = url.rstrip("/")
+        # Remove www. prefix
+        if netloc.startswith("www."):
+            netloc = netloc[4:]
 
-        # Ensure root path has trailing slash for domain-only URLs
-        # e.g., https://example.com -> https://example.com (no trailing slash)
+        # Remove default ports based on ORIGINAL scheme before upgrade
+        # For HTTP URLs (upgraded to HTTPS), port 80 should be removed
+        # For HTTPS URLs, port 443 should be removed
+        if original_scheme == "http" and netloc.endswith(":80"):
+            netloc = netloc[:-3]
+        elif netloc.endswith(":443"):
+            netloc = netloc[:-4]
 
-        return url
+        # 3. Normalize path
+        path = parsed.path
+
+        # Decode percent-encoded characters
+        path = unquote(path)
+
+        # Normalize path (resolve . and ..)
+        path = posixpath.normpath(path)
+
+        # Ensure path starts with /
+        if not path.startswith("/"):
+            path = "/" + path
+
+        # Remove trailing slash (including root path)
+        if path.endswith("/"):
+            path = path.rstrip("/")
+
+        # Re-encode path (preserve non-ASCII characters for readability)
+        path = quote(path, safe="/", encoding="utf-8")
+
+        # Handle empty path
+        if not path:
+            path = ""
+
+        # 4. Remove query string and fragment
+        return urlunparse((scheme, netloc, path, "", "", ""))
 
     @staticmethod
     def _hash(url: str) -> str:
