@@ -123,45 +123,63 @@ class TestNormalizeUrl:
         result = Deduplicator.normalize_url("https://www.36kr.com/p/123")
         assert result == "https://36kr.com/p/123"
 
-    def test_www_prefix_removed_http(self):
-        """http://www. should have www. stripped."""
+    def test_http_to_https_unification(self):
+        """http:// should be unified to https://."""
+        result = Deduplicator.normalize_url("http://example.com/article/123")
+        assert result == "https://example.com/article/123"
+
+    def test_http_www_to_https(self):
+        """http://www. should become https:// without www."""
         result = Deduplicator.normalize_url("http://www.example.com/page")
-        assert result == "http://example.com/page"
+        assert result == "https://example.com/page"
 
-    def test_www_prefix_removed_protocol_relative(self):
-        """//www. should have www. stripped."""
+    def test_protocol_relative_to_https(self):
+        """//www. should become https:// without www."""
         result = Deduplicator.normalize_url("//www.36kr.com/p/123")
-        assert result == "//36kr.com/p/123"
-
-    def test_no_www_unchanged(self):
-        """URL without www. should be unchanged (ignoring query string)."""
-        result = Deduplicator.normalize_url("https://36kr.com/p/123?f=rss&source=foo")
         assert result == "https://36kr.com/p/123"
+
+    def test_domain_lowercase(self):
+        """Domain should be converted to lowercase."""
+        result = Deduplicator.normalize_url("https://EXAMPLE.COM/Article/123")
+        assert result == "https://example.com/Article/123"
+
+    def test_path_case_preserved(self):
+        """Path case should be preserved."""
+        result = Deduplicator.normalize_url("https://example.com/Article/Title-Here")
+        assert result == "https://example.com/Article/Title-Here"
+
+    def test_fragment_removed(self):
+        """Fragment (anchor) should be removed."""
+        result = Deduplicator.normalize_url("https://www.36kr.com/p/123#comments")
+        assert result == "https://36kr.com/p/123"
+
+    def test_trailing_slash_removed(self):
+        """Trailing slash should be removed."""
+        result = Deduplicator.normalize_url("https://example.com/article/123/")
+        assert result == "https://example.com/article/123"
 
     def test_query_string_removed(self):
         """Query string should be stripped."""
         result = Deduplicator.normalize_url("https://www.36kr.com/p/123?f=rss&source=foo")
         assert result == "https://36kr.com/p/123"
 
-    def test_fragment_preserved(self):
-        """Fragment (anchor) should be preserved."""
-        result = Deduplicator.normalize_url("https://www.36kr.com/p/123#anchor")
-        assert result == "https://36kr.com/p/123#anchor"
-
-    def test_fragment_with_query_removed(self):
-        """Fragment preserved but query string still removed."""
-        result = Deduplicator.normalize_url("https://36kr.com/p/123?f=rss#anchor")
-        assert result == "https://36kr.com/p/123#anchor"
+    def test_combined_normalization(self):
+        """All transformations applied together."""
+        result = Deduplicator.normalize_url(
+            "http://www.EXAMPLE.com/Article/123/?source=rss#comments"
+        )
+        assert result == "https://example.com/Article/123"
 
     def test_no_www_no_query_unchanged(self):
-        """Clean URL without www or query string is unchanged."""
+        """Clean URL without www or query string is unchanged (except maybe trailing slash)."""
         result = Deduplicator.normalize_url("https://36kr.com/p/123")
         assert result == "https://36kr.com/p/123"
 
-    def test_www_and_query_and_fragment(self):
-        """All transformations applied: www removed, query stripped, fragment kept."""
-        result = Deduplicator.normalize_url("https://www.36kr.com/p/123?f=rss&source=foo#anchor")
-        assert result == "https://36kr.com/p/123#anchor"
+    def test_hash_http_and_https_produce_same_hash(self):
+        """http and https variants produce identical hashes."""
+        h1 = Deduplicator._hash("http://example.com/article/123")
+        h2 = Deduplicator._hash("https://example.com/article/123")
+        assert h1 == h2
 
     def test_hash_www_and_non_www_produce_same_hash(self):
         """www and non-www variants of the same URL produce identical hashes."""
@@ -176,13 +194,30 @@ class TestNormalizeUrl:
         h3 = Deduplicator._hash("https://www.36kr.com/p/123?f=rss&source=foo")
         assert h1 == h2 == h3
 
-    def test_hash_fragment_considered(self):
-        """Fragment is part of the normalized URL and affects the hash."""
+    def test_hash_fragment_not_considered(self):
+        """Fragment is removed, so URLs with/without fragment produce same hash."""
         h1 = Deduplicator._hash("https://36kr.com/p/123")
         h2 = Deduplicator._hash("https://36kr.com/p/123#anchor")
-        assert h1 != h2  # different paths
+        assert h1 == h2
+
+    def test_hash_domain_case_insensitive(self):
+        """Domain case does not affect hash."""
+        h1 = Deduplicator._hash("https://EXAMPLE.com/Article")
+        h2 = Deduplicator._hash("https://example.com/Article")
+        assert h1 == h2
+
+    def test_hash_trailing_slash_ignored(self):
+        """Trailing slash does not affect hash."""
+        h1 = Deduplicator._hash("https://example.com/article/")
+        h2 = Deduplicator._hash("https://example.com/article")
+        assert h1 == h2
 
     def test_normalize_url_returns_string(self):
         """normalize_url always returns a string."""
         assert isinstance(Deduplicator.normalize_url("https://www.example.com"), str)
         assert isinstance(Deduplicator.normalize_url(""), str)
+
+    def test_empty_url(self):
+        """Empty URL should be handled gracefully."""
+        result = Deduplicator.normalize_url("")
+        assert isinstance(result, str)

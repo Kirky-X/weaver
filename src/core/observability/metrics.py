@@ -100,6 +100,32 @@ class MetricsCollector:
         ["provider"],
     )
 
+    # Deduplication metrics
+    dedup_total = Counter(
+        "weaver_dedup_total",
+        "各阶段去重过滤的文章数",
+        ["stage"],  # stage: url, title, vector
+    )
+    dedup_ratio = Gauge(
+        "weaver_dedup_ratio",
+        "各阶段去重率",
+        ["stage"],
+    )
+    dedup_processing_time = Histogram(
+        "weaver_dedup_processing_time_seconds",
+        "各阶段去重处理时间",
+        ["stage"],
+        buckets=[0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1],
+    )
+    articles_processed_total = Counter(
+        "weaver_articles_processed_total",
+        "处理的文章总数",
+    )
+    articles_deduped_total = Counter(
+        "weaver_articles_deduped_total",
+        "被去重的文章总数",
+    )
+
 
 # Global metrics instance for use across modules
 metrics = MetricsCollector()

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from pydantic import Field
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic_settings.sources import PydanticBaseSettingsSource
 
@@ -17,13 +17,13 @@ load_dotenv(override=True)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
-class PostgresSettings(BaseSettings):
+class PostgresSettings(BaseModel):
     """PostgreSQL connection settings."""
 
     dsn: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver"
 
 
-class Neo4jSettings(BaseSettings):
+class Neo4jSettings(BaseModel):
     """Neo4j connection settings."""
 
     model_config = SettingsConfigDict(env_prefix="NEO4J_")
@@ -33,13 +33,13 @@ class Neo4jSettings(BaseSettings):
     password: str = "neo4j_password"
 
 
-class RedisSettings(BaseSettings):
+class RedisSettings(BaseModel):
     """Redis connection settings."""
 
     url: str = "redis://localhost:6379/0"
 
 
-class LLMProviderConfig(BaseSettings):
+class LLMProviderConfig(BaseModel):
     """Single LLM provider configuration."""
 
     provider: str = "openai"
@@ -51,14 +51,14 @@ class LLMProviderConfig(BaseSettings):
     timeout: float = 30.0
 
 
-class LLMCallPointConfig(BaseSettings):
+class LLMCallPointConfig(BaseModel):
     """Call-point level LLM configuration (primary + fallbacks)."""
 
     primary: str = "openai"
     fallbacks: list[str] = Field(default_factory=list)
 
 
-class LLMSettings(BaseSettings):
+class LLMSettings(BaseModel):
     """LLM module settings."""
 
     providers: dict[str, dict[str, Any]] = Field(
@@ -101,7 +101,7 @@ class LLMSettings(BaseSettings):
     rerank_model: str = ""
 
 
-class FetcherSettings(BaseSettings):
+class FetcherSettings(BaseModel):
     """Fetcher settings."""
 
     playwright_pool_size: int = 5
@@ -125,14 +125,19 @@ class FetcherSettings(BaseSettings):
     rate_limit_delay_min: float = 1.0
     rate_limit_delay_max: float = 3.0
 
+    # Circuit breaker settings
+    circuit_breaker_enabled: bool = True
+    circuit_breaker_threshold: int = 5  # Consecutive failures before opening
+    circuit_breaker_timeout: float = 60.0  # Cooldown period in seconds
 
-class PromptSettings(BaseSettings):
+
+class PromptSettings(BaseModel):
     """Prompt loading settings."""
 
     dir: str = str(_PROJECT_ROOT / "config" / "prompts")
 
 
-class APISettings(BaseSettings):
+class APISettings(BaseModel):
     """API layer settings."""
 
     api_key: str = "change-me-in-production"
@@ -169,7 +174,7 @@ class APISettings(BaseSettings):
         return warnings
 
 
-class SchedulerSettings(BaseSettings):
+class SchedulerSettings(BaseModel):
     """APScheduler settings."""
 
     crawl_interval_minutes: int = 30
@@ -177,7 +182,17 @@ class SchedulerSettings(BaseSettings):
     retry_flush_interval_seconds: int = 30
 
 
-class ObservabilitySettings(BaseSettings):
+class DedupSettings(BaseModel):
+    """Deduplication settings."""
+
+    enable_simhash_dedup: bool = True
+    """Enable title SimHash deduplication stage."""
+
+    simhash_hamming_threshold: int = 3
+    """Maximum Hamming distance for title similarity (0-64, lower = stricter)."""
+
+
+class ObservabilitySettings(BaseModel):
     """Observability settings (tracing, metrics, logging)."""
 
     model_config = SettingsConfigDict(env_prefix="OBS_")
@@ -186,27 +201,58 @@ class ObservabilitySettings(BaseSettings):
     """OTLP collector endpoint for OpenTelemetry tracing."""
 
 
-def settings_customize_settings(
+def settings_customise_sources(
     settings: type[BaseSettings],
     init_settings: PydanticBaseSettingsSource,
     env_settings: PydanticBaseSettingsSource,
     dotenv_settings: PydanticBaseSettingsSource,
     file_settings: PydanticBaseSettingsSource,
-) -> dict[str, PydanticBaseSettingsSource]:
-    """Customize settings sources to include TOML file."""
-    from pydantic_settings.sources import TomlConfigSettingsSource
+) -> tuple[PydanticBaseSettingsSource, ...]:
+    """Customize settings sources to include TOML file.
+
+    Priority order (highest to lowest):
+    1. init_settings (programmatic overrides)
+    2. env_settings (environment variables)
+    3. dotenv_settings (.env file - for secrets only)
+    4. TOML file (config/settings.toml - for configuration)
+
+    Returns:
+        Tuple of settings sources in priority order.
+    """
+    # Use Python's built-in tomllib for reliable TOML parsing
+    import tomllib
+
+    class TomlSettingsSource(PydanticBaseSettingsSource):
+        """Custom TOML settings source using tomllib."""
+
+        def __init__(self, toml_file: Path):
+            self.toml_file = toml_file
+            self._toml_data: dict[str, Any] | None = None
+
+        def __call__(self) -> dict[str, Any]:
+            if self._toml_data is None:
+                if self.toml_file.exists():
+                    with open(self.toml_file, "rb") as f:
+                        self._toml_data = tomllib.load(f)
+                else:
+                    self._toml_data = {}
+            return self._toml_data
+
+        def get_field_value(self, field: Any, field_name: str) -> tuple[Any, str, bool]:
+            """Get value for a specific field."""
+            # This method is required by PydanticBaseSettingsSource
+            return None, field_name, False
 
     toml_path = _PROJECT_ROOT / "config" / "settings.toml"
-    toml_source = TomlConfigSettingsSource(
-        settings_class=settings,
-        toml_file_path=str(toml_path),
-    )
+    toml_source = TomlSettingsSource(toml_file=toml_path)
 
-    return {
-        "toml": toml_source,
-        "env": env_settings,
-        "dotenv": dotenv_settings,
-    }
+    # Return tuple in priority order (highest first)
+    return (
+        init_settings,
+        env_settings,
+        dotenv_settings,
+        toml_source,
+    )
 
 
 class Settings(BaseSettings):
@@ -215,7 +261,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="WEAVER_",
         env_nested_delimiter="__",
-        settings_customise_sources=settings_customize_settings,
+        # Use default sources: env + dotenv
+        # TOML will be loaded manually in __init__
     )
 
     app_name: str = "weaver"
@@ -229,7 +276,52 @@ class Settings(BaseSettings):
     prompt: PromptSettings = Field(default_factory=PromptSettings)
     api: APISettings = Field(default_factory=APISettings)
     scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
+    dedup: DedupSettings = Field(default_factory=DedupSettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
+
+    def __init__(self, **kwargs: Any) -> None:
+        """Initialize settings, loading TOML config first."""
+        import tomllib
+
+        # Load TOML file first (lowest priority)
+        toml_path = _PROJECT_ROOT / "config" / "settings.toml"
+        toml_data: dict[str, Any] = {}
+
+        if toml_path.exists():
+            try:
+                with open(toml_path, "rb") as f:
+                    toml_data = tomllib.load(f)
+            except Exception as e:
+                import warnings
+
+                warnings.warn(f"Failed to load TOML config: {e}", stacklevel=2)
+
+        # Merge TOML data with defaults (TOML has lower priority than env)
+        # This allows env vars to override TOML settings
+        merged_kwargs = self._deep_merge(toml_data, kwargs)
+
+        # Call parent __init__ which will process env vars and dotenv
+        # with higher priority than the merged data
+        super().__init__(**merged_kwargs)
+
+    @staticmethod
+    def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+        """Deep merge two dictionaries, with override taking precedence.
+
+        Special handling for empty strings: if override has empty string,
+        still use it (to allow clearing values via env vars).
+        """
+        result = base.copy()
+
+        for key, value in override.items():
+            # If both are dicts, recursively merge
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                result[key] = Settings._deep_merge(result[key], value)
+            else:
+                # Override takes precedence (including empty strings)
+                result[key] = value
+
+        return result
 
     def validate_security(self) -> list[str]:
         """Validate all security settings.

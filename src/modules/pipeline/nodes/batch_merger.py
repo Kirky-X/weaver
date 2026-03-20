@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 import traceback
 import uuid
 from typing import Any
@@ -15,6 +16,7 @@ from core.llm.client import LLMClient
 from core.llm.output_validator import MergerOutput
 from core.llm.types import CallPoint
 from core.observability.logging import get_logger
+from core.observability.metrics import metrics
 from core.prompt.loader import PromptLoader
 from modules.pipeline.state import PipelineState
 
@@ -106,6 +108,7 @@ class BatchMergerNode:
         Returns:
             Modified states with merge information.
         """
+        start_time = time.perf_counter()
         active_states = [s for s in states if not s.get("terminal")]
         if not active_states:
             return states
@@ -125,19 +128,32 @@ class BatchMergerNode:
 
         groups = uf.get_groups()
         merge_tasks = []
+        merged_count = 0
         for root, members in groups.items():
             if len(members) <= 1:
                 continue
             group_states = [s for s in active_states if s["raw"].url in members]
             merge_tasks.append(self._llm_merge(group_states))
+            merged_count += len(members) - 1  # Count merged articles
 
         if merge_tasks:
             await asyncio.gather(*merge_tasks)
+
+        # Record metrics
+        elapsed = time.perf_counter() - start_time
+        metrics.dedup_total.labels(stage="vector").inc(merged_count)
+        metrics.dedup_processing_time.labels(stage="vector").observe(elapsed)
+
+        # Update ratio gauge
+        if len(active_states) > 0:
+            ratio = merged_count / len(active_states)
+            metrics.dedup_ratio.labels(stage="vector").set(ratio)
 
         log.info(
             "batch_merge_complete",
             total=len(active_states),
             groups=len([g for g in groups.values() if len(g) > 1]),
+            merged=merged_count,
         )
         return states
 

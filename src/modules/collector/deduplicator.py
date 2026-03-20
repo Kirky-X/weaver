@@ -8,6 +8,7 @@ import time
 
 from core.cache.redis import RedisClient
 from core.observability.logging import get_logger
+from core.observability.metrics import metrics
 
 log = get_logger("deduplicator")
 
@@ -49,6 +50,9 @@ class Deduplicator:
         if not items:
             return []
 
+        start_time = time.perf_counter()
+        original_count = len(items)
+
         pipe = self._redis.pipeline()
         url_hashes = [self._hash(item.url) for item in items]
         for h in url_hashes:
@@ -56,9 +60,16 @@ class Deduplicator:
         exists = await pipe.execute()
 
         candidates = [item for item, ex in zip(items, exists) if not ex]
+        redis_filtered = original_count - len(candidates)
 
         if not candidates:
             log.debug("dedup_all_filtered_by_redis", original=len(items))
+            # Record metrics
+            elapsed = time.perf_counter() - start_time
+            metrics.dedup_total.labels(stage="url").inc(redis_filtered)
+            metrics.dedup_processing_time.labels(stage="url").observe(elapsed)
+            metrics.articles_processed_total.inc(original_count)
+            metrics.articles_deduped_total.inc(redis_filtered)
             return []
 
         urls = [item.url for item in candidates]
@@ -68,12 +79,27 @@ class Deduplicator:
         else:
             new_items = candidates
 
+        db_filtered = len(candidates) - len(new_items)
+        total_filtered = redis_filtered + db_filtered
+
         if new_items:
             pipe = self._redis.pipeline()
             now = str(int(time.time()))
             for item in new_items:
                 pipe.hset(self.DEDUP_KEY, self._hash(item.url), now)
             await pipe.execute()
+
+        # Record metrics
+        elapsed = time.perf_counter() - start_time
+        metrics.dedup_total.labels(stage="url").inc(total_filtered)
+        metrics.dedup_processing_time.labels(stage="url").observe(elapsed)
+        metrics.articles_processed_total.inc(original_count)
+        metrics.articles_deduped_total.inc(total_filtered)
+
+        # Update ratio gauge
+        if original_count > 0:
+            ratio = total_filtered / original_count
+            metrics.dedup_ratio.labels(stage="url").set(ratio)
 
         log.info(
             "dedup_complete",
@@ -166,37 +192,61 @@ class Deduplicator:
     def normalize_url(url: str) -> str:
         """Normalize a URL for consistent deduplication.
 
-        - Removes the `www.` prefix (including protocol-relative `//www.`).
-        - Clears the query string (everything after `?`).
-        - Preserves path and fragment (after `#`).
+        Normalization rules (in order):
+        1. Unify protocol to HTTPS (http:// → https://)
+        2. Remove Fragment (#anchor)
+        3. Convert domain to lowercase
+        4. Remove trailing slash from path
+        5. Remove www. prefix
+        6. Remove query string
 
         Examples:
-            https://www.36kr.com/p/123?f=rss  ->  https://36kr.com/p/123
-            //www.36kr.com/p/123              ->  //36kr.com/p/123
-            https://36kr.com/p/123#anchor     ->  https://36kr.com/p/123#anchor
+            http://www.36kr.com/p/123/?f=rss#comments  ->  https://36kr.com/p/123
+            https://EXAMPLE.COM/Article/123/           ->  https://example.com/Article/123
+            //www.36kr.com/p/123                       ->  https://36kr.com/p/123
         """
-        # Extract fragment first so stripping query string doesn't lose it
+        # Handle protocol-relative URLs
+        if url.startswith("//"):
+            url = "https:" + url
+        # Unify HTTP to HTTPS
+        elif url.startswith("http://"):
+            url = "https://" + url.removeprefix("http://")
+
+        # Remove fragment (#anchor)
         if "#" in url:
-            base, fragment = url.split("#", 1)
-            url = base
-        else:
-            fragment = None
+            url = url.split("#", 1)[0]
 
-        # Remove www. prefix (strip it from the hostname position)
-        if url.startswith("//www."):
-            url = "//" + url.removeprefix("//www.")
-        elif url.startswith("http://www."):
-            url = "http://" + url.removeprefix("http://www.")
-        elif url.startswith("https://www."):
-            url = "https://" + url.removeprefix("https://www.")
-
-        # Clear query string
+        # Remove query string
         if "?" in url:
             url = url.split("?", 1)[0]
 
-        # Restore fragment
-        if fragment is not None:
-            url = url + "#" + fragment
+        # Parse URL for domain and path manipulation
+        # Format: https://domain/path
+        if "://" in url:
+            proto, rest = url.split("://", 1)
+            # Split domain and path
+            if "/" in rest:
+                domain, path = rest.split("/", 1)
+                # Lowercase domain
+                domain = domain.lower()
+                # Remove www. prefix
+                if domain.startswith("www."):
+                    domain = domain.removeprefix("www.")
+                # Reconstruct
+                url = f"{proto}://{domain}/{path}"
+            else:
+                # No path, just domain
+                domain = rest.lower()
+                if domain.startswith("www."):
+                    domain = domain.removeprefix("www.")
+                url = f"{proto}://{domain}"
+
+        # Remove trailing slash (but keep root path)
+        if url.endswith("/") and not url.endswith("://"):
+            url = url.rstrip("/")
+
+        # Ensure root path has trailing slash for domain-only URLs
+        # e.g., https://example.com -> https://example.com (no trailing slash)
 
         return url
 
