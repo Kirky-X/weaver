@@ -94,12 +94,17 @@ class ProviderQueue:
         provider_name: str,
         concurrency: int,
         provider: BaseLLMProvider,
+        threshold: int = 5,
+        timeout_secs: float = 60.0,
     ) -> None:
         self.name = provider_name
         self._provider = provider
         self._queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
         self._semaphore = asyncio.Semaphore(concurrency)
-        self.circuit_breaker = CircuitBreaker()
+        self.circuit_breaker = CircuitBreaker(
+            threshold=threshold,
+            timeout_secs=timeout_secs,
+        )
         self._workers: list[asyncio.Task] = []
 
     async def enqueue(self, task: LLMTask) -> asyncio.Future:
@@ -197,10 +202,14 @@ class LLMQueueManager:
         config_manager: LLMConfigManager,
         rate_limiter: RedisTokenBucket | ProRateLimiter,
         event_bus: EventBus,
+        circuit_breaker_threshold: int = 5,
+        circuit_breaker_timeout: float = 60.0,
     ) -> None:
         self._config = config_manager
         self._rate_limiter = rate_limiter
         self._event_bus = event_bus
+        self._cb_threshold = circuit_breaker_threshold
+        self._cb_timeout = circuit_breaker_timeout
         self._queues: dict[str, ProviderQueue] = {}
         self._providers: dict[str, BaseLLMProvider] = {}
 
@@ -227,7 +236,13 @@ class LLMQueueManager:
                 )
             self._providers[name] = provider
 
-            queue = ProviderQueue(name, cfg.concurrency, provider)
+            queue = ProviderQueue(
+                name,
+                cfg.concurrency,
+                provider,
+                threshold=self._cb_threshold,
+                timeout_secs=self._cb_timeout,
+            )
             await queue.start_workers(cfg.concurrency)
             self._queues[name] = queue
 
@@ -294,7 +309,7 @@ class LLMQueueManager:
                 continue
 
             # Circuit breaker check
-            if queue.circuit_breaker.is_open():
+            if await queue.circuit_breaker.is_open():
                 await self._event_bus.publish(
                     FallbackEvent(
                         call_point=task.call_point.value,

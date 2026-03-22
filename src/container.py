@@ -124,10 +124,8 @@ class Container:
             log.info("neo4j_initialized")
         return self._neo4j_pool
 
-    def neo4j_pool(self) -> Neo4jPool:
-        """Get Neo4j pool."""
-        if self._neo4j_pool is None:
-            raise RuntimeError("Neo4j pool not initialized. Call init_neo4j() first.")
+    def neo4j_pool(self) -> Neo4jPool | None:
+        """Get Neo4j pool (or None if unavailable)."""
         return self._neo4j_pool
 
     async def init_redis(self) -> RedisClient:
@@ -159,6 +157,8 @@ class Container:
                 config_manager=config_manager,
                 rate_limiter=rate_limiter,
                 event_bus=self._event_bus,
+                circuit_breaker_threshold=self._settings.circuit_breaker_threshold,
+                circuit_breaker_timeout=self._settings.circuit_breaker_timeout,
             )
             await queue_manager.startup()
 
@@ -254,20 +254,26 @@ class Container:
 
     # ── Neo4j Repositories ─────────────────────────────────────────
 
-    def neo4j_entity_repo(self) -> Neo4jEntityRepo:
-        """Get Neo4j entity repository."""
+    def neo4j_entity_repo(self) -> Neo4jEntityRepo | None:
+        """Get Neo4j entity repository (or None if unavailable)."""
+        if self._neo4j_pool is None:
+            return None
         if self._neo4j_entity_repo is None:
             self._neo4j_entity_repo = Neo4jEntityRepo(self._neo4j_pool)
         return self._neo4j_entity_repo
 
-    def neo4j_article_repo(self) -> Neo4jArticleRepo:
-        """Get Neo4j article repository."""
+    def neo4j_article_repo(self) -> Neo4jArticleRepo | None:
+        """Get Neo4j article repository (or None if unavailable)."""
+        if self._neo4j_pool is None:
+            return None
         if self._neo4j_article_repo is None:
             self._neo4j_article_repo = Neo4jArticleRepo(self._neo4j_pool)
         return self._neo4j_article_repo
 
-    def neo4j_writer(self) -> Neo4jWriter:
-        """Get Neo4j writer."""
+    def neo4j_writer(self) -> Neo4jWriter | None:
+        """Get Neo4j writer (or None if unavailable)."""
+        if self._neo4j_pool is None:
+            return None
         if self._neo4j_writer is None:
             self._neo4j_writer = Neo4jWriter(self._neo4j_pool)
         return self._neo4j_writer
@@ -447,7 +453,10 @@ class Container:
 
         await self.init_postgres()
         await self.init_redis()
-        await self.init_neo4j()
+        try:
+            await self.init_neo4j()
+        except ConnectionError as exc:
+            log.warning("neo4j_unavailable_skipping", error=str(exc))
         await self.init_llm()
         await self.init_playwright_pool()
         await self.init_smart_fetcher()

@@ -146,3 +146,59 @@ class TestLLMTask:
             call_point=CallPoint.CLASSIFIER, llm_type=LLMType.CHAT, payload={}, attempt=2
         )
         assert task.attempt == 2
+
+
+class TestCircuitBreakerConfig:
+    """Tests for circuit breaker config propagation."""
+
+    def test_provider_queue_uses_threshold_from_init(self):
+        """Test ProviderQueue passes threshold to CircuitBreaker."""
+        mock_provider = MagicMock()
+        queue = ProviderQueue(
+            "test_provider",
+            concurrency=2,
+            provider=mock_provider,
+            threshold=3,
+            timeout_secs=30.0,
+        )
+        assert queue.circuit_breaker._threshold == 3
+        assert queue.circuit_breaker._timeout == 30.0
+
+    def test_provider_queue_uses_default_threshold(self):
+        """Test ProviderQueue uses default threshold when not specified."""
+        mock_provider = MagicMock()
+        queue = ProviderQueue(
+            "test_provider",
+            concurrency=2,
+            provider=mock_provider,
+        )
+        assert queue.circuit_breaker._threshold == 5
+        assert queue.circuit_breaker._timeout == 60.0
+
+    def test_llm_queue_manager_stores_cb_config(self):
+        """Test LLMQueueManager stores circuit breaker config."""
+        mock_config = MagicMock()
+        mock_limiter = MagicMock()
+        mock_bus = MagicMock()
+        manager = LLMQueueManager(
+            config_manager=mock_config,
+            rate_limiter=mock_limiter,
+            event_bus=mock_bus,
+            circuit_breaker_threshold=3,
+            circuit_breaker_timeout=30.0,
+        )
+        assert manager._cb_threshold == 3
+        assert manager._cb_timeout == 30.0
+
+    def test_llm_queue_manager_uses_default_cb_config(self):
+        """Test LLMQueueManager uses default circuit breaker config."""
+        mock_config = MagicMock()
+        mock_limiter = MagicMock()
+        mock_bus = MagicMock()
+        manager = LLMQueueManager(
+            config_manager=mock_config,
+            rate_limiter=mock_limiter,
+            event_bus=mock_bus,
+        )
+        assert manager._cb_threshold == 5
+        assert manager._cb_timeout == 60.0

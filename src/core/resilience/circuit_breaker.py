@@ -28,7 +28,10 @@ class CBState(Enum):
 
 
 class CircuitBreaker:
-    """Simple in-process circuit breaker.
+    """In-process circuit breaker with async-safe state transitions.
+
+    All state-changing operations use asyncio.Lock for atomicity.
+    The OPEN→HALF_OPEN transition happens atomically inside is_open().
 
     Args:
         threshold: Number of consecutive failures before opening.
@@ -46,105 +49,66 @@ class CircuitBreaker:
 
     @property
     def state(self) -> CBState:
-        """Current circuit breaker state."""
+        """Current circuit breaker state (read-only, no lock)."""
         return self._state
 
-    def is_open(self) -> bool:
-        """Check if the circuit is open (calls should be blocked).
-
-        Also handles the OPEN → HALF_OPEN transition when the
-        cooldown period has elapsed.
+    async def is_open(self) -> bool:
+        """Check if the circuit is open and atomically transition OPEN→HALF_OPEN.
 
         Returns:
-            True if calls should be blocked.
+            True if calls should be blocked (OPEN, not yet timed out).
+            False if calls may proceed (CLOSED or HALF_OPEN).
         """
-        if self._state == CBState.OPEN:
-            if time.monotonic() - self._opened_at >= self._timeout:
-                self._state = CBState.HALF_OPEN
-                return False
-            return True
-        return False
-
-    async def _transition_to(self, new_state: CBState) -> bool:
-        """Transition to a new state with thread-safe lock protection.
-
-        Uses a 5-second timeout for lock acquisition. If timeout occurs,
-        logs a warning and skips the transition.
-
-        Args:
-            new_state: The target state to transition to.
-
-        Returns:
-            True if transition succeeded, False if timeout occurred.
-        """
-        try:
-            async with asyncio.timeout(5.0):
-                async with self._lock:
-                    self._state = new_state
-                    if new_state == CBState.OPEN:
-                        self._opened_at = time.monotonic()
-                    return True
-        except TimeoutError:
-            log.warning(
-                "circuit_breaker_lock_timeout",
-                current_state=self._state.value,
-                target_state=new_state.value,
-            )
+        async with self._lock:
+            if self._state == CBState.OPEN:
+                if time.monotonic() - self._opened_at >= self._timeout:
+                    self._state = CBState.HALF_OPEN
+                    self._fail_count = 0
+                    log.info("circuit_breaker_half_open")
+                    return False
+                return True
             return False
 
     async def record_success(self) -> bool:
-        """Record a successful operation. Resets the breaker to CLOSED.
+        """Record a successful operation.
 
-        Thread-safe with 5-second lock timeout.
-
-        Returns:
-            True if the operation succeeded, False if timeout occurred.
+        In HALF_OPEN: closes the circuit immediately.
+        In CLOSED: resets failure counter.
         """
-        try:
-            async with asyncio.timeout(5.0):
-                async with self._lock:
-                    self._fail_count = 0
-                    self._state = CBState.CLOSED
-                    return True
-        except TimeoutError:
-            log.warning("circuit_breaker_record_success_timeout")
-            return False
+        async with self._lock:
+            if self._state == CBState.HALF_OPEN:
+                self._state = CBState.CLOSED
+                self._fail_count = 0
+                self._opened_at = 0.0
+                log.info("circuit_breaker_closed_from_half_open")
+                return True
+            self._fail_count = 0
+            self._state = CBState.CLOSED
+            return True
 
     async def record_failure(self) -> bool:
-        """Record a failed operation. Opens the breaker if threshold reached.
+        """Record a failed operation.
 
-        Thread-safe with 5-second lock timeout.
-
-        Returns:
-            True if the operation succeeded, False if timeout occurred.
+        In HALF_OPEN: immediately re-opens the circuit (probe failed).
+        In CLOSED: increments counter; opens if threshold reached.
         """
-        try:
-            async with asyncio.timeout(5.0):
-                async with self._lock:
-                    self._fail_count += 1
-                    if self._fail_count >= self._threshold:
-                        self._state = CBState.OPEN
-                        self._opened_at = time.monotonic()
-                    return True
-        except TimeoutError:
-            log.warning("circuit_breaker_record_failure_timeout")
-            return False
+        async with self._lock:
+            if self._state == CBState.HALF_OPEN:
+                self._state = CBState.OPEN
+                self._opened_at = time.monotonic()
+                self._fail_count = 0
+                log.warning("circuit_breaker_reopened_from_half_open")
+                return True
+            self._fail_count += 1
+            if self._fail_count >= self._threshold:
+                self._state = CBState.OPEN
+                self._opened_at = time.monotonic()
+            return True
 
     async def reset(self) -> bool:
-        """Manually reset the circuit breaker to CLOSED state.
-
-        Thread-safe with 5-second lock timeout.
-
-        Returns:
-            True if the operation succeeded, False if timeout occurred.
-        """
-        try:
-            async with asyncio.timeout(5.0):
-                async with self._lock:
-                    self._fail_count = 0
-                    self._state = CBState.CLOSED
-                    self._opened_at = 0.0
-                    return True
-        except TimeoutError:
-            log.warning("circuit_breaker_reset_timeout")
-            return False
+        """Manually reset the circuit breaker to CLOSED state."""
+        async with self._lock:
+            self._fail_count = 0
+            self._state = CBState.CLOSED
+            self._opened_at = 0.0
+            return True

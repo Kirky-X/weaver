@@ -102,7 +102,7 @@ class SmartFetcher(BaseFetcher):
         # Check circuit breaker first
         if self._circuit_breaker_enabled:
             breaker = self._get_breaker(host)
-            if breaker.is_open():
+            if await breaker.is_open():
                 log.warning("circuit_breaker_open", url=url, host=host)
                 raise CircuitOpenError(host)
 

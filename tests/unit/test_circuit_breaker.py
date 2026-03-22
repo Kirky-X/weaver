@@ -18,10 +18,11 @@ class TestCircuitBreaker:
         assert cb.state == CBState.CLOSED
         assert cb._fail_count == 0
 
-    def test_is_open_returns_false_when_closed(self):
+    @pytest.mark.asyncio
+    async def test_is_open_returns_false_when_closed(self):
         """Test is_open returns False when circuit is closed."""
         cb = CircuitBreaker()
-        assert cb.is_open() is False
+        assert await cb.is_open() is False
 
     @pytest.mark.asyncio
     async def test_threshold_triggers_open(self):
@@ -39,7 +40,7 @@ class TestCircuitBreaker:
         cb = CircuitBreaker(threshold=2, timeout_secs=60.0)
         await cb.record_failure()
         await cb.record_failure()
-        assert cb.is_open() is True
+        assert await cb.is_open() is True
 
     @pytest.mark.asyncio
     async def test_timeout_transitions_to_half_open(self):
@@ -48,7 +49,7 @@ class TestCircuitBreaker:
         await cb.record_failure()
         assert cb.state == CBState.OPEN
         await asyncio.sleep(0.15)
-        cb.is_open()  # Trigger the transition
+        await cb.is_open()  # Trigger the transition
         assert cb.state == CBState.HALF_OPEN
 
     @pytest.mark.asyncio
@@ -57,7 +58,7 @@ class TestCircuitBreaker:
         cb = CircuitBreaker(threshold=1, timeout_secs=0.1)
         await cb.record_failure()
         await asyncio.sleep(0.15)
-        cb.is_open()  # Trigger the transition
+        await cb.is_open()  # Trigger the transition
         assert cb.state == CBState.HALF_OPEN
         await cb.record_success()
         assert cb.state == CBState.CLOSED
@@ -68,7 +69,7 @@ class TestCircuitBreaker:
         cb = CircuitBreaker(threshold=1, timeout_secs=0.1)
         await cb.record_failure()
         await asyncio.sleep(0.15)
-        cb.is_open()  # Trigger the transition
+        await cb.is_open()  # Trigger the transition
         assert cb.state == CBState.HALF_OPEN
         await cb.record_failure()
         assert cb.state == CBState.OPEN
@@ -113,7 +114,7 @@ class TestCircuitBreaker:
         await cb.record_failure()
         assert cb.state == CBState.OPEN
         await asyncio.sleep(0.1)
-        cb.is_open()  # Trigger the transition
+        await cb.is_open()  # Trigger the transition
         assert cb.state == CBState.HALF_OPEN
 
     @pytest.mark.asyncio
@@ -136,7 +137,7 @@ class TestCircuitBreaker:
         await cb.record_failure()
         assert cb.state == CBState.OPEN
         await asyncio.sleep(0.1)
-        cb.is_open()  # Trigger the transition
+        await cb.is_open()  # Trigger the transition
         assert cb.state == CBState.HALF_OPEN
 
     @pytest.mark.asyncio
