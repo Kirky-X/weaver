@@ -1,35 +1,34 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-# E2E Test Environment Docker Compose.
-# Provides isolated Docker services for E2E testing, separate from
-# the development docker-compose configuration. Uses dedicated ports to
-# avoid conflicts with local development.
+# Weaver Docker Compose.
+# Provides Docker services for integration testing and development.
+# Uses dedicated ports to avoid conflicts with local development.
 
-version: "3.8"
+name: weaver
 
 services:
-  postgres_e2e:
+  postgres:
     image: pgvector/pgvector:pg16
-    container_name: weaver_e2e_postgres
+    container_name: weaver_postgres
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: weaver_e2e
+      POSTGRES_DB: weaver
     ports:
-      - "5433:5432"
+      - "5434:5432"
     volumes:
-      - postgres_e2e_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d weaver_e2e"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d weaver"]
       interval: 5s
       timeout: 5s
       retries: 20
       start_period: 10s
     networks:
-      - weaver_e2e_network
+      - weaver_network
 
-  neo4j_e2e:
+  neo4j:
     image: neo4j:5.25
-    container_name: weaver_e2e_neo4j
+    container_name: weaver_neo4j
     environment:
       NEO4J_AUTH: neo4j/password
       NEO4J_PLUGINS: '["apoc"]'
@@ -37,10 +36,10 @@ services:
       NEO4J_dbms_memory_heap_max__size: 1g
       NEO4J_dbms_memory_pagecache_size: 512m
     ports:
-      - "7475:7474"
-      - "7688:7687"
+      - "7476:7474"
+      - "7689:7687"
     volumes:
-      - neo4j_e2e_data:/data
+      - neo4j_data:/data
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider localhost:7474 || exit 1"]
       interval: 10s
@@ -48,28 +47,28 @@ services:
       retries: 15
       start_period: 30s
     networks:
-      - weaver_e2e_network
+      - weaver_network
 
-  redis_e2e:
+  redis:
     image: redis:7-alpine
-    container_name: weaver_e2e_redis
+    container_name: weaver_redis
     ports:
-      - "6380:6379"
+      - "6381:6379"
     volumes:
-      - redis_e2e_data:/data
+      - redis_data:/data
     healthcheck:
       test: ["CMD-SHELL", "redis-cli ping"]
       interval: 5s
       timeout: 5s
       retries: 10
     networks:
-      - weaver_e2e_network
+      - weaver_network
 
 volumes:
-  postgres_e2e_data:
-  neo4j_e2e_data:
-  redis_e2e_data:
+  postgres_data:
+  neo4j_data:
+  redis_data:
 
 networks:
-  weaver_e2e_network:
+  weaver_network:
     driver: bridge
