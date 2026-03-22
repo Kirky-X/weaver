@@ -22,6 +22,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from api.endpoints import _deps as deps
 from api.endpoints.admin import set_source_authority_repo
 from api.endpoints.articles import set_postgres_pool as set_articles_postgres_pool
 from api.endpoints.graph import set_neo4j_client
@@ -204,6 +205,17 @@ async def lifespan(app: FastAPI) -> None:
     # Also set postgres pool for pipeline and articles modules
     set_pipeline_postgres_pool(container.postgres_pool())
     set_articles_postgres_pool(container.postgres_pool())
+
+    # Register all pools/clients with the centralized Endpoints registry
+    deps.Endpoints._postgres = container.postgres_pool()
+    deps.Endpoints._neo4j = container.neo4j_pool()
+    deps.Endpoints._redis = redis_client
+    deps.Endpoints._llm = container.llm_client()
+    deps.Endpoints._scheduler = container.source_scheduler()
+    deps.Endpoints._vector_repo = container.vector_repo()
+    deps.Endpoints._source_config_repo = container.source_config_repo()
+    deps.Endpoints._source_authority_repo = container.source_authority_repo()
+    log.debug("endpoints_registry_populated")
 
     # Setup APScheduler
     try:

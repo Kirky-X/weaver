@@ -299,6 +299,15 @@ class Settings(BaseSettings):
             if not merged_kwargs["postgres"]:
                 merged_kwargs.pop("postgres", None)
 
+        # Redis: strip url so env vars (WEAVER_REDIS__URL) take precedence over TOML.
+        if _os.environ.get("WEAVER_REDIS__URL") and (
+            "redis" in merged_kwargs and isinstance(merged_kwargs["redis"], dict)
+        ):
+            merged_kwargs["redis"] = dict(merged_kwargs["redis"])
+            merged_kwargs["redis"].pop("url", None)
+            if not merged_kwargs["redis"]:
+                merged_kwargs.pop("redis", None)
+
         # Neo4j: strip all fields so env vars (NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
         # take precedence over TOML values, matching the pattern for Postgres/Redis above.
         if any(_os.environ.get(k) for k in ("NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD")) and (

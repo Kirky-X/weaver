@@ -157,8 +157,8 @@ class Container:
                 config_manager=config_manager,
                 rate_limiter=rate_limiter,
                 event_bus=self._event_bus,
-                circuit_breaker_threshold=self._settings.circuit_breaker_threshold,
-                circuit_breaker_timeout=self._settings.circuit_breaker_timeout,
+                circuit_breaker_threshold=self._settings.fetcher.circuit_breaker_threshold,
+                circuit_breaker_timeout=self._settings.fetcher.circuit_breaker_timeout,
             )
             await queue_manager.startup()
 

@@ -137,9 +137,9 @@ async def get_graph_snapshot(
     for r in results:
         nodes.append(
             NodeResponse(
-                id=r.get("id", ""),
-                label=r.get("label", ""),
-                type=r.get("type", "未知"),
+                id=r.get("id") or "",
+                label=r.get("label") or "",
+                type=r.get("type") or "未知",
                 properties={"description": r.get("description"), "degree": r.get("degree", 0)},
             )
         )
@@ -182,7 +182,7 @@ async def get_graph_snapshot(
         EdgeResponse(
             source=r.get("source", ""),
             target=r.get("target", ""),
-            relation_type=r.get("relation_type", "RELATED_TO"),
+            relation_type=r.get("relation_type") or "RELATED_TO",
             weight=r.get("weight"),
         )
         for r in edge_results
@@ -239,13 +239,13 @@ async def get_subgraph(
     node_ids = set()
 
     for r in results:
-        if request.exclude_types and r.get("type") in request.exclude_types:
+        if request.exclude_types and (r.get("type") or "未知") in request.exclude_types:
             continue
         nodes.append(
             NodeResponse(
-                id=r.get("id", ""),
-                label=r.get("label", ""),
-                type=r.get("type", "未知"),
+                id=r.get("id") or "",
+                label=r.get("label") or "",
+                type=r.get("type") or "未知",
                 properties={"description": r.get("description")},
             )
         )
@@ -270,7 +270,7 @@ async def get_subgraph(
         EdgeResponse(
             source=r.get("source", ""),
             target=r.get("target", ""),
-            relation_type=r.get("relation_type", "RELATED_TO"),
+            relation_type=r.get("relation_type") or "RELATED_TO",
             weight=r.get("weight"),
         )
         for r in edge_results
@@ -335,9 +335,9 @@ async def get_force_directed_layout(
 
     layout_edges = [
         LayoutEdge(
-            source=e["source"],
-            target=e["target"],
-            relation_type=e["relation_type"],
+            source=e["source"] or "",
+            target=e["target"] or "",
+            relation_type=e["relation_type"] or "RELATED_TO",
             weight=e.get("weight"),
         )
         for e in edges_data
