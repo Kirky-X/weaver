@@ -15,26 +15,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from api.endpoints import _deps as deps
 from api.middleware.auth import verify_api_key
 from core.db.neo4j import Neo4jPool
 
 router = APIRouter(prefix="/graph/visualization", tags=["graph-visualization"])
-
-
-_neo4j_pool: Neo4jPool | None = None
-
-
-def set_neo4j_pool(pool: Neo4jPool) -> None:
-    """Set the global Neo4j pool instance."""
-    global _neo4j_pool
-    _neo4j_pool = pool
-
-
-def get_neo4j_pool() -> Neo4jPool:
-    """Get the Neo4j pool instance."""
-    if _neo4j_pool is None:
-        raise HTTPException(status_code=503, detail="Neo4j pool not initialized")
-    return _neo4j_pool
 
 
 class NodeResponse(BaseModel):
@@ -117,7 +102,7 @@ TYPE_COLORS = {
 async def get_graph_snapshot(
     limit: int = Query(100, ge=10, le=1000, description="Max nodes to return"),
     _: str = Depends(verify_api_key),
-    neo4j: Neo4jPool = Depends(get_neo4j_pool),
+    neo4j: Neo4jPool = Depends(deps.Endpoints.get_neo4j_pool),
 ) -> GraphSnapshotResponse:
     """Get a snapshot of the knowledge graph.
 
@@ -129,12 +114,22 @@ async def get_graph_snapshot(
            e.canonical_name AS label,
            e.type AS type,
            e.description AS description,
-           size((e)-[:RELATED_TO]-()) AS degree
+           size([(e)-[:RELATED_TO]-()|1]) AS degree
     ORDER BY degree DESC
     LIMIT $limit
     """
 
-    results = await neo4j.execute_query(node_query, {"limit": limit})
+    try:
+        results = await neo4j.execute_query(node_query, {"limit": limit})
+    except Exception as exc:
+        return GraphSnapshotResponse(
+            nodes=[],
+            edges=[],
+            metadata={
+                "total_nodes": 0,
+                "error": str(exc)[:200] if str(exc) else "Graph service unavailable",
+            },
+        )
 
     nodes = []
     node_ids = set()
@@ -164,13 +159,24 @@ async def get_graph_snapshot(
     """
 
     edge_limit = limit * 3
-    edge_results = await neo4j.execute_query(
-        edge_query,
-        {
-            "node_ids": list(node_ids),
-            "edge_limit": edge_limit,
-        },
-    )
+    try:
+        edge_results = await neo4j.execute_query(
+            edge_query,
+            {
+                "node_ids": list(node_ids),
+                "edge_limit": edge_limit,
+            },
+        )
+    except Exception:
+        return GraphSnapshotResponse(
+            nodes=nodes,
+            edges=[],
+            metadata={
+                "total_nodes": len(nodes),
+                "total_edges": 0,
+                "error": "Graph service unavailable",
+            },
+        )
 
     edges = [
         EdgeResponse(
@@ -193,7 +199,7 @@ async def get_graph_snapshot(
 async def get_subgraph(
     request: SubgraphRequest,
     _: str = Depends(verify_api_key),
-    neo4j: Neo4jPool = Depends(get_neo4j_pool),
+    neo4j: Neo4jPool = Depends(deps.Endpoints.get_neo4j_pool),
 ) -> GraphSnapshotResponse:
     """Extract a subgraph around a center entity.
 
@@ -287,7 +293,7 @@ async def get_force_directed_layout(
     center_entity: str = Query(..., description="Center entity name"),
     max_hops: int = Query(2, ge=1, le=4),
     _: str = Depends(verify_api_key),
-    neo4j: Neo4jPool = Depends(get_neo4j_pool),
+    neo4j: Neo4jPool = Depends(deps.Endpoints.get_neo4j_pool),
 ) -> LayoutResponse:
     """Get a simple force-directed layout for visualization.
 
@@ -367,7 +373,7 @@ async def _extract_subgraph_nodes(
            node.canonical_name AS label,
            node.type AS type,
            node.description AS description,
-           size((node)-[:RELATED_TO]-()) AS degree
+           size([(node)-[:RELATED_TO]-()|1]) AS degree
     LIMIT 200
     """
 
