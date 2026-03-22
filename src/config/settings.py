@@ -23,8 +23,11 @@ class PostgresSettings(BaseModel):
     dsn: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver"
 
 
-class Neo4jSettings(BaseModel):
-    """Neo4j connection settings."""
+class Neo4jSettings(BaseSettings):
+    """Neo4j connection settings.
+
+    Reads NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD from environment.
+    """
 
     model_config = SettingsConfigDict(env_prefix="NEO4J_")
 
@@ -295,6 +298,18 @@ class Settings(BaseSettings):
             merged_kwargs["postgres"].pop("dsn", None)
             if not merged_kwargs["postgres"]:
                 merged_kwargs.pop("postgres", None)
+
+        # Neo4j: strip all fields so env vars (NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
+        # take precedence over TOML values, matching the pattern for Postgres/Redis above.
+        if any(_os.environ.get(k) for k in ("NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD")) and (
+            "neo4j" in merged_kwargs and isinstance(merged_kwargs["neo4j"], dict)
+        ):
+            merged_kwargs["neo4j"] = dict(merged_kwargs["neo4j"])
+            merged_kwargs["neo4j"].pop("uri", None)
+            merged_kwargs["neo4j"].pop("user", None)
+            merged_kwargs["neo4j"].pop("password", None)
+            if not merged_kwargs["neo4j"]:
+                merged_kwargs.pop("neo4j", None)
 
         # Call parent __init__ which will process env vars and dotenv
         # with higher priority than the merged data
