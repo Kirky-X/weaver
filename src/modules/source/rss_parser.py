@@ -20,6 +20,10 @@ log = get_logger("rss_parser")
 _WECHAT_BIZ_MID_RE = re.compile(r'(?:biz|__biz)=([^&"\'<>]+)', re.IGNORECASE)
 _WECHAT_MID_RE = re.compile(r'\bmid=([^&"\'<>]+)', re.IGNORECASE)
 _WECHAT_SOGOU_RE = re.compile(r"https?://(?:www\.)?weixin\.sogou\.com/", re.IGNORECASE)
+# WeChat recommendation section: "近期热门视频你会关注" followed by unrelated article titles.
+_WECHAT_RECOMMEND_RE = re.compile(r"近期热门视频你会关注[\s\S]+", re.MULTILINE)
+# WeChat article footer: "来源:" through "文章原文" (marks end of real content).
+_WECHAT_FOOTER_RE = re.compile(r"来源：[\s\S]*?文章原文", re.MULTILINE)
 
 
 class RSSParser(BaseSourceParser):
@@ -180,6 +184,25 @@ class RSSParser(BaseSourceParser):
         return text
 
     @staticmethod
+    def _strip_wechat_noise(text: str) -> str:
+        """Remove WeChat recommendation sections and article footer noise.
+
+        WeChat articles embed recommendation blocks as plain text:
+          - "近期热门视频你会关注" + list of unrelated article titles
+          - "来源:..." through "文章原文" (marks end of real content)
+
+        These noise sections corrupt downstream LLM analysis when included
+        in the body text passed to the pipeline.
+        """
+        # Remove recommendation section (all text from "近期热门视频" onward)
+        text = _WECHAT_RECOMMEND_RE.sub("", text)
+        # Remove trailing footer from "来源:" to "文章原文"
+        text = _WECHAT_FOOTER_RE.sub("", text)
+        # Clean up any double newlines left behind
+        text = re.sub(r"\n{3,}", "\n\n", text).strip()
+        return text
+
+    @staticmethod
     def _extract_body(entry: dict) -> str:
         """Extract full article body text from an RSS entry.
 
@@ -190,6 +213,9 @@ class RSSParser(BaseSourceParser):
         Uses the dify rss-parser approach: regex tag stripping is more robust
         than trafilatura for bare HTML fragments that feedparser produces from
         CDATA content, since it does not require a full document structure.
+
+        After stripping HTML, removes WeChat recommendation blocks and article
+        footer noise to prevent LLM analysis contamination.
         """
         content_list = entry.get("content")
         if isinstance(content_list, list) and len(content_list) > 0:
@@ -197,6 +223,7 @@ class RSSParser(BaseSourceParser):
             if raw_html:
                 text = RSSParser._strip_html_tags(raw_html)
                 if text:
+                    text = RSSParser._strip_wechat_noise(text)
                     return text
 
         # Fallback: description/summary
@@ -204,6 +231,7 @@ class RSSParser(BaseSourceParser):
         if summary:
             text = RSSParser._strip_html_tags(summary)
             if text:
+                text = RSSParser._strip_wechat_noise(text)
                 return text
 
         return ""
