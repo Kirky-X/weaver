@@ -66,7 +66,7 @@ class EntityResolver:
 
     def __init__(
         self,
-        entity_repo: Neo4jEntityRepo,
+        entity_repo: Neo4jEntityRepo | None,
         vector_repo: VectorRepo,
         llm: LLMClient | None = None,
         resolution_rules: EntityResolutionRules | None = None,
