@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -383,18 +383,9 @@ def create_app(container: Container | None = None) -> FastAPI:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-    @app.exception_handler(BusinessException)
-    async def business_exception_handler(request: Request, exc: BusinessException):
-        return JSONResponse(
-            status_code=exc.http_status, content={"code": exc.code, "message": exc.message}
-        )
+    from api.middleware.api_response import register_exception_handlers
 
-    @app.exception_handler(Exception)
-    async def global_exception_handler(request: Request, exc: Exception):
-        log.error("unhandled_exception", error=str(exc), path=request.url.path)
-        return JSONResponse(
-            status_code=500, content={"code": 500, "message": "Internal server error"}
-        )
+    register_exception_handlers(app)
 
     if container is None:
         container = Container().configure(settings)

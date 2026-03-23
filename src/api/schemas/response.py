@@ -88,3 +88,58 @@ class PaginatedResponse(BaseModel, Generic[T]):
             page_size=page_size,
             total_pages=total_pages,
         )
+
+
+# ── 业务错误码定义 ────────────────────────────────────────────────
+
+
+class ResponseCode:
+    """Business error code enum. code=0 means success, non-zero means business error."""
+
+    SUCCESS = 0
+
+    # 通用错误 1xxxx
+    ERR_INVALID_PARAM = 10001
+    ERR_AUTH_FAILED = 10002
+    ERR_FORBIDDEN = 10003
+    ERR_NOT_FOUND = 10004
+    ERR_CONFLICT = 10005
+    ERR_INTERNAL = 10099
+
+    # Article 相关 3xxxx
+    ERR_ARTICLE_NOT_FOUND = 30001
+    ERR_ARTICLE_INVALID_ID = 30002
+
+    # Source / Graph 相关 4xxxx
+    ERR_SOURCE_NOT_FOUND = 40001
+    ERR_SOURCE_CONFLICT = 40002
+    ERR_GRAPH_SERVICE_UNAVAILABLE = 40010
+
+    # Search 相关 5xxxx
+    ERR_SEARCH_SERVICE_UNAVAILABLE = 50001
+    ERR_SEARCH_FAILED = 50002
+
+    # Pipeline 相关 2xxxx
+    ERR_PIPELINE_TRIGGER_FAILED = 20001
+    ERR_TASK_NOT_FOUND = 20002
+
+
+# ── 响应构造工具函数 ───────────────────────────────────────────────
+
+
+def success_response[T](data: T) -> APIResponse[T]:
+    """Construct a success response."""
+    return APIResponse(
+        code=ResponseCode.SUCCESS,
+        message="success",
+        data=data,
+    )
+
+
+def error_response(code: int, message: str, details: dict[str, Any] | None = None) -> ErrorResponse:
+    """Construct an error response for use by exception handlers."""
+    return ErrorResponse(
+        code=code,
+        message=message,
+        details=details,
+    )
