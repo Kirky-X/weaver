@@ -144,12 +144,12 @@ class TestSearchLocalEndpoint:
             engine=mock_engine,
         )
 
-        assert isinstance(result, SearchResponse)
-        assert result.query == "腾讯"
-        assert result.answer == "腾讯是一家中国互联网公司"
-        assert result.search_type == "local"
-        assert result.confidence == 0.9
-        assert "腾讯" in result.entities
+        assert isinstance(result.data, SearchResponse)
+        assert result.data.query == "腾讯"
+        assert result.data.answer == "腾讯是一家中国互联网公司"
+        assert result.data.search_type == "local"
+        assert result.data.confidence == 0.9
+        assert "腾讯" in result.data.entities
 
     @pytest.mark.asyncio
     async def test_search_local_with_entity_names_param(self):
@@ -176,8 +176,8 @@ class TestSearchLocalEndpoint:
             engine=mock_engine,
         )
 
-        assert isinstance(result, SearchResponse)
-        assert result.search_type == "local"
+        assert isinstance(result.data, SearchResponse)
+        assert result.data.search_type == "local"
 
     @pytest.mark.asyncio
     async def test_search_local_returns_503_on_neo4j_exception(self):
@@ -293,10 +293,10 @@ class TestSearchGlobalEndpoint:
             engine=mock_engine,
         )
 
-        assert isinstance(result, SearchResponse)
-        assert result.query == "AI领域进展"
-        assert result.search_type == "global"
-        assert result.metadata["intermediate_count"] == 3
+        assert isinstance(result.data, SearchResponse)
+        assert result.data.query == "AI领域进展"
+        assert result.data.search_type == "global"
+        assert result.data.metadata["intermediate_count"] == 3
 
 
 # ── Test GET /search/articles ───────────────────────────────────
@@ -328,13 +328,13 @@ class TestSearchArticlesEndpoint:
             llm=mock_llm,
         )
 
-        assert isinstance(result, SearchResponse)
-        assert result.search_type == "articles"
-        assert result.query == "半导体行业动态"
-        assert len(result.sources) == 2
-        assert result.sources[0]["article_id"] == "abc-123"
-        assert result.sources[0]["similarity"] == 0.92
-        assert result.metadata["total_results"] == 2
+        assert isinstance(result.data, SearchResponse)
+        assert result.data.search_type == "articles"
+        assert result.data.query == "半导体行业动态"
+        assert len(result.data.sources) == 2
+        assert result.data.sources[0]["article_id"] == "abc-123"
+        assert result.data.sources[0]["similarity"] == 0.92
+        assert result.data.metadata["total_results"] == 2
 
     @pytest.mark.asyncio
     async def test_search_articles_returns_503_on_embedding_failure(self):
@@ -377,10 +377,10 @@ class TestSearchArticlesEndpoint:
             llm=mock_llm,
         )
 
-        assert isinstance(result, SearchResponse)
-        assert result.search_type == "articles"
-        assert result.sources == []
-        assert result.answer == "Found 0 similar articles."
+        assert isinstance(result.data, SearchResponse)
+        assert result.data.search_type == "articles"
+        assert result.data.sources == []
+        assert result.data.answer == "Found 0 similar articles."
 
 
 # ── Test GET /search (unified) ─────────────────────────────────
@@ -424,9 +424,9 @@ class TestSearchUnifiedEndpoint:
             llm=mock_llm,
         )
 
-        assert isinstance(result, SearchResponse)
-        assert result.search_type == "local"
-        assert result.query == "腾讯"
+        assert isinstance(result.data, SearchResponse)
+        assert result.data.search_type == "local"
+        assert result.data.query == "腾讯"
 
     @pytest.mark.asyncio
     async def test_search_mode_global_routes_to_global_engine(self):
@@ -463,8 +463,8 @@ class TestSearchUnifiedEndpoint:
             llm=mock_llm,
         )
 
-        assert isinstance(result, SearchResponse)
-        assert result.search_type == "global"
+        assert isinstance(result.data, SearchResponse)
+        assert result.data.search_type == "global"
 
     @pytest.mark.asyncio
     async def test_search_mode_articles_routes_to_vector_search(self):
@@ -495,10 +495,10 @@ class TestSearchUnifiedEndpoint:
             llm=mock_llm,
         )
 
-        assert isinstance(result, SearchResponse)
-        assert result.search_type == "articles"
-        assert len(result.sources) == 1
-        assert result.sources[0]["article_id"] == "xyz-789"
+        assert isinstance(result.data, SearchResponse)
+        assert result.data.search_type == "articles"
+        assert len(result.data.sources) == 1
+        assert result.data.sources[0]["article_id"] == "xyz-789"
 
     @pytest.mark.asyncio
     async def test_search_mode_auto_defaults_to_global(self):
@@ -535,8 +535,8 @@ class TestSearchUnifiedEndpoint:
             llm=mock_llm,
         )
 
-        assert isinstance(result, SearchResponse)
-        assert result.search_type == "global"
+        assert isinstance(result.data, SearchResponse)
+        assert result.data.search_type == "global"
 
 
 # ── Test Dependency Initialization ───────────────────────────────

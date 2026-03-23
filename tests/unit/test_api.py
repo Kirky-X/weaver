@@ -146,8 +146,8 @@ class TestSourcesEndpoint:
                 _="test-key",
                 repo=mock_repo,
             )
-            assert len(result) == 1
-            assert result[0].id == "source-1"
+            assert len(result.data) == 1
+            assert result.data[0].id == "source-1"
 
     @pytest.mark.asyncio
     async def test_create_source_endpoint_success(self):
@@ -169,7 +169,7 @@ class TestSourcesEndpoint:
             _="test-key",
             repo=mock_repo,
         )
-        assert result.id == "new-source"
+        assert result.data.id == "new-source"
         mock_repo.upsert.assert_called_once()
 
     @pytest.mark.asyncio
@@ -363,7 +363,7 @@ class TestPipelineEndpoint:
                 scheduler=mock_scheduler,
             )
 
-        assert result.task_id == "12345678-1234-5678-1234-567812345678"
+        assert result.data.task_id == "12345678-1234-5678-1234-567812345678"
         mock_scheduler.trigger_now.assert_called_once_with(
             "source-1",
             max_items=None,
@@ -454,8 +454,8 @@ class TestPipelineEndpoint:
             _="test-key",
             redis=mock_redis,
         )
-        assert result.task_id == "task-123"
-        assert result.status == "completed"
+        assert result.data.task_id == "task-123"
+        assert result.data.status == "completed"
 
     @pytest.mark.asyncio
     async def test_get_task_status_not_found(self):
@@ -508,8 +508,8 @@ class TestPipelineEndpoint:
             redis=mock_redis,
             postgres_pool=mock_postgres,
         )
-        assert result["queue_depth"] == 5
-        assert result["total_tasks"] == 2
+        assert result.data["queue_depth"] == 5
+        assert result.data["total_tasks"] == 2
 
     def test_get_redis_client_not_initialized(self):
         """Test get_redis_client raises 503 when not initialized."""
@@ -698,7 +698,7 @@ class TestArticlesEndpoint:
             _="test-key",
             pool=mock_pool,
         )
-        assert result.total == 1
+        assert result.data.total == 1
 
     @pytest.mark.asyncio
     async def test_get_article_endpoint_found(self):
@@ -747,7 +747,7 @@ class TestArticlesEndpoint:
             _="test-key",
             pool=mock_pool,
         )
-        assert result.title == "Test Article"
+        assert result.data.title == "Test Article"
 
     @pytest.mark.asyncio
     async def test_get_article_endpoint_invalid_uuid(self):
@@ -954,7 +954,7 @@ class TestGraphEndpoint:
                 _="test-key",
                 neo4j=mock_neo4j,
             )
-        assert result.entity.canonical_name == "Test Entity"
+        assert result.data.entity.canonical_name == "Test Entity"
 
     @pytest.mark.asyncio
     async def test_get_entity_endpoint_not_found(self):
@@ -1036,7 +1036,7 @@ class TestGraphEndpoint:
                 _="test-key",
                 neo4j=mock_neo4j,
             )
-        assert result.article.title == "Test Article"
+        assert result.data.article.title == "Test Article"
 
     @pytest.mark.asyncio
     async def test_get_article_graph_endpoint_not_found(self):
@@ -1150,8 +1150,8 @@ class TestAdminEndpoint:
             _="test-key",
             repo=mock_repo,
         )
-        assert len(result) == 1
-        assert result[0].host == "example.com"
+        assert len(result.data) == 1
+        assert result.data[0].host == "example.com"
 
     @pytest.mark.asyncio
     async def test_update_authority_endpoint_success(self):
@@ -1174,7 +1174,7 @@ class TestAdminEndpoint:
             _="test-key",
             repo=mock_repo,
         )
-        assert result.host == "example.com"
+        assert result.data.host == "example.com"
         mock_repo.update_authority.assert_called_once()
 
     @pytest.mark.asyncio
@@ -1218,8 +1218,8 @@ class TestAdminEndpoint:
             _="test-key",
             repo=mock_repo,
         )
-        assert result.host == "example.com"
-        assert result.authority == 0.85
+        assert result.data.host == "example.com"
+        assert result.data.authority == 0.85
 
     def test_get_source_authority_repo_not_initialized(self):
         """Test get_source_authority_repo raises 503 when not initialized."""

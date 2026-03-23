@@ -58,13 +58,13 @@ class TestGetTaskStatusWithStats:
                 postgres_pool=mock_postgres,
             )
 
-        assert result.task_id == task_id
-        assert result.status == "running"
-        assert result.total_processed == 10
-        assert result.pending_count == 5
-        assert result.processing_count == 2
-        assert result.completed_count == 3
-        assert result.failed_count == 0
+        assert result.data.task_id == task_id
+        assert result.data.status == "running"
+        assert result.data.total_processed == 10
+        assert result.data.pending_count == 5
+        assert result.data.processing_count == 2
+        assert result.data.completed_count == 3
+        assert result.data.failed_count == 0
 
     @pytest.mark.asyncio
     async def test_get_task_status_stats_failure_uses_defaults(self):
@@ -102,10 +102,10 @@ class TestGetTaskStatusWithStats:
             )
 
         # Should not raise; defaults are used
-        assert result.total_processed == 0
-        assert result.pending_count == 0
-        assert result.completed_count == 0
-        assert result.failed_count == 0
+        assert result.data.total_processed == 0
+        assert result.data.pending_count == 0
+        assert result.data.completed_count == 0
+        assert result.data.failed_count == 0
 
     @pytest.mark.asyncio
     async def test_get_task_status_task_not_found_returns_404(self):
@@ -193,11 +193,11 @@ class TestQueueStatsEndpoint:
             postgres_pool=mock_postgres,
         )
 
-        assert result["queue_depth"] == 7
-        assert result["total_tasks"] == 3
-        assert result["status_counts"]["completed"] == 1
-        assert result["status_counts"]["running"] == 1
-        assert result["status_counts"]["failed"] == 1
+        assert result.data["queue_depth"] == 7
+        assert result.data["total_tasks"] == 3
+        assert result.data["status_counts"]["completed"] == 1
+        assert result.data["status_counts"]["running"] == 1
+        assert result.data["status_counts"]["failed"] == 1
 
     @pytest.mark.asyncio
     async def test_get_queue_stats_handles_malformed_task_data(self):
@@ -239,10 +239,10 @@ class TestQueueStatsEndpoint:
 
         # total_tasks counts all Redis entries (including malformed ones)
         # Only malformed JSON is skipped from status_counts
-        assert result["total_tasks"] == 2
+        assert result.data["total_tasks"] == 2
         # status_counts only includes valid entries
-        assert result["status_counts"]["completed"] == 1
-        assert "bad" not in result["status_counts"]
+        assert result.data["status_counts"]["completed"] == 1
+        assert "bad" not in result.data["status_counts"]
 
 
 class TestTriggerPipelineEdgeCases:
@@ -272,7 +272,7 @@ class TestTriggerPipelineEdgeCases:
                 scheduler=mock_scheduler,
             )
 
-        assert result.task_id == str(task_uuid)
+        assert result.data.task_id == str(task_uuid)
         mock_scheduler.trigger_now.assert_called_once()
         # Verify max_items was passed
         call_kwargs = mock_scheduler.trigger_now.call_args.kwargs
@@ -302,7 +302,7 @@ class TestTriggerPipelineEdgeCases:
                 scheduler=mock_scheduler,
             )
 
-        assert result.task_id == str(task_uuid)
+        assert result.data.task_id == str(task_uuid)
 
     @pytest.mark.asyncio
     async def test_trigger_redis_hset_called_with_task_status(self):

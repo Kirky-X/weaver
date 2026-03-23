@@ -110,7 +110,7 @@ class TestListArticlesPagination:
             _="test-key",
             pool=pool,
         )
-        assert result.page == 1
+        assert result.data.page == 1
 
     @pytest.mark.asyncio
     async def test_custom_page_and_page_size(self):
@@ -133,8 +133,8 @@ class TestListArticlesPagination:
             _="test-key",
             pool=pool,
         )
-        assert result.page == 3
-        assert result.page_size == 10
+        assert result.data.page == 3
+        assert result.data.page_size == 10
 
     @pytest.mark.asyncio
     async def test_total_pages_calculation(self):
@@ -158,8 +158,8 @@ class TestListArticlesPagination:
             pool=pool,
         )
         # (25 + 10 - 1) // 10 = 3
-        assert result.total_pages == 3
-        assert result.total == 25
+        assert result.data.total_pages == 3
+        assert result.data.total == 25
 
     @pytest.mark.asyncio
     async def test_page_out_of_range_returns_empty_items(self):
@@ -182,8 +182,8 @@ class TestListArticlesPagination:
             _="test-key",
             pool=pool,
         )
-        assert result.items == []
-        assert result.page == 100
+        assert result.data.items == []
+        assert result.data.page == 100
 
 
 class TestListArticlesFiltering:
@@ -210,8 +210,8 @@ class TestListArticlesFiltering:
             _="test-key",
             pool=pool,
         )
-        assert len(result.items) == 1
-        assert result.items[0]["source_host"] == "news.example.com"
+        assert len(result.data.items) == 1
+        assert result.data.items[0]["source_host"] == "news.example.com"
 
     @pytest.mark.asyncio
     async def test_filter_by_min_score(self):
@@ -234,7 +234,7 @@ class TestListArticlesFiltering:
             _="test-key",
             pool=pool,
         )
-        assert len(result.items) == 1
+        assert len(result.data.items) == 1
 
     @pytest.mark.asyncio
     async def test_combined_filters(self):
@@ -257,7 +257,7 @@ class TestListArticlesFiltering:
             _="test-key",
             pool=pool,
         )
-        assert len(result.items) == 1
+        assert len(result.data.items) == 1
 
 
 class TestListArticlesSorting:
@@ -285,7 +285,7 @@ class TestListArticlesSorting:
             pool=pool,
         )
         # If the query ran without error, sorting is accepted
-        assert result.page == 1
+        assert result.data.page == 1
 
     @pytest.mark.asyncio
     async def test_sort_by_score_descending(self):
@@ -308,7 +308,7 @@ class TestListArticlesSorting:
             _="test-key",
             pool=pool,
         )
-        assert result.page == 1
+        assert result.data.page == 1
 
 
 class TestListArticlesEmptyResults:
@@ -334,9 +334,9 @@ class TestListArticlesEmptyResults:
             _="test-key",
             pool=pool,
         )
-        assert result.items == []
-        assert result.total == 0
-        assert result.total_pages == 0
+        assert result.data.items == []
+        assert result.data.total == 0
+        assert result.data.total_pages == 0
 
 
 class TestGetArticleDetail:
@@ -368,8 +368,8 @@ class TestGetArticleDetail:
             _="test-key",
             pool=pool,
         )
-        assert result.title == "Detailed Article"
-        assert result.body == "Full article body content"
+        assert result.data.title == "Detailed Article"
+        assert result.data.body == "Full article body content"
 
     @pytest.mark.asyncio
     async def test_get_article_invalid_uuid_returns_400(self):

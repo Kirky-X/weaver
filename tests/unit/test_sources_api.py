@@ -165,9 +165,9 @@ class TestSourcesEndpoint:
             _="test-key",
             repo=mock_repo,
         )
-        assert len(result) == 1
-        assert result[0].id == "source-1"
-        assert result[0].credibility == 0.80
+        assert len(result.data) == 1
+        assert result.data[0].id == "source-1"
+        assert result.data[0].credibility == 0.80
 
     @pytest.mark.asyncio
     async def test_create_source_endpoint_success(self):
@@ -200,7 +200,7 @@ class TestSourcesEndpoint:
             _="test-key",
             repo=mock_repo,
         )
-        assert result.id == "new-source"
+        assert result.data.id == "new-source"
         mock_repo.upsert.assert_called_once()
 
     @pytest.mark.asyncio
@@ -272,7 +272,7 @@ class TestSourcesEndpoint:
             _="test-key",
             repo=mock_repo,
         )
-        assert result.name == "New Name"
+        assert result.data.name == "New Name"
         mock_repo.upsert.assert_called_once()
 
     @pytest.mark.asyncio
