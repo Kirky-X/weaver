@@ -14,9 +14,10 @@ async def neo4j_pool():
     """Get real Neo4j pool."""
     from core.db.neo4j import Neo4jPool
 
-    uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+    # Use port 7689 (Docker Compose weaver stack) and password from .env
+    uri = os.getenv("NEO4J_URI", "bolt://localhost:7689")
     user = os.getenv("NEO4J_USER", "neo4j")
-    password = os.getenv("NEO4J_PASSWORD", "testpassword123")
+    password = os.getenv("NEO4J_PASSWORD", "password")
     pool = Neo4jPool(uri, (user, password))
     await pool.startup()
     yield pool

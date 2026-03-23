@@ -56,7 +56,10 @@ class TestVectorRepoIntegration:
         from core.db.postgres import PostgresPool
 
         dsn = os.getenv(
-            "POSTGRES_DSN", "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver"
+            "WEAVER_POSTGRES__DSN",
+            os.getenv(
+                "POSTGRES_DSN", "postgresql+asyncpg://postgres:postgres@localhost:5434/weaver"
+            ),
         )
         pool = PostgresPool(dsn)
         await pool.startup()
