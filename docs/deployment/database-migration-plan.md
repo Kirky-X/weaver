@@ -192,12 +192,24 @@ SELECT pg_reload_conf();
 
 ### 3.4 回滚准备
 
-#### 3.4.1 验证回滚脚本
+#### 3.4.1 验证回滚方案
 
+**注意**: 项目已移除回滚脚本，推荐使用 Git 回滚或 Alembic 迁移管理。
+
+**推荐回滚方式**:
 ```bash
-# 测试回滚脚本（dry-run 模式）
-cd /home/dev/projects/weaver
-bash scripts/rollback/rollback_hnsw_index.sh --dry-run
+# 方式 1: 使用 Alembic downgrade
+cd /home/dev/projects/weaver/src
+alembic downgrade -1  # 回滚到上一个版本
+
+# 方式 2: 使用 Git revert（如果迁移通过 commit 提交）
+git revert <migration-commit-hash>
+
+# 方式 3: 从备份恢复
+pg_restore -h localhost -U postgres -d weaver \
+  --clean --if-exists \
+  -t article_vectors -t entity_vectors \
+  /backup/vectors_pre_hnsw.dump
 ```
 
 #### 3.4.2 准备回滚检查清单
@@ -711,13 +723,16 @@ pytest tests/e2e/test_search_workflow.py -v
 #### 6.3.2 性能对比测试
 
 ```bash
-# 创建性能对比报告
+# 手动对比查询性能
 cd /home/dev/projects/weaver
-python scripts/benchmark/vector_search_benchmark.py \
-  --pre-migration results/before_hnsw.json \
-  --post-migration results/after_hnsw.json \
-  --output reports/hnsw_performance_comparison.html
+
+# 记录迁移前查询时间
+psql -h localhost -U postgres -d weaver -c "\timing on" -c "SELECT article_id FROM article_vectors ORDER BY embedding <=> '[...]'::vector LIMIT 10;"
+
+# 迁移后再次执行相同查询，对比时间
 ```
+
+**注意**: 可使用性能测试脚本 `scripts/run_performance_tests.py` 进行基准测试。
 
 **成功标准**:
 - [x] 查询时间降低 >= 50%（相比暴力搜索）
@@ -785,9 +800,9 @@ WHERE indexname LIKE '%hnsw%';
 # 1. 停止应用服务
 docker-compose stop app
 
-# 2. 执行回滚脚本
-cd /home/dev/projects/weaver
-bash scripts/rollback/rollback_hnsw_index.sh
+# 2. 执行 Alembic 回滚
+cd /home/dev/projects/weaver/src
+alembic downgrade -1
 
 # 3. 验证回滚成功
 psql -h localhost -U postgres -d weaver -c "
@@ -1166,7 +1181,6 @@ pytest tests/integration/ -v
 ### 10.1 相关文档
 
 - **迁移脚本**: `src/alembic/versions/e283f4aed36a_add_hnsw_indexes_to_vector_tables.py`
-- **回滚脚本**: `scripts/rollback/rollback_hnsw_index.sh`
 - **性能测试**: `tests/performance/test_hnsw_performance.py`
 - **集成测试**: `tests/integration/test_vector_search.py`
 - **监控配置**: `monitoring/prometheus/alerts.yml`
@@ -1195,11 +1209,8 @@ psql -h localhost -U postgres -d weaver -c "EXPLAIN ANALYZE SELECT article_id FR
 # 运行性能测试
 pytest tests/performance/test_hnsw_performance.py -v
 
-# 运行回滚脚本
-bash scripts/rollback/rollback_hnsw_index.sh
-
-# 干运行回滚
-bash scripts/rollback/rollback_hnsw_index.sh --dry-run
+# 回滚迁移（如需）
+alembic downgrade -1
 ```
 
 ### 10.3 环境变量
