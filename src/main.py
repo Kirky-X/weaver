@@ -156,6 +156,16 @@ async def _setup_scheduler(container: Container) -> Any:
         coalesce=True,
     )
 
+    # 8. update_persist_status_metrics: update persist status gauge for alerting
+    scheduler.add_job(
+        jobs.update_persist_status_metrics,
+        trigger=IntervalTrigger(minutes=5),
+        id="update_persist_status_metrics",
+        name="Update persist status Prometheus metrics",
+        max_instances=1,
+        coalesce=True,
+    )
+
     # Start scheduler
     scheduler.start()
     _scheduler = scheduler
