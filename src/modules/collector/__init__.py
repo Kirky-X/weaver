@@ -7,11 +7,9 @@ Note: Import specific modules directly to avoid circular imports:
 """
 
 from modules.collector.deduplicator import Deduplicator
-from modules.collector.interleaver import Interleaver
 from modules.collector.retry import RetryQueue
 
 __all__ = [
     "Deduplicator",
-    "Interleaver",
     "RetryQueue",
 ]
