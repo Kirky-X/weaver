@@ -12,6 +12,7 @@ from typing import Any
 
 from core.db.neo4j import Neo4jPool
 from core.llm.client import LLMClient
+from core.llm.types import CallPoint
 from core.observability.logging import get_logger
 from modules.search.context.global_context import GlobalContextBuilder
 from modules.search.engines.local_search import SearchResult
@@ -76,6 +77,7 @@ class GlobalSearchEngine:
         query: str,
         max_tokens: int | None = None,
         community_level: int = 0,
+        use_llm: bool = True,
         **kwargs: Any,
     ) -> SearchResult:
         """Perform a global search.
@@ -84,6 +86,7 @@ class GlobalSearchEngine:
             query: The search query.
             max_tokens: Maximum tokens for context.
             community_level: Community hierarchy level.
+            use_llm: Whether to use LLM for answer generation.
             **kwargs: Additional parameters.
 
         Returns:
@@ -107,32 +110,54 @@ class GlobalSearchEngine:
                     metadata={"search_type": "global", "communities": 0},
                 )
 
+            # If use_llm=False, return context without LLM generation
+            if not use_llm:
+                return SearchResult(
+                    query=query,
+                    answer=f"Found {len(contexts)} relevant communities. LLM generation skipped.",
+                    context_tokens=sum(c.total_tokens for c in contexts),
+                    confidence=self._estimate_confidence([]),
+                    metadata={
+                        "search_type": "global",
+                        "communities": len(contexts),
+                        "llm_used": False,
+                    },
+                )
+
             intermediate_answers = []
             total_tokens = 0
 
             for i, context in enumerate(contexts):
                 map_prompt = self._build_map_prompt(query, context)
 
-                response = await self._llm.chat(
-                    messages=[{"role": "user", "content": map_prompt}],
-                    temperature=0.3,
+                response = await self._llm.call(
+                    call_point=CallPoint.SEARCH_GLOBAL,
+                    payload={
+                        "query": query,
+                        "context": map_prompt,
+                        "phase": "map",
+                        "community_index": i,
+                    },
                 )
 
-                answer = response.content if hasattr(response, "content") else str(response)
+                answer = response if isinstance(response, str) else str(response)
                 intermediate_answers.append(answer)
                 total_tokens += context.total_tokens
 
             reduce_prompt = self._build_reduce_prompt(query, intermediate_answers)
 
-            final_response = await self._llm.chat(
-                messages=[{"role": "user", "content": reduce_prompt}],
-                temperature=0.3,
+            final_response = await self._llm.call(
+                call_point=CallPoint.SEARCH_GLOBAL,
+                payload={
+                    "query": query,
+                    "intermediate_answers": intermediate_answers,
+                    "context": reduce_prompt,
+                    "phase": "reduce",
+                },
             )
 
             final_answer = (
-                final_response.content
-                if hasattr(final_response, "content")
-                else str(final_response)
+                final_response if isinstance(final_response, str) else str(final_response)
             )
 
             return SearchResult(
@@ -147,6 +172,7 @@ class GlobalSearchEngine:
                     "communities": len(contexts),
                     "community_level": community_level,
                     "intermediate_count": len(intermediate_answers),
+                    "llm_used": True,
                 },
             )
 
@@ -229,6 +255,7 @@ Comprehensive Answer:"""
         query: str,
         max_tokens: int | None = None,
         community_level: int = 0,
+        use_llm: bool = True,
     ) -> SearchResult:
         """Perform a simplified global search without Map-Reduce.
 
@@ -238,6 +265,7 @@ Comprehensive Answer:"""
             query: The search query.
             max_tokens: Maximum tokens for context.
             community_level: Community hierarchy level.
+            use_llm: Whether to use LLM for answer generation.
 
         Returns:
             SearchResult with the answer.
@@ -250,15 +278,29 @@ Comprehensive Answer:"""
             community_level=community_level,
         )
 
+        # If use_llm=False, return context without LLM generation
+        if not use_llm:
+            return SearchResult(
+                query=query,
+                answer=f"Found {context.metadata.get('total_communities', 0)} communities. LLM generation skipped.",
+                context_tokens=context.total_tokens,
+                confidence=self._estimate_simple_confidence(context),
+                metadata={
+                    "search_type": "global_simple",
+                    "communities": context.metadata.get("total_communities", 0),
+                    "llm_used": False,
+                },
+            )
+
         prompt = self._build_simple_prompt(query, context)
 
         try:
-            response = await self._llm.chat(
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
+            response = await self._llm.call(
+                call_point=CallPoint.SEARCH_GLOBAL,
+                payload={"query": query, "context": prompt},
             )
 
-            answer = response.content if hasattr(response, "content") else str(response)
+            answer = response if isinstance(response, str) else str(response)
 
             return SearchResult(
                 query=query,
@@ -270,6 +312,7 @@ Comprehensive Answer:"""
                 metadata={
                     "search_type": "global_simple",
                     "communities": context.metadata.get("total_communities", 0),
+                    "llm_used": True,
                 },
             )
 
