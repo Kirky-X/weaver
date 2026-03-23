@@ -147,11 +147,11 @@ class PostgresPool:
 
         pool = self._engine.pool
         stats = {
-            "pool_size": pool.size(),
-            "overflow": pool.overflow(),
-            "checked_in": pool.checkedin(),
-            "checked_out": pool.checkedout(),
-            "overflow_invalid": pool.overflow_invalid(),
+            "pool_size": pool.size(),  # type: ignore[attr-defined]
+            "overflow": pool.overflow(),  # type: ignore[attr-defined]
+            "checked_in": pool.checkedin(),  # type: ignore[attr-defined]
+            "checked_out": pool.checkedout(),  # type: ignore[attr-defined]
+            "overflow_invalid": pool.overflow_invalid(),  # type: ignore[attr-defined]
         }
 
         total_capacity = self._pool_size + self._max_overflow

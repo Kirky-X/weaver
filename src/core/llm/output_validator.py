@@ -18,7 +18,7 @@ class OutputParserException(Exception):
     pass
 
 
-def parse_llm_json(raw: str, model_cls: type[T]) -> T:
+def parse_llm_json(raw: str | list, model_cls: type[T]) -> T:
     """Parse raw LLM output into a Pydantic model.
 
     Uses json_repair to handle LLM JSON quirks:
@@ -33,7 +33,7 @@ def parse_llm_json(raw: str, model_cls: type[T]) -> T:
     Pydantic model_validate is always the final validation layer.
 
     Args:
-        raw: Raw string output from the LLM.
+        raw: Raw string output from the LLM, or list of text blocks.
         model_cls: Target Pydantic model class.
 
     Returns:
@@ -61,7 +61,7 @@ def parse_llm_json(raw: str, model_cls: type[T]) -> T:
     # Handle plain numeric output (e.g., "0.85" → 0.85) for single-field
     # numeric models like QualityScorerOutput(score: float).
     if isinstance(data, (int, float)) and model_cls.__name__ == "QualityScorerOutput":
-        return model_cls(score=float(data))  # type: ignore
+        return model_cls(score=float(data))
     try:
         return model_cls.model_validate(data)
     except Exception as e:  # Pydantic ValidationError

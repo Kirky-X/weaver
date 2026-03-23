@@ -3,7 +3,7 @@
 
 from datetime import UTC, datetime
 
-import ntplib
+import ntplib  # type: ignore[import-untyped]
 
 from core.observability.logging import get_logger
 

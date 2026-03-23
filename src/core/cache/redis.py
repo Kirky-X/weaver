@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from redis.asyncio import ConnectionPool, Redis
 
@@ -32,7 +32,7 @@ class RedisClient:
             await self._redis.ping()
             log.info("redis_client_started", url=self._url.split("@")[-1])
         except Exception as exc:
-            await self._redis.aclose()
+            await self._redis.close()
             self._redis = None
             self._pool = None
             log.error("redis_connection_failed", error=str(exc))
@@ -41,7 +41,7 @@ class RedisClient:
     async def shutdown(self) -> None:
         """Close the Redis connection pool."""
         if self._redis:
-            await self._redis.aclose()
+            await self._redis.close()
             log.info("redis_client_closed")
 
     @property
@@ -100,7 +100,7 @@ class RedisClient:
         mapping: dict[str, float],
     ) -> int:
         """Add members to a sorted set."""
-        return await self.client.zadd(name, mapping)
+        return await self.client.zadd(name, cast(Any, mapping))
 
     async def zrangebyscore(
         self,
