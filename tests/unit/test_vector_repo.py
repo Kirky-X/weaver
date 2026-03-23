@@ -14,17 +14,48 @@ class MockRow:
     """Mimics a SQLAlchemy Row with _mapping attribute."""
 
     def __init__(self, data: dict):
-        self._mapping = data
+        object.__setattr__(self, "_mapping", data)
+
+    def __getattr__(self, name: str) -> object:
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return self._mapping.get(name)
 
 
-def _make_mock_pool(rows: list[MockRow]) -> MagicMock:
-    """Build a mock PostgresPool that returns the given rows on execute."""
+def _make_mock_pool(sim_rows: list[MockRow], text_rows: list[MockRow] | None = None) -> MagicMock:
+    """Build a mock PostgresPool.
+
+    sim_rows: rows returned for the find_similar vector query
+              (must contain article_id, category, similarity fields).
+    text_rows: rows returned for the article text query
+               (must contain article_id, title, body fields).
+               Defaults to sim_rows if not provided.
+    """
+    if text_rows is None:
+        text_rows = sim_rows
+
     mock_session = MagicMock()
-    mock_result = MagicMock()
-    mock_result.__iter__ = lambda self: iter(rows)
-    mock_session.execute = AsyncMock(return_value=mock_result)
+    _sim_rows = sim_rows
+    _text_rows = text_rows
+    _execute_tracker = AsyncMock()
+
+    async def mock_execute(query, params=None):
+        sql = str(query)
+        result = MagicMock()
+        if "av.embedding <=>" in sql or "similarity" in sql.lower():
+            # find_similar vector query
+            result.__iter__ = lambda self: iter(_sim_rows)
+        else:
+            # article text query
+            result.__iter__ = lambda self: iter(_text_rows)
+        _execute_tracker(query, params)
+        return result
+
+    mock_session.execute = mock_execute
     mock_pool = MagicMock()
     mock_pool.session.return_value.__aenter__.return_value = mock_session
+    # Expose tracker for tests that need call_args_list
+    mock_pool._execute_tracker = _execute_tracker
     return mock_pool
 
 
@@ -36,22 +67,25 @@ class TestFindSimilarHybrid:
     @pytest.mark.asyncio
     async def test_find_similar_hybrid_returns_nonempty_when_vec_sim_below_threshold(self):
         """Even with vec_sim=0.3 (< old 0.75 threshold), keyword hits push hybrid above 0."""
-        mock_pool = _make_mock_pool(
-            [
-                MockRow(
-                    {
-                        "article_id": "article-001",
-                        "category": "tech",
-                        "quality_score": 0.5,
-                        "credibility_score": 0.5,
-                        "summary": "AI is transforming the industry",
-                        "subjects": [],
-                        "key_data": [],
-                        "vec_sim": 0.3,
-                    }
-                ),
-            ]
-        )
+        sim_rows = [
+            MockRow(
+                {
+                    "article_id": "article-001",
+                    "category": "tech",
+                    "similarity": 0.3,
+                }
+            ),
+        ]
+        text_rows = [
+            MockRow(
+                {
+                    "article_id": "article-001",
+                    "title": "AI is transforming the industry",
+                    "body": "",
+                }
+            ),
+        ]
+        mock_pool = _make_mock_pool(sim_rows, text_rows)
 
         repo = VectorRepo(pool=mock_pool)
         result = await repo.find_similar_hybrid(
@@ -59,7 +93,6 @@ class TestFindSimilarHybrid:
             query_tokens=["AI"],
             category=None,
             min_score=0.0,
-            top_k=100,
             limit=20,
         )
 
@@ -67,9 +100,9 @@ class TestFindSimilarHybrid:
         article = result[0]
         assert article.article_id == "article-001"
         assert article.category == "tech"
-        # hybrid = 0.40*0.3 + 0.30*1.0 + 0.15*0.5 + 0.15*0.5 = 0.12+0.30+0.075+0.075 = 0.57
+        # hybrid = 0.7*0.3 + 0.3*1.0 = 0.51
         assert article.hybrid_score is not None
-        assert abs(article.hybrid_score - 0.57) < 0.01
+        assert abs(article.hybrid_score - 0.51) < 0.01
         assert article.similarity == 0.3
 
     # ── 2. Keyword overlap changes ranking ───────────────────────────────────
@@ -77,36 +110,41 @@ class TestFindSimilarHybrid:
     @pytest.mark.asyncio
     async def test_find_similar_hybrid_keyword_overlap_changes_ranking(self):
         """Article with more keyword matches ranks higher even with lower vec_sim."""
-        mock_pool = _make_mock_pool(
-            [
-                # A: vec_sim=0.52, 1 kw hit → hybrid ≈ 0.538
-                MockRow(
-                    {
-                        "article_id": "article-A",
-                        "category": "tech",
-                        "quality_score": 0.5,
-                        "credibility_score": 0.5,
-                        "summary": "小米投资新兴公司",
-                        "subjects": [],
-                        "key_data": [],
-                        "vec_sim": 0.52,
-                    }
-                ),
-                # B: vec_sim=0.455, 3 kw hits → hybrid ≈ 0.557  (ranks higher)
-                MockRow(
-                    {
-                        "article_id": "article-B",
-                        "category": "tech",
-                        "quality_score": 0.5,
-                        "credibility_score": 0.5,
-                        "summary": "小米投资科技领域",
-                        "subjects": [],
-                        "key_data": [],
-                        "vec_sim": 0.455,
-                    }
-                ),
-            ]
-        )
+        sim_rows = [
+            # A: similarity=0.52, 2/3 kw hits → hybrid ≈ 0.563
+            MockRow(
+                {
+                    "article_id": "article-A",
+                    "category": "tech",
+                    "similarity": 0.52,
+                }
+            ),
+            # B: similarity=0.455, 3/3 kw hits → hybrid ≈ 0.619 (ranks higher)
+            MockRow(
+                {
+                    "article_id": "article-B",
+                    "category": "tech",
+                    "similarity": 0.455,
+                }
+            ),
+        ]
+        text_rows = [
+            MockRow(
+                {
+                    "article_id": "article-A",
+                    "title": "小米投资新兴公司",
+                    "body": "",
+                }
+            ),
+            MockRow(
+                {
+                    "article_id": "article-B",
+                    "title": "小米投资科技领域",
+                    "body": "",
+                }
+            ),
+        ]
+        mock_pool = _make_mock_pool(sim_rows, text_rows)
 
         repo = VectorRepo(pool=mock_pool)
         result = await repo.find_similar_hybrid(
@@ -114,7 +152,6 @@ class TestFindSimilarHybrid:
             query_tokens=["小米", "投资", "科技"],
             category=None,
             min_score=0.0,
-            top_k=100,
             limit=20,
         )
 
@@ -132,36 +169,41 @@ class TestFindSimilarHybrid:
     @pytest.mark.asyncio
     async def test_find_similar_hybrid_min_score_filter(self):
         """Candidates with hybrid_score below min_score are excluded."""
-        mock_pool = _make_mock_pool(
-            [
-                # hybrid ≈ 0.40*0.5 + 0.30*0.0 + 0.15*0.5 + 0.15*0.5 = 0.32 → filtered out (0.32 < 0.6)
-                MockRow(
-                    {
-                        "article_id": "article-low",
-                        "category": "tech",
-                        "quality_score": 0.5,
-                        "credibility_score": 0.5,
-                        "summary": "unrelated content",
-                        "subjects": [],
-                        "key_data": [],
-                        "vec_sim": 0.5,
-                    }
-                ),
-                # hybrid ≈ 0.40*0.8 + 0.30*1.0 + 0.15*0.8 + 0.15*0.8 = 0.32+0.30+0.12+0.12 = 0.86 → kept
-                MockRow(
-                    {
-                        "article_id": "article-high",
-                        "category": "tech",
-                        "quality_score": 0.8,
-                        "credibility_score": 0.8,
-                        "summary": "AI and machine learning",
-                        "subjects": [],
-                        "key_data": [],
-                        "vec_sim": 0.8,
-                    }
-                ),
-            ]
-        )
+        sim_rows = [
+            # hybrid ≈ 0.7*0.5 + 0.3*0 = 0.35 → filtered out (0.35 < 0.6)
+            MockRow(
+                {
+                    "article_id": "article-low",
+                    "category": "tech",
+                    "similarity": 0.5,
+                }
+            ),
+            # hybrid ≈ 0.7*0.8 + 0.3*1.0 = 0.86 → kept
+            MockRow(
+                {
+                    "article_id": "article-high",
+                    "category": "tech",
+                    "similarity": 0.8,
+                }
+            ),
+        ]
+        text_rows = [
+            MockRow(
+                {
+                    "article_id": "article-low",
+                    "title": "unrelated content",
+                    "body": "",
+                }
+            ),
+            MockRow(
+                {
+                    "article_id": "article-high",
+                    "title": "AI and machine learning",
+                    "body": "",
+                }
+            ),
+        ]
+        mock_pool = _make_mock_pool(sim_rows, text_rows)
 
         repo = VectorRepo(pool=mock_pool)
         result = await repo.find_similar_hybrid(
@@ -169,7 +211,6 @@ class TestFindSimilarHybrid:
             query_tokens=["AI"],
             category=None,
             min_score=0.6,
-            top_k=100,
             limit=20,
         )
 
@@ -189,7 +230,6 @@ class TestFindSimilarHybrid:
             query_tokens=["AI"],
             category=None,
             min_score=0.0,
-            top_k=100,
             limit=20,
         )
 
@@ -200,27 +240,25 @@ class TestFindSimilarHybrid:
     @pytest.mark.asyncio
     async def test_find_similar_hybrid_category_filter(self):
         """When category is provided, the SQL query includes a category filter."""
-        mock_pool = MagicMock()
-        mock_session = MagicMock()
-        mock_result = MagicMock()
-        mock_result.__iter__ = lambda self: iter(
-            [
-                MockRow(
-                    {
-                        "article_id": "article-cat",
-                        "category": "finance",
-                        "quality_score": 0.6,
-                        "credibility_score": 0.6,
-                        "summary": "stock market report",
-                        "subjects": [],
-                        "key_data": [],
-                        "vec_sim": 0.7,
-                    }
-                ),
-            ]
-        )
-        mock_session.execute = AsyncMock(return_value=mock_result)
-        mock_pool.session.return_value.__aenter__.return_value = mock_session
+        sim_rows = [
+            MockRow(
+                {
+                    "article_id": "article-cat",
+                    "category": "finance",
+                    "similarity": 0.7,
+                }
+            ),
+        ]
+        text_rows = [
+            MockRow(
+                {
+                    "article_id": "article-cat",
+                    "title": "stock market report",
+                    "body": "",
+                }
+            ),
+        ]
+        mock_pool = _make_mock_pool(sim_rows, text_rows)
 
         repo = VectorRepo(pool=mock_pool)
         result = await repo.find_similar_hybrid(
@@ -228,17 +266,19 @@ class TestFindSimilarHybrid:
             query_tokens=["stock"],
             category="finance",
             min_score=0.0,
-            top_k=100,
             limit=20,
         )
 
-        # Verify execute was called at least twice (SET hnsw + actual query)
-        assert mock_session.execute.call_count >= 2
-        call_args = mock_session.execute.call_args_list[-1]
-
+        # Verify execute was called (SET hnsw + find_similar + text query)
+        assert mock_pool._execute_tracker.call_count >= 2
+        # find_similar query is the second tracked call (after SET hnsw)
+        call_args = mock_pool._execute_tracker.call_args_list[1]
         # The SQL text is the first positional arg
+        sql_text = str(call_args[0][0])
+        # Verify category filter appears in the find_similar query
+        assert "category" in sql_text.lower() or "category_type" in sql_text.lower()
         sql_text = call_args[0][0].text
-        # Verify category filter appears in the query
+        # Verify category filter appears in the find_similar query
         assert "category" in sql_text.lower() or "category_type" in sql_text.lower()
 
         assert len(result) == 1

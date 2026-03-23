@@ -239,8 +239,9 @@ class TestGlobalContextBuilderFallback:
         )
 
         builder = GlobalContextBuilder(neo4j_pool=pool)
-        result = await builder._find_relevant_communities("华为", level=0)
+        result, used_fallback = await builder._find_relevant_communities("华为", level=0)
 
+        assert used_fallback
         assert pool._fallback_called
         assert len(result) == 1
         assert "华为" in result[0]["title"]
