@@ -430,14 +430,19 @@ class GraphQualityMetrics:
         """
 
         results = await self._pool.execute_query(query, {"limit": limit})
-        return [
-            {
-                "name": r.get("name"),
-                "type": r.get("type"),
-                "created_at": r.get("created_at"),
-            }
-            for r in results
-        ]
+        entities = []
+        for r in results:
+            created_at = r.get("created_at")
+            if hasattr(created_at, "isoformat"):
+                created_at = created_at.isoformat()
+            entities.append(
+                {
+                    "name": r.get("name"),
+                    "type": r.get("type"),
+                    "created_at": created_at,
+                }
+            )
+        return entities
 
     async def get_high_degree_entities(
         self,

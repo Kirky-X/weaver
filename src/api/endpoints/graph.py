@@ -140,9 +140,9 @@ async def get_entity(
             )
 
         entity = EntityResponse(
-            id=record["id"],
-            canonical_name=record["canonical_name"],
-            type=record["type"],
+            id=record.get("id") or "",
+            canonical_name=record.get("canonical_name") or "",
+            type=record.get("type") or "未知",
             aliases=record.get("aliases"),
             description=record.get("description"),
             updated_at=record["updated_at"].isoformat() if record.get("updated_at") else None,
@@ -166,7 +166,7 @@ async def get_entity(
             relationships.append(
                 EntityRelationship(
                     target=row["target"],
-                    relation_type=row["relation_type"],
+                    relation_type=row["relation_type"] or "RELATED_TO",
                     source_article_id=row.get("source_article_id"),
                     created_at=row["created_at"].isoformat() if row.get("created_at") else None,
                 )
@@ -189,9 +189,9 @@ async def get_entity(
         async for row in related_result:
             related_entities.append(
                 EntityResponse(
-                    id=row["id"],
-                    canonical_name=row["canonical_name"],
-                    type=row["type"],
+                    id=row.get("id") or "",
+                    canonical_name=row.get("canonical_name") or "",
+                    type=row.get("type") or "未知",
                     aliases=row.get("aliases"),
                     description=None,
                     updated_at=None,
@@ -268,8 +268,8 @@ async def get_article_graph(
             )
 
         article = ArticleGraphNode(
-            id=article_record["id"],
-            title=article_record["title"],
+            id=article_record.get("id") or "",
+            title=article_record.get("title") or "",
             category=article_record.get("category"),
             publish_time=(
                 article_record["publish_time"].isoformat()
@@ -293,9 +293,9 @@ async def get_article_graph(
         async for row in entities_result:
             entities.append(
                 EntityResponse(
-                    id=row["id"],
-                    canonical_name=row["canonical_name"],
-                    type=row["type"],
+                    id=row.get("id") or "",
+                    canonical_name=row.get("canonical_name") or "",
+                    type=row.get("type") or "未知",
                     aliases=row.get("aliases"),
                     description=None,
                     updated_at=None,
@@ -321,7 +321,7 @@ async def get_article_graph(
                 ArticleGraphRelationship(
                     source_id=row["source"],
                     target_id=row["target"],
-                    relation_type=row["relation_type"],
+                    relation_type=row["relation_type"] or "RELATED_TO",
                     properties={
                         "source_article_id": row.get("source_article_id"),
                         "created_at": (
@@ -348,8 +348,8 @@ async def get_article_graph(
         async for row in related_result:
             related_articles.append(
                 ArticleGraphNode(
-                    id=row["id"],
-                    title=row["title"],
+                    id=row.get("id") or "",
+                    title=row.get("title") or "",
                     category=row.get("category"),
                     publish_time=(
                         row["publish_time"].isoformat() if row.get("publish_time") else None

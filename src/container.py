@@ -23,6 +23,8 @@ from modules.graph_store import EntityResolver, Neo4jWriter
 from modules.graph_store.name_normalizer import name_normalizer
 from modules.graph_store.resolution_rules import resolution_rules
 from modules.pipeline.graph import Pipeline
+from modules.search.engines.global_search import GlobalSearchEngine
+from modules.search.engines.local_search import LocalSearchEngine
 from modules.source import SourceConfigRepo, SourceRegistry, SourceScheduler
 from modules.storage import ArticleRepo, SourceAuthorityRepo, VectorRepo
 from modules.storage.neo4j import Neo4jArticleRepo, Neo4jEntityRepo
@@ -75,6 +77,8 @@ class Container:
         self._event_bus: EventBus | None = None
         self._llm_failure_repo: Any = None
         self._llm_failure_cleanup_thread: Any = None
+        self._local_search_engine: LocalSearchEngine | None = None
+        self._global_search_engine: GlobalSearchEngine | None = None
         self._shutdown: bool = False  # Idempotency protection
 
     def configure(self, settings: Settings) -> Container:
@@ -298,6 +302,36 @@ class Container:
             self._vector_repo = VectorRepo(self._postgres_pool)
         return self._vector_repo
 
+    # ── Search Engines ───────────────────────────────────────────────
+
+    def init_search_engines(self) -> tuple[LocalSearchEngine, GlobalSearchEngine] | None:
+        """Initialize search engines (requires neo4j pool to be available)."""
+        if self._neo4j_pool is None or self._llm_client is None:
+            return None
+        if self._local_search_engine is None:
+            self._local_search_engine = LocalSearchEngine(
+                neo4j_pool=self._neo4j_pool,
+                llm=self._llm_client,
+            )
+        if self._global_search_engine is None:
+            self._global_search_engine = GlobalSearchEngine(
+                neo4j_pool=self._neo4j_pool,
+                llm=self._llm_client,
+            )
+        return (self._local_search_engine, self._global_search_engine)
+
+    def local_search_engine(self) -> LocalSearchEngine | None:
+        """Get local search engine (or None if unavailable)."""
+        if self._local_search_engine is None and self._neo4j_pool is not None:
+            self.init_search_engines()
+        return self._local_search_engine
+
+    def global_search_engine(self) -> GlobalSearchEngine | None:
+        """Get global search engine (or None if unavailable)."""
+        if self._global_search_engine is None and self._neo4j_pool is not None:
+            self.init_search_engines()
+        return self._global_search_engine
+
     # ── Fetcher & Crawler ────────────────────────────────────────
 
     async def init_playwright_pool(self) -> PlaywrightContextPool:
@@ -458,6 +492,7 @@ class Container:
         except ConnectionError as exc:
             log.warning("neo4j_unavailable_skipping", error=str(exc))
         await self.init_llm()
+        self.init_search_engines()
         await self.init_playwright_pool()
         await self.init_smart_fetcher()
 

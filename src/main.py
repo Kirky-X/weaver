@@ -26,6 +26,7 @@ from api.endpoints import _deps as deps
 from api.endpoints.admin import set_source_authority_repo
 from api.endpoints.articles import set_postgres_pool as set_articles_postgres_pool
 from api.endpoints.graph import set_neo4j_client
+from api.endpoints.graph_metrics import set_neo4j_pool as set_graph_neo4j_pool
 from api.endpoints.health import (
     health_check as check_health,
     set_neo4j_pool,
@@ -198,6 +199,7 @@ async def lifespan(app: FastAPI) -> None:
 
     set_health_postgres_pool(container.postgres_pool())
     set_neo4j_pool(container.neo4j_pool())
+    set_graph_neo4j_pool(container.neo4j_pool())
     set_neo4j_client(container.neo4j_pool())
     set_redis_client(redis_client)
     set_source_authority_repo(container.source_authority_repo())
@@ -215,6 +217,8 @@ async def lifespan(app: FastAPI) -> None:
     deps.Endpoints._vector_repo = container.vector_repo()
     deps.Endpoints._source_config_repo = container.source_config_repo()
     deps.Endpoints._source_authority_repo = container.source_authority_repo()
+    deps.Endpoints._local_engine = container.local_search_engine()
+    deps.Endpoints._global_engine = container.global_search_engine()
     log.debug("endpoints_registry_populated")
 
     # Setup APScheduler
