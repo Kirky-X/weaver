@@ -102,6 +102,19 @@ class EntityResolver:
             - match_type: Type of match (exact, alias, fuzzy, etc.)
             - confidence: Resolution confidence score
         """
+        # Filter out metric strings classified as entities.
+        # "本土市场游戏收入1642亿元" has no stable identity — it's a data point,
+        # not an entity that should live as a node in the knowledge graph.
+        if entity_type == "数据指标" and self._looks_like_metric_string(name):
+            return {
+                "neo4j_id": "",
+                "canonical_name": name,
+                "is_new": False,
+                "merged": False,
+                "match_type": "filtered_metric",
+                "confidence": 0.0,
+            }
+
         norm_result = self._normalizer.normalize(name, entity_type)
         normalized_name = norm_result.normalized
 
@@ -392,6 +405,27 @@ Consider:
             log.warning("llm_dedupe_failed", error=str(e))
 
         return {"should_merge": False}
+
+    def _looks_like_metric_string(self, name: str) -> bool:
+        """Check if a name is a metric string rather than a stable entity name.
+
+        Metric strings describe data points (e.g., "本土市场游戏收入1642亿元")
+        and have no stable identity — they should not become entity nodes.
+        """
+        import re
+
+        if not name:
+            return False
+        # Contains Chinese text describing a metric followed by digits with units.
+        # Pattern: Chinese descriptor + digits + currency/count unit.
+        metric_pattern = re.compile(
+            r"[\u4e00-\u9fff]"  # has Chinese
+            + r".*"  # middle content
+            + r"[\u4e00-\u9fff]"  # more Chinese (descriptor word)
+            + r".*?"  # optional middle
+            + r"\d[\d,．.]*[万亿亿千万百十零点]?"  # number with optional unit chars
+        )
+        return bool(metric_pattern.search(name))
 
     def _resolve_canonical_name(
         self,

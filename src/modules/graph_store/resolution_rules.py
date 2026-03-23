@@ -106,6 +106,13 @@ class EntityResolutionRules:
                 description="Match against known aliases",
             ),
             ResolutionRule(
+                name="bracket_variant",
+                entity_types=None,
+                priority=15,
+                matcher=self._bracket_variant_match,
+                description="Match names differing only by bracketed annotation (1) vs (a)",
+            ),
+            ResolutionRule(
                 name="abbreviation",
                 entity_types=None,
                 priority=30,
@@ -304,6 +311,49 @@ class EntityResolutionRules:
                 reason="Exact string match",
             )
         return None
+
+    def _bracket_variant_match(
+        self,
+        name: str,
+        canonical: str,
+        entity_type: str,
+    ) -> ResolutionResult | None:
+        """Match names differing only by bracketed annotation suffix.
+
+        Examples:
+        - "Headphone (1)" vs "Headphone (a)" → same entity
+        - "Headphone (1)" vs "Headphone (2)" → same entity (numeric variants)
+        - "Phone (4a)" vs "Phone (4a)" → exact match (already handled)
+        - "Phone (4a)" vs "Phone (4a) Pro" → NOT same (different product line)
+        """
+        stripped1, bracket1 = self._strip_bracket_variant(name)
+        stripped2, bracket2 = self._strip_bracket_variant(canonical)
+
+        if not stripped1 or not stripped2:
+            return None
+
+        if stripped1 != stripped2:
+            return None
+
+        # Base names match — any bracket annotation difference = same entity.
+        return ResolutionResult(
+            match_type=MatchType.FUZZY,
+            confidence=0.90,
+            canonical_name=canonical,
+            should_merge=True,
+            reason=f"Same entity with bracket-variant annotation: '{name}' → '{canonical}'",
+        )
+
+    def _strip_bracket_variant(self, name: str) -> tuple[str, str]:
+        """Strip trailing parenthetical annotation from a name.
+
+        Returns (base_name, bracket_content).
+        Only strips if the bracket is at the END of the name.
+        """
+        m = re.match(r"^(.+?)\s*\(([^)]+)\)\s*$", name)
+        if m:
+            return m.group(1).strip(), f"({m.group(2)})"
+        return name, ""
 
     def _case_insensitive_match(
         self,

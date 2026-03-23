@@ -196,7 +196,19 @@ class NameNormalizer:
         return text
 
     def _remove_special(self, text: str) -> str:
-        """Remove special characters while preserving meaningful ones."""
+        """Remove special characters while preserving meaningful ones.
+
+        Strips:
+        - Chinese corner brackets 「」 『』 《》
+        - ASCII double-quotes
+        - ASCII apostrophes/backticks
+        - C0 control characters
+        - Hyphen/ndash/emdash with surrounding spaces → single hyphen
+        """
+        # Strip Chinese corner brackets
+        text = re.sub(r"[「『](.+?)[」』]", r"\1", text)
+        text = re.sub(r"[《》](.+?)[《》]", r"\1", text)
+        # Strip ASCII quotes and backticks
         text = re.sub(r'["""\'\'`]', "", text)
         text = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", text)
         text = re.sub(r"\s*[-–—]\s*", "-", text)
@@ -313,6 +325,12 @@ class NameNormalizer:
     ) -> tuple[bool, float]:
         """Check if two names are equivalent after normalization.
 
+        Equivalence is established via:
+        1. Exact normalized match
+        2. Case-insensitive normalized match
+        3. Suffix-stripped match (organization suffixes)
+        4. Bracket-variant match (numeric/alphabetic annotation suffixes)
+
         Args:
             name1: First name.
             name2: Second name.
@@ -333,7 +351,32 @@ class NameNormalizer:
         if self._compare_without_suffixes(result1.normalized, result2.normalized):
             return True, 0.85
 
+        # Bracket-variant: strip parenthetical suffixes and compare base names.
+        # All bracket variants of the same base name = same entity.
+        # "Headphone (1)" vs "Headphone (a)" → same
+        # "Phone (4a)" vs "Phone (4a) Pro" → not same (base names differ)
+        stripped1, bracket1 = self._strip_bracket_variant(result1.normalized)
+        stripped2, bracket2 = self._strip_bracket_variant(result2.normalized)
+
+        if stripped1 and stripped2 and stripped1 == stripped2:
+            # Base names match → same entity regardless of bracket annotation.
+            return True, 0.90
+
         return False, 0.0
+
+    def _strip_bracket_variant(self, name: str) -> tuple[str, str]:
+        """Strip trailing parenthetical bracket from a name.
+
+        Returns (base_name, bracket_content).
+        Example: "Headphone (1)" → ("Headphone", "(1)")
+                 "Phone (4a) Pro" → ("Phone (4a) Pro", "")  (non-trailing bracket, not stripped)
+                 "Phone (4a)" → ("Phone", "(4a)")
+        """
+        # Match trailing bracket: "Name (content)"
+        m = re.match(r"^(.+?)\s*\(([^)]+)\)\s*$", name)
+        if m:
+            return m.group(1).strip(), f"({m.group(2)})"
+        return name, ""
 
     def _compare_without_suffixes(self, name1: str, name2: str) -> bool:
         """Compare names ignoring organization suffixes."""
