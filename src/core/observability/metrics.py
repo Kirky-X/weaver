@@ -126,6 +126,13 @@ class MetricsCollector:
         "被去重的文章总数",
     )
 
+    # Persistence status gauge (updated by scheduled job)
+    persist_status_count = Gauge(
+        "persist_status_count",
+        "各持久化状态的文章数量",
+        ["status"],
+    )
+
 
 # Global metrics instance for use across modules
 metrics = MetricsCollector()
