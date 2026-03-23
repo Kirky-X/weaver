@@ -324,6 +324,9 @@ class BatchMergerNode:
             result["success"] = True
             return result
 
+        # Track article IDs that have vectors written (for compensation cleanup)
+        vector_article_ids: list[uuid.UUID] = []
+
         # Phase 1: Persist to PostgreSQL
         try:
             if not self._article_repo:
@@ -348,14 +351,16 @@ class BatchMergerNode:
                             and "title" in vectors
                             and "content" in vectors
                         ):
+                            art_id = uuid.UUID(state["article_id"])
                             vector_data.append(
                                 (
-                                    uuid.UUID(state["article_id"]),
+                                    art_id,
                                     vectors.get("title"),
                                     vectors.get("content"),
                                     vectors.get("model_id", "unknown"),
                                 )
                             )
+                            vector_article_ids.append(art_id)
                 if vector_data:
                     await self._vector_repo.bulk_upsert_article_vectors(vector_data)
 
@@ -382,6 +387,19 @@ class BatchMergerNode:
                         )
                     except Exception:
                         pass
+            # Clean up article vectors written before this exception
+            if vector_article_ids and self._vector_repo:
+                try:
+                    deleted = await self._vector_repo.delete_article_vectors_by_article_ids(
+                        vector_article_ids
+                    )
+                    log.info("saga_phase1_vectors_cleaned", count=deleted)
+                except Exception as vec_exc:
+                    log.warning(
+                        "saga_phase1_vector_cleanup_failed",
+                        error=str(vec_exc),
+                        article_ids=[str(a) for a in vector_article_ids],
+                    )
             return result
 
         # Phase 2: Persist to Neo4j

@@ -193,6 +193,11 @@ async def list_articles(
         offset = (page - 1) * page_size
         total_pages = (total + page_size - 1) // page_size if total > 0 else 0
 
+        # Validate sort_by against whitelist to prevent attribute injection
+        ALLOWED_SORT_COLUMNS = {"publish_time", "score", "credibility_score", "created_at"}
+        if sort_by not in ALLOWED_SORT_COLUMNS:
+            sort_by = "publish_time"
+
         sort_column = getattr(Article, sort_by, Article.publish_time)
         if sort_order == "desc":
             query = query.order_by(desc(sort_column))

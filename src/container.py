@@ -442,6 +442,8 @@ class Container:
             if self._event_bus is None:
                 self._event_bus = EventBus()
                 log.info("event_bus_created_in_pipeline", event_bus_id=id(self._event_bus))
+            else:
+                log.info("event_bus_reused_in_pipeline", event_bus_id=id(self._event_bus))
             budget = TokenBudgetManager()
             spacy_extractor = SpacyExtractor()
 

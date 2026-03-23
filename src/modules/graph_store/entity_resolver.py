@@ -75,8 +75,8 @@ class EntityResolver:
         self._entity_repo = entity_repo
         self._vector_repo = vector_repo
         self._llm = llm
-        self._rules = resolution_rules or globals().get("resolution_rules")
-        self._normalizer = name_normalizer or globals().get("name_normalizer")
+        self._rules = resolution_rules or EntityResolutionRules()
+        self._normalizer = name_normalizer or NameNormalizer()
 
     async def resolve_entity(
         self,

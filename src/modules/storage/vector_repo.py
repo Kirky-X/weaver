@@ -448,6 +448,30 @@ class VectorRepo:
                 for row in result
             ]
 
+    async def delete_article_vectors_by_article_ids(self, article_ids: list[uuid.UUID]) -> int:
+        """Delete article vectors by article IDs.
+
+        Used to clean up orphan article vectors during Saga compensation
+        when PostgreSQL persistence fails after vectors were already written.
+
+        Args:
+            article_ids: List of article UUIDs whose vectors should be deleted.
+
+        Returns:
+            Number of vectors deleted.
+        """
+        if not article_ids:
+            return 0
+
+        async with self._pool.session() as session:
+            query = text("""
+                DELETE FROM article_vectors
+                WHERE article_id = ANY(:ids)
+            """)
+            result = await session.execute(query, {"ids": [str(aid) for aid in article_ids]})
+            await session.commit()
+            return result.rowcount
+
     async def delete_entity_vectors_by_neo4j_ids(self, neo4j_ids: list[str]) -> int:
         """Delete entity vectors by Neo4j IDs.
 

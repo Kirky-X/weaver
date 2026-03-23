@@ -26,7 +26,7 @@ FALLBACK_ERRORS = (TimeoutError, ConnectionError, OSError)
 RETRY_ERRORS = ("APITimeoutError", "OutputParserException")
 SELF_RETRY_ERRORS = ("OutputParserException",)
 NON_RETRYABLE_STATUS = {400, 401, 403, 413}
-MAX_RETRIES = 2
+MAX_RETRIES = 3  # 3 total attempts (initial + 2 retries)
 RETRY_DELAY_BASE = 5
 
 HEALTH_CHECK_INTERVAL = 30
