@@ -12,6 +12,7 @@ from typing import Any
 
 from core.db.neo4j import Neo4jPool
 from core.llm.client import LLMClient
+from core.llm.types import CallPoint
 from core.observability.logging import get_logger
 from modules.search.context.local_context import LocalContextBuilder
 
@@ -74,6 +75,7 @@ class LocalSearchEngine:
         query: str,
         max_tokens: int | None = None,
         entity_names: list[str] | None = None,
+        use_llm: bool = True,
         **kwargs: Any,
     ) -> SearchResult:
         """Perform a local search.
@@ -82,6 +84,7 @@ class LocalSearchEngine:
             query: The search query.
             max_tokens: Maximum tokens for context.
             entity_names: Optional list of entities to focus on.
+            use_llm: Whether to use LLM for answer generation.
             **kwargs: Additional parameters.
 
         Returns:
@@ -95,15 +98,32 @@ class LocalSearchEngine:
             entity_names=entity_names,
         )
 
+        # If use_llm=False, return context without LLM generation
+        if not use_llm:
+            entities = self._extract_entities_from_context(context)
+            return SearchResult(
+                query=query,
+                answer="Context built successfully. LLM generation skipped.",
+                context_tokens=context.total_tokens,
+                sources=context.metadata.get("article_count", 0),
+                entities=entities,
+                confidence=self._estimate_confidence(context),
+                metadata={
+                    "context_sections": len(context.sections),
+                    "search_type": "local",
+                    "llm_used": False,
+                },
+            )
+
         prompt = self._build_prompt(query, context)
 
         try:
-            response = await self._llm.chat(
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
+            response = await self._llm.call(
+                call_point=CallPoint.SEARCH_LOCAL,
+                payload={"query": query, "context": prompt},
             )
 
-            answer = response.content if hasattr(response, "content") else str(response)
+            answer = response if isinstance(response, str) else str(response)
 
             entities = self._extract_entities_from_context(context)
 
@@ -117,6 +137,7 @@ class LocalSearchEngine:
                 metadata={
                     "context_sections": len(context.sections),
                     "search_type": "local",
+                    "llm_used": True,
                 },
             )
 
