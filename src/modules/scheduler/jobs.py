@@ -16,6 +16,7 @@ from core.cache.redis import RedisClient
 from core.db.models import Article, PersistStatus
 from core.db.postgres import PostgresPool
 from core.observability.logging import get_logger
+from core.observability.metrics import metrics
 from modules.collector.retry import RetryQueue
 from modules.graph_store.neo4j_writer import Neo4jWriter
 from modules.storage.article_repo import ArticleRepo
@@ -431,6 +432,40 @@ class SchedulerJobs:
 
         log.info("retry_pipeline_processing_complete", count=retry_count)
         return retry_count
+
+    async def update_persist_status_metrics(self) -> None:
+        """Update Prometheus gauge for article persist status counts.
+
+        Scans the articles table and updates the persist_status_count gauge
+        for each status, enabling persistence failure rate alerting.
+        """
+        from sqlalchemy import func
+
+        log.info("update_persist_status_metrics_start")
+
+        try:
+            async with self._postgres.session() as session:
+                stmt = select(Article.persist_status, func.count(Article.id)).group_by(
+                    Article.persist_status
+                )
+                result = await session.execute(stmt)
+                rows = result.all()
+
+                # Reset all status gauges before setting new values
+                for status in PersistStatus:
+                    metrics.persist_status_count.labels(status=status.value).set(0)
+
+                for row in rows:
+                    status_value = row[0].value if hasattr(row[0], "value") else str(row[0])
+                    count = row[1]
+                    metrics.persist_status_count.labels(status=status_value).set(count)
+
+                log.info(
+                    "persist_status_metrics_updated",
+                    statuses={row[0].value: row[1] for row in rows},
+                )
+        except Exception as exc:
+            log.error("persist_status_metrics_update_error", error=str(exc))
 
     async def _reconstruct_state(self, article: Article) -> dict:
         """Reconstruct pipeline state from article for retry."""
