@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from api.middleware.auth import verify_api_key
+from api.schemas.response import APIResponse, success_response
 from core.db.neo4j import Neo4jPool
 
 router = APIRouter(prefix="/graph", tags=["graph"])
@@ -98,13 +99,13 @@ def get_neo4j_client() -> Neo4jPool:
 # ── Endpoints ───────────────────────────────────────────────────
 
 
-@router.get("/entities/{name}", response_model=EntityWithRelations)
+@router.get("/entities/{name}", response_model=APIResponse[EntityWithRelations])
 async def get_entity(
     name: str,
     limit: int = Query(10, ge=1, le=100, description="Max related entities to return"),
     _: str = Depends(verify_api_key),
     neo4j: Neo4jPool = Depends(get_neo4j_client),
-) -> EntityWithRelations:
+) -> APIResponse[EntityWithRelations]:
     """Get entity information and its relationships.
 
     Args:
@@ -225,20 +226,22 @@ async def get_entity(
                 }
             )
 
-        return EntityWithRelations(
-            entity=entity,
-            relationships=relationships,
-            related_entities=related_entities,
-            mentioned_in_articles=mentioned_in_articles,
+        return success_response(
+            EntityWithRelations(
+                entity=entity,
+                relationships=relationships,
+                related_entities=related_entities,
+                mentioned_in_articles=mentioned_in_articles,
+            )
         )
 
 
-@router.get("/articles/{article_id}/graph", response_model=ArticleGraphResponse)
+@router.get("/articles/{article_id}/graph", response_model=APIResponse[ArticleGraphResponse])
 async def get_article_graph(
     article_id: str,
     _: str = Depends(verify_api_key),
     neo4j: Neo4jPool = Depends(get_neo4j_client),
-) -> ArticleGraphResponse:
+) -> APIResponse[ArticleGraphResponse]:
     """Get the knowledge graph for a specific article.
 
     Args:
@@ -358,9 +361,11 @@ async def get_article_graph(
                 )
             )
 
-        return ArticleGraphResponse(
-            article=article,
-            entities=entities,
-            relationships=relationships,
-            related_articles=related_articles,
+        return success_response(
+            ArticleGraphResponse(
+                article=article,
+                entities=entities,
+                relationships=relationships,
+                related_articles=related_articles,
+            )
         )

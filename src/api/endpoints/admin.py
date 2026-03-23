@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from api.middleware.auth import verify_api_key
+from api.schemas.response import APIResponse, success_response
 from core.observability.logging import get_logger
 from modules.storage.source_authority_repo import SourceAuthorityRepo
 
@@ -72,12 +73,12 @@ def get_source_authority_repo() -> SourceAuthorityRepo:
 # ── Endpoints ───────────────────────────────────────────────────
 
 
-@router.get("/sources/authorities", response_model=list[AuthorityResponse])
+@router.get("/sources/authorities", response_model=APIResponse[list[AuthorityResponse]])
 async def list_authorities(
     needs_review_only: bool = False,
     _: str = Depends(verify_api_key),
     repo: SourceAuthorityRepo = Depends(get_source_authority_repo),
-) -> list[AuthorityResponse]:
+) -> APIResponse[list[AuthorityResponse]]:
     """Get source authorities, optionally filtered by those needing review.
 
     Args:
@@ -95,28 +96,30 @@ async def list_authorities(
         # For now, just return needs_review
         authorities = await repo.get_needs_review()
 
-    return [
-        AuthorityResponse(
-            id=a.id,
-            host=a.host,
-            authority=float(a.authority),
-            tier=a.tier,
-            description=a.description,
-            needs_review=a.needs_review,
-            auto_score=float(a.auto_score) if a.auto_score else None,
-            updated_at=a.updated_at.isoformat(),
-        )
-        for a in authorities
-    ]
+    return success_response(
+        [
+            AuthorityResponse(
+                id=a.id,
+                host=a.host,
+                authority=float(a.authority),
+                tier=a.tier,
+                description=a.description,
+                needs_review=a.needs_review,
+                auto_score=float(a.auto_score) if a.auto_score else None,
+                updated_at=a.updated_at.isoformat(),
+            )
+            for a in authorities
+        ]
+    )
 
 
-@router.patch("/sources/{host}/authority", response_model=UpdateAuthorityResponse)
+@router.patch("/sources/{host}/authority", response_model=APIResponse[UpdateAuthorityResponse])
 async def update_authority(
     host: str,
     request: UpdateAuthorityRequest,
     _: str = Depends(verify_api_key),
     repo: SourceAuthorityRepo = Depends(get_source_authority_repo),
-) -> UpdateAuthorityResponse:
+) -> APIResponse[UpdateAuthorityResponse]:
     """Update authority score for a source host.
 
     Args:
@@ -159,20 +162,22 @@ async def update_authority(
         tier=new_tier,
     )
 
-    return UpdateAuthorityResponse(
-        host=host,
-        authority=request.authority,
-        tier=request.tier,
-        description=request.description,
+    return success_response(
+        UpdateAuthorityResponse(
+            host=host,
+            authority=request.authority,
+            tier=request.tier,
+            description=request.description,
+        )
     )
 
 
-@router.get("/sources/{host}/authority", response_model=AuthorityResponse)
+@router.get("/sources/{host}/authority", response_model=APIResponse[AuthorityResponse])
 async def get_authority(
     host: str,
     _: str = Depends(verify_api_key),
     repo: SourceAuthorityRepo = Depends(get_source_authority_repo),
-) -> AuthorityResponse:
+) -> APIResponse[AuthorityResponse]:
     """Get authority for a specific source host.
 
     Args:
@@ -188,13 +193,15 @@ async def get_authority(
     """
     authority = await repo.get_or_create(host)
 
-    return AuthorityResponse(
-        id=authority.id,
-        host=authority.host,
-        authority=float(authority.authority),
-        tier=authority.tier,
-        description=authority.description,
-        needs_review=authority.needs_review,
-        auto_score=float(authority.auto_score) if authority.auto_score else None,
-        updated_at=authority.updated_at.isoformat(),
+    return success_response(
+        AuthorityResponse(
+            id=authority.id,
+            host=authority.host,
+            authority=float(authority.authority),
+            tier=authority.tier,
+            description=authority.description,
+            needs_review=authority.needs_review,
+            auto_score=float(authority.auto_score) if authority.auto_score else None,
+            updated_at=authority.updated_at.isoformat(),
+        )
     )

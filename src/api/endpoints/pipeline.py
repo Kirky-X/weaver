@@ -7,13 +7,13 @@ import asyncio
 import json
 import uuid
 from datetime import UTC, datetime
-from typing import Any
 
 import json_repair
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from api.middleware.auth import verify_api_key
+from api.schemas.response import APIResponse, success_response
 from core.cache.redis import RedisClient
 from core.db.postgres import PostgresPool
 from core.observability.metrics import metrics
@@ -136,13 +136,13 @@ QUEUE_DEPTH_GAUGE = metrics.pipeline_queue_depth
 # ── Endpoints ───────────────────────────────────────────────────
 
 
-@router.post("/trigger", response_model=TriggerResponse)
+@router.post("/trigger", response_model=APIResponse[TriggerResponse])
 async def trigger_pipeline(
     request: TriggerRequest,
     _: str = Depends(verify_api_key),
     redis: RedisClient = Depends(get_redis_client),
     scheduler: SourceScheduler = Depends(get_source_scheduler),
-) -> TriggerResponse:
+) -> APIResponse[TriggerResponse]:
     """Trigger a pipeline run to crawl news sources.
 
     Args:
@@ -226,16 +226,16 @@ async def trigger_pipeline(
             detail=f"Pipeline trigger failed: {exc!s}",
         )
 
-    return TriggerResponse(task_id=task_id, queued_at=now)
+    return success_response(TriggerResponse(task_id=task_id, queued_at=now))
 
 
-@router.get("/tasks/{task_id}", response_model=TaskStatusResponse)
+@router.get("/tasks/{task_id}", response_model=APIResponse[TaskStatusResponse])
 async def get_task_status(
     task_id: str,
     _: str = Depends(verify_api_key),
     redis: RedisClient = Depends(get_redis_client),
     postgres_pool: PostgresPool = Depends(get_postgres_pool),
-) -> TaskStatusResponse:
+) -> APIResponse[TaskStatusResponse]:
     """Query the status of a pipeline task.
 
     Args:
@@ -275,30 +275,32 @@ async def get_task_status(
             "pending_count": 0,
         }
 
-    return TaskStatusResponse(
-        task_id=data.get("task_id", task_id),
-        status=data.get("status", "unknown"),
-        source_id=data.get("source_id"),
-        queued_at=data.get("queued_at"),
-        started_at=data.get("started_at"),
-        completed_at=data.get("completed_at"),
-        progress=data.get("progress"),
-        total=data.get("total"),
-        error=data.get("error"),
-        total_processed=stats["total_processed"],
-        processing_count=stats["processing_count"],
-        completed_count=stats["completed_count"],
-        failed_count=stats["failed_count"],
-        pending_count=stats["pending_count"],
+    return success_response(
+        TaskStatusResponse(
+            task_id=data.get("task_id", task_id),
+            status=data.get("status", "unknown"),
+            source_id=data.get("source_id"),
+            queued_at=data.get("queued_at"),
+            started_at=data.get("started_at"),
+            completed_at=data.get("completed_at"),
+            progress=data.get("progress"),
+            total=data.get("total"),
+            error=data.get("error"),
+            total_processed=stats["total_processed"],
+            processing_count=stats["processing_count"],
+            completed_count=stats["completed_count"],
+            failed_count=stats["failed_count"],
+            pending_count=stats["pending_count"],
+        )
     )
 
 
-@router.get("/queue/stats")
+@router.get("/queue/stats", response_model=APIResponse[dict])
 async def get_queue_stats(
     _: str = Depends(verify_api_key),
     redis: RedisClient = Depends(get_redis_client),
     postgres_pool: PostgresPool = Depends(get_postgres_pool),
-) -> dict[str, Any]:
+) -> APIResponse[dict]:
     """Get pipeline queue statistics.
 
     Args:
@@ -355,15 +357,17 @@ async def get_queue_stats(
         )
         row = result.one()
 
-    return {
-        "queue_depth": queue_depth,
-        "status_counts": status_counts,
-        "total_tasks": len(all_tasks),
-        "article_stats": {
-            "total_articles": row.total_articles or 0,
-            "processing_count": int(row.processing_count or 0),
-            "completed_count": int(row.completed_count or 0),
-            "failed_count": int(row.failed_count or 0),
-            "pending_count": int(row.pending_count or 0),
-        },
-    }
+    return success_response(
+        {
+            "queue_depth": queue_depth,
+            "status_counts": status_counts,
+            "total_tasks": len(all_tasks),
+            "article_stats": {
+                "total_articles": row.total_articles or 0,
+                "processing_count": int(row.processing_count or 0),
+                "completed_count": int(row.completed_count or 0),
+                "failed_count": int(row.failed_count or 0),
+                "pending_count": int(row.pending_count or 0),
+            },
+        }
+    )

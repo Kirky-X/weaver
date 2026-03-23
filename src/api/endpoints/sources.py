@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from api.middleware.auth import verify_api_key
+from api.schemas.response import APIResponse, success_response
 from modules.source.models import SourceConfig
 
 router = APIRouter(prefix="/sources", tags=["sources"])
@@ -111,12 +112,12 @@ def get_source_config_repo() -> Any:
 # ── Endpoints ───────────────────────────────────────────────────
 
 
-@router.get("", response_model=list[SourceResponse])
+@router.get("", response_model=APIResponse[list[SourceResponse]])
 async def list_sources(
     enabled_only: bool = True,
     _: str = Depends(verify_api_key),
     repo: Any = Depends(get_source_config_repo),
-) -> list[SourceResponse]:
+) -> APIResponse[list[SourceResponse]]:
     """Get all registered sources.
 
     Args:
@@ -128,15 +129,15 @@ async def list_sources(
         List of source configurations.
     """
     sources = await repo.list_sources(enabled_only=enabled_only)
-    return [SourceResponse.from_config(s) for s in sources]
+    return success_response([SourceResponse.from_config(s) for s in sources])
 
 
-@router.get("/{source_id}", response_model=SourceResponse)
+@router.get("/{source_id}", response_model=APIResponse[SourceResponse])
 async def get_source(
     source_id: str,
     _: str = Depends(verify_api_key),
     repo: Any = Depends(get_source_config_repo),
-) -> SourceResponse:
+) -> APIResponse[SourceResponse]:
     """Get a single source by ID.
 
     Args:
@@ -153,15 +154,15 @@ async def get_source(
     source = await repo.get(source_id)
     if source is None:
         raise HTTPException(status_code=404, detail=f"Source '{source_id}' not found")
-    return SourceResponse.from_config(source)
+    return success_response(SourceResponse.from_config(source))
 
 
-@router.post("", response_model=SourceResponse, status_code=201)
+@router.post("", response_model=APIResponse[SourceResponse], status_code=201)
 async def create_source(
     request: SourceCreateRequest,
     _: str = Depends(verify_api_key),
     repo: Any = Depends(get_source_config_repo),
-) -> SourceResponse:
+) -> APIResponse[SourceResponse]:
     """Create a new news source.
 
     Args:
@@ -194,16 +195,16 @@ async def create_source(
         tier=request.tier,
     )
     saved = await repo.upsert(config)
-    return SourceResponse.from_config(saved)
+    return success_response(SourceResponse.from_config(saved))
 
 
-@router.put("/{source_id}", response_model=SourceResponse)
+@router.put("/{source_id}", response_model=APIResponse[SourceResponse])
 async def update_source(
     source_id: str,
     request: SourceUpdateRequest,
     _: str = Depends(verify_api_key),
     repo: Any = Depends(get_source_config_repo),
-) -> SourceResponse:
+) -> APIResponse[SourceResponse]:
     """Update an existing news source.
 
     Args:
@@ -244,7 +245,7 @@ async def update_source(
         existing.tier = request.tier
 
     saved = await repo.upsert(existing)
-    return SourceResponse.from_config(saved)
+    return success_response(SourceResponse.from_config(saved))
 
 
 @router.delete("/{source_id}", status_code=204)

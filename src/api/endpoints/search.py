@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from api.endpoints import _deps as deps
 from api.middleware.auth import verify_api_key
 from api.middleware.rate_limit import limiter
+from api.schemas.response import APIResponse, success_response
 from core.llm.client import LLMClient
 from modules.search.engines.global_search import GlobalSearchEngine
 from modules.search.engines.local_search import LocalSearchEngine, SearchResult
@@ -58,7 +59,7 @@ def _result_to_response(result: SearchResult, search_type: str) -> SearchRespons
 # ── Endpoints ───────────────────────────────────────────────────
 
 
-@router.get("/local", response_model=SearchResponse)
+@router.get("/local", response_model=APIResponse[SearchResponse])
 @limiter.limit("100/minute")
 async def search_local(
     request: Request,
@@ -67,7 +68,7 @@ async def search_local(
     max_tokens: int | None = Query(None, description="Max context tokens"),
     _: str = Depends(verify_api_key),
     engine: LocalSearchEngine = Depends(deps.Endpoints.get_local_engine),
-) -> SearchResponse:
+) -> APIResponse[SearchResponse]:
     """Entity-focused knowledge graph Q&A.
 
     Best for: "Who is X?", "How are X and Y related?", specific entity queries.
@@ -82,14 +83,14 @@ async def search_local(
             entity_names=names,
             use_llm=False,
         )
-        return _result_to_response(result, "local")
+        return success_response(_result_to_response(result, "local"))
     except Exception as exc:
         if "neo4j" in str(exc).lower() or "graph" in str(exc).lower():
             raise HTTPException(status_code=503, detail="Graph service unavailable")
         raise HTTPException(status_code=503, detail="LLM service unavailable")
 
 
-@router.get("/global", response_model=SearchResponse)
+@router.get("/global", response_model=APIResponse[SearchResponse])
 @limiter.limit("100/minute")
 async def search_global(
     request: Request,
@@ -98,7 +99,7 @@ async def search_global(
     mode: str = Query("map_reduce", description="Search mode: map_reduce or simple"),
     _: str = Depends(verify_api_key),
     engine: GlobalSearchEngine = Depends(deps.Endpoints.get_global_engine),
-) -> SearchResponse:
+) -> APIResponse[SearchResponse]:
     """Community-level aggregated search (Map-Reduce pattern).
 
     Best for: broad exploratory queries spanning multiple topics.
@@ -110,14 +111,14 @@ async def search_global(
             )
         else:
             result = await engine.search(query=q, community_level=community_level, use_llm=False)
-        return _result_to_response(result, "global")
+        return success_response(_result_to_response(result, "global"))
     except Exception as exc:
         if "neo4j" in str(exc).lower() or "graph" in str(exc).lower():
             raise HTTPException(status_code=503, detail="Graph service unavailable")
         raise HTTPException(status_code=503, detail="LLM service unavailable")
 
 
-@router.get("/articles", response_model=SearchResponse)
+@router.get("/articles", response_model=APIResponse[SearchResponse])
 @limiter.limit("100/minute")
 async def search_articles(
     request: Request,
@@ -128,7 +129,7 @@ async def search_articles(
     _: str = Depends(verify_api_key),
     vector_repo: VectorRepo = Depends(deps.Endpoints.get_vector_repo),
     llm: LLMClient = Depends(deps.Endpoints.get_llm),
-) -> SearchResponse:
+) -> APIResponse[SearchResponse]:
     """Find similar articles using hybrid vector + keyword scoring."""
     try:
         embeddings = await llm.batch_embed([q])
@@ -169,23 +170,25 @@ async def search_articles(
         else float(similar[0].similarity) if similar else 0.0
     )
 
-    return SearchResponse(
-        query=q,
-        answer=answer,
-        context_tokens=0,
-        confidence=confidence,
-        search_type="articles",
-        entities=[],
-        sources=sources,
-        metadata={
-            "total_results": len(sources),
-            "threshold": threshold,
-            "category_filter": category,
-        },
+    return success_response(
+        SearchResponse(
+            query=q,
+            answer=answer,
+            context_tokens=0,
+            confidence=confidence,
+            search_type="articles",
+            entities=[],
+            sources=sources,
+            metadata={
+                "total_results": len(sources),
+                "threshold": threshold,
+                "category_filter": category,
+            },
+        )
     )
 
 
-@router.get("", response_model=SearchResponse)
+@router.get("", response_model=APIResponse[SearchResponse])
 @limiter.limit("100/minute")
 async def search_unified(
     request: Request,
@@ -207,7 +210,7 @@ async def search_unified(
     global_engine: GlobalSearchEngine = Depends(deps.Endpoints.get_global_engine),
     vector_repo: VectorRepo = Depends(deps.Endpoints.get_vector_repo),
     llm: LLMClient = Depends(deps.Endpoints.get_llm),
-) -> SearchResponse:
+) -> APIResponse[SearchResponse]:
     """Unified search endpoint with automatic mode routing.
 
     mode=auto: routes based on query characteristics (default: local)
@@ -249,19 +252,21 @@ async def search_unified(
             for item in similar
         ]
 
-        return SearchResponse(
-            query=q,
-            answer=f"Found {len(sources)} similar articles.",
-            context_tokens=0,
-            confidence=(
-                float(similar[0].hybrid_score)
-                if (similar and similar[0].hybrid_score is not None)
-                else float(similar[0].similarity) if similar else 0.0
-            ),
-            search_type="articles",
-            entities=[],
-            sources=sources,
-            metadata={"total_results": len(sources), "threshold": threshold},
+        return success_response(
+            SearchResponse(
+                query=q,
+                answer=f"Found {len(sources)} similar articles.",
+                context_tokens=0,
+                confidence=(
+                    float(similar[0].hybrid_score)
+                    if (similar and similar[0].hybrid_score is not None)
+                    else float(similar[0].similarity) if similar else 0.0
+                ),
+                search_type="articles",
+                entities=[],
+                sources=sources,
+                metadata={"total_results": len(sources), "threshold": threshold},
+            )
         )
 
     if mode == "global" or mode == "auto":
@@ -269,7 +274,7 @@ async def search_unified(
             result = await global_engine.search(
                 query=q, community_level=community_level, use_llm=False
             )
-            return _result_to_response(result, "global")
+            return success_response(_result_to_response(result, "global"))
         except Exception as exc:
             if "neo4j" in str(exc).lower() or "graph" in str(exc).lower():
                 raise HTTPException(status_code=503, detail="Graph service unavailable")
@@ -283,7 +288,7 @@ async def search_unified(
         result = await local_engine.search(
             query=q, max_tokens=max_tokens, entity_names=names, use_llm=False
         )
-        return _result_to_response(result, "local")
+        return success_response(_result_to_response(result, "local"))
     except Exception as exc:
         if "neo4j" in str(exc).lower() or "graph" in str(exc).lower():
             raise HTTPException(status_code=503, detail="Graph service unavailable")

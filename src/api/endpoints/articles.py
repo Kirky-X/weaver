@@ -13,6 +13,7 @@ from sqlalchemy import asc, desc, select
 
 from api.middleware.auth import verify_api_key
 from api.middleware.rate_limit import limiter
+from api.schemas.response import APIResponse, success_response
 from core.db.models import Article, CategoryType
 from core.db.postgres import PostgresPool
 from core.observability.logging import get_logger
@@ -128,7 +129,7 @@ def _article_to_dict(article: Article) -> dict[str, Any]:
 # ── Endpoints ───────────────────────────────────────────────────
 
 
-@router.get("", response_model=ArticleListResponse)
+@router.get("", response_model=APIResponse[ArticleListResponse])
 @limiter.limit("100/minute")
 async def list_articles(
     request: Request,
@@ -146,7 +147,7 @@ async def list_articles(
     sort_order: str = Query("desc", description="Sort order: asc, desc"),
     _: str = Depends(verify_api_key),
     pool: PostgresPool = Depends(get_postgres_pool),
-) -> ArticleListResponse:
+) -> APIResponse[ArticleListResponse]:
     """Get a paginated list of articles with optional filters.
 
     Args:
@@ -209,21 +210,23 @@ async def list_articles(
         result = await session.execute(query)
         articles = result.scalars().all()
 
-        return ArticleListResponse(
-            items=[_article_to_dict(a) for a in articles],
-            total=total,
-            page=page,
-            page_size=page_size,
-            total_pages=total_pages,
+        return success_response(
+            ArticleListResponse(
+                items=[_article_to_dict(a) for a in articles],
+                total=total,
+                page=page,
+                page_size=page_size,
+                total_pages=total_pages,
+            )
         )
 
 
-@router.get("/{article_id}", response_model=ArticleDetailResponse)
+@router.get("/{article_id}", response_model=APIResponse[ArticleDetailResponse])
 async def get_article(
     article_id: str,
     _: str = Depends(verify_api_key),
     pool: PostgresPool = Depends(get_postgres_pool),
-) -> ArticleDetailResponse:
+) -> APIResponse[ArticleDetailResponse]:
     """Get detailed information about a specific article.
 
     Args:
@@ -255,4 +258,4 @@ async def get_article(
                 detail=f"Article '{article_id}' not found",
             )
 
-        return ArticleDetailResponse(**_article_to_dict(article))
+        return success_response(ArticleDetailResponse(**_article_to_dict(article)))
