@@ -22,6 +22,7 @@ class SimilarArticle:
     article_id: str
     category: str | None
     similarity: float
+    hybrid_score: float | None = None
 
 
 @dataclass
@@ -228,6 +229,77 @@ class VectorRepo:
                 )
                 for row in result
             ]
+
+    async def find_similar_hybrid(
+        self,
+        embedding: list[float],
+        query_tokens: list[str],
+        category: str | None = None,
+        min_score: float = 0.0,
+        limit: int = 20,
+        model_id: str | None = None,
+    ) -> list[SimilarArticle]:
+        """Find similar articles using hybrid vector + keyword scoring.
+
+        Args:
+            embedding: Query embedding vector.
+            query_tokens: List of query keywords for text overlap scoring.
+            category: Optional category filter.
+            min_score: Minimum hybrid score threshold.
+            limit: Maximum number of results.
+            model_id: Optional model_id filter.
+
+        Returns:
+            List of SimilarArticle results with hybrid_score set.
+        """
+        vector_results = await self.find_similar(
+            embedding=embedding,
+            category=category,
+            threshold=0.0,
+            limit=limit,
+            model_id=model_id,
+        )
+
+        if not vector_results:
+            return []
+
+        # Fetch article bodies for keyword overlap scoring
+        article_ids = [r.article_id for r in vector_results]
+        async with self._pool.session() as session:
+            query = text("""
+                SELECT a.id::text AS article_id,
+                       COALESCE(a.title, '') AS title,
+                       COALESCE(a.body, '') AS body
+                FROM articles a
+                WHERE a.id::text = ANY(:article_ids)
+            """)
+            result = await session.execute(query, {"article_ids": article_ids})
+
+        article_texts = {row.article_id: f"{row.title} {row.body}".lower() for row in result}
+
+        # Calculate hybrid scores
+        scored = []
+        for r in vector_results:
+            text_content = article_texts.get(r.article_id, "")
+            if query_tokens and text_content:
+                overlap = sum(1 for tok in query_tokens if tok.lower() in text_content)
+                keyword_score = min(overlap / max(len(query_tokens), 1), 1.0)
+            else:
+                keyword_score = 0.0
+
+            hybrid = 0.7 * r.similarity + 0.3 * keyword_score
+            if hybrid >= min_score:
+                scored.append(
+                    SimilarArticle(
+                        article_id=r.article_id,
+                        category=r.category,
+                        similarity=r.similarity,
+                        hybrid_score=hybrid,
+                    )
+                )
+
+        scored.sort(key=lambda x: x.hybrid_score or 0, reverse=True)
+        return scored[:limit]
 
     async def batch_find_similar(
         self,
