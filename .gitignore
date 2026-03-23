@@ -25,9 +25,11 @@ config/settings.toml
 openspec/
 .claude/
 docs/report/
+docs/36kr_pipeline_test.md
 REQUIREMENT_COMPLIANCE_REPORT.md
 doc/
 REVIEW_REPORT.md
+CLAUDE.md
 
 # IDE/Tool directories
 .iflow/
