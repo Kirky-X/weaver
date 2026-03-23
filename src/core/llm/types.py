@@ -31,6 +31,8 @@ class CallPoint(str, Enum):
     ENTITY_RESOLVER = "entity_resolver"
     EMBEDDING = "embedding"
     RERANK = "rerank"
+    SEARCH_LOCAL = "search_local"
+    SEARCH_GLOBAL = "search_global"
 
 
 @dataclass
