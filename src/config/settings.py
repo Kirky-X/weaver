@@ -77,6 +77,8 @@ class LLMSettings(BaseModel):
             "credibility_checker": {"primary": "ollama", "fallbacks": ["openai"]},
             "entity_extractor": {"primary": "ollama", "fallbacks": ["openai"]},
             "entity_resolver": {"primary": "ollama", "fallbacks": ["openai"]},
+            "search_local": {"primary": "ollama", "fallbacks": ["openai"]},
+            "search_global": {"primary": "ollama", "fallbacks": ["openai"]},
         }
     )
     embedding_provider: str = "openai"
