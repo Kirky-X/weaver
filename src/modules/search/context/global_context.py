@@ -71,7 +71,9 @@ class GlobalContextBuilder(ContextBuilder):
         """
         context = self.create_context(query, max_tokens)
 
-        relevant_communities = await self._find_relevant_communities(query, community_level)
+        relevant_communities, used_fallback = await self._find_relevant_communities(
+            query, community_level
+        )
 
         if not relevant_communities:
             context.add_content(
@@ -79,6 +81,7 @@ class GlobalContextBuilder(ContextBuilder):
                 content="No relevant communities found for the query.",
                 priority=0,
             )
+            context.metadata["total_communities"] = 0
             return context
 
         if relevant_communities:
@@ -112,15 +115,85 @@ class GlobalContextBuilder(ContextBuilder):
 
         context.metadata["community_level"] = community_level
         context.metadata["total_communities"] = len(relevant_communities)
+        if used_fallback:
+            context.metadata["fallback_source"] = "entity_article"
 
         return context
+
+    async def _find_entity_article_fallback(
+        self,
+        query: str,
+    ) -> list[dict[str, Any]]:
+        """Find entity-article aggregation as fallback when no Community nodes exist.
+
+        Queries Article-Entity relationships directly, filters by query tokens
+        against entity names and article titles/summaries, and returns ranked results.
+
+        Args:
+            query: The search query (used to extract filter tokens).
+
+        Returns:
+            List of dicts with id (prefixed "fallback:"), title, rank, entity_count.
+        """
+        tokens = [t.strip() for t in query.split() if t.strip()]
+        if not tokens:
+            return []
+
+        cypher = """
+        MATCH (a:Article)-[:MENTIONS]->(e:Entity)
+        WHERE any(token IN tokens($tokens) WHERE
+                 toLower(e.canonical_name) CONTAINS token
+                 OR toLower(a.title) CONTAINS token
+                 OR toLower(a.summary) CONTAINS token)
+        RETURN e.canonical_name AS entity_name,
+               e.type AS entity_type,
+               e.description AS entity_description,
+               a.id AS article_id,
+               a.title AS article_title,
+               a.summary AS article_summary,
+               a.score AS article_score,
+               size((e)-[:RELATED_TO]->()) AS entity_degree
+        ORDER BY article_score DESC, entity_degree DESC
+        LIMIT $limit
+        """
+
+        try:
+            results = await self._pool.execute_query(
+                cypher,
+                {"tokens": tokens, "limit": self._max_communities},
+            )
+
+            if not results:
+                return []
+
+            return [
+                {
+                    "id": f"fallback:{dict(r).get('article_id', '')}",
+                    "title": (
+                        f"{dict(r).get('entity_name', '')} — {dict(r).get('article_title', '')}"
+                    ),
+                    "summary": dict(r).get("entity_description", ""),
+                    "rank": float(dict(r).get("article_score", 0.5)),
+                    "entity_count": 1,
+                }
+                for r in results
+            ]
+        except Exception as exc:
+            log.warning("entity_article_fallback_failed", error=str(exc))
+            return []
 
     async def _find_relevant_communities(
         self,
         query: str,
         level: int,
-    ) -> list[dict[str, Any]]:
-        """Find communities relevant to the query."""
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """Find communities relevant to the query.
+
+        Returns:
+            Tuple of (results list, used_fallback bool).
+            used_fallback is True when entity-article aggregation was used
+            instead of Community nodes.
+        """
         query_lower = query.lower()
 
         cypher = """
@@ -144,7 +217,7 @@ class GlobalContextBuilder(ContextBuilder):
             )
 
             if results:
-                return [dict(r) for r in results]
+                return [dict(r) for r in results], False
         except Exception as exc:
             log.debug("community_search_failed", error=str(exc))
 
@@ -165,10 +238,14 @@ class GlobalContextBuilder(ContextBuilder):
                 cypher_fallback,
                 {"level": level, "limit": self._max_communities},
             )
-            return [dict(r) for r in results]
+            if results:
+                return [dict(r) for r in results], False
         except Exception as exc:
             log.warning("community_fallback_failed", error=str(exc))
-            return []
+
+        # Fall back to entity-article aggregation when no Community nodes exist
+        fallback_results = await self._find_entity_article_fallback(query)
+        return fallback_results, True
 
     async def _get_key_entities(
         self,
@@ -313,7 +390,7 @@ class GlobalContextBuilder(ContextBuilder):
         Returns:
             List of SearchContext, one per relevant community.
         """
-        communities = await self._find_relevant_communities(query, community_level)
+        communities, _ = await self._find_relevant_communities(query, community_level)
 
         contexts = []
         for comm in communities:
