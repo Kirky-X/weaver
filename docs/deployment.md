@@ -57,7 +57,7 @@ export WEAVER_API__RATE_LIMIT=100/minute
 export POSTGRES_DSN=postgresql+asyncpg://user:password@host:5432/weaver
 
 # Neo4j
-export NEO4J_URI=bolt://neo4j-host:7687
+export NEO4J_URI=bolt://neo4j-host:7689
 export NEO4J_USER=neo4j
 export NEO4J_PASSWORD=<secure-password>
 
@@ -79,6 +79,13 @@ export WEAVER_LLM__PROVIDERS__OPENAI__CONCURRENCY=5
 export WEAVER_LLM__PROVIDERS__OLLAMA__BASE_URL=http://ollama-host:11434
 export WEAVER_LLM__PROVIDERS__OLLAMA__MODEL=qwen3.5:9b
 export WEAVER_LLM__PROVIDERS__OLLAMA__CONCURRENCY=3
+
+# 搜索相关 CallPoints (可选配置，默认已在 settings.toml 中设置)
+# 如需覆盖，可通过环境变量设置:
+# export WEAVER_LLM__CALL_POINTS__SEARCH_LOCAL__PRIMARY=openai
+# export WEAVER_LLM__CALL_POINTS__SEARCH_LOCAL__FALLBACKS='["ollama"]'
+# export WEAVER_LLM__CALL_POINTS__SEARCH_GLOBAL__PRIMARY=openai
+# export WEAVER_LLM__CALL_POINTS__SEARCH_GLOBAL__FALLBACKS='["ollama"]'
 ```
 
 #### 可观测性配置

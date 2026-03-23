@@ -137,7 +137,7 @@ uv run python -m spacy download zh_core_web_sm
 1. 复制配置模板：
 
 ```bash
-cp src/config/settings.example.toml src/config/settings.toml
+cp config/settings.example.toml config/settings.toml
 ```
 
 2. 编辑 `settings.toml`：
@@ -147,7 +147,7 @@ cp src/config/settings.example.toml src/config/settings.toml
 dsn = "postgresql+asyncpg://user:pass@localhost:5432/weaver"
 
 [neo4j]
-uri = "bolt://localhost:7687"
+uri = "bolt://localhost:7689"
 auth = '["neo4j","your_password"]'  # JSON 格式: [用户名, 密码]
 
 [redis]
@@ -208,6 +208,14 @@ fallbacks = ["openai"]
 primary = "ollama"
 fallbacks = ["openai"]
 
+[llm.call_points.search_local]
+primary = "ollama"
+fallbacks = ["openai"]
+
+[llm.call_points.search_global]
+primary = "ollama"
+fallbacks = ["openai"]
+
 [fetcher]
 playwright_pool_size = 5
 default_per_host_concurrency = 2
@@ -234,7 +242,7 @@ port = 8000
 | **PostgreSQL** ||||
 | `dsn` | string | `postgresql+asyncpg://...` | 数据库连接字符串 |
 | **Neo4j** ||||
-| `uri` | string | `bolt://localhost:7687` | Neo4j 连接地址 |
+| `uri` | string | `bolt://localhost:7689` | Neo4j 连接地址 |
 | `auth` | string | `'["neo4j","neo4j_password"]'` | JSON 格式认证信息 |
 | **Redis** ||||
 | `url` | string | `redis://localhost:6379/0` | Redis 连接地址 |
@@ -354,6 +362,7 @@ X-API-Key: your-api-key
 |------|------|------|
 | `/health` | GET | 健康检查（无需认证） |
 | `/api/v1/sources` | GET | 获取源列表 |
+| `/api/v1/sources/{source_id}` | GET | 获取指定源 |
 | `/api/v1/sources` | POST | 添加新源 |
 | `/api/v1/sources/{source_id}` | PUT | 更新源配置 |
 | `/api/v1/sources/{source_id}` | DELETE | 删除源 |
@@ -362,9 +371,19 @@ X-API-Key: your-api-key
 | `/api/v1/pipeline/queue/stats` | GET | 获取队列统计 |
 | `/api/v1/articles` | GET | 查询文章列表（支持分页、过滤、排序） |
 | `/api/v1/articles/{id}` | GET | 获取文章详情 |
+| `/api/v1/search` | GET | 统一搜索（自动路由） |
+| `/api/v1/search/local` | GET | 实体聚焦图谱问答 |
+| `/api/v1/search/global` | GET | 社区级聚合搜索 |
+| `/api/v1/search/articles` | GET | 混合向量+关键词相似文章搜索 |
 | `/api/v1/graph/entities/{name}` | GET | 查询实体及其关系 |
 | `/api/v1/graph/articles/{id}/graph` | GET | 获取文章的知识图谱 |
-| `/api/v1/graph/metrics/*` | GET | 图谱指标端点 |
+| `/api/v1/graph/metrics/health` | GET | 图谱健康度摘要 |
+| `/api/v1/graph/metrics/full` | GET | 图谱完整指标 |
+| `/api/v1/graph/metrics/components` | GET | 连通分量列表 |
+| `/api/v1/graph/metrics/orphans` | GET | 孤立实体列表 |
+| `/api/v1/graph/metrics/high-degree` | GET | 高度数实体列表 |
+| `/api/v1/graph/metrics/modularity` | GET | 模块度评分 |
+| `/api/v1/graph/metrics/distributions` | GET | 类型分布统计 |
 | `/api/v1/admin/sources/authority` | GET | 获取源权威度 |
 | `/metrics` | GET | Prometheus 指标 |
 
@@ -374,7 +393,7 @@ X-API-Key: your-api-key
 #### 获取文章列表
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/articles?page=1&page_size=20&category=politics&min_credibility=0.7" \
+curl -X GET "http://localhost:8000/api/v1/articles?page=1&page_size=20&category=politics&min_credibility=0.7&sort_by=publish_time&sort_order=desc" \
   -H "X-API-Key: your-api-key"
 ```
 
@@ -507,6 +526,8 @@ flowchart LR
 | credibility_checker | CHAT | 可信度检查 |
 | entity_extractor | CHAT | 实体提取 |
 | entity_resolver | CHAT | 实体消歧 |
+| search_local | CHAT | 本地搜索问答 |
+| search_global | CHAT | 全局搜索问答 |
 | embedding | EMBEDDING | 向量生成 |
 | rerank | RERANK | 重排序 |
 
@@ -522,6 +543,8 @@ flowchart LR
 | archive_old_neo4j_nodes | 每周六2点 | 归档旧文章 |
 | cleanup_orphan_entity_vectors | 每周六3点 | 清理孤立向量 |
 | retry_pipeline_processing | 15分钟 | 重试失败的 Pipeline 处理 |
+| sync_neo4j_with_postgres | 1小时 | 同步 Neo4j 与 PostgreSQL 数据一致性 |
+| update_persist_status_metrics | 5分钟 | 更新持久化状态 Prometheus 指标（支撑告警） |
 
 ---
 
@@ -533,10 +556,10 @@ Weaver 使用分层测试策略：
 
 | 层级 | 位置 | 数量 | 特点 |
 |------|------|------|------|
-| 单元测试 | `tests/unit/` | ~940 | Mock 外部依赖，快速执行 |
+| 单元测试 | `tests/unit/` | ~1150 | Mock 外部依赖，快速执行 |
 | 集成测试 | `tests/integration/` | ~22 | 测试多组件交互 |
 | E2E 测试 | `tests/e2e/` | ~24 | 完整 API 流程，真实服务 |
-| 性能测试 | `tests/performance/` | ~10 | 向量索引性能基准 |
+| 性能测试 | `tests/performance/` | ~8 | HNSW 向量索引性能基准 |
 
 ### 运行测试
 

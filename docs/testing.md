@@ -9,6 +9,7 @@ This document describes the testing infrastructure, quality standards, and best 
 - **Characteristics**: Fast, isolated, use mocks for external dependencies
 - **Target Coverage**: 80%+ for critical modules
 - **Execution Time**: < 60 seconds total
+- **Count**: ~90 test files
 
 ### Integration Tests (`tests/integration/`)
 - **Purpose**: Test interactions between components

@@ -4,6 +4,32 @@
 
 ## 目录
 
+- [文章端点](#文章端点)
+  - [GET /api/v1/articles](#get-apiv1articles)
+  - [GET /api/v1/articles/{article_id}](#get-apiv1articlesarticle_id)
+- [源管理端点](#源管理端点)
+  - [GET /api/v1/sources](#get-apiv1sources)
+  - [POST /api/v1/sources](#post-apiv1sources)
+  - [PUT /api/v1/sources/{source_id}](#put-apiv1sourcessource_id)
+  - [DELETE /api/v1/sources/{source_id}](#delete-apiv1sourcessource_id)
+- [搜索端点](#搜索端点)
+  - [GET /api/v1/search](#get-apiv1search)
+  - [GET /api/v1/search/local](#get-apiv1searchlocal)
+  - [GET /api/v1/search/global](#get-apiv1searchglobal)
+  - [GET /api/v1/search/articles](#get-apiv1searcharticles)
+- [Pipeline 端点](#pipeline-端点)
+  - [POST /api/v1/pipeline/trigger](#post-apiv1pipelinetrigger)
+  - [GET /api/v1/pipeline/tasks/{task_id}](#get-apiv1pipelinetaskstask_id)
+  - [GET /api/v1/pipeline/queue/stats](#get-apiv1pipelinequeuestats)
+- [图谱端点](#图谱端点)
+  - [GET /api/v1/graph/entities/{name}](#get-apiv1graphentitiesname)
+  - [GET /api/v1/graph/articles/{article_id}/graph](#get-apiv1grapharticlesarticle_idgraph)
+  - [GET /api/v1/graph/metrics/health](#get-apiv1graphmetricshealth)
+  - [GET /api/v1/graph/metrics/full](#get-apiv1graphmetricsfull)
+  - [GET /api/v1/graph/metrics/components](#get-apiv1graphmetricscomponents)
+  - [GET /api/v1/graph/metrics/orphans](#get-apiv1graphmetricsorphans)
+  - [GET /api/v1/graph/metrics/high-degree](#get-apiv1graphmetricshigh-degree)
+  - [GET /api/v1/graph/metrics/modularity](#get-apiv1graphmetricsmodularity)
 - [健康检查端点](#健康检查端点)
   - [GET /health](#get-health)
 - [监控指标端点](#监控指标端点)
@@ -397,6 +423,795 @@ fetch_metrics()
 - **生产环境**: 建议通过防火墙规则限制 `/metrics` 端点访问，仅允许 Prometheus 服务器访问
 - **敏感信息**: 确保指标中不包含敏感信息（密码、API 密钥等）
 - **性能影响**: 指标收集和暴露对性能影响极小（< 1% CPU）
+
+---
+
+---
+
+## 文章端点
+
+### GET /api/v1/articles
+
+获取分页文章列表，支持过滤和排序。
+
+#### 请求
+
+```http
+GET /api/v1/articles?page=1&page_size=20&category=政治&min_credibility=0.7&sort_by=publish_time&sort_order=desc HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+**查询参数：**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `page` | integer | 1 | 页码（从1开始） |
+| `page_size` | integer | 20 | 每页数量（最大100） |
+| `category` | string | - | 按类别过滤（如 `政治`、`军事`、`经济`） |
+| `source_host` | string | - | 按来源主机名过滤 |
+| `min_score` | float | - | 最低评分过滤（0-1） |
+| `min_credibility` | float | - | 最低可信度过滤（0-1） |
+| `sort_by` | string | `publish_time` | 排序字段：`publish_time`、`score`、`credibility_score`、`created_at` |
+| `sort_order` | string | `desc` | 排序方向：`asc` 或 `desc` |
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "items": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "source_url": "https://example.com/article",
+      "source_host": "example.com",
+      "is_news": true,
+      "title": "文章标题",
+      "body": "文章内容...",
+      "category": "政治",
+      "language": "zh",
+      "region": "中国",
+      "summary": "摘要内容",
+      "event_time": "2024-01-15T10:00:00+08:00",
+      "subjects": ["主题A", "主题B"],
+      "key_data": ["关键数据1"],
+      "impact": "高",
+      "score": 0.85,
+      "sentiment": "positive",
+      "sentiment_score": 0.72,
+      "primary_emotion": "中性",
+      "credibility_score": 0.88,
+      "source_credibility": 0.95,
+      "cross_verification": 0.82,
+      "content_check_score": 0.87,
+      "publish_time": "2024-01-15T09:30:00+08:00",
+      "created_at": "2024-01-15T10:30:00Z",
+      "updated_at": "2024-01-15T10:30:00Z"
+    }
+  ],
+  "total": 150,
+  "page": 1,
+  "page_size": 20,
+  "total_pages": 8
+}
+```
+
+#### 状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 200 OK | 成功返回文章列表 |
+| 401 Unauthorized | API Key 无效或缺失 |
+| 503 Service Unavailable | 数据库服务不可用 |
+
+---
+
+### GET /api/v1/articles/{article_id}
+
+获取指定文章的详细信息。
+
+#### 请求
+
+```http
+GET /api/v1/articles/550e8400-e29b-41d4-a716-446655440000 HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+返回与列表接口相同的完整文章对象。
+
+#### 状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 200 OK | 成功返回文章详情 |
+| 400 Bad Request | 无效的文章 ID 格式 |
+| 401 Unauthorized | API Key 无效或缺失 |
+| 404 Not Found | 文章不存在 |
+
+---
+
+## 源管理端点
+
+### GET /api/v1/sources
+
+获取所有注册的新闻源列表。
+
+#### 请求
+
+```http
+GET /api/v1/sources?enabled_only=true HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+**查询参数：**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `enabled_only` | boolean | true | 是否仅返回已启用的源 |
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+[
+  {
+    "id": "xinhua-news",
+    "name": "新华社",
+    "url": "http://www.xinhuanet.com/politics/news_politics.xml",
+    "source_type": "rss",
+    "enabled": true,
+    "interval_minutes": 30,
+    "per_host_concurrency": 2,
+    "credibility": 0.98,
+    "tier": 1,
+    "last_crawl_time": "2024-01-15T09:00:00Z"
+  }
+]
+```
+
+---
+
+### POST /api/v1/sources
+
+创建新的新闻源。
+
+#### 请求
+
+```http
+POST /api/v1/sources HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+Content-Type: application/json
+
+{
+  "id": "xinhua-news",
+  "name": "新华社",
+  "url": "http://www.xinhuanet.com/politics/news_politics.xml",
+  "source_type": "rss",
+  "enabled": true,
+  "interval_minutes": 30,
+  "credibility": 0.98,
+  "tier": 1
+}
+```
+
+**请求字段：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `id` | string | 是 | 唯一标识符 |
+| `name` | string | 是 | 显示名称 |
+| `url` | string | 是 | RSS/Atom 订阅地址 |
+| `source_type` | string | 否 | 源类型，默认 `rss` |
+| `enabled` | boolean | 否 | 是否启用，默认 `true` |
+| `interval_minutes` | integer | 否 | 抓取间隔（分钟），默认30 |
+| `per_host_concurrency` | integer | 否 | 每主机并发数，默认2 |
+| `credibility` | float | 否 | 预设可信度（0.0-1.0） |
+| `tier` | integer | 否 | 层级：1=权威，2=可信，3=普通 |
+
+#### 状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 201 Created | 源创建成功 |
+| 401 Unauthorized | API Key 无效或缺失 |
+| 409 Conflict | 源 ID 已存在 |
+
+---
+
+### PUT /api/v1/sources/{source_id}
+
+更新指定新闻源的配置。
+
+#### 请求
+
+```http
+PUT /api/v1/sources/xinhua-news HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+Content-Type: application/json
+
+{
+  "enabled": false,
+  "interval_minutes": 60
+}
+```
+
+#### 状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 200 OK | 源更新成功 |
+| 401 Unauthorized | API Key 无效或缺失 |
+| 404 Not Found | 源不存在 |
+
+---
+
+### DELETE /api/v1/sources/{source_id}
+
+删除指定的新闻源。
+
+#### 请求
+
+```http
+DELETE /api/v1/sources/xinhua-news HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+#### 状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 204 No Content | 删除成功 |
+| 401 Unauthorized | API Key 无效或缺失 |
+| 404 Not Found | 源不存在 |
+
+---
+
+## 搜索端点
+
+### GET /api/v1/search
+
+统一搜索端点，根据 `mode` 参数自动路由到合适的搜索引擎。
+
+#### 请求
+
+```http
+GET /api/v1/search?q=小米汽车&mode=auto&threshold=0.7 HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+**查询参数：**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `q` | string | - | 搜索查询（必填） |
+| `mode` | string | `auto` | 搜索模式：`auto`、`local`、`global`、`articles` |
+| `entity_names` | string | - | 逗号分隔的实体名（local 模式） |
+| `max_tokens` | integer | - | 最大上下文 token 数（local/global 模式） |
+| `community_level` | integer | 0 | 社区层级（global 模式，0-10） |
+| `threshold` | float | 0.0 | 最低相似度（articles 模式，0-1） |
+| `limit` | integer | 20 | 最大结果数（articles 模式，1-100） |
+| `category` | string | - | 文章类别过滤（articles 模式） |
+
+**mode 说明：**
+- `auto`：自动选择（默认路由到 global）
+- `local`：实体聚焦的图谱问答，适合"X 是谁？"、"X 和 Y 的关系？"等实体查询
+- `global`：社区级聚合搜索，适合跨多个话题的探索性查询
+- `articles`：基于 pgvector 的混合向量+关键词相似文章搜索
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "query": "小米汽车",
+  "answer": "Found 5 similar articles.",
+  "context_tokens": 0,
+  "confidence": 0.82,
+  "search_type": "articles",
+  "entities": [],
+  "sources": [
+    {
+      "article_id": "uuid-xxx",
+      "similarity": 0.75,
+      "category": "科技",
+      "hybrid_score": 0.82
+    }
+  ],
+  "metadata": {
+    "total_results": 5,
+    "threshold": 0.7
+  }
+}
+```
+
+---
+
+### GET /api/v1/search/local
+
+实体聚焦的知识图谱问答搜索。
+
+#### 请求
+
+```http
+GET /api/v1/search/local?q=雷军和小米的关系&entity_names=雷军,小米 HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+**查询参数：**
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `q` | string | 是 | 搜索查询 |
+| `entity_names` | string | 否 | 逗号分隔的实体名，用于聚焦查询 |
+| `max_tokens` | integer | 否 | 最大上下文 token 数 |
+
+**适用场景：** "Who is X?"、"How are X and Y related?"、特定实体查询
+
+**注意：** 当前实现默认跳过LLM生成步骤(`use_llm=False`)，直接返回构建的知识图谱上下文。
+
+---
+
+### GET /api/v1/search/global
+
+社区级聚合搜索（Map-Reduce 模式）。
+
+#### 请求
+
+```http
+GET /api/v1/search/global?q=中国经济&community_level=0&mode=map_reduce HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+**查询参数：**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `q` | string | - | 搜索查询（必填） |
+| `community_level` | integer | 0 | 社区层级（0-10） |
+| `mode` | string | `map_reduce` | 搜索模式：`map_reduce` 或 `simple` |
+
+**适用场景：** 跨多个话题的宽泛探索性查询
+
+**注意：** 当前实现默认跳过LLM生成步骤(`use_llm=False`)，直接返回社区级聚合的上下文。
+
+---
+
+### GET /api/v1/search/articles
+
+基于混合向量+关键词评分的相似文章搜索。
+
+#### 请求
+
+```http
+GET /api/v1/search/articles?q=人工智能&threshold=0.7&limit=20&category=科技 HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+**查询参数：**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `q` | string | - | 搜索查询文本（必填） |
+| `threshold` | float | 0.0 | 最低混合评分阈值（0-1） |
+| `limit` | integer | 20 | 最大返回结果数（1-100） |
+| `category` | string | - | 按文章类别过滤 |
+
+**混合评分公式：** `hybrid_score = 0.7 × vec_sim + 0.3 × keyword_overlap`
+
+---
+
+## Pipeline 端点
+
+### POST /api/v1/pipeline/trigger
+
+触发 Pipeline 任务，开始抓取和处理新闻。
+
+#### 请求
+
+```http
+POST /api/v1/pipeline/trigger HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+Content-Type: application/json
+
+{
+  "source_id": null,
+  "force": false,
+  "max_items": null
+}
+```
+
+**请求字段：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `source_id` | string | 否 | 指定抓取的源 ID，为 `null` 时抓取所有已启用源 |
+| `force` | boolean | 否 | 是否强制重新抓取最近已抓取的 URL |
+| `max_items` | integer | 否 | 每个源的最大处理数量，`null` 表示无限制 |
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "task_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "queued",
+  "queued_at": "2024-01-15T10:30:00Z"
+}
+```
+
+#### 状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 200 OK | 任务已入队 |
+| 401 Unauthorized | API Key 无效或缺失 |
+| 500 Internal Server Error | Pipeline 触发失败 |
+
+---
+
+### GET /api/v1/pipeline/tasks/{task_id}
+
+查询 Pipeline 任务状态。
+
+#### 请求
+
+```http
+GET /api/v1/pipeline/tasks/550e8400-e29b-41d4-a716-446655440000 HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "task_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "running",
+  "source_id": null,
+  "queued_at": "2024-01-15T10:30:00Z",
+  "started_at": "2024-01-15T10:30:01Z",
+  "completed_at": null,
+  "progress": null,
+  "total": null,
+  "error": null,
+  "total_processed": 15,
+  "processing_count": 3,
+  "completed_count": 10,
+  "failed_count": 2,
+  "pending_count": 5
+}
+```
+
+#### 状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 200 OK | 成功返回任务状态 |
+| 401 Unauthorized | API Key 无效或缺失 |
+| 404 Not Found | 任务不存在 |
+
+---
+
+### GET /api/v1/pipeline/queue/stats
+
+获取 Pipeline 队列统计信息。
+
+#### 请求
+
+```http
+GET /api/v1/pipeline/queue/stats HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "queue_depth": 5,
+  "status_counts": {
+    "running": 2,
+    "completed": 10,
+    "failed": 3
+  },
+  "total_tasks": 15,
+  "article_stats": {
+    "total_articles": 1500,
+    "processing_count": 25,
+    "completed_count": 1200,
+    "failed_count": 50,
+    "pending_count": 275
+  }
+}
+```
+
+---
+
+## 图谱端点
+
+### GET /api/v1/graph/entities/{name}
+
+查询指定实体的信息及其关系。
+
+#### 请求
+
+```http
+GET /api/v1/graph/entities/雷军?limit=10 HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+**路径参数：**
+- `name`：实体规范名称（URL 编码）
+
+**查询参数：**
+- `limit`：最大返回关联实体数（默认10，最大100）
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "entity": {
+    "id": "entity-uuid",
+    "canonical_name": "雷军",
+    "type": "人物",
+    "aliases": ["雷布斯"],
+    "description": "小米科技创始人",
+    "updated_at": "2024-01-15T10:30:00Z"
+  },
+  "relationships": [
+    {
+      "target": "小米",
+      "relation_type": "创立",
+      "source_article_id": "article-uuid",
+      "created_at": "2024-01-15T10:30:00Z"
+    }
+  ],
+  "related_entities": [
+    {
+      "id": "entity-uuid-2",
+      "canonical_name": "小米",
+      "type": "组织机构",
+      "aliases": null,
+      "description": null,
+      "updated_at": null
+    }
+  ],
+  "mentioned_in_articles": [
+    {
+      "id": "article-uuid",
+      "title": "雷军演讲全文",
+      "category": "科技",
+      "publish_time": "2024-01-15T09:00:00+08:00",
+      "score": 0.85
+    }
+  ]
+}
+```
+
+---
+
+### GET /api/v1/graph/articles/{article_id}/graph
+
+获取文章的知识图谱视图。
+
+#### 请求
+
+```http
+GET /api/v1/graph/articles/550e8400-e29b-41d4-a716-446655440000/graph HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "article": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "title": "小米发布新手机",
+    "category": "科技",
+    "publish_time": "2024-01-15T09:00:00+08:00",
+    "score": 0.85
+  },
+  "entities": [
+    {
+      "id": "entity-uuid",
+      "canonical_name": "小米",
+      "type": "组织机构",
+      "aliases": null
+    }
+  ],
+  "relationships": [
+    {
+      "source_id": "小米",
+      "target_id": "高通",
+      "relation_type": "合作",
+      "properties": {
+        "source_article_id": "550e8400-e29b-41d4-a716-446655440000",
+        "created_at": "2024-01-15T10:30:00Z"
+      }
+    }
+  ],
+  "related_articles": [
+    {
+      "id": "uuid-xxx",
+      "title": "高通发布新芯片",
+      "category": "科技",
+      "publish_time": "2024-01-14T14:00:00+08:00",
+      "score": 0.82
+    }
+  ]
+}
+```
+
+---
+
+### GET /api/v1/graph/metrics/health
+
+获取图谱健康度摘要。
+
+#### 请求
+
+```http
+GET /api/v1/graph/metrics/health HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "health_score": 78.5,
+  "status": "moderate",
+  "entity_count": 15000,
+  "relationship_count": 45000,
+  "orphan_ratio": 0.12,
+  "connectedness": 0.85,
+  "average_degree": 6.2,
+  "recommendations": [
+    "孤立实体比例偏高，建议增加文章覆盖",
+    "平均度数偏低，图谱连接性有待提升"
+  ]
+}
+```
+
+---
+
+### GET /api/v1/graph/metrics/full
+
+获取完整的图谱质量指标。
+
+#### 请求
+
+```http
+GET /api/v1/graph/metrics/full HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "total_entities": 15000,
+  "total_articles": 8000,
+  "total_relationships": 45000,
+  "total_mentions": 120000,
+  "connected_components": 150,
+  "largest_component_size": 12000,
+  "average_degree": 6.2,
+  "modularity_score": 0.45,
+  "orphan_entities": 1800,
+  "high_degree_entities": [
+    {"canonical_name": "中国", "degree": 500},
+    {"canonical_name": "美国", "degree": 450}
+  ],
+  "entity_type_distribution": {"人物": 5000, "组织机构": 4000, "地点": 3000},
+  "relationship_type_distribution": {"合作": 15000, "竞争": 8000, "投资": 5000},
+  "computed_at": "2024-01-15T10:30:00Z"
+}
+```
+
+---
+
+### GET /api/v1/graph/metrics/components
+
+获取图谱连通分量列表。
+
+#### 请求
+
+```http
+GET /api/v1/graph/metrics/components?limit=10&min_size=5 HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+**查询参数：**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `limit` | integer | 10 | 最大返回分量数（1-100） |
+| `min_size` | integer | 1 | 最小分量大小 |
+
+---
+
+### GET /api/v1/graph/metrics/orphans
+
+获取孤立实体列表。
+
+#### 请求
+
+```http
+GET /api/v1/graph/metrics/orphans?limit=100 HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+---
+
+### GET /api/v1/graph/metrics/high-degree
+
+获取高度数实体列表。
+
+#### 请求
+
+```http
+GET /api/v1/graph/metrics/high-degree?min_degree=10&limit=50 HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+---
+
+### GET /api/v1/graph/metrics/modularity
+
+获取图谱模块度评分。
+
+#### 请求
+
+```http
+GET /api/v1/graph/metrics/modularity?resolution=1.0 HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+**查询参数：**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `resolution` | float | 1.0 | 模块度计算的分辨率参数（0.1-10.0） |
 
 ---
 

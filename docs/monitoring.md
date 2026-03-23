@@ -261,16 +261,19 @@ circuit_breaker_failures_total{provider="openai"}
 **2. LLM 调用指标**
 
 ```promql
-# LLM 调用总数
-llm_call_total{provider="openai",status="success"}
+# LLM 调用总数（需指定 call_point，如 classifier/cleaner/analyzer/search_local/search_global 等）
+llm_call_total{call_point="classifier",provider="openai",status="success"}
+llm_call_total{call_point="search_local",provider="ollama",status="success"}
+llm_call_total{call_point="search_global",provider="ollama",status="success"}
 
-# LLM 调用延迟直方图
-llm_call_latency_seconds_bucket{provider="openai",le="1"}
-llm_call_latency_seconds_bucket{provider="openai",le="5"}
-llm_call_latency_seconds_bucket{provider="openai",le="10"}
+# LLM 调用延迟直方图（需指定 call_point）
+llm_call_latency_seconds_bucket{call_point="classifier",provider="openai",le="1"}
+llm_call_latency_seconds_bucket{call_point="search_local",provider="ollama",le="1"}
+llm_call_latency_seconds_bucket{call_point="search_global",provider="ollama",le="1"}
 
 # Fallback 触发次数
-llm_fallback_total{from_provider="ollama",reason="timeout"}
+llm_fallback_total{call_point="classifier",from_provider="ollama",reason="timeout"}
+llm_fallback_total{call_point="search_local",from_provider="ollama",reason="timeout"}
 ```
 
 **3. API 性能指标**
@@ -293,14 +296,14 @@ db_pool_utilization{pool="postgres"}
 **5. 数据一致性指标**
 
 ```promql
-# 持久化状态计数
-persist_status_count{status="pending"}
-persist_status_count{status="pg_done"}
-persist_status_count{status="neo4j_done"}
-persist_status_count{status="failed"}
-
-# Pipeline 队列深度
+# Pipeline 队列深度（积压量反映处理能力）
 pipeline_queue_depth
+
+# 已处理文章总数
+weaver_articles_processed_total
+
+# 被去重的文章总数
+weaver_articles_deduped_total
 ```
 
 #### PromQL 查询示例
@@ -308,16 +311,14 @@ pipeline_queue_depth
 **查询 LLM 错误率:**
 
 ```promql
-(sum(rate(llm_call_total{status="error"}[5m])) by (provider)
-/
-sum(rate(llm_call_total[5m])) by (provider)) * 100
+(sum(rate(llm_call_total{call_point="classifier",status="error"}[5m])) by (provider) / sum(rate(llm_call_total{call_point="classifier"}[5m])) by (provider)) * 100
 ```
 
 **查询 P99 延迟:**
 
 ```promql
 histogram_quantile(0.99,
-  sum(rate(llm_call_latency_seconds_bucket[5m])) by (le, provider)
+  sum(rate(llm_call_latency_seconds_bucket[5m])) by (le, call_point, provider)
 )
 ```
 
@@ -636,13 +637,11 @@ services:
 
 ```promql
 # 查询: LLM 调用成功率
-(sum(rate(llm_call_total{status="success"}[5m])) by (provider)
-/
-sum(rate(llm_call_total[5m])) by (provider)) * 100
+(sum(rate(llm_call_total{call_point="classifier",status="success"}[5m])) by (provider) / sum(rate(llm_call_total{call_point="classifier"}[5m])) by (provider)) * 100
 
 # 查询: LLM P95 延迟
 histogram_quantile(0.95,
-  sum(rate(llm_call_latency_seconds_bucket[5m])) by (le, provider)
+  sum(rate(llm_call_latency_seconds_bucket[5m])) by (le, call_point, provider)
 )
 
 # 查询: 每分钟请求数
@@ -653,9 +652,7 @@ sum(rate(llm_call_total[1m])) by (provider)
 
 ```promql
 # 查询: API 错误率
-(sum(rate(api_request_total{status=~"5.."}[5m])) by (endpoint)
-/
-sum(rate(api_request_total[5m])) by (endpoint)) * 100
+(sum(rate(api_request_total{status=~"5.."}[5m])) by (endpoint) / sum(rate(api_request_total[5m])) by (endpoint)) * 100
 
 # 查询: API P99 延迟
 histogram_quantile(0.99,
