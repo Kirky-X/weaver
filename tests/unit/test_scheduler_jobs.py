@@ -236,17 +236,23 @@ class TestUpdateSourceAutoScores:
     @pytest.mark.asyncio
     async def test_update_source_auto_scores_with_sources(self, scheduler_jobs):
         """Test updating scores for sources."""
+        # Mock the SQLAlchemy select query result
+        # Query: select(Article.source_host, func.avg(...).label("avg_score"), func.count(...).label("article_count"))
+        mock_row = MagicMock()
+        mock_row.__getitem__ = MagicMock(
+            side_effect=lambda i: {
+                0: "example.com",  # source_host
+                1: 0.8,  # avg_score
+                2: 10,  # article_count
+            }.get(i)
+        )
+        mock_row.__iter__ = MagicMock(return_value=iter(["example.com", 0.8, 10]))
+
+        mock_result = MagicMock()
+        mock_result.all.return_value = [mock_row]
+
         mock_session = AsyncMock()
-
-        mock_hosts_result = MagicMock()
-        mock_hosts_result.__iter__ = MagicMock(return_value=iter([("example.com",)]))
-
-        mock_article = MagicMock()
-        mock_article.credibility_score = 0.8
-        mock_articles_result = MagicMock()
-        mock_articles_result.scalars().all.return_value = [mock_article]
-
-        mock_session.execute = AsyncMock(side_effect=[mock_hosts_result, mock_articles_result])
+        mock_session.execute = AsyncMock(return_value=mock_result)
 
         scheduler_jobs._postgres.session = MagicMock()
         scheduler_jobs._postgres.session.return_value.__aenter__ = AsyncMock(

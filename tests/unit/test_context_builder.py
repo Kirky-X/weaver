@@ -11,7 +11,9 @@ import pytest
 @pytest.fixture
 def mock_neo4j_pool():
     """Mock Neo4j connection pool."""
-    return AsyncMock()
+    pool = MagicMock()
+    pool.execute_query = AsyncMock(return_value=[])
+    return pool
 
 
 class TestGlobalContextBuilder:
