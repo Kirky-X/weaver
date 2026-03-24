@@ -13,6 +13,7 @@ from api.middleware.auth import verify_api_key
 from api.middleware.rate_limit import limiter
 from api.schemas.response import APIResponse, success_response
 from core.llm.client import LLMClient
+from core.observability.logging import get_logger
 from modules.search.engines.global_search import GlobalSearchEngine
 from modules.search.engines.hybrid_search import HybridSearchEngine
 from modules.search.engines.local_search import LocalSearchEngine, SearchResult
@@ -200,9 +201,7 @@ async def search_articles(
                 )
         except Exception as exc:
             # Fall back to vector-only search
-            import logging
-
-            logging.getLogger(__name__).warning(f"Hybrid search failed, falling back: {exc}")
+            get_logger(__name__).warning(f"Hybrid search failed, falling back: {exc}")
 
     # Fallback: Vector-only search
     query_tokens = q.split()

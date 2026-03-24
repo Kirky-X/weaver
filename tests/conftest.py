@@ -2,7 +2,6 @@
 """Pytest configuration and fixtures."""
 
 import asyncio
-import logging
 import os
 import uuid
 from datetime import UTC, datetime
@@ -11,7 +10,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 import pytest_asyncio
 
-logger = logging.getLogger(__name__)
+from core.observability.logging import get_logger
+
+log = get_logger(__name__)
 
 
 async def cancel_all_tasks() -> None:
@@ -25,10 +26,10 @@ async def cancel_all_tasks() -> None:
     tasks = [t for t in asyncio.all_tasks(loop) if t is not asyncio.current_task()]
 
     if not tasks:
-        logger.debug("no_pending_tasks_to_cancel")
+        log.debug("no_pending_tasks_to_cancel")
         return
 
-    logger.info("cancelling_tasks", count=len(tasks))
+    log.info("cancelling_tasks", count=len(tasks))
 
     # Cancel all tasks
     for task in tasks:
@@ -37,14 +38,14 @@ async def cancel_all_tasks() -> None:
     # Wait for all cancellations to complete with timeout
     try:
         await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=5.0)
-        logger.info("all_tasks_cancelled", count=len(tasks))
+        log.info("all_tasks_cancelled", count=len(tasks))
     except TimeoutError:
-        logger.warning(
+        log.warning(
             "task_cancellation_timeout",
             message="Some tasks did not respond to cancellation within timeout",
         )
     except Exception as exc:
-        logger.warning(
+        log.warning(
             "task_cancellation_error",
             error=str(exc),
             message="Errors occurred during task cancellation but continuing",
@@ -359,7 +360,7 @@ def pytest_sessionfinish(session, exitstatus):
     Ensures all background asyncio tasks are cancelled before pytest exits.
     This hook runs even when tests fail.
     """
-    logger.info("session_cleanup_starting", exit_status=exitstatus)
+    log.info("session_cleanup_starting", exit_status=exitstatus)
 
     # Get the current event loop if one exists
     try:
@@ -370,12 +371,12 @@ def pytest_sessionfinish(session, exitstatus):
         else:
             # If loop is not running, run cleanup directly
             loop.run_until_complete(cancel_all_tasks())
-        logger.info("session_cleanup_complete")
+        log.info("session_cleanup_complete")
     except RuntimeError as e:
         # No event loop exists, which is fine
-        logger.debug("no_event_loop_during_cleanup", error=str(e))
+        log.debug("no_event_loop_during_cleanup", error=str(e))
     except Exception as e:
-        logger.warning(
+        log.warning(
             "session_cleanup_error",
             error=str(e),
             message="Cleanup encountered errors but continuing shutdown",
