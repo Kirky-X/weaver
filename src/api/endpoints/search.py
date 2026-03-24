@@ -359,3 +359,111 @@ async def search_unified(
         if "neo4j" in str(exc).lower() or "graph" in str(exc).lower():
             raise HTTPException(status_code=503, detail="Graph service unavailable")
         raise HTTPException(status_code=503, detail="LLM service unavailable")
+
+
+# ── DRIFT Search Endpoint ─────────────────────────────────────
+
+
+class DriftSearchRequest(BaseModel):
+    """Request model for DRIFT search."""
+
+    query: str
+    primer_k: int = 3
+    max_follow_ups: int = 2
+    confidence_threshold: float = 0.7
+
+
+class DriftSearchResponse(BaseModel):
+    """Response model for DRIFT search."""
+
+    query: str
+    answer: str
+    confidence: float
+    search_type: str = "drift"
+    hierarchy: dict[str, Any]
+    primer_communities: int
+    follow_up_iterations: int
+    total_llm_calls: int
+    drift_mode: str
+    metadata: dict[str, Any]
+
+
+@router.post("/drift", response_model=APIResponse[DriftSearchResponse])
+@limiter.limit("20/minute")
+async def search_drift(
+    request: Request,
+    body: DriftSearchRequest,
+    _: str = Depends(verify_api_key),
+    local_engine: LocalSearchEngine = Depends(deps.Endpoints.get_local_engine),
+    global_engine: GlobalSearchEngine = Depends(deps.Endpoints.get_global_engine),
+) -> APIResponse[DriftSearchResponse]:
+    """DRIFT Search - Dynamic Reasoning and Inference Framework.
+
+    Combines global community insights with local entity details through
+    a three-phase iterative search process:
+
+    1. Primer Phase: Vector search community reports, generate initial answer
+    2. Follow-Up Phase: Iterative local search based on generated questions
+    3. Output Phase: Aggregate into hierarchical response
+
+    Best for:
+    - Complex multi-faceted queries
+    - Research-style exploration
+    - Questions requiring both breadth and depth
+
+    Args:
+        body: DRIFT search request with query and optional parameters.
+        _: Verified API key.
+        local_engine: Local search engine for follow-up phase.
+        global_engine: Global search engine dependency (for pool access).
+
+    Returns:
+        Hierarchical search result with primer and follow-up answers.
+    """
+    from modules.search.engines.drift_search import DriftConfig, DRIFTSearchEngine
+
+    try:
+        config = DriftConfig(
+            primer_k=body.primer_k,
+            max_follow_ups=body.max_follow_ups,
+            confidence_threshold=body.confidence_threshold,
+        )
+
+        # Get Neo4j pool and LLM from global engine
+        pool = global_engine._pool
+        llm = global_engine._llm
+
+        engine = DRIFTSearchEngine(
+            neo4j_pool=pool,
+            llm=llm,
+            config=config,
+            local_engine=local_engine,
+        )
+
+        result = await engine.search(body.query)
+
+        return success_response(
+            DriftSearchResponse(
+                query=result.query,
+                answer=result.answer,
+                confidence=result.confidence,
+                search_type="drift",
+                hierarchy={
+                    "primer": result.hierarchy.primer,
+                    "follow_ups": result.hierarchy.follow_ups,
+                },
+                primer_communities=result.primer_communities,
+                follow_up_iterations=result.follow_up_iterations,
+                total_llm_calls=result.total_llm_calls,
+                drift_mode=result.drift_mode,
+                metadata=result.metadata,
+            )
+        )
+
+    except Exception as exc:
+        get_logger(__name__).error("drift_search_failed", error=str(exc))
+        if "neo4j" in str(exc).lower() or "graph" in str(exc).lower():
+            raise HTTPException(status_code=503, detail="Graph service unavailable")
+        if "llm" in str(exc).lower():
+            raise HTTPException(status_code=503, detail="LLM service unavailable")
+        raise HTTPException(status_code=500, detail=f"DRIFT search failed: {exc}")

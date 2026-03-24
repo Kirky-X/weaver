@@ -340,3 +340,184 @@ async def get_type_distributions(
         "entity_type_count": len(result.entity_type_distribution),
         "relationship_type_count": len(result.relationship_type_distribution),
     }
+
+
+# ── Community Metrics Endpoints ─────────────────────────────────────
+
+
+class CommunityMetricsResponse(BaseModel):
+    """Response model for community-level metrics."""
+
+    total_communities: int = Field(..., ge=0, description="Total number of communities")
+    total_reports: int = Field(..., ge=0, description="Total number of reports")
+    levels: int = Field(..., ge=0, description="Number of hierarchy levels")
+    average_entity_count: float = Field(..., ge=0, description="Average entities per community")
+    average_rank: float = Field(..., ge=0, description="Average community rank")
+    modularity_score: float | None = Field(None, description="Overall modularity score")
+    level_distribution: list[dict[str, Any]] = Field(
+        default_factory=list, description="Community count per level"
+    )
+    top_communities: list[dict[str, Any]] = Field(
+        default_factory=list, description="Top ranked communities"
+    )
+    health_score: float = Field(..., ge=0, le=100, description="Community structure health score")
+    health_status: str = Field(..., description="Health status label")
+
+
+class CommunityHealthResponse(BaseModel):
+    """Response model for community health assessment."""
+
+    score: float = Field(..., ge=0, le=100, description="Health score (0-100)")
+    status: str = Field(..., description="Status: healthy, moderate, degraded, critical")
+    issues: list[str] = Field(default_factory=list, description="Detected issues")
+    recommendations: list[str] = Field(
+        default_factory=list, description="Improvement recommendations"
+    )
+    modularity: float | None = Field(None, description="Modularity score")
+    coverage: float = Field(..., ge=0, le=1, description="Entity coverage ratio")
+    report_coverage: float = Field(..., ge=0, le=1, description="Report coverage ratio")
+
+
+@router.get("/community", response_model=CommunityMetricsResponse)
+async def get_community_metrics(
+    level: int | None = Query(None, ge=0, description="Filter by hierarchy level"),
+    _: str = Depends(verify_api_key),
+    neo4j: Neo4jPool = Depends(get_neo4j_pool),
+) -> CommunityMetricsResponse:
+    """Get community-level metrics and statistics."""
+    from modules.graph_store.community_repo import Neo4jCommunityRepo
+
+    repo = Neo4jCommunityRepo(neo4j)
+    total_communities = await repo.count_communities(level=level)
+
+    if total_communities == 0:
+        return CommunityMetricsResponse(
+            total_communities=0,
+            total_reports=0,
+            levels=0,
+            average_entity_count=0.0,
+            average_rank=0.0,
+            modularity_score=None,
+            level_distribution=[],
+            top_communities=[],
+            health_score=0.0,
+            health_status="no_communities",
+        )
+
+    metrics = await repo.get_community_metrics(level=level)
+    level_distribution = await repo.get_level_distribution()
+    top_communities = await repo.list_communities(limit=10)
+    top_communities_data = [
+        {
+            "id": c.id,
+            "title": c.title,
+            "level": c.level,
+            "entity_count": c.entity_count,
+            "rank": c.rank,
+        }
+        for c in top_communities
+    ]
+
+    modularity = metrics.get("average_modularity", 0.0)
+    report_count = metrics.get("report_count", 0)
+    report_coverage = report_count / total_communities if total_communities > 0 else 0
+    modularity_score = (modularity + 1) / 2 if modularity else 0.5
+    health_score = modularity_score * 50 + report_coverage * 50
+
+    if health_score >= 80:
+        health_status = "healthy"
+    elif health_score >= 60:
+        health_status = "moderate"
+    elif health_score >= 40:
+        health_status = "degraded"
+    else:
+        health_status = "critical"
+
+    return CommunityMetricsResponse(
+        total_communities=total_communities,
+        total_reports=report_count,
+        levels=len(level_distribution),
+        average_entity_count=metrics.get("average_entity_count", 0.0),
+        average_rank=metrics.get("average_rank", 0.0),
+        modularity_score=modularity,
+        level_distribution=level_distribution,
+        top_communities=top_communities_data,
+        health_score=health_score,
+        health_status=health_status,
+    )
+
+
+@router.get("/community/health", response_model=CommunityHealthResponse)
+async def get_community_health(
+    _: str = Depends(verify_api_key),
+    neo4j: Neo4jPool = Depends(get_neo4j_pool),
+) -> CommunityHealthResponse:
+    """Get community structure health assessment."""
+    from modules.graph_store.community_repo import Neo4jCommunityRepo
+
+    repo = Neo4jCommunityRepo(neo4j)
+    issues: list[str] = []
+    recommendations: list[str] = []
+
+    total_communities = await repo.count_communities()
+    metrics = await repo.get_community_metrics()
+
+    if total_communities == 0:
+        return CommunityHealthResponse(
+            score=0.0,
+            status="critical",
+            issues=["No communities detected"],
+            recommendations=["Run POST /api/v1/admin/communities/rebuild to create communities"],
+            modularity=None,
+            coverage=0.0,
+            report_coverage=0.0,
+        )
+
+    modularity = metrics.get("average_modularity", 0.0)
+    report_count = metrics.get("report_count", 0)
+    entity_count = await neo4j.execute_query("MATCH (e:Entity) RETURN count(e) AS count", {})
+    total_entities = entity_count[0].get("count", 0) if entity_count else 0
+
+    entities_in_communities_result = await neo4j.execute_query(
+        "MATCH (c:Community)-[:HAS_ENTITY]->(e:Entity) RETURN count(DISTINCT e) AS count", {}
+    )
+    entities_in_communities = (
+        entities_in_communities_result[0].get("count", 0) if entities_in_communities_result else 0
+    )
+
+    coverage = entities_in_communities / total_entities if total_entities > 0 else 0
+    report_coverage = report_count / total_communities if total_communities > 0 else 0
+
+    if modularity < 0.0:
+        issues.append("Low modularity score indicates poor community structure")
+        recommendations.append("Consider adjusting cluster size parameters")
+
+    if coverage < 0.8:
+        issues.append(f"Only {coverage:.1%} of entities are assigned to communities")
+        recommendations.append("Check for orphan entities without relationships")
+
+    if report_coverage < 0.5:
+        issues.append(f"Only {report_coverage:.1%} of communities have reports")
+        recommendations.append("Run POST /api/v1/admin/communities/reports/generate")
+
+    modularity_norm = (modularity + 1) / 2 if modularity is not None else 0.5
+    score = modularity_norm * 30 + coverage * 40 + report_coverage * 30
+
+    if score >= 80:
+        status = "healthy"
+    elif score >= 60:
+        status = "moderate"
+    elif score >= 40:
+        status = "degraded"
+    else:
+        status = "critical"
+
+    return CommunityHealthResponse(
+        score=score,
+        status=status,
+        issues=issues,
+        recommendations=recommendations,
+        modularity=modularity,
+        coverage=coverage,
+        report_coverage=report_coverage,
+    )

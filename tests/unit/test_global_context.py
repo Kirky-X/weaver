@@ -211,10 +211,12 @@ class TestGlobalContextBuilderFallback:
         builder = GlobalContextBuilder(neo4j_pool=pool)
         context = await builder.build(query="完全不存在的查询", max_tokens=1000)
 
-        # Should have the "No Communities Found" section
-        assert any(s.name == "No Communities Found" for s in context.sections)
+        # Should have a "No Communities" section (indicating no communities exist)
+        assert any("No Communities" in s.name for s in context.sections)
         assert context.metadata.get("fallback_source") is None
-        assert context.metadata.get("total_communities") == 0
+        # When no communities exist, metadata contains 'communities' key and hint
+        assert context.metadata.get("communities") == 0
+        assert "hint" in context.metadata
 
     @pytest.mark.asyncio
     async def test_find_relevant_communities_calls_fallback_after_community_failure(self):
@@ -239,12 +241,15 @@ class TestGlobalContextBuilderFallback:
         )
 
         builder = GlobalContextBuilder(neo4j_pool=pool)
-        result, used_fallback = await builder._find_relevant_communities("华为", level=0)
+        result, used_fallback, search_method = await builder._find_relevant_communities(
+            "华为", level=0
+        )
 
         assert used_fallback
         assert pool._fallback_called
         assert len(result) == 1
         assert "华为" in result[0]["title"]
+        assert search_method == "entity_article_fallback"
 
     @pytest.mark.asyncio
     async def test_fallback_sorting_by_article_score(self):

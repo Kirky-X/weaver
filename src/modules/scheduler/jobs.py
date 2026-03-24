@@ -521,3 +521,158 @@ class RetryManager:
         key = f"crawl:retry:{host}"
         if items:
             await self._redis.zrem(key, *items)
+
+
+class CommunityDetectionScheduler:
+    """Manages automatic community detection triggers.
+
+    Triggers community detection when:
+    - Entity count changes exceed threshold (default 10%)
+    - Time since last rebuild exceeds threshold (default 7 days)
+    """
+
+    ENTITY_CHANGE_THRESHOLD = 0.10  # 10% change
+    REBUILD_INTERVAL_DAYS = 7
+
+    # Redis keys for tracking state
+    LAST_REBUILD_KEY = "community:last_rebuild"
+    ENTITY_COUNT_KEY = "community:entity_count"
+
+    def __init__(
+        self,
+        neo4j_pool: Any,
+        redis_client: RedisClient,
+        llm_client: Any = None,
+    ) -> None:
+        self._neo4j_pool = neo4j_pool
+        self._redis = redis_client
+        self._llm_client = llm_client
+
+    async def check_and_trigger_detection(self) -> dict[str, Any]:
+        """Check if community detection should be triggered.
+
+        Returns:
+            Dict with 'triggered', 'reason', and stats.
+        """
+        from modules.graph_store.community_detector import CommunityDetector
+        from modules.graph_store.community_repo import Neo4jCommunityRepo
+
+        log.info("community_detection_check_start")
+
+        result = {
+            "triggered": False,
+            "reason": None,
+            "current_entity_count": 0,
+            "previous_entity_count": 0,
+            "days_since_rebuild": None,
+        }
+
+        # Get current entity count
+        entity_count_query = "MATCH (e:Entity) RETURN count(e) AS count"
+        entity_result = await self._neo4j_pool.execute_query(entity_count_query, {})
+        current_entity_count = entity_result[0].get("count", 0) if entity_result else 0
+        result["current_entity_count"] = current_entity_count
+
+        # Get previous entity count from Redis
+        previous_count_str = await self._redis.get(self.ENTITY_COUNT_KEY)
+        previous_entity_count = int(previous_count_str) if previous_count_str else 0
+        result["previous_entity_count"] = previous_entity_count
+
+        # Check time since last rebuild
+        last_rebuild_str = await self._redis.get(self.LAST_REBUILD_KEY)
+        days_since_rebuild = None
+
+        if last_rebuild_str:
+            try:
+                last_rebuild = datetime.fromisoformat(last_rebuild_str)
+                days_since_rebuild = (datetime.now(UTC) - last_rebuild).days
+                result["days_since_rebuild"] = days_since_rebuild
+            except (ValueError, TypeError):
+                pass
+
+        # Check if we should trigger
+        should_trigger = False
+        trigger_reason = None
+
+        # Check entity count change
+        if previous_entity_count > 0:
+            change_ratio = abs(current_entity_count - previous_entity_count) / previous_entity_count
+            if change_ratio >= self.ENTITY_CHANGE_THRESHOLD:
+                should_trigger = True
+                trigger_reason = f"entity_change_{change_ratio:.1%}"
+
+        # Check time threshold
+        if days_since_rebuild is not None and days_since_rebuild >= self.REBUILD_INTERVAL_DAYS:
+            should_trigger = True
+            trigger_reason = f"days_since_rebuild_{days_since_rebuild}"
+
+        # Check if no communities exist
+        repo = Neo4jCommunityRepo(self._neo4j_pool)
+        community_count = await repo.count_communities()
+
+        if community_count == 0 and current_entity_count > 0:
+            should_trigger = True
+            trigger_reason = "no_communities_exist"
+
+        result["triggered"] = should_trigger
+        result["reason"] = trigger_reason
+
+        if should_trigger:
+            log.info(
+                "community_detection_triggered",
+                reason=trigger_reason,
+                current_entities=current_entity_count,
+                previous_entities=previous_entity_count,
+                days_since_rebuild=days_since_rebuild,
+            )
+
+            try:
+                detector = CommunityDetector(self._neo4j_pool)
+                detection_result = await detector.rebuild_communities()
+
+                # Update tracking state
+                await self._redis.set(self.LAST_REBUILD_KEY, datetime.now(UTC).isoformat())
+                await self._redis.set(self.ENTITY_COUNT_KEY, str(current_entity_count))
+
+                result["communities_created"] = detection_result.total_communities
+                result["modularity"] = detection_result.modularity
+
+                log.info(
+                    "community_detection_complete",
+                    communities=detection_result.total_communities,
+                    modularity=detection_result.modularity,
+                )
+            except Exception as exc:
+                log.error("community_detection_failed", error=str(exc))
+                result["error"] = str(exc)
+                result["triggered"] = False
+        else:
+            # Update entity count for next check
+            await self._redis.set(self.ENTITY_COUNT_KEY, str(current_entity_count))
+            log.info("community_detection_skipped", entity_count=current_entity_count)
+
+        return result
+
+    async def force_rebuild(self) -> dict[str, Any]:
+        """Force a community rebuild regardless of thresholds."""
+        from modules.graph_store.community_detector import CommunityDetector
+
+        log.info("community_detection_force_rebuild")
+
+        detector = CommunityDetector(self._neo4j_pool)
+        result = await detector.rebuild_communities()
+
+        # Update tracking state
+        await self._redis.set(self.LAST_REBUILD_KEY, datetime.now(UTC).isoformat())
+
+        entity_count_query = "MATCH (e:Entity) RETURN count(e) AS count"
+        entity_result = await self._neo4j_pool.execute_query(entity_count_query, {})
+        current_entity_count = entity_result[0].get("count", 0) if entity_result else 0
+        await self._redis.set(self.ENTITY_COUNT_KEY, str(current_entity_count))
+
+        return {
+            "triggered": True,
+            "reason": "forced",
+            "communities_created": result.total_communities,
+            "modularity": result.modularity,
+        }

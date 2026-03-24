@@ -33,6 +33,7 @@ class CallPoint(str, Enum):
     RERANK = "rerank"
     SEARCH_LOCAL = "search_local"
     SEARCH_GLOBAL = "search_global"
+    COMMUNITY_REPORT = "community_report"
 
 
 @dataclass
