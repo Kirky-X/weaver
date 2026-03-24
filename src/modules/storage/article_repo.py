@@ -37,6 +37,7 @@ class ArticleRepo:
         """Bulk upsert articles from pipeline states.
 
         Uses INSERT ... ON CONFLICT for efficient batch operations.
+        Processes states in chunks to manage memory and transaction size.
 
         Args:
             states: List of pipeline states containing article data.
@@ -47,19 +48,180 @@ class ArticleRepo:
         if not states:
             return []
 
+        # Process in chunks to balance memory usage and transaction overhead
+        CHUNK_SIZE = 50
+        all_article_ids: list[uuid.UUID] = []
+
+        for i in range(0, len(states), CHUNK_SIZE):
+            chunk = states[i:i + CHUNK_SIZE]
+            chunk_ids = await self._upsert_chunk(chunk)
+            all_article_ids.extend(chunk_ids)
+
+        return all_article_ids
+
+    async def _upsert_chunk(self, states: list[PipelineState]) -> list[uuid.UUID]:
+        """Upsert a chunk of articles within a single transaction.
+
+        Args:
+            states: List of pipeline states to upsert.
+
+        Returns:
+            List of article UUIDs for successfully upserted articles.
+        """
+        # Filter terminal states first
+        valid_states = [s for s in states if not s.get("terminal")]
+        if not valid_states:
+            return []
+
+        # Collect all URLs for batch existence check
+        urls_to_check = []
+        state_by_url: dict[str, PipelineState] = {}
+        for state in valid_states:
+            raw = state.get("raw")
+            if raw and hasattr(raw, "url"):
+                url = raw.url
+            elif isinstance(raw, dict):
+                url = raw.get("url", "")
+            else:
+                continue
+            urls_to_check.append(url)
+            state_by_url[url] = state
+
         async with self._pool.session() as session:
-            article_ids = []
-            for state in states:
-                if state.get("terminal"):
-                    continue
-                try:
-                    aid = await self._upsert_single(session, state)
-                    article_ids.append(aid)
-                except Exception as exc:
-                    log.error("bulk_upsert_single_failed", error=str(exc))
-            # Each _upsert_single commits individually to ensure persist_status
-            # is visible to subsequent operations (e.g. update_persist_status).
+            # Batch check existing URLs
+            result = await session.execute(
+                select(Article.source_url, Article.id).where(
+                    Article.source_url.in_(urls_to_check)
+                )
+            )
+            existing = {row[0]: row[1] for row in result}
+
+            article_ids: list[uuid.UUID] = []
+            new_articles: list[Article] = []
+
+            for url, state in state_by_url.items():
+                raw = state["raw"]
+                if url in existing:
+                    # Update existing article
+                    article_id = existing[url]
+                    try:
+                        await self._update_single_fields(session, article_id, state)
+                        article_ids.append(article_id)
+                    except Exception as exc:
+                        log.error("bulk_upsert_update_failed", article_id=str(article_id), error=str(exc))
+                else:
+                    # Prepare new article
+                    try:
+                        article = self._create_article_from_state(state)
+                        new_articles.append(article)
+                        article_ids.append(article.id)
+                    except Exception as exc:
+                        log.error("bulk_upsert_create_prepare_failed", url=url, error=str(exc))
+
+            # Batch insert new articles
+            if new_articles:
+                session.add_all(new_articles)
+
+            # Single commit for the entire chunk
+            await session.commit()
+
+            log.debug("bulk_upsert_chunk_complete", count=len(article_ids))
             return article_ids
+
+    def _create_article_from_state(self, state: PipelineState) -> Article:
+        """Create a new Article object from pipeline state.
+
+        Args:
+            state: Pipeline state containing article data.
+
+        Returns:
+            New Article object (not yet committed).
+        """
+        from datetime import UTC, datetime
+
+        raw = state["raw"]
+        return Article(
+            source_url=raw.url if hasattr(raw, "url") else raw.get("url", ""),
+            source_host=getattr(raw, "source_host", None) or (
+                raw.get("source_host") if isinstance(raw, dict) else None
+            ),
+            is_news=state.get("is_news", True),
+            title=state.get("cleaned", {}).get("title", getattr(raw, "title", "")),
+            body=state.get("cleaned", {}).get("body", getattr(raw, "body", "")),
+            publish_time=getattr(raw, "publish_time", None),
+            persist_status=PersistStatus.PG_DONE,
+            updated_at=datetime.now(UTC),
+        )
+
+    async def _update_single_fields(
+        self, session: AsyncSession, article_id: uuid.UUID, state: PipelineState
+    ) -> None:
+        """Update only the fields present in state (partial update).
+
+        Args:
+            session: SQLAlchemy session.
+            article_id: ID of article to update.
+            state: Pipeline state with fields to update.
+        """
+        from datetime import UTC, datetime
+
+        result = await session.execute(select(Article).where(Article.id == article_id))
+        article = result.scalar_one_or_none()
+        if not article:
+            return
+
+        if "category" in state:
+            article.category = state["category"]
+        if "language" in state:
+            article.language = state["language"]
+        if "region" in state:
+            article.region = state["region"]
+        if "summary_info" in state:
+            si = state["summary_info"]
+            article.summary = si.get("summary")
+            article.subjects = si.get("subjects")
+            article.key_data = si.get("key_data")
+            article.impact = si.get("impact")
+            article.has_data = si.get("has_data")
+            if si.get("event_time"):
+                try:
+                    from datetime import datetime
+
+                    article.event_time = datetime.fromisoformat(si["event_time"])
+                except (ValueError, TypeError):
+                    pass
+        if "score" in state:
+            article.score = state["score"]
+        if "quality_score" in state:
+            article.quality_score = state["quality_score"]
+        if "sentiment" in state:
+            sent = state["sentiment"]
+            article.sentiment = sent.get("sentiment")
+            article.sentiment_score = sent.get("sentiment_score")
+            article.primary_emotion = sent.get("primary_emotion")
+            article.emotion_targets = sent.get("emotion_targets")
+        if "credibility" in state:
+            cred = state["credibility"]
+            article.credibility_score = cred.get("score")
+            article.source_credibility = cred.get("source_credibility")
+            article.cross_verification = cred.get("cross_verification")
+            article.content_check_score = cred.get("content_check")
+            article.credibility_flags = cred.get("flags")
+            article.verified_by_sources = cred.get("verified_by_sources", 0)
+        if "is_merged" in state:
+            article.is_merged = state["is_merged"]
+        if "merged_source_ids" in state:
+            article.merged_source_ids = [
+                uuid.UUID(sid) if isinstance(sid, str) else sid
+                for sid in state["merged_source_ids"]
+            ]
+        if "prompt_versions" in state:
+            article.prompt_versions = state["prompt_versions"]
+
+        raw = state["raw"]
+        article.publish_time = getattr(raw, "publish_time", None)
+        article.updated_at = datetime.now(UTC)
+        article.persist_status = PersistStatus.PG_DONE
 
     async def _upsert_single(self, session: AsyncSession, state: PipelineState) -> uuid.UUID:
         """Upsert a single article within an existing session."""
