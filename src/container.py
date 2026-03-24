@@ -1,5 +1,19 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Dependency injection container for the weaver application."""
+"""Dependency injection container for the weaver application.
+
+This module provides a centralized dependency injection container for managing
+the lifecycle of all core services. The container should be created once at
+application startup and stored in FastAPI's app.state.
+
+Usage:
+    container = Container().configure(settings)
+    await container.startup()
+    app.state.container = container
+
+    # Access dependencies via container properties
+    redis = container.redis_client()
+    llm = container.llm_client()
+"""
 
 from __future__ import annotations
 
@@ -294,6 +308,17 @@ class Container:
             )
         return self._entity_resolver
 
+    # ── Context Manager Support ─────────────────────────────────────
+
+    async def __aenter__(self) -> Container:
+        """Async context manager entry - initializes all services."""
+        await self.startup()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Async context manager exit - gracefully shuts down all services."""
+        await self.shutdown()
+
     # ── Vector Repository ─────────────────────────────────────────
 
     def vector_repo(self) -> VectorRepo:
@@ -579,38 +604,110 @@ class Container:
         log.info("container_shutdown_complete")
 
 
-# Global container instance
+# ── Application-Level Container Access ─────────────────────────────────────────
+#
+# RECOMMENDED: Access container via FastAPI app.state
+#   container = request.app.state.container
+#   redis = container.redis_client()
+#
+# DEPRECATED: Global container access (only for backward compatibility)
+#   from container import get_container, set_container
+#   container = get_container()
+#
+# The global pattern is maintained for:
+#   1. cache_decorator.py which cannot easily access app.state
+#   2. Legacy endpoint modules not yet migrated to app.state pattern
+#   3. Scheduled jobs that run outside request context
+#
+# New code should use app.state.container or pass container explicitly.
+
 _container: Container | None = None
 
 
 def get_container() -> Container:
-    """Get the global container instance."""
+    """Get the global container instance (DEPRECATED).
+
+    Returns:
+        The global Container instance.
+
+    Raises:
+        RuntimeError: If container has not been initialized.
+
+    Note:
+        Prefer accessing container via app.state.container in new code.
+        This global accessor is maintained for backward compatibility.
+    """
     if _container is None:
-        raise RuntimeError("Container not initialized. Create it in main.py first.")
+        raise RuntimeError(
+            "Container not initialized. Create and configure a Container first, "
+            "or access via app.state.container in FastAPI request context."
+        )
     return _container
 
 
 def set_container(container: Container) -> None:
-    """Set the global container instance."""
+    """Set the global container instance (DEPRECATED).
+
+    Args:
+        container: Container instance to set as global.
+
+    Note:
+        Prefer setting app.state.container in FastAPI lifespan handler.
+        This function is maintained for backward compatibility.
+    """
     global _container
     _container = container
 
 
-# Convenience function for settings access in auth middleware
+def clear_container() -> None:
+    """Clear the global container instance.
+
+    Useful for testing scenarios where container needs to be reset.
+    """
+    global _container
+    _container = None
+
+
+# ── Settings Access ────────────────────────────────────────────────────────────
+#
+# Settings are typically accessed via container.settings
+# The global _settings_instance is only used for auth middleware
+# which runs before container is fully initialized.
+
 _settings_instance: Settings | None = None
 
 
 def get_settings() -> Settings:
-    """Get settings instance (for auth middleware)."""
+    """Get settings instance (primarily for auth middleware).
+
+    Returns:
+        Settings instance.
+
+    Note:
+        In normal application flow, settings should be accessed via
+        container.settings. This is only needed for middleware that
+        runs before container initialization.
+    """
     global _settings_instance
     if _settings_instance is None:
-        from config.settings import Settings
-
         _settings_instance = Settings()
     return _settings_instance
 
 
 def set_settings(settings: Settings) -> None:
-    """Set settings instance."""
+    """Set settings instance.
+
+    Args:
+        settings: Settings instance to set globally.
+    """
     global _settings_instance
     _settings_instance = settings
+
+
+def clear_settings() -> None:
+    """Clear the global settings instance.
+
+    Useful for testing scenarios where settings need to be reset.
+    """
+    global _settings_instance
+    _settings_instance = None
