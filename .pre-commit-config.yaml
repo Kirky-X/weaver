@@ -119,3 +119,16 @@ repos:
   #         - src
   #       files: ^src/
   #       pass_filenames: false
+
+  # ==========================================================
+  # 2. 日志规范检查（禁止使用 logging.getLogger）
+  # ==========================================================
+  - repo: local
+    hooks:
+      - id: check-logging-usage
+        name: check-logging-usage (禁止 logging.getLogger)
+        entry: python scripts/check_logging_usage.py
+        language: system
+        types: [python]
+        files: ^src/|^tests/|^scripts/
+        pass_filenames: true
