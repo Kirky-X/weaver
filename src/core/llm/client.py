@@ -9,6 +9,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from core.constants import RedisKeys
 from core.llm.output_validator import parse_llm_json
 from core.llm.queue_manager import LLMQueueManager
 from core.llm.token_budget import TokenBudgetManager
@@ -19,7 +20,8 @@ from core.utils.time_utils import get_current_time_with_timezone
 
 log = get_logger("llm_client")
 
-EMBEDDING_CACHE_PREFIX = "emb:"
+# Use centralized constant for embedding cache prefix
+EMBEDDING_CACHE_PREFIX = RedisKeys.EMBEDDING_PREFIX
 EMBEDDING_CACHE_TTL = 7 * 24 * 60 * 60
 
 
