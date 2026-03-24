@@ -42,6 +42,7 @@ from modules.search.engines.hybrid_search import HybridSearchConfig, HybridSearc
 from modules.search.engines.local_search import LocalSearchEngine
 from modules.search.rerankers.flashrank_reranker import FlashrankReranker
 from modules.search.rerankers.mmr_reranker import MMRReranker
+from modules.search.retrievers.bm25_index_service import BM25IndexService
 from modules.search.retrievers.bm25_retriever import BM25Retriever
 from modules.source import SourceConfigRepo, SourceRegistry, SourceScheduler
 from modules.storage import ArticleRepo, SourceAuthorityRepo, VectorRepo
@@ -98,9 +99,11 @@ class Container:
         self._local_search_engine: LocalSearchEngine | None = None
         self._global_search_engine: GlobalSearchEngine | None = None
         self._bm25_retriever: BM25Retriever | None = None
+        self._bm25_index_service: BM25IndexService | None = None
         self._flashrank_reranker: FlashrankReranker | None = None
         self._mmr_reranker: MMRReranker | None = None
         self._hybrid_search_engine: HybridSearchEngine | None = None
+        self._ap_scheduler: Any = None
         self._shutdown: bool = False  # Idempotency protection
 
     def configure(self, settings: Settings) -> Container:
@@ -440,11 +443,24 @@ class Container:
                 config=hybrid_config,
             )
 
+            # Initialize BM25 index service
+            rebuild_interval = (
+                search_config.bm25_rebuild_interval
+                if hasattr(search_config, "bm25_rebuild_interval")
+                else 300
+            )
+            self._bm25_index_service = BM25IndexService(
+                postgres_pool=self._postgres_pool,
+                bm25_retriever=self._bm25_retriever,
+                rebuild_interval_seconds=rebuild_interval,
+            )
+
             log.info(
                 "hybrid_search_initialized",
                 hybrid_enabled=hybrid_config.hybrid_enabled,
                 rerank_enabled=hybrid_config.rerank_enabled,
                 mmr_enabled=hybrid_config.mmr_enabled,
+                bm25_rebuild_interval=rebuild_interval,
             )
 
         except Exception as exc:
@@ -456,6 +472,48 @@ class Container:
     def bm25_retriever(self) -> BM25Retriever | None:
         """Get BM25 retriever (or None if unavailable)."""
         return self._bm25_retriever
+
+    def bm25_index_service(self) -> BM25IndexService | None:
+        """Get BM25 index service (or None if unavailable)."""
+        return self._bm25_index_service
+
+    async def init_bm25_scheduler(self) -> None:
+        """Initialize APScheduler for BM25 index rebuilding.
+
+        This sets up a background task that periodically rebuilds the BM25 index.
+        """
+        if self._bm25_index_service is None:
+            log.warning("bm25_scheduler_no_index_service")
+            return
+
+        try:
+            from apscheduler.schedulers.asyncio import AsyncScheduler
+
+            self._ap_scheduler = AsyncScheduler()
+
+            # Schedule BM25 rebuild job
+            from modules.search.retrievers.bm25_index_service import create_bm25_scheduler_job
+
+            create_bm25_scheduler_job(self._ap_scheduler, self._bm25_index_service)
+
+            # Start the scheduler
+            await self._ap_scheduler.start()
+
+            log.info(
+                "bm25_scheduler_started",
+                rebuild_interval=self._bm25_index_service._rebuild_interval,
+            )
+
+            # Build initial index asynchronously
+            if self._bm25_index_service.get_stats()["document_count"] == 0:
+                log.info("bm25_building_initial_index")
+                doc_count = await self._bm25_index_service.build_full_index()
+                log.info("bm25_initial_index_built", document_count=doc_count)
+
+        except ImportError:
+            log.warning("apscheduler_not_installed_bm25_scheduler_disabled")
+        except Exception as exc:
+            log.error("bm25_scheduler_init_failed", error=str(exc))
 
     def hybrid_search_engine(self) -> HybridSearchEngine | None:
         """Get hybrid search engine (or None if unavailable)."""
@@ -655,6 +713,9 @@ class Container:
         self._llm_failure_cleanup_thread.start()
         log.info("llm_failure_logging_initialized", event_bus_id=id(self._event_bus))
 
+        # Initialize BM25 index scheduler
+        await self.init_bm25_scheduler()
+
         log.info("container_started")
 
     async def shutdown(self) -> None:
@@ -680,6 +741,14 @@ class Container:
         if self._source_scheduler:
             self._source_scheduler.stop()
             log.info("source_scheduler_stopped")
+
+        # Stop APScheduler (BM25 index rebuild)
+        if self._ap_scheduler:
+            try:
+                await self._ap_scheduler.stop()
+                log.info("ap_scheduler_stopped")
+            except Exception as e:
+                log.warning("ap_scheduler_shutdown_error", error=str(e))
 
         # Shutdown LLM queue manager (cancel worker tasks)
         if self._llm_client:
