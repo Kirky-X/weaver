@@ -14,6 +14,7 @@ from api.middleware.rate_limit import limiter
 from api.schemas.response import APIResponse, success_response
 from core.llm.client import LLMClient
 from modules.search.engines.global_search import GlobalSearchEngine
+from modules.search.engines.hybrid_search import HybridSearchEngine
 from modules.search.engines.local_search import LocalSearchEngine, SearchResult
 from modules.storage.vector_repo import VectorRepo
 
@@ -126,11 +127,21 @@ async def search_articles(
     threshold: float = Query(0.0, ge=0.0, le=1.0, description="Min similarity threshold"),
     limit: int = Query(20, ge=1, le=100, description="Max results to return"),
     category: str | None = Query(None, description="Filter by article category"),
+    use_hybrid: bool = Query(True, description="Enable hybrid search (BM25 + vector)"),
     _: str = Depends(verify_api_key),
     vector_repo: VectorRepo = Depends(deps.Endpoints.get_vector_repo),
     llm: LLMClient = Depends(deps.Endpoints.get_llm),
+    hybrid_engine: HybridSearchEngine = Depends(deps.Endpoints.get_hybrid_engine),
 ) -> APIResponse[SearchResponse]:
-    """Find similar articles using hybrid vector + keyword scoring."""
+    """Find similar articles using hybrid vector + keyword scoring.
+
+    When use_hybrid=true (default), combines:
+    - Vector similarity search
+    - BM25 keyword matching
+    - Optional Flashrank reranking
+
+    Returns metadata including search_mode and hybrid_used flags.
+    """
     try:
         embeddings = await llm.batch_embed([q])
         query_vector = embeddings[0]
@@ -140,6 +151,60 @@ async def search_articles(
     if not query_vector:
         raise HTTPException(status_code=503, detail="Embedding service unavailable")
 
+    # Use hybrid search engine if enabled and available
+    hybrid_used = False
+    search_mode = "vector_only"
+
+    if use_hybrid and hybrid_engine is not None:
+        try:
+            hybrid_result = await hybrid_engine.search(
+                query=q,
+                embedding=query_vector,
+                limit=limit,
+            )
+
+            if hybrid_result:
+                hybrid_used = True
+                search_mode = "hybrid"
+
+                sources = [
+                    {
+                        "article_id": item.get("article_id", item.get("doc_id", "")),
+                        "similarity": item.get("score", 0.0),
+                        "category": item.get("category"),
+                        "hybrid_score": item.get("hybrid_score"),
+                        "bm25_score": item.get("bm25_score"),
+                    }
+                    for item in hybrid_result
+                ]
+
+                confidence = sources[0]["similarity"] if sources else 0.0
+
+                return success_response(
+                    SearchResponse(
+                        query=q,
+                        answer=f"Found {len(sources)} similar articles.",
+                        context_tokens=0,
+                        confidence=confidence,
+                        search_type="articles",
+                        entities=[],
+                        sources=sources,
+                        metadata={
+                            "total_results": len(sources),
+                            "threshold": threshold,
+                            "category_filter": category,
+                            "search_mode": search_mode,
+                            "hybrid_used": hybrid_used,
+                        },
+                    )
+                )
+        except Exception as exc:
+            # Fall back to vector-only search
+            import logging
+
+            logging.getLogger(__name__).warning(f"Hybrid search failed, falling back: {exc}")
+
+    # Fallback: Vector-only search
     query_tokens = q.split()
 
     try:
@@ -183,6 +248,8 @@ async def search_articles(
                 "total_results": len(sources),
                 "threshold": threshold,
                 "category_filter": category,
+                "search_mode": "vector_only",
+                "hybrid_used": False,
             },
         )
     )

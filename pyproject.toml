@@ -39,6 +39,9 @@ dependencies = [
     "opentelemetry-exporter-otlp>=1.40.0",
     "tenacity>=8.2.0",
     "ntplib>=0.4.0",
+    # ── Search Enhancement ─────────────────────────────────
+    "bm25s>=0.2.0",
+    "flashrank>=0.2.5",
 ]
 
 [build-system]

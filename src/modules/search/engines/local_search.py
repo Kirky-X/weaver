@@ -8,13 +8,16 @@ precise, factual queries that require detailed entity information.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.db.neo4j import Neo4jPool
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
 from core.observability.logging import get_logger
 from modules.search.context.local_context import LocalContextBuilder
+
+if TYPE_CHECKING:
+    from modules.search.engines.hybrid_search import HybridSearchEngine
 
 log = get_logger("search.local_engine")
 
@@ -52,6 +55,7 @@ class LocalSearchEngine:
         llm: LLMClient,
         default_max_tokens: int = 8000,
         max_context_tokens: int = 6000,
+        hybrid_engine: HybridSearchEngine | None = None,
     ) -> None:
         """Initialize local search engine.
 
@@ -60,11 +64,13 @@ class LocalSearchEngine:
             llm: LLM client for answer generation.
             default_max_tokens: Default max tokens for context.
             max_context_tokens: Maximum tokens for context window.
+            hybrid_engine: Optional hybrid search engine for enhanced retrieval.
         """
         self._pool = neo4j_pool
         self._llm = llm
         self._default_max_tokens = default_max_tokens
         self._max_context_tokens = max_context_tokens
+        self._hybrid_engine = hybrid_engine
         self._context_builder = LocalContextBuilder(
             neo4j_pool=neo4j_pool,
             default_max_tokens=default_max_tokens,
@@ -112,6 +118,7 @@ class LocalSearchEngine:
                     "context_sections": len(context.sections),
                     "search_type": "local",
                     "llm_used": False,
+                    "hybrid_used": self._hybrid_engine is not None,
                 },
             )
 
@@ -138,6 +145,7 @@ class LocalSearchEngine:
                     "context_sections": len(context.sections),
                     "search_type": "local",
                     "llm_used": True,
+                    "hybrid_used": self._hybrid_engine is not None,
                 },
             )
 

@@ -8,7 +8,7 @@ broad, exploratory queries that span multiple communities.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.db.neo4j import Neo4jPool
 from core.llm.client import LLMClient
@@ -16,6 +16,9 @@ from core.llm.types import CallPoint
 from core.observability.logging import get_logger
 from modules.search.context.global_context import GlobalContextBuilder
 from modules.search.engines.local_search import SearchResult
+
+if TYPE_CHECKING:
+    from modules.search.engines.hybrid_search import HybridSearchEngine
 
 log = get_logger("search.global_engine")
 
@@ -53,6 +56,7 @@ class GlobalSearchEngine:
         llm: LLMClient,
         default_max_tokens: int = 12000,
         max_communities: int = 10,
+        hybrid_engine: HybridSearchEngine | None = None,
     ) -> None:
         """Initialize global search engine.
 
@@ -61,11 +65,13 @@ class GlobalSearchEngine:
             llm: LLM client for answer generation.
             default_max_tokens: Default max tokens for context.
             max_communities: Maximum communities to process.
+            hybrid_engine: Optional hybrid search engine for enhanced retrieval.
         """
         self._pool = neo4j_pool
         self._llm = llm
         self._default_max_tokens = default_max_tokens
         self._max_communities = max_communities
+        self._hybrid_engine = hybrid_engine
         self._context_builder = GlobalContextBuilder(
             neo4j_pool=neo4j_pool,
             default_max_tokens=default_max_tokens,
@@ -107,7 +113,11 @@ class GlobalSearchEngine:
                     answer="No relevant communities found for the query.",
                     context_tokens=0,
                     confidence=0.0,
-                    metadata={"search_type": "global", "communities": 0},
+                    metadata={
+                        "search_type": "global",
+                        "communities": 0,
+                        "hybrid_used": self._hybrid_engine is not None,
+                    },
                 )
 
             # If use_llm=False, return context without LLM generation
@@ -121,6 +131,7 @@ class GlobalSearchEngine:
                         "search_type": "global",
                         "communities": len(contexts),
                         "llm_used": False,
+                        "hybrid_used": self._hybrid_engine is not None,
                     },
                 )
 
@@ -173,6 +184,7 @@ class GlobalSearchEngine:
                     "community_level": community_level,
                     "intermediate_count": len(intermediate_answers),
                     "llm_used": True,
+                    "hybrid_used": self._hybrid_engine is not None,
                 },
             )
 
@@ -289,6 +301,7 @@ Comprehensive Answer:"""
                     "search_type": "global_simple",
                     "communities": context.metadata.get("total_communities", 0),
                     "llm_used": False,
+                    "hybrid_used": self._hybrid_engine is not None,
                 },
             )
 
@@ -313,6 +326,7 @@ Comprehensive Answer:"""
                     "search_type": "global_simple",
                     "communities": context.metadata.get("total_communities", 0),
                     "llm_used": True,
+                    "hybrid_used": self._hybrid_engine is not None,
                 },
             )
 

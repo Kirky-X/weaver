@@ -38,7 +38,11 @@ from modules.graph_store.name_normalizer import name_normalizer
 from modules.graph_store.resolution_rules import resolution_rules
 from modules.pipeline.graph import Pipeline
 from modules.search.engines.global_search import GlobalSearchEngine
+from modules.search.engines.hybrid_search import HybridSearchConfig, HybridSearchEngine
 from modules.search.engines.local_search import LocalSearchEngine
+from modules.search.rerankers.flashrank_reranker import FlashrankReranker
+from modules.search.rerankers.mmr_reranker import MMRReranker
+from modules.search.retrievers.bm25_retriever import BM25Retriever
 from modules.source import SourceConfigRepo, SourceRegistry, SourceScheduler
 from modules.storage import ArticleRepo, SourceAuthorityRepo, VectorRepo
 from modules.storage.neo4j import Neo4jArticleRepo, Neo4jEntityRepo
@@ -93,6 +97,10 @@ class Container:
         self._llm_failure_cleanup_thread: Any = None
         self._local_search_engine: LocalSearchEngine | None = None
         self._global_search_engine: GlobalSearchEngine | None = None
+        self._bm25_retriever: BM25Retriever | None = None
+        self._flashrank_reranker: FlashrankReranker | None = None
+        self._mmr_reranker: MMRReranker | None = None
+        self._hybrid_search_engine: HybridSearchEngine | None = None
         self._shutdown: bool = False  # Idempotency protection
 
     def configure(self, settings: Settings) -> Container:
@@ -333,15 +341,22 @@ class Container:
         """Initialize search engines (requires neo4j pool to be available)."""
         if self._neo4j_pool is None or self._llm_client is None:
             return None
+
+        # Initialize hybrid search first (for injection)
+        if self._hybrid_search_engine is None:
+            self.init_hybrid_search()
+
         if self._local_search_engine is None:
             self._local_search_engine = LocalSearchEngine(
                 neo4j_pool=self._neo4j_pool,
                 llm=self._llm_client,
+                hybrid_engine=self._hybrid_search_engine,
             )
         if self._global_search_engine is None:
             self._global_search_engine = GlobalSearchEngine(
                 neo4j_pool=self._neo4j_pool,
                 llm=self._llm_client,
+                hybrid_engine=self._hybrid_search_engine,
             )
         return (self._local_search_engine, self._global_search_engine)
 
@@ -356,6 +371,97 @@ class Container:
         if self._global_search_engine is None and self._neo4j_pool is not None:
             self.init_search_engines()
         return self._global_search_engine
+
+    # ── Hybrid Search Components ─────────────────────────────────────
+
+    def init_hybrid_search(self) -> HybridSearchEngine | None:
+        """Initialize hybrid search components.
+
+        Requires settings with search configuration.
+        """
+        if self._hybrid_search_engine is not None:
+            return self._hybrid_search_engine
+
+        try:
+            search_config = getattr(self._settings, "search", None)
+            if search_config is None:
+                # Use defaults
+                search_config = HybridSearchConfig()
+
+            # Initialize BM25 retriever
+            self._bm25_retriever = BM25Retriever(
+                language="zh",
+                index_dir="/tmp/weaver_bm25_index",  # noqa: S108 - configurable index dir
+            )
+
+            # Initialize Flashrank reranker
+            self._flashrank_reranker = FlashrankReranker(
+                model_name=(
+                    search_config.rerank_model if hasattr(search_config, "rerank_model") else "tiny"
+                ),
+                enabled=(
+                    search_config.rerank_enabled
+                    if hasattr(search_config, "rerank_enabled")
+                    else True
+                ),
+            )
+
+            # Initialize MMR reranker
+            mmr_lambda = search_config.mmr_lambda if hasattr(search_config, "mmr_lambda") else 0.7
+            self._mmr_reranker = MMRReranker(lambda_param=mmr_lambda)
+
+            # Build hybrid config
+            hybrid_config = HybridSearchConfig(
+                hybrid_enabled=(
+                    search_config.hybrid_enabled
+                    if hasattr(search_config, "hybrid_enabled")
+                    else True
+                ),
+                rerank_enabled=(
+                    search_config.rerank_enabled
+                    if hasattr(search_config, "rerank_enabled")
+                    else True
+                ),
+                rerank_model=(
+                    search_config.rerank_model if hasattr(search_config, "rerank_model") else "tiny"
+                ),
+                mmr_enabled=(
+                    search_config.mmr_enabled if hasattr(search_config, "mmr_enabled") else False
+                ),
+                mmr_lambda=mmr_lambda,
+            )
+
+            # Initialize hybrid search engine
+            self._hybrid_search_engine = HybridSearchEngine(
+                vector_repo=self._vector_repo,
+                bm25_retriever=self._bm25_retriever,
+                reranker=self._flashrank_reranker,
+                mmr_reranker=self._mmr_reranker,
+                config=hybrid_config,
+            )
+
+            log.info(
+                "hybrid_search_initialized",
+                hybrid_enabled=hybrid_config.hybrid_enabled,
+                rerank_enabled=hybrid_config.rerank_enabled,
+                mmr_enabled=hybrid_config.mmr_enabled,
+            )
+
+        except Exception as exc:
+            log.warning("hybrid_search_init_failed", error=str(exc))
+            return None
+
+        return self._hybrid_search_engine
+
+    def bm25_retriever(self) -> BM25Retriever | None:
+        """Get BM25 retriever (or None if unavailable)."""
+        return self._bm25_retriever
+
+    def hybrid_search_engine(self) -> HybridSearchEngine | None:
+        """Get hybrid search engine (or None if unavailable)."""
+        if self._hybrid_search_engine is None:
+            self.init_hybrid_search()
+        return self._hybrid_search_engine
 
     # ── Fetcher & Crawler ────────────────────────────────────────
 
@@ -520,6 +626,7 @@ class Container:
             log.warning("neo4j_unavailable_skipping", error=str(exc))
         await self.init_llm()
         self.init_search_engines()
+        self.init_hybrid_search()
         await self.init_playwright_pool()
         await self.init_smart_fetcher()
 

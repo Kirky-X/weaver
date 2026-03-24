@@ -229,6 +229,7 @@ async def lifespan(app: FastAPI) -> None:
     deps.Endpoints._source_authority_repo = container.source_authority_repo()
     deps.Endpoints._local_engine = container.local_search_engine()
     deps.Endpoints._global_engine = container.global_search_engine()
+    deps.Endpoints._hybrid_engine = container.hybrid_search_engine()
     log.debug("endpoints_registry_populated")
 
     # Setup APScheduler
@@ -320,7 +321,9 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         # Enhanced security headers
-        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; object-src 'none'"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; script-src 'self'; object-src 'none'"
+        )
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
         return response
@@ -381,7 +384,9 @@ def create_app(container: Container | None = None) -> FastAPI:
             "e.g., 'https://example.com,https://app.example.com'"
         )
 
-    cors_origins = (cors_origins_env or "http://localhost:3000,http://localhost:8080,http://127.0.0.1:3000").split(",")
+    cors_origins = (
+        cors_origins_env or "http://localhost:3000,http://localhost:8080,http://127.0.0.1:3000"
+    ).split(",")
 
     app.add_middleware(
         CORSMiddleware,

@@ -120,3 +120,12 @@ port = 8000
 crawl_interval_minutes = 30
 neo4j_retry_interval_minutes = 10
 retry_flush_interval_seconds = 30
+
+# Search enhancement configuration
+[search]
+hybrid_enabled = true
+rerank_enabled = true
+rerank_model = "tiny"
+mmr_enabled = false
+mmr_lambda = 0.7
+bm25_rebuild_interval = 300

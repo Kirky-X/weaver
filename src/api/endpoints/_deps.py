@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from core.llm.client import LLMClient
     from modules.collector.source_scheduler import SourceScheduler
     from modules.search.engines.global_search import GlobalSearchEngine
+    from modules.search.engines.hybrid_search import HybridSearchEngine
     from modules.search.engines.local_search import LocalSearchEngine
     from modules.source.source_authority_repo import SourceAuthorityRepo
     from modules.source.source_config_repo import SourceConfigRepo
@@ -38,6 +39,7 @@ class Endpoints:
     _llm: LLMClient | None = None
     _local_engine: LocalSearchEngine | None = None
     _global_engine: GlobalSearchEngine | None = None
+    _hybrid_engine: HybridSearchEngine | None = None
     _vector_repo: VectorRepo | None = None
     _scheduler: SourceScheduler | None = None
     _source_config_repo: SourceConfigRepo | None = None
@@ -88,6 +90,12 @@ class Endpoints:
         if Endpoints._global_engine is None:
             raise HTTPException(503, detail="Search service not initialized")
         return Endpoints._global_engine
+
+    @staticmethod
+    def get_hybrid_engine() -> HybridSearchEngine:
+        if Endpoints._hybrid_engine is None:
+            raise HTTPException(503, detail="Hybrid search service not initialized")
+        return Endpoints._hybrid_engine
 
     # ── Vector repo ──────────────────────────────────────────────
 

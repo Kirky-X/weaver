@@ -187,6 +187,28 @@ class ObservabilitySettings(BaseModel):
     """OTLP collector endpoint for OpenTelemetry tracing."""
 
 
+class SearchSettings(BaseModel):
+    """Search enhancement settings."""
+
+    hybrid_enabled: bool = True
+    """Enable hybrid search (vector + BM25)."""
+
+    rerank_enabled: bool = True
+    """Enable cross-encoder re-ranking."""
+
+    rerank_model: str = "tiny"
+    """Flashrank model variant (tiny, small, medium, multilingual)."""
+
+    mmr_enabled: bool = False
+    """Enable MMR diversity re-ranking."""
+
+    mmr_lambda: float = 0.7
+    """MMR lambda parameter (0-1, higher favors relevance)."""
+
+    bm25_rebuild_interval: int = 300
+    """BM25 index rebuild interval in seconds."""
+
+
 def settings_customise_sources(
     settings: type[BaseSettings],
     init_settings: PydanticBaseSettingsSource,
@@ -264,6 +286,7 @@ class Settings(BaseSettings):
     scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
     dedup: DedupSettings = Field(default_factory=DedupSettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
+    search: SearchSettings = Field(default_factory=SearchSettings)
 
     def __init__(self, **kwargs: Any) -> None:
         """Initialize settings, loading TOML config first."""
