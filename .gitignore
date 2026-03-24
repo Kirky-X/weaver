@@ -1,6 +1,8 @@
 # Python-generated files
 __pycache__/
 *.py[oc]
+*.pyc
+*.pyo
 build/
 dist/
 wheels/
@@ -11,6 +13,12 @@ wheels/
 .env
 .trae/
 spec/
+
+# Python tool caches
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+.benchmarks/
 
 # Configuration files with secrets
 temp/
