@@ -3,12 +3,16 @@
 
 from __future__ import annotations
 
+import os
 import secrets
 
 from fastapi import HTTPException, Security
 from fastapi.security import APIKeyHeader
 
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+# Minimum API key length for security
+MIN_API_KEY_LENGTH = 32
 
 
 async def verify_api_key(
@@ -17,6 +21,7 @@ async def verify_api_key(
     """Verify the API key from the request header.
 
     Uses constant-time comparison to prevent timing attacks.
+    Validates that the expected key is properly configured.
 
     Args:
         key: API key from the request header.
@@ -25,7 +30,7 @@ async def verify_api_key(
         The validated API key.
 
     Raises:
-        HTTPException: If the API key is missing or invalid.
+        HTTPException: If the API key is missing, invalid, or not configured.
     """
     from container import get_settings
 
@@ -38,6 +43,25 @@ async def verify_api_key(
         )
 
     expected_key = settings.api.api_key
+
+    # Security check: ensure expected_key is properly configured
+    if not expected_key or len(expected_key) < MIN_API_KEY_LENGTH:
+        environment = os.environ.get("ENVIRONMENT", "development")
+        if environment == "production":
+            raise HTTPException(
+                status_code=500,
+                detail="API key not properly configured. "
+                "Set WEAVER_API__API_KEY environment variable with at least 32 characters.",
+            )
+        # Development mode: warn but allow weak keys
+        import structlog
+
+        structlog.get_logger().warning(
+            "weak_api_key_detected",
+            key_length=len(expected_key) if expected_key else 0,
+            recommended_length=MIN_API_KEY_LENGTH,
+        )
+
     if not secrets.compare_digest(key, expected_key):
         raise HTTPException(
             status_code=403,
