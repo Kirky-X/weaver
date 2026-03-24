@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -12,6 +13,9 @@ from core.llm.providers.base import BaseLLMProvider
 from core.observability.logging import get_logger
 
 log = get_logger("chat_provider")
+
+# Default timeout for LLM calls (seconds)
+DEFAULT_TIMEOUT = 120.0
 
 
 class ChatProvider(BaseLLMProvider):
@@ -26,6 +30,7 @@ class ChatProvider(BaseLLMProvider):
     ) -> None:
         self._default_model = model
         self._base_url = base_url
+        self._timeout = timeout
         self._client = ChatOpenAI(
             api_key=api_key,
             base_url=base_url,
@@ -53,6 +58,9 @@ class ChatProvider(BaseLLMProvider):
 
         Returns:
             The assistant's response text.
+
+        Raises:
+            TimeoutError: If the request exceeds the timeout threshold.
         """
         client = self._client
         if model and model != self._default_model:
@@ -74,8 +82,22 @@ class ChatProvider(BaseLLMProvider):
             HumanMessage(content=user_content),
         ]
 
-        response = await client.ainvoke(messages, **kwargs)
-        return response.content
+        # Apply timeout protection to prevent indefinite hanging
+        try:
+            async with asyncio.timeout(self._timeout):
+                response = await client.ainvoke(messages, **kwargs)
+                return response.content
+        except asyncio.TimeoutError:
+            log.error(
+                "llm_chat_timeout",
+                timeout=self._timeout,
+                model=model_name,
+                base_url=self._base_url,
+            )
+            raise TimeoutError(
+                f"LLM request timed out after {self._timeout} seconds. "
+                f"Model: {model_name}, Base URL: {self._base_url}"
+            )
 
     async def embed(
         self,
