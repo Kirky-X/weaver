@@ -149,6 +149,26 @@ class TestBM25RetrieverRetrieve:
 
         assert results == []
 
+    def test_retrieve_empty_query(self) -> None:
+        """Test retrieval with empty query string."""
+        retriever = BM25Retriever()
+
+        documents = [
+            BM25Document(doc_id="1", title="Test", content="Test content"),
+        ]
+        retriever.index(documents)
+
+        results = retriever.retrieve("", top_k=10)
+
+        # Empty query should return empty results
+        assert results == []
+
+    def test_get_document_count_empty_index(self) -> None:
+        """Test document count on empty index."""
+        retriever = BM25Retriever()
+
+        assert retriever.get_document_count() == 0
+
     def test_retrieve_top_k(self) -> None:
         """Test retrieval respects top_k."""
         retriever = BM25Retriever()

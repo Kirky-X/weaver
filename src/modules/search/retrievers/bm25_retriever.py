@@ -217,6 +217,11 @@ class BM25Retriever:
             log.warning("bm25_retrieve_no_index")
             return []
 
+        # Handle empty query
+        if not query or not query.strip():
+            log.debug("bm25_retrieve_empty_query")
+            return []
+
         # Tokenize query
         query_tokens = self._tokenize(query)
 

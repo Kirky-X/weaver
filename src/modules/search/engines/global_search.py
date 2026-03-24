@@ -36,11 +36,26 @@ class MapReduceResult:
     metadata: dict[str, Any]
 
 
+@dataclass
+class CommunityContext:
+    """Context for a single community in Map-Reduce."""
+
+    id: str
+    title: str
+    summary: str
+    entity_count: int
+    rank: float
+    similarity_score: float
+    full_content: str | None = None
+    key_entities: list[str] | None = None
+    entities: list[dict[str, Any]] | None = None
+
+
 class GlobalSearchEngine:
     """Global search engine using Map-Reduce pattern.
 
     This engine:
-    1. Identifies relevant communities
+    1. Identifies relevant communities using vector similarity
     2. Generates intermediate answers for each community (Map)
     3. Aggregates into a final comprehensive answer (Reduce)
 
@@ -76,6 +91,7 @@ class GlobalSearchEngine:
             neo4j_pool=neo4j_pool,
             default_max_tokens=default_max_tokens,
             max_communities=max_communities,
+            llm_client=llm,
         )
 
     async def search(
@@ -101,13 +117,27 @@ class GlobalSearchEngine:
         max_tokens = max_tokens or self._default_max_tokens
 
         try:
-            contexts = await self._context_builder.build_map_reduce_context(
+            # Get community contexts with full reports
+            communities = await self._get_community_contexts(
                 query=query,
-                max_tokens_per_community=max_tokens // self._max_communities,
-                community_level=community_level,
+                level=community_level,
             )
 
-            if not contexts:
+            if not communities:
+                # Check if there are any communities at all
+                has_communities = await self._has_any_communities(community_level)
+                if not has_communities:
+                    return SearchResult(
+                        query=query,
+                        answer="社区数据尚未初始化，请先执行社区检测。",
+                        context_tokens=0,
+                        confidence=0.0,
+                        metadata={
+                            "search_type": "global",
+                            "communities": 0,
+                            "hint": "run POST /api/v1/admin/communities/rebuild",
+                        },
+                    )
                 return SearchResult(
                     query=query,
                     answer="No relevant communities found for the query.",
@@ -122,24 +152,38 @@ class GlobalSearchEngine:
 
             # If use_llm=False, return context without LLM generation
             if not use_llm:
+                total_tokens = sum(len(c.full_content or c.summary) // 4 for c in communities)
                 return SearchResult(
                     query=query,
-                    answer=f"Found {len(contexts)} relevant communities. LLM generation skipped.",
-                    context_tokens=sum(c.total_tokens for c in contexts),
+                    answer=f"Found {len(communities)} relevant communities. LLM generation skipped.",
+                    context_tokens=total_tokens,
                     confidence=self._estimate_confidence([]),
+                    entities=list(
+                        set(e for c in communities if c.key_entities for e in c.key_entities)
+                    ),
                     metadata={
                         "search_type": "global",
-                        "communities": len(contexts),
+                        "communities": len(communities),
                         "llm_used": False,
                         "hybrid_used": self._hybrid_engine is not None,
+                        "search_method": "vector_similarity",
+                        "community_level": community_level,
                     },
                 )
 
+            # Sort communities by similarity score (weight)
+            sorted_communities = sorted(
+                communities,
+                key=lambda c: c.similarity_score,
+                reverse=True,
+            )
+
             intermediate_answers = []
             total_tokens = 0
+            community_weights = []
 
-            for i, context in enumerate(contexts):
-                map_prompt = self._build_map_prompt(query, context)
+            for i, community in enumerate(sorted_communities):
+                map_prompt = self._build_map_prompt(query, community)
 
                 response = await self._llm.call(
                     call_point=CallPoint.SEARCH_GLOBAL,
@@ -148,14 +192,25 @@ class GlobalSearchEngine:
                         "context": map_prompt,
                         "phase": "map",
                         "community_index": i,
+                        "community_title": community.title,
+                        "community_weight": community.similarity_score,
                     },
                 )
 
                 answer = response if isinstance(response, str) else str(response)
                 intermediate_answers.append(answer)
-                total_tokens += context.total_tokens
+                community_weights.append(
+                    {
+                        "community_id": community.id,
+                        "title": community.title,
+                        "weight": community.similarity_score,
+                    }
+                )
+                total_tokens += len(map_prompt) // 4
 
-            reduce_prompt = self._build_reduce_prompt(query, intermediate_answers)
+            reduce_prompt = self._build_reduce_prompt(
+                query, intermediate_answers, community_weights
+            )
 
             final_response = await self._llm.call(
                 call_point=CallPoint.SEARCH_GLOBAL,
@@ -164,6 +219,7 @@ class GlobalSearchEngine:
                     "intermediate_answers": intermediate_answers,
                     "context": reduce_prompt,
                     "phase": "reduce",
+                    "community_weights": community_weights,
                 },
             )
 
@@ -176,15 +232,21 @@ class GlobalSearchEngine:
                 answer=final_answer,
                 context_tokens=total_tokens,
                 sources=[],
-                entities=[],
+                entities=list(
+                    set(e for c in sorted_communities if c.key_entities for e in c.key_entities)
+                ),
                 confidence=self._estimate_confidence(intermediate_answers),
                 metadata={
                     "search_type": "global",
-                    "communities": len(contexts),
+                    "communities": len(sorted_communities),
                     "community_level": community_level,
                     "intermediate_count": len(intermediate_answers),
                     "llm_used": True,
                     "hybrid_used": self._hybrid_engine is not None,
+                    "search_method": "vector_similarity",
+                    "top_community_score": (
+                        sorted_communities[0].similarity_score if sorted_communities else 0
+                    ),
                 },
             )
 
@@ -198,17 +260,94 @@ class GlobalSearchEngine:
                 metadata={"error": str(exc)},
             )
 
-    def _build_map_prompt(self, query: str, context: Any) -> str:
-        """Build the Map phase prompt."""
-        context_prompt = context.to_prompt()
+    async def _get_community_contexts(
+        self,
+        query: str,
+        level: int,
+    ) -> list[CommunityContext]:
+        """Get community contexts with full reports from vector search.
+
+        Args:
+            query: The search query.
+            level: Community hierarchy level.
+
+        Returns:
+            List of CommunityContext with report content.
+        """
+        communities, used_fallback, search_method = (
+            await self._context_builder._find_relevant_communities(query, level)
+        )
+
+        if not communities:
+            return []
+
+        contexts = []
+        for comm in communities:
+            # Get entities for this community
+            entities = await self._context_builder._get_community_entities(comm.get("id", ""))
+
+            contexts.append(
+                CommunityContext(
+                    id=comm.get("id", ""),
+                    title=comm.get("title", "Unknown"),
+                    summary=comm.get("summary", ""),
+                    entity_count=comm.get("entity_count", 0),
+                    rank=comm.get("rank", 1.0),
+                    similarity_score=comm.get("similarity_score", comm.get("rank", 1.0) / 10.0),
+                    full_content=comm.get("full_content"),
+                    key_entities=comm.get("key_entities", []),
+                    entities=entities,
+                )
+            )
+
+        return contexts
+
+    async def _has_any_communities(self, level: int | None = None) -> bool:
+        """Check if any communities exist in the graph."""
+        return await self._context_builder._has_any_communities(level)
+
+    def _build_map_prompt(self, query: str, community: CommunityContext) -> str:
+        """Build the Map phase prompt using full community report.
+
+        Args:
+            query: The search query.
+            community: Community context with report.
+
+        Returns:
+            Formatted prompt for Map phase.
+        """
+        # Use full community report if available
+        if community.full_content:
+            context = f"""## Community: {community.title}
+
+### Community Report
+{community.full_content}
+
+### Key Entities
+{', '.join(community.key_entities) if community.key_entities else 'N/A'}
+
+### Statistics
+- Entity Count: {community.entity_count}
+- Relevance Score: {community.similarity_score:.2f}
+"""
+        else:
+            # Fallback to summary
+            context = f"""## Community: {community.title}
+
+### Summary
+{community.summary}
+
+### Statistics
+- Entity Count: {community.entity_count}
+- Relevance Score: {community.similarity_score:.2f}
+"""
 
         return f"""You are analyzing a specific community within a knowledge graph.
 
-Based on the community context below, provide a focused answer to the question.
-Focus on information specific to this community.
+Based on the community report below, provide a focused answer to the question.
+Focus on information specific to this community and cite key entities when relevant.
 
-Community Context:
-{context_prompt}
+{context}
 
 Question: {query}
 
@@ -216,27 +355,58 @@ Provide a concise answer focusing on this community's perspective:
 
 Answer:"""
 
-    def _build_reduce_prompt(self, query: str, intermediate_answers: list[str]) -> str:
-        """Build the Reduce phase prompt."""
-        answers_text = "\n\n---\n\n".join(
-            [f"Perspective {i+1}:\n{answer}" for i, answer in enumerate(intermediate_answers)]
-        )
+    def _build_reduce_prompt(
+        self,
+        query: str,
+        intermediate_answers: list[str],
+        community_weights: list[dict[str, Any]],
+    ) -> str:
+        """Build the Reduce phase prompt with community weights.
+
+        Args:
+            query: The search query.
+            intermediate_answers: List of intermediate answers from Map phase.
+            community_weights: List of community weights for ranking.
+
+        Returns:
+            Formatted prompt for Reduce phase.
+        """
+        # Build weighted perspectives
+        weighted_answers = []
+        for i, (answer, weight_info) in enumerate(zip(intermediate_answers, community_weights)):
+            weight = weight_info.get("weight", 1.0)
+            title = weight_info.get("title", f"Community {i+1}")
+            weighted_answers.append(
+                f"### Perspective {i+1}: {title}\n(Relevance: {weight:.2f})\n\n{answer}"
+            )
+
+        answers_text = "\n\n---\n\n".join(weighted_answers)
+
+        # Determine sorting guidance
+        sorted_by_weight = sorted(community_weights, key=lambda x: x.get("weight", 0), reverse=True)
+        top_community = sorted_by_weight[0]["title"] if sorted_by_weight else "N/A"
 
         return f"""You are synthesizing multiple perspectives into a comprehensive answer.
 
 The following perspectives come from different communities in a knowledge graph.
-Synthesize them into a coherent, comprehensive answer to the question.
+Each perspective has a relevance score indicating how well it matches the query.
+Prioritize information from higher-scoring perspectives, but include relevant
+information from all perspectives.
 
 Question: {query}
 
-Perspectives:
+Perspectives (sorted by relevance):
 {answers_text}
 
+**Most Relevant Community: {top_community}**
+
 Instructions:
-1. Synthesize the perspectives into a unified answer
-2. Highlight key themes and patterns across communities
-3. Note any contradictions or differences
-4. Be comprehensive but avoid repetition
+1. Synthesize the perspectives into a unified, comprehensive answer
+2. Prioritize information from higher-scoring perspectives
+3. Highlight key themes and patterns across communities
+4. Note any important differences or contradictions
+5. Be comprehensive but avoid repetition
+6. Cite specific communities or entities when relevant
 
 Comprehensive Answer:"""
 
@@ -302,6 +472,7 @@ Comprehensive Answer:"""
                     "communities": context.metadata.get("total_communities", 0),
                     "llm_used": False,
                     "hybrid_used": self._hybrid_engine is not None,
+                    "search_method": context.metadata.get("search_method", "unknown"),
                 },
             )
 
@@ -327,6 +498,7 @@ Comprehensive Answer:"""
                     "communities": context.metadata.get("total_communities", 0),
                     "llm_used": True,
                     "hybrid_used": self._hybrid_engine is not None,
+                    "search_method": context.metadata.get("search_method", "unknown"),
                 },
             )
 

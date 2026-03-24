@@ -326,6 +326,58 @@ class TestHybridSearchEngineParallelRetrieve:
         # BM25 should still work
         assert isinstance(bm25_results, list)
 
+    @pytest.mark.asyncio
+    async def test_parallel_retrieve_bm25_failure(
+        self,
+        mock_vector_repo: MagicMock,
+        mock_bm25_retriever: MagicMock,
+    ) -> None:
+        """Test that parallel retrieve handles BM25 failure gracefully."""
+        mock_bm25_retriever.retrieve = MagicMock(side_effect=Exception("BM25 search failed"))
+
+        engine = HybridSearchEngine(
+            vector_repo=mock_vector_repo,
+            bm25_retriever=mock_bm25_retriever,
+        )
+
+        # Should not raise, should handle gracefully
+        vector_results, bm25_results = await engine._parallel_retrieve(
+            query="test query",
+            embedding=[0.1] * 768,
+            limit=10,
+        )
+
+        # BM25 results should be empty due to error
+        assert bm25_results == []
+        # Vector should still work
+        assert isinstance(vector_results, list)
+
+    @pytest.mark.asyncio
+    async def test_parallel_retrieve_both_fail(
+        self,
+        mock_vector_repo: MagicMock,
+        mock_bm25_retriever: MagicMock,
+    ) -> None:
+        """Test that parallel retrieve handles both failures gracefully."""
+        mock_vector_repo.find_similar = AsyncMock(side_effect=Exception("Vector search failed"))
+        mock_bm25_retriever.retrieve = MagicMock(side_effect=Exception("BM25 search failed"))
+
+        engine = HybridSearchEngine(
+            vector_repo=mock_vector_repo,
+            bm25_retriever=mock_bm25_retriever,
+        )
+
+        # Should not raise, should handle gracefully
+        vector_results, bm25_results = await engine._parallel_retrieve(
+            query="test query",
+            embedding=[0.1] * 768,
+            limit=10,
+        )
+
+        # Both should be empty due to errors
+        assert vector_results == []
+        assert bm25_results == []
+
 
 class TestHybridSearchEngineFuseResults:
     """Tests for _fuse_results method."""
