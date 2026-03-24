@@ -1,0 +1,101 @@
+# Weaver Pipeline Configuration
+#
+# This file defines the processing pipeline stages and their parameters.
+# Edit this file to adjust pipeline behavior without modifying code.
+#
+# Usage:
+#   from modules.pipeline.config import PipelineConfigLoader
+#   config = PipelineConfigLoader().load_from_file("config/pipeline.toml")
+#   pipeline = Pipeline.from_config(llm, config, ...)
+#
+# Environment Variables:
+#   WEAVER_PIPELINE_CONFIG - Path to this config file
+#   WEAVER_PHASE1_CONCURRENCY - Override phase1 concurrency
+#   WEAVER_PHASE3_CONCURRENCY - Override phase3 concurrency
+
+pipeline:
+  version: "1.0"
+  
+  # Phase 1: Per-article concurrent processing
+  # Runs classifier → cleaner → (categorizer || vectorize)
+  phase1:
+    # Number of concurrent articles to process in phase 1
+    # Reduce this value if encountering LLM rate limits
+    concurrency: 5
+    
+    stages:
+      - name: classifier
+        class: modules.pipeline.nodes.classifier.ClassifierNode
+        enabled: true
+        timeout: 30
+        retry: 3
+        retry_delay: 5
+
+      - name: cleaner
+        class: modules.pipeline.nodes.cleaner.CleanerNode
+        enabled: true
+        timeout: 60
+        retry: 3
+        retry_delay: 5
+
+      - name: categorizer
+        class: modules.pipeline.nodes.categorizer.CategorizerNode
+        enabled: true
+        timeout: 45
+        retry: 3
+        retry_delay: 5
+
+      - name: vectorize
+        class: modules.pipeline.nodes.vectorize.VectorizeNode
+        enabled: true
+        timeout: 120
+        retry: 2
+        retry_delay: 10
+
+  # Phase 2: Batch merger (serial across batch)
+  batch:
+    merger_class: modules.pipeline.nodes.batch_merger.BatchMergerNode
+    enabled: true
+    timeout: 180
+
+  # Phase 3: Per-article post-merge processing
+  # Runs re-vectorize → (analyze || quality_scorer) → credibility → entity_extraction
+  phase3:
+    # Number of concurrent articles to process in phase 3
+    concurrency: 5
+    
+    stages:
+      - name: re_vectorize
+        class: modules.pipeline.nodes.re_vectorize.ReVectorizeNode
+        enabled: true
+        timeout: 120
+        retry: 2
+        retry_delay: 10
+
+      - name: analyze
+        class: modules.pipeline.nodes.analyze.AnalyzeNode
+        enabled: true
+        timeout: 90
+        retry: 3
+        retry_delay: 5
+
+      - name: quality_scorer
+        class: modules.pipeline.nodes.quality_scorer.QualityScorerNode
+        enabled: true
+        timeout: 60
+        retry: 3
+        retry_delay: 5
+
+      - name: credibility
+        class: modules.pipeline.nodes.credibility_checker.CredibilityCheckerNode
+        enabled: true
+        timeout: 45
+        retry: 3
+        retry_delay: 5
+
+      - name: entity_extractor
+        class: modules.pipeline.nodes.entity_extractor.EntityExtractorNode
+        enabled: true
+        timeout: 120
+        retry: 2
+        retry_delay: 10

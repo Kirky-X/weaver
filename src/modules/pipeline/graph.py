@@ -1,11 +1,24 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""LangGraph main pipeline flow definition."""
+"""LangGraph main pipeline flow definition.
+
+This module provides the main processing pipeline with support for both
+hardcoded nodes and configuration-driven initialization.
+
+Usage:
+    # Hardcoded (backward compatible)
+    pipeline = Pipeline(llm, budget, prompt_loader, event_bus)
+
+    # Configuration-driven (new)
+    from modules.pipeline.config import PipelineConfigLoader
+    config = PipelineConfigLoader().load_with_env_override()
+    pipeline = Pipeline.from_config(llm, config, ...)
+"""
 
 from __future__ import annotations
 
 import asyncio
 import traceback
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.db.models import PersistStatus
 from core.event.bus import EventBus
@@ -29,6 +42,9 @@ from modules.pipeline.nodes.quality_scorer import QualityScorerNode
 from modules.pipeline.nodes.re_vectorize import ReVectorizeNode
 from modules.pipeline.nodes.vectorize import VectorizeNode
 from modules.pipeline.state import PipelineState
+
+if TYPE_CHECKING:
+    from modules.pipeline.config import PipelineConfig
 
 log = get_logger("pipeline")
 
@@ -112,6 +128,101 @@ class Pipeline:
         self._article_repo = article_repo
         self._neo4j_writer = neo4j_writer
         self._vector_repo = vector_repo
+
+    @classmethod
+    def from_config(
+        cls,
+        llm: LLMClient,
+        config: "PipelineConfig",
+        budget: TokenBudgetManager | None = None,
+        prompt_loader: PromptLoader | None = None,
+        event_bus: EventBus | None = None,
+        spacy: SpacyExtractor | None = None,
+        vector_repo: Any = None,
+        article_repo: Any = None,
+        neo4j_writer: Any = None,
+        source_auth_repo: Any = None,
+        entity_resolver: EntityResolver | None = None,
+        redis_client: Any = None,
+    ) -> "Pipeline":
+        """Create a Pipeline instance from configuration.
+
+        This factory method allows the pipeline to be configured via external
+        YAML/JSON files, enabling runtime adjustments without code changes.
+
+        Args:
+            llm: LLM client instance.
+            config: Pipeline configuration object.
+            budget: Token budget manager. Created if not provided.
+            prompt_loader: Prompt loader. Created if not provided.
+            event_bus: Event bus. Created if not provided.
+            spacy: spaCy extractor. Created if not provided.
+            vector_repo: Vector repository.
+            article_repo: Article repository.
+            neo4j_writer: Neo4j writer.
+            source_auth_repo: Source authority repository.
+            entity_resolver: Entity resolver.
+            redis_client: Redis client for checkpoint cleanup.
+
+        Returns:
+            Configured Pipeline instance.
+
+        Example:
+            from modules.pipeline.config import PipelineConfigLoader
+
+            loader = PipelineConfigLoader()
+            config = loader.load_with_env_override()
+            pipeline = Pipeline.from_config(
+                llm=container.llm_client(),
+                config=config,
+                vector_repo=container.vector_repo(),
+                article_repo=container.article_repo(),
+            )
+        """
+        # Initialize default dependencies if not provided
+        from core.llm.token_budget import TokenBudgetManager
+
+        budget = budget or TokenBudgetManager()
+
+        from core.prompt.loader import PromptLoader
+        from config.settings import Settings
+
+        settings = Settings()
+        prompt_loader = prompt_loader or PromptLoader(settings.prompt.dir)
+
+        event_bus = event_bus or EventBus()
+        spacy = spacy or SpacyExtractor()
+
+        log.info(
+            "pipeline_init_from_config",
+            version=config.version,
+            phase1_concurrency=config.phase1.concurrency,
+            phase3_concurrency=config.phase3.concurrency,
+            phase1_stages=len(config.phase1.enabled_stages),
+            phase3_stages=len(config.phase3.enabled_stages),
+        )
+
+        # Create instance with configuration values
+        return cls(
+            llm=llm,
+            budget=budget,
+            prompt_loader=prompt_loader,
+            event_bus=event_bus,
+            spacy=spacy,
+            vector_repo=vector_repo,
+            article_repo=article_repo,
+            neo4j_writer=neo4j_writer,
+            source_auth_repo=source_auth_repo,
+            entity_resolver=entity_resolver,
+            redis_client=redis_client,
+            phase1_concurrency=config.phase1.concurrency,
+            phase3_concurrency=config.phase3.concurrency,
+        )
+
+    @property
+    def config_version(self) -> str | None:
+        """Get the pipeline configuration version if available."""
+        return getattr(self, "_config_version", None)
 
     async def _update_processing_stage(self, state: PipelineState, stage: str) -> None:
         """Update the processing stage in the database.
