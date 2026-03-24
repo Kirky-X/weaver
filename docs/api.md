@@ -30,6 +30,14 @@
   - [GET /api/v1/graph/metrics/orphans](#get-apiv1graphmetricsorphans)
   - [GET /api/v1/graph/metrics/high-degree](#get-apiv1graphmetricshigh-degree)
   - [GET /api/v1/graph/metrics/modularity](#get-apiv1graphmetricsmodularity)
+  - [GET /api/v1/graph/communities](#get-apiv1graphcommunities)
+  - [GET /api/v1/graph/communities/{community_id}](#get-apiv1graphcommunitiescommunity_id)
+  - [GET /api/v1/graph/metrics/community](#get-apiv1graphmetricscommunity)
+- [社区管理端点](#社区管理端点)
+  - [POST /api/v1/admin/communities/rebuild](#post-apiv1admincommunitiesrebuild)
+  - [POST /api/v1/admin/communities/{community_id}/report/regenerate](#post-apiv1admincommunitiescommunity_idreportregenerate)
+- [DRIFT 搜索端点](#drift-搜索端点)
+  - [POST /api/v1/search/drift](#post-apiv1searchdrift)
 - [健康检查端点](#健康检查端点)
   - [GET /health](#get-health)
 - [监控指标端点](#监控指标端点)
@@ -812,6 +820,7 @@ X-API-Key: your-api-key
 | `limit` | integer | 20 | 最大返回结果数（1-100） |
 | `category` | string | - | 按文章类别过滤 |
 | `mode` | string | hybrid | 搜索模式：`hybrid`（混合）、`vector`（向量）、`bm25`（词法） |
+| `use_hybrid` | boolean | true | 是否启用混合搜索（BM25 + 向量） |
 
 **混合搜索特性：**
 
@@ -1243,6 +1252,314 @@ X-API-Key: your-api-key
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `resolution` | float | 1.0 | 模块度计算的分辨率参数（0.1-10.0） |
+
+---
+
+### GET /api/v1/graph/communities
+
+获取社区列表。
+
+#### 请求
+
+```http
+GET /api/v1/graph/communities?level=0&limit=20&offset=0 HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+**查询参数：**
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `level` | integer | - | 社区层级过滤（不指定返回所有） |
+| `limit` | integer | 20 | 返回数量（1-100） |
+| `offset` | integer | 0 | 偏移量 |
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+[
+  {
+    "id": "comm-1",
+    "title": "人工智能研究",
+    "summary": "AI 领域的研究进展...",
+    "level": 0,
+    "entity_count": 15,
+    "rank": 8.5,
+    "parent_id": null,
+    "created_at": "2024-01-15T10:30:00Z"
+  }
+]
+```
+
+---
+
+### GET /api/v1/graph/communities/{community_id}
+
+获取社区详情。
+
+#### 请求
+
+```http
+GET /api/v1/graph/communities/comm-1 HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "id": "comm-1",
+  "title": "人工智能研究",
+  "summary": "AI 领域的研究进展，包括深度学习、神经网络等技术方向...",
+  "full_content": "完整报告内容...",
+  "level": 0,
+  "entity_count": 15,
+  "rank": 8.5,
+  "key_entities": ["OpenAI", "GPT-4", "DeepMind", "Google"],
+  "key_relationships": ["OpenAI --开发--> GPT-4", "DeepMind --隶属于--> Google"],
+  "parent_id": null,
+  "created_at": "2024-01-15T10:30:00Z",
+  "updated_at": "2024-01-15T12:00:00Z"
+}
+```
+
+#### 状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 200 OK | 成功返回社区详情 |
+| 404 Not Found | 社区不存在 |
+
+---
+
+### GET /api/v1/graph/metrics/community
+
+获取社区级指标。
+
+#### 请求
+
+```http
+GET /api/v1/graph/metrics/community HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "total_communities": 25,
+  "total_entities_in_communities": 350,
+  "avg_community_size": 14.0,
+  "modularity": 0.42,
+  "hierarchy_levels": 2,
+  "orphan_entities": 50,
+  "top_communities": [
+    {"id": "comm-1", "title": "AI研究", "entity_count": 25, "rank": 8.5},
+    {"id": "comm-2", "title": "机器学习", "entity_count": 20, "rank": 7.8}
+  ],
+  "computed_at": "2024-01-15T10:30:00Z"
+}
+```
+
+---
+
+## 社区管理端点
+
+### POST /api/v1/admin/communities/rebuild
+
+手动触发社区重建。
+
+#### 请求
+
+```http
+POST /api/v1/admin/communities/rebuild HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+Content-Type: application/json
+
+{
+  "force": false
+}
+```
+
+**请求字段：**
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `max_cluster_size` | integer | 否 | 10 | 最大社区规模（1-100） |
+| `seed` | integer | 否 | 42 | 随机种子（确保可重复性） |
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "success": true,
+  "status": "completed",
+  "communities_created": 25,
+  "entities_processed": 350,
+  "modularity": 0.42,
+  "levels": 2,
+  "orphan_count": 50,
+  "execution_time_ms": 3500
+}
+```
+
+#### 状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 200 OK | 社区重建完成 |
+| 202 Accepted | 社区重建任务已入队（异步模式） |
+| 401 Unauthorized | API Key 无效或缺失 |
+| 403 Forbidden | 权限不足（需要 admin 角色） |
+
+---
+
+### POST /api/v1/admin/communities/{community_id}/report/regenerate
+
+重新生成指定社区的报告。
+
+#### 请求
+
+```http
+POST /api/v1/admin/communities/comm-1/report/regenerate HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "success": true,
+  "community_id": "comm-1",
+  "report_id": "report-new-uuid",
+  "generated_at": "2024-01-15T12:00:00Z"
+}
+```
+
+#### 状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 200 OK | 报告重新生成成功 |
+| 404 Not Found | 社区不存在 |
+
+---
+
+## DRIFT 搜索端点
+
+### POST /api/v1/search/drift
+
+执行 DRIFT（Dynamic Reasoning and Inference Framework）搜索。
+
+DRIFT 搜索结合全局社区洞察和局部实体细节，通过三阶段迭代过程生成深度答案。
+
+#### 请求
+
+```http
+POST /api/v1/search/drift HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+Content-Type: application/json
+
+{
+  "query": "OpenAI 和 Google 在 AI 领域的竞争格局如何？"
+}
+```
+
+**请求字段：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `query` | string | 是 | 搜索查询 |
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "query": "OpenAI 和 Google 在 AI 领域的竞争格局如何？",
+  "answer": "OpenAI 和 Google 是 AI 领域两大主要竞争者。OpenAI 凭借 GPT 系列模型在生成式 AI 领域占据领先地位，而 Google 通过 Gemini 和 DeepMind 在多模态 AI 和科研领域保持竞争力...",
+  "confidence": 0.82,
+  "hierarchy": {
+    "primer": {
+      "answer": "初步答案：基于社区报告，OpenAI 和 Google 是...",
+      "community_count": 3,
+      "source_communities": ["comm-1", "comm-2", "comm-3"]
+    },
+    "follow_ups": [
+      {
+        "question": "OpenAI 的主要产品有哪些？",
+        "answer": "OpenAI 的主要产品包括 GPT-4、ChatGPT、DALL-E 等...",
+        "confidence": 0.85,
+        "source_entities": ["OpenAI", "GPT-4", "ChatGPT"]
+      },
+      {
+        "question": "Google 的 AI 战略是什么？",
+        "answer": "Google 的 AI 战略包括...",
+        "confidence": 0.78,
+        "source_entities": ["Google", "DeepMind", "Gemini"]
+      }
+    ]
+  },
+  "primer_communities": 3,
+  "follow_up_iterations": 2,
+  "total_llm_calls": 5,
+  "drift_mode": "normal",
+  "metadata": {
+    "execution_time_ms": 2500
+  }
+}
+```
+
+**响应字段说明：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `query` | string | 原始查询 |
+| `answer` | string | 最终聚合答案 |
+| `confidence` | float | 置信度 (0.0-1.0) |
+| `hierarchy` | object | 层次化结果结构 |
+| `hierarchy.primer` | object | Primer 阶段结果 |
+| `hierarchy.follow_ups` | array | Follow-up 阶段结果列表 |
+| `primer_communities` | integer | Primer 阶段使用的社区数 |
+| `follow_up_iterations` | integer | Follow-up 迭代次数 |
+| `total_llm_calls` | integer | 总 LLM 调用次数 |
+| `drift_mode` | string | 模式：`normal` 或 `fallback_local` |
+
+**DRIFT 搜索流程：**
+
+1. **Primer 阶段**：向量搜索社区报告，生成初步答案和后续问题
+2. **Follow-up 阶段**：迭代执行局部搜索深化理解
+3. **Aggregation 阶段**：聚合所有结果生成最终答案
+
+**适用场景：**
+- 复杂多面查询
+- 研究式探索
+- 需要广度和深度的问题
+
+#### 状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 200 OK | 搜索成功 |
+| 400 Bad Request | 请求参数错误（缺少 query） |
+| 401 Unauthorized | API Key 无效或缺失 |
 
 ---
 
