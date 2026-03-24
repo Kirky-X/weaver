@@ -26,18 +26,19 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
-import logging
 import os
 import sys
-from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
+
+from core.observability.logging import get_logger
 
 if TYPE_CHECKING:
     from modules.source.base import BaseSourceParser
 
-log = logging.getLogger("source_plugin")
+log = get_logger("source_plugin")
 
 
 @dataclass
@@ -53,7 +54,7 @@ class PluginMetadata:
 
 
 # Global plugin registry
-_plugin_registry: dict[str, tuple["BaseSourceParser", PluginMetadata]] = {}
+_plugin_registry: dict[str, tuple[BaseSourceParser, PluginMetadata]] = {}
 _plugin_decorators: dict[str, Callable] = {}
 
 
@@ -114,7 +115,7 @@ def get_registered_plugins() -> dict[str, PluginMetadata]:
     return {name: meta for name, (_, meta) in _plugin_registry.items()}
 
 
-def get_plugin(name: str) -> tuple["BaseSourceParser", PluginMetadata] | None:
+def get_plugin(name: str) -> tuple[BaseSourceParser, PluginMetadata] | None:
     """Get a registered plugin by name.
 
     Args:
@@ -193,7 +194,7 @@ def discover_plugins_from_entry_points() -> list[str]:
         for ep in source_eps:
             try:
                 plugin_class = ep.load()
-                if hasattr(plugin_class, "__call__"):
+                if callable(plugin_class):
                     loaded_plugins.append(ep.name)
                     log.info("entry_point_plugin_loaded", name=ep.name)
                 else:

@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import logging
 from datetime import UTC, datetime
 from typing import Any
 
@@ -11,6 +10,9 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from api.schemas.response import ResponseCode
+from core.observability.logging import get_logger
+
+log = get_logger("api")
 
 
 def _build_error_response(code: int, message: str, details: Any = None) -> dict[str, Any]:
@@ -46,7 +48,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(Exception)
     async def generic_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         """未捕获异常兜底处理器。"""
-        logging.getLogger("api").exception("Unhandled exception", exc_info=exc)
+        log.exception("Unhandled exception", exc_info=exc)
         body = _build_error_response(
             code=ResponseCode.ERR_INTERNAL,
             message="Internal server error",

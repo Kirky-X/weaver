@@ -1,8 +1,16 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""loguru configuration for formatted logging."""
+"""loguru configuration for formatted logging.
+
+Features:
+- Structured logging with trace_id integration
+- Sensitive data redaction
+- File output with rotation support
+- Environment-based configuration
+"""
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from contextvars import ContextVar
@@ -12,6 +20,11 @@ from loguru import logger
 from opentelemetry import trace
 
 _context_vars: ContextVar[dict[str, Any]] = ContextVar("context_vars", default={})
+
+# Default configuration
+DEFAULT_LOG_FILE = os.environ.get("LOG_FILE", "")
+DEFAULT_LOG_ROTATION = os.environ.get("LOG_ROTATION", "10 MB")
+DEFAULT_LOG_RETENTION = os.environ.get("LOG_RETENTION", "7 days")
 
 
 def get_trace_id() -> str:
@@ -90,22 +103,48 @@ def log_filter(record: Any) -> bool:
     return True
 
 
-def configure_logging(debug: bool = False) -> None:
+def configure_logging(
+    debug: bool = False,
+    log_file: str | None = None,
+    log_rotation: str | None = None,
+    log_retention: str | None = None,
+) -> None:
     """Configure loguru with formatted output and context vars.
 
     Args:
         debug: If True, use a lower log level for development.
+        log_file: Path to log file. If None, uses LOG_FILE env var.
+        log_rotation: Log rotation size/time. Default "10 MB".
+        log_retention: Log retention period. Default "7 days".
     """
     level = "DEBUG" if debug else "INFO"
 
     logger.remove()
 
+    # Console output
     logger.add(
         sys.stderr,
         format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | <yellow>trace_id={extra[trace_id]}</yellow> - <level>{message}</level>",
         level=level,
         filter=log_filter,
     )
+
+    # File output (if configured)
+    file_path = log_file or DEFAULT_LOG_FILE
+    if file_path:
+        rotation = log_rotation or DEFAULT_LOG_ROTATION
+        retention = log_retention or DEFAULT_LOG_RETENTION
+
+        logger.add(
+            file_path,
+            format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | trace_id={extra[trace_id]} - {message}",
+            level=level,
+            filter=log_filter,
+            rotation=rotation,
+            retention=retention,
+            compression="gz",  # Compress rotated logs
+            enqueue=True,  # Thread-safe writes
+        )
 
 
 def get_logger(name: str | None = None) -> Any:

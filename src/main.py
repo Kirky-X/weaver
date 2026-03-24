@@ -314,10 +314,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
+        # Basic security headers
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        # Enhanced security headers
+        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; object-src 'none'"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
         return response
 
 
@@ -365,9 +370,18 @@ def create_app(container: Container | None = None) -> FastAPI:
         lifespan=lifespan,
     )
 
-    cors_origins = os.environ.get(
-        "CORS_ORIGINS", "http://localhost:3000,http://localhost:8080,http://127.0.0.1:3000"
-    ).split(",")
+    cors_origins_env = os.environ.get("CORS_ORIGINS")
+    environment = os.environ.get("ENVIRONMENT", "development")
+
+    # Production environment must explicitly configure CORS origins
+    if environment == "production" and not cors_origins_env:
+        raise ValueError(
+            "CORS_ORIGINS must be explicitly configured in production environment. "
+            "Set the CORS_ORIGINS environment variable with allowed origins, "
+            "e.g., 'https://example.com,https://app.example.com'"
+        )
+
+    cors_origins = (cors_origins_env or "http://localhost:3000,http://localhost:8080,http://127.0.0.1:3000").split(",")
 
     app.add_middleware(
         CORSMiddleware,

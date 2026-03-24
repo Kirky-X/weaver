@@ -74,17 +74,18 @@ Usage:
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import yaml
 
+from core.observability.logging import get_logger
+
 if TYPE_CHECKING:
     from pathlib import Path as PathType
 
-log = logging.getLogger("pipeline_config")
+log = get_logger("pipeline_config")
 
 
 @dataclass
@@ -132,7 +133,7 @@ class PipelineConfig:
     batch: BatchConfig = field(default_factory=BatchConfig)
 
     @classmethod
-    def default(cls) -> "PipelineConfig":
+    def default(cls) -> PipelineConfig:
         """Create default pipeline configuration.
 
         This matches the hardcoded defaults in graph.py for backward compatibility.
@@ -140,20 +141,43 @@ class PipelineConfig:
         phase1 = PhaseConfig(
             concurrency=5,
             stages=[
-                StageConfig(name="classifier", class_path="modules.pipeline.nodes.classifier.ClassifierNode"),
-                StageConfig(name="cleaner", class_path="modules.pipeline.nodes.cleaner.CleanerNode"),
-                StageConfig(name="categorizer", class_path="modules.pipeline.nodes.categorizer.CategorizerNode"),
-                StageConfig(name="vectorize", class_path="modules.pipeline.nodes.vectorize.VectorizeNode"),
+                StageConfig(
+                    name="classifier", class_path="modules.pipeline.nodes.classifier.ClassifierNode"
+                ),
+                StageConfig(
+                    name="cleaner", class_path="modules.pipeline.nodes.cleaner.CleanerNode"
+                ),
+                StageConfig(
+                    name="categorizer",
+                    class_path="modules.pipeline.nodes.categorizer.CategorizerNode",
+                ),
+                StageConfig(
+                    name="vectorize", class_path="modules.pipeline.nodes.vectorize.VectorizeNode"
+                ),
             ],
         )
         phase3 = PhaseConfig(
             concurrency=5,
             stages=[
-                StageConfig(name="re_vectorize", class_path="modules.pipeline.nodes.re_vectorize.ReVectorizeNode"),
-                StageConfig(name="analyze", class_path="modules.pipeline.nodes.analyze.AnalyzeNode"),
-                StageConfig(name="quality_scorer", class_path="modules.pipeline.nodes.quality_scorer.QualityScorerNode"),
-                StageConfig(name="credibility", class_path="modules.pipeline.nodes.credibility_checker.CredibilityCheckerNode"),
-                StageConfig(name="entity_extractor", class_path="modules.pipeline.nodes.entity_extractor.EntityExtractorNode"),
+                StageConfig(
+                    name="re_vectorize",
+                    class_path="modules.pipeline.nodes.re_vectorize.ReVectorizeNode",
+                ),
+                StageConfig(
+                    name="analyze", class_path="modules.pipeline.nodes.analyze.AnalyzeNode"
+                ),
+                StageConfig(
+                    name="quality_scorer",
+                    class_path="modules.pipeline.nodes.quality_scorer.QualityScorerNode",
+                ),
+                StageConfig(
+                    name="credibility",
+                    class_path="modules.pipeline.nodes.credibility_checker.CredibilityCheckerNode",
+                ),
+                StageConfig(
+                    name="entity_extractor",
+                    class_path="modules.pipeline.nodes.entity_extractor.EntityExtractorNode",
+                ),
             ],
         )
         batch = BatchConfig()
@@ -212,7 +236,11 @@ def _dict_to_stage(data: dict[str, Any]) -> StageConfig:
         timeout=data.get("timeout", 60),
         retry=data.get("retry", 3),
         retry_delay=data.get("retry_delay", 5),
-        params={k: v for k, v in data.items() if k not in ("name", "class", "enabled", "timeout", "retry", "retry_delay")},
+        params={
+            k: v
+            for k, v in data.items()
+            if k not in ("name", "class", "enabled", "timeout", "retry", "retry_delay")
+        },
     )
 
 
@@ -227,7 +255,9 @@ def _dict_to_phase(data: dict[str, Any]) -> PhaseConfig:
 def _dict_to_batch(data: dict[str, Any]) -> BatchConfig:
     """Convert dictionary to BatchConfig."""
     return BatchConfig(
-        merger_class=data.get("merger_class", "modules.pipeline.nodes.batch_merger.BatchMergerNode"),
+        merger_class=data.get(
+            "merger_class", "modules.pipeline.nodes.batch_merger.BatchMergerNode"
+        ),
         enabled=data.get("enabled", True),
         timeout=data.get("timeout", 180),
     )
@@ -257,7 +287,7 @@ class PipelineConfigLoader:
     def __init__(self) -> None:
         self._config_cache: dict[str, PipelineConfig] = {}
 
-    def load_from_file(self, path: str | "PathType") -> PipelineConfig:
+    def load_from_file(self, path: str | PathType) -> PipelineConfig:
         """Load configuration from a YAML file.
 
         Args:
@@ -275,7 +305,7 @@ class PipelineConfigLoader:
             raise FileNotFoundError(f"Pipeline config file not found: {path}")
 
         log.info("loading_pipeline_config", path=str(path))
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
 
         if not data:
@@ -287,7 +317,7 @@ class PipelineConfigLoader:
         log.info("pipeline_config_loaded", path=str(path), version=config.version)
         return config
 
-    def load_from_directory(self, directory: str | "PathType") -> list[PipelineConfig]:
+    def load_from_directory(self, directory: str | PathType) -> list[PipelineConfig]:
         """Load and merge all YAML configurations from a directory.
 
         Files are processed in alphabetical order, with later files
@@ -316,7 +346,9 @@ class PipelineConfigLoader:
             try:
                 config = self.load_from_file(config_file)
                 configs.append(config)
-                log.info("config_file_loaded", file=str(config_file), stages=len(config.phase1.stages))
+                log.info(
+                    "config_file_loaded", file=str(config_file), stages=len(config.phase1.stages)
+                )
             except Exception as exc:
                 log.error("config_file_load_failed", file=str(config_file), error=str(exc))
 
@@ -324,7 +356,7 @@ class PipelineConfigLoader:
 
     def load_with_env_override(
         self,
-        base_path: str | "PathType" | None = None,
+        base_path: str | PathType | None = None,
     ) -> PipelineConfig:
         """Load configuration with environment variable overrides.
 
@@ -356,11 +388,15 @@ class PipelineConfigLoader:
         if phase3_concurrency:
             config.phase3.concurrency = int(phase3_concurrency)
 
-        log.info("config_loaded_with_env_override", phase1_concurrency=config.phase1.concurrency, phase3_concurrency=config.phase3.concurrency)
+        log.info(
+            "config_loaded_with_env_override",
+            phase1_concurrency=config.phase1.concurrency,
+            phase3_concurrency=config.phase3.concurrency,
+        )
         return config
 
 
-def save_default_config(path: str | "PathType" = "config/pipeline.yaml") -> None:
+def save_default_config(path: str | PathType = "config/pipeline.yaml") -> None:
     """Save the default pipeline configuration to a file.
 
     Args:
@@ -371,6 +407,8 @@ def save_default_config(path: str | "PathType" = "config/pipeline.yaml") -> None
     path.parent.mkdir(parents=True, exist_ok=True)
 
     with open(path, "w", encoding="utf-8") as f:
-        yaml.dump(config.to_dict(), f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        yaml.dump(
+            config.to_dict(), f, default_flow_style=False, allow_unicode=True, sort_keys=False
+        )
 
     log.info("default_config_saved", path=str(path))
