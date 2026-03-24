@@ -9,6 +9,7 @@ import time
 import json_repair
 
 from core.cache.redis import RedisClient
+from core.constants import RedisKeys
 from core.observability.logging import get_logger
 
 log = get_logger("retry_queue")
@@ -29,7 +30,7 @@ class RetryQueue:
         base_delay: Base delay in seconds for exponential backoff.
     """
 
-    DEAD_LETTER_KEY = "crawl:dead"
+    DEAD_LETTER_KEY = RedisKeys.CRAWL_DEAD_LETTER
 
     def __init__(
         self,
@@ -58,7 +59,7 @@ class RetryQueue:
 
         delay = self._base_delay * (2**attempt)
         next_retry = time.time() + delay
-        key = f"crawl:retry:{host}"
+        key = RedisKeys.crawl_retry(host)
 
         payload = json.dumps(
             {
@@ -87,7 +88,7 @@ class RetryQueue:
         Returns:
             List of retry item dicts.
         """
-        key = f"crawl:retry:{host}"
+        key = RedisKeys.crawl_retry(host)
         now = time.time()
 
         items = await self._redis.zrangebyscore(key, 0, now, num=50)
