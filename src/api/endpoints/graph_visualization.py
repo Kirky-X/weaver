@@ -209,8 +209,20 @@ async def get_subgraph(
     Returns:
         Subgraph with nodes and edges within N hops.
     """
+    # Validate max_hops to prevent Cypher injection (already validated by Pydantic Field constraints)
+    # Additional explicit validation for defense in depth
+    if not 1 <= request.max_hops <= 4:
+        raise HTTPException(
+            status_code=400,
+            detail="max_hops must be between 1 and 4",
+        )
+
+    # Use parameterized pattern for variable-length path
+    # Note: Neo4j doesn't support parameterized variable-length patterns directly
+    # So we validate the integer and use it safely (it's already validated as int by Pydantic)
+    max_hops = int(request.max_hops)  # Ensure it's an integer
     cypher = f"""
-    MATCH path = (center:Entity {{canonical_name: $center}})-[:RELATED_TO*1..{request.max_hops}]-(related:Entity)
+    MATCH path = (center:Entity {{canonical_name: $center}})-[:RELATED_TO*1..{max_hops}]-(related:Entity)
     """
 
     params: dict[str, Any] = {"center": request.center_entity}
@@ -360,9 +372,26 @@ async def _extract_subgraph_nodes(
     center: str,
     hops: int,
 ) -> dict:
-    """Extract subgraph nodes and edges."""
+    """Extract subgraph nodes and edges.
+
+    Args:
+        pool: Neo4j connection pool.
+        center: Center entity name.
+        hops: Maximum number of hops (must be 1-4).
+
+    Returns:
+        Dictionary with nodes and edges.
+
+    Raises:
+        ValueError: If hops is out of valid range.
+    """
+    # Validate hops parameter for security
+    if not 1 <= hops <= 4:
+        raise ValueError(f"hops must be between 1 and 4, got {hops}")
+
+    hops_int = int(hops)  # Ensure integer type
     cypher = f"""
-    MATCH path = (center:Entity {{canonical_name: $center}})-[:RELATED_TO*1..{hops}]-(related:Entity)
+    MATCH path = (center:Entity {{canonical_name: $center}})-[:RELATED_TO*1..{hops_int}]-(related:Entity)
     WITH collect(DISTINCT related) AS related_nodes
     MATCH (center:Entity {{canonical_name: $center}})
     WITH center + related_nodes AS all_nodes

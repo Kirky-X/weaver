@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 from core.observability.logging import get_logger
 from core.resilience.circuit_breaker import CircuitBreaker
+from core.security import URLValidator
 from modules.fetcher.base import BaseFetcher
 from modules.fetcher.exceptions import CircuitOpenError
 from modules.fetcher.httpx_fetcher import HttpxFetcher
@@ -57,6 +58,7 @@ class SmartFetcher(BaseFetcher):
         circuit_breaker_enabled: bool = True,
         circuit_breaker_threshold: int = 5,
         circuit_breaker_timeout: float = 60.0,
+        url_validation_enabled: bool = True,
     ) -> None:
         self._httpx = httpx_fetcher
         self._playwright = playwright_fetcher
@@ -64,6 +66,8 @@ class SmartFetcher(BaseFetcher):
         self._circuit_breaker_enabled = circuit_breaker_enabled
         self._circuit_breaker_threshold = circuit_breaker_threshold
         self._circuit_breaker_timeout = circuit_breaker_timeout
+        self._url_validation_enabled = url_validation_enabled
+        self._url_validator = URLValidator() if url_validation_enabled else None
         self._breakers: dict[str, CircuitBreaker] = {}
 
     def _get_breaker(self, host: str) -> CircuitBreaker:
@@ -96,7 +100,12 @@ class SmartFetcher(BaseFetcher):
 
         Raises:
             CircuitOpenError: If circuit breaker is open for the host.
+            URLValidationError: If URL is blocked for security reasons.
         """
+        # Validate URL for SSRF protection
+        if self._url_validator:
+            await self._url_validator.validate(url)
+
         host = urlparse(url).netloc
 
         # Check circuit breaker first
