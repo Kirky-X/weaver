@@ -13,6 +13,7 @@ import json_repair
 from sqlalchemy import and_, select
 
 from core.cache.redis import RedisClient
+from core.constants import RedisKeys
 from core.db.models import Article, PersistStatus
 from core.db.postgres import PostgresPool
 from core.observability.logging import get_logger
@@ -149,7 +150,7 @@ class SchedulerJobs:
 
                 # Add to crawl queue
                 for item in items:
-                    await self._redis.lpush("crawl:queue", item)
+                    await self._redis.lpush(RedisKeys.CRAWL_QUEUE, item)
                     requeue_count += 1
 
         log.info("flush_retry_queue_complete", count=requeue_count)
@@ -164,40 +165,44 @@ class SchedulerJobs:
         Returns:
             Number of sources updated.
         """
+        from sqlalchemy import func
+
         log.info("update_source_auto_scores_start")
 
         async with self._postgres.session() as session:
-            # Get all sources with articles
-            stmt = select(Article.source_host).distinct()
+            # Get all sources with articles - optimized batch query
+            # Calculate average credibility score per source in a single query
+            stmt = (
+                select(
+                    Article.source_host,
+                    func.avg(Article.credibility_score).label("avg_score"),
+                    func.count(Article.id).label("article_count"),
+                )
+                .where(
+                    Article.source_host.isnot(None),
+                    Article.credibility_score.isnot(None),
+                )
+                .group_by(Article.source_host)
+            )
             result = await session.execute(stmt)
-            hosts = [row[0] for row in result if row[0]]
+            source_stats = result.all()
 
             update_count = 0
-            for host in hosts:
+            for row in source_stats:
+                host = row[0]
+                avg_score = float(row[1]) if row[1] is not None else 0.0
+
                 try:
-                    # Calculate average credibility score for this source
-                    avg_stmt = select(Article).where(
-                        Article.source_host == host,
-                        Article.credibility_score.isnot(None),
+                    # Update source authority with batch-calculated score
+                    await self._source_authority_repo.update_auto_score(host, avg_score)
+                    update_count += 1
+
+                    log.debug(
+                        "source_auto_score_updated",
+                        host=host,
+                        avg_score=avg_score,
+                        article_count=row[2],
                     )
-                    articles_result = await session.execute(avg_stmt)
-                    articles = articles_result.scalars().all()
-
-                    if articles:
-                        avg_score = sum(float(a.credibility_score or 0) for a in articles) / len(
-                            articles
-                        )
-
-                        # Update source authority
-                        await self._source_authority_repo.update_auto_score(host, float(avg_score))
-                        update_count += 1
-
-                        log.debug(
-                            "source_auto_score_updated",
-                            host=host,
-                            score=avg_score,
-                        )
-
                 except Exception as exc:
                     log.error(
                         "source_auto_score_failed",
@@ -374,7 +379,7 @@ class SchedulerJobs:
                 all_terminal = all(art.persist_status in terminal_statuses for art in task_arts)
                 if all_terminal:
                     try:
-                        task_key = "pipeline:task_status"
+                        task_key = RedisKeys.PIPELINE_TASK_STATUS
                         existing = await self._redis.client.hget(task_key, str(task_id))
                         if existing:
                             task_data = json_repair.loads(existing)
