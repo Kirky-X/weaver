@@ -793,12 +793,12 @@ X-API-Key: your-api-key
 
 ### GET /api/v1/search/articles
 
-基于混合向量+关键词评分的相似文章搜索。
+基于混合检索（向量+BM25+重排）的相似文章搜索。
 
 #### 请求
 
 ```http
-GET /api/v1/search/articles?q=人工智能&threshold=0.7&limit=20&category=科技 HTTP/1.1
+GET /api/v1/search/articles?q=人工智能&threshold=0.7&limit=20&category=科技&mode=hybrid HTTP/1.1
 Host: api.weaver.example.com
 X-API-Key: your-api-key
 ```
@@ -811,8 +811,39 @@ X-API-Key: your-api-key
 | `threshold` | float | 0.0 | 最低混合评分阈值（0-1） |
 | `limit` | integer | 20 | 最大返回结果数（1-100） |
 | `category` | string | - | 按文章类别过滤 |
+| `mode` | string | hybrid | 搜索模式：`hybrid`（混合）、`vector`（向量）、`bm25`（词法） |
 
-**混合评分公式：** `hybrid_score = 0.7 × vec_sim + 0.3 × keyword_overlap`
+**混合搜索特性：**
+
+1. **BM25 词法检索**：使用 bm25s 库实现高性能中文分词检索
+2. **向量语义检索**：基于 pgvector 的语义相似度搜索
+3. **RRF 融合**：Reciprocal Rank Fusion 算法合并多路检索结果
+4. **可选重排**：Flashrank cross-encoder 重排提升精度
+5. **多样性支持**：MMR 算法增加结果多样性
+
+**响应字段：**
+
+```json
+{
+  "query": "人工智能",
+  "results": [
+    {
+      "id": "article-uuid",
+      "title": "人工智能发展报告",
+      "summary": "文章摘要...",
+      "score": 0.95,
+      "category": "科技",
+      "published_at": "2024-01-15T10:00:00Z"
+    }
+  ],
+  "metadata": {
+    "search_mode": "hybrid",
+    "hybrid_used": true,
+    "total_count": 15,
+    "category_filter": "科技"
+  }
+}
+```
 
 ---
 
