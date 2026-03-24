@@ -54,9 +54,10 @@ async def verify_api_key(
                 "Set WEAVER_API__API_KEY environment variable with at least 32 characters.",
             )
         # Development mode: warn but allow weak keys
-        import structlog
+        from core.observability.logging import get_logger
 
-        structlog.get_logger().warning(
+        log = get_logger("api.auth")
+        log.warning(
             "weak_api_key_detected",
             key_length=len(expected_key) if expected_key else 0,
             recommended_length=MIN_API_KEY_LENGTH,

@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.db.neo4j import Neo4jPool
+from core.llm.client import LLMClient
 from core.observability.logging import get_logger
 from modules.search.context.builder import ContextBuilder, SearchContext
 
@@ -36,6 +37,8 @@ class GlobalContextBuilder(ContextBuilder):
         default_max_tokens: int = 12000,
         max_communities: int = 10,
         max_entities_per_community: int = 5,
+        llm_client: LLMClient | None = None,
+        fallback_enabled: bool = True,
     ) -> None:
         """Initialize global context builder.
 
@@ -45,11 +48,15 @@ class GlobalContextBuilder(ContextBuilder):
             default_max_tokens: Default max tokens for context.
             max_communities: Maximum communities to include.
             max_entities_per_community: Max entities per community.
+            llm_client: LLM client for query embedding (vector search).
+            fallback_enabled: Whether to use entity-article fallback when no communities.
         """
         super().__init__(token_encoder, default_max_tokens)
         self._pool = neo4j_pool
         self._max_communities = max_communities
         self._max_entities_per_community = max_entities_per_community
+        self._llm_client = llm_client
+        self._fallback_enabled = fallback_enabled
 
     async def build(
         self,
@@ -71,17 +78,28 @@ class GlobalContextBuilder(ContextBuilder):
         """
         context = self.create_context(query, max_tokens)
 
-        relevant_communities, used_fallback = await self._find_relevant_communities(
+        relevant_communities, used_fallback, search_method = await self._find_relevant_communities(
             query, community_level
         )
 
         if not relevant_communities:
-            context.add_content(
-                name="No Communities Found",
-                content="No relevant communities found for the query.",
-                priority=0,
-            )
-            context.metadata["total_communities"] = 0
+            # Check if there are any communities at all
+            has_communities = await self._has_any_communities(community_level)
+            if not has_communities:
+                context.add_content(
+                    name="No Communities",
+                    content="社区数据尚未初始化，请先执行社区检测。",
+                    priority=0,
+                )
+                context.metadata["communities"] = 0
+                context.metadata["hint"] = "run POST /api/v1/admin/communities/rebuild"
+            else:
+                context.add_content(
+                    name="No Communities Found",
+                    content="No relevant communities found for the query.",
+                    priority=0,
+                )
+                context.metadata["total_communities"] = 0
             return context
 
         if relevant_communities:
@@ -115,10 +133,211 @@ class GlobalContextBuilder(ContextBuilder):
 
         context.metadata["community_level"] = community_level
         context.metadata["total_communities"] = len(relevant_communities)
+        context.metadata["search_method"] = search_method
         if used_fallback:
             context.metadata["fallback_source"] = "entity_article"
 
         return context
+
+    async def _has_any_communities(self, level: int | None = None) -> bool:
+        """Check if any communities exist in the graph.
+
+        Args:
+            level: Optional level filter.
+
+        Returns:
+            True if communities exist.
+        """
+        if level is not None:
+            cypher = "MATCH (c:Community) WHERE c.level = $level RETURN count(c) AS count"
+            result = await self._pool.execute_query(cypher, {"level": level})
+        else:
+            cypher = "MATCH (c:Community) RETURN count(c) AS count"
+            result = await self._pool.execute_query(cypher)
+
+        try:
+            if result and result[0].get("count", 0) > 0:
+                return True
+        except (TypeError, KeyError):
+            # Handle case where result is MagicMock or has unexpected structure
+            pass
+        return False
+
+    async def _find_relevant_communities(
+        self,
+        query: str,
+        level: int,
+    ) -> tuple[list[dict[str, Any]], bool, str]:
+        """Find communities relevant to the query using vector similarity.
+
+        Uses vector similarity search on community report embeddings.
+        Falls back to text search if embeddings unavailable.
+        Falls back to entity-article aggregation if no communities exist.
+
+        Args:
+            query: The search query.
+            level: Community hierarchy level.
+
+        Returns:
+            Tuple of (results list, used_fallback bool, search_method str).
+        """
+        # Step 1: Try vector similarity search on community reports
+        if self._llm_client:
+            vector_results = await self._vector_search_communities(query, level)
+            if vector_results:
+                return vector_results, False, "vector_similarity"
+
+        # Step 2: Try text-based search on community titles/summaries
+        text_results = await self._text_search_communities(query, level)
+        if text_results:
+            return text_results, False, "text_search"
+
+        # Step 3: Fall back to entity-article aggregation if enabled
+        if self._fallback_enabled:
+            fallback_results = await self._find_entity_article_fallback(query)
+            if fallback_results:
+                return fallback_results, True, "entity_article_fallback"
+
+        return [], False, "none"
+
+    async def _vector_search_communities(
+        self,
+        query: str,
+        level: int,
+    ) -> list[dict[str, Any]]:
+        """Search communities using vector similarity on report embeddings.
+
+        Args:
+            query: The search query.
+            level: Community hierarchy level.
+
+        Returns:
+            List of community dicts with similarity scores.
+        """
+        if not self._llm_client:
+            return []
+
+        try:
+            # Get query embedding
+            embeddings = await self._llm_client.batch_embed([query])
+            if not embeddings or not embeddings[0]:
+                return []
+
+            query_embedding = embeddings[0]
+
+            # Search for similar community reports
+            cypher = """
+            MATCH (r:CommunityReport)-[:REPORTS_ON]->(c:Community)
+            WHERE c.level = $level AND r.full_content_embedding IS NOT NULL
+            WITH c, r, vector.similarity.cosine(r.full_content_embedding, $embedding) AS score
+            WHERE score > 0.3
+            RETURN c.id AS id,
+                   c.title AS title,
+                   COALESCE(r.summary, '') AS summary,
+                   c.rank AS rank,
+                   c.entity_count AS entity_count,
+                   r.full_content AS full_content,
+                   r.key_entities AS key_entities,
+                   score
+            ORDER BY score DESC
+            LIMIT $limit
+            """
+
+            results = await self._pool.execute_query(
+                cypher,
+                {"level": level, "embedding": query_embedding, "limit": self._max_communities},
+            )
+
+            if results:
+                log.debug(
+                    "vector_search_communities_found",
+                    count=len(results),
+                    top_score=results[0].get("score", 0),
+                )
+                return [
+                    {
+                        "id": r.get("id"),
+                        "title": r.get("title", ""),
+                        "summary": r.get("summary", ""),
+                        "rank": r.get("rank", 1.0),
+                        "entity_count": r.get("entity_count", 0),
+                        "full_content": r.get("full_content", ""),
+                        "key_entities": r.get("key_entities", []),
+                        "similarity_score": r.get("score", 0),
+                    }
+                    for r in results
+                ]
+        except Exception as exc:
+            log.warning("vector_search_communities_failed", error=str(exc))
+
+        return []
+
+    async def _text_search_communities(
+        self,
+        query: str,
+        level: int,
+    ) -> list[dict[str, Any]]:
+        """Search communities using text matching on title/summary.
+
+        Args:
+            query: The search query.
+            level: Community hierarchy level.
+
+        Returns:
+            List of community dicts.
+        """
+        query_lower = query.lower()
+
+        # Try exact match first
+        cypher = """
+        MATCH (c:Community)
+        WHERE c.level = $level
+          AND (toLower(c.title) CONTAINS $query
+               OR toLower(c.summary) CONTAINS $query)
+        RETURN c.id AS id,
+               c.title AS title,
+               c.summary AS summary,
+               c.rank AS rank,
+               c.entity_count AS entity_count
+        ORDER BY c.rank DESC
+        LIMIT $limit
+        """
+
+        try:
+            results = await self._pool.execute_query(
+                cypher,
+                {"level": level, "query": query_lower, "limit": self._max_communities},
+            )
+
+            if results:
+                return [dict(r) for r in results]
+        except Exception as exc:
+            log.debug("text_search_failed", error=str(exc))
+
+        # Fall back to top communities by rank (no query filter)
+        cypher_fallback = """
+        MATCH (c:Community)
+        WHERE c.level = $level
+        RETURN c.id AS id,
+               c.title AS title,
+               c.summary AS summary,
+               c.rank AS rank,
+               c.entity_count AS entity_count
+        ORDER BY c.rank DESC
+        LIMIT $limit
+        """
+
+        try:
+            results = await self._pool.execute_query(
+                cypher_fallback,
+                {"level": level, "limit": self._max_communities},
+            )
+            if results:
+                return [dict(r) for r in results]
+        except Exception as exc:
+            log.warning("community_fallback_failed", error=str(exc))
+
+        return []
 
     async def _find_entity_article_fallback(
         self,
@@ -181,71 +400,6 @@ class GlobalContextBuilder(ContextBuilder):
         except Exception as exc:
             log.warning("entity_article_fallback_failed", error=str(exc))
             return []
-
-    async def _find_relevant_communities(
-        self,
-        query: str,
-        level: int,
-    ) -> tuple[list[dict[str, Any]], bool]:
-        """Find communities relevant to the query.
-
-        Returns:
-            Tuple of (results list, used_fallback bool).
-            used_fallback is True when entity-article aggregation was used
-            instead of Community nodes.
-        """
-        query_lower = query.lower()
-
-        cypher = """
-        MATCH (c:Community)
-        WHERE c.level = $level
-          AND (toLower(c.title) CONTAINS $query
-               OR toLower(c.summary) CONTAINS $query)
-        RETURN c.id AS id,
-               c.title AS title,
-               c.summary AS summary,
-               c.rank AS rank,
-               c.entity_count AS entity_count
-        ORDER BY c.rank DESC
-        LIMIT $limit
-        """
-
-        try:
-            results = await self._pool.execute_query(
-                cypher,
-                {"level": level, "query": query_lower, "limit": self._max_communities},
-            )
-
-            if results:
-                return [dict(r) for r in results], False
-        except Exception as exc:
-            log.debug("community_search_failed", error=str(exc))
-
-        cypher_fallback = """
-        MATCH (c:Community)
-        WHERE c.level = $level
-        RETURN c.id AS id,
-               c.title AS title,
-               c.summary AS summary,
-               c.rank AS rank,
-               c.entity_count AS entity_count
-        ORDER BY c.rank DESC
-        LIMIT $limit
-        """
-
-        try:
-            results = await self._pool.execute_query(
-                cypher_fallback,
-                {"level": level, "limit": self._max_communities},
-            )
-            if results:
-                return [dict(r) for r in results], False
-        except Exception as exc:
-            log.warning("community_fallback_failed", error=str(exc))
-
-        # Fall back to entity-article aggregation when no Community nodes exist
-        fallback_results = await self._find_entity_article_fallback(query)
-        return fallback_results, True
 
     async def _get_key_entities(
         self,
