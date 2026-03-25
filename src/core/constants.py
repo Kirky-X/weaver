@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import enum
 
-
 # ── Redis Key Constants ────────────────────────────────────────
 
 
@@ -100,3 +99,53 @@ class ProcessingStatus(str, enum.Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     RETRY = "retry"
+
+
+# ── Health Status Constants ────────────────────────────────────
+
+
+class HealthStatus(str, enum.Enum):
+    """Service health status values."""
+
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    UNHEALTHY = "unhealthy"
+
+
+# ── LLM Provider Constants ──────────────────────────────────────
+
+
+class LLMProvider(str, enum.Enum):
+    """Supported LLM providers."""
+
+    OPENAI = "openai"
+    ANTHROPIC = "anthropic"
+    AZURE = "azure"
+    LOCAL = "local"
+    ZHIPU = "zhipu"
+
+
+# ── Search Mode Constants ───────────────────────────────────────
+
+
+class SearchMode(str, enum.Enum):
+    """Search operation modes."""
+
+    LOCAL = "local"
+    GLOBAL = "global"
+    HYBRID = "hybrid"
+    ARTICLES = "articles"
+
+
+# ── Pipeline Task Status Constants ───────────────────────────────
+
+
+class PipelineTaskStatus(str, enum.Enum):
+    """Pipeline task execution status."""
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    FAILED = "failed"

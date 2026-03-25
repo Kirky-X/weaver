@@ -106,11 +106,15 @@ class VectorRepo:
     async def bulk_upsert_article_vectors(
         self,
         articles: list[tuple[uuid.UUID, list[float] | None, list[float] | None, str]],
+        batch_size: int = 100,
     ) -> int:
-        """Bulk upsert article vectors.
+        """Bulk upsert article vectors using INSERT ON CONFLICT.
+
+        Uses PostgreSQL's ON CONFLICT for efficient batch upsert without N+1 queries.
 
         Args:
             articles: List of (article_id, title_embedding, content_embedding, model_id) tuples.
+            batch_size: Number of vectors to insert per batch (default 100).
 
         Returns:
             Number of vectors inserted/updated.
@@ -118,56 +122,72 @@ class VectorRepo:
         if not articles:
             return 0
 
-        count = 0
+        # Flatten all vectors into a single list for batch insert
+        all_vectors: list[dict] = []
+        for article_id, title_emb, content_emb, model_id in articles:
+            if title_emb is not None:
+                all_vectors.append(
+                    {
+                        "article_id": str(article_id),
+                        "vector_type": VectorType.TITLE.value,
+                        "embedding": title_emb,
+                        "model_id": model_id,
+                    }
+                )
+            if content_emb is not None:
+                all_vectors.append(
+                    {
+                        "article_id": str(article_id),
+                        "vector_type": VectorType.CONTENT.value,
+                        "embedding": content_emb,
+                        "model_id": model_id,
+                    }
+                )
+
+        if not all_vectors:
+            return 0
+
+        total_count = 0
         async with self._pool.session() as session:
             await session.execute(text("SET hnsw.ef_search = 200;"))
 
-            for article_id, title_emb, content_emb, model_id in articles:
-                for vec_type, embedding in [
-                    (VectorType.TITLE.value, title_emb),
-                    (VectorType.CONTENT.value, content_emb),
-                ]:
-                    if embedding is None:
-                        continue
+            # Process in batches to avoid large single queries
+            for i in range(0, len(all_vectors), batch_size):
+                batch = all_vectors[i : i + batch_size]
 
-                    existing = await session.execute(
-                        text("""
-                            SELECT id FROM article_vectors
-                            WHERE article_id = :article_id AND vector_type = :vector_type
-                            """),
-                        {"article_id": article_id, "vector_type": vec_type},
-                    )
-                    if existing.scalar_one_or_none():
-                        await session.execute(
-                            text("""
-                                UPDATE article_vectors
-                                SET embedding = :embedding, model_id = :model_id, updated_at = NOW()
-                                WHERE article_id = :article_id AND vector_type = :vector_type
-                                """),
-                            {
-                                "article_id": article_id,
-                                "vector_type": vec_type,
-                                "embedding": f"[{','.join(map(str, embedding))}]",
-                                "model_id": model_id,
-                            },
-                        )
-                    else:
-                        await session.execute(
-                            text("""
-                                INSERT INTO article_vectors (article_id, vector_type, embedding, model_id)
-                                VALUES (:article_id, :vector_type, :embedding, :model_id)
-                                """),
-                            {
-                                "article_id": article_id,
-                                "vector_type": vec_type,
-                                "embedding": f"[{','.join(map(str, embedding))}]",
-                                "model_id": model_id,
-                            },
-                        )
-                    count += 1
+                # Build VALUES clause with parameters
+                values_clause = ", ".join(
+                    [
+                        f"(:article_id_{j}, :vector_type_{j}, :embedding_{j}, :model_id_{j})"
+                        for j in range(len(batch))
+                    ]
+                )
+
+                params = {}
+                for j, vec in enumerate(batch):
+                    params[f"article_id_{j}"] = vec["article_id"]
+                    params[f"vector_type_{j}"] = vec["vector_type"]
+                    params[f"embedding_{j}"] = f"[{','.join(map(str, vec['embedding']))}]"
+                    params[f"model_id_{j}"] = vec["model_id"]
+
+                # S608 false positive: values_clause contains only parameter placeholders
+                # All actual values are passed via params dict to SQLAlchemy's execute()
+                query = text(f"""
+                    INSERT INTO article_vectors (article_id, vector_type, embedding, model_id)
+                    VALUES {values_clause}
+                    ON CONFLICT (article_id, vector_type)
+                    DO UPDATE SET
+                        embedding = EXCLUDED.embedding,
+                        model_id = EXCLUDED.model_id,
+                        updated_at = NOW()
+                """)  # noqa: S608
+
+                result = await session.execute(query, params)
+                total_count += result.rowcount
 
             await session.commit()
-        return count
+
+        return total_count
 
     async def find_similar(
         self,

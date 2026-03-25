@@ -20,6 +20,80 @@ from modules.pipeline.state import PipelineState
 log = get_logger("article_repo")
 
 
+# Field mapping: state key -> (article_attr, extractor function)
+# This centralizes all field mappings for consistency
+STATE_TO_ARTICLE_FIELDS: dict[str, tuple[str, callable]] = {
+    "category": ("category", lambda v: v),
+    "language": ("language", lambda v: v),
+    "region": ("region", lambda v: v),
+    "score": ("score", lambda v: v),
+    "quality_score": ("quality_score", lambda v: v),
+    "is_merged": ("is_merged", lambda v: v),
+    "prompt_versions": ("prompt_versions", lambda v: v),
+}
+
+
+def _apply_state_to_article(article: Article, state: PipelineState) -> None:
+    """Apply pipeline state fields to an Article object.
+
+    This is the centralized field mapping function used by all upsert methods.
+
+    Args:
+        article: The Article model instance to update.
+        state: Pipeline state containing article data.
+    """
+    # Simple field mappings
+    for state_key, (attr_name, extractor) in STATE_TO_ARTICLE_FIELDS.items():
+        if state_key in state:
+            setattr(article, attr_name, extractor(state[state_key]))
+
+    # Summary info mapping
+    if "summary_info" in state:
+        si = state["summary_info"]
+        article.summary = si.get("summary")
+        article.subjects = si.get("subjects")
+        article.key_data = si.get("key_data")
+        article.impact = si.get("impact")
+        article.has_data = si.get("has_data")
+        if si.get("event_time"):
+            try:
+                article.event_time = datetime.fromisoformat(si["event_time"])
+            except (ValueError, TypeError):
+                pass
+
+    # Sentiment mapping
+    if "sentiment" in state:
+        sent = state["sentiment"]
+        article.sentiment = sent.get("sentiment")
+        article.sentiment_score = sent.get("sentiment_score")
+        article.primary_emotion = sent.get("primary_emotion")
+        article.emotion_targets = sent.get("emotion_targets")
+
+    # Credibility mapping
+    if "credibility" in state:
+        cred = state["credibility"]
+        article.credibility_score = cred.get("score")
+        article.source_credibility = cred.get("source_credibility")
+        article.cross_verification = cred.get("cross_verification")
+        article.content_check_score = cred.get("content_check")
+        article.credibility_flags = cred.get("flags")
+        article.verified_by_sources = cred.get("verified_by_sources", 0)
+
+    # Merged source IDs conversion
+    if "merged_source_ids" in state:
+        article.merged_source_ids = [
+            uuid.UUID(sid) if isinstance(sid, str) else sid for sid in state["merged_source_ids"]
+        ]
+
+    # Set common fields
+    raw = state.get("raw")
+    if raw:
+        article.publish_time = getattr(raw, "publish_time", None)
+
+    article.updated_at = datetime.now(UTC)
+    article.persist_status = PersistStatus.PG_DONE
+
+
 class ArticleRepo:
     """PostgreSQL article repository.
 
@@ -53,7 +127,7 @@ class ArticleRepo:
         all_article_ids: list[uuid.UUID] = []
 
         for i in range(0, len(states), CHUNK_SIZE):
-            chunk = states[i:i + CHUNK_SIZE]
+            chunk = states[i : i + CHUNK_SIZE]
             chunk_ids = await self._upsert_chunk(chunk)
             all_article_ids.extend(chunk_ids)
 
@@ -90,9 +164,7 @@ class ArticleRepo:
         async with self._pool.session() as session:
             # Batch check existing URLs
             result = await session.execute(
-                select(Article.source_url, Article.id).where(
-                    Article.source_url.in_(urls_to_check)
-                )
+                select(Article.source_url, Article.id).where(Article.source_url.in_(urls_to_check))
             )
             existing = {row[0]: row[1] for row in result}
 
@@ -108,7 +180,9 @@ class ArticleRepo:
                         await self._update_single_fields(session, article_id, state)
                         article_ids.append(article_id)
                     except Exception as exc:
-                        log.error("bulk_upsert_update_failed", article_id=str(article_id), error=str(exc))
+                        log.error(
+                            "bulk_upsert_update_failed", article_id=str(article_id), error=str(exc)
+                        )
                 else:
                     # Prepare new article
                     try:
@@ -142,9 +216,8 @@ class ArticleRepo:
         raw = state["raw"]
         return Article(
             source_url=raw.url if hasattr(raw, "url") else raw.get("url", ""),
-            source_host=getattr(raw, "source_host", None) or (
-                raw.get("source_host") if isinstance(raw, dict) else None
-            ),
+            source_host=getattr(raw, "source_host", None)
+            or (raw.get("source_host") if isinstance(raw, dict) else None),
             is_news=state.get("is_news", True),
             title=state.get("cleaned", {}).get("title", getattr(raw, "title", "")),
             body=state.get("cleaned", {}).get("body", getattr(raw, "body", "")),
@@ -158,73 +231,25 @@ class ArticleRepo:
     ) -> None:
         """Update only the fields present in state (partial update).
 
+        Uses centralized _apply_state_to_article for field mapping.
+
         Args:
             session: SQLAlchemy session.
             article_id: ID of article to update.
             state: Pipeline state with fields to update.
         """
-        from datetime import UTC, datetime
-
         result = await session.execute(select(Article).where(Article.id == article_id))
         article = result.scalar_one_or_none()
         if not article:
             return
 
-        if "category" in state:
-            article.category = state["category"]
-        if "language" in state:
-            article.language = state["language"]
-        if "region" in state:
-            article.region = state["region"]
-        if "summary_info" in state:
-            si = state["summary_info"]
-            article.summary = si.get("summary")
-            article.subjects = si.get("subjects")
-            article.key_data = si.get("key_data")
-            article.impact = si.get("impact")
-            article.has_data = si.get("has_data")
-            if si.get("event_time"):
-                try:
-                    from datetime import datetime
-
-                    article.event_time = datetime.fromisoformat(si["event_time"])
-                except (ValueError, TypeError):
-                    pass
-        if "score" in state:
-            article.score = state["score"]
-        if "quality_score" in state:
-            article.quality_score = state["quality_score"]
-        if "sentiment" in state:
-            sent = state["sentiment"]
-            article.sentiment = sent.get("sentiment")
-            article.sentiment_score = sent.get("sentiment_score")
-            article.primary_emotion = sent.get("primary_emotion")
-            article.emotion_targets = sent.get("emotion_targets")
-        if "credibility" in state:
-            cred = state["credibility"]
-            article.credibility_score = cred.get("score")
-            article.source_credibility = cred.get("source_credibility")
-            article.cross_verification = cred.get("cross_verification")
-            article.content_check_score = cred.get("content_check")
-            article.credibility_flags = cred.get("flags")
-            article.verified_by_sources = cred.get("verified_by_sources", 0)
-        if "is_merged" in state:
-            article.is_merged = state["is_merged"]
-        if "merged_source_ids" in state:
-            article.merged_source_ids = [
-                uuid.UUID(sid) if isinstance(sid, str) else sid
-                for sid in state["merged_source_ids"]
-            ]
-        if "prompt_versions" in state:
-            article.prompt_versions = state["prompt_versions"]
-
-        raw = state["raw"]
-        article.publish_time = getattr(raw, "publish_time", None)
-        article.updated_at = datetime.now(UTC)
-        article.persist_status = PersistStatus.PG_DONE
+        _apply_state_to_article(article, state)
 
     async def _upsert_single(self, session: AsyncSession, state: PipelineState) -> uuid.UUID:
-        """Upsert a single article within an existing session."""
+        """Upsert a single article within an existing session.
+
+        Uses centralized _apply_state_to_article for field mapping.
+        """
         raw = state["raw"]
 
         result = await session.execute(select(Article).where(Article.source_url == raw.url))
@@ -240,55 +265,7 @@ class ArticleRepo:
             )
             session.add(article)
 
-        if "category" in state:
-            article.category = state["category"]
-        if "language" in state:
-            article.language = state["language"]
-        if "region" in state:
-            article.region = state["region"]
-        if "summary_info" in state:
-            si = state["summary_info"]
-            article.summary = si.get("summary")
-            article.subjects = si.get("subjects")
-            article.key_data = si.get("key_data")
-            article.impact = si.get("impact")
-            article.has_data = si.get("has_data")
-            if si.get("event_time"):
-                try:
-                    article.event_time = datetime.fromisoformat(si["event_time"])
-                except (ValueError, TypeError):
-                    pass
-        if "score" in state:
-            article.score = state["score"]
-        if "quality_score" in state:
-            article.quality_score = state["quality_score"]
-        if "sentiment" in state:
-            sent = state["sentiment"]
-            article.sentiment = sent.get("sentiment")
-            article.sentiment_score = sent.get("sentiment_score")
-            article.primary_emotion = sent.get("primary_emotion")
-            article.emotion_targets = sent.get("emotion_targets")
-        if "credibility" in state:
-            cred = state["credibility"]
-            article.credibility_score = cred.get("score")
-            article.source_credibility = cred.get("source_credibility")
-            article.cross_verification = cred.get("cross_verification")
-            article.content_check_score = cred.get("content_check")
-            article.credibility_flags = cred.get("flags")
-            article.verified_by_sources = cred.get("verified_by_sources", 0)
-        if "is_merged" in state:
-            article.is_merged = state["is_merged"]
-        if "merged_source_ids" in state:
-            article.merged_source_ids = [
-                uuid.UUID(sid) if isinstance(sid, str) else sid
-                for sid in state["merged_source_ids"]
-            ]
-        if "prompt_versions" in state:
-            article.prompt_versions = state["prompt_versions"]
-
-        article.publish_time = raw.publish_time
-        article.updated_at = datetime.now(UTC)
-        article.persist_status = PersistStatus.PG_DONE
+        _apply_state_to_article(article, state)
 
         await session.flush()
         await session.commit()
@@ -298,6 +275,7 @@ class ArticleRepo:
         """Upsert an article from pipeline state.
 
         Creates or updates the article record in PostgreSQL.
+        Uses centralized _apply_state_to_article for field mapping.
 
         Args:
             state: Pipeline state containing article data.
@@ -323,58 +301,8 @@ class ArticleRepo:
                     )
                     session.add(article)
 
-                # Update fields from pipeline state
-                if "category" in state:
-                    log.debug("upsert_category", category=state["category"])
-                    article.category = state["category"]
-                if "language" in state:
-                    article.language = state["language"]
-                if "region" in state:
-                    article.region = state["region"]
-                if "summary_info" in state:
-                    si = state["summary_info"]
-                    article.summary = si.get("summary")
-                    article.subjects = si.get("subjects")
-                    article.key_data = si.get("key_data")
-                    article.impact = si.get("impact")
-                    article.has_data = si.get("has_data")
-                    if si.get("event_time"):
-                        try:
-                            article.event_time = datetime.fromisoformat(si["event_time"])
-                        except (ValueError, TypeError):
-                            pass
-                if "score" in state:
-                    article.score = state["score"]
-                if "quality_score" in state:
-                    article.quality_score = state["quality_score"]
-                if "sentiment" in state:
-                    sent = state["sentiment"]
-                    log.debug("upsert_sentiment", sentiment=sent.get("sentiment"))
-                    article.sentiment = sent.get("sentiment")
-                    article.sentiment_score = sent.get("sentiment_score")
-                    article.primary_emotion = sent.get("primary_emotion")
-                    article.emotion_targets = sent.get("emotion_targets")
-                if "credibility" in state:
-                    cred = state["credibility"]
-                    article.credibility_score = cred.get("score")
-                    article.source_credibility = cred.get("source_credibility")
-                    article.cross_verification = cred.get("cross_verification")
-                    article.content_check_score = cred.get("content_check")
-                    article.credibility_flags = cred.get("flags")
-                    article.verified_by_sources = cred.get("verified_by_sources", 0)
-                if "is_merged" in state:
-                    article.is_merged = state["is_merged"]
-                if "merged_source_ids" in state:
-                    article.merged_source_ids = [
-                        uuid.UUID(sid) if isinstance(sid, str) else sid
-                        for sid in state["merged_source_ids"]
-                    ]
-                if "prompt_versions" in state:
-                    article.prompt_versions = state["prompt_versions"]
-
-                article.publish_time = raw.publish_time
-                article.updated_at = datetime.now(UTC)
-                article.persist_status = PersistStatus.PG_DONE
+                # Apply all fields using centralized function
+                _apply_state_to_article(article, state)
 
                 await session.commit()
                 await session.refresh(article)

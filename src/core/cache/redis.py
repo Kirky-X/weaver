@@ -127,6 +127,37 @@ class RedisClient:
         """Find keys matching a pattern."""
         return await self.client.keys(pattern)
 
+    async def scan(
+        self,
+        cursor: int = 0,
+        match: str | None = None,
+        count: int = 10,
+    ) -> tuple[int, list[str]]:
+        """Scan keys matching a pattern incrementally.
+
+        Args:
+            cursor: Cursor position (0 to start).
+            match: Pattern to match.
+            count: Hint for number of keys per iteration.
+
+        Returns:
+            Tuple of (new_cursor, list of keys).
+        """
+        return await self.client.scan(cursor=cursor, match=match, count=count)
+
+    async def delete(self, *keys: str) -> int:
+        """Delete one or more keys.
+
+        Args:
+            keys: Keys to delete.
+
+        Returns:
+            Number of keys deleted.
+        """
+        if not keys:
+            return 0
+        return await self.client.delete(*keys)
+
     def pipeline(self) -> Any:
         """Return a pipeline for batch operations."""
         return self.client.pipeline()

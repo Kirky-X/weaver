@@ -183,15 +183,25 @@ class Neo4jWriter:
             except Exception as exc:
                 log.warning("neo4j_aliases_batch_failed", error=str(exc))
 
+        # Batch fetch all entities to avoid N+1 query
         entity_ids: list[str] = []
-        for entity in entity_data:
-            existing = await self._entity_repo.find_entity(
-                entity["canonical_name"],
-                entity["type"],
-            )
-            if existing:
-                entity_ids.append(existing["neo4j_id"])
-                entity_name_to_id[entity["canonical_name"]] = existing["neo4j_id"]
+        entity_name_to_id: dict[str, str] = {}
+
+        if entity_data:
+            # Group by type for batch lookup
+            entities_by_type: dict[str, list[str]] = {}
+            for entity in entity_data:
+                entity_type = entity["type"]
+                if entity_type not in entities_by_type:
+                    entities_by_type[entity_type] = []
+                entities_by_type[entity_type].append(entity["canonical_name"])
+
+            # Batch fetch for each type
+            for entity_type, names in entities_by_type.items():
+                found_entities = await self._entity_repo.find_entities_batch(names, entity_type)
+                for found in found_entities:
+                    entity_ids.append(found["neo4j_id"])
+                    entity_name_to_id[found["canonical_name"]] = found["neo4j_id"]
 
         if mentions_data and entity_name_to_id:
             mentions_with_ids = [

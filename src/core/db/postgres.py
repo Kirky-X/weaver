@@ -31,6 +31,8 @@ class PostgresPool:
         pool_size: Initial pool size (default 20).
         max_overflow: Maximum overflow connections (default 10).
         pool_pre_ping: Enable connection health checks (default True).
+        pool_timeout: Connection acquisition timeout in seconds (default 30).
+        connect_timeout: Connection establishment timeout in seconds (default 10).
     """
 
     def __init__(
@@ -39,11 +41,15 @@ class PostgresPool:
         pool_size: int = 20,
         max_overflow: int = 10,
         pool_pre_ping: bool = True,
+        pool_timeout: float = 30.0,
+        connect_timeout: float = 10.0,
     ) -> None:
         self._dsn = dsn
         self._pool_size = pool_size
         self._max_overflow = max_overflow
         self._pool_pre_ping = pool_pre_ping
+        self._pool_timeout = pool_timeout
+        self._connect_timeout = connect_timeout
         self._engine: AsyncEngine | None = None
         self._session_factory: async_sessionmaker[AsyncSession] | None = None
 
@@ -54,6 +60,11 @@ class PostgresPool:
             pool_size=self._pool_size,
             max_overflow=self._max_overflow,
             pool_pre_ping=self._pool_pre_ping,
+            pool_timeout=self._pool_timeout,
+            connect_args={
+                "timeout": self._connect_timeout,
+                "command_timeout": self._connect_timeout * 2,
+            },
             echo=False,
         )
         self._session_factory = async_sessionmaker(
@@ -69,6 +80,8 @@ class PostgresPool:
                 dsn=self._dsn.split("@")[-1],
                 pool_size=self._pool_size,
                 max_overflow=self._max_overflow,
+                pool_timeout=self._pool_timeout,
+                connect_timeout=self._connect_timeout,
             )
         except Exception as exc:
             await self._engine.dispose()

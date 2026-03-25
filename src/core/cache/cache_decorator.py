@@ -86,20 +86,37 @@ def cache_result(
     return decorator
 
 
-def invalidate_cache(key_pattern: str) -> None:
-    """Invalidate cache entries matching a pattern.
+async def invalidate_cache(key_pattern: str) -> int:
+    """Invalidate cache entries matching a pattern using SCAN.
+
+    Uses SCAN instead of KEYS for better performance on large datasets.
+    This is an async function that must be awaited.
 
     Args:
         key_pattern: Pattern to match cache keys.
+
+    Returns:
+        Number of keys deleted.
     """
     redis = get_redis_client()
     if redis is None:
-        return
+        return 0
 
+    deleted_count = 0
     try:
-        keys = redis.keys(f"{key_pattern}*")
-        if keys:
-            redis.delete(*keys)
-            log.info("cache_invalidated", pattern=key_pattern, count=len(keys))
+        # Use SCAN instead of KEYS for better performance
+        cursor = 0
+        while True:
+            cursor, keys = await redis.scan(cursor, match=f"{key_pattern}*", count=100)
+            if keys:
+                await redis.delete(*keys)
+                deleted_count += len(keys)
+            if cursor == 0:
+                break
+
+        if deleted_count > 0:
+            log.info("cache_invalidated", pattern=key_pattern, count=deleted_count)
+        return deleted_count
     except Exception as e:
         log.warning("cache_invalidation_failed", pattern=key_pattern, error=str(e))
+        return 0
