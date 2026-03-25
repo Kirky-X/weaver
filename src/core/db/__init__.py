@@ -2,10 +2,15 @@
 """Core database module - PostgreSQL and Neo4j connection pools."""
 
 from core.db.initializer import (
+    REQUIRED_NEO4J_CONSTRAINTS,
+    REQUIRED_TABLES,
+    DatabaseInitError,
     check_database_exists,
     create_database,
     initialize_database,
+    initialize_neo4j,
     run_migrations,
+    verify_neo4j_constraints,
     verify_tables,
 )
 from core.db.models import (
@@ -23,10 +28,13 @@ from core.db.neo4j import Neo4jPool
 from core.db.postgres import PostgresPool
 
 __all__ = [
+    "REQUIRED_NEO4J_CONSTRAINTS",
+    "REQUIRED_TABLES",
     "Article",
     "ArticleVector",
     "Base",
     "CategoryType",
+    "DatabaseInitError",
     "EmotionType",
     "EntityVector",
     "Neo4jPool",
@@ -37,6 +45,8 @@ __all__ = [
     "check_database_exists",
     "create_database",
     "initialize_database",
+    "initialize_neo4j",
     "run_migrations",
+    "verify_neo4j_constraints",
     "verify_tables",
 ]
