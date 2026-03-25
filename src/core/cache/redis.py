@@ -8,6 +8,7 @@ from typing import Any, cast
 from redis.asyncio import ConnectionPool, Redis
 
 from core.observability.logging import get_logger
+from core.utils.sanitize import sanitize_dsn
 
 log = get_logger("redis")
 
@@ -30,7 +31,7 @@ class RedisClient:
         self._redis = Redis(connection_pool=self._pool)
         try:
             await self._redis.ping()
-            log.info("redis_client_started", url=self._url.split("@")[-1])
+            log.info("redis_client_started", url=sanitize_dsn(self._url))
         except Exception as exc:
             await self._redis.close()
             self._redis = None

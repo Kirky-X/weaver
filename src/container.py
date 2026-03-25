@@ -30,6 +30,7 @@ from core.llm.rate_limiter import RedisTokenBucket
 from core.llm.token_budget import TokenBudgetManager
 from core.observability import get_logger
 from core.prompt import PromptLoader
+from core.utils.sanitize import sanitize_dsn
 from modules.collector import Deduplicator
 from modules.collector.crawler import Crawler
 from modules.fetcher import PlaywrightContextPool, SmartFetcher
@@ -144,7 +145,7 @@ class Container:
     async def init_neo4j(self) -> Neo4jPool:
         """Initialize Neo4j connection pool."""
         if self._neo4j_pool is None:
-            log.info("init_neo4j_start", uri=self._settings.neo4j.uri, password="***")
+            log.info("init_neo4j_start", uri=sanitize_dsn(self._settings.neo4j.uri))
             self._neo4j_pool = Neo4jPool(
                 self._settings.neo4j.uri,
                 (self._settings.neo4j.user, self._settings.neo4j.password),
@@ -160,6 +161,7 @@ class Container:
     async def init_redis(self) -> RedisClient:
         """Initialize Redis client."""
         if self._redis_client is None:
+            log.info("init_redis_start", url=sanitize_dsn(self._settings.redis.url))
             self._redis_client = RedisClient(self._settings.redis.url)
             await self._redis_client.startup()
             log.info("redis_initialized")
