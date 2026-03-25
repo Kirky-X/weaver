@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import TYPE_CHECKING
 
 from core.llm.client import LLMClient
 from core.llm.output_validator import EntityExtractorOutput
@@ -14,6 +14,9 @@ from core.observability.logging import get_logger
 from core.prompt.loader import PromptLoader
 from modules.nlp.spacy_extractor import SpacyExtractor
 from modules.pipeline.state import PipelineState
+
+if TYPE_CHECKING:
+    from core.protocols import VectorRepository
 
 log = get_logger("node.entity_extractor")
 
@@ -33,7 +36,7 @@ class EntityExtractorNode:
         budget: TokenBudgetManager,
         prompt_loader: PromptLoader,
         spacy: SpacyExtractor,
-        vector_repo: Any = None,
+        vector_repo: VectorRepository | None = None,
     ) -> None:
         self._llm = llm
         self._budget = budget

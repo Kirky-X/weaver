@@ -44,7 +44,10 @@ from modules.pipeline.nodes.vectorize import VectorizeNode
 from modules.pipeline.state import PipelineState
 
 if TYPE_CHECKING:
+    from core.protocols import ArticleRepository, VectorRepository
+    from modules.graph_store.neo4j_writer import Neo4jWriter
     from modules.pipeline.config import PipelineConfig
+    from modules.source.source_authority_repo import SourceAuthorityRepo
 
 log = get_logger("pipeline")
 
@@ -85,10 +88,10 @@ class Pipeline:
         prompt_loader: PromptLoader,
         event_bus: EventBus,
         spacy: SpacyExtractor | None = None,
-        vector_repo: Any = None,
-        article_repo: Any = None,
-        neo4j_writer: Any = None,
-        source_auth_repo: Any = None,
+        vector_repo: VectorRepository | None = None,
+        article_repo: ArticleRepository | None = None,
+        neo4j_writer: Neo4jWriter | None = None,
+        source_auth_repo: SourceAuthorityRepo | None = None,
         entity_resolver: EntityResolver | None = None,
         redis_client: Any = None,
         phase1_concurrency: int | None = None,
@@ -133,18 +136,18 @@ class Pipeline:
     def from_config(
         cls,
         llm: LLMClient,
-        config: "PipelineConfig",
+        config: PipelineConfig,
         budget: TokenBudgetManager | None = None,
         prompt_loader: PromptLoader | None = None,
         event_bus: EventBus | None = None,
         spacy: SpacyExtractor | None = None,
-        vector_repo: Any = None,
-        article_repo: Any = None,
-        neo4j_writer: Any = None,
-        source_auth_repo: Any = None,
+        vector_repo: VectorRepository | None = None,
+        article_repo: ArticleRepository | None = None,
+        neo4j_writer: Neo4jWriter | None = None,
+        source_auth_repo: SourceAuthorityRepo | None = None,
         entity_resolver: EntityResolver | None = None,
         redis_client: Any = None,
-    ) -> "Pipeline":
+    ) -> Pipeline:
         """Create a Pipeline instance from configuration.
 
         This factory method allows the pipeline to be configured via external
@@ -184,8 +187,8 @@ class Pipeline:
 
         budget = budget or TokenBudgetManager()
 
-        from core.prompt.loader import PromptLoader
         from config.settings import Settings
+        from core.prompt.loader import PromptLoader
 
         settings = Settings()
         prompt_loader = prompt_loader or PromptLoader(settings.prompt.dir)

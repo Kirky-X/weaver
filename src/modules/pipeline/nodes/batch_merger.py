@@ -7,7 +7,7 @@ import asyncio
 import time
 import traceback
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -19,6 +19,10 @@ from core.observability.logging import get_logger
 from core.observability.metrics import metrics
 from core.prompt.loader import PromptLoader
 from modules.pipeline.state import PipelineState
+
+if TYPE_CHECKING:
+    from core.protocols import ArticleRepository, VectorRepository
+    from modules.graph_store.neo4j_writer import Neo4jWriter
 
 log = get_logger("node.batch_merger")
 
@@ -89,9 +93,9 @@ class BatchMergerNode:
         self,
         llm: LLMClient,
         prompt_loader: PromptLoader,
-        vector_repo: Any = None,
-        article_repo: Any = None,
-        neo4j_writer: Any = None,
+        vector_repo: VectorRepository | None = None,
+        article_repo: ArticleRepository | None = None,
+        neo4j_writer: Neo4jWriter | None = None,
     ) -> None:
         self._llm = llm
         self._prompt_loader = prompt_loader

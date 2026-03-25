@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING
 
 from core.event.bus import CredibilityComputedEvent, EventBus
 from core.llm.client import LLMClient
@@ -14,6 +14,10 @@ from core.llm.types import CallPoint
 from core.observability.logging import get_logger
 from core.observability.metrics import MetricsCollector
 from modules.pipeline.state import PipelineState
+
+if TYPE_CHECKING:
+    from modules.source.source_authority_repo import SourceAuthorityRepo
+    from modules.source.source_config_repo import SourceConfigRepo
 
 log = get_logger("node.credibility_checker")
 
@@ -56,8 +60,8 @@ class CredibilityCheckerNode:
         llm: LLMClient,
         budget: TokenBudgetManager,
         event_bus: EventBus,
-        source_auth_repo: Any = None,
-        source_config_repo: Any = None,
+        source_auth_repo: SourceAuthorityRepo | None = None,
+        source_config_repo: SourceConfigRepo | None = None,
     ) -> None:
         """Initialize credibility checker.
 
