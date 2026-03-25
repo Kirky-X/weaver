@@ -28,16 +28,35 @@ from modules.pipeline.config import (
     save_default_config,
 )
 from modules.pipeline.state import PipelineState
+from modules.pipeline.state_models import (
+    CleanedData,
+    CredibilityModel,
+    EntityData,
+    PersistStatus,
+    PipelineStage,
+    RelationData,
+    ValidatedPipelineState,
+    VectorData,
+)
 
 __all__ = [
-    # State
-    "PipelineState",
     # Config
     "BatchConfig",
+    "CleanedData",
+    "CredibilityModel",
+    "EntityData",
+    "PersistStatus",
     "PhaseConfig",
     "PipelineConfig",
     "PipelineConfigLoader",
+    "PipelineStage",
+    # State (TypedDict - legacy)
+    "PipelineState",
+    "RelationData",
     "StageConfig",
+    # State (Pydantic - validated, recommended for new code)
+    "ValidatedPipelineState",
+    "VectorData",
     "dict_to_config",
     "save_default_config",
 ]
