@@ -19,6 +19,28 @@ load_dotenv(override=True)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
+class HealthCheckSettings(BaseModel):
+    """Health check configuration."""
+
+    pre_startup_enabled: bool = True
+    """Enable pre-startup health checks for all services."""
+
+    required_services: list[str] = Field(default_factory=lambda: ["postgres", "redis"])
+    """Services that must be healthy for startup to proceed."""
+
+    optional_services: list[str] = Field(default_factory=lambda: ["neo4j"])
+    """Services that are checked but not required for startup."""
+
+    timeout_seconds: float = 5.0
+    """Timeout for individual service health checks."""
+
+    max_retries: int = 3
+    """Maximum number of retries for service health checks."""
+
+    retry_delay_seconds: float = 2.0
+    """Delay between retry attempts."""
+
+
 class PostgresSettings(BaseModel):
     """PostgreSQL connection settings."""
 
@@ -300,6 +322,7 @@ class Settings(BaseSettings):
     app_name: str = "weaver"
     debug: bool = False
 
+    health_check: HealthCheckSettings = Field(default_factory=HealthCheckSettings)
     postgres: PostgresSettings = Field(default_factory=PostgresSettings)
     neo4j: Neo4jSettings = Field(default_factory=Neo4jSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)

@@ -2,6 +2,15 @@
 app_name = "weaver"
 debug = false
 
+# Health check configuration
+[health_check]
+pre_startup_enabled = true
+required_services = ["postgres", "redis"]
+optional_services = ["neo4j"]
+timeout_seconds = 5.0
+max_retries = 3
+retry_delay_seconds = 2.0
+
 [postgres]
 dsn = "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver"
 
