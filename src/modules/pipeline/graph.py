@@ -519,8 +519,12 @@ class Pipeline:
                         await self._article_repo.mark_failed(
                             uuid.UUID(state["article_id"]), f"PG error: {exc!s}"
                         )
-                    except Exception:
-                        pass
+                    except Exception as mark_err:
+                        log.warning(
+                            "mark_failed_pg_error_failed",
+                            article_id=state.get("article_id"),
+                            error=str(mark_err),
+                        )
                 return
 
         if self._neo4j_writer:
@@ -544,8 +548,12 @@ class Pipeline:
                         await self._article_repo.mark_failed(
                             uuid.UUID(state["article_id"]), f"Neo4j error: {exc!s}"
                         )
-                    except Exception:
-                        pass
+                    except Exception as mark_err:
+                        log.warning(
+                            "mark_failed_neo4j_error_failed",
+                            article_id=state.get("article_id"),
+                            error=str(mark_err),
+                        )
 
     async def _persist_batch(self, states: list[PipelineState]) -> None:
         """Persist batch of articles to Postgres and Neo4j.
