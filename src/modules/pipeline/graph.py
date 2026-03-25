@@ -555,6 +555,125 @@ class Pipeline:
                             error=str(mark_err),
                         )
 
+    async def _handle_terminal_states(self, terminal_states: list[PipelineState]) -> None:
+        """Handle terminal articles by updating their persist_status.
+
+        Args:
+            terminal_states: List of terminal pipeline states.
+        """
+        if not terminal_states or not self._article_repo:
+            return
+
+        for state in terminal_states:
+            try:
+                from sqlalchemy import select
+
+                async with self._article_repo._pool.session() as session:
+                    from core.db.models import Article
+
+                    result = await session.execute(
+                        select(Article).where(Article.source_url == state["raw"].url)
+                    )
+                    article = result.scalar_one_or_none()
+                    if article and article.persist_status == PersistStatus.PENDING:
+                        article.persist_status = PersistStatus.PG_DONE
+                        await session.commit()
+                        log.info(
+                            "terminal_article_status_updated",
+                            url=state["raw"].url[:50],
+                        )
+            except Exception as exc:
+                log.warning(
+                    "terminal_article_status_update_failed",
+                    url=state["raw"].url[:50],
+                    error=str(exc),
+                )
+
+    def _extract_vector_data(self, states: list[PipelineState]) -> list[tuple]:
+        """Extract vector data from pipeline states.
+
+        Args:
+            states: List of pipeline states with vectors.
+
+        Returns:
+            List of (article_id, title_embedding, content_embedding, model_id) tuples.
+        """
+        import uuid
+
+        vector_data = []
+        for state in states:
+            if "vectors" not in state:
+                continue
+            vectors = state["vectors"]
+            if isinstance(vectors, dict) and "title" in vectors and "content" in vectors:
+                vector_data.append(
+                    (
+                        uuid.UUID(state["article_id"]),
+                        vectors.get("title"),
+                        vectors.get("content"),
+                        vectors.get("model_id", "unknown"),
+                    )
+                )
+        return vector_data
+
+    async def _persist_vectors(self, states: list[PipelineState]) -> None:
+        """Persist article vectors to pgvector.
+
+        Args:
+            states: List of pipeline states with article IDs.
+        """
+        if not self._vector_repo:
+            return
+
+        vector_data = self._extract_vector_data(states)
+        if not vector_data:
+            return
+
+        log.info(
+            "persist_vectors_about_to_insert",
+            article_ids=[str(v[0]) for v in vector_data],
+            count=len(vector_data),
+        )
+        count = await self._vector_repo.bulk_upsert_article_vectors(vector_data)
+        log.debug("vectors_bulk_persisted", count=count)
+
+    async def _persist_to_neo4j(self, states: list[PipelineState]) -> None:
+        """Persist articles to Neo4j.
+
+        Args:
+            states: List of pipeline states with article IDs.
+        """
+        import uuid
+
+        if not self._neo4j_writer:
+            return
+
+        for state in states:
+            try:
+                neo4j_ids = await self._neo4j_writer.write(state)
+                state["neo4j_ids"] = neo4j_ids
+                if self._article_repo and state.get("article_id"):
+                    await self._article_repo.update_persist_status(
+                        uuid.UUID(state["article_id"]), PersistStatus.NEO4J_DONE
+                    )
+            except Exception as exc:
+                log.error(
+                    "persist_neo4j_failed",
+                    article_id=state.get("article_id"),
+                    error=str(exc),
+                )
+                if state.get("article_id") and self._article_repo:
+                    try:
+                        await self._article_repo.mark_failed(
+                            uuid.UUID(state["article_id"]), f"Neo4j error: {exc!s}"
+                        )
+                    except Exception as mark_err:
+                        log.warning(
+                            "mark_failed_neo4j_error_failed",
+                            article_id=state.get("article_id"),
+                            error=str(mark_err),
+                        )
+
     async def _persist_batch(self, states: list[PipelineState]) -> None:
         """Persist batch of articles to Postgres and Neo4j.
 
@@ -563,40 +682,20 @@ class Pipeline:
         Args:
             states: List of pipeline states to persist.
         """
+        import traceback as tb
+        import uuid
+
         log.info("persist_batch_called", count=len(states))
         valid_states = [s for s in states if not s.get("terminal")]
         terminal_states = [s for s in states if s.get("terminal")]
 
-        # Handle terminal articles: update persist_status so they don't stay stuck in PENDING
-        if terminal_states and self._article_repo:
-            for state in terminal_states:
-                try:
-                    from sqlalchemy import select
-
-                    async with self._article_repo._pool.session() as session:
-                        from core.db.models import Article
-
-                        result = await session.execute(
-                            select(Article).where(Article.source_url == state["raw"].url)
-                        )
-                        article = result.scalar_one_or_none()
-                        if article and article.persist_status == PersistStatus.PENDING:
-                            article.persist_status = PersistStatus.PG_DONE
-                            await session.commit()
-                            log.info(
-                                "terminal_article_status_updated",
-                                url=state["raw"].url[:50],
-                            )
-                except Exception as exc:
-                    log.warning(
-                        "terminal_article_status_update_failed",
-                        url=state["raw"].url[:50],
-                        error=str(exc),
-                    )
+        # Handle terminal articles
+        await self._handle_terminal_states(terminal_states)
 
         if not valid_states:
             return
 
+        # Persist to PostgreSQL
         if self._article_repo:
             try:
                 article_ids = await self._article_repo.bulk_upsert(valid_states)
@@ -607,92 +706,38 @@ class Pipeline:
                 )
                 for state, aid in zip(valid_states, article_ids):
                     state["article_id"] = str(aid)
-                    # persist_status is set to PG_DONE in bulk_upsert._upsert_single
 
-                if self._vector_repo:
-                    vector_data = []
-                    for state in valid_states:
-                        if "vectors" in state:
-                            vectors = state["vectors"]
-                            if (
-                                isinstance(vectors, dict)
-                                and "title" in vectors
-                                and "content" in vectors
-                            ):
-                                import uuid
-
-                                vector_data.append(
-                                    (
-                                        uuid.UUID(state["article_id"]),
-                                        vectors.get("title"),
-                                        vectors.get("content"),
-                                        vectors.get("model_id", "unknown"),
-                                    )
-                                )
-                    if vector_data:
-                        log.info(
-                            "persist_vectors_about_to_insert",
-                            article_ids=[str(v[0]) for v in vector_data],
-                            count=len(vector_data),
-                        )
-                        count = await self._vector_repo.bulk_upsert_article_vectors(vector_data)
-                        log.debug("vectors_bulk_persisted", count=count)
+                # Persist vectors
+                await self._persist_vectors(valid_states)
 
                 log.info("batch_pg_persisted", count=len(article_ids))
             except Exception as exc:
-                import traceback as tb
-
                 log.error(
                     "persist_batch_pg_failed",
                     error=str(exc),
                     exc_type=type(exc).__name__,
                     traceback=tb.format_exc(),
                 )
-                # Log article IDs for debugging
                 for state in valid_states:
                     if state.get("article_id"):
                         log.warning(
                             "persist_debug_article_exists",
                             article_id=state["article_id"],
                         )
-                for state in valid_states:
-                    if state.get("article_id"):
                         try:
-                            import uuid
-
                             await self._article_repo.mark_failed(
                                 uuid.UUID(state["article_id"]), f"PG error: {exc!s}"
                             )
-                        except Exception:
-                            pass
+                        except Exception as mark_err:
+                            log.warning(
+                                "mark_failed_pg_error_failed",
+                                article_id=state.get("article_id"),
+                                error=str(mark_err),
+                            )
                 return
 
-        if self._neo4j_writer:
-            for state in valid_states:
-                try:
-                    neo4j_ids = await self._neo4j_writer.write(state)
-                    state["neo4j_ids"] = neo4j_ids
-                    if self._article_repo and state.get("article_id"):
-                        import uuid
-
-                        await self._article_repo.update_persist_status(
-                            uuid.UUID(state["article_id"]), PersistStatus.NEO4J_DONE
-                        )
-                except Exception as exc:
-                    log.error(
-                        "persist_neo4j_failed",
-                        article_id=state.get("article_id"),
-                        error=str(exc),
-                    )
-                    if state.get("article_id") and self._article_repo:
-                        try:
-                            import uuid
-
-                            await self._article_repo.mark_failed(
-                                uuid.UUID(state["article_id"]), f"Neo4j error: {exc!s}"
-                            )
-                        except Exception:
-                            pass
+        # Persist to Neo4j
+        await self._persist_to_neo4j(valid_states)
 
     async def stop_accepting(self) -> None:
         """Stop accepting new pipeline tasks."""
