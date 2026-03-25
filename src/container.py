@@ -663,14 +663,30 @@ class Container:
     # ── Lifecycle ─────────────────────────────────────────────────
 
     async def startup(self) -> None:
-        """Initialize all services."""
+        """Initialize all services.
+
+        This method performs the following steps:
+        1. Pre-startup health checks (if enabled)
+        2. Database initialization (PostgreSQL)
+        3. Redis initialization
+        4. Neo4j initialization (optional)
+        5. LLM client initialization
+        6. Search engines initialization
+        7. Fetcher and crawler initialization
+        8. Pipeline initialization
+        """
         import os
 
         log.info("container_starting")
 
+        # ── Pre-startup Health Checks ─────────────────────────────
+        if self._settings.health_check.pre_startup_enabled:
+            await self._run_pre_startup_health_checks()
+
+        # ── Database Initialization ───────────────────────────────
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-        from core.db.initializer import initialize_database
+        from core.db.initializer import initialize_database, initialize_neo4j
 
         await initialize_database(
             self._settings.postgres.dsn,
@@ -680,13 +696,27 @@ class Container:
 
         await self.init_postgres()
         await self.init_redis()
-        try:
-            await self.init_neo4j()
-        except ConnectionError as exc:
-            log.warning("neo4j_unavailable_skipping", error=str(exc))
+
+        # ── Neo4j Initialization (Optional) ───────────────────────
+        neo4j_available = await self._initialize_neo4j_safe()
+
+        # ── Core Services Initialization ───────────────────────────
         await self.init_llm()
-        self.init_search_engines()
-        self.init_hybrid_search()
+
+        # Initialize search engines only if Neo4j is available
+        if neo4j_available:
+            self.init_search_engines()
+            self.init_hybrid_search()
+
+            # Initialize Neo4j constraints
+            if self._neo4j_pool is not None:
+                neo4j_init_result = await initialize_neo4j(self._neo4j_pool)
+                if neo4j_init_result.get("constraints_created"):
+                    log.info(
+                        "neo4j_constraints_created",
+                        constraints=neo4j_init_result.get("constraints_created", []),
+                    )
+
         await self.init_playwright_pool()
         await self.init_smart_fetcher()
 
@@ -719,6 +749,79 @@ class Container:
         await self.init_bm25_scheduler()
 
         log.info("container_started")
+
+    async def _run_pre_startup_health_checks(self) -> None:
+        """Run pre-startup health checks for required services.
+
+        This method checks the health of required services before
+        proceeding with initialization. If any required service fails,
+        the startup process is aborted.
+        """
+        from core.health import PreStartupHealthChecker
+
+        checker = PreStartupHealthChecker(
+            self._settings.health_check,
+            self._settings,
+        )
+
+        results = await checker.check_all()
+        summary = checker.get_summary()
+
+        # Log results
+        for service, result in results.items():
+            if result.healthy:
+                log.info(
+                    "pre_startup_service_healthy",
+                    service=service,
+                    latency_ms=result.latency_ms,
+                )
+            else:
+                log.warning(
+                    "pre_startup_service_unhealthy",
+                    service=service,
+                    error=result.error,
+                    details=result.details,
+                )
+
+        # Check if required services are healthy
+        if not summary["required_services_healthy"]:
+            failed = summary["failed_required_services"]
+            log.error(
+                "pre_startup_health_check_failed",
+                failed_services=failed,
+            )
+            raise RuntimeError(
+                f"Required services not available: {', '.join(failed)}. "
+                "Please ensure all required services are running before starting the application."
+            )
+
+        log.info("pre_startup_health_check_passed")
+
+    async def _initialize_neo4j_safe(self) -> bool:
+        """Safely initialize Neo4j, handling connection failures.
+
+        Returns:
+            True if Neo4j was initialized successfully, False otherwise.
+        """
+        neo4j_required = "neo4j" in self._settings.health_check.required_services
+
+        try:
+            await self.init_neo4j()
+            return True
+        except ConnectionError as exc:
+            if neo4j_required:
+                log.error("neo4j_required_but_unavailable", error=str(exc))
+                raise RuntimeError(
+                    "Neo4j is configured as required but is not available. " f"Error: {exc}"
+                ) from exc
+            log.warning("neo4j_unavailable_skipping", error=str(exc))
+            return False
+        except Exception as exc:
+            if neo4j_required:
+                log.error("neo4j_initialization_failed", error=str(exc))
+                raise
+            log.warning("neo4j_initialization_skipped", error=str(exc))
+            return False
 
     async def shutdown(self) -> None:
         """Shutdown all services in reverse order.
