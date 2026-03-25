@@ -1,6 +1,8 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Health check endpoints for monitoring service dependencies."""
 
+from __future__ import annotations
+
 import asyncio
 import time
 from typing import Any
@@ -8,6 +10,7 @@ from typing import Any
 from sqlalchemy import text
 
 from core.cache.redis import RedisClient
+from core.constants import HealthStatus
 from core.db.neo4j import Neo4jPool
 from core.db.postgres import PostgresPool
 
@@ -133,4 +136,7 @@ async def health_check() -> dict[str, Any]:
         checks["redis"] = {"status": "unavailable", "error": "Client not initialized"}
         all_healthy = False
 
-    return {"status": "healthy" if all_healthy else "unhealthy", "checks": checks}
+    return {
+        "status": HealthStatus.HEALTHY.value if all_healthy else HealthStatus.UNHEALTHY.value,
+        "checks": checks,
+    }

@@ -19,6 +19,7 @@ from api.dependencies import (
 )
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
+from core.constants import PipelineTaskStatus
 from core.observability.metrics import metrics
 from modules.storage.article_repo import ArticleRepo
 
@@ -49,7 +50,7 @@ class TriggerResponse(BaseModel):
     """Response model for pipeline trigger."""
 
     task_id: str
-    status: str = "queued"
+    status: str = PipelineTaskStatus.QUEUED.value
     queued_at: str
 
 
@@ -112,7 +113,7 @@ async def trigger_pipeline(
         json.dumps(
             {
                 "task_id": task_id,
-                "status": "running",
+                "status": PipelineTaskStatus.RUNNING.value,
                 "source_id": request.source_id,
                 "queued_at": now,
                 "started_at": now,
@@ -143,7 +144,7 @@ async def trigger_pipeline(
             json.dumps(
                 {
                     "task_id": task_id,
-                    "status": "completed",
+                    "status": PipelineTaskStatus.COMPLETED.value,
                     "source_id": request.source_id,
                     "queued_at": now,
                     "started_at": now,
@@ -160,7 +161,7 @@ async def trigger_pipeline(
             json.dumps(
                 {
                     "task_id": task_id,
-                    "status": "failed",
+                    "status": PipelineTaskStatus.FAILED.value,
                     "source_id": request.source_id,
                     "queued_at": now,
                     "started_at": now,
