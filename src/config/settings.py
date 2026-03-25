@@ -7,9 +7,11 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic_settings.sources import PydanticBaseSettingsSource
+
+from core.constants import LLMProvider
 
 # Load environment variables from .env file
 load_dotenv(override=True)
@@ -85,6 +87,28 @@ class LLMSettings(BaseModel):
     embedding_model: str = "text-embedding-3-large"
     rerank_provider: str = "openai"
     rerank_model: str = ""
+
+    @field_validator("embedding_provider", "rerank_provider")
+    @classmethod
+    def validate_provider(cls, v: str) -> str:
+        """Validate that provider is a known LLMProvider value.
+
+        Args:
+            v: Provider string value.
+
+        Returns:
+            Validated provider string.
+
+        Raises:
+            ValueError: If provider is not a valid LLMProvider.
+        """
+        valid_providers = [p.value for p in LLMProvider]
+        # Allow additional custom providers (like ollama) for flexibility
+        # Only validate if it matches a known provider
+        if v.lower() in valid_providers:
+            return v.lower()
+        # Allow custom providers (e.g., ollama, local endpoints)
+        return v
 
 
 class FetcherSettings(BaseModel):

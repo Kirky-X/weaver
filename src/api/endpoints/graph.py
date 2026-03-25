@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
+from api.dependencies import get_neo4j_pool
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from core.db.neo4j import Neo4jPool
@@ -75,27 +76,6 @@ class ArticleGraphResponse(BaseModel):
     related_articles: list[ArticleGraphNode]
 
 
-# ── Dependency for Neo4j Client ─────────────────────────────────
-
-_neo4j_client: Neo4jPool | None = None
-
-
-def set_neo4j_client(client: Neo4jPool) -> None:
-    """Set the global Neo4j client instance."""
-    global _neo4j_client
-    _neo4j_client = client
-
-
-def get_neo4j_client() -> Neo4jPool:
-    """Get the Neo4j client instance."""
-    if _neo4j_client is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Neo4j client not initialized",
-        )
-    return _neo4j_client
-
-
 # ── Endpoints ───────────────────────────────────────────────────
 
 
@@ -104,7 +84,7 @@ async def get_entity(
     name: str,
     limit: int = Query(10, ge=1, le=100, description="Max related entities to return"),
     _: str = Depends(verify_api_key),
-    neo4j: Neo4jPool = Depends(get_neo4j_client),
+    neo4j: Neo4jPool = Depends(get_neo4j_pool),
 ) -> APIResponse[EntityWithRelations]:
     """Get entity information and its relationships.
 
@@ -240,7 +220,7 @@ async def get_entity(
 async def get_article_graph(
     article_id: str,
     _: str = Depends(verify_api_key),
-    neo4j: Neo4jPool = Depends(get_neo4j_client),
+    neo4j: Neo4jPool = Depends(get_neo4j_pool),
 ) -> APIResponse[ArticleGraphResponse]:
     """Get the knowledge graph for a specific article.
 

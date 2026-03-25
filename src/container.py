@@ -805,16 +805,24 @@ _container: Container | None = None
 def get_container() -> Container:
     """Get the global container instance (DEPRECATED).
 
+    .. deprecated:: 0.2.0
+        Use `api.dependencies.get_container()` or FastAPI dependency injection
+        instead. This global accessor will be removed in a future version.
+
     Returns:
         The global Container instance.
 
     Raises:
         RuntimeError: If container has not been initialized.
-
-    Note:
-        Prefer accessing container via app.state.container in new code.
-        This global accessor is maintained for backward compatibility.
     """
+    import warnings
+
+    warnings.warn(
+        "get_container() is deprecated. Use api.dependencies.get_container() "
+        "or FastAPI dependency injection instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     if _container is None:
         raise RuntimeError(
             "Container not initialized. Create and configure a Container first, "

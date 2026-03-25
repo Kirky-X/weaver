@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from api.dependencies import get_llm_client, get_neo4j_pool
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from core.db.neo4j import Neo4jPool
@@ -22,38 +23,6 @@ from modules.graph_store.community_report_generator import (
 log = get_logger("community_api")
 
 router = APIRouter(prefix="/admin/communities", tags=["admin", "communities"])
-
-
-# ── Dependencies ─────────────────────────────────────
-
-_neo4j_pool: Neo4jPool | None = None
-_llm_client: Any = None
-
-
-def set_neo4j_pool(pool: Neo4jPool) -> None:
-    """Set the global Neo4j pool instance."""
-    global _neo4j_pool
-    _neo4j_pool = pool
-
-
-def set_llm_client(client: Any) -> None:
-    """Set the global LLM client instance."""
-    global _llm_client
-    _llm_client = client
-
-
-def get_neo4j_pool() -> Neo4jPool:
-    """Get the Neo4j pool instance."""
-    if _neo4j_pool is None:
-        raise HTTPException(status_code=503, detail="Neo4j pool not initialized")
-    return _neo4j_pool
-
-
-def get_llm_client() -> Any:
-    """Get the LLM client instance."""
-    if _llm_client is None:
-        raise HTTPException(status_code=503, detail="LLM client not initialized")
-    return _llm_client
 
 
 # ── Request/Response Models ─────────────────────────────────────

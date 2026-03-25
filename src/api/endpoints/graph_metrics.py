@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from api.dependencies import get_neo4j_pool
 from api.middleware.auth import verify_api_key
 from core.db.neo4j import Neo4jPool
 from modules.graph_store.metrics import (
@@ -15,25 +16,6 @@ from modules.graph_store.metrics import (
 )
 
 router = APIRouter(prefix="/graph/metrics", tags=["graph-metrics"])
-
-
-_neo4j_pool: Neo4jPool | None = None
-
-
-def set_neo4j_pool(pool: Neo4jPool) -> None:
-    """Set the global Neo4j pool instance."""
-    global _neo4j_pool
-    _neo4j_pool = pool
-
-
-def get_neo4j_pool() -> Neo4jPool:
-    """Get the Neo4j pool instance."""
-    if _neo4j_pool is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Neo4j pool not initialized",
-        )
-    return _neo4j_pool
 
 
 class HealthSummaryResponse(BaseModel):

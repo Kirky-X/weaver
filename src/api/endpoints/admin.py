@@ -6,6 +6,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from api.dependencies import get_source_authority_repo
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from core.observability.logging import get_logger
@@ -47,27 +48,6 @@ class UpdateAuthorityResponse(BaseModel):
     authority: float | None
     tier: int | None
     description: str | None
-
-
-# ── Dependency for Source Authority Repo ───────────────────────
-
-_source_authority_repo: SourceAuthorityRepo | None = None
-
-
-def set_source_authority_repo(repo: SourceAuthorityRepo) -> None:
-    """Set the global source authority repo instance."""
-    global _source_authority_repo
-    _source_authority_repo = repo
-
-
-def get_source_authority_repo() -> SourceAuthorityRepo:
-    """Get the source authority repo instance."""
-    if _source_authority_repo is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Source authority repo not initialized",
-        )
-    return _source_authority_repo
 
 
 # ── Endpoints ───────────────────────────────────────────────────

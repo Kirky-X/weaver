@@ -40,18 +40,20 @@ from api.endpoints._deps import Endpoints
 def get_container() -> Container:
     """Get the application container.
 
+    This is the recommended way to access the container in FastAPI endpoints.
+    Use with FastAPI's Depends() pattern.
+
     Returns:
         Container instance.
 
     Raises:
         HTTPException: If container is not initialized.
     """
-    from container import get_container as _get_container
+    import container as container_module
 
-    try:
-        return _get_container()
-    except RuntimeError:
+    if container_module._container is None:
         raise HTTPException(status_code=503, detail="Service not initialized")
+    return container_module._container
 
 
 def get_postgres_pool() -> PostgresPool:

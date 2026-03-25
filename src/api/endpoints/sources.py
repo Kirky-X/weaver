@@ -4,14 +4,15 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
+from api.dependencies import get_source_config_repo
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from modules.source.models import SourceConfig
+from modules.source.source_config_repo import SourceConfigRepo
 
 router = APIRouter(prefix="/sources", tags=["sources"])
 
@@ -138,27 +139,6 @@ class SourceResponse(BaseModel):
         )
 
 
-# ── Dependency for Source Config Repo ───────────────────────────────
-
-_source_config_repo: Any = None
-
-
-def set_source_config_repo(repo: Any) -> None:
-    """Set the global source config repository instance."""
-    global _source_config_repo
-    _source_config_repo = repo
-
-
-def get_source_config_repo() -> Any:
-    """Get the source config repository instance."""
-    if _source_config_repo is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Source config repository not initialized",
-        )
-    return _source_config_repo
-
-
 # ── Endpoints ───────────────────────────────────────────────────
 
 
@@ -166,7 +146,7 @@ def get_source_config_repo() -> Any:
 async def list_sources(
     enabled_only: bool = True,
     _: str = Depends(verify_api_key),
-    repo: Any = Depends(get_source_config_repo),
+    repo: SourceConfigRepo = Depends(get_source_config_repo),
 ) -> APIResponse[list[SourceResponse]]:
     """Get all registered sources.
 
@@ -186,7 +166,7 @@ async def list_sources(
 async def get_source(
     source_id: str,
     _: str = Depends(verify_api_key),
-    repo: Any = Depends(get_source_config_repo),
+    repo: SourceConfigRepo = Depends(get_source_config_repo),
 ) -> APIResponse[SourceResponse]:
     """Get a single source by ID.
 
@@ -211,7 +191,7 @@ async def get_source(
 async def create_source(
     request: SourceCreateRequest,
     _: str = Depends(verify_api_key),
-    repo: Any = Depends(get_source_config_repo),
+    repo: SourceConfigRepo = Depends(get_source_config_repo),
 ) -> APIResponse[SourceResponse]:
     """Create a new news source.
 
@@ -253,7 +233,7 @@ async def update_source(
     source_id: str,
     request: SourceUpdateRequest,
     _: str = Depends(verify_api_key),
-    repo: Any = Depends(get_source_config_repo),
+    repo: SourceConfigRepo = Depends(get_source_config_repo),
 ) -> APIResponse[SourceResponse]:
     """Update an existing news source.
 
@@ -302,7 +282,7 @@ async def update_source(
 async def delete_source(
     source_id: str,
     _: str = Depends(verify_api_key),
-    repo: Any = Depends(get_source_config_repo),
+    repo: SourceConfigRepo = Depends(get_source_config_repo),
 ) -> None:
     """Delete a news source.
 

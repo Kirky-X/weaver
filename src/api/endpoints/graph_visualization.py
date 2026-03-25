@@ -15,7 +15,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from api.endpoints import _deps as deps
+from api.dependencies import get_neo4j_pool
 from api.middleware.auth import verify_api_key
 from core.db.neo4j import Neo4jPool
 
@@ -102,7 +102,7 @@ TYPE_COLORS = {
 async def get_graph_snapshot(
     limit: int = Query(100, ge=10, le=1000, description="Max nodes to return"),
     _: str = Depends(verify_api_key),
-    neo4j: Neo4jPool = Depends(deps.Endpoints.get_neo4j_pool),
+    neo4j: Neo4jPool = Depends(get_neo4j_pool),
 ) -> GraphSnapshotResponse:
     """Get a snapshot of the knowledge graph.
 
@@ -199,7 +199,7 @@ async def get_graph_snapshot(
 async def get_subgraph(
     request: SubgraphRequest,
     _: str = Depends(verify_api_key),
-    neo4j: Neo4jPool = Depends(deps.Endpoints.get_neo4j_pool),
+    neo4j: Neo4jPool = Depends(get_neo4j_pool),
 ) -> GraphSnapshotResponse:
     """Extract a subgraph around a center entity.
 
@@ -305,7 +305,7 @@ async def get_force_directed_layout(
     center_entity: str = Query(..., description="Center entity name"),
     max_hops: int = Query(2, ge=1, le=4),
     _: str = Depends(verify_api_key),
-    neo4j: Neo4jPool = Depends(deps.Endpoints.get_neo4j_pool),
+    neo4j: Neo4jPool = Depends(get_neo4j_pool),
 ) -> LayoutResponse:
     """Get a simple force-directed layout for visualization.
 
