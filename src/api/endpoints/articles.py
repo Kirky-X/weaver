@@ -11,11 +11,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import asc, desc, select
 
-from api.dependencies import PostgresPoolDep
+from api.dependencies import get_postgres_pool
 from api.middleware.auth import verify_api_key
 from api.middleware.rate_limit import limiter
 from api.schemas.response import APIResponse, success_response
 from core.db.models import Article, CategoryType
+from core.db.postgres import PostgresPool
 from core.observability.logging import get_logger
 
 log = get_logger("articles_api")
@@ -128,7 +129,7 @@ async def list_articles(
     ),
     sort_order: str = Query("desc", description="Sort order: asc, desc"),
     _: str = Depends(verify_api_key),
-    pool: PostgresPoolDep = Depends(),
+    pool: PostgresPool = Depends(get_postgres_pool),
 ) -> APIResponse[ArticleListResponse]:
     """Get a paginated list of articles with optional filters.
 
@@ -207,7 +208,7 @@ async def list_articles(
 async def get_article(
     article_id: str,
     _: str = Depends(verify_api_key),
-    pool: PostgresPoolDep = Depends(),
+    pool: PostgresPool = Depends(get_postgres_pool),
 ) -> APIResponse[ArticleDetailResponse]:
     """Get detailed information about a specific article.
 

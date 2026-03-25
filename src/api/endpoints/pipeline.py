@@ -13,14 +13,17 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from api.dependencies import (
-    PostgresPoolDep,
-    RedisClientDep,
-    SourceSchedulerDep,
+    get_postgres_pool,
+    get_redis_client,
+    get_source_scheduler,
 )
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
+from core.cache.redis import RedisClient
 from core.constants import PipelineTaskStatus
+from core.db.postgres import PostgresPool
 from core.observability.metrics import metrics
+from modules.source.scheduler import SourceScheduler
 from modules.storage.article_repo import ArticleRepo
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
@@ -88,8 +91,8 @@ QUEUE_DEPTH_GAUGE = metrics.pipeline_queue_depth
 async def trigger_pipeline(
     request: TriggerRequest,
     _: str = Depends(verify_api_key),
-    redis: RedisClientDep = Depends(),
-    scheduler: SourceSchedulerDep = Depends(),
+    redis: RedisClient = Depends(get_redis_client),
+    scheduler: SourceScheduler = Depends(get_source_scheduler),
 ) -> APIResponse[TriggerResponse]:
     """Trigger a pipeline run to crawl news sources.
 
@@ -181,8 +184,8 @@ async def trigger_pipeline(
 async def get_task_status(
     task_id: str,
     _: str = Depends(verify_api_key),
-    redis: RedisClientDep = Depends(),
-    postgres_pool: PostgresPoolDep = Depends(),
+    redis: RedisClient = Depends(get_redis_client),
+    postgres_pool: PostgresPool = Depends(get_postgres_pool),
 ) -> APIResponse[TaskStatusResponse]:
     """Query the status of a pipeline task.
 
@@ -246,8 +249,8 @@ async def get_task_status(
 @router.get("/queue/stats", response_model=APIResponse[dict])
 async def get_queue_stats(
     _: str = Depends(verify_api_key),
-    redis: RedisClientDep = Depends(),
-    postgres_pool: PostgresPoolDep = Depends(),
+    redis: RedisClient = Depends(get_redis_client),
+    postgres_pool: PostgresPool = Depends(get_postgres_pool),
 ) -> APIResponse[dict]:
     """Get pipeline queue statistics.
 
