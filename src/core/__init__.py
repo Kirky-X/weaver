@@ -5,6 +5,7 @@ This module provides the core infrastructure including:
 - db: Database connection pools (PostgreSQL, Neo4j)
 - cache: Redis caching layer
 - event: Event bus for domain events
+- health: Pre-startup health checking
 - llm: LLM client and providers
 - observability: Logging, metrics, and tracing
 - prompt: Prompt template management
@@ -32,6 +33,7 @@ from core.db import (
     VectorType,
 )
 from core.event import BaseEvent, EventBus, FallbackEvent
+from core.health import PreStartupHealthChecker, ServiceCheckResult, run_pre_startup_health_check
 from core.llm import CallPoint, LLMTask, LLMType
 from core.observability import MetricsCollector, configure_tracing, get_logger, get_tracer
 from core.prompt import PromptLoader
@@ -56,8 +58,10 @@ __all__ = [
     "Neo4jPool",
     "PersistStatus",
     "PostgresPool",
+    "PreStartupHealthChecker",
     "PromptLoader",
     "RedisClient",
+    "ServiceCheckResult",
     "SourceAuthority",
     "VectorType",
     "cache_result",
@@ -67,4 +71,5 @@ __all__ = [
     "get_redis_client",
     "get_tracer",
     "invalidate_cache",
+    "run_pre_startup_health_check",
 ]
