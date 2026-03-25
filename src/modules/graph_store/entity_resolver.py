@@ -17,6 +17,7 @@ from tenacity import (
 
 from core.llm.client import LLMClient
 from core.observability.logging import get_logger
+from core.protocols import EntityRepository, VectorRepository
 from modules.graph_store.name_normalizer import (
     NameNormalizer,
 )
@@ -24,8 +25,6 @@ from modules.graph_store.resolution_rules import (
     EntityResolutionRules,
     MatchType,
 )
-from modules.storage.neo4j.entity_repo import Neo4jEntityRepo
-from modules.storage.vector_repo import VectorRepo
 
 log = get_logger("entity_resolver")
 
@@ -66,8 +65,8 @@ class EntityResolver:
 
     def __init__(
         self,
-        entity_repo: Neo4jEntityRepo | None,
-        vector_repo: VectorRepo,
+        entity_repo: EntityRepository | None,
+        vector_repo: VectorRepository,
         llm: LLMClient | None = None,
         resolution_rules: EntityResolutionRules | None = None,
         name_normalizer: NameNormalizer | None = None,

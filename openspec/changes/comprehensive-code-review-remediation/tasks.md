@@ -94,7 +94,7 @@
 - [x] 3.2.2 定义 `EntityRepository` 协议
 - [x] 3.2.3 定义 `VectorRepository` 协议
 - [x] 3.2.4 定义 `ArticleRepository` 协议
-- [ ] 3.2.5 更新 `EntityResolver` 使用协议类型
+- [x] 3.2.5 更新 `EntityResolver` 使用协议类型
 - [ ] 3.2.6 更新其他模块使用协议类型
 
 ### 3.3 Pipeline 状态类型安全
