@@ -12,12 +12,14 @@ import json_repair
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from api.dependencies import (
+    PostgresPoolDep,
+    RedisClientDep,
+    SourceSchedulerDep,
+)
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
-from core.cache.redis import RedisClient
-from core.db.postgres import PostgresPool
 from core.observability.metrics import metrics
-from modules.source.scheduler import SourceScheduler
 from modules.storage.article_repo import ArticleRepo
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
@@ -71,61 +73,6 @@ class TaskStatusResponse(BaseModel):
     pending_count: int = 0
 
 
-# ── Dependency for Redis Client ─────────────────────────────────
-
-_redis_client: RedisClient | None = None
-_postgres_pool: PostgresPool | None = None
-_source_scheduler: SourceScheduler | None = None
-
-
-def set_redis_client(client: RedisClient) -> None:
-    """Set the global Redis client instance."""
-    global _redis_client
-    _redis_client = client
-
-
-def get_redis_client() -> RedisClient:
-    """Get the Redis client instance."""
-    if _redis_client is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Redis client not initialized",
-        )
-    return _redis_client
-
-
-def set_postgres_pool(pool: PostgresPool) -> None:
-    """Set the global PostgresPool instance."""
-    global _postgres_pool
-    _postgres_pool = pool
-
-
-def get_postgres_pool() -> PostgresPool:
-    """Get the PostgresPool instance."""
-    if _postgres_pool is None:
-        raise HTTPException(
-            status_code=503,
-            detail="PostgresPool not initialized",
-        )
-    return _postgres_pool
-
-
-def set_source_scheduler(scheduler: SourceScheduler) -> None:
-    """Set the global source scheduler instance."""
-    global _source_scheduler
-    _source_scheduler = scheduler
-
-
-def get_source_scheduler() -> SourceScheduler:
-    """Get the source scheduler instance."""
-    if _source_scheduler is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Source scheduler not initialized",
-        )
-    return _source_scheduler
-
-
 # ── Constants ───────────────────────────────────────────────────
 
 TASK_QUEUE_KEY = "pipeline:task_queue"
@@ -140,8 +87,8 @@ QUEUE_DEPTH_GAUGE = metrics.pipeline_queue_depth
 async def trigger_pipeline(
     request: TriggerRequest,
     _: str = Depends(verify_api_key),
-    redis: RedisClient = Depends(get_redis_client),
-    scheduler: SourceScheduler = Depends(get_source_scheduler),
+    redis: RedisClientDep = Depends(),
+    scheduler: SourceSchedulerDep = Depends(),
 ) -> APIResponse[TriggerResponse]:
     """Trigger a pipeline run to crawl news sources.
 
@@ -233,8 +180,8 @@ async def trigger_pipeline(
 async def get_task_status(
     task_id: str,
     _: str = Depends(verify_api_key),
-    redis: RedisClient = Depends(get_redis_client),
-    postgres_pool: PostgresPool = Depends(get_postgres_pool),
+    redis: RedisClientDep = Depends(),
+    postgres_pool: PostgresPoolDep = Depends(),
 ) -> APIResponse[TaskStatusResponse]:
     """Query the status of a pipeline task.
 
@@ -298,8 +245,8 @@ async def get_task_status(
 @router.get("/queue/stats", response_model=APIResponse[dict])
 async def get_queue_stats(
     _: str = Depends(verify_api_key),
-    redis: RedisClient = Depends(get_redis_client),
-    postgres_pool: PostgresPool = Depends(get_postgres_pool),
+    redis: RedisClientDep = Depends(),
+    postgres_pool: PostgresPoolDep = Depends(),
 ) -> APIResponse[dict]:
     """Get pipeline queue statistics.
 

@@ -242,6 +242,42 @@ class Neo4jEntityRepo:
             return dict(result[0])
         return None
 
+    async def find_entities_by_ids(
+        self,
+        neo4j_ids: list[str],
+    ) -> list[dict[str, Any]]:
+        """Find multiple entities by their Neo4j internal IDs in a single query.
+
+        This is an optimized batch query to avoid N+1 patterns when looking up
+        multiple entities by ID (e.g., after a vector similarity search).
+
+        Args:
+            neo4j_ids: List of Neo4j internal element IDs.
+
+        Returns:
+            List of entity dicts found (may be fewer than input if some IDs not found).
+        """
+        if not neo4j_ids:
+            return []
+
+        query = """
+        UNWIND $ids AS id
+        MATCH (e)
+        WHERE elementId(e) = id
+        RETURN elementId(e) AS neo4j_id,
+               e.id AS id,
+               e.canonical_name AS canonical_name,
+               e.type AS type,
+               e.aliases AS aliases,
+               e.description AS description,
+               e.created_at AS created_at,
+               e.updated_at AS updated_at
+        """
+
+        params = {"ids": neo4j_ids}
+        result = await self._pool.execute_query(query, params)
+        return [dict(record) for record in result]
+
     async def add_alias(
         self,
         canonical_name: str,

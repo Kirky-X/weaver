@@ -11,11 +11,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import asc, desc, select
 
+from api.dependencies import PostgresPoolDep
 from api.middleware.auth import verify_api_key
 from api.middleware.rate_limit import limiter
 from api.schemas.response import APIResponse, success_response
 from core.db.models import Article, CategoryType
-from core.db.postgres import PostgresPool
 from core.observability.logging import get_logger
 
 log = get_logger("articles_api")
@@ -66,25 +66,7 @@ class ArticleDetailResponse(BaseModel):
     updated_at: datetime
 
 
-# ── Dependency for Postgres Pool ─────────────────────────────────
-
-_postgres_pool: PostgresPool | None = None
-
-
-def set_postgres_pool(pool: PostgresPool) -> None:
-    """Set the global Postgres pool instance."""
-    global _postgres_pool
-    _postgres_pool = pool
-
-
-def get_postgres_pool() -> PostgresPool:
-    """Get the Postgres pool instance."""
-    if _postgres_pool is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Postgres pool not initialized",
-        )
-    return _postgres_pool
+# ── Helpers ─────────────────────────────────────────────────────
 
 
 def _article_to_dict(article: Article) -> dict[str, Any]:
@@ -146,7 +128,7 @@ async def list_articles(
     ),
     sort_order: str = Query("desc", description="Sort order: asc, desc"),
     _: str = Depends(verify_api_key),
-    pool: PostgresPool = Depends(get_postgres_pool),
+    pool: PostgresPoolDep = Depends(),
 ) -> APIResponse[ArticleListResponse]:
     """Get a paginated list of articles with optional filters.
 
@@ -225,7 +207,7 @@ async def list_articles(
 async def get_article(
     article_id: str,
     _: str = Depends(verify_api_key),
-    pool: PostgresPool = Depends(get_postgres_pool),
+    pool: PostgresPoolDep = Depends(),
 ) -> APIResponse[ArticleDetailResponse]:
     """Get detailed information about a specific article.
 

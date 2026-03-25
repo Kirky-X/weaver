@@ -171,9 +171,14 @@ class EntityResolver:
                 confidence=1.0,
             )
 
+        # Batch lookup entities by ID to avoid N+1 queries
+        neo4j_ids = [sim.neo4j_id for sim in similar]
+        entities_by_id = await self._entity_repo.find_entities_by_ids(neo4j_ids)
+        entities_map = {e["neo4j_id"]: e for e in entities_by_id}
+
         candidates = []
         for sim in similar:
-            entity = await self._entity_repo.find_entity_by_id(sim.neo4j_id)
+            entity = entities_map.get(sim.neo4j_id)
             if entity:
                 entity["similarity"] = sim.similarity
                 candidates.append(entity)
