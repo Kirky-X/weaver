@@ -141,6 +141,18 @@ class RateLimiter:
             pass
         return 1.0
 
+    async def consume(self, provider: str, rpm_limit: int) -> float:
+        """Alias for acquire() for compatibility with RedisTokenBucket.
+
+        Args:
+            provider: Provider name
+            rpm_limit: RPM limit
+
+        Returns:
+            Wait time in seconds (0.0 if no wait needed)
+        """
+        return await self.acquire(provider, tokens=1, rpm_limit=rpm_limit)
+
     async def try_acquire(self, provider: str, tokens: int = 1) -> bool:
         """Try to acquire tokens without waiting.
 

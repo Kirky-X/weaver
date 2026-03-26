@@ -14,37 +14,38 @@ Example:
 
 from __future__ import annotations
 
-import enum
+import warnings
 from datetime import datetime
 from typing import Any, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from core.constants import PipelineState, ProcessingStatus
 from modules.collector.models import ArticleRaw
 
-
-class PipelineStage(enum.StrEnum):
-    """Pipeline processing stages."""
-
-    RAW = "raw"
-    CLASSIFIED = "classified"
-    CLEANED = "cleaned"
-    CATEGORIZED = "categorized"
-    VECTORIZED = "vectorized"
-    MERGED = "merged"
-    ANALYZED = "analyzed"
-    CREDIBILITY_CHECKED = "credibility_checked"
-    ENTITY_EXTRACTED = "entity_extracted"
-    PERSISTED = "persisted"
+# ── Deprecated Aliases (for backward compatibility) ─────────────────────────
+# These will be removed in a future version. Use core.constants instead.
 
 
-class PersistStatus(enum.StrEnum):
-    """Article persistence status."""
-
-    PENDING = "pending"
-    PROCESSING = "processing"
-    DONE = "done"
-    FAILED = "failed"
+def __getattr__(name: str) -> Any:
+    """Provide deprecated aliases for backward compatibility."""
+    if name == "PipelineStage":
+        warnings.warn(
+            "PipelineStage in state_models is deprecated. "
+            "Use PipelineState from core.constants instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return PipelineState
+    if name == "PersistStatus":
+        warnings.warn(
+            "PersistStatus in state_models is deprecated. "
+            "Use ProcessingStatus from core.constants instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return ProcessingStatus
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 class CredibilityModel(BaseModel):
@@ -160,7 +161,7 @@ class ValidatedPipelineState(BaseModel):
     prompt_versions: dict[str, str] = Field(default_factory=dict)
 
     # Internal tracking
-    _current_stage: PipelineStage = PipelineStage.RAW
+    _current_stage: PipelineState = PipelineState.RAW
 
     @field_validator("category")
     @classmethod

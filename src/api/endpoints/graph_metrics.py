@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from api.dependencies import get_neo4j_pool
 from api.middleware.auth import verify_api_key
+from core.constants import GraphHealthStatus
 from core.db.neo4j import Neo4jPool
 from modules.graph_store.metrics import (
     GraphQualityMetrics,
@@ -407,13 +408,13 @@ async def get_community_metrics(
     health_score = modularity_score * 50 + report_coverage * 50
 
     if health_score >= 80:
-        health_status = "healthy"
+        health_status = GraphHealthStatus.HEALTHY.value
     elif health_score >= 60:
-        health_status = "moderate"
+        health_status = GraphHealthStatus.MODERATE.value
     elif health_score >= 40:
-        health_status = "degraded"
+        health_status = GraphHealthStatus.DEGRADED.value
     else:
-        health_status = "critical"
+        health_status = GraphHealthStatus.CRITICAL.value
 
     return CommunityMetricsResponse(
         total_communities=total_communities,
@@ -447,7 +448,7 @@ async def get_community_health(
     if total_communities == 0:
         return CommunityHealthResponse(
             score=0.0,
-            status="critical",
+            status=GraphHealthStatus.CRITICAL.value,
             issues=["No communities detected"],
             recommendations=["Run POST /api/v1/admin/communities/rebuild to create communities"],
             modularity=None,
@@ -486,13 +487,13 @@ async def get_community_health(
     score = modularity_norm * 30 + coverage * 40 + report_coverage * 30
 
     if score >= 80:
-        status = "healthy"
+        status = GraphHealthStatus.HEALTHY.value
     elif score >= 60:
-        status = "moderate"
+        status = GraphHealthStatus.MODERATE.value
     elif score >= 40:
-        status = "degraded"
+        status = GraphHealthStatus.DEGRADED.value
     else:
-        status = "critical"
+        status = GraphHealthStatus.CRITICAL.value
 
     return CommunityHealthResponse(
         score=score,

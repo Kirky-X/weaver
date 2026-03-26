@@ -9,6 +9,8 @@ from typing import TypeVar
 import json_repair
 from pydantic import BaseModel, Field
 
+from core.constants import SentimentType
+
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -122,7 +124,7 @@ class AnalyzeOutput(BaseModel):
     key_data: list[str] = Field(default_factory=list)
     impact: str = ""
     has_data: bool = False
-    sentiment: str = "neutral"
+    sentiment: str = SentimentType.NEUTRAL.value
     sentiment_score: float = Field(ge=-1, le=1, default=0.5)
     primary_emotion: str = "客观"
     emotion_targets: list[str] = Field(default_factory=list)

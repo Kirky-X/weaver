@@ -17,6 +17,7 @@ class TestEntityResolver:
         repo = MagicMock()
         repo.find_entity = AsyncMock(return_value=None)
         repo.find_entity_by_id = AsyncMock(return_value=None)
+        repo.find_entities_by_ids = AsyncMock(return_value=[])
         repo.merge_entity = AsyncMock(return_value="neo4j_id_123")
         repo.add_alias = AsyncMock()
         return repo
@@ -117,8 +118,8 @@ class TestEntityResolver:
         mock_vector_repo.find_similar_entities = AsyncMock(
             return_value=[MagicMock(neo4j_id="candidate_1", similarity=0.9)]
         )
-        mock_entity_repo.find_entity_by_id = AsyncMock(
-            return_value={"neo4j_id": "candidate_1", "canonical_name": "张三", "similarity": 0.9}
+        mock_entity_repo.find_entities_by_ids = AsyncMock(
+            return_value=[{"neo4j_id": "candidate_1", "canonical_name": "张三", "similarity": 0.9}]
         )
 
         result = await resolver.resolve_entity(
@@ -150,8 +151,8 @@ class TestEntityResolver:
         mock_vector_repo.find_similar_entities = AsyncMock(
             return_value=[MagicMock(neo4j_id="existing_id", similarity=0.95)]
         )
-        mock_entity_repo.find_entity_by_id = AsyncMock(
-            return_value={"neo4j_id": "existing_id", "canonical_name": "张三", "similarity": 0.95}
+        mock_entity_repo.find_entities_by_ids = AsyncMock(
+            return_value=[{"neo4j_id": "existing_id", "canonical_name": "张三", "similarity": 0.95}]
         )
         mock_llm.chat = AsyncMock(
             return_value=MagicMock(
@@ -174,8 +175,8 @@ class TestEntityResolver:
         mock_vector_repo.find_similar_entities = AsyncMock(
             return_value=[MagicMock(neo4j_id="existing_id", similarity=0.88)]
         )
-        mock_entity_repo.find_entity_by_id = AsyncMock(
-            return_value={"neo4j_id": "existing_id", "canonical_name": "张三", "similarity": 0.88}
+        mock_entity_repo.find_entities_by_ids = AsyncMock(
+            return_value=[{"neo4j_id": "existing_id", "canonical_name": "张三", "similarity": 0.88}]
         )
         mock_llm.chat = AsyncMock(
             return_value=MagicMock(
@@ -198,8 +199,8 @@ class TestEntityResolver:
         mock_vector_repo.find_similar_entities = AsyncMock(
             return_value=[MagicMock(neo4j_id="existing_id", similarity=0.86)]
         )
-        mock_entity_repo.find_entity_by_id = AsyncMock(
-            return_value={"neo4j_id": "existing_id", "canonical_name": "李四", "similarity": 0.86}
+        mock_entity_repo.find_entities_by_ids = AsyncMock(
+            return_value=[{"neo4j_id": "existing_id", "canonical_name": "李四", "similarity": 0.86}]
         )
         mock_llm.chat = AsyncMock(return_value=MagicMock(content='{"should_merge": false}'))
 
@@ -258,8 +259,8 @@ class TestEntityResolver:
         mock_vector_repo.find_similar_entities = AsyncMock(
             return_value=[MagicMock(neo4j_id="candidate_1", similarity=0.9)]
         )
-        mock_entity_repo.find_entity_by_id = AsyncMock(
-            return_value={"neo4j_id": "candidate_1", "canonical_name": "张三", "similarity": 0.9}
+        mock_entity_repo.find_entities_by_ids = AsyncMock(
+            return_value=[{"neo4j_id": "candidate_1", "canonical_name": "张三", "similarity": 0.9}]
         )
 
         result = await resolver_no_llm.resolve_entity(

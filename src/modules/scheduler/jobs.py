@@ -472,6 +472,19 @@ class SchedulerJobs:
         except Exception as exc:
             log.error("persist_status_metrics_update_error", error=str(exc))
 
+    async def update_db_pool_metrics(self) -> None:
+        """Update Prometheus metrics for database connection pool.
+
+        Calls PostgresPool.record_metrics() to expose pool utilization
+        for alerting on connection pool saturation.
+        """
+        log.info("update_db_pool_metrics_start")
+        try:
+            await self._postgres.record_metrics()
+            log.info("update_db_pool_metrics_complete")
+        except Exception as exc:
+            log.error("update_db_pool_metrics_error", error=str(exc))
+
     async def _reconstruct_state(self, article: Article) -> dict:
         """Reconstruct pipeline state from article for retry."""
         # This is a simplified version - in production would need

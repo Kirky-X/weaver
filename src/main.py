@@ -33,6 +33,7 @@ from api.middleware.rate_limit import limiter
 from api.router import api_router
 from config.settings import Settings
 from container import Container, set_container, set_settings
+from core.constants import HealthStatus
 from core.observability.logging import configure_logging, get_logger
 from core.observability.tracing import configure_tracing
 
@@ -152,6 +153,16 @@ async def _setup_scheduler(container: Container) -> Any:
         trigger=IntervalTrigger(minutes=5),
         id="update_persist_status_metrics",
         name="Update persist status Prometheus metrics",
+        max_instances=1,
+        coalesce=True,
+    )
+
+    # 9. update_db_pool_metrics: update database pool utilization for alerting
+    scheduler.add_job(
+        jobs.update_db_pool_metrics,
+        trigger=IntervalTrigger(minutes=1),
+        id="update_db_pool_metrics",
+        name="Update database pool Prometheus metrics",
         max_instances=1,
         coalesce=True,
     )
@@ -393,7 +404,7 @@ def create_app(container: Container | None = None) -> FastAPI:
     async def health_check_endpoint() -> dict:
         """Health check endpoint with dependency checks."""
         result = await check_health()
-        if result["status"] != "healthy":
+        if result["status"] != HealthStatus.HEALTHY.value:
             raise HTTPException(status_code=503, detail=result)
         return result
 

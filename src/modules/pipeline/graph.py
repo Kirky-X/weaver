@@ -96,12 +96,14 @@ class Pipeline:
         redis_client: Any = None,
         phase1_concurrency: int | None = None,
         phase3_concurrency: int | None = None,
+        embedding_model: str = "text-embedding-3-large",
     ) -> None:
         self._accepting = True
 
         # Concurrency limits - default to 1 for Ollama compatibility
         self._phase1_concurrency = phase1_concurrency or self.DEFAULT_PHASE1_CONCURRENCY
         self._phase3_concurrency = phase3_concurrency or self.DEFAULT_PHASE3_CONCURRENCY
+        self._embedding_model = embedding_model
 
         # Semaphores for concurrency control
         self._phase1_semaphore = asyncio.Semaphore(self._phase1_concurrency)
@@ -111,6 +113,7 @@ class Pipeline:
             "pipeline_init",
             phase1_concurrency=self._phase1_concurrency,
             phase3_concurrency=self._phase3_concurrency,
+            embedding_model=embedding_model,
         )
 
         # Initialize nodes
@@ -119,7 +122,7 @@ class Pipeline:
         self._categorizer = CategorizerNode(llm, prompt_loader)
         self._vectorize = VectorizeNode(llm)
         self._batch_merger = BatchMergerNode(llm, prompt_loader, vector_repo)
-        self._re_vectorize = ReVectorizeNode(llm)
+        self._re_vectorize = ReVectorizeNode(llm, model_id=embedding_model)
         self._analyze = AnalyzeNode(llm, budget, prompt_loader)
         self._quality_scorer = QualityScorerNode(llm, budget, prompt_loader)
         self._credibility = CredibilityCheckerNode(llm, budget, event_bus, source_auth_repo)

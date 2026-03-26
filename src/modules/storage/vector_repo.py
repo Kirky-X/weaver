@@ -51,9 +51,18 @@ class VectorRepo:
         article_id: uuid.UUID,
         title_embedding: list[float] | None,
         content_embedding: list[float] | None,
-        model_id: str = "text-embedding-3-large",
+        model_id: str = "text-embedding-3-large",  # Default for backward compatibility; should use configured model
     ) -> None:
-        """Upsert title and content vectors for an article."""
+        """Upsert title and content vectors for an article.
+
+        Args:
+            article_id: Article UUID.
+            title_embedding: Title vector (1024-dim).
+            content_embedding: Content vector (1024-dim).
+            model_id: Embedding model identifier (e.g., "qwen3-embedding:0.6b", "text-embedding-3-large").
+                      IMPORTANT: In production, this should come from settings.llm.embedding_model
+                      rather than using the default value.
+        """
         async with self._pool.session() as session:
             await session.execute(text("SET hnsw.ef_search = 200;"))
 

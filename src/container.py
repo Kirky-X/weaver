@@ -638,6 +638,11 @@ class Container:
             budget = TokenBudgetManager()
             spacy_extractor = SpacyExtractor()
 
+            # Get embedding model from settings
+            embedding_model = (
+                self._settings.llm.embedding_model if self._settings else "text-embedding-3-large"
+            )
+
             self._pipeline = Pipeline(
                 llm=self._llm_client,
                 budget=budget,
@@ -650,8 +655,9 @@ class Container:
                 source_auth_repo=self.source_authority_repo(),
                 entity_resolver=self.entity_resolver(),
                 redis_client=self._redis_client,
+                embedding_model=embedding_model,
             )
-            log.info("pipeline_initialized")
+            log.info("pipeline_initialized", embedding_model=embedding_model)
         return self._pipeline
 
     def pipeline(self) -> Pipeline:

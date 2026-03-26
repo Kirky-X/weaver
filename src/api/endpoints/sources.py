@@ -225,6 +225,14 @@ async def create_source(
         tier=request.tier,
     )
     saved = await repo.upsert(config)
+
+    # Add to in-memory registry so scheduler can find it
+    from container import get_container
+
+    container = get_container()
+    if container._source_scheduler is not None:
+        container._source_scheduler._registry.add_source(saved)
+
     return success_response(SourceResponse.from_config(saved))
 
 

@@ -128,8 +128,33 @@ uv sync
 # 安装 Playwright 浏览器
 uv run playwright install chromium
 
-# 安装 spaCy 模型
+# 安装 spaCy 中文模型及依赖
+# 注意：zh_core_web_sm 需要 spacy-pkuseg 分词器依赖
+uv pip install "spacy-pkuseg>=0.0.27,<0.1.0"
 uv run python -m spacy download zh_core_web_sm
+
+# 可选：安装更精确的 transformer 模型（需要额外依赖）
+# uv pip install spacy-transformers
+# uv run python -m spacy download zh_core_web_trf
+```
+
+<details style="padding:16px; margin: 16px 0">
+<summary style="cursor:pointer; font-weight:600; color:#1E293B">🔧 SpaCy 模型说明</summary>
+
+| 模型 | 大小 | 依赖 | 说明 |
+|------|------|------|------|
+| `zh_core_web_sm` | ~40MB | spacy-pkuseg | 推荐：轻量级，无需 GPU |
+| `zh_core_web_trf` | ~400MB | spacy-transformers + PyTorch | 精度更高，需要 GPU |
+| `en_core_web_sm` | ~12MB | - | 英文处理 |
+
+**实体类型映射**：
+- `PERSON`/`PER` → 人物
+- `ORG` → 组织机构
+- `GPE`/`LOC` → 地点
+- `MONEY`/`CARDINAL`/`PERCENT` → 数据指标
+- `LAW` → 法规与政策
+
+</details>
 ```
 
 ### <span id="configuration">⚙️ 配置</span>
