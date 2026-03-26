@@ -145,13 +145,13 @@ class TestAuthMiddlewareIntegration:
         app = FastAPI()
         app.include_router(router)
 
-        # Mock pool so the auth check is reached before DB access
+        # Override the dependency to return a mock pool
         from unittest.mock import MagicMock
 
-        from api.endpoints.articles import set_postgres_pool
+        from api.dependencies import get_postgres_pool
 
         mock_pool = MagicMock()
-        set_postgres_pool(mock_pool)
+        app.dependency_overrides[get_postgres_pool] = lambda: mock_pool
 
         with TestClient(app) as client:
             response = client.get("/articles")
@@ -164,13 +164,14 @@ class TestAuthMiddlewareIntegration:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
-        from api.endpoints.articles import router, set_postgres_pool
+        from api.dependencies import get_postgres_pool
+        from api.endpoints.articles import router
 
         app = FastAPI()
         app.include_router(router)
 
         mock_pool = MagicMock()
-        set_postgres_pool(mock_pool)
+        app.dependency_overrides[get_postgres_pool] = lambda: mock_pool
 
         # Override get_settings to return a known API key
         mock_settings = MagicMock()
@@ -188,7 +189,8 @@ class TestAuthMiddlewareIntegration:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
-        from api.endpoints.articles import router, set_postgres_pool
+        from api.dependencies import get_postgres_pool
+        from api.endpoints.articles import router
 
         app = FastAPI()
         app.include_router(router)
@@ -203,7 +205,7 @@ class TestAuthMiddlewareIntegration:
         mock_pool = MagicMock()
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
-        set_postgres_pool(mock_pool)
+        app.dependency_overrides[get_postgres_pool] = lambda: mock_pool
 
         mock_settings = MagicMock()
         mock_settings.api.api_key = "correct-key"
@@ -221,14 +223,16 @@ class TestAuthMiddlewareIntegration:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
-        from api.endpoints.pipeline import router, set_redis_client, set_source_scheduler
+        from api.dependencies import get_redis_client, get_source_scheduler
+        from api.endpoints.pipeline import router
 
         app = FastAPI()
         app.include_router(router)
 
         mock_redis = MagicMock()
-        set_redis_client(mock_redis)
-        set_source_scheduler(MagicMock())
+        mock_scheduler = MagicMock()
+        app.dependency_overrides[get_redis_client] = lambda: mock_redis
+        app.dependency_overrides[get_source_scheduler] = lambda: mock_scheduler
 
         with TestClient(app) as client:
             response = client.post("/pipeline/trigger", json={})
@@ -241,13 +245,14 @@ class TestAuthMiddlewareIntegration:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
-        from api.endpoints.pipeline import router, set_redis_client
+        from api.dependencies import get_redis_client
+        from api.endpoints.pipeline import router
 
         app = FastAPI()
         app.include_router(router)
 
         mock_redis = MagicMock()
-        set_redis_client(mock_redis)
+        app.dependency_overrides[get_redis_client] = lambda: mock_redis
 
         with TestClient(app) as client:
             response = client.get(f"/pipeline/tasks/{uuid.uuid4()}")

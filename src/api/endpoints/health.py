@@ -7,12 +7,31 @@ import asyncio
 import time
 from typing import Any
 
+from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from core.cache.redis import RedisClient
 from core.constants import HealthStatus
 from core.db.neo4j import Neo4jPool
 from core.db.postgres import PostgresPool
+
+
+class ServiceHealthCheck(BaseModel):
+    """Individual service health check result."""
+
+    status: str = Field(description="Service status: ok, timeout, error, or unavailable")
+    latency_ms: float | None = Field(default=None, description="Response latency in milliseconds")
+    error: str | None = Field(default=None, description="Error message if any")
+
+
+class HealthCheckResponse(BaseModel):
+    """Health check response model."""
+
+    status: str = Field(description="Overall health status: healthy or unhealthy")
+    checks: dict[str, ServiceHealthCheck] = Field(
+        default_factory=dict, description="Individual service check results"
+    )
+
 
 # Global references to database pools/clients (set during startup)
 _postgres_pool: PostgresPool | None = None
@@ -99,44 +118,46 @@ async def check_redis_health(client: RedisClient) -> dict[str, Any]:
         return {"status": "error", "latency_ms": latency_ms, "error": str(e)}
 
 
-async def health_check() -> dict[str, Any]:
+async def health_check() -> HealthCheckResponse:
     """Aggregated health check for all dependencies.
 
     Returns:
-        dict with overall status and individual check results.
-        Returns 200 if all healthy, 503 if any unhealthy.
+        HealthCheckResponse with overall status and individual check results.
     """
-    checks = {}
+    checks: dict[str, ServiceHealthCheck] = {}
     all_healthy = True
 
     # Check PostgreSQL
     if _postgres_pool:
-        checks["postgres"] = await check_postgres_health(_postgres_pool)
-        if checks["postgres"]["status"] != "ok":
+        pg_result = await check_postgres_health(_postgres_pool)
+        checks["postgres"] = ServiceHealthCheck(**pg_result)
+        if pg_result["status"] != "ok":
             all_healthy = False
     else:
-        checks["postgres"] = {"status": "unavailable", "error": "Pool not initialized"}
+        checks["postgres"] = ServiceHealthCheck(status="unavailable", error="Pool not initialized")
         all_healthy = False
 
     # Check Neo4j
     if _neo4j_pool:
-        checks["neo4j"] = await check_neo4j_health(_neo4j_pool)
-        if checks["neo4j"]["status"] != "ok":
+        neo4j_result = await check_neo4j_health(_neo4j_pool)
+        checks["neo4j"] = ServiceHealthCheck(**neo4j_result)
+        if neo4j_result["status"] != "ok":
             all_healthy = False
     else:
-        checks["neo4j"] = {"status": "unavailable", "error": "Pool not initialized"}
+        checks["neo4j"] = ServiceHealthCheck(status="unavailable", error="Pool not initialized")
         all_healthy = False
 
     # Check Redis
     if _redis_client:
-        checks["redis"] = await check_redis_health(_redis_client)
-        if checks["redis"]["status"] != "ok":
+        redis_result = await check_redis_health(_redis_client)
+        checks["redis"] = ServiceHealthCheck(**redis_result)
+        if redis_result["status"] != "ok":
             all_healthy = False
     else:
-        checks["redis"] = {"status": "unavailable", "error": "Client not initialized"}
+        checks["redis"] = ServiceHealthCheck(status="unavailable", error="Client not initialized")
         all_healthy = False
 
-    return {
-        "status": HealthStatus.HEALTHY.value if all_healthy else HealthStatus.UNHEALTHY.value,
-        "checks": checks,
-    }
+    return HealthCheckResponse(
+        status=HealthStatus.HEALTHY.value if all_healthy else HealthStatus.UNHEALTHY.value,
+        checks=checks,
+    )
