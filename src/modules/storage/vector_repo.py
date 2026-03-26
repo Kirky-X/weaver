@@ -401,16 +401,24 @@ class VectorRepo:
 
         return results
 
-    async def upsert_entity_vectors(self, entities: list[tuple[str, list[float]]]) -> None:
+    async def upsert_entity_vectors(
+        self,
+        entities: list[tuple[str, list[float]]],
+        use_temp_key: bool = False,
+    ) -> None:
         """Upsert entity vectors by name.
 
         Args:
             entities: List of (entity_name, embedding) tuples.
+            use_temp_key: If True, use "temp:{name}" as neo4j_id for temporary storage.
+                          The actual UUID should be set later via update_entity_vectors_by_temp_keys.
         """
         async with self._pool.session() as session:
             for name, embedding in entities:
+                # Use temp key for deferred UUID assignment
+                key = f"temp:{name}" if use_temp_key else name
                 result = await session.execute(
-                    select(EntityVector).where(EntityVector.neo4j_id == name)
+                    select(EntityVector).where(EntityVector.neo4j_id == key)
                 )
                 existing = result.scalar_one_or_none()
 
@@ -418,7 +426,7 @@ class VectorRepo:
                     existing.embedding = embedding
                 else:
                     ev = EntityVector(
-                        neo4j_id=name,
+                        neo4j_id=key,
                         embedding=embedding,
                     )
                     session.add(ev)
@@ -427,7 +435,60 @@ class VectorRepo:
 
     async def upsert_entity_vector(self, neo4j_id: str, embedding: list[float]) -> None:
         """Upsert a single entity vector."""
-        await self.upsert_entity_vectors([(neo4j_id, embedding)])
+        await self.upsert_entity_vectors([(neo4j_id, embedding)], use_temp_key=False)
+
+    async def update_entity_vectors_by_temp_keys(self, name_to_uuid: dict[str, str]) -> int:
+        """Update entity vector records by replacing temp keys with actual UUIDs.
+
+        This method is called after Neo4j entity creation to update the neo4j_id
+        field with the actual entity UUIDs.
+
+        Args:
+            name_to_uuid: Mapping from entity canonical name to entity UUID.
+
+        Returns:
+            Number of records updated.
+        """
+        if not name_to_uuid:
+            return 0
+
+        updated_count = 0
+        async with self._pool.session() as session:
+            for name, uuid in name_to_uuid.items():
+                temp_key = f"temp:{name}"
+
+                # Check if temp record exists
+                result = await session.execute(
+                    select(EntityVector).where(EntityVector.neo4j_id == temp_key)
+                )
+                existing = result.scalar_one_or_none()
+
+                if existing:
+                    # Check if UUID version already exists
+                    uuid_result = await session.execute(
+                        select(EntityVector).where(EntityVector.neo4j_id == uuid)
+                    )
+                    uuid_existing = uuid_result.scalar_one_or_none()
+
+                    if uuid_existing:
+                        # UUID exists, update embedding and delete temp
+                        uuid_existing.embedding = existing.embedding
+                        await session.execute(
+                            select(EntityVector).where(EntityVector.id == existing.id)
+                        )
+                        from sqlalchemy import delete
+
+                        await session.execute(
+                            delete(EntityVector).where(EntityVector.id == existing.id)
+                        )
+                    else:
+                        # Update temp key to UUID
+                        existing.neo4j_id = uuid
+
+                    updated_count += 1
+
+            await session.commit()
+        return updated_count
 
     async def find_similar_entities(
         self,

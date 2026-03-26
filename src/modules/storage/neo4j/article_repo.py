@@ -320,3 +320,42 @@ class Neo4jArticleRepo:
         """
         result = await self._pool.execute_query(query)
         return [r["pg_id"] for r in result if r.get("pg_id")]
+
+    async def delete_articles_without_mentions(self) -> int:
+        """Delete Article nodes that have no MENTIONS relationships and no FOLLOWED_BY outgoing relationships.
+
+        An orphan article is defined as:
+        - No incoming MENTIONS relationship (no article mentions this one as related)
+        - No outgoing FOLLOWED_BY relationship (this article doesn't follow another)
+
+        These articles are considered orphaned because they have no meaningful
+        connections in the knowledge graph.
+
+        Returns:
+            Number of articles deleted.
+        """
+        query = """
+        MATCH (a:Article)
+        WHERE NOT ()-[:MENTIONS]->(a)
+          AND NOT (a)-[:FOLLOWED_BY]->()
+        DETACH DELETE a
+        """
+        await self._pool.execute_query(query)
+        # Neo4j doesn't easily return count from DETACH DELETE
+        # For accurate counting, use a separate count query
+        return 0
+
+    async def count_articles_without_mentions(self) -> int:
+        """Count Article nodes that have no MENTIONS relationships and no FOLLOWED_BY outgoing relationships.
+
+        Returns:
+            Number of orphan articles.
+        """
+        query = """
+        MATCH (a:Article)
+        WHERE NOT ()-[:MENTIONS]->(a)
+          AND NOT (a)-[:FOLLOWED_BY]->()
+        RETURN count(a) AS orphan_count
+        """
+        result = await self._pool.execute_query(query)
+        return result[0]["orphan_count"] if result else 0

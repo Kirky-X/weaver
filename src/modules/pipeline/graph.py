@@ -42,6 +42,7 @@ from modules.pipeline.nodes.quality_scorer import QualityScorerNode
 from modules.pipeline.nodes.re_vectorize import ReVectorizeNode
 from modules.pipeline.nodes.vectorize import VectorizeNode
 from modules.pipeline.state import PipelineState
+from modules.storage.article_repo import is_enrichment_complete
 
 if TYPE_CHECKING:
     from core.protocols import ArticleRepository, VectorRepository
@@ -534,6 +535,23 @@ class Pipeline:
             try:
                 neo4j_ids = await self._neo4j_writer.write(state)
                 state["neo4j_ids"] = neo4j_ids
+
+                # Validate enrichment completeness before marking as NEO4J_DONE
+                # Articles with missing enrichment fields should not be marked complete
+                is_complete, missing_fields = is_enrichment_complete(state)
+                if not is_complete:
+                    log.warning(
+                        "enrichment_incomplete_before_neo4j_done",
+                        article_id=state.get("article_id"),
+                        missing_fields=missing_fields,
+                    )
+                    # Mark as PG_DONE so retry pipeline can complete enrichment
+                    if self._article_repo:
+                        await self._article_repo.update_persist_status(
+                            state["article_id"], PersistStatus.PG_DONE
+                        )
+                    return
+
                 if self._article_repo:
                     await self._article_repo.update_persist_status(
                         state["article_id"], PersistStatus.NEO4J_DONE

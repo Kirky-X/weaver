@@ -163,7 +163,7 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
                         url=article.source_url,
                         title=article.title or "",
                         body=article.body or "",
-                        source=article.source or "",
+                        source=article.source_host or "",
                         source_host=article.source_host or "",
                         publish_time=article.publish_time,
                     )

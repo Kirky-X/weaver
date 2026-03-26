@@ -4,13 +4,16 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.db.neo4j import Neo4jPool
 from core.observability.logging import get_logger
 from modules.pipeline.state import PipelineState
 from modules.storage.neo4j.article_repo import Neo4jArticleRepo
 from modules.storage.neo4j.entity_repo import Neo4jEntityRepo
+
+if TYPE_CHECKING:
+    from core.protocols import VectorRepository
 
 log = get_logger("neo4j_writer")
 
@@ -26,12 +29,18 @@ class Neo4jWriter:
 
     Args:
         pool: Neo4j connection pool.
+        vector_repo: Optional vector repository for updating entity vectors with actual UUIDs.
     """
 
-    def __init__(self, pool: Neo4jPool) -> None:
+    def __init__(
+        self,
+        pool: Neo4jPool,
+        vector_repo: VectorRepository | None = None,
+    ) -> None:
         self._pool = pool
         self._entity_repo = Neo4jEntityRepo(pool)
         self._article_repo = Neo4jArticleRepo(pool)
+        self._vector_repo = vector_repo
 
     @property
     def entity_repo(self) -> Neo4jEntityRepo:
@@ -85,13 +94,32 @@ class Neo4jWriter:
 
         # 2. Process entities and create MENTIONS relationships
         entities = state.get("entities", [])
+        entity_uuid_map: dict[str, str] = {}
         if entities:
-            entity_ids = await self._write_entities(
+            entity_ids, entity_uuid_map = await self._write_entities(
                 article_neo4j_id=article_neo4j_id,
                 entities=entities,
                 state=state,
             )
             neo4j_ids.extend(entity_ids)
+
+            # Update entity vectors in PostgreSQL with actual entity UUIDs
+            if entity_uuid_map and self._vector_repo:
+                try:
+                    updated = await self._vector_repo.update_entity_vectors_by_temp_keys(
+                        entity_uuid_map
+                    )
+                    log.debug(
+                        "entity_vectors_updated_with_uuids",
+                        updated=updated,
+                        article_id=article_id_str,
+                    )
+                except Exception as exc:
+                    log.warning(
+                        "entity_vectors_uuid_update_failed",
+                        error=str(exc),
+                        article_id=article_id_str,
+                    )
 
         # 3. Handle FOLLOWED_BY relationships
         merged_source_ids = state.get("merged_source_ids", [])
@@ -110,7 +138,7 @@ class Neo4jWriter:
         article_neo4j_id: str,
         entities: list[dict[str, Any]],
         state: PipelineState,
-    ) -> list[str]:
+    ) -> tuple[list[str], dict[str, str]]:
         """Write entities and create MENTIONS relationships using batch operations.
 
         Args:
@@ -119,12 +147,15 @@ class Neo4jWriter:
             state: Pipeline state for additional context.
 
         Returns:
-            List of entity Neo4j IDs.
+            Tuple of (entity_neo4j_ids, entity_name_to_uuid).
+            - entity_neo4j_ids: List of entity Neo4j element IDs.
+            - entity_name_to_uuid: Mapping from entity canonical name to entity UUID (e.id).
         """
         if not entities:
-            return []
+            return [], {}
 
         entity_name_to_id: dict[str, str] = {}
+        entity_name_to_uuid: dict[str, str] = {}
 
         entity_data = []
         alias_data = []
@@ -175,7 +206,7 @@ class Neo4jWriter:
                 )
             except Exception as exc:
                 log.error("neo4j_entities_batch_failed", error=str(exc))
-                return []
+                return [], {}
 
         if alias_data:
             try:
@@ -185,7 +216,6 @@ class Neo4jWriter:
 
         # Batch fetch all entities to avoid N+1 query
         entity_ids: list[str] = []
-        entity_name_to_id: dict[str, str] = {}
 
         if entity_data:
             # Group by type for batch lookup
@@ -202,6 +232,9 @@ class Neo4jWriter:
                 for found in found_entities:
                     entity_ids.append(found["neo4j_id"])
                     entity_name_to_id[found["canonical_name"]] = found["neo4j_id"]
+                    # Store the entity UUID (e.id) for vector repo update
+                    if found.get("id"):
+                        entity_name_to_uuid[found["canonical_name"]] = found["id"]
 
         if mentions_data and entity_name_to_id:
             mentions_with_ids = [
@@ -225,7 +258,7 @@ class Neo4jWriter:
         if relations and entity_name_to_id:
             await self._write_entity_relations(relations, entity_name_to_id)
 
-        return entity_ids
+        return entity_ids, entity_name_to_uuid
 
     async def _write_entity_relations(
         self,

@@ -495,6 +495,9 @@ class TestSyncNeo4jWithPostgres:
         )
         scheduler_jobs._article_repo.get_incomplete_articles = AsyncMock(return_value=[])
         scheduler_jobs._neo4j_writer.article_repo.delete_orphan_articles = AsyncMock(return_value=1)
+        scheduler_jobs._neo4j_writer.article_repo.count_articles_without_mentions = AsyncMock(
+            return_value=0
+        )
 
         result = await scheduler_jobs.sync_neo4j_with_postgres()
 
@@ -514,6 +517,9 @@ class TestSyncNeo4jWithPostgres:
             return_value=[pg_id]
         )
         scheduler_jobs._neo4j_writer.article_repo.delete_orphan_articles = AsyncMock(return_value=0)
+        scheduler_jobs._neo4j_writer.article_repo.count_articles_without_mentions = AsyncMock(
+            return_value=0
+        )
 
         incomplete_article = MagicMock(spec=Article)
         incomplete_article.id = uuid.uuid4()

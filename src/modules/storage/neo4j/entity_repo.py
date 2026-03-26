@@ -402,7 +402,12 @@ class Neo4jEntityRepo:
         return {record["neo4j_id"] for record in result}
 
     async def delete_orphan_entities(self) -> int:
-        """Delete entities that have no incoming MENTIONS relationships.
+        """Delete entities that have no MENTIONS or RELATED_TO relationships.
+
+        An orphan entity is defined as having:
+        - No incoming MENTIONS relationship (no article mentions this entity)
+        - No outgoing RELATED_TO relationship (entity doesn't relate to other entities)
+        - No incoming RELATED_TO relationship (no entity relates to this entity)
 
         This should be called after article cleanup to remove orphan entities.
 
@@ -420,6 +425,27 @@ class Neo4jEntityRepo:
         await self._pool.execute_query(query)
         # Return 0 as we can't easily get count
         return 0
+
+    async def count_orphan_entities(self) -> int:
+        """Count entities that have no MENTIONS or RELATED_TO relationships.
+
+        An orphan entity is defined as having:
+        - No incoming MENTIONS relationship (no article mentions this entity)
+        - No outgoing RELATED_TO relationship (entity doesn't relate to other entities)
+        - No incoming RELATED_TO relationship (no entity relates to this entity)
+
+        Returns:
+            Number of orphan entities.
+        """
+        query = """
+        MATCH (e:Entity)
+        WHERE NOT ()-[:MENTIONS]->(e)
+          AND NOT (e)-[:RELATED_TO]-()
+          AND NOT ()-[:RELATED_TO]->(e)
+        RETURN count(e) AS orphan_count
+        """
+        result = await self._pool.execute_query(query)
+        return result[0]["orphan_count"] if result else 0
 
     async def merge_mentions_relation(
         self,

@@ -20,6 +20,58 @@ from modules.pipeline.state import PipelineState
 log = get_logger("article_repo")
 
 
+# Required enrichment fields for a complete article
+REQUIRED_ENRICHMENT_FIELDS = frozenset(
+    {
+        "category",
+        "score",
+        "credibility_score",
+        "summary",
+        "quality_score",
+    }
+)
+
+
+def is_enrichment_complete(state: PipelineState) -> tuple[bool, list[str]]:
+    """Check if pipeline state has all required enrichment fields populated.
+
+    This function validates that an article has completed enrichment
+    before marking it as NEO4J_DONE. Articles with missing enrichment
+    fields should NOT be marked as complete.
+
+    Args:
+        state: Pipeline state to validate.
+
+    Returns:
+        Tuple of (is_complete, missing_fields).
+        - is_complete: True if all required fields are present and non-null.
+        - missing_fields: List of field names that are missing or null.
+    """
+    missing_fields: list[str] = []
+
+    # Check simple fields
+    if state.get("category") is None:
+        missing_fields.append("category")
+    if state.get("score") is None:
+        missing_fields.append("score")
+
+    # Check credibility fields
+    credibility = state.get("credibility")
+    if credibility is None or credibility.get("score") is None:
+        missing_fields.append("credibility_score")
+
+    # Check summary_info
+    summary_info = state.get("summary_info")
+    if summary_info is None or summary_info.get("summary") is None:
+        missing_fields.append("summary")
+
+    # Check quality_score
+    if state.get("quality_score") is None:
+        missing_fields.append("quality_score")
+
+    return len(missing_fields) == 0, missing_fields
+
+
 # Field mapping: state key -> (article_attr, extractor function)
 # This centralizes all field mappings for consistency
 STATE_TO_ARTICLE_FIELDS: dict[str, tuple[str, callable]] = {
@@ -598,8 +650,9 @@ class ArticleRepo:
     async def get_incomplete_articles(self, limit: int = 50) -> list[Article]:
         """Get articles with neo4j_done status but missing enrichment data.
 
-        These are articles that were marked complete but have NULL enrichment
-        fields, indicating a terminal-path data gap.
+        An article is considered incomplete if ANY of the enrichment fields
+        (category, score, credibility_score, summary, quality_score) is NULL.
+        This ensures articles with partial enrichment are detected and retried.
 
         Args:
             limit: Maximum number of articles to return.
@@ -607,16 +660,21 @@ class ArticleRepo:
         Returns:
             List of incomplete articles.
         """
+        from sqlalchemy import or_
+
         async with self._pool.session() as session:
             result = await session.execute(
                 select(Article)
                 .where(
                     and_(
                         Article.persist_status == PersistStatus.NEO4J_DONE,
-                        Article.category.is_(None),
-                        Article.score.is_(None),
-                        Article.credibility_score.is_(None),
-                        Article.summary.is_(None),
+                        or_(
+                            Article.category.is_(None),
+                            Article.score.is_(None),
+                            Article.credibility_score.is_(None),
+                            Article.summary.is_(None),
+                            Article.quality_score.is_(None),
+                        ),
                     )
                 )
                 .limit(limit)

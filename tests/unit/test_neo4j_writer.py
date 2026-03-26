@@ -281,13 +281,14 @@ class TestNeo4jWriterWriteEntities:
         state = PipelineState(raw=MagicMock())
         state["language"] = "zh"
 
-        result = await writer._write_entities(
+        entity_ids, entity_uuids = await writer._write_entities(
             article_neo4j_id="article_id",
             entities=[],
             state=state,
         )
 
-        assert result == []
+        assert entity_ids == []
+        assert entity_uuids == {}
 
     @pytest.mark.asyncio
     async def test_write_entities_adds_alias(self, writer):
@@ -300,7 +301,7 @@ class TestNeo4jWriterWriteEntities:
         )
         writer._entity_repo.find_entities_batch = AsyncMock(
             return_value=[
-                {"neo4j_id": "entity_id", "canonical_name": "张三"},
+                {"neo4j_id": "entity_id", "canonical_name": "张三", "id": "uuid-123"},
             ]
         )
         writer._entity_repo.merge_entities_batch = AsyncMock(
@@ -313,7 +314,7 @@ class TestNeo4jWriterWriteEntities:
         state["language"] = "zh"
         state["article_id"] = "test_article_id"
 
-        result = await writer._write_entities(
+        entity_ids, entity_uuids = await writer._write_entities(
             article_neo4j_id="article_id",
             entities=[
                 {"name": "张三", "type": "人物", "description": "测试人物"},
@@ -321,7 +322,9 @@ class TestNeo4jWriterWriteEntities:
             state=state,
         )
 
-        assert len(result) == 1
+        assert len(entity_ids) == 1
+        assert entity_ids[0] == "entity_id"
+        assert entity_uuids.get("张三") == "uuid-123"
 
     @pytest.mark.asyncio
     async def test_write_entities_handles_mentions_error(self, writer):
@@ -334,7 +337,7 @@ class TestNeo4jWriterWriteEntities:
         )
         writer._entity_repo.find_entities_batch = AsyncMock(
             return_value=[
-                {"neo4j_id": "entity_id", "canonical_name": "张三"},
+                {"neo4j_id": "entity_id", "canonical_name": "张三", "id": "uuid-123"},
             ]
         )
         writer._entity_repo.merge_entities_batch = AsyncMock(
@@ -349,7 +352,7 @@ class TestNeo4jWriterWriteEntities:
         state["language"] = "zh"
         state["article_id"] = "test_article_id"
 
-        result = await writer._write_entities(
+        entity_ids, entity_uuids = await writer._write_entities(
             article_neo4j_id="article_id",
             entities=[
                 {"name": "张三", "type": "人物"},
@@ -357,7 +360,8 @@ class TestNeo4jWriterWriteEntities:
             state=state,
         )
 
-        assert len(result) == 1
+        assert len(entity_ids) == 1
+        assert entity_ids[0] == "entity_id"
 
 
 class TestNeo4jWriterResolveCanonicalName:
