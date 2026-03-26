@@ -10,7 +10,11 @@ from core.observability.logging import get_logger
 log = get_logger("spacy_extractor")
 
 MODEL_MAP = {
-    "zh": ["zh_core_web_trf", "zh_core_web_sm"],
+    # zh_core_web_sm is preferred over zh_core_web_trf because:
+    # - trf model requires spacy-transformers + PyTorch/TensorFlow
+    # - sm model is lighter weight and works out of the box
+    # - sm model provides adequate NER accuracy for production use
+    "zh": ["zh_core_web_sm", "zh_core_web_trf"],
     "en": ["en_core_web_sm", "en_core_web_trf"],
     "default": ["xx_ent_wiki_sm"],
 }
@@ -78,8 +82,8 @@ class SpacyExtractor:
 
         try:
             return spacy.load(model_name, exclude=["parser", "tagger", "lemmatizer"])
-        except OSError:
-            log.warning("spacy_model_not_found", model=model_name)
+        except (OSError, ValueError, ImportError) as e:
+            log.warning("spacy_model_load_failed", model=model_name, error=str(e))
             return None
 
     def _get_nlp(self, language: str) -> object:

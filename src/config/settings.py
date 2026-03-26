@@ -392,6 +392,15 @@ class Settings(BaseSettings):
             if not merged_kwargs["neo4j"]:
                 merged_kwargs.pop("neo4j", None)
 
+        # API: strip api_key so env var (WEAVER_API__API_KEY) takes precedence over TOML.
+        if _os.environ.get("WEAVER_API__API_KEY") and (
+            "api" in merged_kwargs and isinstance(merged_kwargs["api"], dict)
+        ):
+            merged_kwargs["api"] = dict(merged_kwargs["api"])
+            merged_kwargs["api"].pop("api_key", None)
+            if not merged_kwargs["api"]:
+                merged_kwargs.pop("api", None)
+
         # Call parent __init__ which will process env vars and dotenv
         # with higher priority than the merged data
         super().__init__(**merged_kwargs)

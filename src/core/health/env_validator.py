@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from config.settings import Settings
 
+from core.constants import LLMProvider
 from core.observability import get_logger
 
 log = get_logger("env_validator")
@@ -354,7 +355,7 @@ class EnvironmentValidator:
 
         for attempt in range(max_retries):
             try:
-                if provider_type == "openai":
+                if provider_type == LLMProvider.OPENAI.value:
                     if not api_key:
                         result.details.append("✗ API key not configured")
                         result.suggestions.append("Set OpenAI API key")
@@ -385,7 +386,7 @@ class EnvironmentValidator:
                         result.details.append(f"✗ API returned status {response.status_code}")
                         result.suggestions.append("Check API key and base URL")
 
-                elif provider_type == "ollama":
+                elif provider_type == LLMProvider.OLLAMA.value:
                     async with httpx.AsyncClient(timeout=10.0) as client:
                         response = await client.get(f"{base_url}/api/tags")
 
@@ -408,7 +409,7 @@ class EnvironmentValidator:
                             return result
                         result.details.append(f"✗ Server returned status {response.status_code}")
 
-                elif provider_type == "anthropic":
+                elif provider_type == LLMProvider.ANTHROPIC.value:
                     async with httpx.AsyncClient(timeout=10.0) as client:
                         response = await client.get(base_url, follow_redirects=True)
                         result.details.append(f"✓ Provider accessible at {base_url}")
@@ -471,7 +472,7 @@ class EnvironmentValidator:
 
         for attempt in range(max_retries):
             try:
-                if provider_type == "openai":
+                if provider_type == LLMProvider.OPENAI.value:
                     if not api_key:
                         result.details.append("✗ API key not configured")
                         result.suggestions.append("Set API key for embedding provider")
@@ -496,7 +497,7 @@ class EnvironmentValidator:
                         result.details.append(f"✗ API returned status {response.status_code}")
                         result.suggestions.append("Check embedding model name")
 
-                elif provider_type == "ollama":
+                elif provider_type == LLMProvider.OLLAMA.value:
                     async with httpx.AsyncClient(timeout=30.0) as client:
                         response = await client.post(
                             f"{base_url}/api/embeddings",

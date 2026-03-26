@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from core.constants import LLMProvider
 from core.event.bus import EventBus, FallbackEvent, LLMFailureEvent
 from core.llm.config_manager import LLMConfigManager
 from core.llm.providers.base import BaseLLMProvider
@@ -220,7 +221,7 @@ class LLMQueueManager:
         from core.llm.providers.embedding import EmbeddingProvider
 
         for name, cfg in self._config.list_providers():
-            if cfg.provider == "anthropic":
+            if cfg.provider == LLMProvider.ANTHROPIC.value:
                 provider: BaseLLMProvider = AnthropicProvider(
                     api_key=cfg.api_key,
                     base_url=cfg.base_url,

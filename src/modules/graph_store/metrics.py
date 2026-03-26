@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from core.constants import GraphHealthStatus
 from core.db.neo4j import Neo4jPool
 from core.observability.logging import get_logger
 
@@ -650,13 +651,13 @@ class GraphQualityMetrics:
     def _get_health_status(self, score: float) -> str:
         """Get health status label."""
         if score >= 80:
-            return "healthy"
+            return GraphHealthStatus.HEALTHY.value
         elif score >= 60:
-            return "moderate"
+            return GraphHealthStatus.MODERATE.value
         elif score >= 40:
-            return "degraded"
+            return GraphHealthStatus.DEGRADED.value
         else:
-            return "critical"
+            return GraphHealthStatus.CRITICAL.value
 
     def _generate_recommendations(self, metrics: GraphMetrics) -> list[str]:
         """Generate recommendations based on metrics."""

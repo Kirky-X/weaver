@@ -88,6 +88,19 @@ class MetricsCollector:
         ["pool"],
     )
 
+    # Health check metrics
+    health_check_status = Gauge(
+        "health_check_status",
+        "健康检查状态 (1=ok, 0=error, -1=timeout, -2=unavailable)",
+        ["service"],
+    )
+    health_check_latency = Histogram(
+        "health_check_latency_seconds",
+        "健康检查延迟",
+        ["service"],
+        buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1],
+    )
+
     # Circuit breaker metrics
     circuit_breaker_state = Gauge(
         "circuit_breaker_state",

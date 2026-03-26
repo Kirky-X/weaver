@@ -14,6 +14,7 @@ from core.cache.redis import RedisClient
 from core.constants import HealthStatus
 from core.db.neo4j import Neo4jPool
 from core.db.postgres import PostgresPool
+from core.observability.metrics import metrics
 
 
 class ServiceHealthCheck(BaseModel):
@@ -37,6 +38,14 @@ class HealthCheckResponse(BaseModel):
 _postgres_pool: PostgresPool | None = None
 _neo4j_pool: Neo4jPool | None = None
 _redis_client: RedisClient | None = None
+
+# Health status code mapping for Prometheus metrics
+HEALTH_STATUS_CODES = {
+    "ok": 1,
+    "error": 0,
+    "timeout": -1,
+    "unavailable": -2,
+}
 
 
 def set_postgres_pool(pool: PostgresPool) -> None:
@@ -69,12 +78,18 @@ async def check_postgres_health(pool: PostgresPool) -> dict[str, Any]:
             async with pool.session_context() as session:
                 await session.execute(text("SELECT 1"))
         latency_ms = (time.monotonic() - start) * 1000
+        metrics.health_check_status.labels(service="postgres").set(HEALTH_STATUS_CODES["ok"])
+        metrics.health_check_latency.labels(service="postgres").observe(latency_ms / 1000)
         return {"status": "ok", "latency_ms": latency_ms}
     except TimeoutError:
         latency_ms = (time.monotonic() - start) * 1000
+        metrics.health_check_status.labels(service="postgres").set(HEALTH_STATUS_CODES["timeout"])
+        metrics.health_check_latency.labels(service="postgres").observe(latency_ms / 1000)
         return {"status": "timeout", "latency_ms": latency_ms}
     except Exception as e:
         latency_ms = (time.monotonic() - start) * 1000
+        metrics.health_check_status.labels(service="postgres").set(HEALTH_STATUS_CODES["error"])
+        metrics.health_check_latency.labels(service="postgres").observe(latency_ms / 1000)
         return {"status": "error", "latency_ms": latency_ms, "error": str(e)}
 
 
@@ -89,12 +104,18 @@ async def check_neo4j_health(pool: Neo4jPool) -> dict[str, Any]:
         async with asyncio.timeout(5):
             await pool.execute_query("RETURN 1")
         latency_ms = (time.monotonic() - start) * 1000
+        metrics.health_check_status.labels(service="neo4j").set(HEALTH_STATUS_CODES["ok"])
+        metrics.health_check_latency.labels(service="neo4j").observe(latency_ms / 1000)
         return {"status": "ok", "latency_ms": latency_ms}
     except TimeoutError:
         latency_ms = (time.monotonic() - start) * 1000
+        metrics.health_check_status.labels(service="neo4j").set(HEALTH_STATUS_CODES["timeout"])
+        metrics.health_check_latency.labels(service="neo4j").observe(latency_ms / 1000)
         return {"status": "timeout", "latency_ms": latency_ms}
     except Exception as e:
         latency_ms = (time.monotonic() - start) * 1000
+        metrics.health_check_status.labels(service="neo4j").set(HEALTH_STATUS_CODES["error"])
+        metrics.health_check_latency.labels(service="neo4j").observe(latency_ms / 1000)
         return {"status": "error", "latency_ms": latency_ms, "error": str(e)}
 
 
@@ -109,12 +130,18 @@ async def check_redis_health(client: RedisClient) -> dict[str, Any]:
         async with asyncio.timeout(5):
             await client.client.ping()
         latency_ms = (time.monotonic() - start) * 1000
+        metrics.health_check_status.labels(service="redis").set(HEALTH_STATUS_CODES["ok"])
+        metrics.health_check_latency.labels(service="redis").observe(latency_ms / 1000)
         return {"status": "ok", "latency_ms": latency_ms}
     except TimeoutError:
         latency_ms = (time.monotonic() - start) * 1000
+        metrics.health_check_status.labels(service="redis").set(HEALTH_STATUS_CODES["timeout"])
+        metrics.health_check_latency.labels(service="redis").observe(latency_ms / 1000)
         return {"status": "timeout", "latency_ms": latency_ms}
     except Exception as e:
         latency_ms = (time.monotonic() - start) * 1000
+        metrics.health_check_status.labels(service="redis").set(HEALTH_STATUS_CODES["error"])
+        metrics.health_check_latency.labels(service="redis").observe(latency_ms / 1000)
         return {"status": "error", "latency_ms": latency_ms, "error": str(e)}
 
 
@@ -135,6 +162,9 @@ async def health_check() -> HealthCheckResponse:
             all_healthy = False
     else:
         checks["postgres"] = ServiceHealthCheck(status="unavailable", error="Pool not initialized")
+        metrics.health_check_status.labels(service="postgres").set(
+            HEALTH_STATUS_CODES["unavailable"]
+        )
         all_healthy = False
 
     # Check Neo4j
@@ -145,6 +175,7 @@ async def health_check() -> HealthCheckResponse:
             all_healthy = False
     else:
         checks["neo4j"] = ServiceHealthCheck(status="unavailable", error="Pool not initialized")
+        metrics.health_check_status.labels(service="neo4j").set(HEALTH_STATUS_CODES["unavailable"])
         all_healthy = False
 
     # Check Redis
@@ -155,6 +186,7 @@ async def health_check() -> HealthCheckResponse:
             all_healthy = False
     else:
         checks["redis"] = ServiceHealthCheck(status="unavailable", error="Client not initialized")
+        metrics.health_check_status.labels(service="redis").set(HEALTH_STATUS_CODES["unavailable"])
         all_healthy = False
 
     return HealthCheckResponse(

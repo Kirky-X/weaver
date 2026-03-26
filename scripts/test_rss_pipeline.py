@@ -1,16 +1,20 @@
 #!/usr/bin/env python
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Full pipeline end-to-end test via HTTP API.
+"""RSS Pipeline end-to-end test.
 
-Tests the complete flow:
+Tests the complete flow for RSS sources:
 1. Start Weaver app (or connect to running instance)
-2. Register 36kr source via NewsNow API
-3. Trigger pipeline (max 5 items)
+2. Register RSS sources (cnbeta, huxiu) via API
+3. Trigger pipeline for each source (max 5 items each)
 4. Poll task status until completion
 5. Verify data in PostgreSQL and Neo4j
 
 Usage:
-    uv run python scripts/test_full_pipeline.py [--app-url http://localhost:8000] [--max-items 5]
+    uv run python scripts/test_rss_pipeline.py [--app-url http://localhost:8000] [--max-items 5]
+
+RSS Sources from doc/test.md:
+    - https://plink.anyfeeder.com/cnbeta
+    - https://plink.anyfeeder.com/huxiu
 """
 
 from __future__ import annotations
@@ -31,19 +35,36 @@ import httpx
 
 # ─── Configuration ─────────────────────────────────────────────────────────────
 
-DEFAULT_API_KEY = "dev-api-key-for-testing-purposes"
+DEFAULT_API_KEY = "dev_api_key_for_testing_minimum_32_chars"
 DEFAULT_APP_URL = "http://localhost:8000"
 DEFAULT_MAX_ITEMS = 5
 POLL_INTERVAL_SECONDS = 5
-POLL_TIMEOUT_SECONDS = 120
+POLL_TIMEOUT_SECONDS = 180
 API_TIMEOUT_SECONDS = 120
 
-# Source configuration
-SOURCE_ID = "36kr"
-SOURCE_NAME = "36kr"
-# Use newsnow.world (net.cn returns 502 Bad Gateway)
-SOURCE_URL = "https://www.newsnow.world/api/s?id=36kr"
-SOURCE_TYPE = "newsnow"
+# RSS source configurations from doc/test.md
+RSS_SOURCES = [
+    {
+        "id": "cnbeta",
+        "name": "CNBeta",
+        "url": "https://plink.anyfeeder.com/cnbeta",
+        "source_type": "rss",
+        "enabled": True,
+        "interval_minutes": 30,
+        "tier": 2,
+        "credibility": 0.7,
+    },
+    {
+        "id": "huxiu",
+        "name": "Huxiu",
+        "url": "https://plink.anyfeeder.com/huxiu",
+        "source_type": "rss",
+        "enabled": True,
+        "interval_minutes": 30,
+        "tier": 2,
+        "credibility": 0.7,
+    },
+]
 
 
 # ─── Color output ─────────────────────────────────────────────────────────────
@@ -54,6 +75,7 @@ class Colors:
     GREEN = "\033[0;32m"
     YELLOW = "\033[1;33m"
     BLUE = "\033[0;34m"
+    CYAN = "\033[0;36m"
     NC = "\033[0m"  # No Color
 
 
@@ -73,13 +95,16 @@ def log_step(step: str, msg: str) -> None:
     print(f"{Colors.BLUE}[{step}]{Colors.NC} {msg}")
 
 
+def log_source(source_id: str, msg: str) -> None:
+    print(f"{Colors.CYAN}[{source_id}]{Colors.NC} {msg}")
+
+
 # ─── App process management ───────────────────────────────────────────────────
 
 APP_ENV = {
     # Override settings.toml to match Docker Compose
     "WEAVER_POSTGRES__DSN": "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver",
     # Neo4j password: must match NEO4J_AUTH in docker-compose.dev.yml (neo4j/password)
-    # Also must match .env WEAVER_NEO4J__PASSWORD
     "NEO4J_PASSWORD": "password",
     # Load existing .env
     "POSTGRES_PASSWORD": os.getenv("POSTGRES_PASSWORD", "postgres"),
@@ -176,99 +201,125 @@ def api_post(
     return client.post(path, headers=_headers, json=data, timeout=timeout)
 
 
-# ─── Step 1: Register source ───────────────────────────────────────────────────
+# ─── Step 1: Register RSS sources ──────────────────────────────────────────────
 
 
-async def step_register_source(client: httpx.Client) -> bool:
-    """Register the 36kr source. Returns True if already exists or registered."""
-    log_step("1/4", f"Registering source '{SOURCE_ID}'...")
+async def step_register_sources(client: httpx.Client) -> dict[str, bool]:
+    """Register all RSS sources. Returns dict of source_id -> success."""
+    log_step("1/4", "Registering RSS sources...")
 
-    payload = {
-        "id": SOURCE_ID,
-        "name": SOURCE_NAME,
-        "url": SOURCE_URL,
-        "source_type": SOURCE_TYPE,
-        "enabled": True,
-        "interval_minutes": 30,
-    }
+    results: dict[str, bool] = {}
 
-    resp = api_post(client, "/api/v1/sources", payload)
+    for source in RSS_SOURCES:
+        source_id = source["id"]
+        log_source(source_id, f"Registering source at {source['url']}...")
 
-    if resp.status_code == 201:
-        log_info(f"  ✓ Source '{SOURCE_ID}' registered (201)")
-        return True
-    elif resp.status_code == 409:
-        log_info(f"  ✓ Source '{SOURCE_ID}' already exists (409)")
-        return True
-    else:
-        log_error(f"  ✗ Failed to register source: {resp.status_code} {resp.text}")
-        return False
+        resp = api_post(client, "/api/v1/sources", source)
 
+        if resp.status_code == 201:
+            log_source(source_id, f"Source registered successfully (201)")
+            results[source_id] = True
+        elif resp.status_code == 409:
+            log_source(source_id, f"Source already exists (409)")
+            results[source_id] = True
+        else:
+            log_error(f"  [{source_id}] Failed to register: {resp.status_code} {resp.text}")
+            results[source_id] = False
 
-# ─── Step 2: Trigger pipeline ─────────────────────────────────────────────────
+    return results
 
 
-async def step_trigger_pipeline(client: httpx.Client, max_items: int) -> str | None:
-    """Trigger pipeline and return task_id."""
-    log_step("2/4", f"Triggering pipeline (max_items={max_items})...")
+# ─── Step 2: Trigger pipelines ────────────────────────────────────────────────
 
-    payload = {
-        "source_id": SOURCE_ID,
-        "max_items": max_items,
-        "force": True,
-    }
 
-    resp = api_post(client, "/api/v1/pipeline/trigger", payload)
+async def step_trigger_pipelines(client: httpx.Client, max_items: int) -> dict[str, str | None]:
+    """Trigger pipeline for each source. Returns dict of source_id -> task_id."""
+    log_step("2/4", f"Triggering pipelines (max_items={max_items})...")
 
-    if resp.status_code != 200:
-        log_error(f"  ✗ Pipeline trigger failed: {resp.status_code} {resp.text}")
-        return None
+    task_ids: dict[str, str | None] = {}
 
-    data = resp.json()
-    task_id = data.get("task_id")
-    log_info(f"  ✓ Pipeline triggered, task_id={task_id}")
-    return task_id
+    for source in RSS_SOURCES:
+        source_id = source["id"]
+        log_source(source_id, "Triggering pipeline...")
+
+        payload = {
+            "source_id": source_id,
+            "max_items": max_items,
+            "force": True,
+        }
+
+        resp = api_post(client, "/api/v1/pipeline/trigger", payload)
+
+        if resp.status_code != 200:
+            log_error(f"  [{source_id}] Pipeline trigger failed: {resp.status_code} {resp.text}")
+            task_ids[source_id] = None
+            continue
+
+        data = resp.json()
+        task_id = data.get("task_id")
+        log_source(source_id, f"Pipeline triggered, task_id={task_id}")
+        task_ids[source_id] = task_id
+
+    return task_ids
 
 
 # ─── Step 3: Poll task status ─────────────────────────────────────────────────
 
 
-async def step_poll_task(client: httpx.Client, task_id: str) -> dict[str, Any]:
+async def step_poll_tasks(
+    client: httpx.Client, task_ids: dict[str, str | None]
+) -> dict[str, dict[str, Any]]:
     """Poll task status until completed, failed, or timeout."""
-    log_step("3/4", f"Polling task status (task_id={task_id})...")
+    log_step("3/4", "Polling task status...")
 
-    deadline = time.time() + POLL_TIMEOUT_SECONDS
+    results: dict[str, dict[str, Any]] = {}
 
-    while time.time() < deadline:
-        data = api_get(client, f"/api/v1/pipeline/tasks/{task_id}")
-        status = data.get("status", "unknown")
+    for source_id, task_id in task_ids.items():
+        if not task_id:
+            results[source_id] = {"status": "failed", "error": "No task_id"}
+            continue
 
-        completed = data.get("completed_count", 0)
-        processing = data.get("processing_count", 0)
-        failed = data.get("failed_count", 0)
-        pending = data.get("pending_count", 0)
+        log_source(source_id, f"Polling task_id={task_id}...")
 
-        print(
-            f"  status={status} | completed={completed} processing={processing} "
-            f"failed={failed} pending={pending}"
-        )
+        deadline = time.time() + POLL_TIMEOUT_SECONDS
 
-        if status in ("completed", "failed"):
-            log_info(f"  ✓ Task finished with status: {status}")
-            return data
+        while time.time() < deadline:
+            try:
+                data = api_get(client, f"/api/v1/pipeline/tasks/{task_id}")
+            except Exception as e:
+                log_warn(f"  [{source_id}] Poll error: {e}")
+                await asyncio.sleep(POLL_INTERVAL_SECONDS)
+                continue
 
-        await asyncio.sleep(POLL_INTERVAL_SECONDS)
+            status = data.get("status", "unknown")
 
-    log_error(f"  ✗ Polling timeout after {POLL_TIMEOUT_SECONDS}s")
-    return api_get(client, f"/api/v1/pipeline/tasks/{task_id}")
+            completed = data.get("completed_count", 0)
+            processing = data.get("processing_count", 0)
+            failed = data.get("failed_count", 0)
+            pending = data.get("pending_count", 0)
+
+            print(
+                f"  [{source_id}] status={status} | "
+                f"completed={completed} processing={processing} failed={failed} pending={pending}"
+            )
+
+            if status in ("completed", "failed"):
+                log_source(source_id, f"Task finished with status: {status}")
+                results[source_id] = data
+                break
+
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+        else:
+            log_error(f"  [{source_id}] Polling timeout after {POLL_TIMEOUT_SECONDS}s")
+            results[source_id] = api_get(client, f"/api/v1/pipeline/tasks/{task_id}")
+
+    return results
 
 
 # ─── Step 4: Verify results ───────────────────────────────────────────────────
 
 
-async def step_verify_results(
-    project_root: str,
-) -> dict[str, Any]:
+async def step_verify_results(project_root: str, source_ids: list[str]) -> dict[str, Any]:
     """Query PostgreSQL and Neo4j to verify data was stored."""
     log_step("4/4", "Verifying database results...")
 
@@ -287,34 +338,54 @@ async def step_verify_results(
             timeout=10,
         )
         try:
-            # Count articles
-            article_count = await conn.fetchval(
-                "SELECT COUNT(*) FROM articles WHERE source_url IS NOT NULL AND source_url != ''"
-            )
-            results["pg_articles"] = article_count
-            log_info(f"  ✓ PostgreSQL articles: {article_count}")
+            # Count articles per source
+            for source_id in source_ids:
+                # Articles from this source (by source_host matching)
+                count = await conn.fetchval(
+                    """
+                    SELECT COUNT(*) FROM articles
+                    WHERE source_url LIKE '%' || $1 || '%'
+                    OR source_host LIKE '%' || $1 || '%'
+                    """,
+                    source_id,
+                )
+                results[f"pg_articles_{source_id}"] = count
+                log_info(f"  PostgreSQL articles for {source_id}: {count}")
+
+            # Total articles
+            total_articles = await conn.fetchval("SELECT COUNT(*) FROM articles")
+            results["pg_articles_total"] = total_articles
+            log_info(f"  PostgreSQL total articles: {total_articles}")
 
             # Count vectors
             vector_count = await conn.fetchval(
                 "SELECT COUNT(*) FROM article_vectors WHERE embedding IS NOT NULL"
             )
             results["pg_vectors"] = vector_count
-            log_info(f"  ✓ PostgreSQL article_vectors: {vector_count}")
+            log_info(f"  PostgreSQL article_vectors: {vector_count}")
 
-            # Show sample titles
+            # Count entity vectors
+            entity_vector_count = await conn.fetchval("SELECT COUNT(*) FROM entity_vectors")
+            results["pg_entity_vectors"] = entity_vector_count
+            log_info(f"  PostgreSQL entity_vectors: {entity_vector_count}")
+
+            # Show sample articles
             rows = await conn.fetch(
-                "SELECT id, title, persist_status FROM articles ORDER BY id DESC LIMIT 3"
+                "SELECT id, title, source_host, persist_status FROM articles "
+                "ORDER BY created_at DESC LIMIT 10"
             )
             if rows:
                 log_info("  Recent articles:")
                 for row in rows:
-                    title = (row["title"] or "")[:60]
+                    title = (row["title"] or "")[:50]
+                    host = row["source_host"] or "unknown"
                     status = row["persist_status"]
-                    print(f"    [{status}] {title}")
+                    print(f"    [{status}] ({host}) {title}...")
+
         finally:
             await conn.close()
     except Exception as e:
-        log_warn(f"  ⚠ PostgreSQL verification failed: {e}")
+        log_warn(f"  PostgreSQL verification failed: {e}")
         results["pg_error"] = str(e)
 
     # Neo4j verification
@@ -325,15 +396,20 @@ async def step_verify_results(
         with driver.session() as session:
             article_count = session.run("MATCH (a:Article) RETURN count(a) AS cnt").single()[0]
             results["neo4j_articles"] = article_count
-            log_info(f"  ✓ Neo4j Article nodes: {article_count}")
+            log_info(f"  Neo4j Article nodes: {article_count}")
 
             entity_count = session.run("MATCH (e:Entity) RETURN count(e) AS cnt").single()[0]
             results["neo4j_entities"] = entity_count
-            log_info(f"  ✓ Neo4j Entity nodes: {entity_count}")
+            log_info(f"  Neo4j Entity nodes: {entity_count}")
+
+            # Show relationships
+            rel_count = session.run("MATCH ()-[r]-() RETURN count(DISTINCT r) AS cnt").single()[0]
+            results["neo4j_relationships"] = rel_count
+            log_info(f"  Neo4j relationships: {rel_count}")
 
         driver.close()
     except Exception as e:
-        log_warn(f"  ⚠ Neo4j verification failed: {e}")
+        log_warn(f"  Neo4j verification failed: {e}")
         results["neo4j_error"] = str(e)
 
     return results
@@ -348,15 +424,17 @@ async def run_test(
     max_items: int,
     start_app: bool,
 ) -> int:
-    """Run the full pipeline test. Returns 0 on success, 1 on failure."""
+    """Run the RSS pipeline test. Returns 0 on success, 1 on failure."""
 
     print("=" * 70)
-    print("Weaver Full Pipeline E2E Test")
+    print("Weaver RSS Pipeline E2E Test")
     print("=" * 70)
     print(f"  App URL:   {app_url}")
-    print(f"  Source:    {SOURCE_URL}")
-    print(f"  Max items: {max_items}")
+    print(f"  Max items per source: {max_items}")
     print(f"  Start app: {start_app}")
+    print("  RSS Sources:")
+    for src in RSS_SOURCES:
+        print(f"    - {src['id']}: {src['url']}")
     print("=" * 70)
 
     proc: subprocess.Popen[bytes] | None = None
@@ -372,60 +450,78 @@ async def run_test(
         # Create HTTP client
         with httpx.Client(base_url=app_url, timeout=API_TIMEOUT_SECONDS) as client:
 
-            # Step 1: Register source
-            if not await step_register_source(client):
+            # Step 1: Register sources
+            register_results = await step_register_sources(client)
+            if not all(register_results.values()):
+                log_error("Some sources failed to register")
                 return 1
 
-            # Step 2: Trigger pipeline
-            task_id = await step_trigger_pipeline(client, max_items)
-            if not task_id:
+            # Step 2: Trigger pipelines
+            task_ids = await step_trigger_pipelines(client, max_items)
+            if not any(task_ids.values()):
+                log_error("All pipeline triggers failed")
                 return 1
 
             # Step 3: Poll until done
-            task_result = await step_poll_task(client, task_id)
-            if task_result.get("status") == "failed":
-                log_error(f"Task failed: {task_result.get('error')}")
-                return 1
+            task_results = await step_poll_tasks(client, task_ids)
+
+            # Check for failures
+            failed_sources = [
+                src for src, res in task_results.items() if res.get("status") == "failed"
+            ]
+            if failed_sources:
+                log_warn(f"Some tasks failed: {failed_sources}")
 
             # Give pipeline a moment to persist final state
             await asyncio.sleep(3)
 
-        # Step 4: Verify results (outside httpx context to reuse connections)
-        results = await step_verify_results(project_root)
+        # Step 4: Verify results
+        source_ids = [s["id"] for s in RSS_SOURCES]
+        results = await step_verify_results(project_root, source_ids)
 
         # Summary
         print("\n" + "=" * 70)
         print("Test Summary")
         print("=" * 70)
 
-        pg_articles = results.get("pg_articles", 0)
+        total_articles = results.get("pg_articles_total", 0)
         pg_vectors = results.get("pg_vectors", 0)
         neo4j_articles = results.get("neo4j_articles", 0)
         neo4j_entities = results.get("neo4j_entities", 0)
 
-        if pg_articles > 0:
-            log_info(f"✓ {pg_articles} article(s) stored in PostgreSQL")
+        for src in RSS_SOURCES:
+            count = results.get(f"pg_articles_{src['id']}", 0)
+            if count > 0:
+                log_info(f"[{src['id']}] {count} article(s) stored in PostgreSQL")
+            else:
+                log_warn(f"[{src['id']}] No articles found in PostgreSQL")
+
+        if total_articles > 0:
+            log_info(f"Total {total_articles} article(s) in PostgreSQL")
         else:
-            log_error("✗ No articles found in PostgreSQL")
+            log_error("No articles found in PostgreSQL")
 
         if pg_vectors > 0:
-            log_info(f"✓ {pg_vectors} vector(s) stored in PostgreSQL")
+            log_info(f"{pg_vectors} vector(s) in PostgreSQL")
         else:
-            log_warn("⚠ No vectors found in PostgreSQL (may require LLM API)")
+            log_warn("No vectors found (may require LLM API)")
 
         if neo4j_articles > 0:
-            log_info(f"✓ {neo4j_articles} Article node(s) in Neo4j")
+            log_info(f"{neo4j_articles} Article node(s) in Neo4j")
         else:
-            log_warn("⚠ No Article nodes in Neo4j (may require entity extraction)")
+            log_warn("No Article nodes in Neo4j")
+
+        if neo4j_entities > 0:
+            log_info(f"{neo4j_entities} Entity nodes in Neo4j")
 
         print("=" * 70)
 
         # Overall result
-        if pg_articles > 0:
-            log_info("Pipeline test PASSED")
+        if total_articles > 0:
+            log_info("RSS Pipeline test PASSED")
             return 0
         else:
-            log_error("Pipeline test FAILED: No articles stored")
+            log_error("RSS Pipeline test FAILED: No articles stored")
             return 1
 
     except httpx.ConnectError:
@@ -449,7 +545,7 @@ async def run_test(
 def main() -> int:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Full pipeline E2E test")
+    parser = argparse.ArgumentParser(description="RSS Pipeline E2E test")
     parser.add_argument(
         "--app-url",
         default=os.getenv("WEAVER_APP_URL", DEFAULT_APP_URL),
@@ -459,7 +555,7 @@ def main() -> int:
         "--max-items",
         type=int,
         default=DEFAULT_MAX_ITEMS,
-        help=f"Maximum items to process (default: {DEFAULT_MAX_ITEMS})",
+        help=f"Maximum items per source (default: {DEFAULT_MAX_ITEMS})",
     )
     parser.add_argument(
         "--no-start",

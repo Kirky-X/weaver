@@ -415,21 +415,51 @@ Consider:
 
         Metric strings describe data points (e.g., "本土市场游戏收入1642亿元")
         and have no stable identity — they should not become entity nodes.
+
+        Filters:
+        - Percentages: "12.73%", "9.90%"
+        - Monetary values: "97.65亿元", "6亿元", "756.97亿元"
+        - Share counts: "2.42亿股"
+        - Composite metrics: "本土市场游戏收入1642亿元"
+        - Pure numeric expressions with units
         """
         import re
 
         if not name:
             return False
-        # Contains Chinese text describing a metric followed by digits with units.
-        # Pattern: Chinese descriptor + digits + currency/count unit.
-        metric_pattern = re.compile(
+
+        name = name.strip()
+
+        # Pattern 1: Pure percentage (e.g., "12.73%", "9.90%")
+        if re.match(r"^[\d,．.]+\s*%$", name):
+            return True
+
+        # Pattern 2: Monetary values with Chinese units (e.g., "97.65亿元", "6亿元")
+        if re.match(r"^[\d,．.]+\s*[万亿]元$", name):
+            return True
+
+        # Pattern 3: Share/stock counts (e.g., "2.42亿股")
+        if re.match(r"^[\d,．.]+\s*[万亿]?股$", name):
+            return True
+
+        # Pattern 4: Other numeric expressions with units (e.g., "1.4亿", "1642亿元")
+        if re.match(r"^[\d,．.]+\s*[万亿亿千万百十]+[元股人]?$", name):
+            return True
+
+        # Pattern 5: Composite metric descriptions (Chinese + number + unit)
+        # e.g., "本土市场游戏收入1642亿元", "月活1.4亿"
+        composite_pattern = re.compile(
             r"[\u4e00-\u9fff]"  # has Chinese
             + r".*"  # middle content
             + r"[\u4e00-\u9fff]"  # more Chinese (descriptor word)
             + r".*?"  # optional middle
-            + r"\d[\d,．.]*[万亿亿千万百十零点]?"  # number with optional unit chars
+            + r"\d[\d,．.]*[万亿亿千万百十零点]?[元股人]?元?"
         )
-        return bool(metric_pattern.search(name))
+        if composite_pattern.search(name):
+            return True
+
+        # Pattern 6: Dividend/bonus expressions (e.g., "每10股派发现金红利0.86元(含税)")
+        return bool(re.search(r"每\d+股.*红利.*元", name))
 
     def _resolve_canonical_name(
         self,

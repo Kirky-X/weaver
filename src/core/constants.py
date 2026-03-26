@@ -65,6 +65,11 @@ class PipelineStage(str, enum.Enum):
     PERSIST = "persist"
 
 
+# Alias for PipelineStage (node level) - for semantic clarity
+PipelineStageType = PipelineStage
+"""Pipeline stage type (node level) - alias for PipelineStage."""
+
+
 # ── API Response Status Constants ──────────────────────────────
 
 
@@ -123,6 +128,49 @@ class LLMProvider(str, enum.Enum):
     AZURE = "azure"
     LOCAL = "local"
     ZHIPU = "zhipu"
+    OLLAMA = "ollama"
+
+
+# ── Pipeline State Constants (Data Level) ───────────────────────
+
+
+class PipelineState(str, enum.Enum):
+    """Pipeline state (data level) - represents processing stages of article data."""
+
+    RAW = "raw"
+    CLASSIFIED = "classified"
+    CLEANED = "cleaned"
+    VECTORIZED = "vectorized"
+    ANALYZED = "analyzed"
+    CREDIBILITY_SCORED = "credibility_scored"
+    ENTITY_EXTRACTED = "entity_extracted"
+    PERSISTED = "persisted"
+    FAILED = "failed"
+    DONE = "done"
+
+
+# ── Graph Health Status Constants ───────────────────────────────
+
+
+class GraphHealthStatus(str, enum.Enum):
+    """Graph health status values."""
+
+    HEALTHY = "healthy"
+    MODERATE = "moderate"
+    DEGRADED = "degraded"
+    CRITICAL = "critical"
+
+
+# ── Sentiment Type Constants ─────────────────────────────────────
+
+
+class SentimentType(str, enum.Enum):
+    """Sentiment classification types."""
+
+    POSITIVE = "positive"
+    NEGATIVE = "negative"
+    NEUTRAL = "neutral"
+    MIXED = "mixed"
 
 
 # ── Search Mode Constants ───────────────────────────────────────

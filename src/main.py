@@ -158,6 +158,16 @@ async def _setup_scheduler(container: Container) -> Any:
         coalesce=True,
     )
 
+    # 9. update_db_pool_metrics: update database pool utilization for alerting
+    scheduler.add_job(
+        jobs.update_db_pool_metrics,
+        trigger=IntervalTrigger(minutes=1),
+        id="update_db_pool_metrics",
+        name="Update database pool Prometheus metrics",
+        max_instances=1,
+        coalesce=True,
+    )
+
     # Start scheduler
     scheduler.start()
     _scheduler = scheduler

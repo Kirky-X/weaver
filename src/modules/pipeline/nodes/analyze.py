@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from core.constants import SentimentType
 from core.llm.client import LLMClient
 from core.llm.output_validator import AnalyzeOutput
 from core.llm.token_budget import TokenBudgetManager
@@ -78,7 +79,7 @@ class AnalyzeNode:
                 "has_data": False,
             }
             state["sentiment"] = {
-                "sentiment": "neutral",
+                "sentiment": SentimentType.NEUTRAL.value,
                 "sentiment_score": 0.0,
                 "primary_emotion": "客观",
                 "emotion_targets": [],
