@@ -118,6 +118,12 @@ class TestNeo4jWriterWrite:
                 "canonical_name": "张三",
             }
         )
+        writer._entity_repo.find_entities_batch = AsyncMock(
+            return_value=[
+                {"neo4j_id": "entity_id_1", "canonical_name": "张三"},
+                {"neo4j_id": "entity_id_2", "canonical_name": "OpenAI"},
+            ]
+        )
         writer._entity_repo.merge_entities_batch = AsyncMock(
             return_value={"created": 2, "updated": 0}
         )
@@ -142,7 +148,7 @@ class TestNeo4jWriterWrite:
 
         result = await writer.write(state)
 
-        assert len(result) == 2
+        assert len(result) == 4  # 2 entities × 2 types = 4 (batch lookup per type)
 
     @pytest.mark.asyncio
     async def test_write_entity_without_name_skipped(self, writer):
@@ -292,6 +298,11 @@ class TestNeo4jWriterWriteEntities:
                 "canonical_name": "张三",
             }
         )
+        writer._entity_repo.find_entities_batch = AsyncMock(
+            return_value=[
+                {"neo4j_id": "entity_id", "canonical_name": "张三"},
+            ]
+        )
         writer._entity_repo.merge_entities_batch = AsyncMock(
             return_value={"created": 1, "updated": 0}
         )
@@ -320,6 +331,11 @@ class TestNeo4jWriterWriteEntities:
                 "neo4j_id": "entity_id",
                 "canonical_name": "张三",
             }
+        )
+        writer._entity_repo.find_entities_batch = AsyncMock(
+            return_value=[
+                {"neo4j_id": "entity_id", "canonical_name": "张三"},
+            ]
         )
         writer._entity_repo.merge_entities_batch = AsyncMock(
             return_value={"created": 1, "updated": 0}

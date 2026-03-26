@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from api.dependencies import get_neo4j_pool
 from api.middleware.auth import verify_api_key
+from api.schemas.response import APIResponse, success_response
 from core.db.neo4j import Neo4jPool
 from modules.graph_store.metrics import (
     GraphQualityMetrics,
@@ -84,11 +85,11 @@ class ComponentsListResponse(BaseModel):
     components: list[ConnectedComponentResponse]
 
 
-@router.get("/health", response_model=HealthSummaryResponse)
+@router.get("/health", response_model=APIResponse[HealthSummaryResponse])
 async def get_graph_health(
     _: str = Depends(verify_api_key),
     neo4j: Neo4jPool = Depends(get_neo4j_pool),
-) -> HealthSummaryResponse:
+) -> APIResponse[HealthSummaryResponse]:
     """Get a quick health summary of the knowledge graph.
 
     Returns:
@@ -97,23 +98,25 @@ async def get_graph_health(
     metrics = GraphQualityMetrics(neo4j)
     summary = await metrics.get_health_summary()
 
-    return HealthSummaryResponse(
-        health_score=summary["health_score"],
-        status=summary["status"],
-        entity_count=summary["entity_count"],
-        relationship_count=summary["relationship_count"],
-        orphan_ratio=summary["orphan_ratio"],
-        connectedness=summary["connectedness"],
-        average_degree=summary["average_degree"],
-        recommendations=summary["recommendations"],
+    return success_response(
+        HealthSummaryResponse(
+            health_score=summary["health_score"],
+            status=summary["status"],
+            entity_count=summary["entity_count"],
+            relationship_count=summary["relationship_count"],
+            orphan_ratio=summary["orphan_ratio"],
+            connectedness=summary["connectedness"],
+            average_degree=summary["average_degree"],
+            recommendations=summary["recommendations"],
+        )
     )
 
 
-@router.get("/full", response_model=GraphMetricsResponse)
+@router.get("/full", response_model=APIResponse[GraphMetricsResponse])
 async def get_full_metrics(
     _: str = Depends(verify_api_key),
     neo4j: Neo4jPool = Depends(get_neo4j_pool),
-) -> GraphMetricsResponse:
+) -> APIResponse[GraphMetricsResponse]:
     """Get comprehensive graph quality metrics.
 
     Returns:
@@ -122,30 +125,32 @@ async def get_full_metrics(
     metrics = GraphQualityMetrics(neo4j)
     result = await metrics.calculate_all_metrics()
 
-    return GraphMetricsResponse(
-        total_entities=result.total_entities,
-        total_articles=result.total_articles,
-        total_relationships=result.total_relationships,
-        total_mentions=result.total_mentions,
-        connected_components=result.connected_components,
-        largest_component_size=result.largest_component_size,
-        average_degree=result.average_degree,
-        modularity_score=result.modularity_score,
-        orphan_entities=result.orphan_entities,
-        high_degree_entities=result.high_degree_entities,
-        entity_type_distribution=result.entity_type_distribution,
-        relationship_type_distribution=result.relationship_type_distribution,
-        computed_at=result.computed_at.isoformat(),
+    return success_response(
+        GraphMetricsResponse(
+            total_entities=result.total_entities,
+            total_articles=result.total_articles,
+            total_relationships=result.total_relationships,
+            total_mentions=result.total_mentions,
+            connected_components=result.connected_components,
+            largest_component_size=result.largest_component_size,
+            average_degree=result.average_degree,
+            modularity_score=result.modularity_score,
+            orphan_entities=result.orphan_entities,
+            high_degree_entities=result.high_degree_entities,
+            entity_type_distribution=result.entity_type_distribution,
+            relationship_type_distribution=result.relationship_type_distribution,
+            computed_at=result.computed_at.isoformat(),
+        )
     )
 
 
-@router.get("/components", response_model=ComponentsListResponse)
+@router.get("/components", response_model=APIResponse[ComponentsListResponse])
 async def get_connected_components(
     limit: int = Query(10, ge=1, le=100, description="Max components to return"),
     min_size: int = Query(1, ge=1, description="Minimum component size"),
     _: str = Depends(verify_api_key),
     neo4j: Neo4jPool = Depends(get_neo4j_pool),
-) -> ComponentsListResponse:
+) -> APIResponse[ComponentsListResponse]:
     """Get all connected components in the graph.
 
     Args:
@@ -172,19 +177,21 @@ async def get_connected_components(
 
     sizes = [c.size for c in components] if components else [0]
 
-    return ComponentsListResponse(
-        total_components=len(components),
-        largest_size=max(sizes) if sizes else 0,
-        smallest_size=min(sizes) if sizes else 0,
-        components=component_responses,
+    return success_response(
+        ComponentsListResponse(
+            total_components=len(components),
+            largest_size=max(sizes) if sizes else 0,
+            smallest_size=min(sizes) if sizes else 0,
+            components=component_responses,
+        )
     )
 
 
-@router.get("/components/largest", response_model=ConnectedComponentResponse)
+@router.get("/components/largest", response_model=APIResponse[ConnectedComponentResponse])
 async def get_largest_component(
     _: str = Depends(verify_api_key),
     neo4j: Neo4jPool = Depends(get_neo4j_pool),
-) -> ConnectedComponentResponse:
+) -> APIResponse[ConnectedComponentResponse]:
     """Get the largest connected component.
 
     Returns:
@@ -202,20 +209,22 @@ async def get_largest_component(
             detail="No connected components found in graph",
         )
 
-    return ConnectedComponentResponse(
-        component_id=component.component_id,
-        size=component.size,
-        node_ids=component.node_ids[:100],
-        entity_types=component.entity_types,
+    return success_response(
+        ConnectedComponentResponse(
+            component_id=component.component_id,
+            size=component.size,
+            node_ids=component.node_ids[:100],
+            entity_types=component.entity_types,
+        )
     )
 
 
-@router.get("/orphans", response_model=OrphanEntitiesResponse)
+@router.get("/orphans", response_model=APIResponse[OrphanEntitiesResponse])
 async def get_orphan_entities(
     limit: int = Query(100, ge=1, le=1000, description="Max entities to return"),
     _: str = Depends(verify_api_key),
     neo4j: Neo4jPool = Depends(get_neo4j_pool),
-) -> OrphanEntitiesResponse:
+) -> APIResponse[OrphanEntitiesResponse]:
     """Find entities with no connections (orphans).
 
     Args:
@@ -227,19 +236,21 @@ async def get_orphan_entities(
     metrics = GraphQualityMetrics(neo4j)
     orphans = await metrics.find_orphan_entities(limit=limit)
 
-    return OrphanEntitiesResponse(
-        count=len(orphans),
-        entities=orphans,
+    return success_response(
+        OrphanEntitiesResponse(
+            count=len(orphans),
+            entities=orphans,
+        )
     )
 
 
-@router.get("/high-degree", response_model=HighDegreeEntitiesResponse)
+@router.get("/high-degree", response_model=APIResponse[HighDegreeEntitiesResponse])
 async def get_high_degree_entities(
     min_degree: int = Query(10, ge=1, le=1000, description="Minimum degree threshold"),
     limit: int = Query(50, ge=1, le=500, description="Max entities to return"),
     _: str = Depends(verify_api_key),
     neo4j: Neo4jPool = Depends(get_neo4j_pool),
-) -> HighDegreeEntitiesResponse:
+) -> APIResponse[HighDegreeEntitiesResponse]:
     """Get entities with degree above threshold.
 
     Args:
@@ -255,19 +266,21 @@ async def get_high_degree_entities(
         limit=limit,
     )
 
-    return HighDegreeEntitiesResponse(
-        min_degree=min_degree,
-        count=len(entities),
-        entities=entities,
+    return success_response(
+        HighDegreeEntitiesResponse(
+            min_degree=min_degree,
+            count=len(entities),
+            entities=entities,
+        )
     )
 
 
-@router.get("/modularity")
+@router.get("/modularity", response_model=APIResponse[dict[str, Any]])
 async def get_modularity_score(
     resolution: float = Query(1.0, ge=0.1, le=10.0, description="Resolution parameter"),
     _: str = Depends(verify_api_key),
     neo4j: Neo4jPool = Depends(get_neo4j_pool),
-) -> dict[str, Any]:
+) -> APIResponse[dict[str, Any]]:
     """Calculate graph modularity score.
 
     The modularity score measures the quality of graph partitioning.
@@ -295,19 +308,21 @@ async def get_modularity_score(
         interpretation = "poor"
         description = "Poor community structure, consider reviewing entity relationships"
 
-    return {
-        "modularity_score": score,
-        "interpretation": interpretation,
-        "description": description,
-        "resolution": resolution,
-    }
+    return success_response(
+        {
+            "modularity_score": score,
+            "interpretation": interpretation,
+            "description": description,
+            "resolution": resolution,
+        }
+    )
 
 
-@router.get("/distributions")
+@router.get("/distributions", response_model=APIResponse[dict[str, Any]])
 async def get_type_distributions(
     _: str = Depends(verify_api_key),
     neo4j: Neo4jPool = Depends(get_neo4j_pool),
-) -> dict[str, Any]:
+) -> APIResponse[dict[str, Any]]:
     """Get entity and relationship type distributions.
 
     Returns:
@@ -316,12 +331,14 @@ async def get_type_distributions(
     metrics = GraphQualityMetrics(neo4j)
     result = await metrics.calculate_all_metrics()
 
-    return {
-        "entity_types": result.entity_type_distribution,
-        "relationship_types": result.relationship_type_distribution,
-        "entity_type_count": len(result.entity_type_distribution),
-        "relationship_type_count": len(result.relationship_type_distribution),
-    }
+    return success_response(
+        {
+            "entity_types": result.entity_type_distribution,
+            "relationship_types": result.relationship_type_distribution,
+            "entity_type_count": len(result.entity_type_distribution),
+            "relationship_type_count": len(result.relationship_type_distribution),
+        }
+    )
 
 
 # ── Community Metrics Endpoints ─────────────────────────────────────
@@ -360,12 +377,12 @@ class CommunityHealthResponse(BaseModel):
     report_coverage: float = Field(..., ge=0, le=1, description="Report coverage ratio")
 
 
-@router.get("/community", response_model=CommunityMetricsResponse)
+@router.get("/community", response_model=APIResponse[CommunityMetricsResponse])
 async def get_community_metrics(
     level: int | None = Query(None, ge=0, description="Filter by hierarchy level"),
     _: str = Depends(verify_api_key),
     neo4j: Neo4jPool = Depends(get_neo4j_pool),
-) -> CommunityMetricsResponse:
+) -> APIResponse[CommunityMetricsResponse]:
     """Get community-level metrics and statistics."""
     from modules.graph_store.community_repo import Neo4jCommunityRepo
 
@@ -373,17 +390,19 @@ async def get_community_metrics(
     total_communities = await repo.count_communities(level=level)
 
     if total_communities == 0:
-        return CommunityMetricsResponse(
-            total_communities=0,
-            total_reports=0,
-            levels=0,
-            average_entity_count=0.0,
-            average_rank=0.0,
-            modularity_score=None,
-            level_distribution=[],
-            top_communities=[],
-            health_score=0.0,
-            health_status="no_communities",
+        return success_response(
+            CommunityMetricsResponse(
+                total_communities=0,
+                total_reports=0,
+                levels=0,
+                average_entity_count=0.0,
+                average_rank=0.0,
+                modularity_score=None,
+                level_distribution=[],
+                top_communities=[],
+                health_score=0.0,
+                health_status="no_communities",
+            )
         )
 
     metrics = await repo.get_community_metrics(level=level)
@@ -415,25 +434,27 @@ async def get_community_metrics(
     else:
         health_status = "critical"
 
-    return CommunityMetricsResponse(
-        total_communities=total_communities,
-        total_reports=report_count,
-        levels=len(level_distribution),
-        average_entity_count=metrics.get("average_entity_count", 0.0),
-        average_rank=metrics.get("average_rank", 0.0),
-        modularity_score=modularity,
-        level_distribution=level_distribution,
-        top_communities=top_communities_data,
-        health_score=health_score,
-        health_status=health_status,
+    return success_response(
+        CommunityMetricsResponse(
+            total_communities=total_communities,
+            total_reports=report_count,
+            levels=len(level_distribution),
+            average_entity_count=metrics.get("average_entity_count", 0.0),
+            average_rank=metrics.get("average_rank", 0.0),
+            modularity_score=modularity,
+            level_distribution=level_distribution,
+            top_communities=top_communities_data,
+            health_score=health_score,
+            health_status=health_status,
+        )
     )
 
 
-@router.get("/community/health", response_model=CommunityHealthResponse)
+@router.get("/community/health", response_model=APIResponse[CommunityHealthResponse])
 async def get_community_health(
     _: str = Depends(verify_api_key),
     neo4j: Neo4jPool = Depends(get_neo4j_pool),
-) -> CommunityHealthResponse:
+) -> APIResponse[CommunityHealthResponse]:
     """Get community structure health assessment."""
     from modules.graph_store.community_repo import Neo4jCommunityRepo
 
@@ -445,14 +466,18 @@ async def get_community_health(
     metrics = await repo.get_community_metrics()
 
     if total_communities == 0:
-        return CommunityHealthResponse(
-            score=0.0,
-            status="critical",
-            issues=["No communities detected"],
-            recommendations=["Run POST /api/v1/admin/communities/rebuild to create communities"],
-            modularity=None,
-            coverage=0.0,
-            report_coverage=0.0,
+        return success_response(
+            CommunityHealthResponse(
+                score=0.0,
+                status="critical",
+                issues=["No communities detected"],
+                recommendations=[
+                    "Run POST /api/v1/admin/communities/rebuild to create communities"
+                ],
+                modularity=None,
+                coverage=0.0,
+                report_coverage=0.0,
+            )
         )
 
     modularity = metrics.get("average_modularity", 0.0)
@@ -494,12 +519,14 @@ async def get_community_health(
     else:
         status = "critical"
 
-    return CommunityHealthResponse(
-        score=score,
-        status=status,
-        issues=issues,
-        recommendations=recommendations,
-        modularity=modularity,
-        coverage=coverage,
-        report_coverage=report_coverage,
+    return success_response(
+        CommunityHealthResponse(
+            score=score,
+            status=status,
+            issues=issues,
+            recommendations=recommendations,
+            modularity=modularity,
+            coverage=coverage,
+            report_coverage=report_coverage,
+        )
     )

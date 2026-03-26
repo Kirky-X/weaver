@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from api.dependencies import get_neo4j_pool
 from api.middleware.auth import verify_api_key
+from api.schemas.response import APIResponse, success_response
 from core.db.neo4j import Neo4jPool
 
 router = APIRouter(prefix="/graph/visualization", tags=["graph-visualization"])
@@ -98,12 +99,12 @@ TYPE_COLORS = {
 }
 
 
-@router.get("/snapshot", response_model=GraphSnapshotResponse)
+@router.get("/snapshot", response_model=APIResponse[GraphSnapshotResponse])
 async def get_graph_snapshot(
     limit: int = Query(100, ge=10, le=1000, description="Max nodes to return"),
     _: str = Depends(verify_api_key),
     neo4j: Neo4jPool = Depends(get_neo4j_pool),
-) -> GraphSnapshotResponse:
+) -> APIResponse[GraphSnapshotResponse]:
     """Get a snapshot of the knowledge graph.
 
     Returns a subset of nodes and edges for initial visualization.
@@ -122,13 +123,15 @@ async def get_graph_snapshot(
     try:
         results = await neo4j.execute_query(node_query, {"limit": limit})
     except Exception as exc:
-        return GraphSnapshotResponse(
-            nodes=[],
-            edges=[],
-            metadata={
-                "total_nodes": 0,
-                "error": str(exc)[:200] if str(exc) else "Graph service unavailable",
-            },
+        return success_response(
+            GraphSnapshotResponse(
+                nodes=[],
+                edges=[],
+                metadata={
+                    "total_nodes": 0,
+                    "error": str(exc)[:200] if str(exc) else "Graph service unavailable",
+                },
+            )
         )
 
     nodes = []
@@ -146,7 +149,9 @@ async def get_graph_snapshot(
         node_ids.add(r.get("id"))
 
     if not node_ids:
-        return GraphSnapshotResponse(nodes=[], edges=[], metadata={"total_nodes": 0})
+        return success_response(
+            GraphSnapshotResponse(nodes=[], edges=[], metadata={"total_nodes": 0})
+        )
 
     edge_query = """
     MATCH (e1:Entity)-[r:RELATED_TO]->(e2:Entity)
@@ -168,14 +173,16 @@ async def get_graph_snapshot(
             },
         )
     except Exception:
-        return GraphSnapshotResponse(
-            nodes=nodes,
-            edges=[],
-            metadata={
-                "total_nodes": len(nodes),
-                "total_edges": 0,
-                "error": "Graph service unavailable",
-            },
+        return success_response(
+            GraphSnapshotResponse(
+                nodes=nodes,
+                edges=[],
+                metadata={
+                    "total_nodes": len(nodes),
+                    "total_edges": 0,
+                    "error": "Graph service unavailable",
+                },
+            )
         )
 
     edges = [
@@ -188,19 +195,21 @@ async def get_graph_snapshot(
         for r in edge_results
     ]
 
-    return GraphSnapshotResponse(
-        nodes=nodes,
-        edges=edges,
-        metadata={"total_nodes": len(nodes), "total_edges": len(edges)},
+    return success_response(
+        GraphSnapshotResponse(
+            nodes=nodes,
+            edges=edges,
+            metadata={"total_nodes": len(nodes), "total_edges": len(edges)},
+        )
     )
 
 
-@router.post("/subgraph", response_model=GraphSnapshotResponse)
+@router.post("/subgraph", response_model=APIResponse[GraphSnapshotResponse])
 async def get_subgraph(
     request: SubgraphRequest,
     _: str = Depends(verify_api_key),
     neo4j: Neo4jPool = Depends(get_neo4j_pool),
-) -> GraphSnapshotResponse:
+) -> APIResponse[GraphSnapshotResponse]:
     """Extract a subgraph around a center entity.
 
     Args:
@@ -288,25 +297,27 @@ async def get_subgraph(
         for r in edge_results
     ]
 
-    return GraphSnapshotResponse(
-        nodes=nodes,
-        edges=edges,
-        metadata={
-            "center": request.center_entity,
-            "max_hops": request.max_hops,
-            "total_nodes": len(nodes),
-            "total_edges": len(edges),
-        },
+    return success_response(
+        GraphSnapshotResponse(
+            nodes=nodes,
+            edges=edges,
+            metadata={
+                "center": request.center_entity,
+                "max_hops": request.max_hops,
+                "total_nodes": len(nodes),
+                "total_edges": len(edges),
+            },
+        )
     )
 
 
-@router.get("/layout/force-directed", response_model=LayoutResponse)
+@router.get("/layout/force-directed", response_model=APIResponse[LayoutResponse])
 async def get_force_directed_layout(
     center_entity: str = Query(..., description="Center entity name"),
     max_hops: int = Query(2, ge=1, le=4),
     _: str = Depends(verify_api_key),
     neo4j: Neo4jPool = Depends(get_neo4j_pool),
-) -> LayoutResponse:
+) -> APIResponse[LayoutResponse]:
     """Get a simple force-directed layout for visualization.
 
     This is a simplified layout - for production, consider using
@@ -355,15 +366,17 @@ async def get_force_directed_layout(
         for e in edges_data
     ]
 
-    return LayoutResponse(
-        nodes=layout_nodes,
-        edges=layout_edges,
-        metadata={
-            "center": center_entity,
-            "max_hops": max_hops,
-            "total_nodes": len(layout_nodes),
-            "total_edges": len(layout_edges),
-        },
+    return success_response(
+        LayoutResponse(
+            nodes=layout_nodes,
+            edges=layout_edges,
+            metadata={
+                "center": center_entity,
+                "max_hops": max_hops,
+                "total_nodes": len(layout_nodes),
+                "total_edges": len(layout_edges),
+            },
+        )
     )
 
 

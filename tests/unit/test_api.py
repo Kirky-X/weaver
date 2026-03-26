@@ -164,11 +164,16 @@ class TestSourcesEndpoint:
             url="https://new.com/feed.xml",
         )
 
-        result = await create_source(
-            request=request,
-            _="test-key",
-            repo=mock_repo,
-        )
+        # Mock container to avoid RuntimeError
+        mock_container = MagicMock()
+        mock_container._source_scheduler = None
+
+        with patch("container.get_container", return_value=mock_container):
+            result = await create_source(
+                request=request,
+                _="test-key",
+                repo=mock_repo,
+            )
         assert result.data.id == "new-source"
         mock_repo.upsert.assert_called_once()
 
@@ -279,14 +284,8 @@ class TestSourcesEndpoint:
             )
         assert exc_info.value.status_code == 404
 
-    def test_get_source_config_repo_not_initialized(self):
-        """Test get_source_config_repo raises 503 when not initialized."""
-        from api.endpoints.sources import get_source_config_repo
-
-        with patch("api.endpoints.sources._source_config_repo", None):
-            with pytest.raises(HTTPException) as exc_info:
-                get_source_config_repo()
-            assert exc_info.value.status_code == 503
+    # NOTE: _source_config_repo module-level variable removed in favor of Endpoints class
+    # The get_source_config_repo function now uses api.dependencies.get_source_config_repo()
 
 
 class TestPipelineEndpoint:
@@ -511,23 +510,11 @@ class TestPipelineEndpoint:
         assert result.data["queue_depth"] == 5
         assert result.data["total_tasks"] == 2
 
-    def test_get_redis_client_not_initialized(self):
-        """Test get_redis_client raises 503 when not initialized."""
-        from api.endpoints.pipeline import get_redis_client
+    # NOTE: _redis_client module-level variable removed in favor of Endpoints class
+    # The get_redis_client function now uses api.dependencies.get_redis_client()
 
-        with patch("api.endpoints.pipeline._redis_client", None):
-            with pytest.raises(HTTPException) as exc_info:
-                get_redis_client()
-            assert exc_info.value.status_code == 503
-
-    def test_get_source_scheduler_not_initialized(self):
-        """Test get_source_scheduler raises 503 when not initialized."""
-        from api.endpoints.pipeline import get_source_scheduler
-
-        with patch("api.endpoints.pipeline._source_scheduler", None):
-            with pytest.raises(HTTPException) as exc_info:
-                get_source_scheduler()
-            assert exc_info.value.status_code == 503
+    # NOTE: _source_scheduler module-level variable removed in favor of Endpoints class
+    # The get_source_scheduler function now uses api.dependencies.get_source_scheduler()
 
 
 class TestArticlesEndpoint:
@@ -787,14 +774,8 @@ class TestArticlesEndpoint:
             )
         assert exc_info.value.status_code == 404
 
-    def test_get_postgres_pool_not_initialized(self):
-        """Test get_postgres_pool raises 503 when not initialized."""
-        from api.endpoints.articles import get_postgres_pool
-
-        with patch("api.endpoints.articles._postgres_pool", None):
-            with pytest.raises(HTTPException) as exc_info:
-                get_postgres_pool()
-            assert exc_info.value.status_code == 503
+    # NOTE: _postgres_pool module-level variable removed in favor of Endpoints class
+    # The get_postgres_pool function now uses api.dependencies.get_postgres_pool()
 
 
 class TestGraphEndpoint:
@@ -947,13 +928,12 @@ class TestGraphEndpoint:
         mock_neo4j.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_neo4j.session.return_value.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("api.endpoints.graph.get_neo4j_client", return_value=mock_neo4j):
-            result = await get_entity(
-                name="Test%20Entity",
-                limit=10,
-                _="test-key",
-                neo4j=mock_neo4j,
-            )
+        result = await get_entity(
+            name="Test%20Entity",
+            limit=10,
+            _="test-key",
+            neo4j=mock_neo4j,
+        )
         assert result.data.entity.canonical_name == "Test Entity"
 
     @pytest.mark.asyncio
@@ -970,15 +950,14 @@ class TestGraphEndpoint:
         mock_neo4j.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_neo4j.session.return_value.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("api.endpoints.graph.get_neo4j_client", return_value=mock_neo4j):
-            with pytest.raises(HTTPException) as exc_info:
-                await get_entity(
-                    name="Missing%20Entity",
-                    limit=10,
-                    _="test-key",
-                    neo4j=mock_neo4j,
-                )
-            assert exc_info.value.status_code == 404
+        with pytest.raises(HTTPException) as exc_info:
+            await get_entity(
+                name="Missing%20Entity",
+                limit=10,
+                _="test-key",
+                neo4j=mock_neo4j,
+            )
+        assert exc_info.value.status_code == 404
 
     @pytest.mark.asyncio
     async def test_get_article_graph_endpoint_found(self):
@@ -1030,12 +1009,11 @@ class TestGraphEndpoint:
         mock_neo4j.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_neo4j.session.return_value.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("api.endpoints.graph.get_neo4j_client", return_value=mock_neo4j):
-            result = await get_article_graph(
-                article_id="article-123",
-                _="test-key",
-                neo4j=mock_neo4j,
-            )
+        result = await get_article_graph(
+            article_id="article-123",
+            _="test-key",
+            neo4j=mock_neo4j,
+        )
         assert result.data.article.title == "Test Article"
 
     @pytest.mark.asyncio
@@ -1052,23 +1030,16 @@ class TestGraphEndpoint:
         mock_neo4j.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_neo4j.session.return_value.__aexit__ = AsyncMock(return_value=None)
 
-        with patch("api.endpoints.graph.get_neo4j_client", return_value=mock_neo4j):
-            with pytest.raises(HTTPException) as exc_info:
-                await get_article_graph(
-                    article_id="missing-article",
-                    _="test-key",
-                    neo4j=mock_neo4j,
-                )
-            assert exc_info.value.status_code == 404
+        with pytest.raises(HTTPException) as exc_info:
+            await get_article_graph(
+                article_id="missing-article",
+                _="test-key",
+                neo4j=mock_neo4j,
+            )
+        assert exc_info.value.status_code == 404
 
-    def test_get_neo4j_client_not_initialized(self):
-        """Test get_neo4j_client raises 503 when not initialized."""
-        from api.endpoints.graph import get_neo4j_client
-
-        with patch("api.endpoints.graph._neo4j_client", None):
-            with pytest.raises(HTTPException) as exc_info:
-                get_neo4j_client()
-            assert exc_info.value.status_code == 503
+    # NOTE: get_neo4j_client function removed from api.endpoints.graph
+    # Now uses api.dependencies.get_neo4j_pool() via FastAPI dependency injection
 
 
 class TestAdminEndpoint:
@@ -1221,14 +1192,8 @@ class TestAdminEndpoint:
         assert result.data.host == "example.com"
         assert result.data.authority == 0.85
 
-    def test_get_source_authority_repo_not_initialized(self):
-        """Test get_source_authority_repo raises 503 when not initialized."""
-        from api.endpoints.admin import get_source_authority_repo
-
-        with patch("api.endpoints.admin._source_authority_repo", None):
-            with pytest.raises(HTTPException) as exc_info:
-                get_source_authority_repo()
-            assert exc_info.value.status_code == 503
+    # NOTE: _source_authority_repo module-level variable removed in favor of Endpoints class
+    # The get_source_authority_repo function now uses api.dependencies.get_source_authority_repo()
 
 
 class TestRouter:

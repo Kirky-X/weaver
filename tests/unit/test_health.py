@@ -256,11 +256,11 @@ class TestHealthCheck:
 
         result = await health_check()
 
-        assert result["status"] == "healthy"
-        assert "checks" in result
-        assert result["checks"]["postgres"]["status"] == "ok"
-        assert result["checks"]["neo4j"]["status"] == "ok"
-        assert result["checks"]["redis"]["status"] == "ok"
+        assert result.status == "healthy"
+        assert result.checks is not None
+        assert result.checks["postgres"].status == "ok"
+        assert result.checks["neo4j"].status == "ok"
+        assert result.checks["redis"].status == "ok"
 
     @pytest.mark.asyncio
     async def test_postgres_unhealthy(self, mock_postgres_pool, mock_neo4j_pool, mock_redis_client):
@@ -279,10 +279,10 @@ class TestHealthCheck:
 
         result = await health_check()
 
-        assert result["status"] == "unhealthy"
-        assert result["checks"]["postgres"]["status"] == "error"
-        assert result["checks"]["neo4j"]["status"] == "ok"
-        assert result["checks"]["redis"]["status"] == "ok"
+        assert result.status == "unhealthy"
+        assert result.checks["postgres"].status == "error"
+        assert result.checks["neo4j"].status == "ok"
+        assert result.checks["redis"].status == "ok"
 
     @pytest.mark.asyncio
     async def test_neo4j_unhealthy(self, mock_postgres_pool, mock_neo4j_pool, mock_redis_client):
@@ -295,10 +295,10 @@ class TestHealthCheck:
 
         result = await health_check()
 
-        assert result["status"] == "unhealthy"
-        assert result["checks"]["postgres"]["status"] == "ok"
-        assert result["checks"]["neo4j"]["status"] == "error"
-        assert result["checks"]["redis"]["status"] == "ok"
+        assert result.status == "unhealthy"
+        assert result.checks["postgres"].status == "ok"
+        assert result.checks["neo4j"].status == "error"
+        assert result.checks["redis"].status == "ok"
 
     @pytest.mark.asyncio
     async def test_redis_unhealthy(self, mock_postgres_pool, mock_neo4j_pool, mock_redis_client):
@@ -311,10 +311,10 @@ class TestHealthCheck:
 
         result = await health_check()
 
-        assert result["status"] == "unhealthy"
-        assert result["checks"]["postgres"]["status"] == "ok"
-        assert result["checks"]["neo4j"]["status"] == "ok"
-        assert result["checks"]["redis"]["status"] == "error"
+        assert result.status == "unhealthy"
+        assert result.checks["postgres"].status == "ok"
+        assert result.checks["neo4j"].status == "ok"
+        assert result.checks["redis"].status == "error"
 
     @pytest.mark.asyncio
     async def test_all_unhealthy(self, mock_postgres_pool, mock_neo4j_pool, mock_redis_client):
@@ -336,23 +336,23 @@ class TestHealthCheck:
 
         result = await health_check()
 
-        assert result["status"] == "unhealthy"
-        assert result["checks"]["postgres"]["status"] == "error"
-        assert result["checks"]["neo4j"]["status"] == "error"
-        assert result["checks"]["redis"]["status"] == "error"
+        assert result.status == "unhealthy"
+        assert result.checks["postgres"].status == "error"
+        assert result.checks["neo4j"].status == "error"
+        assert result.checks["redis"].status == "error"
 
     @pytest.mark.asyncio
     async def test_pools_not_initialized(self):
         """Test health check when pools are not initialized."""
         result = await health_check()
 
-        assert result["status"] == "unhealthy"
-        assert result["checks"]["postgres"]["status"] == "unavailable"
-        assert result["checks"]["neo4j"]["status"] == "unavailable"
-        assert result["checks"]["redis"]["status"] == "unavailable"
-        assert "not initialized" in result["checks"]["postgres"]["error"]
-        assert "not initialized" in result["checks"]["neo4j"]["error"]
-        assert "not initialized" in result["checks"]["redis"]["error"]
+        assert result.status == "unhealthy"
+        assert result.checks["postgres"].status == "unavailable"
+        assert result.checks["neo4j"].status == "unavailable"
+        assert result.checks["redis"].status == "unavailable"
+        assert "not initialized" in result.checks["postgres"].error
+        assert "not initialized" in result.checks["neo4j"].error
+        assert "not initialized" in result.checks["redis"].error
 
     @pytest.mark.asyncio
     async def test_partial_pools_initialized(self, mock_neo4j_pool, mock_redis_client):
@@ -363,10 +363,10 @@ class TestHealthCheck:
 
         result = await health_check()
 
-        assert result["status"] == "unhealthy"
-        assert result["checks"]["postgres"]["status"] == "unavailable"
-        assert result["checks"]["neo4j"]["status"] == "ok"
-        assert result["checks"]["redis"]["status"] == "ok"
+        assert result.status == "unhealthy"
+        assert result.checks["postgres"].status == "unavailable"
+        assert result.checks["neo4j"].status == "ok"
+        assert result.checks["redis"].status == "ok"
 
     @pytest.mark.asyncio
     async def test_timeout_scenarios(self, mock_postgres_pool, mock_neo4j_pool, mock_redis_client):
@@ -388,10 +388,10 @@ class TestHealthCheck:
 
         result = await health_check()
 
-        assert result["status"] == "unhealthy"
-        assert result["checks"]["postgres"]["status"] == "timeout"
-        assert result["checks"]["neo4j"]["status"] == "timeout"
-        assert result["checks"]["redis"]["status"] == "timeout"
+        assert result.status == "unhealthy"
+        assert result.checks["postgres"].status == "timeout"
+        assert result.checks["neo4j"].status == "timeout"
+        assert result.checks["redis"].status == "timeout"
 
     @pytest.mark.asyncio
     async def test_mixed_failure_scenarios(
@@ -417,10 +417,10 @@ class TestHealthCheck:
 
         result = await health_check()
 
-        assert result["status"] == "unhealthy"
-        assert result["checks"]["postgres"]["status"] == "timeout"
-        assert result["checks"]["neo4j"]["status"] == "error"
-        assert result["checks"]["redis"]["status"] == "ok"
+        assert result.status == "unhealthy"
+        assert result.checks["postgres"].status == "timeout"
+        assert result.checks["neo4j"].status == "error"
+        assert result.checks["redis"].status == "ok"
 
     @pytest.mark.asyncio
     async def test_latency_measured_for_all_checks(
@@ -435,9 +435,9 @@ class TestHealthCheck:
 
         # All checks should have latency measurements
         for check_name in ["postgres", "neo4j", "redis"]:
-            assert "latency_ms" in result["checks"][check_name]
-            assert isinstance(result["checks"][check_name]["latency_ms"], float)
-            assert result["checks"][check_name]["latency_ms"] >= 0
+            assert result.checks[check_name].latency_ms is not None
+            assert isinstance(result.checks[check_name].latency_ms, float)
+            assert result.checks[check_name].latency_ms >= 0
 
     @pytest.mark.asyncio
     async def test_error_messages_included(
@@ -461,9 +461,9 @@ class TestHealthCheck:
 
         result = await health_check()
 
-        assert "PostgreSQL connection failed" in result["checks"]["postgres"]["error"]
-        assert "Neo4j connection failed" in result["checks"]["neo4j"]["error"]
-        assert "Redis connection failed" in result["checks"]["redis"]["error"]
+        assert "PostgreSQL connection failed" in result.checks["postgres"].error
+        assert "Neo4j connection failed" in result.checks["neo4j"].error
+        assert "Redis connection failed" in result.checks["redis"].error
 
 
 class TestGlobalPoolSetters:

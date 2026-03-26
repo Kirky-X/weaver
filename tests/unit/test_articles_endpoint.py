@@ -422,11 +422,13 @@ class TestArticlesEndpointHTTPLevel:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
-        from api.endpoints.articles import router, set_postgres_pool
+        from api.dependencies import get_postgres_pool
+        from api.endpoints.articles import router
 
         app = FastAPI()
         app.include_router(router)
-        set_postgres_pool(MagicMock())
+        mock_pool = MagicMock()
+        app.dependency_overrides[get_postgres_pool] = lambda: mock_pool
 
         with TestClient(app) as client:
             response = client.get("/articles")
@@ -439,11 +441,13 @@ class TestArticlesEndpointHTTPLevel:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
-        from api.endpoints.articles import router, set_postgres_pool
+        from api.dependencies import get_postgres_pool
+        from api.endpoints.articles import router
 
         app = FastAPI()
         app.include_router(router)
-        set_postgres_pool(MagicMock())
+        mock_pool = MagicMock()
+        app.dependency_overrides[get_postgres_pool] = lambda: mock_pool
 
         with TestClient(app) as client:
             response = client.get(f"/articles/{uuid.uuid4()}")

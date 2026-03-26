@@ -195,11 +195,16 @@ class TestSourcesEndpoint:
             tier=2,
         )
 
-        result = await create_source(
-            request=request,
-            _="test-key",
-            repo=mock_repo,
-        )
+        # Mock container to avoid RuntimeError
+        mock_container = MagicMock()
+        mock_container._source_scheduler = None
+
+        with patch("container.get_container", return_value=mock_container):
+            result = await create_source(
+                request=request,
+                _="test-key",
+                repo=mock_repo,
+            )
         assert result.data.id == "new-source"
         mock_repo.upsert.assert_called_once()
 
@@ -325,11 +330,5 @@ class TestSourcesEndpoint:
             )
         assert exc_info.value.status_code == 404
 
-    def test_get_source_config_repo_not_initialized(self):
-        """Test get_source_config_repo raises 503 when not initialized."""
-        from api.endpoints.sources import get_source_config_repo
-
-        with patch("api.endpoints.sources._source_config_repo", None):
-            with pytest.raises(HTTPException) as exc_info:
-                get_source_config_repo()
-            assert exc_info.value.status_code == 503
+    # NOTE: _source_config_repo module-level variable removed in favor of Endpoints class
+    # The get_source_config_repo function now uses api.dependencies.get_source_config_repo()

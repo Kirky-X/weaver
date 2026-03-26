@@ -471,41 +471,8 @@ class TestGetCommunityEndpoint:
 class TestDependencies:
     """Tests for dependency functions."""
 
-    def test_set_neo4j_pool(self):
-        """Test set_neo4j_pool function."""
-        from api.endpoints.communities import get_neo4j_pool, set_neo4j_pool
+    # NOTE: set_neo4j_pool and set_llm_client functions removed from api.endpoints.communities
+    # Now uses api.dependencies via FastAPI dependency injection
 
-        mock_pool = MagicMock()
-        set_neo4j_pool(mock_pool)
-        assert get_neo4j_pool() == mock_pool
-
-    def test_set_llm_client(self):
-        """Test set_llm_client function."""
-        from api.endpoints.communities import get_llm_client, set_llm_client
-
-        mock_llm = MagicMock()
-        set_llm_client(mock_llm)
-        assert get_llm_client() == mock_llm
-
-    def test_get_neo4j_pool_not_initialized(self):
-        """Test get_neo4j_pool when not initialized."""
-        # Reset to None
-        import api.endpoints.communities as comm_module
-        from api.endpoints.communities import _neo4j_pool, get_neo4j_pool
-
-        comm_module._neo4j_pool = None
-
-        with pytest.raises(HTTPException) as exc_info:
-            get_neo4j_pool()
-        assert exc_info.value.status_code == 503
-
-    def test_get_llm_client_not_initialized(self):
-        """Test get_llm_client when not initialized."""
-        import api.endpoints.communities as comm_module
-        from api.endpoints.communities import get_llm_client
-
-        comm_module._llm_client = None
-
-        with pytest.raises(HTTPException) as exc_info:
-            get_llm_client()
-        assert exc_info.value.status_code == 503
+    # NOTE: _neo4j_pool and _llm_client module-level variables removed
+    # The get_neo4j_pool and get_llm_client functions now use api.dependencies
