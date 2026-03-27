@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy import select, text
 
@@ -23,6 +24,8 @@ class SimilarArticle:
     category: str | None
     similarity: float
     hybrid_score: float | None = None
+    publish_time: datetime | None = None
+    created_at: datetime | None = None
 
 
 @dataclass
@@ -216,7 +219,7 @@ class VectorRepo:
             model_id: Optional model_id filter for embedding homogeneity.
 
         Returns:
-            List of SimilarArticle results.
+            List of SimilarArticle results with timestamps for temporal decay.
         """
         async with self._pool.session() as session:
             await session.execute(text("SET hnsw.ef_search = 200;"))
@@ -227,7 +230,9 @@ class VectorRepo:
                 SELECT
                     a.id::text as article_id,
                     a.category,
-                    1 - (av.embedding <=> cast(:embedding as vector)) as similarity
+                    1 - (av.embedding <=> cast(:embedding as vector)) as similarity,
+                    a.publish_time,
+                    a.created_at
                 FROM article_vectors av
                 JOIN articles a ON a.id = av.article_id
                 WHERE av.vector_type = 'content'
@@ -255,6 +260,8 @@ class VectorRepo:
                     article_id=row.article_id,
                     category=row.category,
                     similarity=row.similarity,
+                    publish_time=row.publish_time,
+                    created_at=row.created_at,
                 )
                 for row in result
             ]

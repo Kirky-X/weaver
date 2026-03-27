@@ -254,6 +254,12 @@ class SearchSettings(BaseModel):
     bm25_rebuild_interval: int = 300
     """BM25 index rebuild interval in seconds."""
 
+    temporal_decay_enabled: bool = False
+    """Enable temporal decay for search results. Newer documents receive higher scores."""
+
+    temporal_decay_half_life_days: float = 30.0
+    """Half-life in days for temporal decay. After this many days, the decay multiplier reaches 0.5."""
+
 
 def settings_customise_sources(
     settings: type[BaseSettings],

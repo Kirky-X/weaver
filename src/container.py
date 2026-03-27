@@ -434,6 +434,16 @@ class Container:
                     search_config.mmr_enabled if hasattr(search_config, "mmr_enabled") else False
                 ),
                 mmr_lambda=mmr_lambda,
+                temporal_decay_enabled=(
+                    search_config.temporal_decay_enabled
+                    if hasattr(search_config, "temporal_decay_enabled")
+                    else False
+                ),
+                temporal_decay_half_life_days=(
+                    search_config.temporal_decay_half_life_days
+                    if hasattr(search_config, "temporal_decay_half_life_days")
+                    else 30.0
+                ),
             )
 
             # Initialize hybrid search engine

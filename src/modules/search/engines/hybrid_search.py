@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from core.observability.logging import get_logger
@@ -40,6 +41,8 @@ class HybridSearchConfig:
     graph_weight: float = 1.0
     rrf_k: int = 60
     top_k: int = 10
+    temporal_decay_enabled: bool = False
+    temporal_decay_half_life_days: float = 30.0
 
 
 @dataclass
@@ -55,6 +58,8 @@ class HybridSearchResult:
     bm25_rank: int | None = None
     rerank_score: float | None = None
     mmr_score: float | None = None
+    publish_time: datetime | None = None
+    temporal_decay_multiplier: float | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -138,6 +143,10 @@ class HybridSearchEngine:
         # Stage 3: Optional re-ranking
         if self._config.rerank_enabled and self._reranker:
             fused = self._rerank_results(query, fused)
+
+        # Stage 3.5: Temporal decay (after rerank, before MMR)
+        if self._config.temporal_decay_enabled:
+            fused = await self._apply_temporal_decay(fused)
 
         # Stage 4: Optional MMR diversity
         if self._config.mmr_enabled and self._mmr_reranker:
@@ -360,6 +369,69 @@ class HybridSearchEngine:
             text_key="content",
         )
 
+    async def _apply_temporal_decay(
+        self,
+        results: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Apply temporal decay to results after reranking.
+
+        Applies exponential decay based on document age, reducing scores
+        for older documents. Uses publish_time if available, falling back
+        to created_at.
+
+        Args:
+            results: Results with rerank_score (if reranked) or rrf_score.
+
+        Returns:
+            Results with decay-adjusted scores, re-sorted by final score.
+        """
+        from datetime import UTC, datetime
+
+        from modules.search.temporal_decay import (
+            apply_temporal_decay,
+            calculate_age_in_days,
+        )
+
+        now = datetime.now(UTC)
+        half_life = self._config.temporal_decay_half_life_days
+
+        for result in results:
+            # Get timestamp (prefer publish_time, fallback to created_at)
+            publish_time = result.get("publish_time")
+            created_at = result.get("created_at")
+            timestamp = publish_time or created_at
+
+            # Calculate age and apply decay
+            age_days = calculate_age_in_days(timestamp, now)
+
+            # Use rerank_score if available (after reranking), else rrf_score
+            original_score = result.get("rerank_score") or result.get("rrf_score", 0.0)
+
+            decayed_score = apply_temporal_decay(
+                score=original_score,
+                age_in_days=age_days,
+                half_life_days=half_life,
+            )
+
+            # Update the appropriate score field
+            if result.get("rerank_score") is not None:
+                result["rerank_score"] = decayed_score
+            else:
+                result["rrf_score"] = decayed_score
+
+            # Store the decay multiplier for transparency
+            result["temporal_decay_multiplier"] = (
+                decayed_score / original_score if original_score > 0 else 1.0
+            )
+
+        # Re-sort by final score (rerank_score or rrf_score)
+        results.sort(
+            key=lambda x: x.get("rerank_score") or x.get("rrf_score", 0),
+            reverse=True,
+        )
+
+        return results
+
     def _to_hybrid_results(
         self,
         results: list[dict[str, Any]],
@@ -383,6 +455,8 @@ class HybridSearchEngine:
                 bm25_rank=r.get("bm25_rank"),
                 rerank_score=r.get("rerank_score"),
                 mmr_score=r.get("mmr_score"),
+                publish_time=r.get("publish_time"),
+                temporal_decay_multiplier=r.get("temporal_decay_multiplier"),
                 metadata=r,
             )
             for r in results
