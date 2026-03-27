@@ -16,10 +16,10 @@ def get_test_pool():
     """Create a new PostgresPool for testing."""
     from core.db.postgres import PostgresPool
 
-    # Use WEAVER_POSTGRES__DSN if set (Docker Compose), otherwise fallback to localhost:5434
+    # Use WEAVER_POSTGRES__DSN if set (Docker Compose), otherwise fallback to localhost:5432
     dsn = os.getenv(
         "WEAVER_POSTGRES__DSN",
-        os.getenv("POSTGRES_DSN", "postgresql+asyncpg://postgres:postgres@localhost:5434/weaver"),
+        os.getenv("POSTGRES_DSN", "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver"),
     )
     return PostgresPool(dsn)
 

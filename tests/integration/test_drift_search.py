@@ -155,7 +155,8 @@ class TestDRIFTSarchPrimerPhase:
             result = await engine._primer_phase("Unknown topic?")
 
             assert result["fallback"] is True
-            assert result["community_count"] == 0
+            assert result["answer"] == ""
+            assert result["llm_calls"] == 0
 
     @pytest.mark.asyncio
     async def test_primer_phase_extract_questions(self, mock_neo4j_pool, mock_llm):
@@ -244,7 +245,7 @@ class TestDRIFTSarchFollowUpPhase:
                 answer="High confidence answer",
                 confidence=0.85,
                 entities=[],
-                relationships=[],
+                context_tokens=100,
             )
         )
 
@@ -357,7 +358,7 @@ class TestDRIFTSarchFullWorkflow:
                 answer="Local search fallback answer",
                 confidence=0.7,
                 entities=[],
-                relationships=[],
+                context_tokens=100,
             )
         )
 

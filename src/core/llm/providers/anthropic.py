@@ -119,3 +119,10 @@ class AnthropicProvider(BaseLLMProvider):
             NotImplementedError: Anthropic provider does not support embeddings.
         """
         raise NotImplementedError("Use EmbeddingProvider for embeddings")
+
+    async def close(self) -> None:
+        """Clean up resources.
+
+        No explicit cleanup needed for ChatAnthropic client.
+        """
+        pass

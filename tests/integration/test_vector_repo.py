@@ -58,7 +58,7 @@ class TestVectorRepoIntegration:
         dsn = os.getenv(
             "WEAVER_POSTGRES__DSN",
             os.getenv(
-                "POSTGRES_DSN", "postgresql+asyncpg://postgres:postgres@localhost:5434/weaver"
+                "POSTGRES_DSN", "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver"
             ),
         )
         pool = PostgresPool(dsn)

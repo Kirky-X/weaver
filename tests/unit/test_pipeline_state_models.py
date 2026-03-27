@@ -8,13 +8,12 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
+from core.constants import PipelineState, ProcessingStatus
 from modules.collector.models import ArticleRaw
 from modules.pipeline.state_models import (
     CleanedData,
     CredibilityModel,
     EntityData,
-    PersistStatus,
-    PipelineStage,
     RelationData,
     ValidatedPipelineState,
     VectorData,
@@ -287,39 +286,40 @@ class TestValidatedPipelineState:
 
 
 class TestPipelineStage:
-    """Tests for PipelineStage enum."""
+    """Tests for PipelineState enum (formerly PipelineStage)."""
 
     def test_stage_values(self):
         """Test that all expected stages exist."""
-        assert PipelineStage.RAW == "raw"
-        assert PipelineStage.CLASSIFIED == "classified"
-        assert PipelineStage.CLEANED == "cleaned"
-        assert PipelineStage.CATEGORIZED == "categorized"
-        assert PipelineStage.VECTORIZED == "vectorized"
-        assert PipelineStage.MERGED == "merged"
-        assert PipelineStage.ANALYZED == "analyzed"
-        assert PipelineStage.CREDIBILITY_CHECKED == "credibility_checked"
-        assert PipelineStage.ENTITY_EXTRACTED == "entity_extracted"
-        assert PipelineStage.PERSISTED == "persisted"
+        assert PipelineState.RAW == "raw"
+        assert PipelineState.CLASSIFIED == "classified"
+        assert PipelineState.CLEANED == "cleaned"
+        assert PipelineState.VECTORIZED == "vectorized"
+        assert PipelineState.ANALYZED == "analyzed"
+        assert PipelineState.CREDIBILITY_SCORED == "credibility_scored"
+        assert PipelineState.ENTITY_EXTRACTED == "entity_extracted"
+        assert PipelineState.PERSISTED == "persisted"
+        assert PipelineState.DONE == "done"
+        assert PipelineState.FAILED == "failed"
 
     def test_stage_is_string(self):
         """Test that stages are strings."""
-        assert isinstance(PipelineStage.RAW, str)
+        assert isinstance(PipelineState.RAW, str)
 
 
 class TestPersistStatus:
-    """Tests for PersistStatus enum."""
+    """Tests for ProcessingStatus enum (formerly PersistStatus)."""
 
     def test_status_values(self):
         """Test that all expected statuses exist."""
-        assert PersistStatus.PENDING == "pending"
-        assert PersistStatus.PROCESSING == "processing"
-        assert PersistStatus.DONE == "done"
-        assert PersistStatus.FAILED == "failed"
+        assert ProcessingStatus.PENDING == "pending"
+        assert ProcessingStatus.PROCESSING == "processing"
+        assert ProcessingStatus.COMPLETED == "completed"
+        assert ProcessingStatus.FAILED == "failed"
+        assert ProcessingStatus.RETRY == "retry"
 
     def test_status_is_string(self):
         """Test that statuses are strings."""
-        assert isinstance(PersistStatus.DONE, str)
+        assert isinstance(ProcessingStatus.COMPLETED, str)
 
 
 class TestStateConversionRoundTrip:

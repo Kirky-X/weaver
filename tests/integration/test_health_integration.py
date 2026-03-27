@@ -23,9 +23,10 @@ def create_test_app():
     async def health_check_endpoint():
         """Health check endpoint with dependency checks."""
         result = await check_health()
-        if result["status"] != "healthy":
-            raise HTTPException(status_code=503, detail=result)
-        return result
+        # result is HealthCheckResponse Pydantic model
+        if result.status != "healthy":
+            raise HTTPException(status_code=503, detail=result.model_dump())
+        return result.model_dump()
 
     return app
 

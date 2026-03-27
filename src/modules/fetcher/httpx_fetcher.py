@@ -127,12 +127,17 @@ class HttpxFetcher(BaseFetcher):
             Tuple of (status_code, response_text, response_headers).
 
         Raises:
+            URLValidationError: If URL is blocked for SSRF protection.
             RedirectBlockedError: If a redirect is blocked for security.
         """
         import time
 
         start = time.monotonic()
         try:
+            # Validate URL before making request (SSRF protection)
+            if self._url_validator:
+                await self._url_validator.validate(url)
+
             # Build request to allow redirect inspection
             request = self._client.build_request("GET", url, headers=headers or {})
 
@@ -167,11 +172,11 @@ class HttpxFetcher(BaseFetcher):
             MetricsCollector.fetch_latency.labels(method="httpx").observe(latency)
             log.warning("httpx_status_error", url=url, status=exc.response.status_code)
             raise
-        except httpx.HTTP2Error as exc:
+        except httpx.TransportError as exc:
             latency = time.monotonic() - start
-            MetricsCollector.fetch_total.labels(method="httpx", status="http2_error").inc()
+            MetricsCollector.fetch_total.labels(method="httpx", status="transport_error").inc()
             MetricsCollector.fetch_latency.labels(method="httpx").observe(latency)
-            log.warning("httpx_http2_error", url=url, error=str(exc))
+            log.warning("httpx_transport_error", url=url, error=str(exc))
             raise
         except Exception as exc:
             latency = time.monotonic() - start

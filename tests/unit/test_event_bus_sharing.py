@@ -10,10 +10,10 @@ class TestEventBusSharing:
     """Test that init_llm() and init_pipeline() share the same EventBus instance."""
 
     def test_init_llm_stores_event_bus_as_instance_variable(self):
-        """Test init_llm() stores EventBus as self._event_bus, not a local variable.
+        """Test init_llm() stores EventBus as self._event_bus.
 
-        Verifies ISSUE-2 fix: EventBus must be stored as self._event_bus,
-        not as a local variable, so init_pipeline() can share the same instance.
+        Verifies that EventBus is stored as self._event_bus in init_llm(),
+        so init_pipeline() can share the same instance.
         """
         import inspect
 
@@ -25,17 +25,26 @@ class TestEventBusSharing:
 
         source = inspect.getsource(container.init_llm)
 
-        # ISSUE-2 fix verification: EventBus must be assigned to self._event_bus
-        # (not a local variable), so init_pipeline() can reuse it.
+        # Verify EventBus is created and stored in init_llm
         assert "self._event_bus = EventBus()" in source, (
-            "EventBus must be assigned to self._event_bus (instance variable), "
-            "not a local variable. This is the ISSUE-2 fix."
+            "EventBus must be assigned to self._event_bus in init_llm(). "
+            "This allows init_pipeline() to reuse the same instance."
         )
-        # Verify LLMQueueManager receives event_bus as kwarg
-        assert (
-            "event_bus=self._event_bus" in source
-        ), "LLMQueueManager must receive event_bus=self._event_bus"
-        # Verify the event bus is NOT created locally in init_pipeline without checking self._event_bus
+
+    def test_init_pipeline_checks_existing_event_bus(self):
+        """Test init_pipeline() checks if self._event_bus already exists.
+
+        Verifies that init_pipeline() does NOT create a new EventBus
+        if one was already created by init_llm().
+        """
+        import inspect
+
+        from config.settings import Settings
+        from container import Container
+
+        settings = Settings()
+        container = Container().configure(settings)
+
         pipeline_source = inspect.getsource(container.init_pipeline)
         assert (
             "if self._event_bus is None:" in pipeline_source
@@ -57,6 +66,7 @@ class TestEventBusSharing:
         existing_bus = MagicMock()
         container._event_bus = existing_bus
         container._llm_client = MagicMock()
+        container._prompt_loader = MagicMock()
 
         mock_spacy = MagicMock()
         mock_token_budget = MagicMock()
@@ -90,6 +100,7 @@ class TestEventBusSharing:
 
         container._event_bus = None
         container._llm_client = MagicMock()
+        container._prompt_loader = MagicMock()
 
         mock_spacy = MagicMock()
         mock_token_budget = MagicMock()

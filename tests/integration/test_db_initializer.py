@@ -24,8 +24,8 @@ class TestDatabaseInitializerIntegration:
         # Prevent E2E test env vars from leaking into this test
         monkeypatch.delenv("WEAVER_POSTGRES__DSN", raising=False)
         monkeypatch.delenv("POSTGRES_DSN", raising=False)
-        # Use port 5434 (Docker Compose weaver stack)
-        return "postgresql+asyncpg://postgres:postgres@localhost:5434/weaver"
+        # Use port 5432 (Docker weaver stack)
+        return "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver"
 
     @pytest.mark.asyncio
     async def test_parse_dsn_from_settings(self, test_dsn):
@@ -33,7 +33,7 @@ class TestDatabaseInitializerIntegration:
         result = parse_dsn(test_dsn)
         assert result.database == "weaver"
         assert result.user == "postgres"
-        assert result.port == 5434
+        assert result.port == 5432
 
     @pytest.mark.asyncio
     async def test_check_database_exists_real(self, test_dsn):
