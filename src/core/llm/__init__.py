@@ -22,12 +22,6 @@ Example usage:
         payload={"user_content": "Hello"},
     )
 
-    # With fallback
-    response = await client.call(
-        "chat.cc_stitch.claude-sonnet-4",
-        payload={"user_content": "Hello"},
-        fallback_labels=["chat.iflow.qwen3-max"],
-    )
 """
 
 from core.llm.label import InvalidLabelError, Label

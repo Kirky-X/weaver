@@ -51,13 +51,6 @@ class LLMClient:
             payload={"user_content": "Hello"},
         )
 
-        # With fallback
-        response = await client.call(
-            "chat.cc_stitch.claude-sonnet-4",
-            payload={"user_content": "Hello"},
-            fallback_labels=["chat.iflow.qwen3-max"],
-        )
-
         # Embedding
         vectors = await client.embed(
             "embedding.embedding.qwen3-embedding:0.6b",
