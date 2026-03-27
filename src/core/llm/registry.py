@@ -197,6 +197,7 @@ class ProviderRegistry:
     def _register_builtin_providers(self) -> None:
         """注册内置供应商。"""
         # 延迟导入避免循环依赖
+        from core.llm.providers.aiping_rerank import AIPingRerankProvider
         from core.llm.providers.anthropic import AnthropicProvider
         from core.llm.providers.chat import ChatProvider
         from core.llm.providers.embedding import EmbeddingProvider
@@ -309,5 +310,23 @@ class ProviderRegistry:
                 default_base_url="http://localhost:11434/v1",
                 default_model="qwen3.5:9b",
                 requires_api_key=False,
+            ),
+        )
+
+        # aiping AI Rerank (Custom REST API)
+        self.register(
+            "aiping_rerank",
+            lambda api_key, base_url, model, timeout: AIPingRerankProvider(
+                api_key=api_key,
+                base_url=base_url or "https://www.aiping.cn/api/v1",
+                model=model or "Qwen3-Reranker-0.6B",
+                timeout=timeout,
+            ),
+            ProviderMetadata(
+                name="aiping_rerank",
+                display_name="aiping Rerank",
+                capabilities=frozenset({ProviderCapability.RERANK}),
+                default_base_url="https://www.aiping.cn/api/v1",
+                default_model="Qwen3-Reranker-0.6B",
             ),
         )
