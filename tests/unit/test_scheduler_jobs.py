@@ -475,11 +475,17 @@ class TestSyncNeo4jWithPostgres:
         scheduler_jobs._neo4j_writer.article_repo.list_all_article_pg_ids = AsyncMock(
             return_value=[pg_id]
         )
+        scheduler_jobs._neo4j_writer.article_repo.count_articles_without_mentions = AsyncMock(
+            return_value=0
+        )
         scheduler_jobs._article_repo.get_incomplete_articles = AsyncMock(return_value=[])
 
         result = await scheduler_jobs.sync_neo4j_with_postgres()
 
-        assert result == 0
+        assert result["neo4j_orphans_deleted"] == 0
+        assert result["orphan_articles_cleaned"] == 0
+        assert result["enrichment_gaps_detected"] == 0
+        assert result["enrichment_gaps_reverted"] == 0
         scheduler_jobs._neo4j_writer.article_repo.delete_orphan_articles.assert_not_called()
         scheduler_jobs._article_repo.revert_to_pg_done.assert_not_called()
 
@@ -501,7 +507,7 @@ class TestSyncNeo4jWithPostgres:
 
         result = await scheduler_jobs.sync_neo4j_with_postgres()
 
-        assert result == 1
+        assert result["neo4j_orphans_deleted"] == 1
         scheduler_jobs._neo4j_writer.article_repo.delete_orphan_articles.assert_called_once()
 
     @pytest.mark.asyncio
@@ -525,6 +531,11 @@ class TestSyncNeo4jWithPostgres:
         incomplete_article.id = uuid.uuid4()
         incomplete_article.source_url = "https://example.com/article"
         incomplete_article.persist_status = PersistStatus.NEO4J_DONE
+        incomplete_article.category = None
+        incomplete_article.score = None
+        incomplete_article.credibility_score = None
+        incomplete_article.summary = None
+        incomplete_article.quality_score = None
 
         scheduler_jobs._article_repo.get_incomplete_articles = AsyncMock(
             return_value=[incomplete_article]
@@ -533,7 +544,8 @@ class TestSyncNeo4jWithPostgres:
 
         result = await scheduler_jobs.sync_neo4j_with_postgres()
 
-        assert result == 0
+        assert result["enrichment_gaps_detected"] == 1
+        assert result["enrichment_gaps_reverted"] == 1
         scheduler_jobs._article_repo.revert_to_pg_done.assert_called_once_with(
             incomplete_article.id
         )

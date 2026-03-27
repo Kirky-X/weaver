@@ -268,7 +268,7 @@ class SchedulerJobs:
             log.error("cleanup_orphan_entity_vectors_failed", error=str(exc))
             return 0
 
-    async def sync_neo4j_with_postgres(self) -> int:
+    async def sync_neo4j_with_postgres(self) -> dict[str, int]:
         """Synchronize Neo4j articles with PostgreSQL.
 
         Detects and cleans up three types of inconsistency:
@@ -277,9 +277,20 @@ class SchedulerJobs:
         3. Enrichment gaps (NEO4J_DONE status but NULL enrichment fields)
 
         Returns:
-            Number of orphan articles deleted.
+            Dict with detailed statistics:
+            - neo4j_orphans_deleted: Neo4j nodes not in PostgreSQL
+            - orphan_articles_cleaned: Articles without MENTIONS
+            - enrichment_gaps_detected: Articles with missing enrichment
+            - enrichment_gaps_reverted: Articles reverted to PG_DONE
         """
         log.info("sync_neo4j_with_postgres_start")
+
+        stats = {
+            "neo4j_orphans_deleted": 0,
+            "orphan_articles_cleaned": 0,
+            "enrichment_gaps_detected": 0,
+            "enrichment_gaps_reverted": 0,
+        }
 
         try:
             pg_ids = await self._article_repo.get_all_article_ids()
@@ -288,52 +299,57 @@ class SchedulerJobs:
             neo4j_ids = await self._neo4j_writer.article_repo.list_all_article_pg_ids()
             orphan_ids = set(neo4j_ids) - pg_ids
 
-            deleted = 0
             if orphan_ids:
-                deleted = await self._neo4j_writer.article_repo.delete_orphan_articles(
-                    list(orphan_ids)
+                stats["neo4j_orphans_deleted"] = (
+                    await self._neo4j_writer.article_repo.delete_orphan_articles(list(orphan_ids))
                 )
                 log.info(
                     "sync_neo4j_with_postgres_orphans_cleaned",
-                    deleted=deleted,
+                    deleted=stats["neo4j_orphans_deleted"],
                     orphan_count=len(orphan_ids),
                 )
 
             # 2. Detect and clean up orphan articles without MENTIONS relationships
             # These articles exist in Neo4j and PostgreSQL, but have no meaningful
             # connections (no MENTIONS relationships and no FOLLOWED_BY outgoing)
-            orphan_articles = (
+            stats["orphan_articles_cleaned"] = (
                 await self._neo4j_writer.article_repo.count_articles_without_mentions()
             )
-            if orphan_articles > 0:
+            if stats["orphan_articles_cleaned"] > 0:
                 await self._neo4j_writer.article_repo.delete_articles_without_mentions()
                 log.info(
                     "sync_neo4j_orphan_articles_cleaned",
-                    count=orphan_articles,
+                    count=stats["orphan_articles_cleaned"],
                 )
 
             # 3. Detect enrichment gaps (NEO4J_DONE but NULL enrichment fields)
             incomplete = await self._article_repo.get_incomplete_articles(limit=100)
+            stats["enrichment_gaps_detected"] = len(incomplete)
+
             for article in incomplete:
                 log.warning(
                     "enrichment_gap_detected",
                     article_id=str(article.id),
                     url=article.source_url,
+                    category=article.category.value if article.category else None,
+                    score=float(article.score) if article.score else None,
+                    credibility_score=(
+                        float(article.credibility_score) if article.credibility_score else None
+                    ),
+                    summary_present=article.summary is not None,
+                    quality_score=float(article.quality_score) if article.quality_score else None,
                 )
                 # Revert to PG_DONE so retry pipeline picks it up
-                await self._article_repo.revert_to_pg_done(article.id)
-                log.info("enrichment_gap_reverted", article_id=str(article.id))
+                reverted = await self._article_repo.revert_to_pg_done(article.id)
+                if reverted:
+                    stats["enrichment_gaps_reverted"] += 1
+                    log.info("enrichment_gap_reverted", article_id=str(article.id))
 
-            log.info(
-                "sync_neo4j_with_postgres_complete",
-                deleted=deleted,
-                gaps=len(incomplete),
-                orphan_articles_cleaned=orphan_articles,
-            )
-            return deleted
+            log.info("sync_neo4j_with_postgres_complete", **stats)
+            return stats
         except Exception as exc:
             log.error("sync_neo4j_with_postgres_failed", error=str(exc))
-            return 0
+            return stats
 
     async def retry_pipeline_processing(self) -> int:
         """Retry failed or stuck pipeline processing.

@@ -78,3 +78,8 @@ class PipelineState(TypedDict, total=False):
 
     # Prompt version tracking
     prompt_versions: dict[str, str]
+
+    # Degraded value tracking
+    # Records fields that were set to fallback/default values due to LLM failures
+    degraded_fields: list[str]  # Field names that used fallback values
+    degradation_reasons: dict[str, str]  # Field name -> reason for degradation

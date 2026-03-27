@@ -533,24 +533,20 @@ class Pipeline:
 
         if self._neo4j_writer:
             try:
-                neo4j_ids = await self._neo4j_writer.write(state)
-                state["neo4j_ids"] = neo4j_ids
-
-                # Validate enrichment completeness before marking as NEO4J_DONE
-                # Articles with missing enrichment fields should not be marked complete
+                # Validate enrichment completeness BEFORE Neo4j write
+                # This prevents creating orphan Neo4j nodes for incomplete articles
                 is_complete, missing_fields = is_enrichment_complete(state)
                 if not is_complete:
                     log.warning(
-                        "enrichment_incomplete_before_neo4j_done",
+                        "persist_neo4j_skipped_incomplete",
                         article_id=state.get("article_id"),
                         missing_fields=missing_fields,
                     )
-                    # Mark as PG_DONE so retry pipeline can complete enrichment
-                    if self._article_repo:
-                        await self._article_repo.update_persist_status(
-                            state["article_id"], PersistStatus.PG_DONE
-                        )
+                    # Skip Neo4j write, keep PG_DONE for retry pipeline
                     return
+
+                neo4j_ids = await self._neo4j_writer.write(state)
+                state["neo4j_ids"] = neo4j_ids
 
                 if self._article_repo:
                     await self._article_repo.update_persist_status(
@@ -659,7 +655,10 @@ class Pipeline:
         log.debug("vectors_bulk_persisted", count=count)
 
     async def _persist_to_neo4j(self, states: list[PipelineState]) -> None:
-        """Persist articles to Neo4j.
+        """Persist articles to Neo4j with enrichment validation.
+
+        Only writes to Neo4j if enrichment is complete. Incomplete articles
+        remain in PG_DONE status for retry pipeline to complete enrichment.
 
         Args:
             states: List of pipeline states with article IDs.
@@ -669,14 +668,30 @@ class Pipeline:
         if not self._neo4j_writer:
             return
 
+        complete_count = 0
+        incomplete_count = 0
+
         for state in states:
             try:
+                # Validate enrichment completeness before Neo4j write
+                is_complete, missing_fields = is_enrichment_complete(state)
+                if not is_complete:
+                    log.warning(
+                        "persist_neo4j_skipped_incomplete",
+                        article_id=state.get("article_id"),
+                        missing_fields=missing_fields,
+                    )
+                    incomplete_count += 1
+                    # Skip Neo4j write, keep PG_DONE for retry pipeline
+                    continue
+
                 neo4j_ids = await self._neo4j_writer.write(state)
                 state["neo4j_ids"] = neo4j_ids
                 if self._article_repo and state.get("article_id"):
                     await self._article_repo.update_persist_status(
                         uuid.UUID(state["article_id"]), PersistStatus.NEO4J_DONE
                     )
+                complete_count += 1
             except Exception as exc:
                 log.error(
                     "persist_neo4j_failed",
@@ -694,6 +709,12 @@ class Pipeline:
                             article_id=state.get("article_id"),
                             error=str(mark_err),
                         )
+
+        log.info(
+            "persist_neo4j_batch_complete",
+            complete_count=complete_count,
+            incomplete_count=incomplete_count,
+        )
 
     async def _persist_batch(self, states: list[PipelineState]) -> None:
         """Persist batch of articles to Postgres and Neo4j.

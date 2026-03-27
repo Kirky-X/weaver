@@ -695,6 +695,12 @@ class TestPipelinePersist:
 
         state = PipelineState(raw=raw)
         state["cleaned"] = {"title": "Title", "body": "Body"}
+        # Add complete enrichment fields for validation
+        state["category"] = "technology"
+        state["score"] = 0.85
+        state["quality_score"] = 0.90
+        state["summary_info"] = {"summary": "Test summary"}
+        state["credibility"] = {"score": 0.95}
 
         await pipeline._persist(state)
 
