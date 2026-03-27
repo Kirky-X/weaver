@@ -51,5 +51,9 @@ class BaseLLMProvider(ABC):
 
     @abstractmethod
     async def close(self) -> None:
-        """Clean up resources."""
+        """Clean up resources.
+
+        Subclasses should override this method if they need to release
+        resources (e.g., HTTP clients).
+        """
         ...

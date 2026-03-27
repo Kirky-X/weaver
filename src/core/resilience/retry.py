@@ -73,6 +73,44 @@ def _log_retry_attempt(retry_state: RetryCallState) -> None:
     )
 
 
+def _create_retry_strategy(
+    exception_types: tuple[type[Exception], ...],
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    min_wait: float = DEFAULT_MIN_WAIT,
+    max_wait: float = DEFAULT_MAX_WAIT,
+    jitter: float = DEFAULT_JITTER,
+    max_delay: float | None = None,
+) -> AsyncRetrying:
+    """Create a retry strategy for specific exception types.
+
+    Args:
+        exception_types: Tuple of exception types to retry on.
+        max_attempts: Maximum number of retry attempts.
+        min_wait: Minimum wait time between retries (seconds).
+        max_wait: Maximum wait time between retries (seconds).
+        jitter: Maximum random jitter to add (seconds).
+        max_delay: Maximum total retry time (seconds), None for no limit.
+
+    Returns:
+        AsyncRetrying instance configured for the specified exceptions.
+    """
+    stop: Any = stop_after_attempt(max_attempts)
+    if max_delay is not None:
+        stop = stop | stop_after_delay(max_delay)
+
+    return AsyncRetrying(
+        reraise=True,
+        stop=stop,
+        wait=wait_exponential_jitter(
+            initial=min_wait,
+            max=max_wait,
+            jitter=jitter,
+        ),
+        retry=retry_if_exception_type(exception_types),
+        before_sleep=_log_retry_attempt,
+    )
+
+
 def retry_network(
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
     min_wait: float = DEFAULT_MIN_WAIT,
@@ -95,20 +133,13 @@ def retry_network(
     Returns:
         AsyncRetrying instance configured for network operations.
     """
-    stop: Any = stop_after_attempt(max_attempts)
-    if max_delay is not None:
-        stop = stop | stop_after_delay(max_delay)
-
-    return AsyncRetrying(
-        reraise=True,
-        stop=stop,
-        wait=wait_exponential_jitter(
-            initial=min_wait,
-            max=max_wait,
-            jitter=jitter,
-        ),
-        retry=retry_if_exception_type(NETWORK_EXCEPTIONS),
-        before_sleep=_log_retry_attempt,
+    return _create_retry_strategy(
+        NETWORK_EXCEPTIONS,
+        max_attempts=max_attempts,
+        min_wait=min_wait,
+        max_wait=max_wait,
+        jitter=jitter,
+        max_delay=max_delay,
     )
 
 
@@ -134,20 +165,13 @@ def retry_llm(
     Returns:
         AsyncRetrying instance configured for LLM operations.
     """
-    stop: Any = stop_after_attempt(max_attempts)
-    if max_delay is not None:
-        stop = stop | stop_after_delay(max_delay)
-
-    return AsyncRetrying(
-        reraise=True,
-        stop=stop,
-        wait=wait_exponential_jitter(
-            initial=min_wait,
-            max=max_wait,
-            jitter=jitter,
-        ),
-        retry=retry_if_exception_type(LLM_EXCEPTIONS + (OutputParserException,)),
-        before_sleep=_log_retry_attempt,
+    return _create_retry_strategy(
+        LLM_EXCEPTIONS + (OutputParserException,),
+        max_attempts=max_attempts,
+        min_wait=min_wait,
+        max_wait=max_wait,
+        jitter=jitter,
+        max_delay=max_delay,
     )
 
 
@@ -173,21 +197,49 @@ def retry_db(
     Returns:
         AsyncRetrying instance configured for database operations.
     """
-    stop: Any = stop_after_attempt(max_attempts)
-    if max_delay is not None:
-        stop = stop | stop_after_delay(max_delay)
-
-    return AsyncRetrying(
-        reraise=True,
-        stop=stop,
-        wait=wait_exponential_jitter(
-            initial=min_wait,
-            max=max_wait,
-            jitter=jitter,
-        ),
-        retry=retry_if_exception_type(DB_EXCEPTIONS),
-        before_sleep=_log_retry_attempt,
+    return _create_retry_strategy(
+        DB_EXCEPTIONS,
+        max_attempts=max_attempts,
+        min_wait=min_wait,
+        max_wait=max_wait,
+        jitter=jitter,
+        max_delay=max_delay,
     )
+
+
+def _create_retry_decorator(
+    retry_func: Callable[..., AsyncRetrying],
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    min_wait: float = DEFAULT_MIN_WAIT,
+    max_wait: float = DEFAULT_MAX_WAIT,
+) -> Callable[[Callable[..., T]], Callable[..., T]]:
+    """Create a retry decorator for async functions.
+
+    Args:
+        retry_func: The retry strategy function to use.
+        max_attempts: Maximum number of retry attempts.
+        min_wait: Minimum wait time between retries (seconds).
+        max_wait: Maximum wait time between retries (seconds).
+
+    Returns:
+        A decorator function.
+    """
+    retryer = retry_func(
+        max_attempts=max_attempts,
+        min_wait=min_wait,
+        max_wait=max_wait,
+    )
+
+    def decorator(fn: Callable[..., T]) -> Callable[..., T]:
+        async def wrapper(*args: Any, **kwargs: Any) -> T:
+            async for attempt in retryer:
+                with attempt:
+                    return await fn(*args, **kwargs)  # type: ignore[misc]
+            raise RuntimeError("Retry exhausted")
+
+        return wrapper  # type: ignore[return-value]
+
+    return decorator
 
 
 def with_network_retry(
@@ -202,22 +254,7 @@ def with_network_retry(
         async def fetch_url(url: str) -> str:
             ...
     """
-    retryer = retry_network(
-        max_attempts=max_attempts,
-        min_wait=min_wait,
-        max_wait=max_wait,
-    )
-
-    def decorator(fn: Callable[..., T]) -> Callable[..., T]:
-        async def wrapper(*args: Any, **kwargs: Any) -> T:
-            async for attempt in retryer:
-                with attempt:
-                    return await fn(*args, **kwargs)  # type: ignore[misc]
-            raise RuntimeError("Retry exhausted")
-
-        return wrapper  # type: ignore[return-value]
-
-    return decorator
+    return _create_retry_decorator(retry_network, max_attempts, min_wait, max_wait)
 
 
 def with_llm_retry(
@@ -232,22 +269,7 @@ def with_llm_retry(
         async def call_llm(prompt: str) -> str:
             ...
     """
-    retryer = retry_llm(
-        max_attempts=max_attempts,
-        min_wait=min_wait,
-        max_wait=max_wait,
-    )
-
-    def decorator(fn: Callable[..., T]) -> Callable[..., T]:
-        async def wrapper(*args: Any, **kwargs: Any) -> T:
-            async for attempt in retryer:
-                with attempt:
-                    return await fn(*args, **kwargs)  # type: ignore[misc]
-            raise RuntimeError("Retry exhausted")
-
-        return wrapper  # type: ignore[return-value]
-
-    return decorator
+    return _create_retry_decorator(retry_llm, max_attempts, min_wait, max_wait)
 
 
 def with_db_retry(
@@ -262,19 +284,4 @@ def with_db_retry(
         async def query_database(query: str) -> list:
             ...
     """
-    retryer = retry_db(
-        max_attempts=max_attempts,
-        min_wait=min_wait,
-        max_wait=max_wait,
-    )
-
-    def decorator(fn: Callable[..., T]) -> Callable[..., T]:
-        async def wrapper(*args: Any, **kwargs: Any) -> T:
-            async for attempt in retryer:
-                with attempt:
-                    return await fn(*args, **kwargs)  # type: ignore[misc]
-            raise RuntimeError("Retry exhausted")
-
-        return wrapper  # type: ignore[return-value]
-
-    return decorator
+    return _create_retry_decorator(retry_db, max_attempts, min_wait, max_wait)

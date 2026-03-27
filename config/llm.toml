@@ -1,0 +1,196 @@
+# LLM Configuration
+# This file defines LLM providers, models, and routing rules.
+
+# -----------------------------------------------------------------------------
+# Global Settings
+# -----------------------------------------------------------------------------
+
+[global]
+default_chat_provider = "cc_stitch"
+default_embedding_provider = "embedding"
+default_rerank_provider = "jina"
+
+# Circuit breaker settings
+circuit_breaker_threshold = 5      # Number of failures before opening
+circuit_breaker_timeout = 60.0     # Seconds before transitioning to half-open
+
+# Default timeout for LLM calls
+default_timeout = 120.0
+
+# -----------------------------------------------------------------------------
+# Provider Definitions
+# -----------------------------------------------------------------------------
+
+# Claude via CC-Stitch (Anthropic)
+[providers.cc_stitch]
+type = "anthropic"
+model = "claude-sonnet-4-20250514"
+api_key = "${ANTHROPIC_API_KEY}"
+base_url = "http://127.0.0.1:5000"
+rpm_limit = 0           # 0 = unlimited
+concurrency = 3
+timeout = 300.0
+priority = 10           # Lower = higher priority
+weight = 100
+capabilities = ["chat", "vision", "streaming"]
+
+# iFlow (OpenAI-compatible)
+[providers.iflow]
+type = "openai"
+model = "qwen3-max"
+api_key = "${IFLOW_API_KEY}"
+base_url = "https://apis.iflow.cn/v1"
+rpm_limit = 0
+concurrency = 1
+timeout = 120.0
+priority = 20
+weight = 80
+capabilities = ["chat", "function_calling", "streaming"]
+
+# Zhipu AI (OpenAI-compatible)
+[providers.zhipu]
+type = "openai"
+model = "glm-4.7-flash"
+api_key = "${ZHIPU_API_KEY}"
+base_url = "https://open.bigmodel.cn/api/paas/v4"
+rpm_limit = 30
+concurrency = 1
+timeout = 120.0
+priority = 30
+weight = 60
+capabilities = ["chat", "streaming"]
+
+# Ollama local embedding
+[providers.embedding]
+type = "embedding"
+model = "qwen3-embedding:0.6b"
+api_key = "ollama"
+base_url = "http://localhost:11434"
+rpm_limit = 0
+concurrency = 3
+timeout = 60.0
+priority = 10
+weight = 100
+capabilities = ["embedding"]
+
+# OpenAI GPT-4
+[providers.openai]
+type = "openai"
+model = "gpt-4o"
+api_key = "${OPENAI_API_KEY}"
+base_url = "https://api.openai.com/v1"
+rpm_limit = 60
+concurrency = 5
+timeout = 120.0
+priority = 50
+weight = 100
+capabilities = ["chat", "embedding", "function_calling", "streaming", "vision"]
+
+# Jina Rerank
+[providers.jina]
+type = "rerank"
+model = "jina-reranker-v2"
+api_key = "${JINA_API_KEY}"
+base_url = "https://api.jina.ai/v1"
+rpm_limit = 60
+concurrency = 5
+timeout = 30.0
+priority = 10
+weight = 100
+capabilities = ["rerank"]
+
+# -----------------------------------------------------------------------------
+# Call Point Routing
+# Uses label format: {type}.{provider}.{model}
+# -----------------------------------------------------------------------------
+
+[call-points.classifier]
+primary = "chat.cc_stitch.claude-sonnet-4-20250514"
+fallbacks = [
+    "chat.iflow.qwen3-max",
+    "chat.zhipu.glm-4.7-flash",
+]
+
+[call-points.cleaner]
+primary = "chat.cc_stitch.claude-sonnet-4-20250514"
+fallbacks = [
+    "chat.iflow.qwen3-max",
+    "chat.zhipu.glm-4.7-flash",
+]
+
+[call-points.categorizer]
+primary = "chat.cc_stitch.claude-sonnet-4-20250514"
+fallbacks = [
+    "chat.iflow.qwen3-max",
+    "chat.zhipu.glm-4.7-flash",
+]
+
+[call-points.merger]
+primary = "chat.cc_stitch.claude-sonnet-4-20250514"
+fallbacks = [
+    "chat.iflow.qwen3-max",
+    "chat.zhipu.glm-4.7-flash",
+]
+
+[call-points.analyze]
+primary = "chat.cc_stitch.claude-sonnet-4-20250514"
+fallbacks = [
+    "chat.iflow.qwen3-max",
+    "chat.zhipu.glm-4.7-flash",
+]
+
+[call-points.credibility_checker]
+primary = "chat.cc_stitch.claude-sonnet-4-20250514"
+fallbacks = [
+    "chat.iflow.qwen3-max",
+    "chat.zhipu.glm-4.7-flash",
+]
+
+[call-points.quality_scorer]
+primary = "chat.cc_stitch.claude-sonnet-4-20250514"
+fallbacks = [
+    "chat.iflow.qwen3-max",
+    "chat.zhipu.glm-4.7-flash",
+]
+
+[call-points.entity_extractor]
+primary = "chat.cc_stitch.claude-sonnet-4-20250514"
+fallbacks = [
+    "chat.iflow.qwen3-max",
+    "chat.zhipu.glm-4.7-flash",
+]
+
+[call-points.entity_resolver]
+primary = "chat.cc_stitch.claude-sonnet-4-20250514"
+fallbacks = [
+    "chat.iflow.qwen3-max",
+    "chat.zhipu.glm-4.7-flash",
+]
+
+[call-points.embedding]
+primary = "embedding.embedding.qwen3-embedding:0.6b"
+fallbacks = []
+
+[call-points.rerank]
+primary = "rerank.jina.jina-reranker-v2"
+fallbacks = []
+
+# -----------------------------------------------------------------------------
+# Default Labels
+# Used when no specific call point is configured
+# -----------------------------------------------------------------------------
+
+[defaults.chat]
+label = "chat.cc_stitch.claude-sonnet-4-20250514"
+fallbacks = [
+    "chat.iflow.qwen3-max",
+    "chat.zhipu.glm-4.7-flash",
+]
+
+[defaults.embedding]
+label = "embedding.embedding.qwen3-embedding:0.6b"
+fallbacks = []
+
+[defaults.rerank]
+label = "rerank.jina.jina-reranker-v2"
+fallbacks = []

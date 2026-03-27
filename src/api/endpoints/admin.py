@@ -72,9 +72,7 @@ async def list_authorities(
     if needs_review_only:
         authorities = await repo.get_needs_review()
     else:
-        # Get all - would need to add a method to repo
-        # For now, just return needs_review
-        authorities = await repo.get_needs_review()
+        authorities = await repo.list_all()
 
     return success_response(
         [

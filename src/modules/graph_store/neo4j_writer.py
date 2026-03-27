@@ -319,7 +319,6 @@ class Neo4jWriter:
                     error=error_msg,
                     error_type=type(exc).__name__,
                 )
-                print(f"DEBUG entity_relation_failed: {error_msg}")
 
         if count > 0:
             log.info("entity_relations_created", count=count)

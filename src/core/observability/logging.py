@@ -6,6 +6,9 @@ Features:
 - Sensitive data redaction
 - File output with rotation support
 - Environment-based configuration
+
+Note: SENSITIVE_PATTERNS are defined locally to avoid circular imports.
+See core.utils.sanitize for similar patterns used in data sanitization.
 """
 
 from __future__ import annotations
@@ -43,19 +46,20 @@ def get_trace_id() -> str:
     return "N/A"
 
 
-# Patterns for sensitive data detection
+# Patterns for sensitive data detection in logs
+# Note: These patterns use ***REDACTED*** for clear log identification
 SENSITIVE_PATTERNS = [
     # Password patterns
     (re.compile(r"(password|pwd|passwd)=([^\s,;]+)", re.IGNORECASE), r"\1=***REDACTED***"),
     (re.compile(r'(password|pwd|passwd)":"([^"]+)"', re.IGNORECASE), r'\1":"***REDACTED***"'),
-    (re.compile(r"(password|pwd|passwd)\'([^\']+)\'", re.IGNORECASE), r"\1\'***REDACTED***\'"),
+    (re.compile(r"(password|pwd|passwd)'([^']+)'", re.IGNORECASE), r"\1'***REDACTED***'"),
     # API key patterns
     (re.compile(r"(api_key|apikey|api-key)=([^\s,;]+)", re.IGNORECASE), r"\1=***REDACTED***"),
     (re.compile(r'(api_key|apikey|api-key)":"([^"]+)"', re.IGNORECASE), r'\1":"***REDACTED***"'),
-    (re.compile(r"(api_key|apikey|api-key)\'([^\']+)\'", re.IGNORECASE), r"\1\'***REDACTED***\'"),
+    (re.compile(r"(api_key|apikey|api-key)'([^']+)'", re.IGNORECASE), r"\1'***REDACTED***'"),
     # Connection string patterns
     (
-        re.compile(r"(postgres|mysql|mongodb|redis)://([^:]+):([^@]+)@", re.IGNORECASE),
+        re.compile(r"(postgres|mysql|mongodb|redis|bolt)://([^:]+):([^@]+)@", re.IGNORECASE),
         r"\1://\2:***REDACTED***@",
     ),
     # Bearer token patterns

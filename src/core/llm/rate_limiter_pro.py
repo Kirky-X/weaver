@@ -45,7 +45,7 @@ class RateLimiter:
         """
         self._storage_type = storage_type
         self._redis_url = redis_url
-        self._storage: limits.storage.Storage = None
+        self._storage: limits.storage.Storage | None = None
         self._strategies: dict[str, limits.strategies.FixedWindowRateLimiter] = {}
         self._limits: dict[str, limits.RateLimitItem] = {}
         self._lock = asyncio.Lock()
@@ -69,7 +69,12 @@ class RateLimiter:
         Args:
             provider: Provider name
             rate: Rate string (e.g., "60/minute", "10/second")
+
+        Raises:
+            RuntimeError: If storage is not initialized.
         """
+        if self._storage is None:
+            raise RuntimeError("Storage not initialized. Call initialize() first.")
         try:
             limit = limits.parse(rate)
             self._limits[provider] = limit
@@ -97,6 +102,11 @@ class RateLimiter:
         if self._storage is None:
             await self.initialize()
 
+        assert self._storage is not None  # Type guard after initialize()
+
+        limit: limits.RateLimitItem | None = None
+        strategy: limits.strategies.FixedWindowRateLimiter | None = None
+
         if provider not in self._strategies:
             if rpm_limit > 0:
                 limit = limits.parse(f"{rpm_limit}/minute")
@@ -111,34 +121,37 @@ class RateLimiter:
                 limit = limits.parse(f"{rpm_limit}/minute")
                 strategy = limits.strategies.FixedWindowRateLimiter(self._storage)
 
-        if limit is None:
+        if limit is None or strategy is None:
             return 0.0
 
         try:
-            acquired = strategy.hit(limit, tokens)
+            acquired = strategy.hit(limit, provider, cost=tokens)
             if acquired:
                 return 0.0
             else:
-                wait_time = self._get_wait_time(strategy, limit)
+                wait_time = self._get_wait_time(strategy, limit, provider)
                 if wait_time > 0:
                     await asyncio.sleep(wait_time)
                 return wait_time
         except Exception:
-            wait_time = self._get_wait_time(strategy, limit)
+            wait_time = self._get_wait_time(strategy, limit, provider)
             if wait_time > 0:
                 await asyncio.sleep(wait_time)
             return wait_time
 
     def _get_wait_time(
-        self, strategy: limits.strategies.FixedWindowRateLimiter, limit: limits.RateLimitItem
+        self,
+        strategy: limits.strategies.FixedWindowRateLimiter,
+        limit: limits.RateLimitItem,
+        provider: str,
     ) -> float:
         """Get estimated wait time for the limit."""
         try:
-            stats = strategy.get_window_stats(limit)
+            stats = strategy.get_window_stats(limit, provider)
             if stats:
-                return max(0.0, stats.reset_time - stats.time_remaining)
-        except Exception:
-            pass
+                return max(0.0, stats.reset_time - stats.remaining)
+        except Exception as e:
+            log.debug("get_wait_time_failed", error=str(e))
         return 1.0
 
     async def consume(self, provider: str, rpm_limit: int) -> float:
@@ -176,7 +189,7 @@ class RateLimiter:
             return True
 
         try:
-            return strategy.test(limit, tokens)
+            return strategy.test(limit, provider, cost=tokens)
         except Exception:
             return False
 
@@ -199,13 +212,13 @@ class RateLimiter:
             return {"available": True, "limit": "unlimited"}
 
         try:
-            stats = strategy.get_window_stats(limit)
+            stats = strategy.get_window_stats(limit, provider)
             if stats:
                 return {
-                    "available": stats.available,
+                    "available": stats.remaining,
                     "limit": str(limit),
-                    "remaining": stats.available,
-                    "reset_in": stats.reset_time - stats.time_remaining,
+                    "remaining": stats.remaining,
+                    "reset_in": stats.reset_time,
                 }
         except Exception as e:
             log.error("get_stats_error", provider=provider, error=str(e))

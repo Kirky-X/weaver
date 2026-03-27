@@ -91,6 +91,12 @@ class SourceAuthorityRepo:
             )
             return list(result.scalars().all())
 
+    async def list_all(self) -> list[SourceAuthority]:
+        """Get all authorities."""
+        async with self._pool.session() as session:
+            result = await session.execute(select(SourceAuthority).order_by(SourceAuthority.host))
+            return list(result.scalars().all())
+
     async def update_auto_score(self, host: str, auto_score: float) -> None:
         """Update auto-computed authority score."""
         async with self._pool.session() as session:

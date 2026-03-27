@@ -24,9 +24,9 @@ from core.cache import RedisClient
 from core.db import Neo4jPool, PostgresPool
 from core.event import EventBus, LLMFailureEvent
 from core.llm.client import LLMClient
-from core.llm.config_manager import LLMConfigManager
-from core.llm.queue_manager import LLMQueueManager
+from core.llm.pool_manager import PoolManagerConfig, ProviderPoolManager
 from core.llm.rate_limiter import RedisTokenBucket
+from core.llm.registry import ProviderInstanceConfig, ProviderRegistry
 from core.llm.token_budget import TokenBudgetManager
 from core.observability import get_logger
 from core.prompt import PromptLoader
@@ -105,6 +105,7 @@ class Container:
         self._mmr_reranker: MMRReranker | None = None
         self._hybrid_search_engine: HybridSearchEngine | None = None
         self._ap_scheduler: Any = None
+        self._pool_manager: ProviderPoolManager | None = None
         self._shutdown: bool = False  # Idempotency protection
 
     def configure(self, settings: Settings) -> Container:
@@ -176,31 +177,101 @@ class Container:
     # ── LLM & Prompt ─────────────────────────────────────────────
 
     async def init_llm(self) -> LLMClient:
-        """Initialize LLM client."""
+        """Initialize LLM client with the new label-based architecture."""
         if self._llm_client is None:
-            config_manager = LLMConfigManager(self._settings.llm)
+            import tomllib
+            from pathlib import Path
 
+            # Create registry
+            registry = ProviderRegistry.get_instance()
+
+            # Create rate limiter
             rate_limiter = RedisTokenBucket(self._redis_client.client)
 
-            self._event_bus = EventBus()
-            log.info("event_bus_initialized_in_llm", event_bus_id=id(self._event_bus))
-            queue_manager = LLMQueueManager(
-                config_manager=config_manager,
-                rate_limiter=rate_limiter,
-                event_bus=self._event_bus,
+            # Create pool manager config
+            pool_config = PoolManagerConfig(
                 circuit_breaker_threshold=self._settings.fetcher.circuit_breaker_threshold,
                 circuit_breaker_timeout=self._settings.fetcher.circuit_breaker_timeout,
             )
-            await queue_manager.startup()
 
+            # Create pool manager
+            self._pool_manager = ProviderPoolManager(
+                registry=registry,
+                rate_limiter=rate_limiter,
+                config=pool_config,
+            )
+
+            # Load LLM config from TOML file
+            config_path = Path(__file__).parent.parent / "config" / "llm.toml"
+            if config_path.exists():
+                with open(config_path, "rb") as f:
+                    llm_config = tomllib.load(f)
+
+                # Register providers from config
+                providers_config = llm_config.get("providers", {})
+                import os
+
+                for name, provider_cfg in providers_config.items():
+                    # Resolve environment variables in API key
+                    api_key = provider_cfg.get("api_key", "")
+                    if api_key.startswith("${") and api_key.endswith("}"):
+                        env_var = api_key[2:-1]
+                        api_key = os.environ.get(env_var, "")
+
+                    instance_config = ProviderInstanceConfig(
+                        name=name,
+                        provider_type=provider_cfg.get("type", "openai"),
+                        model=provider_cfg.get("model", ""),
+                        api_key=api_key,
+                        base_url=provider_cfg.get("base_url", ""),
+                        rpm_limit=provider_cfg.get("rpm_limit", 60),
+                        concurrency=provider_cfg.get("concurrency", 5),
+                        timeout=provider_cfg.get("timeout", 120.0),
+                        priority=provider_cfg.get("priority", 100),
+                        weight=provider_cfg.get("weight", 100),
+                    )
+
+                    await self._pool_manager.register_provider(instance_config)
+
+                # Start all provider pools
+                await self._pool_manager.start_all()
+
+                # Set default providers
+                global_config = llm_config.get("global", {})
+                from core.llm.types import LLMType
+
+                default_chat = global_config.get("default_chat_provider")
+                if default_chat:
+                    self._pool_manager.set_default_provider(LLMType.CHAT, default_chat)
+
+                default_embedding = global_config.get("default_embedding_provider")
+                if default_embedding:
+                    self._pool_manager.set_default_provider(LLMType.EMBEDDING, default_embedding)
+
+            # Initialize event bus
+            self._event_bus = EventBus()
+            log.info("event_bus_initialized_in_llm", event_bus_id=id(self._event_bus))
+
+            # Create LLM client
             prompt_loader = self.prompt_loader()
             token_budget = TokenBudgetManager()
 
             self._llm_client = LLMClient(
-                queue_manager=queue_manager,
+                pool_manager=self._pool_manager,
                 prompt_loader=prompt_loader,
                 token_budget=token_budget,
+                redis_client=self._redis_client,
             )
+
+            # Configure call points from config
+            if config_path.exists():
+                call_points = llm_config.get("call-points", {})
+                for cp_name, cp_cfg in call_points.items():
+                    primary = cp_cfg.get("primary", "")
+                    fallbacks = cp_cfg.get("fallbacks", [])
+                    if primary:
+                        self._llm_client.configure_call_point(cp_name, primary, fallbacks)
+
             log.info("llm_client_initialized")
 
         return self._llm_client
@@ -871,15 +942,13 @@ class Container:
             except Exception as e:
                 log.warning("ap_scheduler_shutdown_error", error=str(e))
 
-        # Shutdown LLM queue manager (cancel worker tasks)
-        if self._llm_client:
+        # Shutdown LLM pool manager (cancel worker tasks)
+        if self._pool_manager:
             try:
-                queue_manager = self._llm_client._queue_manager
-                if queue_manager:
-                    await queue_manager.shutdown()
-                    log.info("llm_queue_manager_stopped")
+                await self._pool_manager.close_all()
+                log.info("llm_pool_manager_stopped")
             except Exception as e:
-                log.warning("llm_queue_manager_shutdown_error", error=str(e))
+                log.warning("llm_pool_manager_shutdown_error", error=str(e))
 
         # Shutdown pools
         if self._playwright_pool:

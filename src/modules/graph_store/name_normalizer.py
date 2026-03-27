@@ -239,10 +239,6 @@ class NameNormalizer:
                 name = re.sub(pattern, f" {normalized}", name, flags=re.IGNORECASE)
                 break
 
-        for suffix in self._chinese_org_suffixes:
-            if name.endswith(suffix) and len(name) > len(suffix) + 2:
-                pass
-
         return name
 
     def select_canonical(

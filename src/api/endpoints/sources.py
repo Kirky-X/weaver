@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
@@ -15,6 +16,36 @@ from modules.source.models import SourceConfig
 from modules.source.source_config_repo import SourceConfigRepo
 
 router = APIRouter(prefix="/sources", tags=["sources"])
+
+
+# ── URL Validation Helper ─────────────────────────────────────
+
+# Dangerous hosts that should be blocked for security
+_DANGEROUS_HOSTS = {"169.254.169.254", "metadata.google.internal", "localhost", "127.0.0.1"}
+
+
+def _validate_source_url(v: str) -> str:
+    """Validate URL format for security (synchronous check only).
+
+    Args:
+        v: URL string to validate.
+
+    Returns:
+        The validated URL string.
+
+    Raises:
+        ValueError: If URL is invalid or points to a blocked host.
+    """
+    parsed = urlparse(v)
+    if not parsed.scheme:
+        raise ValueError("URL must include a scheme (http:// or https://)")
+    if parsed.scheme.lower() not in ("http", "https"):
+        raise ValueError("URL scheme must be http or https")
+    if not parsed.hostname:
+        raise ValueError("URL must include a hostname")
+    if parsed.hostname.lower() in _DANGEROUS_HOSTS:
+        raise ValueError("Access to this host is blocked for security reasons")
+    return v
 
 
 # ── Request/Response Models ─────────────────────────────────────
@@ -48,22 +79,8 @@ class SourceCreateRequest(BaseModel):
     @field_validator("url")
     @classmethod
     def validate_url(cls, v: str) -> str:
-        """Validate URL format for security (synchronous check only)."""
-        from urllib.parse import urlparse
-
-        parsed = urlparse(v)
-        # Basic format validation
-        if not parsed.scheme:
-            raise ValueError("URL must include a scheme (http:// or https://)")
-        if parsed.scheme.lower() not in ("http", "https"):
-            raise ValueError("URL scheme must be http or https")
-        if not parsed.hostname:
-            raise ValueError("URL must include a hostname")
-        # Block known dangerous hosts
-        dangerous_hosts = {"169.254.169.254", "metadata.google.internal", "localhost", "127.0.0.1"}
-        if parsed.hostname.lower() in dangerous_hosts:
-            raise ValueError("Access to this host is blocked for security reasons")
-        return v
+        """Validate URL format for security."""
+        return _validate_source_url(v)
 
     @field_validator("id", "name")
     @classmethod
@@ -89,24 +106,10 @@ class SourceUpdateRequest(BaseModel):
     @field_validator("url")
     @classmethod
     def validate_url(cls, v: str | None) -> str | None:
-        """Validate URL format for security (synchronous check only)."""
+        """Validate URL format for security."""
         if v is None:
             return v
-        from urllib.parse import urlparse
-
-        parsed = urlparse(v)
-        # Basic format validation
-        if not parsed.scheme:
-            raise ValueError("URL must include a scheme (http:// or https://)")
-        if parsed.scheme.lower() not in ("http", "https"):
-            raise ValueError("URL scheme must be http or https")
-        if not parsed.hostname:
-            raise ValueError("URL must include a hostname")
-        # Block known dangerous hosts
-        dangerous_hosts = {"169.254.169.254", "metadata.google.internal", "localhost", "127.0.0.1"}
-        if parsed.hostname.lower() in dangerous_hosts:
-            raise ValueError("Access to this host is blocked for security reasons")
-        return v
+        return _validate_source_url(v)
 
 
 class SourceResponse(BaseModel):

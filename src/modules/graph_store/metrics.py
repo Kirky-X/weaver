@@ -15,6 +15,31 @@ from core.observability.logging import get_logger
 log = get_logger("graph.metrics")
 
 
+def _dfs_component(start: str, adjacency: dict[str, set[str]], visited: set[str]) -> set[str]:
+    """Perform DFS to find a connected component.
+
+    Args:
+        start: Starting node ID.
+        adjacency: Adjacency dictionary mapping nodes to their neighbors.
+        visited: Set of already visited nodes (modified in-place).
+
+    Returns:
+        Set of nodes in the connected component.
+    """
+    stack = [start]
+    component: set[str] = set()
+    while stack:
+        node = stack.pop()
+        if node in visited:
+            continue
+        visited.add(node)
+        component.add(node)
+        for neighbor in adjacency.get(node, []):
+            if neighbor not in visited:
+                stack.append(neighbor)
+    return component
+
+
 @dataclass
 class GraphMetrics:
     """Graph quality metrics snapshot."""
@@ -254,23 +279,9 @@ class GraphQualityMetrics:
             visited: set[str] = set()
             components: list[set[str]] = []
 
-            def dfs(start: str) -> set[str]:
-                stack = [start]
-                component: set[str] = set()
-                while stack:
-                    node = stack.pop()
-                    if node in visited:
-                        continue
-                    visited.add(node)
-                    component.add(node)
-                    for neighbor in adjacency.get(node, []):
-                        if neighbor not in visited:
-                            stack.append(neighbor)
-                return component
-
             for entity in all_entities:
                 if entity not in visited:
-                    component = dfs(entity)
+                    component = _dfs_component(entity, adjacency, visited)
                     components.append(component)
 
             metrics.connected_components = len(components)
@@ -344,24 +355,10 @@ class GraphQualityMetrics:
         visited: set[str] = set()
         components: list[ConnectedComponent] = []
 
-        def dfs(start: str) -> set[str]:
-            stack = [start]
-            component: set[str] = set()
-            while stack:
-                node = stack.pop()
-                if node in visited:
-                    continue
-                visited.add(node)
-                component.add(node)
-                for neighbor in adjacency.get(node, []):
-                    if neighbor not in visited:
-                        stack.append(neighbor)
-            return component
-
         component_id = 0
         for entity in all_entities:
             if entity not in visited:
-                node_set = dfs(entity)
+                node_set = _dfs_component(entity, adjacency, visited)
                 node_list = list(node_set)
                 type_dist: dict[str, int] = defaultdict(int)
                 for node in node_list:
@@ -541,21 +538,11 @@ class GraphQualityMetrics:
         partitions: dict[str, int] = {}
         community_id = 0
 
-        def dfs(start: str) -> None:
-            stack = [start]
-            while stack:
-                node = stack.pop()
-                if node in visited:
-                    continue
-                visited.add(node)
-                partitions[node] = community_id
-                for neighbor in adjacency.get(node, []):
-                    if neighbor not in visited:
-                        stack.append(neighbor)
-
         for node in all_nodes:
             if node not in visited:
-                dfs(node)
+                component = _dfs_component(node, adjacency, visited)
+                for n in component:
+                    partitions[n] = community_id
                 community_id += 1
 
         return partitions

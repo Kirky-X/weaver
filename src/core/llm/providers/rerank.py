@@ -71,7 +71,3 @@ class RerankProvider(BaseLLMProvider):
         log.warning("rerank_not_implemented", model=self._model)
         # Pass-through: return documents in original order with dummy scores
         return [{"index": i, "score": 1.0 - (i * 0.01)} for i in range(min(top_n, len(documents)))]
-
-    async def close(self) -> None:
-        """Clean up resources."""
-        pass

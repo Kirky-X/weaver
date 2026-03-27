@@ -9,8 +9,6 @@ from core.cache.redis import RedisClient
 from core.db.postgres import PostgresPool
 from core.event.bus import EventBus
 from core.llm.client import LLMClient
-from core.llm.config_manager import LLMConfigManager
-from core.llm.queue_manager import LLMQueueManager
 from core.llm.token_budget import TokenBudgetManager
 from core.prompt.loader import PromptLoader
 from modules.collector.models import ArticleRaw
@@ -35,32 +33,13 @@ async def main():
     redis = RedisClient(settings.redis.url)
     await redis.startup()
 
-    # Initialize LLM
-    from core.llm.rate_limiter_pro import RateLimiter as ProRateLimiter
-
-    config_manager = LLMConfigManager(settings.llm)
-    rate_limiter = ProRateLimiter(storage_type="memory", redis_url=None)
-    await rate_limiter.initialize()
-
-    for name, cfg in config_manager.list_providers():
-        if cfg.rpm_limit > 0:
-            rate_limiter.set_rate_limit(name, f"{cfg.rpm_limit}/minute")
-
-    event_bus = EventBus()
-    queue_manager = LLMQueueManager(
-        config_manager=config_manager,
-        rate_limiter=rate_limiter,
-        event_bus=event_bus,
-    )
-    await queue_manager.startup()
-
+    # Initialize LLM client from config
     prompt_loader = PromptLoader(settings.prompt.dir)
-    token_budget = TokenBudgetManager()
 
-    llm_client = LLMClient(
-        queue_manager=queue_manager,
+    llm_client = await LLMClient.create_from_config(
+        config_path="config/llm.toml",
         prompt_loader=prompt_loader,
-        token_budget=token_budget,
+        redis_client=redis,
     )
 
     # Initialize repos
@@ -77,15 +56,15 @@ async def main():
         await neo4j_pool.startup()
         neo4j_writer = Neo4jWriter(neo4j_pool)
     except Exception as e:
-        print(f"  ⚠ Neo4j not available: {e}")
+        print(f"  Warning: Neo4j not available: {e}")
 
     # Process pending articles
-    print("\n[5/7] Processing pending articles...")
+    print("\nProcessing pending articles...")
     from modules.pipeline.graph import Pipeline
 
     pipeline = Pipeline(
         llm=llm_client,
-        budget=token_budget,
+        budget=TokenBudgetManager(),
         prompt_loader=prompt_loader,
         event_bus=EventBus(),
         spacy=SpacyExtractor(),
@@ -99,7 +78,6 @@ async def main():
     print(f"  Found {len(pending)} pending articles")
 
     # Convert Article ORM objects to ArticleRaw dataclass objects
-
     raw_articles = []
     for article in pending:
         raw = ArticleRaw(
@@ -118,18 +96,19 @@ async def main():
         try:
             states = await pipeline.process_batch(raw_articles)
             success = sum(1 for s in states if not s.get("terminal"))
-            print(f"    ✓ Processed {success}/{len(raw_articles)} articles")
+            print(f"    Processed {success}/{len(raw_articles)} articles")
         except Exception as e:
             import traceback
 
-            print(f"    ✗ Error: {e}")
+            print(f"    Error: {e}")
             traceback.print_exc()
 
     # Cleanup
-    print("\n[6/7] Shutting down...")
+    print("\nShutting down...")
+    await llm_client.close()
     await pool.shutdown()
     await redis.shutdown()
-    print("✓ Done!")
+    print("Done!")
 
 
 if __name__ == "__main__":

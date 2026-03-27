@@ -30,9 +30,6 @@ from core.cache import RedisClient  # noqa: E402
 from core.db import PostgresPool  # noqa: E402
 from core.event.bus import EventBus  # noqa: E402
 from core.llm.client import LLMClient  # noqa: E402
-from core.llm.config_manager import LLMConfigManager  # noqa: E402
-from core.llm.queue_manager import LLMQueueManager  # noqa: E402
-from core.llm.rate_limiter import RedisTokenBucket  # noqa: E402
 from core.llm.token_budget import TokenBudgetManager  # noqa: E402
 from core.observability.logging import get_logger  # noqa: E402
 from core.prompt.loader import PromptLoader  # noqa: E402
@@ -61,32 +58,20 @@ async def _init_minimal_container():
     await redis_client.startup()
     log.info("redis_initialized")
 
-    config_manager = LLMConfigManager(settings.llm)
-    rate_limiter = RedisTokenBucket(redis_client.client)
-    event_bus = EventBus()
-    queue_manager = LLMQueueManager(
-        config_manager=config_manager,
-        rate_limiter=rate_limiter,
-        event_bus=event_bus,
-    )
-    await queue_manager.startup()
-    log.info("llm_queue_manager_started")
-
     prompt_loader = PromptLoader(settings.prompt.dir)
-    token_budget = TokenBudgetManager()
-    llm_client = LLMClient(
-        queue_manager=queue_manager,
+    llm_client = await LLMClient.create_from_config(
+        config_path="config/llm.toml",
         prompt_loader=prompt_loader,
-        token_budget=token_budget,
+        redis_client=redis_client,
     )
     log.info("llm_client_initialized")
 
-    return postgres_pool, redis_client, llm_client, queue_manager, prompt_loader
+    return postgres_pool, redis_client, llm_client, prompt_loader
 
 
-async def _shutdown_minimal_container(postgres_pool, redis_client, queue_manager):
+async def _shutdown_minimal_container(postgres_pool, redis_client, llm_client):
     """Shutdown minimal container services."""
-    await queue_manager.shutdown()
+    await llm_client.close()
     await redis_client.shutdown()
     await postgres_pool.shutdown()
     log.info("container_shutdown_complete")
@@ -104,9 +89,7 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
         Number of articles repaired.
     """
     # Initialize minimal services
-    postgres_pool, redis_client, llm_client, queue_manager, prompt_loader = (
-        await _init_minimal_container()
-    )
+    postgres_pool, redis_client, llm_client, prompt_loader = await _init_minimal_container()
 
     try:
         from modules.storage.article_repo import ArticleRepo
@@ -222,7 +205,7 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
         return repaired
 
     finally:
-        await _shutdown_minimal_container(postgres_pool, redis_client, queue_manager)
+        await _shutdown_minimal_container(postgres_pool, redis_client, llm_client)
 
 
 def main() -> None:

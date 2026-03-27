@@ -87,7 +87,7 @@ class ChatProvider(BaseLLMProvider):
             async with asyncio.timeout(self._timeout):
                 response = await client.ainvoke(messages, **kwargs)
                 return response.content
-        except asyncio.TimeoutError:
+        except TimeoutError:
             log.error(
                 "llm_chat_timeout",
                 timeout=self._timeout,
@@ -110,7 +110,3 @@ class ChatProvider(BaseLLMProvider):
             NotImplementedError: Chat provider does not support embeddings.
         """
         raise NotImplementedError("Use EmbeddingProvider for embeddings")
-
-    async def close(self) -> None:
-        """Clean up resources."""
-        pass

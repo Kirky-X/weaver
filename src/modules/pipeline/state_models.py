@@ -180,15 +180,8 @@ class ValidatedPipelineState(BaseModel):
     @model_validator(mode="after")
     def validate_consistency(self) -> Self:
         """Validate state consistency."""
-        # If terminal, should have is_news=False or specific reason
-        if self.terminal and self.is_news:
-            # This is valid - terminal news articles exist
-            pass
-
-        # If merged, should have merged_into
-        if self.is_merged and not self.merged_into:
-            pass  # Will be set by merger node
-
+        # Note: terminal news articles are valid (e.g., duplicates marked for skip)
+        # Note: merged_into may be set later by merger node
         return self
 
     def to_dict(self) -> dict[str, Any]:

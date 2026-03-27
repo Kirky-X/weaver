@@ -105,7 +105,6 @@ async def trigger_pipeline(
     Returns:
         Task ID and initial status.
     """
-    print(f"[DEBUG] trigger_pipeline called, redis id={id(redis)}")
     task_id = str(uuid.uuid4())
     now = datetime.now(UTC).isoformat()
 
