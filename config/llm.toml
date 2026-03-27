@@ -6,9 +6,9 @@
 # -----------------------------------------------------------------------------
 
 [global]
-default_chat_provider = "cc_stitch"
-default_embedding_provider = "embedding"
-default_rerank_provider = "jina"
+default_chat_provider = "aiping"
+default_embedding_provider = "aiping_embedding"
+default_rerank_provider = "aiping_rerank"
 
 # Circuit breaker settings
 circuit_breaker_threshold = 5      # Number of failures before opening
@@ -33,19 +33,6 @@ timeout = 300.0
 priority = 10           # Lower = higher priority
 weight = 100
 capabilities = ["chat", "vision", "streaming"]
-
-# iFlow (OpenAI-compatible)
-[providers.iflow]
-type = "openai"
-model = "qwen3-max"
-api_key = "${IFLOW_API_KEY}"
-base_url = "https://apis.iflow.cn/v1"
-rpm_limit = 0
-concurrency = 1
-timeout = 120.0
-priority = 20
-weight = 80
-capabilities = ["chat", "function_calling", "streaming"]
 
 # Zhipu AI (OpenAI-compatible)
 [providers.zhipu]
@@ -99,81 +86,124 @@ priority = 10
 weight = 100
 capabilities = ["rerank"]
 
+# aiping AI Chat (OpenAI-compatible, GLM-4-9B-0414)
+[providers.aiping]
+type = "openai"
+model = "GLM-4-9B-0414"
+api_key = "${AIPING_API_KEY}"
+base_url = "https://www.aiping.cn/api/v1"
+rpm_limit = 100
+concurrency = 3
+timeout = 120.0
+priority = 10
+weight = 100
+capabilities = ["chat", "streaming"]
+
+# aiping AI Embedding (OpenAI-compatible, Qwen3-Embedding-0.6B)
+[providers.aiping_embedding]
+type = "embedding"
+model = "Qwen3-Embedding-0.6B"
+api_key = "${AIPING_API_KEY}"
+base_url = "https://www.aiping.cn/api/v1"
+rpm_limit = 100
+concurrency = 3
+timeout = 60.0
+priority = 10
+weight = 100
+capabilities = ["embedding"]
+
+# aiping AI Rerank (Custom REST API, Qwen3-Reranker-0.6B)
+[providers.aiping_rerank]
+type = "aiping_rerank"
+model = "Qwen3-Reranker-0.6B"
+api_key = "${AIPING_API_KEY}"
+base_url = "https://www.aiping.cn/api/v1"
+rpm_limit = 100
+concurrency = 3
+timeout = 30.0
+priority = 10
+weight = 100
+capabilities = ["rerank"]
+
 # -----------------------------------------------------------------------------
 # Call Point Routing
 # Uses label format: {type}.{provider}.{model}
 # -----------------------------------------------------------------------------
 
 [call-points.classifier]
-primary = "chat.cc_stitch.claude-sonnet-4-20250514"
+primary = "chat.aiping.GLM-4-9B-0414"
 fallbacks = [
-    "chat.iflow.qwen3-max",
     "chat.zhipu.glm-4.7-flash",
+    "chat.cc_stitch.claude-sonnet-4-20250514",
 ]
 
 [call-points.cleaner]
-primary = "chat.cc_stitch.claude-sonnet-4-20250514"
+primary = "chat.aiping.GLM-4-9B-0414"
 fallbacks = [
-    "chat.iflow.qwen3-max",
     "chat.zhipu.glm-4.7-flash",
+    "chat.cc_stitch.claude-sonnet-4-20250514",
 ]
 
 [call-points.categorizer]
-primary = "chat.cc_stitch.claude-sonnet-4-20250514"
+primary = "chat.aiping.GLM-4-9B-0414"
 fallbacks = [
-    "chat.iflow.qwen3-max",
     "chat.zhipu.glm-4.7-flash",
+    "chat.cc_stitch.claude-sonnet-4-20250514",
 ]
 
 [call-points.merger]
-primary = "chat.cc_stitch.claude-sonnet-4-20250514"
+primary = "chat.aiping.GLM-4-9B-0414"
 fallbacks = [
-    "chat.iflow.qwen3-max",
     "chat.zhipu.glm-4.7-flash",
+    "chat.cc_stitch.claude-sonnet-4-20250514",
 ]
 
 [call-points.analyze]
-primary = "chat.cc_stitch.claude-sonnet-4-20250514"
+primary = "chat.aiping.GLM-4-9B-0414"
 fallbacks = [
-    "chat.iflow.qwen3-max",
     "chat.zhipu.glm-4.7-flash",
+    "chat.cc_stitch.claude-sonnet-4-20250514",
 ]
 
 [call-points.credibility_checker]
-primary = "chat.cc_stitch.claude-sonnet-4-20250514"
+primary = "chat.aiping.GLM-4-9B-0414"
 fallbacks = [
-    "chat.iflow.qwen3-max",
     "chat.zhipu.glm-4.7-flash",
+    "chat.cc_stitch.claude-sonnet-4-20250514",
 ]
 
 [call-points.quality_scorer]
-primary = "chat.cc_stitch.claude-sonnet-4-20250514"
+primary = "chat.aiping.GLM-4-9B-0414"
 fallbacks = [
-    "chat.iflow.qwen3-max",
     "chat.zhipu.glm-4.7-flash",
+    "chat.cc_stitch.claude-sonnet-4-20250514",
 ]
 
 [call-points.entity_extractor]
-primary = "chat.cc_stitch.claude-sonnet-4-20250514"
+primary = "chat.aiping.GLM-4-9B-0414"
 fallbacks = [
-    "chat.iflow.qwen3-max",
     "chat.zhipu.glm-4.7-flash",
+    "chat.cc_stitch.claude-sonnet-4-20250514",
 ]
 
 [call-points.entity_resolver]
-primary = "chat.cc_stitch.claude-sonnet-4-20250514"
+primary = "chat.aiping.GLM-4-9B-0414"
 fallbacks = [
-    "chat.iflow.qwen3-max",
     "chat.zhipu.glm-4.7-flash",
+    "chat.cc_stitch.claude-sonnet-4-20250514",
 ]
 
 [call-points.embedding]
-primary = "embedding.embedding.qwen3-embedding:0.6b"
-fallbacks = []
+primary = "embedding.aiping_embedding.Qwen3-Embedding-0.6B"
+fallbacks = [
+    "embedding.embedding.qwen3-embedding:0.6b",
+]
 
 [call-points.rerank]
-primary = "rerank.jina.jina-reranker-v2"
-fallbacks = []
+primary = "rerank.aiping_rerank.Qwen3-Reranker-0.6B"
+fallbacks = [
+    "rerank.jina.jina-reranker-v2",
+]
 
 # -----------------------------------------------------------------------------
 # Default Labels
@@ -181,16 +211,20 @@ fallbacks = []
 # -----------------------------------------------------------------------------
 
 [defaults.chat]
-label = "chat.cc_stitch.claude-sonnet-4-20250514"
+label = "chat.aiping.GLM-4-9B-0414"
 fallbacks = [
-    "chat.iflow.qwen3-max",
     "chat.zhipu.glm-4.7-flash",
+    "chat.cc_stitch.claude-sonnet-4-20250514",
 ]
 
 [defaults.embedding]
-label = "embedding.embedding.qwen3-embedding:0.6b"
-fallbacks = []
+label = "embedding.aiping_embedding.Qwen3-Embedding-0.6B"
+fallbacks = [
+    "embedding.embedding.qwen3-embedding:0.6b",
+]
 
 [defaults.rerank]
-label = "rerank.jina.jina-reranker-v2"
-fallbacks = []
+label = "rerank.aiping_rerank.Qwen3-Reranker-0.6B"
+fallbacks = [
+    "rerank.jina.jina-reranker-v2",
+]

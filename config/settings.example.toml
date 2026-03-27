@@ -1,140 +1,66 @@
-[app]
-app_name = "weaver"
-debug = false
-
-# Health check configuration
-[health_check]
-pre_startup_enabled = true
-required_services = ["postgres", "redis"]
-optional_services = ["neo4j"]
-timeout_seconds = 5.0
-max_retries = 3
-retry_delay_seconds = 2.0
+# Weaver Settings Configuration
+#
+# Copy this file to config/settings.toml and adjust values as needed.
+# Environment variables take precedence over TOML values.
 
 [postgres]
 dsn = "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver"
 
 [neo4j]
 uri = "bolt://localhost:7687"
+user = "neo4j"
 password = "neo4j_password"
 
 [redis]
 url = "redis://localhost:6379/0"
 
 [llm]
-embedding_provider = "embedding"
+embedding_provider = "ollama"
 embedding_model = "qwen3-embedding:0.6b"
 
-[llm.providers.iflow]
+# Primary LLM provider
+[llm.providers.primary]
 provider = "openai"
-model = "qwen3-max"
+model = "glm-4.7"
 api_key = ""
-base_url = "https://apis.iflow.cn/v1"
-rpm_limit = 0
-concurrency = 1
+base_url = "http://127.0.0.1:5000/v1"
 timeout = 120.0
 
-[llm.providers.zhipu]
-provider = "openai"
-model = "glm-4.7-flash"
+# Fallback LLM provider (local)
+[llm.providers.ollama]
+provider = "ollama"
+model = "qwen3.5:9b"
 api_key = ""
-base_url = "https://open.bigmodel.cn/api/paas/v4"
-rpm_limit = 30
-concurrency = 1
-timeout = 120.0
-
-[llm.providers.cc_stitch]
-provider = "anthropic"
-model = "claude-sonnet-4-20250514"
-api_key = ""
-base_url = "http://127.0.0.1:5000"
-rpm_limit = 0
-concurrency = 3
+base_url = "http://localhost:11434"
 timeout = 300.0
 
-[llm.providers.embedding]
-provider = "openai"
-model = "qwen3-embedding:0.6b"
-base_url = "http://localhost:11434"
-api_key = "ollama"
-timeout = 60.0
-concurrency = 3
-
-[llm.call-points.classifier]
-primary = "cc_stitch"
-fallbacks = ["iflow", "zhipu"]
-
-[llm.call-points.cleaner]
-primary = "cc_stitch"
-fallbacks = ["iflow", "zhipu"]
-
-[llm.call-points.categorizer]
-primary = "cc_stitch"
-fallbacks = ["iflow", "zhipu"]
-
-[llm.call-points.merger]
-primary = "cc_stitch"
-fallbacks = ["iflow", "zhipu"]
-
-[llm.call-points.analyze]
-primary = "cc_stitch"
-fallbacks = ["iflow", "zhipu"]
-
-[llm.call-points.credibility_checker]
-primary = "cc_stitch"
-fallbacks = ["iflow", "zhipu"]
-
-[llm.call-points.quality_scorer]
-primary = "cc_stitch"
-fallbacks = ["iflow", "zhipu"]
-
-[llm.call-points.entity_extractor]
-primary = "cc_stitch"
-fallbacks = ["iflow", "zhipu"]
-
-[llm.call-points.entity_resolver]
-primary = "cc_stitch"
-fallbacks = ["iflow", "zhipu"]
+# LLM call points - all use ollama as primary with empty fallbacks
+[llm.call_points]
+classifier = { primary = "ollama", fallbacks = [] }
+cleaner = { primary = "ollama", fallbacks = [] }
+categorizer = { primary = "ollama", fallbacks = [] }
+merger = { primary = "ollama", fallbacks = [] }
+analyze = { primary = "ollama", fallbacks = [] }
+entity_extractor = { primary = "ollama", fallbacks = [] }
+entity_resolver = { primary = "ollama", fallbacks = [] }
+search_local = { primary = "ollama", fallbacks = [] }
+search_global = { primary = "ollama", fallbacks = [] }
 
 [fetcher]
 playwright_pool_size = 5
 default_per_host_concurrency = 2
 global_max_concurrency = 32
 httpx_timeout = 15.0
-user_agent = "Mozilla/5.0 (compatible; NewsBot/1.0)"
-
-stealth_enabled = true
-stealth_user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-stealth_viewport_width = 1920
-stealth_viewport_height = 1080
-stealth_locale = "zh-CN"
-stealth_timezone = "Asia/Shanghai"
-stealth_random_delay_min = 0.5
-stealth_random_delay_max = 2.0
-
-rate_limit_enabled = true
-rate_limit_delay_min = 1.0
-rate_limit_delay_max = 3.0
-
-[prompt]
-dir = "config/prompts"
 
 [api]
-api_key = ""
+api_key = "change-me-in-production"
 rate_limit = "100/minute"
 host = "0.0.0.0"
 port = 8000
 
 [scheduler]
 crawl_interval_minutes = 30
-neo4j_retry_interval_minutes = 10
-retry_flush_interval_seconds = 30
 
-# Search enhancement configuration
 [search]
 hybrid_enabled = true
 rerank_enabled = true
-rerank_model = "tiny"
-mmr_enabled = false
-mmr_lambda = 0.7
-bm25_rebuild_interval = 300
