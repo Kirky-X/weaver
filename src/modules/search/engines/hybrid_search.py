@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from core.constants import SearchMode
 from core.observability.logging import get_logger
 from modules.search.fusion.rrf import reciprocal_rank_fusion
 from modules.search.rerankers.flashrank_reranker import FlashrankReranker
@@ -450,7 +451,7 @@ class HybridSearchEngine:
                 score=r.get("rerank_score", r.get("rrf_score", 0.0)),
                 title=r.get("title", ""),
                 content=r.get("content", ""),
-                source="hybrid",
+                source=SearchMode.HYBRID.value,
                 vector_rank=r.get("vector_rank"),
                 bm25_rank=r.get("bm25_rank"),
                 rerank_score=r.get("rerank_score"),

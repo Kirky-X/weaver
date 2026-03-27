@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from core.constants import SearchMode
 from core.db.neo4j import Neo4jPool
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
@@ -133,7 +134,7 @@ class GlobalSearchEngine:
                         context_tokens=0,
                         confidence=0.0,
                         metadata={
-                            "search_type": "global",
+                            "search_type": SearchMode.GLOBAL.value,
                             "communities": 0,
                             "hint": "run POST /api/v1/admin/communities/rebuild",
                         },
@@ -144,7 +145,7 @@ class GlobalSearchEngine:
                     context_tokens=0,
                     confidence=0.0,
                     metadata={
-                        "search_type": "global",
+                        "search_type": SearchMode.GLOBAL.value,
                         "communities": 0,
                         "hybrid_used": self._hybrid_engine is not None,
                     },
@@ -162,7 +163,7 @@ class GlobalSearchEngine:
                         set(e for c in communities if c.key_entities for e in c.key_entities)
                     ),
                     metadata={
-                        "search_type": "global",
+                        "search_type": SearchMode.GLOBAL.value,
                         "communities": len(communities),
                         "llm_used": False,
                         "hybrid_used": self._hybrid_engine is not None,
@@ -237,7 +238,7 @@ class GlobalSearchEngine:
                 ),
                 confidence=self._estimate_confidence(intermediate_answers),
                 metadata={
-                    "search_type": "global",
+                    "search_type": SearchMode.GLOBAL.value,
                     "communities": len(sorted_communities),
                     "community_level": community_level,
                     "intermediate_count": len(intermediate_answers),

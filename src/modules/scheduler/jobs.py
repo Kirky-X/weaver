@@ -13,7 +13,7 @@ import json_repair
 from sqlalchemy import and_, select
 
 from core.cache.redis import RedisClient
-from core.constants import RedisKeys
+from core.constants import PipelineTaskStatus, RedisKeys
 from core.db.models import Article, PersistStatus
 from core.db.postgres import PostgresPool
 from core.observability.logging import get_logger
@@ -418,8 +418,11 @@ class SchedulerJobs:
                         existing = await self._redis.client.hget(task_key, str(task_id))
                         if existing:
                             task_data = json_repair.loads(existing)
-                            if task_data.get("status") not in ("completed", "failed"):
-                                task_data["status"] = "completed"
+                            if task_data.get("status") not in (
+                                PipelineTaskStatus.COMPLETED.value,
+                                PipelineTaskStatus.FAILED.value,
+                            ):
+                                task_data["status"] = PipelineTaskStatus.COMPLETED.value
                                 task_data["completed_at"] = datetime.now(UTC).isoformat()
                                 await self._redis.client.hset(
                                     task_key, str(task_id), json.dumps(task_data)

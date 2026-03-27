@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from core.constants import SearchMode
 from core.db.neo4j import Neo4jPool
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
@@ -116,7 +117,7 @@ class LocalSearchEngine:
                 confidence=self._estimate_confidence(context),
                 metadata={
                     "context_sections": len(context.sections),
-                    "search_type": "local",
+                    "search_type": SearchMode.LOCAL.value,
                     "llm_used": False,
                     "hybrid_used": self._hybrid_engine is not None,
                 },
@@ -143,7 +144,7 @@ class LocalSearchEngine:
                 confidence=self._estimate_confidence(context),
                 metadata={
                     "context_sections": len(context.sections),
-                    "search_type": "local",
+                    "search_type": SearchMode.LOCAL.value,
                     "llm_used": True,
                     "hybrid_used": self._hybrid_engine is not None,
                 },

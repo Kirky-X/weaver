@@ -35,6 +35,7 @@ from api.router import api_router
 from api.schemas.response import APIResponse, success_response
 from config.settings import Settings
 from container import Container, set_container, set_settings
+from core.constants import HealthStatus
 from core.observability.logging import configure_logging, get_logger
 from core.observability.tracing import configure_tracing
 
@@ -405,7 +406,7 @@ def create_app(container: Container | None = None) -> FastAPI:
     async def health_check_endpoint() -> APIResponse[HealthCheckResponse]:
         """Health check endpoint with dependency checks."""
         result = await check_health()
-        if result.status != "healthy":
+        if result.status != HealthStatus.HEALTHY:
             raise HTTPException(status_code=503, detail=result.model_dump())
         return success_response(result)
 

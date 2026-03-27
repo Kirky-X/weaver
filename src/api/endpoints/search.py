@@ -12,6 +12,7 @@ from api.endpoints import _deps as deps
 from api.middleware.auth import verify_api_key
 from api.middleware.rate_limit import limiter
 from api.schemas.response import APIResponse, success_response
+from core.constants import SearchMode
 from core.llm.client import LLMClient
 from core.observability.logging import get_logger
 from modules.search.engines.global_search import GlobalSearchEngine
@@ -85,7 +86,7 @@ async def search_local(
             entity_names=names,
             use_llm=False,
         )
-        return success_response(_result_to_response(result, "local"))
+        return success_response(_result_to_response(result, SearchMode.LOCAL.value))
     except Exception as exc:
         if "neo4j" in str(exc).lower() or "graph" in str(exc).lower():
             raise HTTPException(status_code=503, detail="Graph service unavailable")
@@ -113,7 +114,7 @@ async def search_global(
             )
         else:
             result = await engine.search(query=q, community_level=community_level, use_llm=False)
-        return success_response(_result_to_response(result, "global"))
+        return success_response(_result_to_response(result, SearchMode.GLOBAL.value))
     except Exception as exc:
         if "neo4j" in str(exc).lower() or "graph" in str(exc).lower():
             raise HTTPException(status_code=503, detail="Graph service unavailable")
@@ -154,7 +155,7 @@ async def search_articles(
 
     # Use hybrid search engine if enabled and available
     hybrid_used = False
-    search_mode = "vector_only"
+    search_mode = SearchMode.LOCAL.value
 
     if use_hybrid and hybrid_engine is not None:
         try:
@@ -166,7 +167,7 @@ async def search_articles(
 
             if hybrid_result:
                 hybrid_used = True
-                search_mode = "hybrid"
+                search_mode = SearchMode.HYBRID.value
 
                 sources = [
                     {
@@ -187,7 +188,7 @@ async def search_articles(
                         answer=f"Found {len(sources)} similar articles.",
                         context_tokens=0,
                         confidence=confidence,
-                        search_type="articles",
+                        search_type=SearchMode.ARTICLES.value,
                         entities=[],
                         sources=sources,
                         metadata={
@@ -328,19 +329,19 @@ async def search_unified(
                     if (similar and similar[0].hybrid_score is not None)
                     else float(similar[0].similarity) if similar else 0.0
                 ),
-                search_type="articles",
+                search_type=SearchMode.ARTICLES.value,
                 entities=[],
                 sources=sources,
                 metadata={"total_results": len(sources), "threshold": threshold},
             )
         )
 
-    if mode == "global" or mode == "auto":
+    if mode == SearchMode.GLOBAL.value or mode == "auto":
         try:
             result = await global_engine.search(
                 query=q, community_level=community_level, use_llm=False
             )
-            return success_response(_result_to_response(result, "global"))
+            return success_response(_result_to_response(result, SearchMode.GLOBAL.value))
         except Exception as exc:
             if "neo4j" in str(exc).lower() or "graph" in str(exc).lower():
                 raise HTTPException(status_code=503, detail="Graph service unavailable")
@@ -354,7 +355,7 @@ async def search_unified(
         result = await local_engine.search(
             query=q, max_tokens=max_tokens, entity_names=names, use_llm=False
         )
-        return success_response(_result_to_response(result, "local"))
+        return success_response(_result_to_response(result, SearchMode.LOCAL.value))
     except Exception as exc:
         if "neo4j" in str(exc).lower() or "graph" in str(exc).lower():
             raise HTTPException(status_code=503, detail="Graph service unavailable")

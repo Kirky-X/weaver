@@ -6,9 +6,9 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
-from enum import Enum
 from typing import TYPE_CHECKING, Any
 
+from core.constants import HealthStatus
 from core.llm.registry import ProviderInstanceConfig
 from core.llm.request import LLMRequest, LLMResponse, ProviderMetrics
 from core.observability.logging import get_logger
@@ -19,14 +19,6 @@ if TYPE_CHECKING:
     from core.llm.rate_limiter import RedisTokenBucket
 
 log = get_logger("provider_pool")
-
-
-class HealthStatus(str, Enum):
-    """健康状态。"""
-
-    HEALTHY = "healthy"
-    DEGRADED = "degraded"
-    UNHEALTHY = "unhealthy"
 
 
 @dataclass

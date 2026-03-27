@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from api.dependencies import get_llm_client, get_neo4j_pool
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
+from core.constants import ProcessingStatus
 from core.db.neo4j import Neo4jPool
 from core.observability.logging import get_logger
 from modules.graph_store.community_detector import CommunityDetector
@@ -140,7 +141,7 @@ async def rebuild_communities(
 
         return success_response(
             RebuildResponse(
-                status="completed",
+                status=ProcessingStatus.COMPLETED.value,
                 communities_created=result.total_communities,
                 entities_processed=result.total_entities,
                 levels=result.levels,
@@ -235,7 +236,7 @@ async def regenerate_report(
         if result.success:
             return success_response(
                 {
-                    "status": "completed",
+                    "status": ProcessingStatus.COMPLETED.value,
                     "community_id": community_id,
                     "report_id": result.report_id,
                 }
