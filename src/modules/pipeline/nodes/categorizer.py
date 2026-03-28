@@ -91,7 +91,7 @@ class CategorizerNode:
         cleaned = state["cleaned"]
 
         try:
-            result: CategorizerOutput = await self._llm.call(
+            result: CategorizerOutput = await self._llm.call_at(
                 CallPoint.CATEGORIZER,
                 {
                     "title": cleaned["title"],

@@ -39,7 +39,7 @@ class ClassifierNode:
             "article_id": state.get("article_id"),
             "task_id": state.get("task_id"),
         }
-        result: ClassifierOutput = await self._llm.call(
+        result: ClassifierOutput = await self._llm.call_at(
             CallPoint.CLASSIFIER, payload, output_model=ClassifierOutput
         )
         state["is_news"] = result.is_news

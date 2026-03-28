@@ -36,7 +36,7 @@ class CleanerNode:
         body_trunc = self._budget.truncate(raw.body, CallPoint.CLEANER)
 
         try:
-            result: CleanerOutput = await self._llm.call(
+            result: CleanerOutput = await self._llm.call_at(
                 CallPoint.CLEANER,
                 {
                     "title": raw.title,

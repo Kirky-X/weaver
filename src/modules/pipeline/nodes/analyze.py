@@ -40,7 +40,7 @@ class AnalyzeNode:
         body = self._budget.truncate(state["cleaned"]["body"], CallPoint.ANALYZE)
 
         try:
-            result: AnalyzeOutput = await self._llm.call(
+            result: AnalyzeOutput = await self._llm.call_at(
                 CallPoint.ANALYZE,
                 {
                     "title": state["cleaned"]["title"],

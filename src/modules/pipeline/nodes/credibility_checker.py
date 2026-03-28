@@ -99,7 +99,7 @@ class CredibilityCheckerNode:
         # Signal 2: LLM content check
         body_trunc = self._budget.truncate(state["cleaned"]["body"], CallPoint.CREDIBILITY_CHECKER)
         try:
-            llm_result: CredibilityOutput = await self._llm.call(
+            llm_result: CredibilityOutput = await self._llm.call_at(
                 CallPoint.CREDIBILITY_CHECKER,
                 {
                     "title": state["cleaned"]["title"],

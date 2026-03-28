@@ -185,7 +185,9 @@ class EntityExtractorNode:
         if spacy_entities:
             try:
                 entity_texts = [f"{e.name}（{e.type}）" for e in spacy_entities]
-                entity_embeds = await self._llm.batch_embed(entity_texts)
+                entity_embeds = await self._llm.embed(
+                    "embedding.embedding.qwen3-embedding:0.6b", entity_texts
+                )
 
                 for i, e in enumerate(spacy_entities):
                     if i < len(entity_embeds) and entity_embeds[i]:
@@ -212,7 +214,7 @@ class EntityExtractorNode:
         # Phase 3: LLM refinement
         body_trunc = self._budget.truncate(body, CallPoint.ENTITY_EXTRACTOR)
         try:
-            result: EntityExtractorOutput = await self._llm.call(
+            result: EntityExtractorOutput = await self._llm.call_at(
                 CallPoint.ENTITY_EXTRACTOR,
                 {
                     "body": body_trunc,

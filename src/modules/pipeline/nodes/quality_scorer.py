@@ -45,7 +45,7 @@ class QualityScorerNode:
         body = self._budget.truncate(state["cleaned"]["body"], CallPoint.QUALITY_SCORER)
 
         try:
-            result: QualityScorerOutput = await self._llm.call(
+            result: QualityScorerOutput = await self._llm.call_at(
                 CallPoint.QUALITY_SCORER,
                 {
                     "title": state["cleaned"]["title"],

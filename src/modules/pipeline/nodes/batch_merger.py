@@ -245,7 +245,7 @@ class BatchMergerNode:
             for s in group_states
         ]
 
-        result: MergerOutput = await self._llm.call(
+        result: MergerOutput = await self._llm.call_at(
             CallPoint.MERGER,
             {
                 "articles": articles_payload,
