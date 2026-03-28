@@ -3,20 +3,29 @@
 """Script to process pending articles from the database."""
 
 import asyncio
+import os
+import sys
 
-from config.settings import Settings
-from core.cache.redis import RedisClient
-from core.db.postgres import PostgresPool
-from core.event.bus import EventBus
-from core.llm.client import LLMClient
-from core.llm.token_budget import TokenBudgetManager
-from core.prompt.loader import PromptLoader
-from modules.collector.models import ArticleRaw
-from modules.graph_store.neo4j_writer import Neo4jWriter
-from modules.nlp.spacy_extractor import SpacyExtractor
-from modules.storage.article_repo import ArticleRepo
-from modules.storage.source_authority_repo import SourceAuthorityRepo
-from modules.storage.vector_repo import VectorRepo
+# Add src to path before any local imports
+_script_dir = os.path.dirname(os.path.abspath(__file__))  # .../src/scripts
+_project_root = os.path.dirname(os.path.dirname(_script_dir))  # .../src -> project root
+_src_dir = os.path.join(_project_root, "src")  # .../src
+sys.path.insert(0, _src_dir)
+
+
+from config.settings import Settings  # noqa: E402
+from core.cache.redis import RedisClient  # noqa: E402
+from core.db.postgres import PostgresPool  # noqa: E402
+from core.event.bus import EventBus  # noqa: E402
+from core.llm.client import LLMClient  # noqa: E402
+from core.llm.token_budget import TokenBudgetManager  # noqa: E402
+from core.prompt.loader import PromptLoader  # noqa: E402
+from modules.collector.models import ArticleRaw  # noqa: E402
+from modules.graph_store.neo4j_writer import Neo4jWriter  # noqa: E402
+from modules.nlp.spacy_extractor import SpacyExtractor  # noqa: E402
+from modules.storage.article_repo import ArticleRepo  # noqa: E402
+from modules.storage.source_authority_repo import SourceAuthorityRepo  # noqa: E402
+from modules.storage.vector_repo import VectorRepo  # noqa: E402
 
 
 async def main():
@@ -33,11 +42,12 @@ async def main():
     redis = RedisClient(settings.redis.url)
     await redis.startup()
 
-    # Initialize LLM client from config
+    # Initialize LLM client from config (use absolute path)
     prompt_loader = PromptLoader(settings.prompt.dir)
+    config_path = os.path.join(_project_root, "config/llm.toml")
 
     llm_client = await LLMClient.create_from_config(
-        config_path="config/llm.toml",
+        config_path=config_path,
         prompt_loader=prompt_loader,
         redis_client=redis,
     )

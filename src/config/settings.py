@@ -14,9 +14,8 @@ from pydantic_settings.sources import PydanticBaseSettingsSource
 from core.constants import LLMProvider
 
 # Load environment variables from .env file
-load_dotenv(override=True)
-
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+load_dotenv(_PROJECT_ROOT / ".env", override=True)
 
 
 class HealthCheckSettings(BaseModel):
@@ -67,48 +66,21 @@ class RedisSettings(BaseModel):
 
 
 class LLMSettings(BaseModel):
-    """LLM module settings."""
+    """LLM module settings.
 
-    providers: dict[str, dict[str, Any]] = Field(
-        default_factory=lambda: {
-            "openai": {
-                "provider": "openai",
-                "model": "gpt-4o",
-                "api_key": "",
-                "base_url": "https://api.openai.com/v1",
-                "rpm_limit": 60,
-                "concurrency": 5,
-                "timeout": 120.0,
-            },
-            "ollama": {
-                "provider": "ollama",
-                "model": "qwen3.5:9b",
-                "api_key": "",
-                "base_url": "http://172.24.160.1:11434",
-                "rpm_limit": 60,
-                "concurrency": 3,
-                "timeout": 300.0,
-            },
-        }
-    )
-    call_points: dict[str, dict[str, Any]] = Field(
-        default_factory=lambda: {
-            "classifier": {"primary": "ollama", "fallbacks": ["openai"]},
-            "cleaner": {"primary": "ollama", "fallbacks": ["openai"]},
-            "categorizer": {"primary": "ollama", "fallbacks": ["openai"]},
-            "merger": {"primary": "ollama", "fallbacks": ["openai"]},
-            "analyze": {"primary": "ollama", "fallbacks": ["openai"]},
-            "credibility_checker": {"primary": "ollama", "fallbacks": ["openai"]},
-            "entity_extractor": {"primary": "ollama", "fallbacks": ["openai"]},
-            "entity_resolver": {"primary": "ollama", "fallbacks": ["openai"]},
-            "search_local": {"primary": "ollama", "fallbacks": ["openai"]},
-            "search_global": {"primary": "ollama", "fallbacks": ["openai"]},
-        }
-    )
-    embedding_provider: str = "openai"
-    embedding_model: str = "text-embedding-3-large"
-    rerank_provider: str = "openai"
-    rerank_model: str = ""
+    Note: Full LLM provider and call-point configuration is in config/llm.toml.
+    This class only contains simplified references used by specific components.
+    """
+
+    # Provider/model references (actual config is in llm.toml)
+    embedding_provider: str = "aiping_embedding"
+    embedding_model: str = "Qwen3-Embedding-0.6B"
+    rerank_provider: str = "aiping_rerank"
+    rerank_model: str = "Qwen3-Reranker-0.6B"
+
+    # Legacy fields - kept for backwards compatibility
+    providers: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    call_points: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
     @field_validator("embedding_provider", "rerank_provider")
     @classmethod

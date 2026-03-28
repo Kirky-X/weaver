@@ -35,7 +35,7 @@ import httpx
 
 # ─── Configuration ─────────────────────────────────────────────────────────────
 
-DEFAULT_API_KEY = "dev_api_key_for_testing_minimum_32_chars"
+DEFAULT_API_KEY = "dev_api_key_1234567890123456789012345678"
 DEFAULT_APP_URL = "http://localhost:8000"
 DEFAULT_MAX_ITEMS = 5
 POLL_INTERVAL_SECONDS = 5

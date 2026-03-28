@@ -194,9 +194,9 @@ fallbacks = [
 ]
 
 [call-points.embedding]
-primary = "embedding.aiping_embedding.Qwen3-Embedding-0.6B"
+primary = "embedding.embedding.qwen3-embedding:0.6b"
 fallbacks = [
-    "embedding.embedding.qwen3-embedding:0.6b",
+    "embedding.aiping_embedding.Qwen3-Embedding-0.6B",
 ]
 
 [call-points.rerank]
