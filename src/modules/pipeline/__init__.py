@@ -18,6 +18,8 @@ Usage:
     pipeline = Pipeline.from_config(llm, config, ...)
 """
 
+# Import from core.constants instead of deprecated state_models aliases
+from core.constants import PipelineState as PipelineStage, ProcessingStatus as PersistStatus
 from modules.pipeline.config import (
     BatchConfig,
     PhaseConfig,
@@ -32,8 +34,6 @@ from modules.pipeline.state_models import (
     CleanedData,
     CredibilityModel,
     EntityData,
-    PersistStatus,
-    PipelineStage,
     RelationData,
     ValidatedPipelineState,
     VectorData,
