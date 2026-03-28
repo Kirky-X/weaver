@@ -9,13 +9,23 @@ from __future__ import annotations
 import asyncio
 import uuid
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from core.llm.output_validator import CleanerContent
 from modules.collector.models import ArticleRaw
 from modules.pipeline.state import PipelineState
+
+
+@pytest.fixture(autouse=True)
+def mock_credibility_metrics():
+    """Mock credibility metrics to avoid Prometheus mock issues in tests."""
+    with patch(
+        "modules.pipeline.nodes.credibility_checker.MetricsCollector.credibility_score_dist"
+    ) as mock_hist:
+        mock_hist.observe = MagicMock()
+        yield mock_hist
 
 
 @pytest.fixture
@@ -93,7 +103,7 @@ class TestClassifierNodeIntegration:
         from core.llm.output_validator import ClassifierOutput
         from modules.pipeline.nodes.classifier import ClassifierNode
 
-        mock_llm_client.call = AsyncMock(
+        mock_llm_client.call_at = AsyncMock(
             return_value=ClassifierOutput(is_news=True, confidence=0.95)
         )
 
@@ -121,7 +131,7 @@ class TestClassifierNodeIntegration:
         from core.llm.output_validator import ClassifierOutput
         from modules.pipeline.nodes.classifier import ClassifierNode
 
-        mock_llm_client.call = AsyncMock(
+        mock_llm_client.call_at = AsyncMock(
             return_value=ClassifierOutput(is_news=False, confidence=0.90)
         )
 
@@ -150,7 +160,7 @@ class TestClassifierNodeIntegration:
 
         real_budget = TokenBudgetManager()
 
-        mock_llm_client.call = AsyncMock(
+        mock_llm_client.call_at = AsyncMock(
             return_value=ClassifierOutput(is_news=True, confidence=0.85)
         )
 
@@ -166,7 +176,7 @@ class TestClassifierNodeIntegration:
         result = await node.execute(pipeline_state)
 
         assert result["is_news"] is True
-        mock_llm_client.call.assert_called_once()
+        mock_llm_client.call_at.assert_called_once()
 
 
 class TestCleanerNodeIntegration:
@@ -184,7 +194,7 @@ class TestCleanerNodeIntegration:
         from core.llm.output_validator import CleanerOutput
         from modules.pipeline.nodes.cleaner import CleanerNode
 
-        mock_llm_client.call = AsyncMock(
+        mock_llm_client.call_at = AsyncMock(
             return_value=CleanerOutput(
                 content=CleanerContent(
                     title="Cleaned Title",
@@ -226,7 +236,7 @@ class TestCleanerNodeIntegration:
 
         result = await node.execute(pipeline_state)
 
-        mock_llm_client.call.assert_not_called()
+        mock_llm_client.call_at.assert_not_called()
         assert "cleaned" not in result
 
     @pytest.mark.asyncio
@@ -240,7 +250,7 @@ class TestCleanerNodeIntegration:
         """Test cleaner falls back to original content on failure."""
         from modules.pipeline.nodes.cleaner import CleanerNode
 
-        mock_llm_client.call = AsyncMock(side_effect=Exception("LLM error"))
+        mock_llm_client.call_at = AsyncMock(side_effect=Exception("LLM error"))
 
         node = CleanerNode(
             llm=mock_llm_client,
@@ -268,7 +278,7 @@ class TestCategorizerNodeIntegration:
         from core.llm.output_validator import CategorizerOutput
         from modules.pipeline.nodes.categorizer import CategorizerNode
 
-        mock_llm_client.call = AsyncMock(
+        mock_llm_client.call_at = AsyncMock(
             return_value=CategorizerOutput(
                 category="technology",
                 language="zh",
@@ -315,7 +325,7 @@ class TestCategorizerNodeIntegration:
         ]
 
         for english, chinese in test_cases:
-            mock_llm_client.call = AsyncMock(
+            mock_llm_client.call_at = AsyncMock(
                 return_value=CategorizerOutput(
                     category=english,
                     language="en",
@@ -344,7 +354,7 @@ class TestCategorizerNodeIntegration:
         """Test categorizer uses defaults on failure."""
         from modules.pipeline.nodes.categorizer import CategorizerNode
 
-        mock_llm_client.call = AsyncMock(side_effect=Exception("LLM error"))
+        mock_llm_client.call_at = AsyncMock(side_effect=Exception("LLM error"))
 
         pipeline_state["cleaned"] = {
             "title": "Test",
@@ -422,7 +432,7 @@ class TestBatchMergerNodeIntegration:
         from core.llm.output_validator import MergerOutput
         from modules.pipeline.nodes.batch_merger import BatchMergerNode
 
-        mock_llm_client.call = AsyncMock(
+        mock_llm_client.call_at = AsyncMock(
             return_value=MergerOutput(
                 merged_title="Merged Title",
                 merged_body="Merged body content from multiple sources.",
@@ -513,7 +523,7 @@ class TestAnalyzeNodeIntegration:
         from core.llm.output_validator import AnalyzeOutput
         from modules.pipeline.nodes.analyze import AnalyzeNode
 
-        mock_llm_client.call = AsyncMock(
+        mock_llm_client.call_at = AsyncMock(
             return_value=AnalyzeOutput(
                 summary="This is a summary of the article.",
                 event_time="2024-01-15T10:00:00",
@@ -571,7 +581,7 @@ class TestAnalyzeNodeIntegration:
 
         result = await node.execute(pipeline_state)
 
-        mock_llm_client.call.assert_not_called()
+        mock_llm_client.call_at.assert_not_called()
 
 
 class TestCredibilityCheckerNodeIntegration:
@@ -591,7 +601,7 @@ class TestCredibilityCheckerNodeIntegration:
         from core.llm.output_validator import CredibilityOutput
         from modules.pipeline.nodes.credibility_checker import CredibilityCheckerNode
 
-        mock_llm_client.call = AsyncMock(return_value=CredibilityOutput(score=0.85, flags=[]))
+        mock_llm_client.call_at = AsyncMock(return_value=CredibilityOutput(score=0.85, flags=[]))
 
         mock_source_auth_repo = AsyncMock()
         mock_source_auth_repo.get_or_create = AsyncMock(return_value=MagicMock(authority=0.80))
@@ -632,7 +642,7 @@ class TestCredibilityCheckerNodeIntegration:
         from core.llm.output_validator import CredibilityOutput
         from modules.pipeline.nodes.credibility_checker import CredibilityCheckerNode
 
-        mock_llm_client.call = AsyncMock(return_value=CredibilityOutput(score=0.90, flags=[]))
+        mock_llm_client.call_at = AsyncMock(return_value=CredibilityOutput(score=0.90, flags=[]))
 
         mock_source_auth_repo = AsyncMock()
         mock_source_auth_repo.get_or_create = AsyncMock(return_value=MagicMock(authority=0.85))
@@ -693,7 +703,7 @@ class TestEntityExtractorNodeIntegration:
         mock_spacy_entity.label = "ORG"
         mock_spacy_extractor.extract = MagicMock(return_value=[mock_spacy_entity])
 
-        mock_llm_client.call = AsyncMock(
+        mock_llm_client.call_at = AsyncMock(
             return_value=EntityExtractorOutput(
                 entities=[{"name": "OpenAI", "type": "组织机构"}],
                 relations=[],
@@ -737,7 +747,7 @@ class TestEntityExtractorNodeIntegration:
         mock_spacy = MagicMock()
         mock_spacy.extract = MagicMock(side_effect=Exception("spaCy error"))
 
-        mock_llm_client.call = AsyncMock(
+        mock_llm_client.call_at = AsyncMock(
             return_value=EntityExtractorOutput(entities=[], relations=[])
         )
         mock_llm_client.batch_embed = AsyncMock(return_value=[])
@@ -787,7 +797,7 @@ class TestPipelineNodeChain:
 
         state = PipelineState(raw=sample_raw_article)
 
-        mock_llm_client.call = AsyncMock()
+        mock_llm_client.call_at = AsyncMock()
         mock_llm_client.call.side_effect = [
             ClassifierOutput(is_news=True, confidence=0.95),
             CleanerOutput(content=CleanerContent(title="Cleaned Title", body="Cleaned body")),
@@ -860,7 +870,7 @@ class TestPipelineNodeChain:
 
         state = PipelineState(raw=sample_raw_article)
 
-        mock_llm_client.call = AsyncMock(
+        mock_llm_client.call_at = AsyncMock(
             return_value=ClassifierOutput(is_news=False, confidence=0.90)
         )
 
@@ -1201,7 +1211,7 @@ class TestAnalyzeNodeExtra:
         from core.llm.output_validator import AnalyzeOutput
         from modules.pipeline.nodes.analyze import AnalyzeNode
 
-        mock_llm_client.call = AsyncMock(
+        mock_llm_client.call_at = AsyncMock(
             return_value=AnalyzeOutput(
                 summary="Test summary",
                 event_time=None,
@@ -1239,7 +1249,7 @@ class TestAnalyzeNodeExtra:
         from core.llm.output_validator import AnalyzeOutput
         from modules.pipeline.nodes.analyze import AnalyzeNode
 
-        mock_llm_client.call = AsyncMock(
+        mock_llm_client.call_at = AsyncMock(
             return_value=AnalyzeOutput(
                 summary="Summary",
                 event_time=None,
@@ -1277,7 +1287,7 @@ class TestAnalyzeNodeExtra:
         from core.llm.output_validator import AnalyzeOutput
         from modules.pipeline.nodes.analyze import AnalyzeNode
 
-        mock_llm_client.call = AsyncMock(
+        mock_llm_client.call_at = AsyncMock(
             return_value=AnalyzeOutput(
                 summary="Summary",
                 event_time=None,
@@ -1328,7 +1338,7 @@ class TestEntityExtractorNodeExtra:
         mock_spacy_entity.label = "PER"
         mock_spacy_extractor.extract = MagicMock(return_value=[mock_spacy_entity])
 
-        mock_llm_client.call = AsyncMock(
+        mock_llm_client.call_at = AsyncMock(
             return_value=EntityExtractorOutput(
                 entities=[{"name": "张三", "type": "人物"}],
                 relations=[],

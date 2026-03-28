@@ -5,13 +5,23 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from modules.collector.models import ArticleRaw
 from modules.pipeline.graph import Pipeline
 from modules.pipeline.state import PipelineState
+
+
+@pytest.fixture(autouse=True)
+def mock_credibility_metrics():
+    """Mock credibility metrics to avoid Prometheus mock issues in tests."""
+    with patch(
+        "modules.pipeline.nodes.credibility_checker.MetricsCollector.credibility_score_dist"
+    ) as mock_hist:
+        mock_hist.observe = MagicMock()
+        yield mock_hist
 
 
 @pytest.fixture
@@ -86,8 +96,8 @@ class TestPipelineIntegration:
             CleanerContent,
         )
 
-        # Mock LLM responses for different stages
-        mock_llm.call = AsyncMock(
+        # Mock LLM responses for different stages using call_at
+        mock_llm.call_at = AsyncMock(
             side_effect=[
                 ClassifierOutput(is_news=True, confidence=0.95),  # classifier
                 CleanerContent(title="Cleaned Title", body="Cleaned body content"),  # cleaner
@@ -107,7 +117,7 @@ class TestPipelineIntegration:
                 ),
             ]
         )
-        mock_llm.batch_embed = AsyncMock(return_value=[[0.1] * 1536, [0.1] * 1536])
+        mock_llm.embed = AsyncMock(return_value=[[0.1] * 1024, [0.1] * 1024])
 
         pipeline = Pipeline(
             llm=mock_llm,
@@ -131,7 +141,7 @@ class TestPipelineIntegration:
         """Test that pipeline terminates for non-news content."""
         from core.llm.output_validator import ClassifierOutput
 
-        mock_llm.call = AsyncMock(return_value=ClassifierOutput(is_news=False, confidence=0.90))
+        mock_llm.call_at = AsyncMock(return_value=ClassifierOutput(is_news=False, confidence=0.90))
 
         pipeline = Pipeline(
             llm=mock_llm,
@@ -159,7 +169,7 @@ class TestPipelineIntegration:
             CleanerContent,
         )
 
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             side_effect=[
                 ClassifierOutput(is_news=True, confidence=0.9),
                 CleanerContent(title="Clean", body="Body"),
@@ -179,7 +189,7 @@ class TestPipelineIntegration:
                 ),
             ]
         )
-        mock_llm.batch_embed = AsyncMock(return_value=[[0.1] * 1536, [0.1] * 1536])
+        mock_llm.embed = AsyncMock(return_value=[[0.1] * 1024, [0.1] * 1024])
 
         pipeline = Pipeline(
             llm=mock_llm,
@@ -208,7 +218,7 @@ class TestPipelineErrorRecovery:
         from core.llm.output_validator import ClassifierOutput
 
         # First call succeeds, second fails
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             side_effect=[
                 ClassifierOutput(is_news=True, confidence=0.9),
                 Exception("LLM service unavailable"),
@@ -236,7 +246,7 @@ class TestPipelineErrorRecovery:
 
         from core.llm.output_validator import ClassifierOutput
 
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             side_effect=[
                 TimeoutError("Request timeout"),
             ]
@@ -269,7 +279,7 @@ class TestPipelineDataFlow:
             CleanerContent,
         )
 
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             side_effect=[
                 ClassifierOutput(is_news=True, confidence=0.9),
                 CleanerContent(title="T", body="B"),
@@ -289,7 +299,7 @@ class TestPipelineDataFlow:
                 ),
             ]
         )
-        mock_llm.batch_embed = AsyncMock(return_value=[[0.1] * 1536, [0.1] * 1536])
+        mock_llm.embed = AsyncMock(return_value=[[0.1] * 1024, [0.1] * 1024])
 
         pipeline = Pipeline(
             llm=mock_llm,
@@ -321,7 +331,7 @@ class TestPipelineDataFlow:
             CleanerContent,
         )
 
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             side_effect=[
                 ClassifierOutput(is_news=True, confidence=0.9),
                 CleanerContent(title="T", body="B"),
@@ -341,7 +351,7 @@ class TestPipelineDataFlow:
                 ),
             ]
         )
-        mock_llm.batch_embed = AsyncMock(return_value=[[0.1] * 1536, [0.1] * 1536])
+        mock_llm.embed = AsyncMock(return_value=[[0.1] * 1024, [0.1] * 1024])
 
         pipeline = Pipeline(
             llm=mock_llm,
