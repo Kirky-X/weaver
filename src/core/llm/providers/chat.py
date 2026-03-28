@@ -110,3 +110,9 @@ class ChatProvider(BaseLLMProvider):
             NotImplementedError: Chat provider does not support embeddings.
         """
         raise NotImplementedError("Use EmbeddingProvider for embeddings")
+
+    async def close(self) -> None:
+        """Clean up resources.
+
+        No explicit cleanup needed for ChatOpenAI client.
+        """

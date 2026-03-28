@@ -108,3 +108,9 @@ class EmbeddingProvider(BaseLLMProvider):
             Embedding vector.
         """
         return await self._client.aembed_query(text)
+
+    async def close(self) -> None:
+        """Clean up resources.
+
+        No explicit cleanup needed for OpenAI embedding client.
+        """
