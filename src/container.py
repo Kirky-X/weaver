@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from config.settings import Settings
@@ -26,7 +27,7 @@ from modules.pipeline.graph import Pipeline
 from modules.search.engines.global_search import GlobalSearchEngine
 from modules.search.engines.local_search import LocalSearchEngine
 from modules.source import SourceConfigRepo, SourceRegistry, SourceScheduler
-from modules.storage import ArticleRepo, SourceAuthorityRepo, VectorRepo
+from modules.storage import ArticleRepo, PendingSyncRepo, SourceAuthorityRepo, VectorRepo
 from modules.storage.neo4j import Neo4jArticleRepo, Neo4jEntityRepo
 
 log = get_logger("container")
@@ -77,6 +78,9 @@ class Container:
         self._event_bus: EventBus | None = None
         self._llm_failure_repo: Any = None
         self._llm_failure_cleanup_thread: Any = None
+        self._pending_sync_repo: PendingSyncRepo | None = None
+        self._scheduler_jobs: Any = None
+        self._startup_sync_task: asyncio.Task | None = None
         self._local_search_engine: LocalSearchEngine | None = None
         self._global_search_engine: GlobalSearchEngine | None = None
         self._shutdown: bool = False  # Idempotency protection
@@ -255,6 +259,29 @@ class Container:
         if self._source_authority_repo is None:
             self._source_authority_repo = SourceAuthorityRepo(self._postgres_pool)
         return self._source_authority_repo
+
+    def pending_sync_repo(self) -> PendingSyncRepo:
+        """Get pending sync repository."""
+        if self._pending_sync_repo is None:
+            self._pending_sync_repo = PendingSyncRepo(self._postgres_pool)
+        return self._pending_sync_repo
+
+    def scheduler_jobs(self) -> Any:
+        """Get scheduler jobs instance."""
+        if self._scheduler_jobs is None:
+            from modules.scheduler.jobs import SchedulerJobs
+
+            self._scheduler_jobs = SchedulerJobs(
+                postgres_pool=self._postgres_pool,
+                redis_client=self._redis_client,
+                neo4j_writer=self._neo4j_writer,
+                vector_repo=self._vector_repo,
+                article_repo=self._article_repo,
+                source_authority_repo=self._source_authority_repo,
+                pending_sync_repo=self._pending_sync_repo,
+                pipeline=self._pipeline,
+            )
+        return self._scheduler_jobs
 
     # ── Neo4j Repositories ─────────────────────────────────────────
 
@@ -459,6 +486,8 @@ class Container:
                 source_auth_repo=self.source_authority_repo(),
                 entity_resolver=self.entity_resolver(),
                 redis_client=self._redis_client,
+                pending_sync_repo=self.pending_sync_repo(),
+                neo4j_enabled=self._settings.neo4j.enabled,
             )
             log.info("pipeline_initialized")
         return self._pipeline
@@ -525,6 +554,44 @@ class Container:
         self._llm_failure_cleanup_thread = LLMFailureCleanupThread(self._llm_failure_repo)
         self._llm_failure_cleanup_thread.start()
         log.info("llm_failure_logging_initialized", event_bus_id=id(self._event_bus))
+
+        # Initialize pending sync repo and scheduler jobs
+        self._pending_sync_repo = PendingSyncRepo(self._postgres_pool)
+        jobs = self.scheduler_jobs()
+
+        # Register APScheduler jobs for neo4j sync
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+        scheduler = AsyncIOScheduler()
+        # sync_pending_to_neo4j every 10 minutes
+        scheduler.add_job(
+            jobs.sync_pending_to_neo4j,
+            "interval",
+            minutes=10,
+            id="sync_pending_to_neo4j",
+        )
+        # consistency_check daily at 03:00
+        scheduler.add_job(
+            jobs.consistency_check,
+            "cron",
+            hour=3,
+            minute=0,
+            id="consistency_check",
+        )
+        # cleanup_old_synced daily at 03:30
+        scheduler.add_job(
+            jobs.cleanup_old_synced,
+            "cron",
+            hour=3,
+            minute=30,
+            id="cleanup_old_synced",
+        )
+        scheduler.start()
+        log.info("scheduler_jobs_registered")
+
+        # Startup sync: sync any pending records on container startup
+        self._startup_sync_task = asyncio.create_task(jobs.sync_pending_to_neo4j())
+        log.info("startup_sync_triggered")
 
         log.info("container_started")
 

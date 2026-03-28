@@ -494,3 +494,64 @@ class VectorRepo:
             result = await session.execute(query, {"ids": neo4j_ids})
             await session.commit()
             return result.rowcount
+
+    async def update_entity_vectors_by_temp_keys(self, temp_key_to_neo4j: dict[str, str]) -> int:
+        """Update entity vectors by replacing temp keys with real Neo4j IDs.
+
+        Used after Neo4j sync to update entity_vectors with real neo4j_ids
+        instead of temporary UUIDs that were assigned during extraction.
+
+        Args:
+            temp_key_to_neo4j: Mapping from temp keys (UUIDs) to real Neo4j IDs.
+
+        Returns:
+            Number of vectors updated.
+        """
+        if not temp_key_to_neo4j:
+            return 0
+
+        async with self._pool.session() as session:
+            updated = 0
+            for temp_key, neo4j_id in temp_key_to_neo4j.items():
+                query = text("""
+                    UPDATE entity_vectors
+                    SET neo4j_id = :neo4j_id, updated_at = NOW()
+                    WHERE neo4j_id = :temp_key
+                """)
+                result = await session.execute(
+                    query,
+                    {"temp_key": temp_key, "neo4j_id": neo4j_id},
+                )
+                updated += result.rowcount
+            await session.commit()
+            return updated
+
+    async def get_entity_vectors_with_temp_keys(self) -> list[tuple[str, list[float]]]:
+        """Get entity vectors that still use temp keys (not real Neo4j IDs).
+
+        Returns:
+            List of (neo4j_id, embedding) tuples for vectors with temp keys.
+        """
+        async with self._pool.session() as session:
+            query = text("""
+                SELECT neo4j_id, embedding
+                FROM entity_vectors
+                WHERE neo4j_id LIKE 'temp_%'
+            """)
+            result = await session.execute(query)
+            return [(row[0], row[1]) for row in result]
+
+    async def count_entities_with_valid_neo4j_ids(self) -> int:
+        """Count entity vectors that have valid (non-temp) Neo4j IDs.
+
+        Returns:
+            Number of entity vectors with real Neo4j IDs.
+        """
+        async with self._pool.session() as session:
+            query = text("""
+                SELECT COUNT(*)
+                FROM entity_vectors
+                WHERE neo4j_id NOT LIKE 'temp_%'
+            """)
+            result = await session.execute(query)
+            return result.scalar() or 0

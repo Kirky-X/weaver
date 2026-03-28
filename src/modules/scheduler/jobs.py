@@ -20,6 +20,7 @@ from core.observability.metrics import metrics
 from modules.collector.retry import RetryQueue
 from modules.graph_store.neo4j_writer import Neo4jWriter
 from modules.storage.article_repo import ArticleRepo
+from modules.storage.pending_sync_repo import PendingSyncRepo
 from modules.storage.source_authority_repo import SourceAuthorityRepo
 from modules.storage.vector_repo import VectorRepo
 
@@ -45,6 +46,7 @@ class SchedulerJobs:
         vector_repo: VectorRepo,
         article_repo: ArticleRepo,
         source_authority_repo: SourceAuthorityRepo,
+        pending_sync_repo: PendingSyncRepo,
         pipeline: Any = None,
     ) -> None:
         self._postgres = postgres_pool
@@ -53,6 +55,7 @@ class SchedulerJobs:
         self._vector_repo = vector_repo
         self._article_repo = article_repo
         self._source_authority_repo = source_authority_repo
+        self._pending_sync_repo = pending_sync_repo
         self._retry_queue = RetryQueue(redis_client)
         self._pipeline = pipeline
 
@@ -61,7 +64,7 @@ class SchedulerJobs:
 
         Scans for articles with persist_status='pg_done' that have been
         in that state for more than 10 minutes, then attempts to write
-        to Neo4j again.
+        to Neo4j again. Prefers pending_sync payload over _reconstruct_state.
 
         Returns:
             Number of articles retried.
@@ -93,9 +96,22 @@ class SchedulerJobs:
             retry_count = 0
             for article in articles:
                 try:
-                    # Get full state from article
-                    # In production, would reconstruct state from article
-                    state = await self._reconstruct_state(article)
+                    # Prefer pending_sync payload over _reconstruct_state
+                    pending_sync = await self._pending_sync_repo.get_by_article_id(article.id)
+                    if pending_sync:
+                        state = self._pending_sync_repo.reconstruct_state_from_payload(
+                            pending_sync.payload
+                        )
+                        log.debug(
+                            "retry_neo4j_using_pending_sync",
+                            article_id=str(article.id),
+                        )
+                    else:
+                        state = await self._reconstruct_state(article)
+                        log.debug(
+                            "retry_neo4j_using_reconstruct",
+                            article_id=str(article.id),
+                        )
 
                     # Attempt Neo4j write
                     await self._neo4j_writer.write(state)
@@ -266,9 +282,10 @@ class SchedulerJobs:
     async def sync_neo4j_with_postgres(self) -> int:
         """Synchronize Neo4j articles with PostgreSQL.
 
-        Detects and cleans up two types of inconsistency:
+        Detects and cleans up three types of inconsistency:
         1. Orphan Neo4j nodes (in Neo4j but not in PostgreSQL)
         2. Enrichment gaps (NEO4J_DONE status but NULL enrichment fields)
+        3. Entity count mismatch between Neo4j and PostgreSQL entity_vectors
 
         Returns:
             Number of orphan articles deleted.
@@ -305,11 +322,45 @@ class SchedulerJobs:
                 await self._article_repo.revert_to_pg_done(article.id)
                 log.info("enrichment_gap_reverted", article_id=str(article.id))
 
+            # 3. Entity-level consistency check
+            await self._entity_consistency_check()
+
             log.info("sync_neo4j_with_postgres_complete", deleted=deleted, gaps=len(incomplete))
             return deleted
         except Exception as exc:
             log.error("sync_neo4j_with_postgres_failed", error=str(exc))
             return 0
+
+    async def _entity_consistency_check(self) -> None:
+        """Check entity count consistency between Neo4j and PostgreSQL entity_vectors.
+
+        Logs warning if mismatch detected between:
+        - Neo4j entity count
+        - PostgreSQL entity_vectors with valid (non-temp) neo4j_id
+        """
+        try:
+            # Count entities in Neo4j
+            neo4j_entity_ids = await self._neo4j_writer.entity_repo.list_all_entity_ids()
+            neo4j_count = len(neo4j_entity_ids)
+
+            # Count entities in PostgreSQL with valid neo4j_id
+            pg_count = await self._vector_repo.count_entities_with_valid_neo4j_ids()
+
+            if neo4j_count != pg_count:
+                log.warning(
+                    "entity_count_mismatch",
+                    neo4j_count=neo4j_count,
+                    pg_count=pg_count,
+                    difference=abs(neo4j_count - pg_count),
+                )
+            else:
+                log.info(
+                    "entity_consistency_ok",
+                    neo4j_count=neo4j_count,
+                    pg_count=pg_count,
+                )
+        except Exception as exc:
+            log.error("entity_consistency_check_failed", error=str(exc))
 
     async def retry_pipeline_processing(self) -> int:
         """Retry failed or stuck pipeline processing.
@@ -466,6 +517,162 @@ class SchedulerJobs:
                 )
         except Exception as exc:
             log.error("persist_status_metrics_update_error", error=str(exc))
+
+    async def sync_pending_to_neo4j(self) -> int:
+        """Sync pending records to Neo4j.
+
+        Consumes pending records from pending_sync table, writes to Neo4j,
+        updates temp keys in entity_vectors, and marks records as synced.
+
+        Returns:
+            Number of records successfully synced.
+        """
+        log.info("sync_pending_to_neo4j_start")
+
+        try:
+            pending_records = await self._pending_sync_repo.get_pending(limit=100)
+
+            if not pending_records:
+                log.info("sync_pending_to_neo4j_no_items")
+                return 0
+
+            synced_count = 0
+            for record in pending_records:
+                try:
+                    # Reconstruct state from payload
+                    state = self._pending_sync_repo.reconstruct_state_from_payload(record.payload)
+                    state["article_id"] = str(record.article_id)
+
+                    # Write to Neo4j
+                    neo4j_ids = await self._neo4j_writer.write(state)
+
+                    # Update temp keys in entity_vectors with real neo4j IDs
+                    if neo4j_ids and record.payload.get("entity_temp_keys"):
+                        temp_key_to_neo4j: dict[str, str] = {}
+                        entity_temp_keys = record.payload.get("entity_temp_keys", {})
+                        for temp_key, entity_name in entity_temp_keys.items():
+                            # Find matching neo4j_id by entity name
+                            for idx, entity in enumerate(state.get("entities", [])):
+                                if entity.get("name") == entity_name and idx < len(neo4j_ids):
+                                    temp_key_to_neo4j[temp_key] = neo4j_ids[idx]
+                                    break
+                        if temp_key_to_neo4j:
+                            await self._vector_repo.update_entity_vectors_by_temp_keys(
+                                temp_key_to_neo4j
+                            )
+
+                    # Update article persist status
+                    await self._article_repo.update_persist_status(
+                        record.article_id, PersistStatus.NEO4J_DONE
+                    )
+
+                    # Mark record as synced
+                    await self._pending_sync_repo.mark_synced(record.id)
+                    synced_count += 1
+
+                    log.debug(
+                        "sync_pending_to_neo4j_success",
+                        record_id=record.id,
+                        article_id=str(record.article_id),
+                    )
+
+                except Exception as exc:
+                    log.error(
+                        "sync_pending_to_neo4j_failed",
+                        record_id=record.id,
+                        article_id=str(record.article_id),
+                        error=str(exc),
+                    )
+                    await self._pending_sync_repo.mark_failed(record.id, str(exc))
+
+            log.info("sync_pending_to_neo4j_complete", synced=synced_count)
+            return synced_count
+        except Exception as exc:
+            log.error("sync_pending_to_neo4j_error", error=str(exc))
+            return 0
+
+    async def consistency_check(self) -> dict[str, Any]:
+        """Perform consistency check between Neo4j and PostgreSQL.
+
+        Checks:
+        1. Entity count comparison between Neo4j and PG entity_vectors
+        2. Orphan temp keys detection in entity_vectors
+        3. Stale pending records detection (>1 hour old)
+
+        Returns:
+            Dict with consistency check results.
+        """
+        log.info("consistency_check_start")
+
+        results: dict[str, Any] = {
+            "entity_mismatch": False,
+            "orphan_temp_keys": [],
+            "stale_pending": [],
+        }
+
+        try:
+            # 1. Entity count comparison
+            neo4j_entity_ids = await self._neo4j_writer.entity_repo.list_all_entity_ids()
+            neo4j_count = len(neo4j_entity_ids)
+            pg_count = await self._vector_repo.count_entities_with_valid_neo4j_ids()
+
+            if neo4j_count != pg_count:
+                results["entity_mismatch"] = True
+                results["neo4j_count"] = neo4j_count
+                results["pg_count"] = pg_count
+                log.warning(
+                    "consistency_entity_count_mismatch",
+                    neo4j_count=neo4j_count,
+                    pg_count=pg_count,
+                )
+
+            # 2. Orphan temp keys detection
+            orphan_temp_keys = await self._vector_repo.get_entity_vectors_with_temp_keys()
+            if orphan_temp_keys:
+                results["orphan_temp_keys"] = [key for key, _ in orphan_temp_keys]
+                log.warning(
+                    "consistency_orphan_temp_keys",
+                    count=len(orphan_temp_keys),
+                )
+
+            # 3. Stale pending records detection (>1 hour old)
+            stale_pending = await self._pending_sync_repo.get_stale_pending(hours=1)
+            if stale_pending:
+                results["stale_pending"] = [
+                    {
+                        "id": r.id,
+                        "article_id": str(r.article_id),
+                        "created_at": r.created_at.isoformat(),
+                    }
+                    for r in stale_pending
+                ]
+                log.warning(
+                    "consistency_stale_pending",
+                    count=len(stale_pending),
+                )
+
+            log.info("consistency_check_complete", results=results)
+            return results
+        except Exception as exc:
+            log.error("consistency_check_failed", error=str(exc))
+            results["error"] = str(exc)
+            return results
+
+    async def cleanup_old_synced(self) -> int:
+        """Clean up synced records older than 7 days.
+
+        Returns:
+            Number of records deleted.
+        """
+        log.info("cleanup_old_synced_start")
+
+        try:
+            deleted = await self._pending_sync_repo.cleanup_old_synced(days=7)
+            log.info("cleanup_old_synced_complete", deleted=deleted)
+            return deleted
+        except Exception as exc:
+            log.error("cleanup_old_synced_failed", error=str(exc))
+            return 0
 
     async def _reconstruct_state(self, article: Article) -> dict:
         """Reconstruct pipeline state from article for retry."""
