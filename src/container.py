@@ -489,10 +489,13 @@ class Container:
 
         await self.init_postgres()
         await self.init_redis()
-        try:
-            await self.init_neo4j()
-        except ConnectionError as exc:
-            log.warning("neo4j_unavailable_skipping", error=str(exc))
+        if self._settings.neo4j.enabled:
+            try:
+                await self.init_neo4j()
+            except ConnectionError as exc:
+                log.warning("neo4j_unavailable_skipping", error=str(exc))
+        else:
+            log.info("neo4j_disabled_skipping")
         await self.init_llm()
         self.init_search_engines()
         await self.init_playwright_pool()

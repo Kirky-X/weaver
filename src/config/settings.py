@@ -26,7 +26,7 @@ class PostgresSettings(BaseModel):
 class Neo4jSettings(BaseSettings):
     """Neo4j connection settings.
 
-    Reads NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD from environment.
+    Reads NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD, NEO4J_ENABLED from environment.
     """
 
     model_config = SettingsConfigDict(env_prefix="NEO4J_")
@@ -34,6 +34,7 @@ class Neo4jSettings(BaseSettings):
     uri: str = "bolt://localhost:7687"
     user: str = "neo4j"
     password: str = "neo4j_password"
+    enabled: bool = True
 
 
 class RedisSettings(BaseModel):
