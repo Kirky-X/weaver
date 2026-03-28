@@ -40,16 +40,36 @@ class HealthCheckSettings(BaseModel):
     """Delay between retry attempts."""
 
 
-class PostgresSettings(BaseModel):
-    """PostgreSQL connection settings."""
+class PostgresSettings(BaseSettings):
+    """PostgreSQL connection settings.
 
-    dsn: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver"
+    Connection details in settings.toml, password from environment.
+    DSN is auto-generated from components.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="POSTGRES_")
+
+    host: str = "localhost"
+    port: int = 5432
+    database: str = "weaver"
+    user: str = "postgres"
+    password: str = ""  # Set via POSTGRES_PASSWORD environment variable
+
+    # Pool settings
+    pool_size: int = 20
+    max_overflow: int = 10
+    pool_timeout: float = 30.0
+
+    @property
+    def dsn(self) -> str:
+        """Build DSN from components."""
+        return f"postgresql+asyncpg://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
 
 
 class Neo4jSettings(BaseSettings):
     """Neo4j connection settings.
 
-    Reads NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD from environment.
+    Reads NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD, NEO4J_ENABLED from environment.
     """
 
     model_config = SettingsConfigDict(env_prefix="NEO4J_")
@@ -57,19 +77,36 @@ class Neo4jSettings(BaseSettings):
     uri: str = "bolt://localhost:7687"
     user: str = "neo4j"
     password: str = "neo4j_password"
+    enabled: bool = True
 
 
-class RedisSettings(BaseModel):
-    """Redis connection settings."""
+class RedisSettings(BaseSettings):
+    """Redis connection settings.
 
-    url: str = "redis://localhost:6379/0"
+    Connection details in settings.toml, password from environment.
+    URL is auto-generated from components.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="REDIS_")
+
+    host: str = "localhost"
+    port: int = 6379
+    db: int = 0
+    password: str = ""  # Set via REDIS_PASSWORD environment variable (optional)
+
+    @property
+    def url(self) -> str:
+        """Build Redis URL from components."""
+        if self.password:
+            return f"redis://:{self.password}@{self.host}:{self.port}/{self.db}"
+        return f"redis://{self.host}:{self.port}/{self.db}"
 
 
 class LLMSettings(BaseModel):
     """LLM module settings.
 
     Note: Full LLM provider and call-point configuration is in config/llm.toml.
-    This class only contains simplified references used by specific components.
+    This class only contains embedding/rerank references for backward compatibility.
     """
 
     # Provider/model references (actual config is in llm.toml)
@@ -77,10 +114,6 @@ class LLMSettings(BaseModel):
     embedding_model: str = "Qwen3-Embedding-0.6B"
     rerank_provider: str = "aiping_rerank"
     rerank_model: str = "Qwen3-Reranker-0.6B"
-
-    # Legacy fields - kept for backwards compatibility
-    providers: dict[str, dict[str, Any]] = Field(default_factory=dict)
-    call_points: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
     @field_validator("embedding_provider", "rerank_provider")
     @classmethod
@@ -335,28 +368,33 @@ class Settings(BaseSettings):
         merged_kwargs = self._deep_merge(toml_data, kwargs)
 
         # CRITICAL: pydantic-settings processes init_kwargs BEFORE env vars.
-        # If we pass postgres={"dsn": "toml_value"} as init kwargs, pydantic
-        # cannot override it with WEAVER_POSTGRES__DSN from the environment.
-        # Fix: when WEAVER_POSTGRES__DSN is set in the environment, remove the
-        # postgres.dsn from merged_kwargs so pydantic can read it from env vars.
+        # PostgreSQL: strip fields so POSTGRES_* env vars take precedence over TOML.
         import os as _os
 
-        if _os.environ.get("WEAVER_POSTGRES__DSN") and (
+        if _os.environ.get("POSTGRES_PASSWORD") and (
             "postgres" in merged_kwargs and isinstance(merged_kwargs["postgres"], dict)
         ):
             merged_kwargs["postgres"] = dict(merged_kwargs["postgres"])
-            merged_kwargs["postgres"].pop("dsn", None)
-            if not merged_kwargs["postgres"]:
-                merged_kwargs.pop("postgres", None)
+            merged_kwargs["postgres"].pop("password", None)
 
-        # Redis: strip url so env vars (WEAVER_REDIS__URL) take precedence over TOML.
-        if _os.environ.get("WEAVER_REDIS__URL") and (
+        if _os.environ.get("POSTGRES_HOST") and (
+            "postgres" in merged_kwargs and isinstance(merged_kwargs["postgres"], dict)
+        ):
+            merged_kwargs["postgres"] = dict(merged_kwargs["postgres"])
+            merged_kwargs["postgres"].pop("host", None)
+
+        # Redis: strip fields so REDIS_* env vars take precedence over TOML.
+        if _os.environ.get("REDIS_PASSWORD") and (
             "redis" in merged_kwargs and isinstance(merged_kwargs["redis"], dict)
         ):
             merged_kwargs["redis"] = dict(merged_kwargs["redis"])
-            merged_kwargs["redis"].pop("url", None)
-            if not merged_kwargs["redis"]:
-                merged_kwargs.pop("redis", None)
+            merged_kwargs["redis"].pop("password", None)
+
+        if _os.environ.get("REDIS_HOST") and (
+            "redis" in merged_kwargs and isinstance(merged_kwargs["redis"], dict)
+        ):
+            merged_kwargs["redis"] = dict(merged_kwargs["redis"])
+            merged_kwargs["redis"].pop("host", None)
 
         # Neo4j: strip all fields so env vars (NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD)
         # take precedence over TOML values, matching the pattern for Postgres/Redis above.
@@ -422,7 +460,7 @@ class Settings(BaseSettings):
         warnings.extend(api_warnings)
 
         # Check Neo4j credentials
-        if self.neo4j.password in ["neo4j_password", "your_password_here", "password", "neo4j"]:
+        if self.neo4j.password in ["neo4j_password", "your_password_here", "password", "neo4j", ""]:
             if environment == "production":
                 raise ValueError(
                     "Production environment requires secure Neo4j credentials. "
@@ -431,26 +469,20 @@ class Settings(BaseSettings):
             warnings.append("Using default Neo4j password. Set NEO4J_PASSWORD for production.")
 
         # Check PostgreSQL credentials
-        if "postgres:postgres@" in self.postgres.dsn or ":@localhost" in self.postgres.dsn:
+        if not self.postgres.password or self.postgres.password in ["postgres", "password"]:
             if environment == "production":
                 raise ValueError(
                     "Production environment requires secure PostgreSQL credentials. "
-                    "Set POSTGRES_PASSWORD environment variable or use a secure DSN."
+                    "Set POSTGRES_PASSWORD environment variable."
                 )
             warnings.append(
-                "Using default PostgreSQL credentials. Set POSTGRES_PASSWORD for production."
+                "Using default PostgreSQL password. Set POSTGRES_PASSWORD for production."
             )
 
-        # Check LLM API keys
-        openai_config = self.llm.providers.get("openai", {})
-        openai_api_key = openai_config.get("api_key", "")
-
-        if not openai_api_key or openai_api_key == "":
-            if environment == "production":
-                raise ValueError(
-                    "Production environment requires LLM API key. "
-                    "Set LLM_API_KEY_OPENAI or WEAVER_LLM__PROVIDERS__OPENAI__API_KEY environment variable."
-                )
-            warnings.append("LLM API key not set. Set LLM_API_KEY_OPENAI for production.")
+        # Check LLM API keys are configured
+        # Note: actual validation happens in container.py when loading llm.toml
+        warnings.append(
+            "LLM API keys should be configured in config/llm.toml with ${ENV_VAR} syntax."
+        )
 
         return warnings

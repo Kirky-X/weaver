@@ -1,0 +1,152 @@
+# LLM Provider Configuration Template
+# ============================================================
+# Copy this file to config/llm.toml and configure your providers.
+# API keys should be set in .env file using ${ENV_VAR} syntax.
+# ============================================================
+
+# ============================================================
+# Global Settings
+# ============================================================
+
+[global]
+# Default providers (reference provider names in [providers.*])
+default_chat_provider = "your_chat_provider"        # Default chat model provider
+default_embedding_provider = "your_embedding_provider"  # Default embedding provider
+default_rerank_provider = "your_rerank_provider"    # Default reranking provider
+
+# Circuit breaker settings (global fallback)
+circuit_breaker_threshold = 5       # Consecutive failures before opening circuit
+circuit_breaker_timeout = 60.0      # Cooldown period before half-open (seconds)
+
+# Default timeout for all LLM calls (seconds)
+default_timeout = 120.0
+
+# ============================================================
+# Provider Definitions
+# ============================================================
+# Add your LLM providers below. Each provider needs:
+# - type: Provider type (openai/anthropic/embedding/aiping_rerank)
+# - model: Model identifier
+# - api_key: Environment variable reference using ${ENV_VAR} syntax
+# - base_url: API endpoint (empty for official providers)
+# - rpm_limit: Requests per minute limit (0 = unlimited)
+# - concurrency: Max concurrent requests
+# - timeout: Request timeout (seconds)
+# - priority: Lower = higher priority for routing
+# - weight: Load balancing weight
+# - capabilities: Supported features (chat/embedding/rerank/etc)
+
+# Example: OpenAI-compatible provider
+# [providers.openai]
+# type = "openai"
+# model = "gpt-4o"
+# api_key = "${OPENAI_API_KEY}"
+# base_url = "https://api.openai.com/v1"
+# rpm_limit = 60
+# concurrency = 5
+# timeout = 120.0
+# priority = 50
+# weight = 100
+# capabilities = ["chat", "embedding", "function_calling", "streaming"]
+
+# Example: Anthropic provider
+# [providers.anthropic]
+# type = "anthropic"
+# model = "claude-sonnet-4.6"
+# api_key = "${ANTHROPIC_API_KEY}"
+# base_url = ""  # Use official endpoint
+# rpm_limit = 0
+# concurrency = 3
+# timeout = 300.0
+# priority = 10
+# weight = 100
+# capabilities = ["chat", "vision", "streaming"]
+
+# Example: Local/Ollama provider
+# [providers.ollama]
+# type = "openai"
+# model = "qwen3.5:9b"
+# api_key = "ollama"
+# base_url = "http://localhost:11434/v1"
+# rpm_limit = 0
+# concurrency = 3
+# timeout = 300.0
+# priority = 30
+# weight = 60
+# capabilities = ["chat", "streaming"]
+
+# Example: Embedding provider
+# [providers.embedding]
+# type = "embedding"
+# model = "text-embedding-3-large"
+# api_key = "${OPENAI_API_KEY}"
+# base_url = "https://api.openai.com/v1"
+# rpm_limit = 0
+# concurrency = 3
+# timeout = 60.0
+# priority = 10
+# weight = 100
+# capabilities = ["embedding"]
+
+# Example: Rerank provider (if supported)
+# [providers.rerank]
+# type = "aiping_rerank"
+# model = "your-rerank-model"
+# api_key = "${RERANK_API_KEY}"
+# base_url = "https://your-rerank-api.com/v1"
+# rpm_limit = 100
+# concurrency = 3
+# timeout = 30.0
+# priority = 10
+# weight = 100
+# capabilities = ["rerank"]
+
+# ============================================================
+# Call Point Routing
+# ============================================================
+# Route specific tasks to different providers.
+# Label format: {type}.{provider}.{model}
+# Each call point can have primary and fallback providers.
+
+# Example: Entity extraction task
+# [call-points.entity_extractor]
+# primary = "chat.your_provider.your_model"
+# fallbacks = [
+#     "chat.fallback_provider.fallback_model",
+# ]
+
+# Example: Content classification
+# [call-points.classifier]
+# primary = "chat.your_provider.your_model"
+# fallbacks = []
+
+# Example: Text cleaning/structuring
+# [call-points.cleaner]
+# primary = "chat.your_provider.your_model"
+# fallbacks = []
+
+# Example: Embedding generation
+# [call-points.embedding]
+# primary = "embedding.your_provider.embedding_model"
+# fallbacks = []
+
+# Example: Reranking
+# [call-points.rerank]
+# primary = "rerank.your_provider.rerank_model"
+# fallbacks = []
+
+# ============================================================
+# Default Labels (fallback when no call point matches)
+# ============================================================
+
+# [defaults.chat]
+# label = "chat.your_provider.your_model"
+# fallbacks = []
+
+# [defaults.embedding]
+# label = "embedding.your_provider.embedding_model"
+# fallbacks = []
+
+# [defaults.rerank]
+# label = "rerank.your_provider.rerank_model"
+# fallbacks = []

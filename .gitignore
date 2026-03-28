@@ -28,6 +28,7 @@ docker/docker-compose.dev.yml
 
 # Configuration files
 config/settings.toml
+config/llm.toml
 
 # Project specific ignores
 openspec/

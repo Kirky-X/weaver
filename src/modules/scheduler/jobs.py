@@ -13,7 +13,6 @@ import json_repair
 from sqlalchemy import and_, select
 
 from core.cache.redis import RedisClient
-from core.constants import PipelineTaskStatus, RedisKeys
 from core.db.models import Article, PersistStatus
 from core.db.postgres import PostgresPool
 from core.observability.logging import get_logger
@@ -21,6 +20,7 @@ from core.observability.metrics import metrics
 from modules.collector.retry import RetryQueue
 from modules.graph_store.neo4j_writer import Neo4jWriter
 from modules.storage.article_repo import ArticleRepo
+from modules.storage.pending_sync_repo import PendingSyncRepo
 from modules.storage.source_authority_repo import SourceAuthorityRepo
 from modules.storage.vector_repo import VectorRepo
 
@@ -46,6 +46,7 @@ class SchedulerJobs:
         vector_repo: VectorRepo,
         article_repo: ArticleRepo,
         source_authority_repo: SourceAuthorityRepo,
+        pending_sync_repo: PendingSyncRepo,
         pipeline: Any = None,
     ) -> None:
         self._postgres = postgres_pool
@@ -54,6 +55,7 @@ class SchedulerJobs:
         self._vector_repo = vector_repo
         self._article_repo = article_repo
         self._source_authority_repo = source_authority_repo
+        self._pending_sync_repo = pending_sync_repo
         self._retry_queue = RetryQueue(redis_client)
         self._pipeline = pipeline
 
@@ -62,7 +64,7 @@ class SchedulerJobs:
 
         Scans for articles with persist_status='pg_done' that have been
         in that state for more than 10 minutes, then attempts to write
-        to Neo4j again.
+        to Neo4j again. Prefers pending_sync payload over _reconstruct_state.
 
         Returns:
             Number of articles retried.
@@ -94,9 +96,22 @@ class SchedulerJobs:
             retry_count = 0
             for article in articles:
                 try:
-                    # Get full state from article
-                    # In production, would reconstruct state from article
-                    state = await self._reconstruct_state(article)
+                    # Prefer pending_sync payload over _reconstruct_state
+                    pending_sync = await self._pending_sync_repo.get_by_article_id(article.id)
+                    if pending_sync:
+                        state = self._pending_sync_repo.reconstruct_state_from_payload(
+                            pending_sync.payload
+                        )
+                        log.debug(
+                            "retry_neo4j_using_pending_sync",
+                            article_id=str(article.id),
+                        )
+                    else:
+                        state = await self._reconstruct_state(article)
+                        log.debug(
+                            "retry_neo4j_using_reconstruct",
+                            article_id=str(article.id),
+                        )
 
                     # Attempt Neo4j write
                     await self._neo4j_writer.write(state)
@@ -150,7 +165,7 @@ class SchedulerJobs:
 
                 # Add to crawl queue
                 for item in items:
-                    await self._redis.lpush(RedisKeys.CRAWL_QUEUE, item)
+                    await self._redis.lpush("crawl:queue", item)
                     requeue_count += 1
 
         log.info("flush_retry_queue_complete", count=requeue_count)
@@ -165,44 +180,40 @@ class SchedulerJobs:
         Returns:
             Number of sources updated.
         """
-        from sqlalchemy import func
-
         log.info("update_source_auto_scores_start")
 
         async with self._postgres.session() as session:
-            # Get all sources with articles - optimized batch query
-            # Calculate average credibility score per source in a single query
-            stmt = (
-                select(
-                    Article.source_host,
-                    func.avg(Article.credibility_score).label("avg_score"),
-                    func.count(Article.id).label("article_count"),
-                )
-                .where(
-                    Article.source_host.isnot(None),
-                    Article.credibility_score.isnot(None),
-                )
-                .group_by(Article.source_host)
-            )
+            # Get all sources with articles
+            stmt = select(Article.source_host).distinct()
             result = await session.execute(stmt)
-            source_stats = result.all()
+            hosts = [row[0] for row in result if row[0]]
 
             update_count = 0
-            for row in source_stats:
-                host = row[0]
-                avg_score = float(row[1]) if row[1] is not None else 0.0
-
+            for host in hosts:
                 try:
-                    # Update source authority with batch-calculated score
-                    await self._source_authority_repo.update_auto_score(host, avg_score)
-                    update_count += 1
-
-                    log.debug(
-                        "source_auto_score_updated",
-                        host=host,
-                        avg_score=avg_score,
-                        article_count=row[2],
+                    # Calculate average credibility score for this source
+                    avg_stmt = select(Article).where(
+                        Article.source_host == host,
+                        Article.credibility_score.isnot(None),
                     )
+                    articles_result = await session.execute(avg_stmt)
+                    articles = articles_result.scalars().all()
+
+                    if articles:
+                        avg_score = sum(float(a.credibility_score or 0) for a in articles) / len(
+                            articles
+                        )
+
+                        # Update source authority
+                        await self._source_authority_repo.update_auto_score(host, float(avg_score))
+                        update_count += 1
+
+                        log.debug(
+                            "source_auto_score_updated",
+                            host=host,
+                            score=avg_score,
+                        )
+
                 except Exception as exc:
                     log.error(
                         "source_auto_score_failed",
@@ -268,88 +279,88 @@ class SchedulerJobs:
             log.error("cleanup_orphan_entity_vectors_failed", error=str(exc))
             return 0
 
-    async def sync_neo4j_with_postgres(self) -> dict[str, int]:
+    async def sync_neo4j_with_postgres(self) -> int:
         """Synchronize Neo4j articles with PostgreSQL.
 
         Detects and cleans up three types of inconsistency:
         1. Orphan Neo4j nodes (in Neo4j but not in PostgreSQL)
-        2. Orphan articles without MENTIONS relationships (no meaningful connections)
-        3. Enrichment gaps (NEO4J_DONE status but NULL enrichment fields)
+        2. Enrichment gaps (NEO4J_DONE status but NULL enrichment fields)
+        3. Entity count mismatch between Neo4j and PostgreSQL entity_vectors
 
         Returns:
-            Dict with detailed statistics:
-            - neo4j_orphans_deleted: Neo4j nodes not in PostgreSQL
-            - orphan_articles_cleaned: Articles without MENTIONS
-            - enrichment_gaps_detected: Articles with missing enrichment
-            - enrichment_gaps_reverted: Articles reverted to PG_DONE
+            Number of orphan articles deleted.
         """
         log.info("sync_neo4j_with_postgres_start")
-
-        stats = {
-            "neo4j_orphans_deleted": 0,
-            "orphan_articles_cleaned": 0,
-            "enrichment_gaps_detected": 0,
-            "enrichment_gaps_reverted": 0,
-        }
 
         try:
             pg_ids = await self._article_repo.get_all_article_ids()
 
-            # 1. Detect and clean up orphan Neo4j nodes (in Neo4j but not in PostgreSQL)
+            # 1. Detect and clean up orphan Neo4j nodes
             neo4j_ids = await self._neo4j_writer.article_repo.list_all_article_pg_ids()
             orphan_ids = set(neo4j_ids) - pg_ids
 
+            deleted = 0
             if orphan_ids:
-                stats["neo4j_orphans_deleted"] = (
-                    await self._neo4j_writer.article_repo.delete_orphan_articles(list(orphan_ids))
+                deleted = await self._neo4j_writer.article_repo.delete_orphan_articles(
+                    list(orphan_ids)
                 )
                 log.info(
                     "sync_neo4j_with_postgres_orphans_cleaned",
-                    deleted=stats["neo4j_orphans_deleted"],
+                    deleted=deleted,
                     orphan_count=len(orphan_ids),
                 )
 
-            # 2. Detect and clean up orphan articles without MENTIONS relationships
-            # These articles exist in Neo4j and PostgreSQL, but have no meaningful
-            # connections (no MENTIONS relationships and no FOLLOWED_BY outgoing)
-            stats["orphan_articles_cleaned"] = (
-                await self._neo4j_writer.article_repo.count_articles_without_mentions()
-            )
-            if stats["orphan_articles_cleaned"] > 0:
-                await self._neo4j_writer.article_repo.delete_articles_without_mentions()
-                log.info(
-                    "sync_neo4j_orphan_articles_cleaned",
-                    count=stats["orphan_articles_cleaned"],
-                )
-
-            # 3. Detect enrichment gaps (NEO4J_DONE but NULL enrichment fields)
+            # 2. Detect enrichment gaps (NEO4J_DONE but NULL enrichment fields)
             incomplete = await self._article_repo.get_incomplete_articles(limit=100)
-            stats["enrichment_gaps_detected"] = len(incomplete)
-
             for article in incomplete:
                 log.warning(
                     "enrichment_gap_detected",
                     article_id=str(article.id),
                     url=article.source_url,
-                    category=article.category.value if article.category else None,
-                    score=float(article.score) if article.score else None,
-                    credibility_score=(
-                        float(article.credibility_score) if article.credibility_score else None
-                    ),
-                    summary_present=article.summary is not None,
-                    quality_score=float(article.quality_score) if article.quality_score else None,
                 )
                 # Revert to PG_DONE so retry pipeline picks it up
-                reverted = await self._article_repo.revert_to_pg_done(article.id)
-                if reverted:
-                    stats["enrichment_gaps_reverted"] += 1
-                    log.info("enrichment_gap_reverted", article_id=str(article.id))
+                await self._article_repo.revert_to_pg_done(article.id)
+                log.info("enrichment_gap_reverted", article_id=str(article.id))
 
-            log.info("sync_neo4j_with_postgres_complete", **stats)
-            return stats
+            # 3. Entity-level consistency check
+            await self._entity_consistency_check()
+
+            log.info("sync_neo4j_with_postgres_complete", deleted=deleted, gaps=len(incomplete))
+            return deleted
         except Exception as exc:
             log.error("sync_neo4j_with_postgres_failed", error=str(exc))
-            return stats
+            return 0
+
+    async def _entity_consistency_check(self) -> None:
+        """Check entity count consistency between Neo4j and PostgreSQL entity_vectors.
+
+        Logs warning if mismatch detected between:
+        - Neo4j entity count
+        - PostgreSQL entity_vectors with valid (non-temp) neo4j_id
+        """
+        try:
+            # Count entities in Neo4j
+            neo4j_entity_ids = await self._neo4j_writer.entity_repo.list_all_entity_ids()
+            neo4j_count = len(neo4j_entity_ids)
+
+            # Count entities in PostgreSQL with valid neo4j_id
+            pg_count = await self._vector_repo.count_entities_with_valid_neo4j_ids()
+
+            if neo4j_count != pg_count:
+                log.warning(
+                    "entity_count_mismatch",
+                    neo4j_count=neo4j_count,
+                    pg_count=pg_count,
+                    difference=abs(neo4j_count - pg_count),
+                )
+            else:
+                log.info(
+                    "entity_consistency_ok",
+                    neo4j_count=neo4j_count,
+                    pg_count=pg_count,
+                )
+        except Exception as exc:
+            log.error("entity_consistency_check_failed", error=str(exc))
 
     async def retry_pipeline_processing(self) -> int:
         """Retry failed or stuck pipeline processing.
@@ -414,15 +425,12 @@ class SchedulerJobs:
                 all_terminal = all(art.persist_status in terminal_statuses for art in task_arts)
                 if all_terminal:
                     try:
-                        task_key = RedisKeys.PIPELINE_TASK_STATUS
+                        task_key = "pipeline:task_status"
                         existing = await self._redis.client.hget(task_key, str(task_id))
                         if existing:
                             task_data = json_repair.loads(existing)
-                            if task_data.get("status") not in (
-                                PipelineTaskStatus.COMPLETED.value,
-                                PipelineTaskStatus.FAILED.value,
-                            ):
-                                task_data["status"] = PipelineTaskStatus.COMPLETED.value
+                            if task_data.get("status") not in ("completed", "failed"):
+                                task_data["status"] = "completed"
                                 task_data["completed_at"] = datetime.now(UTC).isoformat()
                                 await self._redis.client.hset(
                                     task_key, str(task_id), json.dumps(task_data)
@@ -510,18 +518,161 @@ class SchedulerJobs:
         except Exception as exc:
             log.error("persist_status_metrics_update_error", error=str(exc))
 
-    async def update_db_pool_metrics(self) -> None:
-        """Update Prometheus metrics for database connection pool.
+    async def sync_pending_to_neo4j(self) -> int:
+        """Sync pending records to Neo4j.
 
-        Calls PostgresPool.record_metrics() to expose pool utilization
-        for alerting on connection pool saturation.
+        Consumes pending records from pending_sync table, writes to Neo4j,
+        updates temp keys in entity_vectors, and marks records as synced.
+
+        Returns:
+            Number of records successfully synced.
         """
-        log.info("update_db_pool_metrics_start")
+        log.info("sync_pending_to_neo4j_start")
+
         try:
-            await self._postgres.record_metrics()
-            log.info("update_db_pool_metrics_complete")
+            pending_records = await self._pending_sync_repo.get_pending(limit=100)
+
+            if not pending_records:
+                log.info("sync_pending_to_neo4j_no_items")
+                return 0
+
+            synced_count = 0
+            for record in pending_records:
+                try:
+                    # Reconstruct state from payload
+                    state = self._pending_sync_repo.reconstruct_state_from_payload(record.payload)
+                    state["article_id"] = str(record.article_id)
+
+                    # Write to Neo4j
+                    neo4j_ids = await self._neo4j_writer.write(state)
+
+                    # Update temp keys in entity_vectors with real neo4j IDs
+                    if neo4j_ids and record.payload.get("entity_temp_keys"):
+                        temp_key_to_neo4j: dict[str, str] = {}
+                        entity_temp_keys = record.payload.get("entity_temp_keys", {})
+                        for temp_key, entity_name in entity_temp_keys.items():
+                            # Find matching neo4j_id by entity name
+                            for idx, entity in enumerate(state.get("entities", [])):
+                                if entity.get("name") == entity_name and idx < len(neo4j_ids):
+                                    temp_key_to_neo4j[temp_key] = neo4j_ids[idx]
+                                    break
+                        if temp_key_to_neo4j:
+                            await self._vector_repo.update_entity_vectors_by_temp_keys(
+                                temp_key_to_neo4j
+                            )
+
+                    # Update article persist status
+                    await self._article_repo.update_persist_status(
+                        record.article_id, PersistStatus.NEO4J_DONE
+                    )
+
+                    # Mark record as synced
+                    await self._pending_sync_repo.mark_synced(record.id)
+                    synced_count += 1
+
+                    log.debug(
+                        "sync_pending_to_neo4j_success",
+                        record_id=record.id,
+                        article_id=str(record.article_id),
+                    )
+
+                except Exception as exc:
+                    log.error(
+                        "sync_pending_to_neo4j_failed",
+                        record_id=record.id,
+                        article_id=str(record.article_id),
+                        error=str(exc),
+                    )
+                    await self._pending_sync_repo.mark_failed(record.id, str(exc))
+
+            log.info("sync_pending_to_neo4j_complete", synced=synced_count)
+            return synced_count
         except Exception as exc:
-            log.error("update_db_pool_metrics_error", error=str(exc))
+            log.error("sync_pending_to_neo4j_error", error=str(exc))
+            return 0
+
+    async def consistency_check(self) -> dict[str, Any]:
+        """Perform consistency check between Neo4j and PostgreSQL.
+
+        Checks:
+        1. Entity count comparison between Neo4j and PG entity_vectors
+        2. Orphan temp keys detection in entity_vectors
+        3. Stale pending records detection (>1 hour old)
+
+        Returns:
+            Dict with consistency check results.
+        """
+        log.info("consistency_check_start")
+
+        results: dict[str, Any] = {
+            "entity_mismatch": False,
+            "orphan_temp_keys": [],
+            "stale_pending": [],
+        }
+
+        try:
+            # 1. Entity count comparison
+            neo4j_entity_ids = await self._neo4j_writer.entity_repo.list_all_entity_ids()
+            neo4j_count = len(neo4j_entity_ids)
+            pg_count = await self._vector_repo.count_entities_with_valid_neo4j_ids()
+
+            if neo4j_count != pg_count:
+                results["entity_mismatch"] = True
+                results["neo4j_count"] = neo4j_count
+                results["pg_count"] = pg_count
+                log.warning(
+                    "consistency_entity_count_mismatch",
+                    neo4j_count=neo4j_count,
+                    pg_count=pg_count,
+                )
+
+            # 2. Orphan temp keys detection
+            orphan_temp_keys = await self._vector_repo.get_entity_vectors_with_temp_keys()
+            if orphan_temp_keys:
+                results["orphan_temp_keys"] = [key for key, _ in orphan_temp_keys]
+                log.warning(
+                    "consistency_orphan_temp_keys",
+                    count=len(orphan_temp_keys),
+                )
+
+            # 3. Stale pending records detection (>1 hour old)
+            stale_pending = await self._pending_sync_repo.get_stale_pending(hours=1)
+            if stale_pending:
+                results["stale_pending"] = [
+                    {
+                        "id": r.id,
+                        "article_id": str(r.article_id),
+                        "created_at": r.created_at.isoformat(),
+                    }
+                    for r in stale_pending
+                ]
+                log.warning(
+                    "consistency_stale_pending",
+                    count=len(stale_pending),
+                )
+
+            log.info("consistency_check_complete", results=results)
+            return results
+        except Exception as exc:
+            log.error("consistency_check_failed", error=str(exc))
+            results["error"] = str(exc)
+            return results
+
+    async def cleanup_old_synced(self) -> int:
+        """Clean up synced records older than 7 days.
+
+        Returns:
+            Number of records deleted.
+        """
+        log.info("cleanup_old_synced_start")
+
+        try:
+            deleted = await self._pending_sync_repo.cleanup_old_synced(days=7)
+            log.info("cleanup_old_synced_complete", deleted=deleted)
+            return deleted
+        except Exception as exc:
+            log.error("cleanup_old_synced_failed", error=str(exc))
+            return 0
 
     async def _reconstruct_state(self, article: Article) -> dict:
         """Reconstruct pipeline state from article for retry."""
@@ -572,158 +723,3 @@ class RetryManager:
         key = f"crawl:retry:{host}"
         if items:
             await self._redis.zrem(key, *items)
-
-
-class CommunityDetectionScheduler:
-    """Manages automatic community detection triggers.
-
-    Triggers community detection when:
-    - Entity count changes exceed threshold (default 10%)
-    - Time since last rebuild exceeds threshold (default 7 days)
-    """
-
-    ENTITY_CHANGE_THRESHOLD = 0.10  # 10% change
-    REBUILD_INTERVAL_DAYS = 7
-
-    # Redis keys for tracking state
-    LAST_REBUILD_KEY = "community:last_rebuild"
-    ENTITY_COUNT_KEY = "community:entity_count"
-
-    def __init__(
-        self,
-        neo4j_pool: Any,
-        redis_client: RedisClient,
-        llm_client: Any = None,
-    ) -> None:
-        self._neo4j_pool = neo4j_pool
-        self._redis = redis_client
-        self._llm_client = llm_client
-
-    async def check_and_trigger_detection(self) -> dict[str, Any]:
-        """Check if community detection should be triggered.
-
-        Returns:
-            Dict with 'triggered', 'reason', and stats.
-        """
-        from modules.graph_store.community_detector import CommunityDetector
-        from modules.graph_store.community_repo import Neo4jCommunityRepo
-
-        log.info("community_detection_check_start")
-
-        result = {
-            "triggered": False,
-            "reason": None,
-            "current_entity_count": 0,
-            "previous_entity_count": 0,
-            "days_since_rebuild": None,
-        }
-
-        # Get current entity count
-        entity_count_query = "MATCH (e:Entity) RETURN count(e) AS count"
-        entity_result = await self._neo4j_pool.execute_query(entity_count_query, {})
-        current_entity_count = entity_result[0].get("count", 0) if entity_result else 0
-        result["current_entity_count"] = current_entity_count
-
-        # Get previous entity count from Redis
-        previous_count_str = await self._redis.get(self.ENTITY_COUNT_KEY)
-        previous_entity_count = int(previous_count_str) if previous_count_str else 0
-        result["previous_entity_count"] = previous_entity_count
-
-        # Check time since last rebuild
-        last_rebuild_str = await self._redis.get(self.LAST_REBUILD_KEY)
-        days_since_rebuild = None
-
-        if last_rebuild_str:
-            try:
-                last_rebuild = datetime.fromisoformat(last_rebuild_str)
-                days_since_rebuild = (datetime.now(UTC) - last_rebuild).days
-                result["days_since_rebuild"] = days_since_rebuild
-            except (ValueError, TypeError):
-                pass
-
-        # Check if we should trigger
-        should_trigger = False
-        trigger_reason = None
-
-        # Check entity count change
-        if previous_entity_count > 0:
-            change_ratio = abs(current_entity_count - previous_entity_count) / previous_entity_count
-            if change_ratio >= self.ENTITY_CHANGE_THRESHOLD:
-                should_trigger = True
-                trigger_reason = f"entity_change_{change_ratio:.1%}"
-
-        # Check time threshold
-        if days_since_rebuild is not None and days_since_rebuild >= self.REBUILD_INTERVAL_DAYS:
-            should_trigger = True
-            trigger_reason = f"days_since_rebuild_{days_since_rebuild}"
-
-        # Check if no communities exist
-        repo = Neo4jCommunityRepo(self._neo4j_pool)
-        community_count = await repo.count_communities()
-
-        if community_count == 0 and current_entity_count > 0:
-            should_trigger = True
-            trigger_reason = "no_communities_exist"
-
-        result["triggered"] = should_trigger
-        result["reason"] = trigger_reason
-
-        if should_trigger:
-            log.info(
-                "community_detection_triggered",
-                reason=trigger_reason,
-                current_entities=current_entity_count,
-                previous_entities=previous_entity_count,
-                days_since_rebuild=days_since_rebuild,
-            )
-
-            try:
-                detector = CommunityDetector(self._neo4j_pool)
-                detection_result = await detector.rebuild_communities()
-
-                # Update tracking state
-                await self._redis.set(self.LAST_REBUILD_KEY, datetime.now(UTC).isoformat())
-                await self._redis.set(self.ENTITY_COUNT_KEY, str(current_entity_count))
-
-                result["communities_created"] = detection_result.total_communities
-                result["modularity"] = detection_result.modularity
-
-                log.info(
-                    "community_detection_complete",
-                    communities=detection_result.total_communities,
-                    modularity=detection_result.modularity,
-                )
-            except Exception as exc:
-                log.error("community_detection_failed", error=str(exc))
-                result["error"] = str(exc)
-                result["triggered"] = False
-        else:
-            # Update entity count for next check
-            await self._redis.set(self.ENTITY_COUNT_KEY, str(current_entity_count))
-            log.info("community_detection_skipped", entity_count=current_entity_count)
-
-        return result
-
-    async def force_rebuild(self) -> dict[str, Any]:
-        """Force a community rebuild regardless of thresholds."""
-        from modules.graph_store.community_detector import CommunityDetector
-
-        log.info("community_detection_force_rebuild")
-
-        detector = CommunityDetector(self._neo4j_pool)
-        result = await detector.rebuild_communities()
-
-        # Update tracking state
-        await self._redis.set(self.LAST_REBUILD_KEY, datetime.now(UTC).isoformat())
-
-        entity_count_query = "MATCH (e:Entity) RETURN count(e) AS count"
-        entity_result = await self._neo4j_pool.execute_query(entity_count_query, {})
-        current_entity_count = entity_result[0].get("count", 0) if entity_result else 0
-        await self._redis.set(self.ENTITY_COUNT_KEY, str(current_entity_count))
-
-        return {
-            "triggered": True,
-            "reason": "forced",
-            "communities_created": result.total_communities,
-            "modularity": result.modularity,
-        }

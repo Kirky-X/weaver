@@ -21,6 +21,7 @@ class TestSchedulerJobsInit:
         mock_article = MagicMock()
         mock_source = MagicMock()
 
+        mock_pending_sync = MagicMock()
         jobs = SchedulerJobs(
             postgres_pool=mock_postgres,
             redis_client=mock_redis,
@@ -28,6 +29,7 @@ class TestSchedulerJobsInit:
             vector_repo=mock_vector,
             article_repo=mock_article,
             source_authority_repo=mock_source,
+            pending_sync_repo=mock_pending_sync,
         )
 
         assert jobs._postgres == mock_postgres
@@ -49,6 +51,7 @@ class TestSchedulerJobsInit:
             vector_repo=MagicMock(),
             article_repo=MagicMock(),
             source_authority_repo=MagicMock(),
+            pending_sync_repo=MagicMock(),
             pipeline=mock_pipeline,
         )
 
@@ -70,6 +73,7 @@ class TestRetryNeo4jWrites:
             vector_repo=MagicMock(),
             article_repo=MagicMock(),
             source_authority_repo=MagicMock(),
+            pending_sync_repo=MagicMock(),
         )
 
     @pytest.mark.asyncio
@@ -114,6 +118,7 @@ class TestRetryNeo4jWrites:
         scheduler_jobs._postgres.session.return_value.__aexit__ = AsyncMock(return_value=None)
 
         scheduler_jobs._neo4j_writer.write = AsyncMock()
+        scheduler_jobs._pending_sync_repo.get_by_article_id = AsyncMock(return_value=None)
 
         result = await scheduler_jobs.retry_neo4j_writes()
         assert result == 1
@@ -146,6 +151,56 @@ class TestRetryNeo4jWrites:
         result = await scheduler_jobs.retry_neo4j_writes()
         assert result == 0
 
+    @pytest.mark.asyncio
+    async def test_retry_neo4j_writes_prefers_pending_sync_payload(self, scheduler_jobs):
+        """Test that retry_neo4j_writes prefers pending_sync payload over _reconstruct_state."""
+        import uuid
+        from datetime import UTC, datetime
+
+        from core.db.models import Article, PersistStatus
+
+        mock_article = MagicMock(spec=Article)
+        mock_article.id = uuid.uuid4()
+        mock_article.source_url = "https://example.com/test"
+        mock_article.title = "Test Article"
+        mock_article.body = "Test body"
+        mock_article.persist_status = PersistStatus.PG_DONE
+
+        mock_session = AsyncMock()
+        mock_result = MagicMock()
+        mock_result.scalars().all.return_value = [mock_article]
+        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.commit = AsyncMock()
+
+        scheduler_jobs._postgres.session = MagicMock()
+        scheduler_jobs._postgres.session.return_value.__aenter__ = AsyncMock(
+            return_value=mock_session
+        )
+        scheduler_jobs._postgres.session.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        scheduler_jobs._neo4j_writer.write = AsyncMock()
+
+        # Mock pending_sync record with payload
+        mock_pending_sync = MagicMock()
+        mock_pending_sync.payload = {
+            "article_id": str(mock_article.id),
+            "entities": [{"name": "Test Entity", "type": "PERSON"}],
+        }
+        scheduler_jobs._pending_sync_repo.get_by_article_id = AsyncMock(
+            return_value=mock_pending_sync
+        )
+        scheduler_jobs._pending_sync_repo.reconstruct_state_from_payload = MagicMock(
+            return_value={"article_id": str(mock_article.id), "entities": []}
+        )
+
+        result = await scheduler_jobs.retry_neo4j_writes()
+
+        assert result == 1
+        # Verify reconstruct_state_from_payload was called with pending_sync payload
+        scheduler_jobs._pending_sync_repo.reconstruct_state_from_payload.assert_called_once_with(
+            mock_pending_sync.payload
+        )
+
 
 class TestFlushRetryQueue:
     """Test flush_retry_queue job."""
@@ -162,6 +217,7 @@ class TestFlushRetryQueue:
             vector_repo=MagicMock(),
             article_repo=MagicMock(),
             source_authority_repo=MagicMock(),
+            pending_sync_repo=MagicMock(),
         )
 
     @pytest.mark.asyncio
@@ -214,6 +270,7 @@ class TestUpdateSourceAutoScores:
             vector_repo=MagicMock(),
             article_repo=MagicMock(),
             source_authority_repo=MagicMock(),
+            pending_sync_repo=MagicMock(),
         )
 
     @pytest.mark.asyncio
@@ -281,6 +338,7 @@ class TestArchiveOldNeo4jNodes:
             vector_repo=MagicMock(),
             article_repo=MagicMock(),
             source_authority_repo=MagicMock(),
+            pending_sync_repo=MagicMock(),
         )
 
     @pytest.mark.asyncio
@@ -318,6 +376,7 @@ class TestCleanupOrphanEntityVectors:
             vector_repo=MagicMock(),
             article_repo=MagicMock(),
             source_authority_repo=MagicMock(),
+            pending_sync_repo=MagicMock(),
         )
 
     @pytest.mark.asyncio
@@ -352,6 +411,7 @@ class TestRetryPipelineProcessing:
             vector_repo=MagicMock(),
             article_repo=MagicMock(),
             source_authority_repo=MagicMock(),
+            pending_sync_repo=MagicMock(),
             pipeline=MagicMock(),
         )
 
@@ -367,6 +427,7 @@ class TestRetryPipelineProcessing:
             vector_repo=MagicMock(),
             article_repo=MagicMock(),
             source_authority_repo=MagicMock(),
+            pending_sync_repo=MagicMock(),
             pipeline=None,
         )
 
@@ -421,6 +482,7 @@ class TestReconstructState:
             vector_repo=MagicMock(),
             article_repo=MagicMock(),
             source_authority_repo=MagicMock(),
+            pending_sync_repo=MagicMock(),
         )
 
     @pytest.mark.asyncio
@@ -463,6 +525,7 @@ class TestSyncNeo4jWithPostgres:
             vector_repo=MagicMock(),
             article_repo=MagicMock(),
             source_authority_repo=MagicMock(),
+            pending_sync_repo=MagicMock(),
         )
 
     @pytest.mark.asyncio
@@ -710,3 +773,219 @@ class TestRetryManager:
         await retry_manager.remove_from_retry("example.com", "item1", "item2")
 
         retry_manager._redis.zrem.assert_called_once()
+
+
+class TestSyncPendingToNeo4j:
+    """Test sync_pending_to_neo4j job."""
+
+    @pytest.fixture
+    def scheduler_jobs(self):
+        """Create SchedulerJobs instance."""
+        from modules.scheduler.jobs import SchedulerJobs
+
+        return SchedulerJobs(
+            postgres_pool=MagicMock(),
+            redis_client=MagicMock(),
+            neo4j_writer=MagicMock(),
+            vector_repo=MagicMock(),
+            article_repo=MagicMock(),
+            source_authority_repo=MagicMock(),
+            pending_sync_repo=MagicMock(),
+        )
+
+    @pytest.mark.asyncio
+    async def test_sync_pending_to_neo4j_no_items(self, scheduler_jobs):
+        """Test when no pending records exist."""
+        scheduler_jobs._pending_sync_repo.get_pending = AsyncMock(return_value=[])
+
+        result = await scheduler_jobs.sync_pending_to_neo4j()
+
+        assert result == 0
+        scheduler_jobs._neo4j_writer.write.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_sync_pending_to_neo4j_success(self, scheduler_jobs):
+        """Test successful sync of pending records."""
+        import uuid
+        from datetime import UTC, datetime
+
+        from modules.storage.pending_sync_repo import PendingSync
+
+        mock_record = MagicMock(spec=PendingSync)
+        mock_record.id = 1
+        mock_record.article_id = uuid.uuid4()
+        mock_record.payload = {
+            "article_id": str(mock_record.article_id),
+            "raw": MagicMock(url="https://example.com", title="Test", body="Body"),
+            "entities": [],
+        }
+        mock_record.created_at = datetime.now(UTC)
+
+        scheduler_jobs._pending_sync_repo.get_pending = AsyncMock(return_value=[mock_record])
+        scheduler_jobs._pending_sync_repo.reconstruct_state_from_payload = MagicMock(
+            return_value={"article_id": str(mock_record.article_id)}
+        )
+        scheduler_jobs._neo4j_writer.write = AsyncMock(return_value=[])
+        scheduler_jobs._article_repo.update_persist_status = AsyncMock()
+        scheduler_jobs._pending_sync_repo.mark_synced = AsyncMock()
+
+        result = await scheduler_jobs.sync_pending_to_neo4j()
+
+        assert result == 1
+        scheduler_jobs._neo4j_writer.write.assert_called_once()
+        scheduler_jobs._article_repo.update_persist_status.assert_called_once()
+        scheduler_jobs._pending_sync_repo.mark_synced.assert_called_once_with(1)
+
+    @pytest.mark.asyncio
+    async def test_sync_pending_to_neo4j_failure(self, scheduler_jobs):
+        """Test handling of sync failure."""
+        import uuid
+        from datetime import UTC, datetime
+
+        from modules.storage.pending_sync_repo import PendingSync
+
+        mock_record = MagicMock(spec=PendingSync)
+        mock_record.id = 1
+        mock_record.article_id = uuid.uuid4()
+        mock_record.payload = {"article_id": str(mock_record.article_id)}
+        mock_record.created_at = datetime.now(UTC)
+
+        scheduler_jobs._pending_sync_repo.get_pending = AsyncMock(return_value=[mock_record])
+        scheduler_jobs._pending_sync_repo.reconstruct_state_from_payload = MagicMock(
+            return_value={"article_id": str(mock_record.article_id)}
+        )
+        scheduler_jobs._neo4j_writer.write = AsyncMock(side_effect=Exception("Neo4j error"))
+        scheduler_jobs._pending_sync_repo.mark_failed = AsyncMock()
+
+        result = await scheduler_jobs.sync_pending_to_neo4j()
+
+        assert result == 0
+        scheduler_jobs._pending_sync_repo.mark_failed.assert_called_once_with(1, "Neo4j error")
+
+
+class TestConsistencyCheck:
+    """Test consistency_check job."""
+
+    @pytest.fixture
+    def scheduler_jobs(self):
+        """Create SchedulerJobs instance."""
+        from modules.scheduler.jobs import SchedulerJobs
+
+        return SchedulerJobs(
+            postgres_pool=MagicMock(),
+            redis_client=MagicMock(),
+            neo4j_writer=MagicMock(),
+            vector_repo=MagicMock(),
+            article_repo=MagicMock(),
+            source_authority_repo=MagicMock(),
+            pending_sync_repo=MagicMock(),
+        )
+
+    @pytest.mark.asyncio
+    async def test_consistency_check_no_mismatch(self, scheduler_jobs):
+        """Test when entity counts match."""
+        scheduler_jobs._neo4j_writer.entity_repo.list_all_entity_ids = AsyncMock(
+            return_value=["id1", "id2", "id3"]
+        )
+        scheduler_jobs._vector_repo.count_entities_with_valid_neo4j_ids = AsyncMock(return_value=3)
+        scheduler_jobs._vector_repo.get_entity_vectors_with_temp_keys = AsyncMock(return_value=[])
+        scheduler_jobs._pending_sync_repo.get_stale_pending = AsyncMock(return_value=[])
+
+        result = await scheduler_jobs.consistency_check()
+
+        assert result["entity_mismatch"] is False
+        assert result["orphan_temp_keys"] == []
+        assert result["stale_pending"] == []
+
+    @pytest.mark.asyncio
+    async def test_consistency_check_entity_mismatch(self, scheduler_jobs):
+        """Test when entity counts don't match."""
+        scheduler_jobs._neo4j_writer.entity_repo.list_all_entity_ids = AsyncMock(
+            return_value=["id1", "id2"]
+        )
+        scheduler_jobs._vector_repo.count_entities_with_valid_neo4j_ids = AsyncMock(return_value=5)
+        scheduler_jobs._vector_repo.get_entity_vectors_with_temp_keys = AsyncMock(return_value=[])
+        scheduler_jobs._pending_sync_repo.get_stale_pending = AsyncMock(return_value=[])
+
+        result = await scheduler_jobs.consistency_check()
+
+        assert result["entity_mismatch"] is True
+        assert result["neo4j_count"] == 2
+        assert result["pg_count"] == 5
+
+    @pytest.mark.asyncio
+    async def test_consistency_check_orphan_temp_keys(self, scheduler_jobs):
+        """Test detection of orphan temp keys."""
+        scheduler_jobs._neo4j_writer.entity_repo.list_all_entity_ids = AsyncMock(return_value=[])
+        scheduler_jobs._vector_repo.count_entities_with_valid_neo4j_ids = AsyncMock(return_value=0)
+        scheduler_jobs._vector_repo.get_entity_vectors_with_temp_keys = AsyncMock(
+            return_value=[("temp_key1", []), ("temp_key2", [])]
+        )
+        scheduler_jobs._pending_sync_repo.get_stale_pending = AsyncMock(return_value=[])
+
+        result = await scheduler_jobs.consistency_check()
+
+        assert result["orphan_temp_keys"] == ["temp_key1", "temp_key2"]
+
+    @pytest.mark.asyncio
+    async def test_consistency_check_stale_pending(self, scheduler_jobs):
+        """Test detection of stale pending records."""
+        import uuid
+        from datetime import UTC, datetime
+
+        from modules.storage.pending_sync_repo import PendingSync
+
+        mock_record = MagicMock(spec=PendingSync)
+        mock_record.id = 1
+        mock_record.article_id = uuid.uuid4()
+        mock_record.created_at = datetime.now(UTC)
+
+        scheduler_jobs._neo4j_writer.entity_repo.list_all_entity_ids = AsyncMock(return_value=[])
+        scheduler_jobs._vector_repo.count_entities_with_valid_neo4j_ids = AsyncMock(return_value=0)
+        scheduler_jobs._vector_repo.get_entity_vectors_with_temp_keys = AsyncMock(return_value=[])
+        scheduler_jobs._pending_sync_repo.get_stale_pending = AsyncMock(return_value=[mock_record])
+
+        result = await scheduler_jobs.consistency_check()
+
+        assert len(result["stale_pending"]) == 1
+        assert result["stale_pending"][0]["id"] == 1
+
+
+class TestCleanupOldSynced:
+    """Test cleanup_old_synced job."""
+
+    @pytest.fixture
+    def scheduler_jobs(self):
+        """Create SchedulerJobs instance."""
+        from modules.scheduler.jobs import SchedulerJobs
+
+        return SchedulerJobs(
+            postgres_pool=MagicMock(),
+            redis_client=MagicMock(),
+            neo4j_writer=MagicMock(),
+            vector_repo=MagicMock(),
+            article_repo=MagicMock(),
+            source_authority_repo=MagicMock(),
+            pending_sync_repo=MagicMock(),
+        )
+
+    @pytest.mark.asyncio
+    async def test_cleanup_old_synced_success(self, scheduler_jobs):
+        """Test cleanup of old synced records."""
+        scheduler_jobs._pending_sync_repo.cleanup_old_synced = AsyncMock(return_value=5)
+
+        result = await scheduler_jobs.cleanup_old_synced()
+
+        assert result == 5
+        scheduler_jobs._pending_sync_repo.cleanup_old_synced.assert_called_once_with(days=7)
+
+    @pytest.mark.asyncio
+    async def test_cleanup_old_synced_error(self, scheduler_jobs):
+        """Test handling of cleanup error."""
+        scheduler_jobs._pending_sync_repo.cleanup_old_synced = AsyncMock(
+            side_effect=Exception("DB error")
+        )
+
+        result = await scheduler_jobs.cleanup_old_synced()
+
+        assert result == 0

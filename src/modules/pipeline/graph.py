@@ -1,24 +1,11 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""LangGraph main pipeline flow definition.
-
-This module provides the main processing pipeline with support for both
-hardcoded nodes and configuration-driven initialization.
-
-Usage:
-    # Hardcoded (backward compatible)
-    pipeline = Pipeline(llm, budget, prompt_loader, event_bus)
-
-    # Configuration-driven (new)
-    from modules.pipeline.config import PipelineConfigLoader
-    config = PipelineConfigLoader().load_with_env_override()
-    pipeline = Pipeline.from_config(llm, config, ...)
-"""
+"""LangGraph main pipeline flow definition."""
 
 from __future__ import annotations
 
 import asyncio
 import traceback
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from core.db.models import PersistStatus
 from core.event.bus import EventBus
@@ -42,13 +29,6 @@ from modules.pipeline.nodes.quality_scorer import QualityScorerNode
 from modules.pipeline.nodes.re_vectorize import ReVectorizeNode
 from modules.pipeline.nodes.vectorize import VectorizeNode
 from modules.pipeline.state import PipelineState
-from modules.storage.article_repo import is_enrichment_complete
-
-if TYPE_CHECKING:
-    from core.protocols import ArticleRepository, VectorRepository
-    from modules.graph_store.neo4j_writer import Neo4jWriter
-    from modules.pipeline.config import PipelineConfig
-    from modules.source.source_authority_repo import SourceAuthorityRepo
 
 log = get_logger("pipeline")
 
@@ -89,22 +69,22 @@ class Pipeline:
         prompt_loader: PromptLoader,
         event_bus: EventBus,
         spacy: SpacyExtractor | None = None,
-        vector_repo: VectorRepository | None = None,
-        article_repo: ArticleRepository | None = None,
-        neo4j_writer: Neo4jWriter | None = None,
-        source_auth_repo: SourceAuthorityRepo | None = None,
+        vector_repo: Any = None,
+        article_repo: Any = None,
+        neo4j_writer: Any = None,
+        source_auth_repo: Any = None,
         entity_resolver: EntityResolver | None = None,
         redis_client: Any = None,
+        pending_sync_repo: Any = None,
+        neo4j_enabled: bool = True,
         phase1_concurrency: int | None = None,
         phase3_concurrency: int | None = None,
-        embedding_model: str = "text-embedding-3-large",
     ) -> None:
         self._accepting = True
 
         # Concurrency limits - default to 1 for Ollama compatibility
         self._phase1_concurrency = phase1_concurrency or self.DEFAULT_PHASE1_CONCURRENCY
         self._phase3_concurrency = phase3_concurrency or self.DEFAULT_PHASE3_CONCURRENCY
-        self._embedding_model = embedding_model
 
         # Semaphores for concurrency control
         self._phase1_semaphore = asyncio.Semaphore(self._phase1_concurrency)
@@ -114,7 +94,6 @@ class Pipeline:
             "pipeline_init",
             phase1_concurrency=self._phase1_concurrency,
             phase3_concurrency=self._phase3_concurrency,
-            embedding_model=embedding_model,
         )
 
         # Initialize nodes
@@ -123,7 +102,7 @@ class Pipeline:
         self._categorizer = CategorizerNode(llm, prompt_loader)
         self._vectorize = VectorizeNode(llm)
         self._batch_merger = BatchMergerNode(llm, prompt_loader, vector_repo)
-        self._re_vectorize = ReVectorizeNode(llm, model_id=embedding_model)
+        self._re_vectorize = ReVectorizeNode(llm)
         self._analyze = AnalyzeNode(llm, budget, prompt_loader)
         self._quality_scorer = QualityScorerNode(llm, budget, prompt_loader)
         self._credibility = CredibilityCheckerNode(llm, budget, event_bus, source_auth_repo)
@@ -135,101 +114,8 @@ class Pipeline:
         self._article_repo = article_repo
         self._neo4j_writer = neo4j_writer
         self._vector_repo = vector_repo
-
-    @classmethod
-    def from_config(
-        cls,
-        llm: LLMClient,
-        config: PipelineConfig,
-        budget: TokenBudgetManager | None = None,
-        prompt_loader: PromptLoader | None = None,
-        event_bus: EventBus | None = None,
-        spacy: SpacyExtractor | None = None,
-        vector_repo: VectorRepository | None = None,
-        article_repo: ArticleRepository | None = None,
-        neo4j_writer: Neo4jWriter | None = None,
-        source_auth_repo: SourceAuthorityRepo | None = None,
-        entity_resolver: EntityResolver | None = None,
-        redis_client: Any = None,
-    ) -> Pipeline:
-        """Create a Pipeline instance from configuration.
-
-        This factory method allows the pipeline to be configured via external
-        YAML/JSON files, enabling runtime adjustments without code changes.
-
-        Args:
-            llm: LLM client instance.
-            config: Pipeline configuration object.
-            budget: Token budget manager. Created if not provided.
-            prompt_loader: Prompt loader. Created if not provided.
-            event_bus: Event bus. Created if not provided.
-            spacy: spaCy extractor. Created if not provided.
-            vector_repo: Vector repository.
-            article_repo: Article repository.
-            neo4j_writer: Neo4j writer.
-            source_auth_repo: Source authority repository.
-            entity_resolver: Entity resolver.
-            redis_client: Redis client for checkpoint cleanup.
-
-        Returns:
-            Configured Pipeline instance.
-
-        Example:
-            from modules.pipeline.config import PipelineConfigLoader
-
-            loader = PipelineConfigLoader()
-            config = loader.load_with_env_override()
-            pipeline = Pipeline.from_config(
-                llm=container.llm_client(),
-                config=config,
-                vector_repo=container.vector_repo(),
-                article_repo=container.article_repo(),
-            )
-        """
-        # Initialize default dependencies if not provided
-        from core.llm.token_budget import TokenBudgetManager
-
-        budget = budget or TokenBudgetManager()
-
-        from config.settings import Settings
-        from core.prompt.loader import PromptLoader
-
-        settings = Settings()
-        prompt_loader = prompt_loader or PromptLoader(settings.prompt.dir)
-
-        event_bus = event_bus or EventBus()
-        spacy = spacy or SpacyExtractor()
-
-        log.info(
-            "pipeline_init_from_config",
-            version=config.version,
-            phase1_concurrency=config.phase1.concurrency,
-            phase3_concurrency=config.phase3.concurrency,
-            phase1_stages=len(config.phase1.enabled_stages),
-            phase3_stages=len(config.phase3.enabled_stages),
-        )
-
-        # Create instance with configuration values
-        return cls(
-            llm=llm,
-            budget=budget,
-            prompt_loader=prompt_loader,
-            event_bus=event_bus,
-            spacy=spacy,
-            vector_repo=vector_repo,
-            article_repo=article_repo,
-            neo4j_writer=neo4j_writer,
-            source_auth_repo=source_auth_repo,
-            entity_resolver=entity_resolver,
-            redis_client=redis_client,
-            phase1_concurrency=config.phase1.concurrency,
-            phase3_concurrency=config.phase3.concurrency,
-        )
-
-    @property
-    def config_version(self) -> str | None:
-        """Get the pipeline configuration version if available."""
-        return getattr(self, "_config_version", None)
+        self._pending_sync_repo = pending_sync_repo
+        self._neo4j_enabled = neo4j_enabled
 
     async def _update_processing_stage(self, state: PipelineState, stage: str) -> None:
         """Update the processing stage in the database.
@@ -523,31 +409,14 @@ class Pipeline:
                         await self._article_repo.mark_failed(
                             uuid.UUID(state["article_id"]), f"PG error: {exc!s}"
                         )
-                    except Exception as mark_err:
-                        log.warning(
-                            "mark_failed_pg_error_failed",
-                            article_id=state.get("article_id"),
-                            error=str(mark_err),
-                        )
+                    except Exception:
+                        pass
                 return
 
         if self._neo4j_writer:
             try:
-                # Validate enrichment completeness BEFORE Neo4j write
-                # This prevents creating orphan Neo4j nodes for incomplete articles
-                is_complete, missing_fields = is_enrichment_complete(state)
-                if not is_complete:
-                    log.warning(
-                        "persist_neo4j_skipped_incomplete",
-                        article_id=state.get("article_id"),
-                        missing_fields=missing_fields,
-                    )
-                    # Skip Neo4j write, keep PG_DONE for retry pipeline
-                    return
-
                 neo4j_ids = await self._neo4j_writer.write(state)
                 state["neo4j_ids"] = neo4j_ids
-
                 if self._article_repo:
                     await self._article_repo.update_persist_status(
                         state["article_id"], PersistStatus.NEO4J_DONE
@@ -558,6 +427,32 @@ class Pipeline:
                     article_id=state.get("article_id"),
                     error=str(exc),
                 )
+                if self._pending_sync_repo and state.get("article_id"):
+                    import uuid
+
+                    await self._pending_sync_repo.upsert(
+                        uuid.UUID(state["article_id"]),
+                        "entity_relation",
+                        {
+                            "entities": state.get("entities", []),
+                            "relations": state.get("relations", []),
+                            "resolved_entities": state.get("resolved_entities", []),
+                            "raw": state.get("raw"),
+                            "cleaned": state.get("cleaned"),
+                            "category": state.get("category"),
+                            "summary_info": state.get("summary_info"),
+                            "sentiment": state.get("sentiment"),
+                            "score": state.get("score"),
+                            "quality_score": state.get("quality_score"),
+                            "credibility": state.get("credibility"),
+                            "merged_source_ids": state.get("merged_source_ids"),
+                            "is_merged": state.get("is_merged"),
+                        },
+                    )
+                    log.info(
+                        "pending_sync_recorded_on_neo4j_failure",
+                        article_id=state.get("article_id"),
+                    )
                 if state.get("article_id") and self._article_repo:
                     try:
                         import uuid
@@ -565,156 +460,36 @@ class Pipeline:
                         await self._article_repo.mark_failed(
                             uuid.UUID(state["article_id"]), f"Neo4j error: {exc!s}"
                         )
-                    except Exception as mark_err:
-                        log.warning(
-                            "mark_failed_neo4j_error_failed",
-                            article_id=state.get("article_id"),
-                            error=str(mark_err),
-                        )
+                    except Exception:
+                        pass
+        elif not self._neo4j_enabled and self._pending_sync_repo:
+            # Neo4j is disabled - write directly to pending_sync
+            if state.get("article_id"):
+                import uuid
 
-    async def _handle_terminal_states(self, terminal_states: list[PipelineState]) -> None:
-        """Handle terminal articles by updating their persist_status.
-
-        Args:
-            terminal_states: List of terminal pipeline states.
-        """
-        if not terminal_states or not self._article_repo:
-            return
-
-        for state in terminal_states:
-            try:
-                from sqlalchemy import select
-
-                async with self._article_repo._pool.session() as session:
-                    from core.db.models import Article
-
-                    result = await session.execute(
-                        select(Article).where(Article.source_url == state["raw"].url)
-                    )
-                    article = result.scalar_one_or_none()
-                    if article and article.persist_status == PersistStatus.PENDING:
-                        article.persist_status = PersistStatus.PG_DONE
-                        await session.commit()
-                        log.info(
-                            "terminal_article_status_updated",
-                            url=state["raw"].url[:50],
-                        )
-            except Exception as exc:
-                log.warning(
-                    "terminal_article_status_update_failed",
-                    url=state["raw"].url[:50],
-                    error=str(exc),
+                await self._pending_sync_repo.upsert(
+                    uuid.UUID(state["article_id"]),
+                    "entity_relation",
+                    {
+                        "entities": state.get("entities", []),
+                        "relations": state.get("relations", []),
+                        "resolved_entities": state.get("resolved_entities", []),
+                        "raw": state.get("raw"),
+                        "cleaned": state.get("cleaned"),
+                        "category": state.get("category"),
+                        "summary_info": state.get("summary_info"),
+                        "sentiment": state.get("sentiment"),
+                        "score": state.get("score"),
+                        "quality_score": state.get("quality_score"),
+                        "credibility": state.get("credibility"),
+                        "merged_source_ids": state.get("merged_source_ids"),
+                        "is_merged": state.get("is_merged"),
+                    },
                 )
-
-    def _extract_vector_data(self, states: list[PipelineState]) -> list[tuple]:
-        """Extract vector data from pipeline states.
-
-        Args:
-            states: List of pipeline states with vectors.
-
-        Returns:
-            List of (article_id, title_embedding, content_embedding, model_id) tuples.
-        """
-        import uuid
-
-        vector_data = []
-        for state in states:
-            if "vectors" not in state:
-                continue
-            vectors = state["vectors"]
-            if isinstance(vectors, dict) and "title" in vectors and "content" in vectors:
-                vector_data.append(
-                    (
-                        uuid.UUID(state["article_id"]),
-                        vectors.get("title"),
-                        vectors.get("content"),
-                        vectors.get("model_id", "unknown"),
-                    )
+                log.info(
+                    "pending_sync_recorded_neo4j_disabled",
+                    article_id=state["article_id"],
                 )
-        return vector_data
-
-    async def _persist_vectors(self, states: list[PipelineState]) -> None:
-        """Persist article vectors to pgvector.
-
-        Args:
-            states: List of pipeline states with article IDs.
-        """
-        if not self._vector_repo:
-            return
-
-        vector_data = self._extract_vector_data(states)
-        if not vector_data:
-            return
-
-        log.info(
-            "persist_vectors_about_to_insert",
-            article_ids=[str(v[0]) for v in vector_data],
-            count=len(vector_data),
-        )
-        count = await self._vector_repo.bulk_upsert_article_vectors(vector_data)
-        log.debug("vectors_bulk_persisted", count=count)
-
-    async def _persist_to_neo4j(self, states: list[PipelineState]) -> None:
-        """Persist articles to Neo4j with enrichment validation.
-
-        Only writes to Neo4j if enrichment is complete. Incomplete articles
-        remain in PG_DONE status for retry pipeline to complete enrichment.
-
-        Args:
-            states: List of pipeline states with article IDs.
-        """
-        import uuid
-
-        if not self._neo4j_writer:
-            return
-
-        complete_count = 0
-        incomplete_count = 0
-
-        for state in states:
-            try:
-                # Validate enrichment completeness before Neo4j write
-                is_complete, missing_fields = is_enrichment_complete(state)
-                if not is_complete:
-                    log.warning(
-                        "persist_neo4j_skipped_incomplete",
-                        article_id=state.get("article_id"),
-                        missing_fields=missing_fields,
-                    )
-                    incomplete_count += 1
-                    # Skip Neo4j write, keep PG_DONE for retry pipeline
-                    continue
-
-                neo4j_ids = await self._neo4j_writer.write(state)
-                state["neo4j_ids"] = neo4j_ids
-                if self._article_repo and state.get("article_id"):
-                    await self._article_repo.update_persist_status(
-                        uuid.UUID(state["article_id"]), PersistStatus.NEO4J_DONE
-                    )
-                complete_count += 1
-            except Exception as exc:
-                log.error(
-                    "persist_neo4j_failed",
-                    article_id=state.get("article_id"),
-                    error=str(exc),
-                )
-                if state.get("article_id") and self._article_repo:
-                    try:
-                        await self._article_repo.mark_failed(
-                            uuid.UUID(state["article_id"]), f"Neo4j error: {exc!s}"
-                        )
-                    except Exception as mark_err:
-                        log.warning(
-                            "mark_failed_neo4j_error_failed",
-                            article_id=state.get("article_id"),
-                            error=str(mark_err),
-                        )
-
-        log.info(
-            "persist_neo4j_batch_complete",
-            complete_count=complete_count,
-            incomplete_count=incomplete_count,
-        )
 
     async def _persist_batch(self, states: list[PipelineState]) -> None:
         """Persist batch of articles to Postgres and Neo4j.
@@ -724,20 +499,40 @@ class Pipeline:
         Args:
             states: List of pipeline states to persist.
         """
-        import traceback as tb
-        import uuid
-
         log.info("persist_batch_called", count=len(states))
         valid_states = [s for s in states if not s.get("terminal")]
         terminal_states = [s for s in states if s.get("terminal")]
 
-        # Handle terminal articles
-        await self._handle_terminal_states(terminal_states)
+        # Handle terminal articles: update persist_status so they don't stay stuck in PENDING
+        if terminal_states and self._article_repo:
+            for state in terminal_states:
+                try:
+                    from sqlalchemy import select
+
+                    async with self._article_repo._pool.session() as session:
+                        from core.db.models import Article
+
+                        result = await session.execute(
+                            select(Article).where(Article.source_url == state["raw"].url)
+                        )
+                        article = result.scalar_one_or_none()
+                        if article and article.persist_status == PersistStatus.PENDING:
+                            article.persist_status = PersistStatus.PG_DONE
+                            await session.commit()
+                            log.info(
+                                "terminal_article_status_updated",
+                                url=state["raw"].url[:50],
+                            )
+                except Exception as exc:
+                    log.warning(
+                        "terminal_article_status_update_failed",
+                        url=state["raw"].url[:50],
+                        error=str(exc),
+                    )
 
         if not valid_states:
             return
 
-        # Persist to PostgreSQL
         if self._article_repo:
             try:
                 article_ids = await self._article_repo.bulk_upsert(valid_states)
@@ -748,38 +543,147 @@ class Pipeline:
                 )
                 for state, aid in zip(valid_states, article_ids):
                     state["article_id"] = str(aid)
+                    # persist_status is set to PG_DONE in bulk_upsert._upsert_single
 
-                # Persist vectors
-                await self._persist_vectors(valid_states)
+                if self._vector_repo:
+                    vector_data = []
+                    for state in valid_states:
+                        if "vectors" in state:
+                            vectors = state["vectors"]
+                            if (
+                                isinstance(vectors, dict)
+                                and "title" in vectors
+                                and "content" in vectors
+                            ):
+                                import uuid
+
+                                vector_data.append(
+                                    (
+                                        uuid.UUID(state["article_id"]),
+                                        vectors.get("title"),
+                                        vectors.get("content"),
+                                        vectors.get("model_id", "unknown"),
+                                    )
+                                )
+                    if vector_data:
+                        log.info(
+                            "persist_vectors_about_to_insert",
+                            article_ids=[str(v[0]) for v in vector_data],
+                            count=len(vector_data),
+                        )
+                        count = await self._vector_repo.bulk_upsert_article_vectors(vector_data)
+                        log.debug("vectors_bulk_persisted", count=count)
 
                 log.info("batch_pg_persisted", count=len(article_ids))
             except Exception as exc:
+                import traceback as tb
+
                 log.error(
                     "persist_batch_pg_failed",
                     error=str(exc),
                     exc_type=type(exc).__name__,
                     traceback=tb.format_exc(),
                 )
+                # Log article IDs for debugging
                 for state in valid_states:
                     if state.get("article_id"):
                         log.warning(
                             "persist_debug_article_exists",
                             article_id=state["article_id"],
                         )
+                for state in valid_states:
+                    if state.get("article_id"):
                         try:
+                            import uuid
+
                             await self._article_repo.mark_failed(
                                 uuid.UUID(state["article_id"]), f"PG error: {exc!s}"
                             )
-                        except Exception as mark_err:
-                            log.warning(
-                                "mark_failed_pg_error_failed",
-                                article_id=state.get("article_id"),
-                                error=str(mark_err),
-                            )
+                        except Exception:
+                            pass
                 return
 
-        # Persist to Neo4j
-        await self._persist_to_neo4j(valid_states)
+        if self._neo4j_writer:
+            for state in valid_states:
+                try:
+                    neo4j_ids = await self._neo4j_writer.write(state)
+                    state["neo4j_ids"] = neo4j_ids
+                    if self._article_repo and state.get("article_id"):
+                        import uuid
+
+                        await self._article_repo.update_persist_status(
+                            uuid.UUID(state["article_id"]), PersistStatus.NEO4J_DONE
+                        )
+                except Exception as exc:
+                    log.error(
+                        "persist_neo4j_failed",
+                        article_id=state.get("article_id"),
+                        error=str(exc),
+                    )
+                    if self._pending_sync_repo and state.get("article_id"):
+                        import uuid
+
+                        await self._pending_sync_repo.upsert(
+                            uuid.UUID(state["article_id"]),
+                            "entity_relation",
+                            {
+                                "entities": state.get("entities", []),
+                                "relations": state.get("relations", []),
+                                "resolved_entities": state.get("resolved_entities", []),
+                                "raw": state.get("raw"),
+                                "cleaned": state.get("cleaned"),
+                                "category": state.get("category"),
+                                "summary_info": state.get("summary_info"),
+                                "sentiment": state.get("sentiment"),
+                                "score": state.get("score"),
+                                "quality_score": state.get("quality_score"),
+                                "credibility": state.get("credibility"),
+                                "merged_source_ids": state.get("merged_source_ids"),
+                                "is_merged": state.get("is_merged"),
+                            },
+                        )
+                        log.info(
+                            "pending_sync_recorded_on_neo4j_failure",
+                            article_id=state.get("article_id"),
+                        )
+                    if state.get("article_id") and self._article_repo:
+                        try:
+                            import uuid
+
+                            await self._article_repo.mark_failed(
+                                uuid.UUID(state["article_id"]), f"Neo4j error: {exc!s}"
+                            )
+                        except Exception:
+                            pass
+        elif not self._neo4j_enabled and self._pending_sync_repo:
+            # Neo4j is disabled - write directly to pending_sync
+            for state in valid_states:
+                if state.get("article_id"):
+                    import uuid
+
+                    await self._pending_sync_repo.upsert(
+                        uuid.UUID(state["article_id"]),
+                        "entity_relation",
+                        {
+                            "entities": state.get("entities", []),
+                            "relations": state.get("relations", []),
+                            "resolved_entities": state.get("resolved_entities", []),
+                            "raw": state.get("raw"),
+                            "cleaned": state.get("cleaned"),
+                            "category": state.get("category"),
+                            "summary_info": state.get("summary_info"),
+                            "sentiment": state.get("sentiment"),
+                            "score": state.get("score"),
+                            "quality_score": state.get("quality_score"),
+                            "credibility": state.get("credibility"),
+                            "merged_source_ids": state.get("merged_source_ids"),
+                            "is_merged": state.get("is_merged"),
+                        },
+                    )
+                    log.info(
+                        "pending_sync_recorded_neo4j_disabled",
+                        article_id=state["article_id"],
+                    )
 
     async def stop_accepting(self) -> None:
         """Stop accepting new pipeline tasks."""

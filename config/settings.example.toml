@@ -1,66 +1,133 @@
-# Weaver Settings Configuration
-#
+# Weaver Settings Configuration Template
+# ============================================================
 # Copy this file to config/settings.toml and adjust values as needed.
+# Secrets (passwords, API keys) should be set in .env file.
 # Environment variables take precedence over TOML values.
+# ============================================================
+
+# ============================================================
+# Database Configuration
+# ============================================================
 
 [postgres]
-dsn = "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver"
+# PostgreSQL connection settings
+host = "localhost"                      # Database server hostname
+port = 5432                            # Database server port
+database = "weaver"                    # Database name
+user = "postgres"                      # Database username
+# password: Set via POSTGRES_PASSWORD environment variable
+pool_size = 20                         # Initial connection pool size
+max_overflow = 10                      # Maximum overflow connections
+pool_timeout = 30.0                    # Connection acquisition timeout (seconds)
 
 [neo4j]
-uri = "bolt://localhost:7687"
-user = "neo4j"
-password = "neo4j_password"
+# Neo4j graph database connection settings
+uri = "bolt://localhost:7687"         # Neo4j bolt connection URI
+user = "neo4j"                         # Neo4j username
+# password: Set via NEO4J_PASSWORD environment variable
+enabled = true                         # Enable/disable Neo4j connection
 
 [redis]
-url = "redis://localhost:6379/0"
+# Redis cache connection settings
+host = "localhost"                     # Redis server hostname
+port = 6379                            # Redis server port
+db = 0                                 # Redis database number (0-15)
+# password: Set via REDIS_PASSWORD environment variable (optional)
+
+# ============================================================
+# LLM Configuration
+# ============================================================
 
 [llm]
-embedding_provider = "ollama"
-embedding_model = "qwen3-embedding:0.6b"
+# See config/llm.toml for full LLM provider and call-point configuration
+# These fields are simplified references for quick lookups
+embedding_provider = "your_embedding_provider"   # Provider name for embeddings
+embedding_model = "your_embedding_model"         # Embedding model name
+rerank_provider = "your_rerank_provider"        # Provider name for reranking
+rerank_model = "your_rerank_model"              # Reranking model name
 
-# Primary LLM provider
-[llm.providers.primary]
-provider = "openai"
-model = "glm-4.7"
-api_key = ""
-base_url = "http://127.0.0.1:5000/v1"
-timeout = 120.0
-
-# Fallback LLM provider (local)
-[llm.providers.ollama]
-provider = "ollama"
-model = "qwen3.5:9b"
-api_key = ""
-base_url = "http://localhost:11434"
-timeout = 300.0
-
-# LLM call points - all use ollama as primary with empty fallbacks
-[llm.call_points]
-classifier = { primary = "ollama", fallbacks = [] }
-cleaner = { primary = "ollama", fallbacks = [] }
-categorizer = { primary = "ollama", fallbacks = [] }
-merger = { primary = "ollama", fallbacks = [] }
-analyze = { primary = "ollama", fallbacks = [] }
-entity_extractor = { primary = "ollama", fallbacks = [] }
-entity_resolver = { primary = "ollama", fallbacks = [] }
-search_local = { primary = "ollama", fallbacks = [] }
-search_global = { primary = "ollama", fallbacks = [] }
+# ============================================================
+# Fetcher Configuration (Web Crawler)
+# ============================================================
 
 [fetcher]
-playwright_pool_size = 5
-default_per_host_concurrency = 2
-global_max_concurrency = 32
-httpx_timeout = 15.0
+# HTTP fetcher and crawler settings
+playwright_pool_size = 5               # Number of browser instances in pool
+default_per_host_concurrency = 2         # Max concurrent requests per host
+global_max_concurrency = 32             # Max total concurrent requests
+httpx_timeout = 15.0                  # HTTP request timeout (seconds)
+user_agent = "Mozilla/5.0 (compatible; NewsBot/1.0)"  # Default HTTP User-Agent
+
+# Stealth mode settings (for browser automation to evade detection)
+stealth_enabled = true                  # Enable stealth browser mode
+stealth_user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"  # Browser User-Agent
+stealth_viewport_width = 1920          # Browser viewport width (pixels)
+stealth_viewport_height = 1080         # Browser viewport height (pixels)
+stealth_locale = "zh-CN"               # Browser locale (language-country code)
+stealth_timezone = "Asia/Shanghai"     # Browser timezone
+stealth_random_delay_min = 0.5         # Min random delay between requests (seconds)
+stealth_random_delay_max = 2.0         # Max random delay between requests (seconds)
+
+# Rate limiting
+rate_limit_enabled = true               # Enable per-host rate limiting
+rate_limit_delay_min = 1.0            # Min delay between requests to same host (seconds)
+rate_limit_delay_max = 3.0            # Max delay between requests to same host (seconds)
+
+# Circuit breaker (prevents cascading failures)
+circuit_breaker_enabled = true         # Enable circuit breaker pattern
+circuit_breaker_threshold = 5          # Consecutive failures before opening circuit
+circuit_breaker_timeout = 60.0          # Cooldown period before half-open (seconds)
+
+# ============================================================
+# API Server Configuration
+# ============================================================
 
 [api]
-api_key = "change-me-in-production"
-rate_limit = "100/minute"
-host = "0.0.0.0"
-port = 8000
+# API server settings
+# api_key: Set via WEAVER_API__API_KEY environment variable
+rate_limit = "100/minute"               # Global API rate limit
+host = "0.0.0.0"                       # Bind address (0.0.0.0 for all interfaces)
+port = 8000                             # HTTP port
+
+# ============================================================
+# Scheduler Configuration
+# ============================================================
 
 [scheduler]
-crawl_interval_minutes = 30
+# Background task scheduler settings
+crawl_interval_minutes = 30            # Interval between automatic crawl runs (minutes)
+neo4j_retry_interval_minutes = 10      # Retry interval for failed Neo4j operations (minutes)
+retry_flush_interval_seconds = 30      # Interval between retry queue flushes (seconds)
+
+# ============================================================
+# Search Configuration
+# ============================================================
 
 [search]
-hybrid_enabled = true
-rerank_enabled = true
+# Search enhancement settings
+hybrid_enabled = true                   # Enable hybrid search (vector + keyword)
+rerank_enabled = true                  # Enable cross-encoder reranking
+rerank_model = "tiny"                 # Flashrank model variant (tiny/small/medium/multilingual)
+mmr_enabled = false                   # Enable Maximal Marginal Relevance for diversity
+mmr_lambda = 0.7                      # MMR balance (0-1, higher favors relevance over diversity)
+bm25_rebuild_interval = 300            # BM25 index rebuild interval (seconds)
+temporal_decay_enabled = false        # Enable time-based scoring boost for recent documents
+temporal_decay_half_life_days = 30.0  # Time for decay to reach 50% (days)
+
+# ============================================================
+# Deduplication Configuration
+# ============================================================
+
+[dedup]
+# Article deduplication settings
+enable_simhash_dedup = true            # Enable SimHash-based title deduplication
+simhash_hamming_threshold = 3           # Max Hamming distance for duplicate detection (0-64, lower = stricter)
+
+# ============================================================
+# Observability Configuration
+# ============================================================
+
+[observability]
+# Telemetry and monitoring settings
+# OTLP collector endpoint for OpenTelemetry tracing
+otlp_endpoint = "http://localhost:4317" # OpenTelemetry collector URL (empty to disable)

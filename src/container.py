@@ -1,22 +1,9 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Dependency injection container for the weaver application.
-
-This module provides a centralized dependency injection container for managing
-the lifecycle of all core services. The container should be created once at
-application startup and stored in FastAPI's app.state.
-
-Usage:
-    container = Container().configure(settings)
-    await container.startup()
-    app.state.container = container
-
-    # Access dependencies via container properties
-    redis = container.redis_client()
-    llm = container.llm_client()
-"""
+"""Dependency injection container for the weaver application."""
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from config.settings import Settings
@@ -24,13 +11,12 @@ from core.cache import RedisClient
 from core.db import Neo4jPool, PostgresPool
 from core.event import EventBus, LLMFailureEvent
 from core.llm.client import LLMClient
-from core.llm.pool_manager import PoolManagerConfig, ProviderPoolManager
+from core.llm.config_manager import LLMConfigManager
+from core.llm.queue_manager import LLMQueueManager
 from core.llm.rate_limiter import RedisTokenBucket
-from core.llm.registry import ProviderCapability, ProviderInstanceConfig, ProviderRegistry
 from core.llm.token_budget import TokenBudgetManager
 from core.observability import get_logger
 from core.prompt import PromptLoader
-from core.utils.sanitize import sanitize_dsn
 from modules.collector import Deduplicator
 from modules.collector.crawler import Crawler
 from modules.fetcher import PlaywrightContextPool, SmartFetcher
@@ -39,14 +25,9 @@ from modules.graph_store.name_normalizer import name_normalizer
 from modules.graph_store.resolution_rules import resolution_rules
 from modules.pipeline.graph import Pipeline
 from modules.search.engines.global_search import GlobalSearchEngine
-from modules.search.engines.hybrid_search import HybridSearchConfig, HybridSearchEngine
 from modules.search.engines.local_search import LocalSearchEngine
-from modules.search.rerankers.flashrank_reranker import FlashrankReranker
-from modules.search.rerankers.mmr_reranker import MMRReranker
-from modules.search.retrievers.bm25_index_service import BM25IndexService
-from modules.search.retrievers.bm25_retriever import BM25Retriever
 from modules.source import SourceConfigRepo, SourceRegistry, SourceScheduler
-from modules.storage import ArticleRepo, SourceAuthorityRepo, VectorRepo
+from modules.storage import ArticleRepo, PendingSyncRepo, SourceAuthorityRepo, VectorRepo
 from modules.storage.neo4j import Neo4jArticleRepo, Neo4jEntityRepo
 
 log = get_logger("container")
@@ -97,15 +78,11 @@ class Container:
         self._event_bus: EventBus | None = None
         self._llm_failure_repo: Any = None
         self._llm_failure_cleanup_thread: Any = None
+        self._pending_sync_repo: PendingSyncRepo | None = None
+        self._scheduler_jobs: Any = None
+        self._startup_sync_task: asyncio.Task | None = None
         self._local_search_engine: LocalSearchEngine | None = None
         self._global_search_engine: GlobalSearchEngine | None = None
-        self._bm25_retriever: BM25Retriever | None = None
-        self._bm25_index_service: BM25IndexService | None = None
-        self._flashrank_reranker: FlashrankReranker | None = None
-        self._mmr_reranker: MMRReranker | None = None
-        self._hybrid_search_engine: HybridSearchEngine | None = None
-        self._ap_scheduler: Any = None
-        self._pool_manager: ProviderPoolManager | None = None
         self._shutdown: bool = False  # Idempotency protection
 
     def configure(self, settings: Settings) -> Container:
@@ -132,7 +109,13 @@ class Container:
     async def init_postgres(self) -> PostgresPool:
         """Initialize PostgreSQL connection pool."""
         if self._postgres_pool is None:
-            self._postgres_pool = PostgresPool(self._settings.postgres.dsn)
+            pg_settings = self._settings.postgres
+            self._postgres_pool = PostgresPool(
+                dsn=pg_settings.dsn,
+                pool_size=pg_settings.pool_size,
+                max_overflow=pg_settings.max_overflow,
+                pool_timeout=pg_settings.pool_timeout,
+            )
             await self._postgres_pool.startup()
             log.info("postgres_initialized")
         return self._postgres_pool
@@ -146,7 +129,7 @@ class Container:
     async def init_neo4j(self) -> Neo4jPool:
         """Initialize Neo4j connection pool."""
         if self._neo4j_pool is None:
-            log.info("init_neo4j_start", uri=sanitize_dsn(self._settings.neo4j.uri))
+            log.info("init_neo4j_start", uri=self._settings.neo4j.uri, password="***")
             self._neo4j_pool = Neo4jPool(
                 self._settings.neo4j.uri,
                 (self._settings.neo4j.user, self._settings.neo4j.password),
@@ -162,7 +145,6 @@ class Container:
     async def init_redis(self) -> RedisClient:
         """Initialize Redis client."""
         if self._redis_client is None:
-            log.info("init_redis_start", url=sanitize_dsn(self._settings.redis.url))
             self._redis_client = RedisClient(self._settings.redis.url)
             await self._redis_client.startup()
             log.info("redis_initialized")
@@ -177,107 +159,31 @@ class Container:
     # ── LLM & Prompt ─────────────────────────────────────────────
 
     async def init_llm(self) -> LLMClient:
-        """Initialize LLM client with the new label-based architecture."""
+        """Initialize LLM client."""
         if self._llm_client is None:
-            import tomllib
-            from pathlib import Path
+            config_manager = LLMConfigManager(self._settings.llm)
 
-            # Create registry
-            registry = ProviderRegistry.get_instance()
-
-            # Create rate limiter
             rate_limiter = RedisTokenBucket(self._redis_client.client)
 
-            # Create pool manager config
-            pool_config = PoolManagerConfig(
+            self._event_bus = EventBus()
+            log.info("event_bus_initialized_in_llm", event_bus_id=id(self._event_bus))
+            queue_manager = LLMQueueManager(
+                config_manager=config_manager,
+                rate_limiter=rate_limiter,
+                event_bus=self._event_bus,
                 circuit_breaker_threshold=self._settings.fetcher.circuit_breaker_threshold,
                 circuit_breaker_timeout=self._settings.fetcher.circuit_breaker_timeout,
             )
+            await queue_manager.startup()
 
-            # Initialize event bus first
-            self._event_bus = EventBus()
-            log.info("event_bus_initialized_in_llm", event_bus_id=id(self._event_bus))
-
-            # Create pool manager
-            self._pool_manager = ProviderPoolManager(
-                registry=registry,
-                rate_limiter=rate_limiter,
-                config=pool_config,
-                event_bus=self._event_bus,
-            )
-
-            # Load LLM config from TOML file
-            config_path = Path(__file__).parent.parent / "config" / "llm.toml"
-            if config_path.exists():
-                with open(config_path, "rb") as f:
-                    llm_config = tomllib.load(f)
-
-                # Register providers from config
-                providers_config = llm_config.get("providers", {})
-                import os
-
-                for name, provider_cfg in providers_config.items():
-                    # Resolve environment variables in API key
-                    api_key = provider_cfg.get("api_key", "")
-                    if api_key.startswith("${") and api_key.endswith("}"):
-                        env_var = api_key[2:-1]
-                        api_key = os.environ.get(env_var, "")
-
-                    # Parse capabilities from config
-                    cap_strs = provider_cfg.get("capabilities", ["chat"])
-                    caps = frozenset(ProviderCapability(c) for c in cap_strs)
-
-                    instance_config = ProviderInstanceConfig(
-                        name=name,
-                        provider_type=provider_cfg.get("type", "openai"),
-                        model=provider_cfg.get("model", ""),
-                        api_key=api_key,
-                        base_url=provider_cfg.get("base_url", ""),
-                        rpm_limit=provider_cfg.get("rpm_limit", 60),
-                        concurrency=provider_cfg.get("concurrency", 5),
-                        timeout=provider_cfg.get("timeout", 120.0),
-                        priority=provider_cfg.get("priority", 100),
-                        weight=provider_cfg.get("weight", 100),
-                        capabilities=caps,
-                    )
-
-                    await self._pool_manager.register_provider(instance_config)
-
-                # Start all provider pools
-                await self._pool_manager.start_all()
-
-                # Set default providers
-                global_config = llm_config.get("global", {})
-                from core.llm.types import LLMType
-
-                default_chat = global_config.get("default_chat_provider")
-                if default_chat:
-                    self._pool_manager.set_default_provider(LLMType.CHAT, default_chat)
-
-                default_embedding = global_config.get("default_embedding_provider")
-                if default_embedding:
-                    self._pool_manager.set_default_provider(LLMType.EMBEDDING, default_embedding)
-
-            # Create LLM client
             prompt_loader = self.prompt_loader()
             token_budget = TokenBudgetManager()
 
             self._llm_client = LLMClient(
-                pool_manager=self._pool_manager,
+                queue_manager=queue_manager,
                 prompt_loader=prompt_loader,
                 token_budget=token_budget,
-                redis_client=self._redis_client,
             )
-
-            # Configure call points from config
-            if config_path.exists():
-                call_points = llm_config.get("call-points", {})
-                for cp_name, cp_cfg in call_points.items():
-                    primary = cp_cfg.get("primary", "")
-                    fallbacks = cp_cfg.get("fallbacks", [])
-                    if primary:
-                        self._llm_client.configure_call_point(cp_name, primary, fallbacks)
-
             log.info("llm_client_initialized")
 
         return self._llm_client
@@ -360,6 +266,29 @@ class Container:
             self._source_authority_repo = SourceAuthorityRepo(self._postgres_pool)
         return self._source_authority_repo
 
+    def pending_sync_repo(self) -> PendingSyncRepo:
+        """Get pending sync repository."""
+        if self._pending_sync_repo is None:
+            self._pending_sync_repo = PendingSyncRepo(self._postgres_pool)
+        return self._pending_sync_repo
+
+    def scheduler_jobs(self) -> Any:
+        """Get scheduler jobs instance."""
+        if self._scheduler_jobs is None:
+            from modules.scheduler.jobs import SchedulerJobs
+
+            self._scheduler_jobs = SchedulerJobs(
+                postgres_pool=self._postgres_pool,
+                redis_client=self._redis_client,
+                neo4j_writer=self._neo4j_writer,
+                vector_repo=self._vector_repo,
+                article_repo=self._article_repo,
+                source_authority_repo=self._source_authority_repo,
+                pending_sync_repo=self._pending_sync_repo,
+                pipeline=self._pipeline,
+            )
+        return self._scheduler_jobs
+
     # ── Neo4j Repositories ─────────────────────────────────────────
 
     def neo4j_entity_repo(self) -> Neo4jEntityRepo | None:
@@ -398,17 +327,6 @@ class Container:
             )
         return self._entity_resolver
 
-    # ── Context Manager Support ─────────────────────────────────────
-
-    async def __aenter__(self) -> Container:
-        """Async context manager entry - initializes all services."""
-        await self.startup()
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Async context manager exit - gracefully shuts down all services."""
-        await self.shutdown()
-
     # ── Vector Repository ─────────────────────────────────────────
 
     def vector_repo(self) -> VectorRepo:
@@ -423,22 +341,15 @@ class Container:
         """Initialize search engines (requires neo4j pool to be available)."""
         if self._neo4j_pool is None or self._llm_client is None:
             return None
-
-        # Initialize hybrid search first (for injection)
-        if self._hybrid_search_engine is None:
-            self.init_hybrid_search()
-
         if self._local_search_engine is None:
             self._local_search_engine = LocalSearchEngine(
                 neo4j_pool=self._neo4j_pool,
                 llm=self._llm_client,
-                hybrid_engine=self._hybrid_search_engine,
             )
         if self._global_search_engine is None:
             self._global_search_engine = GlobalSearchEngine(
                 neo4j_pool=self._neo4j_pool,
                 llm=self._llm_client,
-                hybrid_engine=self._hybrid_search_engine,
             )
         return (self._local_search_engine, self._global_search_engine)
 
@@ -453,162 +364,6 @@ class Container:
         if self._global_search_engine is None and self._neo4j_pool is not None:
             self.init_search_engines()
         return self._global_search_engine
-
-    # ── Hybrid Search Components ─────────────────────────────────────
-
-    def init_hybrid_search(self) -> HybridSearchEngine | None:
-        """Initialize hybrid search components.
-
-        Requires settings with search configuration.
-        """
-        if self._hybrid_search_engine is not None:
-            return self._hybrid_search_engine
-
-        try:
-            search_config = getattr(self._settings, "search", None)
-            if search_config is None:
-                # Use defaults
-                search_config = HybridSearchConfig()
-
-            # Initialize BM25 retriever
-            self._bm25_retriever = BM25Retriever(
-                language="zh",
-                index_dir="/tmp/weaver_bm25_index",  # noqa: S108 - configurable index dir
-            )
-
-            # Initialize Flashrank reranker
-            self._flashrank_reranker = FlashrankReranker(
-                model_name=(
-                    search_config.rerank_model if hasattr(search_config, "rerank_model") else "tiny"
-                ),
-                enabled=(
-                    search_config.rerank_enabled
-                    if hasattr(search_config, "rerank_enabled")
-                    else True
-                ),
-            )
-
-            # Initialize MMR reranker
-            mmr_lambda = search_config.mmr_lambda if hasattr(search_config, "mmr_lambda") else 0.7
-            self._mmr_reranker = MMRReranker(lambda_param=mmr_lambda)
-
-            # Build hybrid config
-            hybrid_config = HybridSearchConfig(
-                hybrid_enabled=(
-                    search_config.hybrid_enabled
-                    if hasattr(search_config, "hybrid_enabled")
-                    else True
-                ),
-                rerank_enabled=(
-                    search_config.rerank_enabled
-                    if hasattr(search_config, "rerank_enabled")
-                    else True
-                ),
-                rerank_model=(
-                    search_config.rerank_model if hasattr(search_config, "rerank_model") else "tiny"
-                ),
-                mmr_enabled=(
-                    search_config.mmr_enabled if hasattr(search_config, "mmr_enabled") else False
-                ),
-                mmr_lambda=mmr_lambda,
-                temporal_decay_enabled=(
-                    search_config.temporal_decay_enabled
-                    if hasattr(search_config, "temporal_decay_enabled")
-                    else False
-                ),
-                temporal_decay_half_life_days=(
-                    search_config.temporal_decay_half_life_days
-                    if hasattr(search_config, "temporal_decay_half_life_days")
-                    else 30.0
-                ),
-            )
-
-            # Initialize hybrid search engine
-            self._hybrid_search_engine = HybridSearchEngine(
-                vector_repo=self._vector_repo,
-                bm25_retriever=self._bm25_retriever,
-                reranker=self._flashrank_reranker,
-                mmr_reranker=self._mmr_reranker,
-                config=hybrid_config,
-            )
-
-            # Initialize BM25 index service
-            rebuild_interval = (
-                search_config.bm25_rebuild_interval
-                if hasattr(search_config, "bm25_rebuild_interval")
-                else 300
-            )
-            self._bm25_index_service = BM25IndexService(
-                postgres_pool=self._postgres_pool,
-                bm25_retriever=self._bm25_retriever,
-                rebuild_interval_seconds=rebuild_interval,
-            )
-
-            log.info(
-                "hybrid_search_initialized",
-                hybrid_enabled=hybrid_config.hybrid_enabled,
-                rerank_enabled=hybrid_config.rerank_enabled,
-                mmr_enabled=hybrid_config.mmr_enabled,
-                bm25_rebuild_interval=rebuild_interval,
-            )
-
-        except Exception as exc:
-            log.warning("hybrid_search_init_failed", error=str(exc))
-            return None
-
-        return self._hybrid_search_engine
-
-    def bm25_retriever(self) -> BM25Retriever | None:
-        """Get BM25 retriever (or None if unavailable)."""
-        return self._bm25_retriever
-
-    def bm25_index_service(self) -> BM25IndexService | None:
-        """Get BM25 index service (or None if unavailable)."""
-        return self._bm25_index_service
-
-    async def init_bm25_scheduler(self) -> None:
-        """Initialize APScheduler for BM25 index rebuilding.
-
-        This sets up a background task that periodically rebuilds the BM25 index.
-        """
-        if self._bm25_index_service is None:
-            log.warning("bm25_scheduler_no_index_service")
-            return
-
-        try:
-            from apscheduler.schedulers.asyncio import AsyncScheduler
-
-            self._ap_scheduler = AsyncScheduler()
-
-            # Schedule BM25 rebuild job
-            from modules.search.retrievers.bm25_index_service import create_bm25_scheduler_job
-
-            create_bm25_scheduler_job(self._ap_scheduler, self._bm25_index_service)
-
-            # Start the scheduler
-            await self._ap_scheduler.start()
-
-            log.info(
-                "bm25_scheduler_started",
-                rebuild_interval=self._bm25_index_service._rebuild_interval,
-            )
-
-            # Build initial index asynchronously
-            if self._bm25_index_service.get_stats()["document_count"] == 0:
-                log.info("bm25_building_initial_index")
-                doc_count = await self._bm25_index_service.build_full_index()
-                log.info("bm25_initial_index_built", document_count=doc_count)
-
-        except ImportError:
-            log.warning("apscheduler_not_installed_bm25_scheduler_disabled")
-        except Exception as exc:
-            log.error("bm25_scheduler_init_failed", error=str(exc))
-
-    def hybrid_search_engine(self) -> HybridSearchEngine | None:
-        """Get hybrid search engine (or None if unavailable)."""
-        if self._hybrid_search_engine is None:
-            self.init_hybrid_search()
-        return self._hybrid_search_engine
 
     # ── Fetcher & Crawler ────────────────────────────────────────
 
@@ -725,11 +480,6 @@ class Container:
             budget = TokenBudgetManager()
             spacy_extractor = SpacyExtractor()
 
-            # Get embedding model from settings
-            embedding_model = (
-                self._settings.llm.embedding_model if self._settings else "text-embedding-3-large"
-            )
-
             self._pipeline = Pipeline(
                 llm=self._llm_client,
                 budget=budget,
@@ -742,9 +492,10 @@ class Container:
                 source_auth_repo=self.source_authority_repo(),
                 entity_resolver=self.entity_resolver(),
                 redis_client=self._redis_client,
-                embedding_model=embedding_model,
+                pending_sync_repo=self.pending_sync_repo(),
+                neo4j_enabled=self._settings.neo4j.enabled,
             )
-            log.info("pipeline_initialized", embedding_model=embedding_model)
+            log.info("pipeline_initialized")
         return self._pipeline
 
     def pipeline(self) -> Pipeline:
@@ -755,47 +506,15 @@ class Container:
 
     # ── Lifecycle ─────────────────────────────────────────────────
 
-    def register_endpoints(self) -> None:
-        """Register all pool/client instances with the Endpoints registry."""
-        from api.endpoints import _deps as deps
-
-        deps.Endpoints._postgres = self.postgres_pool()
-        deps.Endpoints._neo4j = self.neo4j_pool()
-        deps.Endpoints._redis = self.redis_client()
-        deps.Endpoints._llm = self.llm_client()
-        deps.Endpoints._scheduler = self.source_scheduler()
-        deps.Endpoints._vector_repo = self.vector_repo()
-        deps.Endpoints._source_config_repo = self.source_config_repo()
-        deps.Endpoints._source_authority_repo = self.source_authority_repo()
-        deps.Endpoints._local_engine = self.local_search_engine()
-        deps.Endpoints._global_engine = self.global_search_engine()
-        deps.Endpoints._hybrid_engine = self.hybrid_search_engine()
-
     async def startup(self) -> None:
-        """Initialize all services.
-
-        This method performs the following steps:
-        1. Pre-startup health checks (if enabled)
-        2. Database initialization (PostgreSQL)
-        3. Redis initialization
-        4. Neo4j initialization (optional)
-        5. LLM client initialization
-        6. Search engines initialization
-        7. Fetcher and crawler initialization
-        8. Pipeline initialization
-        """
+        """Initialize all services."""
         import os
 
         log.info("container_starting")
 
-        # ── Pre-startup Health Checks ─────────────────────────────
-        if self._settings.health_check.pre_startup_enabled:
-            await self._run_pre_startup_health_checks()
-
-        # ── Database Initialization ───────────────────────────────
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-        from core.db.initializer import initialize_database, initialize_neo4j
+        from core.db.initializer import initialize_database
 
         await initialize_database(
             self._settings.postgres.dsn,
@@ -805,27 +524,15 @@ class Container:
 
         await self.init_postgres()
         await self.init_redis()
-
-        # ── Neo4j Initialization (Optional) ───────────────────────
-        neo4j_available = await self._initialize_neo4j_safe()
-
-        # ── Core Services Initialization ───────────────────────────
+        if self._settings.neo4j.enabled:
+            try:
+                await self.init_neo4j()
+            except ConnectionError as exc:
+                log.warning("neo4j_unavailable_skipping", error=str(exc))
+        else:
+            log.info("neo4j_disabled_skipping")
         await self.init_llm()
-
-        # Initialize search engines only if Neo4j is available
-        if neo4j_available:
-            self.init_search_engines()
-            self.init_hybrid_search()
-
-            # Initialize Neo4j constraints
-            if self._neo4j_pool is not None:
-                neo4j_init_result = await initialize_neo4j(self._neo4j_pool)
-                if neo4j_init_result.get("constraints_created"):
-                    log.info(
-                        "neo4j_constraints_created",
-                        constraints=neo4j_init_result.get("constraints_created", []),
-                    )
-
+        self.init_search_engines()
         await self.init_playwright_pool()
         await self.init_smart_fetcher()
 
@@ -854,83 +561,45 @@ class Container:
         self._llm_failure_cleanup_thread.start()
         log.info("llm_failure_logging_initialized", event_bus_id=id(self._event_bus))
 
-        # Initialize BM25 index scheduler
-        await self.init_bm25_scheduler()
+        # Initialize pending sync repo and scheduler jobs
+        self._pending_sync_repo = PendingSyncRepo(self._postgres_pool)
+        jobs = self.scheduler_jobs()
+
+        # Register APScheduler jobs for neo4j sync
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+        scheduler = AsyncIOScheduler()
+        # sync_pending_to_neo4j every 10 minutes
+        scheduler.add_job(
+            jobs.sync_pending_to_neo4j,
+            "interval",
+            minutes=10,
+            id="sync_pending_to_neo4j",
+        )
+        # consistency_check daily at 03:00
+        scheduler.add_job(
+            jobs.consistency_check,
+            "cron",
+            hour=3,
+            minute=0,
+            id="consistency_check",
+        )
+        # cleanup_old_synced daily at 03:30
+        scheduler.add_job(
+            jobs.cleanup_old_synced,
+            "cron",
+            hour=3,
+            minute=30,
+            id="cleanup_old_synced",
+        )
+        scheduler.start()
+        log.info("scheduler_jobs_registered")
+
+        # Startup sync: sync any pending records on container startup
+        self._startup_sync_task = asyncio.create_task(jobs.sync_pending_to_neo4j())
+        log.info("startup_sync_triggered")
 
         log.info("container_started")
-
-    async def _run_pre_startup_health_checks(self) -> None:
-        """Run pre-startup health checks for required services.
-
-        This method checks the health of required services before
-        proceeding with initialization. If any required service fails,
-        the startup process is aborted.
-        """
-        from core.health import PreStartupHealthChecker
-
-        checker = PreStartupHealthChecker(
-            self._settings.health_check,
-            self._settings,
-        )
-
-        results = await checker.check_all()
-        summary = checker.get_summary()
-
-        # Log results
-        for service, result in results.items():
-            if result.healthy:
-                log.info(
-                    "pre_startup_service_healthy",
-                    service=service,
-                    latency_ms=result.latency_ms,
-                )
-            else:
-                log.warning(
-                    "pre_startup_service_unhealthy",
-                    service=service,
-                    error=result.error,
-                    details=result.details,
-                )
-
-        # Check if required services are healthy
-        if not summary["required_services_healthy"]:
-            failed = summary["failed_required_services"]
-            log.error(
-                "pre_startup_health_check_failed",
-                failed_services=failed,
-            )
-            raise RuntimeError(
-                f"Required services not available: {', '.join(failed)}. "
-                "Please ensure all required services are running before starting the application."
-            )
-
-        log.info("pre_startup_health_check_passed")
-
-    async def _initialize_neo4j_safe(self) -> bool:
-        """Safely initialize Neo4j, handling connection failures.
-
-        Returns:
-            True if Neo4j was initialized successfully, False otherwise.
-        """
-        neo4j_required = "neo4j" in self._settings.health_check.required_services
-
-        try:
-            await self.init_neo4j()
-            return True
-        except ConnectionError as exc:
-            if neo4j_required:
-                log.error("neo4j_required_but_unavailable", error=str(exc))
-                raise RuntimeError(
-                    "Neo4j is configured as required but is not available. " f"Error: {exc}"
-                ) from exc
-            log.warning("neo4j_unavailable_skipping", error=str(exc))
-            return False
-        except Exception as exc:
-            if neo4j_required:
-                log.error("neo4j_initialization_failed", error=str(exc))
-                raise
-            log.warning("neo4j_initialization_skipped", error=str(exc))
-            return False
 
     async def shutdown(self) -> None:
         """Shutdown all services in reverse order.
@@ -956,21 +625,15 @@ class Container:
             self._source_scheduler.stop()
             log.info("source_scheduler_stopped")
 
-        # Stop APScheduler (BM25 index rebuild)
-        if self._ap_scheduler:
+        # Shutdown LLM queue manager (cancel worker tasks)
+        if self._llm_client:
             try:
-                await self._ap_scheduler.stop()
-                log.info("ap_scheduler_stopped")
+                queue_manager = self._llm_client._queue_manager
+                if queue_manager:
+                    await queue_manager.shutdown()
+                    log.info("llm_queue_manager_stopped")
             except Exception as e:
-                log.warning("ap_scheduler_shutdown_error", error=str(e))
-
-        # Shutdown LLM pool manager (cancel worker tasks)
-        if self._pool_manager:
-            try:
-                await self._pool_manager.close_all()
-                log.info("llm_pool_manager_stopped")
-            except Exception as e:
-                log.warning("llm_pool_manager_shutdown_error", error=str(e))
+                log.warning("llm_queue_manager_shutdown_error", error=str(e))
 
         # Shutdown pools
         if self._playwright_pool:
@@ -992,118 +655,38 @@ class Container:
         log.info("container_shutdown_complete")
 
 
-# ── Application-Level Container Access ─────────────────────────────────────────
-#
-# RECOMMENDED: Access container via FastAPI app.state
-#   container = request.app.state.container
-#   redis = container.redis_client()
-#
-# DEPRECATED: Global container access (only for backward compatibility)
-#   from container import get_container, set_container
-#   container = get_container()
-#
-# The global pattern is maintained for:
-#   1. cache_decorator.py which cannot easily access app.state
-#   2. Legacy endpoint modules not yet migrated to app.state pattern
-#   3. Scheduled jobs that run outside request context
-#
-# New code should use app.state.container or pass container explicitly.
-
+# Global container instance
 _container: Container | None = None
 
 
 def get_container() -> Container:
-    """Get the global container instance (DEPRECATED).
-
-    .. deprecated:: 0.2.0
-        Use `api.dependencies.get_container()` or FastAPI dependency injection
-        instead. This global accessor will be removed in a future version.
-
-    Returns:
-        The global Container instance.
-
-    Raises:
-        RuntimeError: If container has not been initialized.
-    """
-    import warnings
-
-    warnings.warn(
-        "get_container() is deprecated. Use api.dependencies.get_container() "
-        "or FastAPI dependency injection instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
+    """Get the global container instance."""
     if _container is None:
-        raise RuntimeError(
-            "Container not initialized. Create and configure a Container first, "
-            "or access via app.state.container in FastAPI request context."
-        )
+        raise RuntimeError("Container not initialized. Create it in main.py first.")
     return _container
 
 
 def set_container(container: Container) -> None:
-    """Set the global container instance (DEPRECATED).
-
-    Args:
-        container: Container instance to set as global.
-
-    Note:
-        Prefer setting app.state.container in FastAPI lifespan handler.
-        This function is maintained for backward compatibility.
-    """
+    """Set the global container instance."""
     global _container
     _container = container
 
 
-def clear_container() -> None:
-    """Clear the global container instance.
-
-    Useful for testing scenarios where container needs to be reset.
-    """
-    global _container
-    _container = None
-
-
-# ── Settings Access ────────────────────────────────────────────────────────────
-#
-# Settings are typically accessed via container.settings
-# The global _settings_instance is only used for auth middleware
-# which runs before container is fully initialized.
-
+# Convenience function for settings access in auth middleware
 _settings_instance: Settings | None = None
 
 
 def get_settings() -> Settings:
-    """Get settings instance (primarily for auth middleware).
-
-    Returns:
-        Settings instance.
-
-    Note:
-        In normal application flow, settings should be accessed via
-        container.settings. This is only needed for middleware that
-        runs before container initialization.
-    """
+    """Get settings instance (for auth middleware)."""
     global _settings_instance
     if _settings_instance is None:
+        from config.settings import Settings
+
         _settings_instance = Settings()
     return _settings_instance
 
 
 def set_settings(settings: Settings) -> None:
-    """Set settings instance.
-
-    Args:
-        settings: Settings instance to set globally.
-    """
+    """Set settings instance."""
     global _settings_instance
     _settings_instance = settings
-
-
-def clear_settings() -> None:
-    """Clear the global settings instance.
-
-    Useful for testing scenarios where settings need to be reset.
-    """
-    global _settings_instance
-    _settings_instance = None
