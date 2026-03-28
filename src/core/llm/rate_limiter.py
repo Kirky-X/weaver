@@ -13,8 +13,6 @@ from __future__ import annotations
 
 import time
 
-from redis.asyncio import Redis
-
 # Lua script for atomic token consumption
 _LUA_CONSUME = """
 local key      = KEYS[1]
@@ -50,8 +48,13 @@ class RedisTokenBucket:
     The bucket refills at `rpm_limit / 60` tokens per second.
     """
 
-    def __init__(self, redis: Redis) -> None:
-        self._redis = redis
+    def __init__(self, redis_client: Any) -> None:
+        # Support both RedisClient wrapper and raw Redis client
+        if hasattr(redis_client, "client"):
+            # RedisClient wrapper - get the underlying Redis client
+            self._redis = redis_client.client
+        else:
+            self._redis = redis_client
         self._script = self._redis.register_script(_LUA_CONSUME)
 
     async def consume(self, provider: str, rpm_limit: int) -> float:

@@ -465,6 +465,15 @@ class LLMClient:
                 env_var = api_key[2:-1]
                 api_key = os.environ.get(env_var, "")
 
+            # Parse capabilities
+            from core.llm.registry import ProviderCapability
+
+            capabilities_str = provider_cfg.get("capabilities", ["chat"])
+            if isinstance(capabilities_str, list):
+                capabilities = frozenset(ProviderCapability(c.strip()) for c in capabilities_str)
+            else:
+                capabilities = frozenset({ProviderCapability.CHAT})
+
             instance_config = ProviderInstanceConfig(
                 name=name,
                 provider_type=provider_cfg.get("type", "openai"),
@@ -476,6 +485,7 @@ class LLMClient:
                 timeout=provider_cfg.get("timeout", 120.0),
                 priority=provider_cfg.get("priority", 100),
                 weight=provider_cfg.get("weight", 100),
+                capabilities=capabilities,
             )
 
             await pool_manager.register_provider(instance_config)
