@@ -26,7 +26,7 @@ from core.event import EventBus, LLMFailureEvent
 from core.llm.client import LLMClient
 from core.llm.pool_manager import PoolManagerConfig, ProviderPoolManager
 from core.llm.rate_limiter import RedisTokenBucket
-from core.llm.registry import ProviderInstanceConfig, ProviderRegistry
+from core.llm.registry import ProviderCapability, ProviderInstanceConfig, ProviderRegistry
 from core.llm.token_budget import TokenBudgetManager
 from core.observability import get_logger
 from core.prompt import PromptLoader
@@ -194,11 +194,16 @@ class Container:
                 circuit_breaker_timeout=self._settings.fetcher.circuit_breaker_timeout,
             )
 
+            # Initialize event bus first
+            self._event_bus = EventBus()
+            log.info("event_bus_initialized_in_llm", event_bus_id=id(self._event_bus))
+
             # Create pool manager
             self._pool_manager = ProviderPoolManager(
                 registry=registry,
                 rate_limiter=rate_limiter,
                 config=pool_config,
+                event_bus=self._event_bus,
             )
 
             # Load LLM config from TOML file
@@ -218,6 +223,10 @@ class Container:
                         env_var = api_key[2:-1]
                         api_key = os.environ.get(env_var, "")
 
+                    # Parse capabilities from config
+                    cap_strs = provider_cfg.get("capabilities", ["chat"])
+                    caps = frozenset(ProviderCapability(c) for c in cap_strs)
+
                     instance_config = ProviderInstanceConfig(
                         name=name,
                         provider_type=provider_cfg.get("type", "openai"),
@@ -229,6 +238,7 @@ class Container:
                         timeout=provider_cfg.get("timeout", 120.0),
                         priority=provider_cfg.get("priority", 100),
                         weight=provider_cfg.get("weight", 100),
+                        capabilities=caps,
                     )
 
                     await self._pool_manager.register_provider(instance_config)
@@ -247,10 +257,6 @@ class Container:
                 default_embedding = global_config.get("default_embedding_provider")
                 if default_embedding:
                     self._pool_manager.set_default_provider(LLMType.EMBEDDING, default_embedding)
-
-            # Initialize event bus
-            self._event_bus = EventBus()
-            log.info("event_bus_initialized_in_llm", event_bus_id=id(self._event_bus))
 
             # Create LLM client
             prompt_loader = self.prompt_loader()
@@ -748,6 +754,22 @@ class Container:
         return self._pipeline
 
     # ── Lifecycle ─────────────────────────────────────────────────
+
+    def register_endpoints(self) -> None:
+        """Register all pool/client instances with the Endpoints registry."""
+        from api.endpoints import _deps as deps
+
+        deps.Endpoints._postgres = self.postgres_pool()
+        deps.Endpoints._neo4j = self.neo4j_pool()
+        deps.Endpoints._redis = self.redis_client()
+        deps.Endpoints._llm = self.llm_client()
+        deps.Endpoints._scheduler = self.source_scheduler()
+        deps.Endpoints._vector_repo = self.vector_repo()
+        deps.Endpoints._source_config_repo = self.source_config_repo()
+        deps.Endpoints._source_authority_repo = self.source_authority_repo()
+        deps.Endpoints._local_engine = self.local_search_engine()
+        deps.Endpoints._global_engine = self.global_search_engine()
+        deps.Endpoints._hybrid_engine = self.hybrid_search_engine()
 
     async def startup(self) -> None:
         """Initialize all services.

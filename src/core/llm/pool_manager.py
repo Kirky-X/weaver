@@ -16,6 +16,7 @@ from core.observability.metrics import MetricsCollector
 
 if TYPE_CHECKING:
 
+    from core.event.bus import EventBus
     from core.llm.rate_limiter import RedisTokenBucket
 
 log = get_logger("pool_manager")
@@ -76,6 +77,7 @@ class ProviderPoolManager:
         registry: ProviderRegistry,
         rate_limiter: RedisTokenBucket | None = None,
         config: PoolManagerConfig | None = None,
+        event_bus: EventBus | None = None,
     ) -> None:
         """初始化池管理器。
 
@@ -83,10 +85,12 @@ class ProviderPoolManager:
             registry: 供应商注册中心
             rate_limiter: 可选的 Redis 令牌桶限流器
             config: 池管理器配置
+            event_bus: 可选的事件总线
         """
         self._registry = registry
         self._rate_limiter = rate_limiter
         self._config = config or PoolManagerConfig()
+        self._event_bus = event_bus
 
         # 供应商池映射
         self._pools: dict[str, ProviderPool] = {}
@@ -310,6 +314,30 @@ class ProviderPoolManager:
                 ).inc()
 
                 continue
+
+        # Publish LLMFailureEvent before raising
+        if self._event_bus is not None and last_error is not None:
+            from core.event.bus import LLMFailureEvent
+
+            event = LLMFailureEvent(
+                call_point=request.label.llm_type.value,
+                provider=request.label.provider,
+                error_type=type(last_error).__name__,
+                error_detail=str(last_error),
+                latency_ms=None,
+                article_id=request.metadata.get("article_id") if request.metadata else None,
+                task_id=request.metadata.get("task_id") if request.metadata else None,
+                attempt=len(tried_providers),
+                fallback_tried=fallback_labels is not None and len(fallback_labels) > 0,
+            )
+            try:
+                await self._event_bus.publish(event)
+            except Exception as publish_exc:
+                log.error(
+                    "llm_failure_event_publish_failed",
+                    error=str(publish_exc),
+                    call_point=event.call_point,
+                )
 
         raise AllProvidersFailedError(
             label=request.label,
