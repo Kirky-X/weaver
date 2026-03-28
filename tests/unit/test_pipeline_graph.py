@@ -864,3 +864,168 @@ class TestPipelineMarkProcessing:
         await pipeline_with_repo._mark_processing(state)
 
         pipeline_with_repo._article_repo.mark_processing.assert_called_once()
+
+
+class TestPipelinePersistFallback:
+    """Test Neo4j fallback to pending_sync in Pipeline._persist."""
+
+    @pytest.fixture
+    def mock_llm(self):
+        """Mock LLM client."""
+        return MagicMock()
+
+    @pytest.fixture
+    def mock_budget(self):
+        """Mock token budget manager."""
+        return MagicMock()
+
+    @pytest.fixture
+    def mock_prompt_loader(self):
+        """Mock prompt loader."""
+        return MagicMock()
+
+    @pytest.fixture
+    def mock_event_bus(self):
+        """Mock event bus."""
+        return MagicMock()
+
+    @pytest.fixture
+    def mock_pending_sync_repo(self):
+        """Mock PendingSyncRepo."""
+        repo = MagicMock()
+        repo.upsert = AsyncMock()
+        return repo
+
+    @pytest.mark.asyncio
+    async def test_persist_calls_pending_sync_on_neo4j_failure(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus, mock_pending_sync_repo
+    ):
+        """Test that pending_sync.upsert() is called when Neo4j write fails."""
+        import uuid
+
+        mock_article_repo = MagicMock()
+        mock_article_repo.upsert = AsyncMock(return_value=uuid.uuid4())
+        mock_article_repo.update_persist_status = AsyncMock()
+        mock_article_repo.mark_failed = AsyncMock()
+
+        mock_neo4j_writer = MagicMock()
+        mock_neo4j_writer.write = AsyncMock(side_effect=Exception("Neo4j connection failed"))
+
+        pipeline = Pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+            article_repo=mock_article_repo,
+            neo4j_writer=mock_neo4j_writer,
+            pending_sync_repo=mock_pending_sync_repo,
+            neo4j_enabled=True,
+        )
+
+        raw = MagicMock()
+        raw.url = "https://example.com/test"
+        state = PipelineState(raw=raw)
+        state["article_id"] = str(uuid.uuid4())
+        state["entities"] = [{"name": "Test Entity"}]
+        state["relations"] = []
+        state["resolved_entities"] = []
+        state["cleaned"] = {"title": "Title", "body": "Body"}
+
+        await pipeline._persist(state)
+
+        mock_pending_sync_repo.upsert.assert_called_once()
+        call_args = mock_pending_sync_repo.upsert.call_args
+        assert call_args[0][0] == uuid.UUID(state["article_id"])
+        assert call_args[0][1] == "entity_relation"
+        assert call_args[0][2]["entities"] == [{"name": "Test Entity"}]
+
+    @pytest.mark.asyncio
+    async def test_persist_writes_pending_sync_when_neo4j_disabled(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus, mock_pending_sync_repo
+    ):
+        """Test that pending_sync is written directly when neo4j.enabled=False."""
+        import uuid
+
+        article_id = uuid.uuid4()
+        mock_article_repo = MagicMock()
+        mock_article_repo.upsert = AsyncMock(return_value=article_id)
+        mock_article_repo.update_persist_status = AsyncMock()
+
+        pipeline = Pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+            article_repo=mock_article_repo,
+            neo4j_writer=None,
+            pending_sync_repo=mock_pending_sync_repo,
+            neo4j_enabled=False,
+        )
+
+        raw = MagicMock()
+        raw.url = "https://example.com/test"
+        state = PipelineState(raw=raw)
+        state["article_id"] = str(article_id)
+        state["entities"] = [{"name": "Entity1"}]
+        state["relations"] = [{"source": "e1", "target": "e2"}]
+        state["resolved_entities"] = [{"name": "Resolved"}]
+        state["cleaned"] = {"title": "Cleaned"}
+        state["category"] = "科技"
+        state["summary_info"] = {"summary": "Summary"}
+        state["sentiment"] = {"sentiment": "positive"}
+        state["score"] = 0.85
+        state["quality_score"] = 0.9
+        state["credibility"] = {"score": 0.8}
+        state["merged_source_ids"] = ["id1"]
+        state["is_merged"] = False
+
+        await pipeline._persist(state)
+
+        mock_pending_sync_repo.upsert.assert_called_once()
+        call_args = mock_pending_sync_repo.upsert.call_args
+        assert call_args[0][0] == article_id
+        assert call_args[0][1] == "entity_relation"
+        payload = call_args[0][2]
+        assert payload["entities"] == [{"name": "Entity1"}]
+        assert payload["relations"] == [{"source": "e1", "target": "e2"}]
+        assert payload["resolved_entities"] == [{"name": "Resolved"}]
+        assert payload["cleaned"] == {"title": "Cleaned"}
+        assert payload["category"] == "科技"
+        assert payload["is_merged"] is False
+
+    @pytest.mark.asyncio
+    async def test_persist_no_pending_sync_when_neo4j_enabled_and_success(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus, mock_pending_sync_repo
+    ):
+        """Test no pending_sync call when Neo4j write succeeds."""
+        import uuid
+
+        mock_article_repo = MagicMock()
+        mock_article_repo.upsert = AsyncMock(return_value=uuid.uuid4())
+        mock_article_repo.update_persist_status = AsyncMock()
+
+        mock_neo4j_writer = MagicMock()
+        mock_neo4j_writer.write = AsyncMock(return_value=["entity1", "entity2"])
+
+        pipeline = Pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+            article_repo=mock_article_repo,
+            neo4j_writer=mock_neo4j_writer,
+            pending_sync_repo=mock_pending_sync_repo,
+            neo4j_enabled=True,
+        )
+
+        raw = MagicMock()
+        raw.url = "https://example.com/test"
+        state = PipelineState(raw=raw)
+        state["article_id"] = str(uuid.uuid4())
+        state["entities"] = []
+        state["relations"] = []
+
+        await pipeline._persist(state)
+
+        mock_pending_sync_repo.upsert.assert_not_called()
+        mock_neo4j_writer.write.assert_called_once()

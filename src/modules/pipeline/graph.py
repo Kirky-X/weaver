@@ -75,6 +75,8 @@ class Pipeline:
         source_auth_repo: Any = None,
         entity_resolver: EntityResolver | None = None,
         redis_client: Any = None,
+        pending_sync_repo: Any = None,
+        neo4j_enabled: bool = True,
         phase1_concurrency: int | None = None,
         phase3_concurrency: int | None = None,
     ) -> None:
@@ -112,6 +114,8 @@ class Pipeline:
         self._article_repo = article_repo
         self._neo4j_writer = neo4j_writer
         self._vector_repo = vector_repo
+        self._pending_sync_repo = pending_sync_repo
+        self._neo4j_enabled = neo4j_enabled
 
     async def _update_processing_stage(self, state: PipelineState, stage: str) -> None:
         """Update the processing stage in the database.
@@ -423,6 +427,32 @@ class Pipeline:
                     article_id=state.get("article_id"),
                     error=str(exc),
                 )
+                if self._pending_sync_repo and state.get("article_id"):
+                    import uuid
+
+                    await self._pending_sync_repo.upsert(
+                        uuid.UUID(state["article_id"]),
+                        "entity_relation",
+                        {
+                            "entities": state.get("entities", []),
+                            "relations": state.get("relations", []),
+                            "resolved_entities": state.get("resolved_entities", []),
+                            "raw": state.get("raw"),
+                            "cleaned": state.get("cleaned"),
+                            "category": state.get("category"),
+                            "summary_info": state.get("summary_info"),
+                            "sentiment": state.get("sentiment"),
+                            "score": state.get("score"),
+                            "quality_score": state.get("quality_score"),
+                            "credibility": state.get("credibility"),
+                            "merged_source_ids": state.get("merged_source_ids"),
+                            "is_merged": state.get("is_merged"),
+                        },
+                    )
+                    log.info(
+                        "pending_sync_recorded_on_neo4j_failure",
+                        article_id=state.get("article_id"),
+                    )
                 if state.get("article_id") and self._article_repo:
                     try:
                         import uuid
@@ -432,6 +462,34 @@ class Pipeline:
                         )
                     except Exception:
                         pass
+        elif not self._neo4j_enabled and self._pending_sync_repo:
+            # Neo4j is disabled - write directly to pending_sync
+            if state.get("article_id"):
+                import uuid
+
+                await self._pending_sync_repo.upsert(
+                    uuid.UUID(state["article_id"]),
+                    "entity_relation",
+                    {
+                        "entities": state.get("entities", []),
+                        "relations": state.get("relations", []),
+                        "resolved_entities": state.get("resolved_entities", []),
+                        "raw": state.get("raw"),
+                        "cleaned": state.get("cleaned"),
+                        "category": state.get("category"),
+                        "summary_info": state.get("summary_info"),
+                        "sentiment": state.get("sentiment"),
+                        "score": state.get("score"),
+                        "quality_score": state.get("quality_score"),
+                        "credibility": state.get("credibility"),
+                        "merged_source_ids": state.get("merged_source_ids"),
+                        "is_merged": state.get("is_merged"),
+                    },
+                )
+                log.info(
+                    "pending_sync_recorded_neo4j_disabled",
+                    article_id=state["article_id"],
+                )
 
     async def _persist_batch(self, states: list[PipelineState]) -> None:
         """Persist batch of articles to Postgres and Neo4j.
@@ -562,6 +620,32 @@ class Pipeline:
                         article_id=state.get("article_id"),
                         error=str(exc),
                     )
+                    if self._pending_sync_repo and state.get("article_id"):
+                        import uuid
+
+                        await self._pending_sync_repo.upsert(
+                            uuid.UUID(state["article_id"]),
+                            "entity_relation",
+                            {
+                                "entities": state.get("entities", []),
+                                "relations": state.get("relations", []),
+                                "resolved_entities": state.get("resolved_entities", []),
+                                "raw": state.get("raw"),
+                                "cleaned": state.get("cleaned"),
+                                "category": state.get("category"),
+                                "summary_info": state.get("summary_info"),
+                                "sentiment": state.get("sentiment"),
+                                "score": state.get("score"),
+                                "quality_score": state.get("quality_score"),
+                                "credibility": state.get("credibility"),
+                                "merged_source_ids": state.get("merged_source_ids"),
+                                "is_merged": state.get("is_merged"),
+                            },
+                        )
+                        log.info(
+                            "pending_sync_recorded_on_neo4j_failure",
+                            article_id=state.get("article_id"),
+                        )
                     if state.get("article_id") and self._article_repo:
                         try:
                             import uuid
@@ -571,6 +655,35 @@ class Pipeline:
                             )
                         except Exception:
                             pass
+        elif not self._neo4j_enabled and self._pending_sync_repo:
+            # Neo4j is disabled - write directly to pending_sync
+            for state in valid_states:
+                if state.get("article_id"):
+                    import uuid
+
+                    await self._pending_sync_repo.upsert(
+                        uuid.UUID(state["article_id"]),
+                        "entity_relation",
+                        {
+                            "entities": state.get("entities", []),
+                            "relations": state.get("relations", []),
+                            "resolved_entities": state.get("resolved_entities", []),
+                            "raw": state.get("raw"),
+                            "cleaned": state.get("cleaned"),
+                            "category": state.get("category"),
+                            "summary_info": state.get("summary_info"),
+                            "sentiment": state.get("sentiment"),
+                            "score": state.get("score"),
+                            "quality_score": state.get("quality_score"),
+                            "credibility": state.get("credibility"),
+                            "merged_source_ids": state.get("merged_source_ids"),
+                            "is_merged": state.get("is_merged"),
+                        },
+                    )
+                    log.info(
+                        "pending_sync_recorded_neo4j_disabled",
+                        article_id=state["article_id"],
+                    )
 
     async def stop_accepting(self) -> None:
         """Stop accepting new pipeline tasks."""
