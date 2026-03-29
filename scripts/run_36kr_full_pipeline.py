@@ -1,492 +1,561 @@
-#!/usr/bin/env python3
-"""完整的36kr数据采集和处理流程脚本。
+#!/usr/bin/env python
+# Copyright (c) 2026 KirkyX. All Rights Reserved
+"""Pipeline end-to-end test via HTTP API.
 
-执行步骤:
-1. 清空所有数据库数据
-2. 注册36kr数据源
-3. 从36kr采集所有可用文章
-4. 通过完整pipeline处理所有文章
-5. 统计和验证最终结果
+Supports testing different source types through --mode:
+  36kr  : 36kr NewsNow source (default)
+  rss   : RSS sources (cnbeta, huxiu)
+  all   : Run both 36kr and RSS tests
 
 Usage:
-    python scripts/run_36kr_full_pipeline.py
+    uv run python scripts/run_36kr_full_pipeline.py [--mode 36kr|rss|all] [--max-items 5]
+    uv run python scripts/run_36kr_full_pipeline.py --no-start --max-items 5
 """
 
+from __future__ import annotations
+
+import argparse
 import asyncio
+import contextlib
+import os
+import signal
+import subprocess
 import sys
 import time
-from datetime import datetime
-from pathlib import Path
+from typing import Any
 
-# 添加项目路径
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# Ensure src is on path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from src.config.settings import Settings
-from src.container import Container
-from src.core.observability.logging import get_logger
+import httpx
 
-log = get_logger("36kr_pipeline")
+# ─── Configuration ─────────────────────────────────────────────────────────────
+
+DEFAULT_API_KEY = "dev-api-key-for-testing-purposes"
+DEFAULT_APP_URL = "http://localhost:8000"
+DEFAULT_MAX_ITEMS = 5
+POLL_INTERVAL_SECONDS = 5
+POLL_TIMEOUT_SECONDS = 180
+API_TIMEOUT_SECONDS = 120
+
+# Source definitions
+SOURCE_36KR = {
+    "id": "36kr",
+    "name": "36kr",
+    "url": "https://www.newsnow.world/api/s?id=36kr",
+    "source_type": "newsnow",
+    "enabled": True,
+    "interval_minutes": 30,
+}
+
+RSS_SOURCES = [
+    {
+        "id": "cnbeta",
+        "name": "CNBeta",
+        "url": "https://plink.anyfeeder.com/cnbeta",
+        "source_type": "rss",
+        "enabled": True,
+        "interval_minutes": 30,
+        "tier": 2,
+        "credibility": 0.7,
+    },
+    {
+        "id": "huxiu",
+        "name": "Huxiu",
+        "url": "https://plink.anyfeeder.com/huxiu",
+        "source_type": "rss",
+        "enabled": True,
+        "interval_minutes": 30,
+        "tier": 2,
+        "credibility": 0.7,
+    },
+]
+
+
+# ─── Color output ─────────────────────────────────────────────────────────────
 
 
 class Colors:
-    """终端颜色输出。"""
-
+    RED = "\033[0;31m"
     GREEN = "\033[0;32m"
     YELLOW = "\033[1;33m"
     BLUE = "\033[0;34m"
     CYAN = "\033[0;36m"
-    RED = "\033[0;31m"
-    BOLD = "\033[1m"
     NC = "\033[0m"
 
 
-def print_header(text: str):
-    """打印标题。"""
-    print(f"\n{Colors.BOLD}{Colors.BLUE}{'=' * 80}{Colors.NC}")
-    print(f"{Colors.BOLD}{Colors.BLUE}{text:^80}{Colors.NC}")
-    print(f"{Colors.BOLD}{Colors.BLUE}{'=' * 80}{Colors.NC}\n")
+def log_info(msg: str) -> None:
+    print(f"{Colors.GREEN}[INFO]{Colors.NC} {msg}")
 
 
-def print_step(step_num: int, total: int, text: str):
-    """打印步骤。"""
-    print(f"{Colors.CYAN}[步骤 {step_num}/{total}]{Colors.NC} {Colors.BOLD}{text}{Colors.NC}")
-    print(f"{Colors.CYAN}{'─' * 80}{Colors.NC}")
+def log_warn(msg: str) -> None:
+    print(f"{Colors.YELLOW}[WARN]{Colors.NC} {msg}")
 
 
-def print_success(text: str):
-    """打印成功信息。"""
-    print(f"{Colors.GREEN}✓ {text}{Colors.NC}")
+def log_error(msg: str) -> None:
+    print(f"{Colors.RED}[ERROR]{Colors.NC} {msg}")
 
 
-def print_info(text: str):
-    """打印信息。"""
-    print(f"{Colors.CYAN}  ℹ {text}{Colors.NC}")
+def log_step(step: str, msg: str) -> None:
+    print(f"{Colors.BLUE}[{step}]{Colors.NC} {msg}")
 
 
-def print_warning(text: str):
-    """打印警告。"""
-    print(f"{Colors.YELLOW}⚠ {text}{Colors.NC}")
+def log_source(source_id: str, msg: str) -> None:
+    print(f"{Colors.CYAN}[{source_id}]{Colors.NC} {msg}")
 
 
-def print_error(text: str):
-    """打印错误。"""
-    print(f"{Colors.RED}✗ {text}{Colors.NC}")
+# ─── App process management ───────────────────────────────────────────────────
+
+APP_ENV = {
+    "WEAVER_POSTGRES__DSN": "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver",
+    "NEO4J_PASSWORD": "password",
+    "POSTGRES_PASSWORD": os.getenv("POSTGRES_PASSWORD", "postgres"),
+    "ENVIRONMENT": "development",
+    "WEAVER_API__API_KEY": os.getenv(
+        "WEAVER_API__API_KEY", "dev_api_key_1234567890123456789012345678"
+    ),
+}
 
 
-async def clear_all_data(container: Container):
-    """清空所有数据库数据。"""
-    print_step(1, 5, "清空所有数据库数据")
+def start_app_process(project_root: str) -> subprocess.Popen[bytes]:
+    """Start Weaver app as a background subprocess."""
+    log_info("Starting Weaver app...")
 
-    try:
-        # 清空 Neo4j (可选)
-        print_info("正在清空 Neo4j 图数据库...")
+    env = dict(os.environ)
+    env.update(APP_ENV)
+
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"],
+        cwd=project_root,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        preexec_fn=os.setsid,
+    )
+
+    app_url = DEFAULT_APP_URL
+    for attempt in range(30):
         try:
-            neo4j_pool = container.neo4j_pool()
-            await neo4j_pool.startup()
-            await neo4j_pool.execute_query("MATCH (n) DETACH DELETE n")
-            print_success("Neo4j 已清空")
-        except Exception as neo4j_error:
-            print_warning(f"Neo4j 清空失败（将继续执行）: {neo4j_error}")
+            resp = httpx.get(f"{app_url}/health", timeout=2.0)
+            if resp.status_code in (200, 503):
+                log_info(f"Weaver app ready at {app_url} (attempt {attempt + 1})")
+                return proc
+        except (httpx.ConnectError, httpx.ReadTimeout):
+            pass
+        time.sleep(2)
 
-        # 清空 PostgreSQL
-        print_info("正在清空 PostgreSQL 数据库...")
-        postgres_pool = container.postgres_pool()
-        async with postgres_pool.session() as session:
-            # 清空所有表 (按照外键依赖顺序)
-            from sqlalchemy import text
+    proc.terminate()
+    stdout, stderr = proc.communicate(timeout=5)
+    raise RuntimeError(
+        f"Weaver app failed to start.\nSTDOUT:\n{stdout.decode(errors='replace')}\n\nSTDERR:\n{stderr.decode(errors='replace')}"
+    )
 
-            await session.execute(text("DELETE FROM article_vectors"))
-            await session.execute(text("DELETE FROM entity_vectors"))
-            await session.execute(text("DELETE FROM llm_failures"))
-            await session.execute(text("DELETE FROM articles"))
-            await session.execute(text("DELETE FROM source_authorities"))
-            await session.execute(text("DELETE FROM sources"))
-            await session.commit()
-        print_success("PostgreSQL 已清空")
 
-        # 清空 Redis
-        print_info("正在清空 Redis 缓存...")
-        redis_client = container.redis_client()
-        await redis_client.client.flushdb()
-        print_success("Redis 已清空")
-
-        print_success("所有数据库已清空")
-        return True
-
+def stop_app_process(proc: subprocess.Popen[bytes]) -> None:
+    """Gracefully stop the Weaver app process."""
+    log_info("Stopping Weaver app...")
+    try:
+        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        proc.wait(timeout=10)
+        log_info("Weaver app stopped.")
     except Exception as e:
-        print_error(f"清空数据库失败: {e}")
-        import traceback
+        log_warn(f"Error stopping app: {e}")
+        with contextlib.suppress(Exception):
+            proc.terminate()
 
-        traceback.print_exc()
+
+# ─── HTTP API helpers ─────────────────────────────────────────────────────────
+
+_headers = {"X-API-Key": DEFAULT_API_KEY, "Content-Type": "application/json"}
+
+
+def api_get(
+    client: httpx.Client, path: str, timeout: float = API_TIMEOUT_SECONDS
+) -> dict[str, Any]:
+    """Send GET request and unwrap API envelope."""
+    resp = client.get(path, headers=_headers, timeout=timeout)
+    if resp.status_code >= 400:
+        raise RuntimeError(f"API GET {path} failed: {resp.status_code} {resp.text}")
+    body = resp.json()
+    return body.get("data", body)
+
+
+def api_post(
+    client: httpx.Client, path: str, data: dict[str, Any], timeout: float = API_TIMEOUT_SECONDS
+) -> httpx.Response:
+    """Send POST request to API."""
+    return client.post(path, headers=_headers, json=data, timeout=timeout)
+
+
+# ─── Source registration ──────────────────────────────────────────────────────
+
+
+async def register_source(client: httpx.Client, source: dict[str, Any]) -> bool:
+    """Register a single source. Returns True if success or already exists."""
+    source_id = source["id"]
+    log_source(source_id, f"Registering source at {source['url']}...")
+
+    resp = api_post(client, "/api/v1/sources", source)
+
+    if resp.status_code == 201:
+        log_source(source_id, "Source registered (201)")
+        return True
+    elif resp.status_code == 409:
+        log_source(source_id, "Source already exists (409)")
+        return True
+    else:
+        log_error(f"  [{source_id}] Failed: {resp.status_code} {resp.text}")
         return False
 
 
-async def register_36kr_source(container: Container):
-    """注册36kr数据源。"""
-    print_step(2, 5, "注册36kr数据源")
+async def register_sources(client: httpx.Client, sources: list[dict[str, Any]]) -> bool:
+    """Register all sources. Returns True if all succeeded."""
+    log_step("1/4", "Registering sources...")
+    results = await asyncio.gather(*(register_source(client, s) for s in sources))
+    return all(results)
 
-    try:
-        source_config_repo = container.source_config_repo()
 
-        # 检查是否已存在
-        existing = await source_config_repo.get("36kr")
-        if existing:
-            print_warning("36kr 数据源已存在，将删除并重新注册")
-            await source_config_repo.delete("36kr")
+# ─── Pipeline triggering ──────────────────────────────────────────────────────
 
-        # 注册新数据源
-        from modules.source.models import SourceConfig
 
-        source_data = SourceConfig(
-            id="36kr",
-            name="36氪",
-            url="https://www.newsnow.world/api/s?id=36kr",
-            source_type="newsnow",
-            enabled=True,
-            interval_minutes=30,
-            per_host_concurrency=2,
+async def trigger_pipeline(client: httpx.Client, source_id: str, max_items: int) -> str | None:
+    """Trigger pipeline for a source and return task_id."""
+    log_source(source_id, "Triggering pipeline...")
+
+    resp = api_post(
+        client,
+        "/api/v1/pipeline/trigger",
+        {
+            "source_id": source_id,
+            "max_items": max_items,
+            "force": True,
+        },
+    )
+
+    if resp.status_code != 200:
+        log_error(f"  [{source_id}] Trigger failed: {resp.status_code} {resp.text}")
+        return None
+
+    data = resp.json()
+    data = data.get("data", data)
+    task_id = data.get("task_id")
+    log_source(source_id, f"Pipeline triggered, task_id={task_id}")
+    return task_id
+
+
+async def trigger_pipelines(
+    client: httpx.Client, sources: list[dict[str, Any]], max_items: int
+) -> dict[str, str | None]:
+    """Trigger pipelines for all sources."""
+    log_step("2/4", f"Triggering pipelines (max_items={max_items})...")
+    task_ids: dict[str, str | None] = {}
+    for source in sources:
+        task_ids[source["id"]] = await trigger_pipeline(client, source["id"], max_items)
+    return task_ids
+
+
+# ─── Task polling ──────────────────────────────────────────────────────────────
+
+
+async def poll_task(client: httpx.Client, source_id: str, task_id: str) -> dict[str, Any]:
+    """Poll a single task until completed, failed, or timeout."""
+    deadline = time.time() + POLL_TIMEOUT_SECONDS
+
+    while time.time() < deadline:
+        try:
+            data = api_get(client, f"/api/v1/pipeline/tasks/{task_id}")
+        except Exception as e:
+            log_warn(f"  [{source_id}] Poll error: {e}")
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+            continue
+
+        status = data.get("status", "unknown")
+        completed = data.get("completed_count", 0)
+        processing = data.get("processing_count", 0)
+        failed = data.get("failed_count", 0)
+        pending = data.get("pending_count", 0)
+
+        print(
+            f"  [{source_id}] status={status} | "
+            f"completed={completed} processing={processing} failed={failed} pending={pending}"
         )
 
-        await source_config_repo.upsert(source_data)
-        print_success("36kr 数据源注册成功")
-        print_info(f"  - ID: {source_data.id}")
-        print_info(f"  - 名称: {source_data.name}")
-        print_info(f"  - URL: {source_data.url}")
-        print_info(f"  - 类型: {source_data.source_type}")
+        if status in ("completed", "failed"):
+            log_source(source_id, f"Task finished: {status}")
+            return data
 
-        return True
+        await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
-    except Exception as e:
-        print_error(f"注册数据源失败: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return False
+    log_error(f"  [{source_id}] Polling timeout after {POLL_TIMEOUT_SECONDS}s")
+    return api_get(client, f"/api/v1/pipeline/tasks/{task_id}")
 
 
-async def fetch_36kr_articles(container: Container) -> int:
-    """从36kr采集所有可用文章。"""
-    print_step(3, 5, "从36kr采集所有可用文章")
+async def poll_tasks(
+    client: httpx.Client, task_ids: dict[str, str | None]
+) -> dict[str, dict[str, Any]]:
+    """Poll all tasks."""
+    log_step("3/4", "Polling task status...")
+    results: dict[str, dict[str, Any]] = {}
+    for source_id, task_id in task_ids.items():
+        if not task_id:
+            results[source_id] = {"status": "failed", "error": "No task_id"}
+            continue
+        results[source_id] = await poll_task(client, source_id, task_id)
+    return results
 
+
+# ─── Results verification ─────────────────────────────────────────────────────
+
+
+async def verify_results(source_ids: list[str]) -> dict[str, Any]:
+    """Query PostgreSQL and Neo4j to verify data was stored."""
+    log_step("4/4", "Verifying database results...")
+    results: dict[str, Any] = {}
+
+    # PostgreSQL
     try:
-        source_registry = container.source_registry()
-        crawler = container.crawler()
-        deduplicator = container.deduplicator()
-        article_repo = container.article_repo()
+        import asyncpg
 
-        source_config_repo = container.source_config_repo()
-        source = await source_config_repo.get("36kr")
-
-        if not source:
-            print_error("36kr 数据源不存在")
-            return 0
-
-        print_info("正在获取新闻列表...")
-        print_info(f"正在从 {source.url} 获取...")
-
-        # 获取 parser
-        parser = source_registry.get_parser(source.source_type)
-        if not parser:
-            print_error(f"找不到 {source.source_type} 类型的 parser")
-            return 0
-
-        # 解析新闻列表
-        news_items = await parser.parse(source)
-        print_info(f"获取到 {len(news_items)} 篇文章")
-
-        if not news_items:
-            print_warning("未找到任何文章")
-            return 0
-
-        # 批量爬取文章内容
-        print_info("正在爬取文章内容...")
-        crawl_results = await crawler.crawl_batch(
-            news_items, per_host_config={source.url: source.per_host_concurrency}
+        conn = await asyncpg.connect(
+            host="localhost",
+            port=5432,
+            user="postgres",
+            password="postgres",
+            database="weaver",
+            timeout=10,
         )
-
-        # 过滤成功的文章
-        successful_articles = [r for r in crawl_results if hasattr(r, "url")]
-        failed_count = len(crawl_results) - len(successful_articles)
-
-        print_info(f"成功爬取 {len(successful_articles)} 篇文章")
-
-        # 批量去重
-        print_info("正在检查重复...")
-        new_articles = await deduplicator.dedup(successful_articles)
-        duplicate_count = len(successful_articles) - len(new_articles)
-
-        if duplicate_count > 0:
-            print_info(f"过滤 {duplicate_count} 篇重复文章")
-
-        # 批量保存
-        fetch_count = 0
-        for article in new_articles:
-            await article_repo.insert_raw(article)
-            fetch_count += 1
-            if fetch_count % 10 == 0:
-                print_info(f"已保存 {fetch_count} 篇文章...")
-
-        print_success(f"采集完成，共获取 {fetch_count} 篇新文章")
-        if failed_count > 0:
-            print_warning(f"失败 {failed_count} 篇")
-        return fetch_count
-
-    except Exception as e:
-        print_error(f"采集失败: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return 0
-
-
-async def process_pipeline(container: Container, article_count: int) -> dict:
-    """执行完整的pipeline处理流程。"""
-    print_step(4, 5, "执行完整pipeline处理流程")
-
-    try:
-        pipeline = container.pipeline()
-        article_repo = container.article_repo()
-
-        print_info(f"开始处理 {article_count} 篇文章...")
-        print_info(
-            "处理阶段：分类 → 清洗 → 分类 → 向量化 → 分析 → 质量评分 → 可信度 → 实体提取 → 存储"
-        )
-
-        # 获取所有待处理文章
-        postgres_pool = container.postgres_pool()
-        async with postgres_pool.session() as session:
-            from sqlalchemy import text
-
-            result = await session.execute(
-                text(
-                    "SELECT id FROM articles WHERE persist_status = 'pending' ORDER BY created_at DESC"
+        try:
+            for sid in source_ids:
+                count = await conn.fetchval(
+                    "SELECT COUNT(*) FROM articles WHERE source_url LIKE '%' || $1 || '%' OR source_host LIKE '%' || $1 || '%'",
+                    sid,
                 )
+                results[f"pg_articles_{sid}"] = count
+                log_info(f"  PostgreSQL articles for {sid}: {count}")
+
+            total = await conn.fetchval("SELECT COUNT(*) FROM articles")
+            results["pg_articles_total"] = total
+            log_info(f"  PostgreSQL total articles: {total}")
+
+            vectors = await conn.fetchval(
+                "SELECT COUNT(*) FROM article_vectors WHERE embedding IS NOT NULL"
             )
-            article_ids = [row[0] for row in result.fetchall()]
+            results["pg_vectors"] = vectors
+            log_info(f"  PostgreSQL article_vectors: {vectors}")
 
-        if not article_ids:
-            print_warning("没有待处理的文章")
-            return {"total": 0, "success": 0, "failed": 0}
-
-        stats = {"total": len(article_ids), "success": 0, "failed": 0}
-
-        print_info(f"开始处理 {stats['total']} 篇文章...")
-
-        # 批量获取文章数据
-        articles_raw = []
-        valid_article_ids = []
-
-        for article_id in article_ids:
-            article_data = await article_repo.get(article_id)
-            if article_data:
-                from modules.collector.models import ArticleRaw
-
-                raw = ArticleRaw(
-                    url=article_data.source_url,
-                    title=article_data.title,
-                    body=article_data.body,
-                    source_host=article_data.source_host,
-                    publish_time=article_data.publish_time,
-                )
-                articles_raw.append(raw)
-                valid_article_ids.append(article_id)
-
-        print_info(f"准备处理 {len(articles_raw)} 篇文章...")
-
-        # 批量执行 pipeline
-        result_states = await pipeline.process_batch(articles_raw, valid_article_ids)
-
-        # 统计结果
-        for idx, state in enumerate(result_states, 1):
-            if state.get("terminal"):
-                print_info(f"[{idx}/{len(result_states)}] 文章被标记为非新闻")
-                stats["success"] += 1
-            elif state.get("error"):
-                print_error(f"[{idx}/{len(result_states)}] 文章处理出错: {state.get('error')}")
-                stats["failed"] += 1
-            else:
-                stats["success"] += 1
-
-            if idx % 5 == 0:
-                print_success(f"已完成 {idx}/{len(result_states)} 篇文章")
-
-        print_success(f"Pipeline 处理完成")
-        print_info(f"  - 总计: {stats['total']} 篇")
-        print_info(f"  - 成功: {stats['success']} 篇")
-        print_info(f"  - 失败: {stats['failed']} 篇")
-
-        return stats
-
+            rows = await conn.fetch(
+                "SELECT id, title, source_host, persist_status FROM articles ORDER BY created_at DESC LIMIT 10"
+            )
+            if rows:
+                log_info("  Recent articles:")
+                for row in rows:
+                    title = (row["title"] or "")[:50]
+                    host = row["source_host"] or "unknown"
+                    print(f"    [{row['persist_status']}] ({host}) {title}...")
+        finally:
+            await conn.close()
     except Exception as e:
-        print_error(f"Pipeline 处理失败: {e}")
-        import traceback
+        log_warn(f"  PostgreSQL verification failed: {e}")
+        results["pg_error"] = str(e)
 
-        traceback.print_exc()
-        return {"total": 0, "success": 0, "failed": 0}
+    # Neo4j
+    try:
+        from neo4j import GraphDatabase
+
+        driver = GraphDatabase.driver("bolt://localhost:7687", auth=("neo4j", "password"))
+        with driver.session() as session:
+            articles = session.run("MATCH (a:Article) RETURN count(a) AS cnt").single()[0]
+            results["neo4j_articles"] = articles
+            log_info(f"  Neo4j Article nodes: {articles}")
+
+            entities = session.run("MATCH (e:Entity) RETURN count(e) AS cnt").single()[0]
+            results["neo4j_entities"] = entities
+            log_info(f"  Neo4j Entity nodes: {entities}")
+
+            rels = session.run("MATCH ()-[r]-() RETURN count(DISTINCT r) AS cnt").single()[0]
+            results["neo4j_relationships"] = rels
+            log_info(f"  Neo4j relationships: {rels}")
+        driver.close()
+    except Exception as e:
+        log_warn(f"  Neo4j verification failed: {e}")
+        results["neo4j_error"] = str(e)
+
+    return results
 
 
-async def verify_results(container: Container) -> dict:
-    """统计和验证最终结果。"""
-    print_step(5, 5, "统计和验证最终结果")
+# ─── Test runner ──────────────────────────────────────────────────────────────
+
+
+def _resolve_sources(mode: str) -> list[dict[str, Any]]:
+    """Return source list based on mode."""
+    sources = []
+    if mode in ("36kr", "all"):
+        sources.append(SOURCE_36KR)
+    if mode in ("rss", "all"):
+        sources.extend(RSS_SOURCES)
+    return sources
+
+
+async def run_test(
+    project_root: str,
+    app_url: str,
+    max_items: int,
+    start_app: bool,
+    mode: str,
+) -> int:
+    """Run the pipeline test. Returns 0 on success, 1 on failure."""
+    sources = _resolve_sources(mode)
+    if not sources:
+        log_error(f"Unknown mode: {mode}")
+        return 1
+
+    mode_label = mode.upper() if mode != "all" else "ALL"
+    print("=" * 70)
+    print(f"Weaver {mode_label} Pipeline E2E Test")
+    print("=" * 70)
+    print(f"  App URL:   {app_url}")
+    print(f"  Mode:      {mode}")
+    print(f"  Max items: {max_items}")
+    print(f"  Start app: {start_app}")
+    print("  Sources:")
+    for s in sources:
+        print(f"    - {s['id']}: {s['url']}")
+    print("=" * 70)
+
+    proc: subprocess.Popen[bytes] | None = None
 
     try:
-        stats = {}
+        if start_app:
+            proc = start_app_process(project_root)
 
-        # PostgreSQL 统计
-        print_info("PostgreSQL 数据统计:")
-        postgres_pool = container.postgres_pool()
-        async with postgres_pool.session() as session:
-            from sqlalchemy import text
+        await asyncio.sleep(3)
 
-            # 文章统计
-            result = await session.execute(text("SELECT COUNT(*) FROM articles"))
-            stats["articles_total"] = result.scalar() or 0
-            print_info(f"  - 文章总数: {stats['articles_total']}")
+        with httpx.Client(base_url=app_url, timeout=API_TIMEOUT_SECONDS) as client:
+            # Step 1: Register
+            if not await register_sources(client, sources):
+                return 1
 
-            # 按状态统计
-            result = await session.execute(text("""
-                SELECT persist_status, COUNT(*) as count
-                FROM articles
-                GROUP BY persist_status
-            """))
-            for row in result:
-                print_info(f"  - {row[0]}: {row[1]} 篇")
+            # Step 2: Trigger
+            task_ids = await trigger_pipelines(client, sources, max_items)
+            if not any(task_ids.values()):
+                log_error("All pipeline triggers failed")
+                return 1
 
-            # 向量统计
-            result = await session.execute(text("SELECT COUNT(*) FROM article_vectors"))
-            stats["vectors_total"] = result.scalar() or 0
-            print_info(f"  - 向量总数: {stats['vectors_total']}")
+            # Step 3: Poll
+            task_results = await poll_tasks(client, task_ids)
+            failed = [s for s, r in task_results.items() if r.get("status") == "failed"]
+            if failed:
+                log_warn(f"Some tasks failed: {failed}")
 
-        # Neo4j 统计
-        print_info("Neo4j 图数据库统计:")
-        neo4j_pool = container.neo4j_pool()
+            await asyncio.sleep(3)
 
-        try:
-            # 节点统计
-            result = await neo4j_pool.execute_query("""
-                MATCH (n)
-                RETURN labels(n)[0] as label, count(*) as count
-                ORDER BY count DESC
-            """)
-            node_count = 0
-            for record in result:
-                label = record.get("label", "Unknown")
-                count = record.get("count", 0)
-                print_info(f"  - {label} 节点: {count} 个")
-                node_count += count
+        # Step 4: Verify
+        source_ids = [s["id"] for s in sources]
+        results = await verify_results(source_ids)
 
-            # 关系统计
-            result = await neo4j_pool.execute_query("""
-                MATCH ()-[r]->()
-                RETURN type(r) as type, count(*) as count
-                ORDER BY count DESC
-            """)
-            rel_count = 0
-            for record in result:
-                rel_type = record.get("type", "Unknown")
-                count = record.get("count", 0)
-                print_info(f"  - {rel_type} 关系: {count} 个")
-                rel_count += count
+        # Summary
+        print("\n" + "=" * 70)
+        print("Test Summary")
+        print("=" * 70)
 
-            stats["neo4j_nodes"] = node_count
-            stats["neo4j_relationships"] = rel_count
-        except Exception as neo4j_error:
-            print_warning(f"Neo4j 统计失败（将继续执行）: {neo4j_error}")
-            stats["neo4j_nodes"] = 0
-            stats["neo4j_relationships"] = 0
-
-        return stats
-
-    except Exception as e:
-        print_error(f"统计失败: {e}")
-        import traceback
-
-        traceback.print_exc()
-        return {}
-
-
-async def main():
-    """主函数。"""
-    start_time = time.time()
-
-    print_header("36kr 完整数据采集和处理流程")
-
-    print_info(f"开始时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print()
-
-    try:
-        # 初始化容器
-        print_info("正在初始化容器...")
-        settings = Settings()
-        container = Container()
-        container.configure(settings)
-        await container.startup()
-
-        # 执行流程
-        success = True
-        article_count = 0
-        pipeline_stats = {}
-        final_stats = {}
-
-        # 1. 清空数据
-        if not await clear_all_data(container):
-            success = False
-        else:
-            await asyncio.sleep(1)  # 等待数据库清空完成
-
-            # 2. 注册数据源
-            if not await register_36kr_source(container):
-                success = False
+        total = results.get("pg_articles_total", 0)
+        for s in sources:
+            count = results.get(f"pg_articles_{s['id']}", 0)
+            if count > 0:
+                log_info(f"[{s['id']}] {count} article(s) in PostgreSQL")
             else:
-                await asyncio.sleep(1)
+                log_warn(f"[{s['id']}] No articles in PostgreSQL")
 
-                # 3. 采集文章
-                article_count = await fetch_36kr_articles(container)
-
-                if article_count == 0:
-                    print_warning("未采集到任何文章，跳过 pipeline 处理")
-                else:
-                    await asyncio.sleep(2)
-
-                    # 4. 执行 pipeline
-                    pipeline_stats = await process_pipeline(container, article_count)
-
-                    await asyncio.sleep(1)
-
-                    # 5. 验证结果
-                    final_stats = await verify_results(container)
-
-        # 关闭容器
-        await container.shutdown()
-
-        # 最终总结
-        elapsed_time = time.time() - start_time
-        print()
-        print_header("执行完成")
-
-        if success:
-            print_success(f"总耗时: {elapsed_time:.2f} 秒 ({elapsed_time/60:.1f} 分钟)")
-            print()
-            if article_count > 0:
-                print_success(f"✓ 采集文章: {article_count} 篇")
-                print_success(f"✓ 处理成功: {pipeline_stats.get('success', 0)} 篇")
-                if pipeline_stats.get("failed", 0) > 0:
-                    print_warning(f"✗ 处理失败: {pipeline_stats.get('failed', 0)} 篇")
-                print_success(f"✓ 最终文章数: {final_stats.get('articles_total', 0)} 篇")
-                print_success(f"✓ 向量数量: {final_stats.get('vectors_total', 0)} 个")
-                print_success(f"✓ Neo4j 节点: {final_stats.get('neo4j_nodes', 0)} 个")
-                print_success(f"✓ Neo4j 关系: {final_stats.get('neo4j_relationships', 0)} 个")
+        if total > 0:
+            log_info(f"Total {total} article(s) in PostgreSQL")
         else:
-            print_error("执行过程中出现错误，请查看上面的错误信息")
+            log_error("No articles found in PostgreSQL")
 
-        print()
+        if results.get("pg_vectors", 0) > 0:
+            log_info(f"{results['pg_vectors']} vector(s) in PostgreSQL")
+        else:
+            log_warn("No vectors found (may require LLM API)")
 
+        if results.get("neo4j_articles", 0) > 0:
+            log_info(f"{results['neo4j_articles']} Article node(s) in Neo4j")
+        else:
+            log_warn("No Article nodes in Neo4j")
+
+        if results.get("neo4j_entities", 0) > 0:
+            log_info(f"{results['neo4j_entities']} Entity nodes in Neo4j")
+
+        print("=" * 70)
+
+        return 0 if total > 0 else 1
+
+    except httpx.ConnectError:
+        log_error(f"Cannot connect to Weaver app at {app_url}")
+        log_error("Is the app running? Use --no-start to skip starting the app")
+        return 1
+    except httpx.TimeoutException as e:
+        log_error(f"Request timeout: {e}")
+        return 1
     except Exception as e:
-        print_error(f"执行失败: {e}")
+        log_error(f"Unexpected error: {e}")
         import traceback
 
         traceback.print_exc()
+        return 1
+    finally:
+        if proc:
+            stop_app_process(proc)
+
+
+# ─── CLI ──────────────────────────────────────────────────────────────────────
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="Weaver Pipeline E2E Test")
+    parser.add_argument(
+        "--mode",
+        choices=["36kr", "rss", "all"],
+        default="36kr",
+        help="Test mode: 36kr (default), rss, or all",
+    )
+    parser.add_argument(
+        "--app-url",
+        default=os.getenv("WEAVER_APP_URL", DEFAULT_APP_URL),
+        help=f"Weaver app base URL (default: {DEFAULT_APP_URL})",
+    )
+    parser.add_argument(
+        "--max-items",
+        type=int,
+        default=DEFAULT_MAX_ITEMS,
+        help=f"Maximum items per source (default: {DEFAULT_MAX_ITEMS})",
+    )
+    parser.add_argument(
+        "--no-start",
+        action="store_true",
+        help="Don't start the app; assume it's already running",
+    )
+    parser.add_argument(
+        "--api-key",
+        default=os.getenv("WEAVER_API_KEY", DEFAULT_API_KEY),
+        help="API key (default: from env or built-in)",
+    )
+    args = parser.parse_args()
+
+    global _headers
+    if args.api_key != DEFAULT_API_KEY:
+        _headers = {"X-API-Key": args.api_key, "Content-Type": "application/json"}
+
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    return asyncio.run(
+        run_test(
+            project_root=project_root,
+            app_url=args.app_url,
+            max_items=args.max_items,
+            start_app=not args.no_start,
+            mode=args.mode,
+        )
+    )
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    sys.exit(main())
