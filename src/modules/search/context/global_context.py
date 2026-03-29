@@ -297,7 +297,37 @@ class GlobalContextBuilder(ContextBuilder):
 
         community_ids = [c.get("id") for c in communities if c.get("id")]
 
-        cypher = """
+        # First try typed relationships (semantic edge types)
+        typed_cypher = """
+        MATCH (c1:Community)-[:HAS_ENTITY]->(e1:Entity)
+              -[r]->(e2:Entity)<-[:HAS_ENTITY]-(c2:Community)
+        WHERE c1.id IN $community_ids
+          AND c2.id IN $community_ids
+          AND c1.id <> c2.id
+          AND NOT type(r) = 'RELATED_TO'
+          AND NOT type(r) = 'MENTIONS'
+          AND NOT type(r) = 'HAS_ENTITY'
+        RETURN DISTINCT
+               c1.title AS source_community,
+               c2.title AS target_community,
+               e1.canonical_name AS source_entity,
+               e2.canonical_name AS target_entity,
+               type(r) AS relation_type
+        LIMIT 50
+        """
+
+        try:
+            results = await self._pool.execute_query(
+                typed_cypher,
+                {"community_ids": community_ids},
+            )
+            typed_results = [dict(r) for r in results]
+        except Exception as exc:
+            log.debug("get_typed_cross_community_rels_failed", error=str(exc))
+            typed_results = []
+
+        # Also get generic RELATED_TO relationships
+        generic_cypher = """
         MATCH (c1:Community)-[:HAS_ENTITY]->(e1:Entity)
               -[r:RELATED_TO]->(e2:Entity)<-[:HAS_ENTITY]-(c2:Community)
         WHERE c1.id IN $community_ids
@@ -314,13 +344,15 @@ class GlobalContextBuilder(ContextBuilder):
 
         try:
             results = await self._pool.execute_query(
-                cypher,
+                generic_cypher,
                 {"community_ids": community_ids},
             )
-            return [dict(r) for r in results]
+            generic_results = [dict(r) for r in results]
         except Exception as exc:
-            log.warning("get_cross_community_rels_failed", error=str(exc))
-            return []
+            log.debug("get_generic_cross_community_rels_failed", error=str(exc))
+            generic_results = []
+
+        return typed_results + generic_results
 
     def _format_communities_section(
         self,
@@ -356,7 +388,7 @@ class GlobalContextBuilder(ContextBuilder):
         self,
         connections: list[dict[str, Any]],
     ) -> str:
-        """Format cross-community connections section."""
+        """Format cross-community connections section with relation type info."""
         lines = []
         for conn in connections:
             source_comm = conn.get("source_community", "Unknown")
@@ -365,8 +397,19 @@ class GlobalContextBuilder(ContextBuilder):
             target_entity = conn.get("target_entity", "Unknown")
             rel_type = conn.get("relation_type", "RELATED_TO")
 
+            # Determine direction label based on relation type
+            is_symmetric = rel_type in {
+                "PARTNERS_WITH",
+                "COLLABORATES_WITH",
+                "RELATED_TO",
+                "COOPERATES_WITH",
+                "ALLIED_WITH",
+                "ASSOCIATED_WITH",
+            }
+            direction = "双向" if is_symmetric else "单向"
+
             lines.append(
-                f"- [{source_comm}] {source_entity} --[{rel_type}]--> {target_entity} [{target_comm}]"
+                f"- [{source_comm}] {source_entity} --[{rel_type}({direction})]--> {target_entity} [{target_comm}]"
             )
 
         return "\n".join(lines)

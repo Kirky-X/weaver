@@ -13,6 +13,7 @@ from typing import Any
 
 from core.db.neo4j import Neo4jPool
 from core.observability.logging import get_logger
+from modules.graph_store.relation_type_normalizer import RelationTypeNormalizer
 from modules.search.context.builder import ContextBuilder, SearchContext
 
 log = get_logger("search.local_context")
@@ -61,6 +62,7 @@ class LocalContextBuilder(ContextBuilder):
         query: str,
         max_tokens: int | None = None,
         entity_names: list[str] | None = None,
+        relation_types: list[str] | None = None,
         **kwargs: Any,
     ) -> SearchContext:
         """Build local context for a query.
@@ -69,6 +71,7 @@ class LocalContextBuilder(ContextBuilder):
             query: The search query.
             max_tokens: Maximum tokens for context.
             entity_names: Optional list of entity names to focus on.
+            relation_types: Optional list of relation type name_en values to filter by.
             **kwargs: Additional parameters.
 
         Returns:
@@ -97,7 +100,10 @@ class LocalContextBuilder(ContextBuilder):
                 metadata={"entity_count": len(entities)},
             )
 
-        related_entities = await self._get_related_entities(entity_names)
+        related_entities = await self._get_related_entities(
+            entity_names,
+            relation_types=relation_types,
+        )
         if related_entities:
             related_content = self._format_entities_section(
                 related_entities, include_description=False
@@ -109,7 +115,10 @@ class LocalContextBuilder(ContextBuilder):
                 metadata={"related_count": len(related_entities)},
             )
 
-        relationships = await self._get_relationships(entity_names)
+        relationships = await self._get_relationships(
+            entity_names,
+            relation_types=relation_types,
+        )
         if relationships:
             rel_content = self._format_relationships_section(relationships)
             context.add_content(
@@ -131,6 +140,8 @@ class LocalContextBuilder(ContextBuilder):
 
         context.metadata["total_entities"] = len(entities) + len(related_entities)
         context.metadata["total_relationships"] = len(relationships)
+        if relation_types:
+            context.metadata["filtered_relation_types"] = relation_types
 
         return context
 
@@ -187,13 +198,17 @@ class LocalContextBuilder(ContextBuilder):
     async def _get_related_entities(
         self,
         entity_names: list[str],
+        relation_types: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Get entities related to the query entities."""
         if not entity_names:
             return []
 
+        # Build the relationship pattern clause
+        rel_clause = self._build_rel_match_clause(relation_types)
+
         cypher = f"""
-        MATCH (e:Entity)-[:RELATED_TO*1..{self._max_hops}]-(related:Entity)
+        MATCH (e:Entity)-{rel_clause}(related:Entity)
         WHERE e.canonical_name IN $names
         RETURN DISTINCT related.canonical_name AS canonical_name,
                related.type AS type,
@@ -215,21 +230,52 @@ class LocalContextBuilder(ContextBuilder):
     async def _get_relationships(
         self,
         entity_names: list[str],
+        relation_types: list[str] | None = None,
     ) -> list[dict[str, Any]]:
         """Get relationships involving the query entities."""
         if not entity_names:
             return []
 
-        cypher = """
-        MATCH (e1:Entity)-[r:RELATED_TO]->(e2:Entity)
-        WHERE e1.canonical_name IN $names OR e2.canonical_name IN $names
-        RETURN e1.canonical_name AS source_name,
-               e2.canonical_name AS target_name,
-               r.relation_type AS relation_type,
-               r.weight AS weight
-        ORDER BY coalesce(r.weight, 1.0) DESC
-        LIMIT $limit
-        """
+        if relation_types:
+            # Build UNION of queries for each relation type to handle direction
+            queries = []
+            for rt_name_en in relation_types:
+                # Default to asymmetric for typed relations unless known symmetric
+                is_symmetric = self._is_known_symmetric(rt_name_en)
+                pattern = RelationTypeNormalizer.get_cypher_pattern(
+                    rt_name_en,
+                    is_symmetric,
+                )
+                if is_symmetric:
+                    queries.append(f"""
+                        MATCH (e1:Entity){pattern}(e2:Entity)
+                        WHERE e1.canonical_name IN $names OR e2.canonical_name IN $names
+                        RETURN e1.canonical_name AS source_name,
+                               e2.canonical_name AS target_name,
+                               '{rt_name_en}' AS relation_type,
+                               true AS is_symmetric
+                    """)
+                else:
+                    queries.append(f"""
+                        MATCH (e1:Entity){pattern}(e2:Entity)
+                        WHERE e1.canonical_name IN $names OR e2.canonical_name IN $names
+                        RETURN e1.canonical_name AS source_name,
+                               e2.canonical_name AS target_name,
+                               '{rt_name_en}' AS relation_type,
+                               false AS is_symmetric
+                    """)
+            cypher = "\n UNION ALL \n".join(queries) + "\n LIMIT $limit"
+        else:
+            cypher = """
+            MATCH (e1:Entity)-[r:RELATED_TO]->(e2:Entity)
+            WHERE e1.canonical_name IN $names OR e2.canonical_name IN $names
+            RETURN e1.canonical_name AS source_name,
+                   e2.canonical_name AS target_name,
+                   r.relation_type AS relation_type,
+                   false AS is_symmetric
+            ORDER BY coalesce(r.weight, 1.0) DESC
+            LIMIT $limit
+            """
 
         try:
             results = await self._pool.execute_query(
@@ -286,11 +332,77 @@ class LocalContextBuilder(ContextBuilder):
         self,
         relationships: list[dict[str, Any]],
     ) -> str:
-        """Format relationships section."""
+        """Format relationships section with direction info."""
         lines = []
         for rel in relationships:
-            lines.append(self.format_relationship(rel))
+            lines.append(self._format_relation_with_direction(rel))
         return "\n".join(lines)
+
+    @staticmethod
+    def _is_known_symmetric(name_en: str) -> bool:
+        """Check if a relation type is known to be symmetric.
+
+        This uses a hardcoded set of well-known symmetric types.
+        For a complete picture, the RelationTypeNormalizer database should
+        be consulted, but this avoids requiring a DB connection in the
+        context builder for simple pattern generation.
+        """
+        symmetric_types = {
+            "PARTNERS_WITH",
+            "COLLABORATES_WITH",
+            "RELATED_TO",
+            "COOPERATES_WITH",
+            "ALLIED_WITH",
+            "ASSOCIATED_WITH",
+        }
+        return name_en in symmetric_types
+
+    def _build_rel_match_clause(
+        self,
+        relation_types: list[str] | None = None,
+    ) -> str:
+        """Build a Cypher relationship match clause.
+
+        When relation_types is specified, generates a pattern that matches
+        any of the specified types. Uses directional patterns for asymmetric
+        relations and undirectional for symmetric ones, combined via '|'.
+
+        Args:
+            relation_types: Optional list of relation type name_en values.
+
+        Returns:
+            Cypher relationship match clause string.
+        """
+        if not relation_types:
+            return f"-[:RELATED_TO*1..{self._max_hops}]-"
+
+        # For multiple typed relations, use alternation with proper directions
+        # Since Cypher alternation requires same directionality, we fall back
+        # to undirected matching for mixed types
+        return f"-[:{'|'.join(relation_types)}*1..{self._max_hops}]-"
+
+    @staticmethod
+    def _format_relation_with_direction(rel: dict[str, Any]) -> str:
+        """Format a relationship with direction indicator.
+
+        Args:
+            rel: Relationship dict with source_name, target_name,
+                 relation_type, and optional is_symmetric.
+
+        Returns:
+            Formatted string like:
+                - 华为 --[合作(双向)]--> 比亚迪
+                - 工信部 --[监管(单向)]--> 华为
+        """
+        source = rel.get("source_name", "Unknown")
+        target = rel.get("target_name", "Unknown")
+        rel_type = rel.get("relation_type", "RELATED_TO")
+        is_symmetric = rel.get("is_symmetric", False)
+
+        display_name = rel_type
+        direction = "双向" if is_symmetric else "单向"
+
+        return f"- {source} --[{display_name}({direction})]--> {target}"
 
     def _format_articles_section(
         self,

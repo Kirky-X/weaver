@@ -25,7 +25,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from api.endpoints import _deps as deps
 from api.endpoints.admin import set_source_authority_repo
 from api.endpoints.articles import set_postgres_pool as set_articles_postgres_pool
-from api.endpoints.graph import set_neo4j_client
+from api.endpoints.graph import set_neo4j_client, set_postgres_pool as set_graph_postgres_pool
 from api.endpoints.graph_metrics import set_neo4j_pool as set_graph_neo4j_pool
 from api.endpoints.health import (
     health_check as check_health,
@@ -211,6 +211,7 @@ async def lifespan(app: FastAPI) -> None:
     set_neo4j_pool(container.neo4j_pool())
     set_graph_neo4j_pool(container.neo4j_pool())
     set_neo4j_client(container.neo4j_pool())
+    set_graph_postgres_pool(container.postgres_pool())
     set_redis_client(redis_client)
     set_source_authority_repo(container.source_authority_repo())
 

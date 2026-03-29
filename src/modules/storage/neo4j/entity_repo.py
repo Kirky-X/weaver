@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from collections.abc import Iterator
 from typing import Any
@@ -14,38 +15,10 @@ from core.observability.logging import get_logger
 
 log = get_logger("neo4j_entity_repo")
 
-ALLOWED_RELATION_TYPES = frozenset(
-    {
-        "RELATED_TO",
-        "MENTIONS",
-        "FOLLOWED_BY",
-        "RELATED",
-    }
-)
-
-CHINESE_TO_ENGLISH_RELATIONS = {
-    "隶属于": "RELATED_TO",
-    "发布": "RELATED_TO",
-    "参与": "RELATED_TO",
-    "属于": "RELATED_TO",
-    "位于": "RELATED_TO",
-    "合作": "RELATED_TO",
-    "拥有": "RELATED_TO",
-}
-
-
-def normalize_relation_type(relation_type: str) -> str:
-    """Normalize relation type to allowed English enum.
-
-    Args:
-        relation_type: Original relation type (Chinese or English).
-
-    Returns:
-        Normalized relation type in English.
-    """
-    if relation_type in ALLOWED_RELATION_TYPES:
-        return relation_type
-    return CHINESE_TO_ENGLISH_RELATIONS.get(relation_type, "RELATED")
+# Valid Neo4j relationship type: uppercase letters, underscores, and digits
+# (must not start with a digit). Chinese characters are also allowed for
+# backward compatibility with legacy data.
+_EDGE_TYPE_RE = re.compile(r"^[A-Z_\u4e00-\u9fff][A-Z_\u4e00-\u9fff0-9]*$")
 
 
 class Neo4jEntityRepo:
@@ -275,44 +248,40 @@ class Neo4jEntityRepo:
         self,
         from_neo4j_id: str,
         to_neo4j_id: str,
-        relation_type: str,
+        edge_type: str,
         properties: dict[str, Any] | None = None,
     ) -> None:
-        """Create a relationship between two entities.
+        """Create or update a typed relationship between two entities.
+
+        The caller is responsible for normalising the edge type via
+        ``RelationTypeNormalizer`` before calling this method.
 
         Args:
-            from_neo4j_id: Source entity Neo4j ID.
-            to_neo4j_id: Target entity Neo4j ID.
-            relation_type: Type of relationship (e.g., 'RELATED_TO').
-            properties: Optional relationship properties.
+            from_neo4j_id: Source entity Neo4j element ID.
+            to_neo4j_id: Target entity Neo4j element ID.
+            edge_type: Normalised edge type name (e.g. ``PARTNERS_WITH``).
+            properties: Optional relationship properties (``raw_type``,
+                ``direction``, ``weight``, etc.).
 
         Raises:
-            ValueError: If relation_type is not in the allowed list.
+            ValueError: If *edge_type* is not a valid Neo4j relationship type.
         """
-        normalized_type = normalize_relation_type(relation_type)
+        if not _EDGE_TYPE_RE.match(edge_type):
+            raise ValueError(f"Invalid edge type: {edge_type}")
 
         query = f"""
-        MATCH (from)
-        WHERE elementId(from) = $from_id
-        MATCH (to)
-        WHERE elementId(to) = $to_id
-        MERGE (from)-[r:{normalized_type}]->(to)
+        MATCH (from) WHERE elementId(from) = $from_id
+        MATCH (to) WHERE elementId(to) = $to_id
+        MERGE (from)-[r:{edge_type}]->(to)
+        ON CREATE SET r.created_at = datetime(), r.updated_at = datetime(), r.weight = 1.0
+        ON MATCH SET r.updated_at = datetime(), r.weight = r.weight + 0.1
+        SET r += $props
         """
         params = {
             "from_id": from_neo4j_id,
             "to_id": to_neo4j_id,
+            "props": properties or {},
         }
-
-        if properties:
-            # Add properties to the relationship
-            set_clauses = []
-            for key, value in properties.items():
-                param_name = f"prop_{key}"
-                set_clauses.append(f"r.{key} = ${param_name}")
-                params[param_name] = value
-
-            if set_clauses:
-                query += " SET " + ", ".join(set_clauses)
 
         await self._pool.execute_query(query, params)
 
@@ -415,6 +384,107 @@ class Neo4jEntityRepo:
             params["role"] = role
 
         await self._pool.execute_query(query, params)
+
+    async def get_relation_types(
+        self,
+        canonical_name: str,
+        entity_type: str,
+    ) -> list[dict[str, Any]]:
+        """Layer 1: Discover all relation types for an entity.
+
+        Returns aggregated information about each distinct relationship type
+        connected to the entity, excluding system types (MENTIONS, FOLLOWED_BY)
+        and pruned entities.
+
+        Args:
+            canonical_name: The canonical name of the entity.
+            entity_type: The type of the entity.
+
+        Returns:
+            List of dicts with ``relation_type``, ``target_count``, and
+            ``primary_direction`` keys, ordered by ``target_count`` desc.
+        """
+        query = """
+        MATCH (e:Entity {canonical_name: $name, type: $type})-[r]-(other:Entity)
+        WHERE type(r) <> 'MENTIONS' AND type(r) <> 'FOLLOWED_BY'
+          AND NOT other.pruned = true
+        RETURN type(r) AS relation_type,
+               count(DISTINCT other) AS target_count,
+               head(collect(DISTINCT
+                   CASE WHEN (e)-[r]->(other) THEN 'outgoing' ELSE 'incoming' END
+               )) AS primary_direction
+        ORDER BY target_count DESC
+        """
+        params = {"name": canonical_name, "type": entity_type}
+        result = await self._pool.execute_query(query, params)
+        return [dict(record) for record in result]
+
+    async def find_by_relation_types(
+        self,
+        canonical_name: str,
+        entity_type: str,
+        relation_types: list[str] | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Layer 2: Search related entities by relation types.
+
+        For symmetric relations an undirected pattern ``-[]-`` is used; for
+        asymmetric relations a directed pattern ``-[]->`` is used.
+
+        Args:
+            canonical_name: The canonical name of the entity.
+            entity_type: The type of the entity.
+            relation_types: Optional list of relationship type names to filter.
+                When *None* or empty all types are returned.
+            limit: Maximum number of results.
+
+        Returns:
+            List of related-entity dicts with ``relation_type``,
+            ``direction``, ``target_name``, ``target_type``,
+            ``target_description`` and ``weight`` keys.
+        """
+        if not relation_types:
+            query = """
+            MATCH (e:Entity {canonical_name: $name, type: $type})-[r]-(other:Entity)
+            WHERE type(r) <> 'MENTIONS' AND type(r) <> 'FOLLOWED_BY'
+              AND NOT other.pruned = true
+            RETURN type(r) AS relation_type,
+                   CASE WHEN (e)-[r]->(other) THEN 'outgoing' ELSE 'incoming' END AS direction,
+                   other.canonical_name AS target_name,
+                   other.type AS target_type,
+                   other.description AS target_description,
+                   coalesce(r.weight, 1.0) AS weight
+            ORDER BY weight DESC
+            LIMIT $limit
+            """
+            params = {"name": canonical_name, "type": entity_type, "limit": limit}
+        else:
+            # Validate all relation types
+            for rt in relation_types:
+                if not _EDGE_TYPE_RE.match(rt):
+                    raise ValueError(f"Invalid relation type: {rt}")
+
+            # Build dynamic query with type-specific patterns.
+            # Each type matches as undirected so we capture both directions.
+            type_filters = " OR ".join(f"type(r) = '{rt}'" for rt in relation_types)
+            query = f"""
+            MATCH (e:Entity {{canonical_name: $name, type: $type}})-[r]-(other:Entity)
+            WHERE ({type_filters})
+              AND type(r) <> 'MENTIONS' AND type(r) <> 'FOLLOWED_BY'
+              AND NOT other.pruned = true
+            RETURN type(r) AS relation_type,
+                   CASE WHEN (e)-[r]->(other) THEN 'outgoing' ELSE 'incoming' END AS direction,
+                   other.canonical_name AS target_name,
+                   other.type AS target_type,
+                   other.description AS target_description,
+                   coalesce(r.weight, 1.0) AS weight
+            ORDER BY weight DESC
+            LIMIT $limit
+            """
+            params = {"name": canonical_name, "type": entity_type, "limit": limit}
+
+        result = await self._pool.execute_query(query, params)
+        return [dict(record) for record in result]
 
     @staticmethod
     async def _sleep(seconds: float) -> None:
@@ -538,55 +608,68 @@ class Neo4jEntityRepo:
         relations: list[dict[str, Any]],
         batch_size: int | None = None,
     ) -> int:
-        """Merge multiple relationships in batches.
+        """Merge multiple relationships in batches grouped by edge type.
+
+        Because Neo4j does not support parameterised relationship types inside
+        ``UNWIND``, relations are grouped by *edge_type* and each group is
+        executed as a separate batched query.
 
         Args:
-            relations: List of dicts with 'from_name', 'from_type', 'to_name', 'to_type', 'relation_type', 'properties'.
-            batch_size: Batch size (default: DEFAULT_BATCH_SIZE * 2).
+            relations: List of dicts. Each dict must contain ``from_name``,
+                ``from_type``, ``to_name``, ``to_type``, and optionally
+                ``edge_type`` (defaults to ``RELATED_TO``) and ``properties``.
+            batch_size: Batch size (default: ``DEFAULT_BATCH_SIZE * 2``).
 
         Returns:
-            Number of relationships created/updated.
+            Total number of relationships created/updated.
         """
         if not relations:
             return 0
 
         batch_size = batch_size or (self.DEFAULT_BATCH_SIZE * 2)
-        total_created = 0
 
-        for batch in self._chunk(relations, batch_size):
-            query = """
-            UNWIND $relations AS rel
-            MATCH (from:Entity {canonical_name: rel.from_name, type: rel.from_type})
-            MATCH (to:Entity {canonical_name: rel.to_name, type: rel.to_type})
-            MERGE (from)-[r:RELATED_TO {relation_type: rel.relation_type}]->(to)
-            ON CREATE SET
-                r.created_at = datetime(),
-                r.updated_at = datetime()
-            ON MATCH SET
-                r.updated_at = datetime()
-            SET r += rel.properties
-            RETURN count(r) AS total
-            """
+        # Group by edge_type
+        by_type: dict[str, list[dict[str, Any]]] = {}
+        for r in relations:
+            edge_type = r.get("edge_type", "RELATED_TO")
+            by_type.setdefault(edge_type, []).append(r)
 
-            params = {
-                "relations": [
-                    {
-                        "from_name": r.get("from_name"),
-                        "from_type": r.get("from_type"),
-                        "to_name": r.get("to_name"),
-                        "to_type": r.get("to_type"),
-                        "relation_type": r.get("relation_type"),
-                        "properties": r.get("properties", {}),
-                    }
-                    for r in batch
-                ]
-            }
+        total = 0
+        for edge_type, group in by_type.items():
+            if not _EDGE_TYPE_RE.match(edge_type):
+                log.warning("merge_relations_batch_invalid_type", edge_type=edge_type)
+                continue
 
-            result = await self._pool.execute_query(query, params)
-            if result:
-                total_created += result[0].get("total", 0)
+            for chunk in self._chunk(group, batch_size):
+                query = f"""
+                UNWIND $relations AS rel
+                MATCH (from:Entity {{canonical_name: rel.from_name, type: rel.from_type}})
+                MATCH (to:Entity {{canonical_name: rel.to_name, type: rel.to_type}})
+                MERGE (from)-[r:{edge_type}]->(to)
+                ON CREATE SET r.created_at = datetime(), r.updated_at = datetime(), r.weight = 1.0
+                ON MATCH SET r.updated_at = datetime(), r.weight = r.weight + 0.1
+                SET r += rel.properties
+                RETURN count(r) AS total
+                """
 
-        return total_created
+                params = {
+                    "relations": [
+                        {
+                            "from_name": r.get("from_name"),
+                            "from_type": r.get("from_type"),
+                            "to_name": r.get("to_name"),
+                            "to_type": r.get("to_type"),
+                            "properties": r.get("properties", {}),
+                        }
+                        for r in chunk
+                    ]
+                }
+
+                result = await self._pool.execute_query(query, params)
+                if result:
+                    total += result[0].get("total", 0)
+
+        return total
 
     async def merge_mentions_batch(
         self,

@@ -16,6 +16,9 @@ from core.observability.metrics import MetricsCollector
 from core.prompt.loader import PromptLoader
 from modules.collector.models import ArticleRaw
 from modules.graph_store.entity_resolver import EntityResolver
+from modules.graph_store.incremental_community_updater import (
+    IncrementalCommunityUpdater,
+)
 from modules.nlp.spacy_extractor import SpacyExtractor
 from modules.pipeline.nodes.analyze import AnalyzeNode
 from modules.pipeline.nodes.batch_merger import BatchMergerNode
@@ -75,6 +78,7 @@ class Pipeline:
         source_auth_repo: Any = None,
         entity_resolver: EntityResolver | None = None,
         redis_client: Any = None,
+        community_updater: IncrementalCommunityUpdater | None = None,
         phase1_concurrency: int | None = None,
         phase3_concurrency: int | None = None,
     ) -> None:
@@ -112,6 +116,7 @@ class Pipeline:
         self._article_repo = article_repo
         self._neo4j_writer = neo4j_writer
         self._vector_repo = vector_repo
+        self._community_updater = community_updater
 
     async def _update_processing_stage(self, state: PipelineState, stage: str) -> None:
         """Update the processing stage in the database.
@@ -205,6 +210,9 @@ class Pipeline:
 
             # Phase 4: Persist (批量持久化)
             await self._persist_batch(states)
+
+            # Incremental community update check (non-blocking)
+            await self._maybe_trigger_community_update(states)
 
             # Phase 5: Checkpoint cleanup
             cleanup_tasks = [self._checkpoint_cleanup.execute(state) for state in states]
@@ -581,3 +589,75 @@ class Pipeline:
         """Wait for all in-progress tasks to complete."""
         # In a production implementation, this would track in-flight tasks.
         log.info("pipeline_drained")
+
+    async def _maybe_trigger_community_update(self, states: list[PipelineState]) -> None:
+        """Check and trigger incremental community update after Phase 4 persist.
+
+        This is non-blocking and logs the update status without affecting
+        pipeline completion.
+
+        Args:
+            states: Pipeline states after persist.
+        """
+        if not self._community_updater:
+            return
+
+        # Extract entity names from processed states
+        entity_names: list[str] = []
+        for state in states:
+            if state.get("entities"):
+                entities = state["entities"]
+                if isinstance(entities, list):
+                    for entity in entities:
+                        if isinstance(entity, dict):
+                            name = entity.get("canonical_name") or entity.get("name")
+                            if name:
+                                entity_names.append(name)
+                        elif hasattr(entity, "canonical_name"):
+                            entity_names.append(entity.canonical_name)
+                        elif hasattr(entity, "name"):
+                            entity_names.append(entity.name)
+
+        if not entity_names:
+            log.debug("community_update_skip_no_entities")
+            return
+
+        try:
+            # Get current stats to check trigger conditions
+            stats = await self._community_updater.get_stats()
+            pending_count = stats.pending_entity_count + len(entity_names)
+
+            # Check if update should be triggered
+            if await self._community_updater.should_trigger(
+                pending_count, stats.last_incremental_update_at
+            ):
+                log.info(
+                    "community_update_triggered",
+                    entity_count=len(entity_names),
+                    pending_total=pending_count,
+                )
+                # Run update asynchronously (fire and forget)
+                # In production, this would be a background task
+                result = await self._community_updater.run_incremental_update(entity_names)
+                log.info(
+                    "community_update_complete",
+                    affected=result.affected_communities,
+                    reassigned=result.entities_reassigned,
+                    duration=result.duration_seconds,
+                )
+            else:
+                # Increment pending count for next time
+                await self._community_updater.increment_pending_count(len(entity_names))
+                log.debug(
+                    "community_update_pending",
+                    added=len(entity_names),
+                    pending_total=pending_count,
+                )
+
+        except Exception as exc:
+            # Don't fail pipeline if community update fails
+            log.warning(
+                "community_update_failed",
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )

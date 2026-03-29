@@ -3,14 +3,18 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.db.neo4j import Neo4jPool
 from core.observability.logging import get_logger
 from modules.pipeline.state import PipelineState
 from modules.storage.neo4j.article_repo import Neo4jArticleRepo
 from modules.storage.neo4j.entity_repo import Neo4jEntityRepo
+
+if TYPE_CHECKING:
+    from modules.graph_store.relation_type_normalizer import RelationTypeNormalizer
 
 log = get_logger("neo4j_writer")
 
@@ -23,15 +27,24 @@ class Neo4jWriter:
     - Entity nodes from extraction
     - MENTIONS relationships (article -> entity)
     - FOLLOWED_BY relationships (article -> article)
+    - Typed entity-to-entity relationships (normalised via RelationTypeNormalizer)
 
     Args:
         pool: Neo4j connection pool.
+        relation_type_normalizer: Optional normaliser for relation types.
+            When provided, LLM-extracted relation types are normalised
+            before writing to Neo4j.
     """
 
-    def __init__(self, pool: Neo4jPool) -> None:
+    def __init__(
+        self,
+        pool: Neo4jPool,
+        relation_type_normalizer: RelationTypeNormalizer | None = None,
+    ) -> None:
         self._pool = pool
         self._entity_repo = Neo4jEntityRepo(pool)
         self._article_repo = Neo4jArticleRepo(pool)
+        self._normalizer = relation_type_normalizer
 
     @property
     def entity_repo(self) -> Neo4jEntityRepo:
@@ -224,6 +237,10 @@ class Neo4jWriter:
     ) -> int:
         """Write entity-to-entity relationships to Neo4j.
 
+        When a ``RelationTypeNormalizer`` is available each LLM-extracted
+        relation type is normalised before writing.  Unknown types are
+        recorded for later review.
+
         Args:
             relations: List of relation dicts from entity extractor.
             entity_name_to_id: Mapping from entity canonical name to Neo4j ID.
@@ -236,10 +253,27 @@ class Neo4jWriter:
             source_name = relation.get("source")
             target_name = relation.get("target")
             relation_type = relation.get("relation_type")
-            description = relation.get("description")
 
             if not source_name or not target_name or not relation_type:
                 continue
+
+            # Normalise relation type
+            edge_type = relation_type
+            raw_type = relation_type
+            direction = "unidirectional"
+
+            if self._normalizer:
+                try:
+                    normalized = await self._normalizer.normalize(relation_type)
+                    if normalized.name_en:
+                        edge_type = normalized.name_en
+                    else:
+                        edge_type = relation_type
+                        ctx = f"{source_name}\u2192{target_name}"
+                        await self._normalizer.record_unknown(relation_type, ctx)
+                    direction = "bidirectional" if normalized.is_symmetric else "unidirectional"
+                except Exception as exc:
+                    log.warning("relation_normalization_failed", error=str(exc))
 
             source_id = entity_name_to_id.get(source_name)
             target_id = entity_name_to_id.get(target_name)
@@ -256,27 +290,49 @@ class Neo4jWriter:
                 await self._entity_repo.merge_relation(
                     from_neo4j_id=source_id,
                     to_neo4j_id=target_id,
-                    relation_type=relation_type,
-                    properties={"description": description} if description else None,
+                    edge_type=edge_type,
+                    properties={
+                        "raw_type": raw_type,
+                        "direction": direction,
+                        "description": relation.get("description"),
+                    },
                 )
                 count += 1
                 log.debug(
                     "entity_relation_created",
                     source=source_name,
                     target=target_name,
-                    relation=relation_type,
+                    relation=edge_type,
+                    raw_type=raw_type,
                 )
+
+                # TODO(temporary): Dual-write legacy RELATED_TO edges for backward
+                # compatibility during migration.  Remove once all consumers have
+                # been updated to read semantic edge types.  Controlled by
+                # WEAVER_DUAL_WRITE=true environment variable.
+                if os.environ.get("WEAVER_DUAL_WRITE", "").lower() == "true":
+                    try:
+                        await self._entity_repo.merge_relation(
+                            from_neo4j_id=source_id,
+                            to_neo4j_id=target_id,
+                            edge_type="RELATED_TO",
+                            properties={
+                                "relation_type": raw_type,
+                                "description": relation.get("description"),
+                            },
+                        )
+                    except Exception as dual_exc:
+                        log.debug("dual_write_failed", error=str(dual_exc))
             except Exception as exc:
                 error_msg = f"{type(exc).__name__}: {exc}"
                 log.error(
                     "entity_relation_failed",
                     source=source_name,
                     target=target_name,
-                    relation=relation_type,
+                    relation=edge_type,
                     error=error_msg,
                     error_type=type(exc).__name__,
                 )
-                print(f"DEBUG entity_relation_failed: {error_msg}")
 
         if count > 0:
             log.info("entity_relations_created", count=count)

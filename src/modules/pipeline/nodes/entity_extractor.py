@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.llm.client import LLMClient
 from core.llm.output_validator import EntityExtractorOutput
@@ -15,7 +15,24 @@ from core.prompt.loader import PromptLoader
 from modules.nlp.spacy_extractor import SpacyExtractor
 from modules.pipeline.state import PipelineState
 
+if TYPE_CHECKING:
+    from modules.graph_store.relation_type_normalizer import RelationTypeNormalizer
+
 log = get_logger("node.entity_extractor")
+
+# Default relation types when normalizer is not available
+_DEFAULT_RELATION_TYPES = """
+任职于: 某人在某组织担任职务
+隶属于: 某组织隶属于另一组织
+位于: 某实体位于某地理位置
+参与: 某实体参与某事件或活动
+发布: 某实体发布某内容或产品
+签署: 某实体签署某协议或文件
+收购: 某实体收购另一实体
+合作: 实体之间的合作关系
+监管: 某实体监管另一实体
+竞争: 实体之间的竞争关系
+""".strip()
 
 
 class EntityExtractorNode:
@@ -34,12 +51,14 @@ class EntityExtractorNode:
         prompt_loader: PromptLoader,
         spacy: SpacyExtractor,
         vector_repo: Any = None,
+        relation_type_normalizer: RelationTypeNormalizer | None = None,
     ) -> None:
         self._llm = llm
         self._budget = budget
         self._prompt_loader = prompt_loader
         self._spacy = spacy
         self._vector_repo = vector_repo
+        self._relation_type_normalizer = relation_type_normalizer
 
     async def execute(self, state: PipelineState) -> PipelineState:
         """Extract entities and relations."""
@@ -85,6 +104,24 @@ class EntityExtractorNode:
 
         # Phase 3: LLM refinement
         body_trunc = self._budget.truncate(body, CallPoint.ENTITY_EXTRACTOR)
+
+        # Build relation types block for prompt
+        relation_types_block = _DEFAULT_RELATION_TYPES
+        if self._relation_type_normalizer:
+            try:
+                active_types = await self._relation_type_normalizer.get_all_active()
+                if active_types:
+                    lines = []
+                    for rt in active_types:
+                        # Format: "type_name: description" or "type_name" if no description
+                        line = rt.name if rt.name else rt.raw_type
+                        if rt.description:
+                            line = f"{line}: {rt.description}"
+                        lines.append(line)
+                    relation_types_block = "\n".join(lines)
+            except Exception as e:
+                log.warning("relation_type_fetch_failed_using_default", error=str(e))
+
         try:
             result: EntityExtractorOutput = await self._llm.call(
                 CallPoint.ENTITY_EXTRACTOR,
@@ -102,6 +139,7 @@ class EntityExtractorNode:
                     "task_id": state.get("task_id"),
                 },
                 output_model=EntityExtractorOutput,
+                extra_vars={"relation_types_block": relation_types_block},
             )
             state["entities"] = result.entities
             state["relations"] = result.relations
