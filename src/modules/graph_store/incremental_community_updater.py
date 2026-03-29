@@ -60,6 +60,7 @@ class IncrementalCommunityUpdater:
 
     Triggers full rebuild when:
     - Time since last full rebuild >= full_rebuild_interval_days, OR
+    - Entity count changed > ENTITY_CHANGE_THRESHOLD since last rebuild
     - Modularity has degraded (>0.05 cumulative drop over 3 checks)
 
     Args:
@@ -69,6 +70,11 @@ class IncrementalCommunityUpdater:
         max_subgraph_size: Maximum nodes in extracted subgraph (default: 2000).
         full_rebuild_interval_days: Days between full rebuilds (default: 7).
     """
+
+    ENTITY_CHANGE_THRESHOLD: float = 0.10
+    REBUILD_INTERVAL_DAYS: int = 7
+    LAST_REBUILD_KEY: str = "community:last_rebuild"
+    ENTITY_COUNT_KEY: str = "community:entity_count"
 
     def __init__(
         self,
@@ -119,6 +125,130 @@ class IncrementalCommunityUpdater:
                 return True
 
         return False
+
+    async def check_and_run(self) -> dict[str, object]:
+        """Unified entry point for community auto-scheduling.
+
+        Checks all trigger conditions and runs full rebuild if any is met.
+
+        Returns:
+            Dict with triggered, reason, and optional details.
+        """
+        # Check if any communities exist
+        community_count = await self._get_community_count()
+        if community_count == 0:
+            log.info("check_and_run_no_communities")
+            result = await self.run_full_rebuild()
+            return {
+                "triggered": True,
+                "reason": "no_communities_exist",
+                "communities_created": result.communities_created,
+                "entities_reassigned": result.entities_reassigned,
+                "duration_seconds": result.duration_seconds,
+            }
+
+        # Check entity percentage change
+        entity_change_exceeded, current_count, previous_count = await self._check_entity_change()
+        if entity_change_exceeded:
+            log.info(
+                "check_and_run_entity_change_exceeded",
+                current_count=current_count,
+                previous_count=previous_count,
+            )
+            result = await self.run_full_rebuild()
+            return {
+                "triggered": True,
+                "reason": "entity_change_exceeded",
+                "current_entity_count": current_count,
+                "previous_entity_count": previous_count,
+                "communities_created": result.communities_created,
+                "duration_seconds": result.duration_seconds,
+            }
+
+        # Check rebuild interval
+        if await self.check_full_rebuild_needed():
+            log.info("check_and_run_interval_exceeded")
+            result = await self.run_full_rebuild()
+            return {
+                "triggered": True,
+                "reason": "rebuild_interval_exceeded",
+                "communities_created": result.communities_created,
+                "duration_seconds": result.duration_seconds,
+            }
+
+        # No conditions met
+        return {"triggered": False, "reason": None}
+
+    async def force_rebuild(self) -> dict[str, object]:
+        """Force full community rebuild unconditionally.
+
+        Returns:
+            Dict with triggered=True, reason='forced', and rebuild results.
+        """
+        log.info("force_rebuild_start")
+        result = await self.run_full_rebuild()
+        return {
+            "triggered": True,
+            "reason": "forced",
+            "communities_created": result.communities_created,
+            "modularity": result.modularity_after,
+            "duration_seconds": result.duration_seconds,
+        }
+
+    async def _get_community_count(self) -> int:
+        """Get total number of Community nodes.
+
+        Returns:
+            Count of Community nodes in Neo4j.
+        """
+        query = "MATCH (c:Community) RETURN count(c) AS total"
+        try:
+            result = await self._pool.execute_query(query)
+            return result[0]["total"] if result and result[0] else 0
+        except Exception:
+            return 0
+
+    async def _check_entity_change(self) -> tuple[bool, int, int]:
+        """Check if entity count change exceeds threshold.
+
+        Compares current entity count with the count stored at last rebuild.
+
+        Returns:
+            Tuple of (exceeded, current_count, previous_count).
+        """
+        # Get current entity count
+        current_query = """
+        MATCH (e:Entity)
+        WHERE (e.pruned IS NULL OR e.pruned = false)
+        RETURN count(e) AS total
+        """
+        try:
+            result = await self._pool.execute_query(current_query)
+            current_count = result[0]["total"] if result and result[0] else 0
+        except Exception:
+            return False, 0, 0
+
+        # Get previous count from metadata
+        previous_query = """
+        MATCH (m:_CommunityMetadata)
+        RETURN m.entity_count AS previous_count
+        """
+        try:
+            result = await self._pool.execute_query(previous_query)
+            previous_count = result[0].get("previous_count", 0) if result and result[0] else 0
+        except Exception:
+            return False, current_count, 0
+
+        if previous_count is None:
+            previous_count = 0
+
+        # Calculate change ratio
+        if previous_count > 0:
+            change_ratio = abs(current_count - previous_count) / previous_count
+            if change_ratio > self.ENTITY_CHANGE_THRESHOLD:
+                return True, current_count, previous_count
+
+        return False, current_count, previous_count
 
     async def get_stats(self) -> CommunityStats:
         """Get current community update statistics.
@@ -421,6 +551,9 @@ class IncrementalCommunityUpdater:
     async def run_full_rebuild(self) -> IncrementalUpdateResult:
         """Run full community rebuild on the entire graph.
 
+        Delegates to CommunityDetector.rebuild_communities() which uses
+        Hierarchical Leiden algorithm for high-quality community detection.
+
         Returns:
             IncrementalUpdateResult with statistics.
         """
@@ -434,74 +567,17 @@ class IncrementalCommunityUpdater:
         # Get modularity before
         result.modularity_before = await self._calculate_modularity()
 
-        # Get all entities
-        query = """
-        MATCH (e:Entity)
-        WHERE (e.pruned IS NULL OR e.pruned = false)
-        RETURN elementId(e) AS id, e.canonical_name AS name
-        """
+        # Delegate to CommunityDetector for Leiden-based rebuild
+        from modules.graph_store.community_detector import CommunityDetector
 
-        try:
-            entities = await self._pool.execute_query(query)
-            node_ids = [e["id"] for e in entities if e.get("id")]
-            entity_names = [e["name"] for e in entities if e.get("name")]
-        except Exception as exc:
-            log.error("get_all_entities_failed", error=str(exc))
-            return result
+        detector = CommunityDetector(pool=self._pool)
+        detection_result = await detector.rebuild_communities()
 
-        # Get all edges
-        edge_query = """
-        MATCH (e1:Entity)-[r:RELATED_TO]->(e2:Entity)
-        WHERE (e1.pruned IS NULL OR e1.pruned = false)
-          AND (e2.pruned IS NULL OR e2.pruned = false)
-        RETURN elementId(e1) AS id1,
-               elementId(e2) AS id2,
-               coalesce(r.weight, 1.0) AS weight
-        """
+        result.communities_created = detection_result.total_communities
+        result.entities_reassigned = detection_result.total_entities
+        result.modularity_after = detection_result.modularity
 
-        try:
-            edge_results = await self._pool.execute_query(edge_query)
-            edges = [
-                (e["id1"], e["id2"], float(e["weight"]))
-                for e in edge_results
-                if e.get("id1") and e.get("id2")
-            ]
-        except Exception as exc:
-            log.error("get_all_edges_failed", error=str(exc))
-            return result
-
-        # Delete all existing communities
-        await self._delete_all_communities()
-
-        # Run clustering
-        new_assignments = await self._cluster_communities(node_ids, edges)
-
-        # Group by community and create
-        communities: dict[str, list[str]] = defaultdict(list)
-        for node_id, comm_id in new_assignments.items():
-            communities[comm_id].append(node_id)
-
-        # Create communities
-        for comm_id, node_list in communities.items():
-            # Get entity names for this community
-            entity_names_in_comm = []
-            for node_id in node_list:
-                # Find entity name by node_id
-                for i, eid in enumerate(node_ids):
-                    if eid == node_id and i < len(entity_names):
-                        entity_names_in_comm.append(entity_names[i])
-                        break
-
-            if entity_names_in_comm:
-                await self._create_community_with_entities(comm_id, entity_names_in_comm)
-
-        result.communities_created = len(communities)
-        result.entities_reassigned = len(node_ids)
-
-        # Get modularity after
-        result.modularity_after = await self._calculate_modularity()
-
-        # Update metadata
+        # Update metadata including entity count
         await self._update_full_rebuild_metadata()
 
         result.duration_seconds = time.monotonic() - start
@@ -510,6 +586,7 @@ class IncrementalCommunityUpdater:
             "full_community_rebuild_complete",
             communities=result.communities_created,
             entities=result.entities_reassigned,
+            modularity=result.modularity_after,
             duration=result.duration_seconds,
         )
 
@@ -557,8 +634,9 @@ class IncrementalCommunityUpdater:
         MATCH (e:Entity)-[:HAS_ENTITY]-(c:Community)
         WHERE e.canonical_name IN $names
         WITH DISTINCT c.id AS community_id
-        MATCH (c:Community)-[:HAS_ENTITY]-(e1:Entity)-[r:RELATED_TO]-(e2:Entity)-[:HAS_ENTITY]-(c2:Community)
-        WHERE (e2.pruned IS NULL OR e2.pruned = false)
+        MATCH (c:Community)-[:HAS_ENTITY]-(e1:Entity)-[r]-(e2:Entity)-[:HAS_ENTITY]-(c2:Community)
+        WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
+          AND (e2.pruned IS NULL OR e2.pruned = false)
         RETURN DISTINCT community_id, c2.id AS neighbor_community_id
         """
 
@@ -595,8 +673,9 @@ class IncrementalCommunityUpdater:
         WHERE c.id IN $community_ids
           AND (e1.pruned IS NULL OR e1.pruned = false)
         WITH e1
-        MATCH (e1)-[r:RELATED_TO]-(e2:Entity)
-        WHERE (e2.pruned IS NULL OR e2.pruned = false)
+        MATCH (e1)-[r]-(e2:Entity)
+        WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
+          AND (e2.pruned IS NULL OR e2.pruned = false)
         RETURN DISTINCT
                elementId(e1) AS id1,
                elementId(e2) AS id2,
@@ -959,8 +1038,9 @@ class IncrementalCommunityUpdater:
         MATCH (e:Entity)
         WHERE e.canonical_name IN $names
           AND (e.pruned IS NULL OR e.pruned = false)
-        OPTIONAL MATCH (e)-[r:RELATED_TO]-(other:Entity)
-        WHERE other.canonical_name IN $names
+        OPTIONAL MATCH (e)-[r]-(other:Entity)
+        WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
+          AND other.canonical_name IN $names
           AND (other.pruned IS NULL OR other.pruned = false)
         WITH e, collect(DISTINCT other.canonical_name) AS neighbors
         RETURN e.canonical_name AS entity, neighbors
@@ -1074,8 +1154,9 @@ class IncrementalCommunityUpdater:
             Modularity score or None if calculation fails.
         """
         query = """
-        MATCH (e1:Entity)-[r:RELATED_TO]->(e2:Entity)
-        WHERE (e1.pruned IS NULL OR e1.pruned = false)
+        MATCH (e1:Entity)-[r]->(e2:Entity)
+        WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
+          AND (e1.pruned IS NULL OR e1.pruned = false)
           AND (e2.pruned IS NULL OR e2.pruned = false)
         RETURN e1.canonical_name AS source,
                e2.canonical_name AS target,
@@ -1202,14 +1283,18 @@ class IncrementalCommunityUpdater:
             log.warning("update_metadata_failed", error=str(exc))
 
     async def _update_full_rebuild_metadata(self) -> None:
-        """Update metadata after full rebuild."""
+        """Update metadata after full rebuild, including entity count."""
         modularity = await self._calculate_modularity()
 
         query = """
+        MATCH (e:Entity)
+        WHERE (e.pruned IS NULL OR e.pruned = false)
+        WITH count(e) AS entity_count
         MERGE (m:_CommunityMetadata)
         SET m.last_full_rebuild_at = datetime(),
             m.last_incremental_update_at = datetime(),
             m.pending_entity_count = 0,
+            m.entity_count = entity_count,
             m.modularity = coalesce($modularity, m.modularity)
         """
 

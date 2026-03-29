@@ -21,6 +21,7 @@ from modules.collector import Deduplicator
 from modules.collector.crawler import Crawler
 from modules.fetcher import PlaywrightContextPool, SmartFetcher
 from modules.graph_store import EntityResolver, Neo4jWriter
+from modules.graph_store.incremental_community_updater import IncrementalCommunityUpdater
 from modules.graph_store.name_normalizer import name_normalizer
 from modules.graph_store.resolution_rules import resolution_rules
 from modules.pipeline.graph import Pipeline
@@ -81,6 +82,7 @@ class Container:
         self._pending_sync_repo: PendingSyncRepo | None = None
         self._scheduler_jobs: Any = None
         self._startup_sync_task: asyncio.Task | None = None
+        self._community_updater: IncrementalCommunityUpdater | None = None
         self._local_search_engine: LocalSearchEngine | None = None
         self._global_search_engine: GlobalSearchEngine | None = None
         self._shutdown: bool = False  # Idempotency protection
@@ -327,6 +329,14 @@ class Container:
             )
         return self._entity_resolver
 
+    def community_updater(self) -> IncrementalCommunityUpdater | None:
+        """Get community updater (or None if Neo4j unavailable)."""
+        if self._neo4j_pool is None:
+            return None
+        if self._community_updater is None:
+            self._community_updater = IncrementalCommunityUpdater(pool=self._neo4j_pool)
+        return self._community_updater
+
     # ── Vector Repository ─────────────────────────────────────────
 
     def vector_repo(self) -> VectorRepo:
@@ -492,8 +502,7 @@ class Container:
                 source_auth_repo=self.source_authority_repo(),
                 entity_resolver=self.entity_resolver(),
                 redis_client=self._redis_client,
-                pending_sync_repo=self.pending_sync_repo(),
-                neo4j_enabled=self._settings.neo4j.enabled,
+                community_updater=self.community_updater(),
             )
             log.info("pipeline_initialized")
         return self._pipeline

@@ -166,6 +166,18 @@ async def _setup_scheduler(container: Container) -> Any:
         coalesce=True,
     )
 
+    # 9. community_auto_check: periodic community detection check
+    community_updater = container.community_updater()
+    if community_updater is not None:
+        scheduler.add_job(
+            community_updater.check_and_run,
+            trigger=IntervalTrigger(minutes=30),
+            id="community_auto_check",
+            name="Community auto detection check",
+            max_instances=1,
+            coalesce=True,
+        )
+
     # Start scheduler
     scheduler.start()
     _scheduler = scheduler

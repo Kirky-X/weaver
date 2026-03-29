@@ -10,10 +10,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
-from core.cache.redis import RedisClient
 from core.constants import HealthStatus
-from core.db.neo4j import Neo4jPool
-from core.db.postgres import PostgresPool
 from core.observability.metrics import metrics
 
 
@@ -34,11 +31,6 @@ class HealthCheckResponse(BaseModel):
     )
 
 
-# Global references to database pools/clients (set during startup)
-_postgres_pool: PostgresPool | None = None
-_neo4j_pool: Neo4jPool | None = None
-_redis_client: RedisClient | None = None
-
 # Health status code mapping for Prometheus metrics
 HEALTH_STATUS_CODES = {
     "ok": 1,
@@ -48,25 +40,7 @@ HEALTH_STATUS_CODES = {
 }
 
 
-def set_postgres_pool(pool: PostgresPool) -> None:
-    """Set the PostgreSQL pool reference."""
-    global _postgres_pool
-    _postgres_pool = pool
-
-
-def set_neo4j_pool(pool: Neo4jPool) -> None:
-    """Set the Neo4j pool reference."""
-    global _neo4j_pool
-    _neo4j_pool = pool
-
-
-def set_redis_client(client: RedisClient) -> None:
-    """Set the Redis client reference."""
-    global _redis_client
-    _redis_client = client
-
-
-async def check_postgres_health(pool: PostgresPool) -> dict[str, Any]:
+async def check_postgres_health(pool: Any) -> dict[str, Any]:
     """Check PostgreSQL connectivity.
 
     Returns:
@@ -93,7 +67,7 @@ async def check_postgres_health(pool: PostgresPool) -> dict[str, Any]:
         return {"status": "error", "latency_ms": latency_ms, "error": str(e)}
 
 
-async def check_neo4j_health(pool: Neo4jPool) -> dict[str, Any]:
+async def check_neo4j_health(pool: Any) -> dict[str, Any]:
     """Check Neo4j connectivity.
 
     Returns:
@@ -119,7 +93,7 @@ async def check_neo4j_health(pool: Neo4jPool) -> dict[str, Any]:
         return {"status": "error", "latency_ms": latency_ms, "error": str(e)}
 
 
-async def check_redis_health(client: RedisClient) -> dict[str, Any]:
+async def check_redis_health(client: Any) -> dict[str, Any]:
     """Check Redis connectivity.
 
     Returns:
@@ -151,12 +125,14 @@ async def health_check() -> HealthCheckResponse:
     Returns:
         HealthCheckResponse with overall status and individual check results.
     """
+    from api.endpoints import _deps as deps
+
     checks: dict[str, ServiceHealthCheck] = {}
     all_healthy = True
 
     # Check PostgreSQL
-    if _postgres_pool:
-        pg_result = await check_postgres_health(_postgres_pool)
+    if deps.Endpoints._postgres:
+        pg_result = await check_postgres_health(deps.Endpoints._postgres)
         checks["postgres"] = ServiceHealthCheck(**pg_result)
         if pg_result["status"] != "ok":
             all_healthy = False
@@ -168,8 +144,8 @@ async def health_check() -> HealthCheckResponse:
         all_healthy = False
 
     # Check Neo4j
-    if _neo4j_pool:
-        neo4j_result = await check_neo4j_health(_neo4j_pool)
+    if deps.Endpoints._neo4j:
+        neo4j_result = await check_neo4j_health(deps.Endpoints._neo4j)
         checks["neo4j"] = ServiceHealthCheck(**neo4j_result)
         if neo4j_result["status"] != "ok":
             all_healthy = False
@@ -179,8 +155,8 @@ async def health_check() -> HealthCheckResponse:
         all_healthy = False
 
     # Check Redis
-    if _redis_client:
-        redis_result = await check_redis_health(_redis_client)
+    if deps.Endpoints._redis:
+        redis_result = await check_redis_health(deps.Endpoints._redis)
         checks["redis"] = ServiceHealthCheck(**redis_result)
         if redis_result["status"] != "ok":
             all_healthy = False

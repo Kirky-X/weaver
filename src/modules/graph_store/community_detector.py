@@ -173,13 +173,20 @@ class CommunityDetector:
         return result
 
     async def _build_edge_list(self) -> list[tuple[str, str, float]]:
-        """Extract RELATED_TO relationships from Neo4j.
+        """Extract entity relationships from Neo4j.
+
+        Matches all relationship types except non-entity relationships
+        (HAS_ENTITY, MENTIONS, FOLLOWED_BY), covering both legacy RELATED_TO
+        and new semantic edge types (PARTNERS_WITH, REGULATES, etc.).
 
         Returns:
             List of (source, target, weight) tuples.
         """
         query = """
-        MATCH (e1:Entity)-[r:RELATED_TO]->(e2:Entity)
+        MATCH (e1:Entity)-[r]->(e2:Entity)
+        WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
+          AND (e1.pruned IS NULL OR e1.pruned = false)
+          AND (e2.pruned IS NULL OR e2.pruned = false)
         RETURN e1.canonical_name AS source,
                e2.canonical_name AS target,
                coalesce(r.weight, 1.0) AS weight
@@ -204,14 +211,21 @@ class CommunityDetector:
         return [(s, t, w) for (s, t), w in edge_map.items()]
 
     async def _get_orphan_entities(self) -> list[str]:
-        """Get entities with no RELATED_TO relationships.
+        """Get entities with no entity relationships.
+
+        An orphan entity has no relationships to other entities
+        (excluding HAS_ENTITY, MENTIONS, FOLLOWED_BY).
 
         Returns:
             List of orphan entity canonical names.
         """
         query = """
         MATCH (e:Entity)
-        WHERE NOT (e)-[:RELATED_TO]-()
+        WHERE NOT (e)-[r]-(:Entity)
+              OR ALL(
+                rel IN [(e)-[r]-(:Entity) | type(r)]
+                WHERE rel IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
+              )
         RETURN e.canonical_name AS name
         """
         results = await self._pool.execute_query(query)
