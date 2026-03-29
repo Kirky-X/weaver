@@ -84,7 +84,7 @@ class TestEntityExtractorNodeBasic:
         mock_llm.batch_embed = AsyncMock(return_value=[[0.1] * 1536])
 
         # Mock LLM call
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             return_value=EntityExtractorOutput(
                 entities=[{"name": "OpenAI", "type": "ORG", "description": "AI company"}],
                 relations=[],
@@ -115,7 +115,7 @@ class TestEntityExtractorNodeBasic:
     ):
         """Test that entity extractor records prompt version."""
         mock_spacy.extract = MagicMock(return_value=[])
-        mock_llm.call = AsyncMock(return_value=EntityExtractorOutput(entities=[], relations=[]))
+        mock_llm.call_at = AsyncMock(return_value=EntityExtractorOutput(entities=[], relations=[]))
 
         node = EntityExtractorNode(
             llm=mock_llm,
@@ -143,7 +143,7 @@ class TestEntityExtractorNodeBasic:
         mock_spacy.extract = MagicMock(return_value=[mock_entity])
 
         mock_llm.batch_embed = AsyncMock(return_value=[[0.1] * 1536])
-        mock_llm.call = AsyncMock(return_value=EntityExtractorOutput(entities=[], relations=[]))
+        mock_llm.call_at = AsyncMock(return_value=EntityExtractorOutput(entities=[], relations=[]))
 
         node = EntityExtractorNode(
             llm=mock_llm,
@@ -157,8 +157,8 @@ class TestEntityExtractorNodeBasic:
         await node.execute(state)
 
         # Verify LLM was called with correct CallPoint
-        mock_llm.call.assert_called_once()
-        call_args = mock_llm.call.call_args
+        mock_llm.call_at.assert_called_once()
+        call_args = mock_llm.call_at.call_args
         assert call_args[0][0] == CallPoint.ENTITY_EXTRACTOR
 
         # Verify input data
@@ -219,7 +219,7 @@ class TestEntityExtractorNodeEdgeCases:
     ):
         """Test entity extraction with no spaCy entities found."""
         mock_spacy.extract = MagicMock(return_value=[])
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             return_value=EntityExtractorOutput(
                 entities=[{"name": "Implicit Entity", "type": "MISC"}],
                 relations=[],
@@ -252,7 +252,7 @@ class TestEntityExtractorNodeErrorHandling:
     ):
         """Test that entity extractor handles spaCy errors gracefully."""
         mock_spacy.extract = MagicMock(side_effect=Exception("spaCy model not found"))
-        mock_llm.call = AsyncMock(return_value=EntityExtractorOutput(entities=[], relations=[]))
+        mock_llm.call_at = AsyncMock(return_value=EntityExtractorOutput(entities=[], relations=[]))
 
         node = EntityExtractorNode(
             llm=mock_llm,
@@ -275,7 +275,7 @@ class TestEntityExtractorNodeErrorHandling:
     ):
         """Test that entity extractor handles LLM errors gracefully."""
         mock_spacy.extract = MagicMock(return_value=[])
-        mock_llm.call = AsyncMock(side_effect=Exception("LLM service unavailable"))
+        mock_llm.call_at = AsyncMock(side_effect=Exception("LLM service unavailable"))
 
         node = EntityExtractorNode(
             llm=mock_llm,
@@ -304,7 +304,7 @@ class TestEntityExtractorNodeErrorHandling:
         mock_spacy.extract = MagicMock(return_value=[mock_entity])
 
         mock_llm.batch_embed = AsyncMock(side_effect=Exception("Embedding failed"))
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             return_value=EntityExtractorOutput(
                 entities=[{"name": "Test", "type": "ORG"}],
                 relations=[],
@@ -341,7 +341,7 @@ class TestEntityExtractorNodeErrorHandling:
         mock_vector_repo.upsert_entity_vectors = AsyncMock(
             side_effect=Exception("Vector DB connection failed")
         )
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             return_value=EntityExtractorOutput(
                 entities=[{"name": "Test", "type": "ORG"}],
                 relations=[],
@@ -379,7 +379,7 @@ class TestEntityExtractorNodeIntegration:
         mock_spacy.extract = MagicMock(return_value=[mock_entity])
 
         mock_llm.batch_embed = AsyncMock(return_value=[[0.1, 0.2, 0.3]])
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             return_value=EntityExtractorOutput(
                 entities=[{"name": "OpenAI", "type": "ORG", "description": "AI company"}],
                 relations=[],
@@ -419,7 +419,7 @@ class TestEntityExtractorNodeIntegration:
         mock_spacy.extract = MagicMock(return_value=[mock_entity1, mock_entity2])
 
         mock_llm.batch_embed = AsyncMock(return_value=[[0.1] * 1536, [0.2] * 1536])
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             return_value=EntityExtractorOutput(
                 entities=[
                     {"name": "OpenAI", "type": "ORG"},
@@ -450,7 +450,7 @@ class TestEntityExtractorNodeIntegration:
     ):
         """Test that spaCy extraction runs in executor (non-blocking)."""
         mock_spacy.extract = MagicMock(return_value=[])
-        mock_llm.call = AsyncMock(return_value=EntityExtractorOutput(entities=[], relations=[]))
+        mock_llm.call_at = AsyncMock(return_value=EntityExtractorOutput(entities=[], relations=[]))
 
         node = EntityExtractorNode(
             llm=mock_llm,

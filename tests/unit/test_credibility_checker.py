@@ -211,7 +211,7 @@ class TestSourceAuthorityPriority:
         """Test that preset credibility takes priority over auto-calculated."""
         # Set preset credibility
         mock_source_config_repo.get_credibility = AsyncMock(return_value=0.95)
-        mock_llm.call = AsyncMock(return_value=CredibilityOutput(score=0.7, flags=[]))
+        mock_llm.call_at = AsyncMock(return_value=CredibilityOutput(score=0.7, flags=[]))
 
         node = CredibilityCheckerNode(
             llm=mock_llm,
@@ -246,7 +246,7 @@ class TestSourceAuthorityPriority:
     ):
         """Test that auto-calculated authority is used when no preset."""
         mock_source_config_repo.get_credibility = AsyncMock(return_value=None)
-        mock_llm.call = AsyncMock(return_value=CredibilityOutput(score=0.7, flags=[]))
+        mock_llm.call_at = AsyncMock(return_value=CredibilityOutput(score=0.7, flags=[]))
 
         node = CredibilityCheckerNode(
             llm=mock_llm,
@@ -271,7 +271,7 @@ class TestSourceAuthorityPriority:
     @pytest.mark.asyncio
     async def test_priority_3_default(self, mock_llm, mock_budget, mock_event_bus, sample_raw):
         """Test that default 0.50 is used when no repos available."""
-        mock_llm.call = AsyncMock(return_value=CredibilityOutput(score=0.7, flags=[]))
+        mock_llm.call_at = AsyncMock(return_value=CredibilityOutput(score=0.7, flags=[]))
 
         node = CredibilityCheckerNode(
             llm=mock_llm,
@@ -301,7 +301,7 @@ class TestCredibilityCheckerNodeBasic:
         self, mock_llm, mock_budget, mock_event_bus, mock_source_auth_repo, sample_raw
     ):
         """Test successful credibility computation with 3 signals."""
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             return_value=CredibilityOutput(score=0.75, flags=["well_sourced"])
         )
 
@@ -337,7 +337,7 @@ class TestCredibilityCheckerNodeBasic:
         self, mock_llm, mock_budget, mock_event_bus, mock_source_auth_repo, sample_raw
     ):
         """Test that credibility checker publishes CredibilityComputedEvent."""
-        mock_llm.call = AsyncMock(return_value=CredibilityOutput(score=0.8, flags=[]))
+        mock_llm.call_at = AsyncMock(return_value=CredibilityOutput(score=0.8, flags=[]))
 
         node = CredibilityCheckerNode(
             llm=mock_llm,
@@ -362,7 +362,7 @@ class TestCredibilityCheckerNodeBasic:
         self, mock_llm, mock_budget, mock_event_bus, sample_raw
     ):
         """Test credibility computation without source authority repository."""
-        mock_llm.call = AsyncMock(return_value=CredibilityOutput(score=0.7, flags=[]))
+        mock_llm.call_at = AsyncMock(return_value=CredibilityOutput(score=0.7, flags=[]))
 
         node = CredibilityCheckerNode(
             llm=mock_llm,
@@ -404,7 +404,7 @@ class TestCredibilityCheckerNodeEdgeCases:
 
         # Should return state unchanged
         assert "credibility" not in result
-        mock_llm.call.assert_not_called()
+        mock_llm.call_at.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_credibility_skips_merged_articles(
@@ -423,7 +423,7 @@ class TestCredibilityCheckerNodeEdgeCases:
         result = await node.execute(state)
 
         assert "credibility" not in result
-        mock_llm.call.assert_not_called()
+        mock_llm.call_at.assert_not_called()
 
 
 class TestCredibilityCheckerNodeErrorHandling:
@@ -434,7 +434,7 @@ class TestCredibilityCheckerNodeErrorHandling:
         self, mock_llm, mock_budget, mock_event_bus, sample_raw
     ):
         """Test that credibility checker handles LLM errors gracefully."""
-        mock_llm.call = AsyncMock(side_effect=Exception("LLM service unavailable"))
+        mock_llm.call_at = AsyncMock(side_effect=Exception("LLM service unavailable"))
 
         node = CredibilityCheckerNode(
             llm=mock_llm,
@@ -462,7 +462,7 @@ class TestCredibilityCheckerNodeErrorHandling:
         mock_source_auth_repo.get_or_create = AsyncMock(
             side_effect=Exception("Database connection failed")
         )
-        mock_llm.call = AsyncMock(return_value=CredibilityOutput(score=0.7, flags=[]))
+        mock_llm.call_at = AsyncMock(return_value=CredibilityOutput(score=0.7, flags=[]))
 
         node = CredibilityCheckerNode(
             llm=mock_llm,
@@ -495,7 +495,9 @@ class TestCredibilityCheckerNodeIntegration:
         mock_source_auth_repo.get_or_create = AsyncMock(
             return_value=MagicMock(authority=1.0)  # s1 = 1.0
         )
-        mock_llm.call = AsyncMock(return_value=CredibilityOutput(score=1.0, flags=[]))  # s2 = 1.0
+        mock_llm.call_at = AsyncMock(
+            return_value=CredibilityOutput(score=1.0, flags=[])
+        )  # s2 = 1.0
 
         node = CredibilityCheckerNode(
             llm=mock_llm,
@@ -534,7 +536,7 @@ class TestCredibilityCheckerNodeIntegration:
     ):
         """Test credibility with economic news - source authority should dominate."""
         mock_source_auth_repo.get_or_create = AsyncMock(return_value=MagicMock(authority=0.90))
-        mock_llm.call = AsyncMock(return_value=CredibilityOutput(score=0.50, flags=[]))
+        mock_llm.call_at = AsyncMock(return_value=CredibilityOutput(score=0.50, flags=[]))
 
         node = CredibilityCheckerNode(
             llm=mock_llm,
@@ -571,7 +573,7 @@ class TestCredibilityCheckerNodeIntegration:
         self, mock_llm, mock_budget, mock_event_bus, sample_raw
     ):
         """Test that credibility checker calls LLM with correct parameters."""
-        mock_llm.call = AsyncMock(return_value=CredibilityOutput(score=0.7, flags=[]))
+        mock_llm.call_at = AsyncMock(return_value=CredibilityOutput(score=0.7, flags=[]))
 
         node = CredibilityCheckerNode(
             llm=mock_llm,
@@ -585,8 +587,8 @@ class TestCredibilityCheckerNodeIntegration:
         await node.execute(state)
 
         # Verify LLM was called with correct CallPoint
-        mock_llm.call.assert_called_once()
-        call_args = mock_llm.call.call_args
+        mock_llm.call_at.assert_called_once()
+        call_args = mock_llm.call_at.call_args
         assert call_args[0][0] == CallPoint.CREDIBILITY_CHECKER
 
         # Verify input data

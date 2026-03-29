@@ -129,7 +129,7 @@ class TestCategorizerNodeBasic:
     @pytest.mark.asyncio
     async def test_categorizer_successful_execution(self, mock_llm, mock_prompt_loader, sample_raw):
         """Test successful categorization with valid LLM response."""
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             return_value=CategorizerOutput(
                 category="technology",
                 language="en",
@@ -151,7 +151,7 @@ class TestCategorizerNodeBasic:
     @pytest.mark.asyncio
     async def test_categorizer_sets_prompt_version(self, mock_llm, mock_prompt_loader, sample_raw):
         """Test that categorizer records prompt version."""
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             return_value=CategorizerOutput(category="tech", language="zh", region="CN")
         )
 
@@ -167,7 +167,7 @@ class TestCategorizerNodeBasic:
     @pytest.mark.asyncio
     async def test_categorizer_normalizes_category(self, mock_llm, mock_prompt_loader, sample_raw):
         """Test that categorizer normalizes English categories to Chinese."""
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             return_value=CategorizerOutput(category="politics", language="zh", region="CN")
         )
 
@@ -196,14 +196,14 @@ class TestCategorizerNodeEdgeCases:
         # Should return state unchanged
         assert "category" not in result
         assert "language" not in result
-        mock_llm.call.assert_not_called()
+        mock_llm.call_at.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_categorizer_handles_empty_category(
         self, mock_llm, mock_prompt_loader, sample_raw
     ):
         """Test categorizer with empty category from LLM."""
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             return_value=CategorizerOutput(category="", language="en", region="US")
         )
 
@@ -219,7 +219,7 @@ class TestCategorizerNodeEdgeCases:
     @pytest.mark.asyncio
     async def test_categorizer_truncates_body(self, mock_llm, mock_prompt_loader, sample_raw):
         """Test that categorizer truncates body to 2000 chars."""
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             return_value=CategorizerOutput(category="tech", language="en", region="US")
         )
 
@@ -231,7 +231,7 @@ class TestCategorizerNodeEdgeCases:
         await node.execute(state)
 
         # Verify LLM was called with truncated body
-        call_args = mock_llm.call.call_args
+        call_args = mock_llm.call_at.call_args
         input_data = call_args[0][1]
         assert len(input_data["body"]) == 2000
 
@@ -244,7 +244,7 @@ class TestCategorizerNodeErrorHandling:
         self, mock_llm, mock_prompt_loader, sample_raw
     ):
         """Test that categorizer uses defaults when LLM fails."""
-        mock_llm.call = AsyncMock(side_effect=Exception("LLM service unavailable"))
+        mock_llm.call_at = AsyncMock(side_effect=Exception("LLM service unavailable"))
 
         node = CategorizerNode(mock_llm, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
@@ -262,7 +262,7 @@ class TestCategorizerNodeErrorHandling:
         """Test that categorizer handles timeout errors."""
         import asyncio
 
-        mock_llm.call = AsyncMock(side_effect=TimeoutError("Request timeout"))
+        mock_llm.call_at = AsyncMock(side_effect=TimeoutError("Request timeout"))
 
         node = CategorizerNode(mock_llm, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
@@ -279,7 +279,7 @@ class TestCategorizerNodeErrorHandling:
         self, mock_llm, mock_prompt_loader, sample_raw
     ):
         """Test that categorizer handles invalid LLM response."""
-        mock_llm.call = AsyncMock(side_effect=ValueError("Invalid response format"))
+        mock_llm.call_at = AsyncMock(side_effect=ValueError("Invalid response format"))
 
         node = CategorizerNode(mock_llm, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
@@ -297,7 +297,7 @@ class TestCategorizerNodeIntegration:
     @pytest.mark.asyncio
     async def test_categorizer_preserves_state(self, mock_llm, mock_prompt_loader, sample_raw):
         """Test that categorizer preserves existing state fields."""
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             return_value=CategorizerOutput(category="tech", language="zh", region="CN")
         )
 
@@ -328,7 +328,7 @@ class TestCategorizerNodeIntegration:
         ]
 
         for english_cat, expected_chinese in test_cases:
-            mock_llm.call = AsyncMock(
+            mock_llm.call_at = AsyncMock(
                 return_value=CategorizerOutput(category=english_cat, language="zh", region="CN")
             )
 

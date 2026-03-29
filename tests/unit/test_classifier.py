@@ -73,7 +73,7 @@ class TestClassifierNodeBasic:
         self, mock_llm, mock_budget, mock_prompt_loader, sample_raw
     ):
         """Test classification of a news article."""
-        mock_llm.call = AsyncMock(return_value=ClassifierOutput(is_news=True, confidence=0.95))
+        mock_llm.call_at = AsyncMock(return_value=ClassifierOutput(is_news=True, confidence=0.95))
 
         node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
@@ -89,7 +89,7 @@ class TestClassifierNodeBasic:
         self, mock_llm, mock_budget, mock_prompt_loader, sample_non_news_raw
     ):
         """Test classification of non-news content."""
-        mock_llm.call = AsyncMock(return_value=ClassifierOutput(is_news=False, confidence=0.85))
+        mock_llm.call_at = AsyncMock(return_value=ClassifierOutput(is_news=False, confidence=0.85))
 
         node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_non_news_raw)
@@ -105,7 +105,7 @@ class TestClassifierNodeBasic:
         self, mock_llm, mock_budget, mock_prompt_loader, sample_raw
     ):
         """Test that classifier records prompt version in state."""
-        mock_llm.call = AsyncMock(return_value=ClassifierOutput(is_news=True, confidence=0.9))
+        mock_llm.call_at = AsyncMock(return_value=ClassifierOutput(is_news=True, confidence=0.9))
 
         node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
@@ -120,7 +120,7 @@ class TestClassifierNodeBasic:
         self, mock_llm, mock_budget, mock_prompt_loader, sample_raw
     ):
         """Test that classifier calls LLM with correct parameters."""
-        mock_llm.call = AsyncMock(return_value=ClassifierOutput(is_news=True, confidence=0.9))
+        mock_llm.call_at = AsyncMock(return_value=ClassifierOutput(is_news=True, confidence=0.9))
 
         node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
@@ -128,8 +128,8 @@ class TestClassifierNodeBasic:
         await node.execute(state)
 
         # Verify LLM was called with correct CallPoint
-        mock_llm.call.assert_called_once()
-        call_args = mock_llm.call.call_args
+        mock_llm.call_at.assert_called_once()
+        call_args = mock_llm.call_at.call_args
         assert call_args[0][0] == CallPoint.CLASSIFIER
 
         # Verify input data contains title and body_snippet
@@ -147,7 +147,7 @@ class TestClassifierNodeEdgeCases:
         self, mock_llm, mock_budget, mock_prompt_loader, sample_raw
     ):
         """Test classification with low confidence score."""
-        mock_llm.call = AsyncMock(return_value=ClassifierOutput(is_news=True, confidence=0.55))
+        mock_llm.call_at = AsyncMock(return_value=ClassifierOutput(is_news=True, confidence=0.55))
 
         node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
@@ -163,7 +163,7 @@ class TestClassifierNodeEdgeCases:
         self, mock_llm, mock_budget, mock_prompt_loader, sample_non_news_raw
     ):
         """Test classification with high confidence non-news."""
-        mock_llm.call = AsyncMock(return_value=ClassifierOutput(is_news=False, confidence=0.98))
+        mock_llm.call_at = AsyncMock(return_value=ClassifierOutput(is_news=False, confidence=0.98))
 
         node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_non_news_raw)
@@ -186,7 +186,7 @@ class TestClassifierNodeEdgeCases:
             source_host="example.com",
         )
 
-        mock_llm.call = AsyncMock(return_value=ClassifierOutput(is_news=False, confidence=0.7))
+        mock_llm.call_at = AsyncMock(return_value=ClassifierOutput(is_news=False, confidence=0.7))
 
         node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=short_raw)
@@ -207,7 +207,7 @@ class TestClassifierNodeEdgeCases:
             source_host="example.com",
         )
 
-        mock_llm.call = AsyncMock(return_value=ClassifierOutput(is_news=False, confidence=0.6))
+        mock_llm.call_at = AsyncMock(return_value=ClassifierOutput(is_news=False, confidence=0.6))
 
         node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=empty_title_raw)
@@ -225,7 +225,7 @@ class TestClassifierNodeErrorHandling:
         self, mock_llm, mock_budget, mock_prompt_loader, sample_raw
     ):
         """Test that classifier handles LLM errors by raising exception."""
-        mock_llm.call = AsyncMock(side_effect=Exception("LLM service unavailable"))
+        mock_llm.call_at = AsyncMock(side_effect=Exception("LLM service unavailable"))
 
         node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
@@ -241,7 +241,7 @@ class TestClassifierNodeErrorHandling:
         """Test that classifier handles timeout errors."""
         import asyncio
 
-        mock_llm.call = AsyncMock(side_effect=TimeoutError("Request timeout"))
+        mock_llm.call_at = AsyncMock(side_effect=TimeoutError("Request timeout"))
 
         node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
@@ -255,7 +255,7 @@ class TestClassifierNodeErrorHandling:
         self, mock_llm, mock_budget, mock_prompt_loader, sample_raw
     ):
         """Test that classifier handles invalid LLM response."""
-        mock_llm.call = AsyncMock(side_effect=ValueError("Invalid response format"))
+        mock_llm.call_at = AsyncMock(side_effect=ValueError("Invalid response format"))
 
         node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
@@ -275,7 +275,7 @@ class TestClassifierNodeIntegration:
         """Test that classifier uses token budget for truncation."""
         mock_budget.truncate = MagicMock(return_value="Truncated body")
 
-        mock_llm.call = AsyncMock(return_value=ClassifierOutput(is_news=True, confidence=0.9))
+        mock_llm.call_at = AsyncMock(return_value=ClassifierOutput(is_news=True, confidence=0.9))
 
         node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
@@ -292,7 +292,7 @@ class TestClassifierNodeIntegration:
         self, mock_llm, mock_budget, mock_prompt_loader, sample_raw
     ):
         """Test that classifier preserves raw data in state."""
-        mock_llm.call = AsyncMock(return_value=ClassifierOutput(is_news=True, confidence=0.9))
+        mock_llm.call_at = AsyncMock(return_value=ClassifierOutput(is_news=True, confidence=0.9))
 
         node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
@@ -324,7 +324,7 @@ class TestClassifierNodeIntegration:
                 source_host="example.com",
             )
 
-            mock_llm.call = AsyncMock(
+            mock_llm.call_at = AsyncMock(
                 return_value=ClassifierOutput(is_news=expected_is_news, confidence=confidence)
             )
 

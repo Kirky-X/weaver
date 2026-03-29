@@ -60,7 +60,7 @@ class TestAnalyzeNodeBasic:
         self, mock_llm, mock_budget, mock_prompt_loader, sample_raw
     ):
         """Test successful analysis with valid LLM response."""
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             return_value=AnalyzeOutput(
                 summary="AI breakthrough in NLP shows unprecedented capabilities",
                 event_time="2026-03-18",
@@ -106,7 +106,7 @@ class TestAnalyzeNodeBasic:
         self, mock_llm, mock_budget, mock_prompt_loader, sample_raw
     ):
         """Test that analyze node records prompt version in state."""
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             return_value=AnalyzeOutput(
                 summary="Test summary",
                 event_time=None,
@@ -136,7 +136,7 @@ class TestAnalyzeNodeBasic:
         self, mock_llm, mock_budget, mock_prompt_loader, sample_raw
     ):
         """Test that analyze calls LLM with correct parameters."""
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             return_value=AnalyzeOutput(
                 summary="Test",
                 event_time=None,
@@ -159,8 +159,8 @@ class TestAnalyzeNodeBasic:
         await node.execute(state)
 
         # Verify LLM was called with correct CallPoint
-        mock_llm.call.assert_called_once()
-        call_args = mock_llm.call.call_args
+        mock_llm.call_at.assert_called_once()
+        call_args = mock_llm.call_at.call_args
         assert call_args[0][0] == CallPoint.ANALYZE
 
         # Verify input data
@@ -188,7 +188,7 @@ class TestAnalyzeNodeEdgeCases:
         assert "summary_info" not in result
         assert "sentiment" not in result
         assert "score" not in result
-        mock_llm.call.assert_not_called()
+        mock_llm.call_at.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_analyze_skips_merged_articles(
@@ -205,14 +205,14 @@ class TestAnalyzeNodeEdgeCases:
         # Should return state unchanged
         assert "summary_info" not in result
         assert "sentiment" not in result
-        mock_llm.call.assert_not_called()
+        mock_llm.call_at.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_analyze_handles_empty_subjects(
         self, mock_llm, mock_budget, mock_prompt_loader, sample_raw
     ):
         """Test analysis with empty subjects list."""
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             return_value=AnalyzeOutput(
                 summary="Test summary",
                 event_time=None,
@@ -245,7 +245,7 @@ class TestAnalyzeNodeErrorHandling:
         self, mock_llm, mock_budget, mock_prompt_loader, sample_raw
     ):
         """Test that analyze uses default values when LLM fails."""
-        mock_llm.call = AsyncMock(side_effect=Exception("LLM service unavailable"))
+        mock_llm.call_at = AsyncMock(side_effect=Exception("LLM service unavailable"))
 
         node = AnalyzeNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
@@ -271,7 +271,7 @@ class TestAnalyzeNodeErrorHandling:
         """Test that analyze handles timeout errors gracefully."""
         import asyncio
 
-        mock_llm.call = AsyncMock(side_effect=TimeoutError("Request timeout"))
+        mock_llm.call_at = AsyncMock(side_effect=TimeoutError("Request timeout"))
 
         node = AnalyzeNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
@@ -288,7 +288,7 @@ class TestAnalyzeNodeErrorHandling:
         self, mock_llm, mock_budget, mock_prompt_loader, sample_raw
     ):
         """Test that analyze handles invalid LLM response."""
-        mock_llm.call = AsyncMock(side_effect=ValueError("Invalid response format"))
+        mock_llm.call_at = AsyncMock(side_effect=ValueError("Invalid response format"))
 
         node = AnalyzeNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
@@ -311,7 +311,7 @@ class TestAnalyzeNodeIntegration:
         """Test that analyze uses token budget for truncation."""
         mock_budget.truncate = MagicMock(return_value="Truncated body text")
 
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             return_value=AnalyzeOutput(
                 summary="Summary",
                 event_time=None,
@@ -343,7 +343,7 @@ class TestAnalyzeNodeIntegration:
         self, mock_llm, mock_budget, mock_prompt_loader, sample_raw
     ):
         """Test that analyze preserves existing state fields."""
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             return_value=AnalyzeOutput(
                 summary="Summary",
                 event_time=None,

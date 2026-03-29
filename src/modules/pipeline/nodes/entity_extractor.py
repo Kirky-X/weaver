@@ -123,7 +123,7 @@ class EntityExtractorNode:
                 log.warning("relation_type_fetch_failed_using_default", error=str(e))
 
         try:
-            result: EntityExtractorOutput = await self._llm.call(
+            result: EntityExtractorOutput = await self._llm.call_at(
                 CallPoint.ENTITY_EXTRACTOR,
                 {
                     "body": body_trunc,
@@ -137,9 +137,9 @@ class EntityExtractorNode:
                     ],
                     "article_id": state.get("article_id"),
                     "task_id": state.get("task_id"),
+                    "relation_types_block": relation_types_block,
                 },
                 output_model=EntityExtractorOutput,
-                extra_vars={"relation_types_block": relation_types_block},
             )
             state["entities"] = result.entities
             state["relations"] = result.relations
