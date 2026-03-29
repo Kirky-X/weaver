@@ -16,26 +16,33 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from api.endpoints import _deps as deps
+from api.endpoints.admin import set_source_authority_repo
+from api.endpoints.articles import set_postgres_pool as set_articles_postgres_pool
+from api.endpoints.graph import set_neo4j_client, set_postgres_pool as set_graph_postgres_pool
+from api.endpoints.graph_metrics import set_neo4j_pool as set_graph_neo4j_pool
 from api.endpoints.health import (
-    HealthCheckResponse,
     health_check as check_health,
     set_neo4j_pool,
     set_postgres_pool as set_health_postgres_pool,
     set_redis_client,
 )
+from api.endpoints.pipeline import (
+    set_postgres_pool as set_pipeline_postgres_pool,
+    set_redis_client as set_pipeline_redis,
+    set_source_scheduler,
+)
+from api.endpoints.sources import set_source_config_repo
 from api.middleware.rate_limit import limiter
 from api.router import api_router
-from api.schemas.response import APIResponse, success_response
 from config.settings import Settings
 from container import Container, set_container, set_settings
-from core.constants import HealthStatus
 from core.observability.logging import configure_logging, get_logger
 from core.observability.tracing import configure_tracing
 
@@ -159,16 +166,6 @@ async def _setup_scheduler(container: Container) -> Any:
         coalesce=True,
     )
 
-    # 9. update_db_pool_metrics: update database pool utilization for alerting
-    scheduler.add_job(
-        jobs.update_db_pool_metrics,
-        trigger=IntervalTrigger(minutes=1),
-        id="update_db_pool_metrics",
-        name="Update database pool Prometheus metrics",
-        max_instances=1,
-        coalesce=True,
-    )
-
     # Start scheduler
     scheduler.start()
     _scheduler = scheduler
@@ -200,13 +197,27 @@ async def lifespan(app: FastAPI) -> None:
     # Register services for API endpoints
     set_container(container)
     set_settings(container.settings)
+    set_source_config_repo(container.source_config_repo())
 
     redis_client = container.redis_client()
     set_redis_client(redis_client)
+    set_pipeline_redis(redis_client)
     log.debug("redis_client_set", client_id=id(redis_client))
+
+    set_source_scheduler(container.source_scheduler())
+    log.debug("source_scheduler_set")
 
     set_health_postgres_pool(container.postgres_pool())
     set_neo4j_pool(container.neo4j_pool())
+    set_graph_neo4j_pool(container.neo4j_pool())
+    set_neo4j_client(container.neo4j_pool())
+    set_graph_postgres_pool(container.postgres_pool())
+    set_redis_client(redis_client)
+    set_source_authority_repo(container.source_authority_repo())
+
+    # Also set postgres pool for pipeline and articles modules
+    set_pipeline_postgres_pool(container.postgres_pool())
+    set_articles_postgres_pool(container.postgres_pool())
 
     # Register all pools/clients with the centralized Endpoints registry
     deps.Endpoints._postgres = container.postgres_pool()
@@ -219,7 +230,6 @@ async def lifespan(app: FastAPI) -> None:
     deps.Endpoints._source_authority_repo = container.source_authority_repo()
     deps.Endpoints._local_engine = container.local_search_engine()
     deps.Endpoints._global_engine = container.global_search_engine()
-    deps.Endpoints._hybrid_engine = container.hybrid_search_engine()
     log.debug("endpoints_registry_populated")
 
     # Setup APScheduler
@@ -305,17 +315,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
-        # Basic security headers
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        # Enhanced security headers
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self'; object-src 'none'"
-        )
-        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
         return response
 
 
@@ -363,19 +366,8 @@ def create_app(container: Container | None = None) -> FastAPI:
         lifespan=lifespan,
     )
 
-    cors_origins_env = os.environ.get("CORS_ORIGINS")
-    environment = os.environ.get("ENVIRONMENT", "development")
-
-    # Production environment must explicitly configure CORS origins
-    if environment == "production" and not cors_origins_env:
-        raise ValueError(
-            "CORS_ORIGINS must be explicitly configured in production environment. "
-            "Set the CORS_ORIGINS environment variable with allowed origins, "
-            "e.g., 'https://example.com,https://app.example.com'"
-        )
-
-    cors_origins = (
-        cors_origins_env or "http://localhost:3000,http://localhost:8080,http://127.0.0.1:3000"
+    cors_origins = os.environ.get(
+        "CORS_ORIGINS", "http://localhost:3000,http://localhost:8080,http://127.0.0.1:3000"
     ).split(",")
 
     app.add_middleware(
@@ -392,9 +384,18 @@ def create_app(container: Container | None = None) -> FastAPI:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-    from api.middleware.api_response import register_exception_handlers
+    @app.exception_handler(BusinessException)
+    async def business_exception_handler(request: Request, exc: BusinessException):
+        return JSONResponse(
+            status_code=exc.http_status, content={"code": exc.code, "message": exc.message}
+        )
 
-    register_exception_handlers(app)
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        log.error("unhandled_exception", error=str(exc), path=request.url.path)
+        return JSONResponse(
+            status_code=500, content={"code": 500, "message": "Internal server error"}
+        )
 
     if container is None:
         container = Container().configure(settings)
@@ -402,13 +403,13 @@ def create_app(container: Container | None = None) -> FastAPI:
 
     app.include_router(api_router)
 
-    @app.get("/health", response_model=APIResponse[HealthCheckResponse])
-    async def health_check_endpoint() -> APIResponse[HealthCheckResponse]:
+    @app.get("/health")
+    async def health_check_endpoint() -> dict:
         """Health check endpoint with dependency checks."""
         result = await check_health()
-        if result.status != HealthStatus.HEALTHY:
-            raise HTTPException(status_code=503, detail=result.model_dump())
-        return success_response(result)
+        if result["status"] != "healthy":
+            raise HTTPException(status_code=503, detail=result)
+        return result
 
     @app.get("/metrics")
     async def metrics_endpoint() -> PlainTextResponse:

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -13,7 +14,7 @@ from modules.storage.neo4j.article_repo import Neo4jArticleRepo
 from modules.storage.neo4j.entity_repo import Neo4jEntityRepo
 
 if TYPE_CHECKING:
-    from core.protocols import VectorRepository
+    from modules.graph_store.relation_type_normalizer import RelationTypeNormalizer
 
 log = get_logger("neo4j_writer")
 
@@ -26,21 +27,24 @@ class Neo4jWriter:
     - Entity nodes from extraction
     - MENTIONS relationships (article -> entity)
     - FOLLOWED_BY relationships (article -> article)
+    - Typed entity-to-entity relationships (normalised via RelationTypeNormalizer)
 
     Args:
         pool: Neo4j connection pool.
-        vector_repo: Optional vector repository for updating entity vectors with actual UUIDs.
+        relation_type_normalizer: Optional normaliser for relation types.
+            When provided, LLM-extracted relation types are normalised
+            before writing to Neo4j.
     """
 
     def __init__(
         self,
         pool: Neo4jPool,
-        vector_repo: VectorRepository | None = None,
+        relation_type_normalizer: RelationTypeNormalizer | None = None,
     ) -> None:
         self._pool = pool
         self._entity_repo = Neo4jEntityRepo(pool)
         self._article_repo = Neo4jArticleRepo(pool)
-        self._vector_repo = vector_repo
+        self._normalizer = relation_type_normalizer
 
     @property
     def entity_repo(self) -> Neo4jEntityRepo:
@@ -94,32 +98,13 @@ class Neo4jWriter:
 
         # 2. Process entities and create MENTIONS relationships
         entities = state.get("entities", [])
-        entity_uuid_map: dict[str, str] = {}
         if entities:
-            entity_ids, entity_uuid_map = await self._write_entities(
+            entity_ids = await self._write_entities(
                 article_neo4j_id=article_neo4j_id,
                 entities=entities,
                 state=state,
             )
             neo4j_ids.extend(entity_ids)
-
-            # Update entity vectors in PostgreSQL with actual entity UUIDs
-            if entity_uuid_map and self._vector_repo:
-                try:
-                    updated = await self._vector_repo.update_entity_vectors_by_temp_keys(
-                        entity_uuid_map
-                    )
-                    log.debug(
-                        "entity_vectors_updated_with_uuids",
-                        updated=updated,
-                        article_id=article_id_str,
-                    )
-                except Exception as exc:
-                    log.warning(
-                        "entity_vectors_uuid_update_failed",
-                        error=str(exc),
-                        article_id=article_id_str,
-                    )
 
         # 3. Handle FOLLOWED_BY relationships
         merged_source_ids = state.get("merged_source_ids", [])
@@ -138,7 +123,7 @@ class Neo4jWriter:
         article_neo4j_id: str,
         entities: list[dict[str, Any]],
         state: PipelineState,
-    ) -> tuple[list[str], dict[str, str]]:
+    ) -> list[str]:
         """Write entities and create MENTIONS relationships using batch operations.
 
         Args:
@@ -147,15 +132,12 @@ class Neo4jWriter:
             state: Pipeline state for additional context.
 
         Returns:
-            Tuple of (entity_neo4j_ids, entity_name_to_uuid).
-            - entity_neo4j_ids: List of entity Neo4j element IDs.
-            - entity_name_to_uuid: Mapping from entity canonical name to entity UUID (e.id).
+            List of entity Neo4j IDs.
         """
         if not entities:
-            return [], {}
+            return []
 
         entity_name_to_id: dict[str, str] = {}
-        entity_name_to_uuid: dict[str, str] = {}
 
         entity_data = []
         alias_data = []
@@ -206,7 +188,7 @@ class Neo4jWriter:
                 )
             except Exception as exc:
                 log.error("neo4j_entities_batch_failed", error=str(exc))
-                return [], {}
+                return []
 
         if alias_data:
             try:
@@ -214,27 +196,15 @@ class Neo4jWriter:
             except Exception as exc:
                 log.warning("neo4j_aliases_batch_failed", error=str(exc))
 
-        # Batch fetch all entities to avoid N+1 query
         entity_ids: list[str] = []
-
-        if entity_data:
-            # Group by type for batch lookup
-            entities_by_type: dict[str, list[str]] = {}
-            for entity in entity_data:
-                entity_type = entity["type"]
-                if entity_type not in entities_by_type:
-                    entities_by_type[entity_type] = []
-                entities_by_type[entity_type].append(entity["canonical_name"])
-
-            # Batch fetch for each type
-            for entity_type, names in entities_by_type.items():
-                found_entities = await self._entity_repo.find_entities_batch(names, entity_type)
-                for found in found_entities:
-                    entity_ids.append(found["neo4j_id"])
-                    entity_name_to_id[found["canonical_name"]] = found["neo4j_id"]
-                    # Store the entity UUID (e.id) for vector repo update
-                    if found.get("id"):
-                        entity_name_to_uuid[found["canonical_name"]] = found["id"]
+        for entity in entity_data:
+            existing = await self._entity_repo.find_entity(
+                entity["canonical_name"],
+                entity["type"],
+            )
+            if existing:
+                entity_ids.append(existing["neo4j_id"])
+                entity_name_to_id[entity["canonical_name"]] = existing["neo4j_id"]
 
         if mentions_data and entity_name_to_id:
             mentions_with_ids = [
@@ -258,7 +228,7 @@ class Neo4jWriter:
         if relations and entity_name_to_id:
             await self._write_entity_relations(relations, entity_name_to_id)
 
-        return entity_ids, entity_name_to_uuid
+        return entity_ids
 
     async def _write_entity_relations(
         self,
@@ -266,6 +236,10 @@ class Neo4jWriter:
         entity_name_to_id: dict[str, str],
     ) -> int:
         """Write entity-to-entity relationships to Neo4j.
+
+        When a ``RelationTypeNormalizer`` is available each LLM-extracted
+        relation type is normalised before writing.  Unknown types are
+        recorded for later review.
 
         Args:
             relations: List of relation dicts from entity extractor.
@@ -279,10 +253,27 @@ class Neo4jWriter:
             source_name = relation.get("source")
             target_name = relation.get("target")
             relation_type = relation.get("relation_type")
-            description = relation.get("description")
 
             if not source_name or not target_name or not relation_type:
                 continue
+
+            # Normalise relation type
+            edge_type = relation_type
+            raw_type = relation_type
+            direction = "unidirectional"
+
+            if self._normalizer:
+                try:
+                    normalized = await self._normalizer.normalize(relation_type)
+                    if normalized.name_en:
+                        edge_type = normalized.name_en
+                    else:
+                        edge_type = relation_type
+                        ctx = f"{source_name}\u2192{target_name}"
+                        await self._normalizer.record_unknown(relation_type, ctx)
+                    direction = "bidirectional" if normalized.is_symmetric else "unidirectional"
+                except Exception as exc:
+                    log.warning("relation_normalization_failed", error=str(exc))
 
             source_id = entity_name_to_id.get(source_name)
             target_id = entity_name_to_id.get(target_name)
@@ -299,23 +290,46 @@ class Neo4jWriter:
                 await self._entity_repo.merge_relation(
                     from_neo4j_id=source_id,
                     to_neo4j_id=target_id,
-                    relation_type=relation_type,
-                    properties={"description": description} if description else None,
+                    edge_type=edge_type,
+                    properties={
+                        "raw_type": raw_type,
+                        "direction": direction,
+                        "description": relation.get("description"),
+                    },
                 )
                 count += 1
                 log.debug(
                     "entity_relation_created",
                     source=source_name,
                     target=target_name,
-                    relation=relation_type,
+                    relation=edge_type,
+                    raw_type=raw_type,
                 )
+
+                # TODO(temporary): Dual-write legacy RELATED_TO edges for backward
+                # compatibility during migration.  Remove once all consumers have
+                # been updated to read semantic edge types.  Controlled by
+                # WEAVER_DUAL_WRITE=true environment variable.
+                if os.environ.get("WEAVER_DUAL_WRITE", "").lower() == "true":
+                    try:
+                        await self._entity_repo.merge_relation(
+                            from_neo4j_id=source_id,
+                            to_neo4j_id=target_id,
+                            edge_type="RELATED_TO",
+                            properties={
+                                "relation_type": raw_type,
+                                "description": relation.get("description"),
+                            },
+                        )
+                    except Exception as dual_exc:
+                        log.debug("dual_write_failed", error=str(dual_exc))
             except Exception as exc:
                 error_msg = f"{type(exc).__name__}: {exc}"
                 log.error(
                     "entity_relation_failed",
                     source=source_name,
                     target=target_name,
-                    relation=relation_type,
+                    relation=edge_type,
                     error=error_msg,
                     error_type=type(exc).__name__,
                 )

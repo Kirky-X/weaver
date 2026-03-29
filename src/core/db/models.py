@@ -454,3 +454,89 @@ class Source(Base):
             name="chk_sources_tier_range",
         ),
     )
+
+
+class RelationType(Base):
+    """Standard relation types for knowledge graph relationships."""
+
+    __tablename__ = "relation_types"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
+    name_en: Mapped[str] = mapped_column(String(50), nullable=False, unique=True)
+    category: Mapped[str] = mapped_column(String(20), nullable=False)
+    is_symmetric: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    description: Mapped[str | None] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+    )
+
+    # Relationships
+    aliases: Mapped[list[RelationTypeAlias]] = relationship(
+        back_populates="relation_type", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        Index("idx_relation_types_category", "category"),
+        Index("idx_relation_types_is_active", "is_active"),
+    )
+
+
+class RelationTypeAlias(Base):
+    """Alternative names for relation types."""
+
+    __tablename__ = "relation_type_aliases"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    alias: Mapped[str] = mapped_column(String(100), nullable=False)
+    relation_type_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("relation_types.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+    )
+
+    # Relationships
+    relation_type: Mapped[RelationType] = relationship(back_populates="aliases")
+
+    __table_args__ = (
+        Index("idx_aliases_relation_type_id", "relation_type_id"),
+        Index("idx_aliases_alias", "alias"),
+    )
+
+
+class UnknownRelationType(Base):
+    """Unknown relation types extracted from entities for later review."""
+
+    __tablename__ = "unknown_relation_types"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    raw_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    context: Mapped[str | None] = mapped_column(Text)
+    article_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    hit_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    resolved: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+    )
+
+    __table_args__ = (
+        Index("idx_unknown_raw_type", "raw_type"),
+        Index("idx_unknown_resolved", "resolved"),
+        Index("idx_unknown_hit_count", "hit_count"),
+    )

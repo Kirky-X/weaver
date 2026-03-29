@@ -83,6 +83,7 @@ class LocalSearchEngine:
         max_tokens: int | None = None,
         entity_names: list[str] | None = None,
         use_llm: bool = True,
+        relation_types: list[str] | None = None,
         **kwargs: Any,
     ) -> SearchResult:
         """Perform a local search.
@@ -92,6 +93,7 @@ class LocalSearchEngine:
             max_tokens: Maximum tokens for context.
             entity_names: Optional list of entities to focus on.
             use_llm: Whether to use LLM for answer generation.
+            relation_types: Optional list of relation type name_en values to filter by.
             **kwargs: Additional parameters.
 
         Returns:
@@ -103,6 +105,7 @@ class LocalSearchEngine:
             query=query,
             max_tokens=min(max_tokens, self._max_context_tokens),
             entity_names=entity_names,
+            relation_types=relation_types,
         )
 
         # If use_llm=False, return context without LLM generation
