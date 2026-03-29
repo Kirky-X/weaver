@@ -15,7 +15,7 @@ Example:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import Depends, HTTPException
 
@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from modules.source.source_authority_repo import SourceAuthorityRepo
     from modules.source.source_config_repo import SourceConfigRepo
     from modules.storage.article_repo import ArticleRepo
+    from modules.storage.llm_usage_repo import LLMUsageRepo
     from modules.storage.vector_repo import VectorRepo
 
 from api.endpoints._deps import Endpoints
@@ -202,6 +203,30 @@ def get_source_authority_repo() -> SourceAuthorityRepo:
     return Endpoints.get_source_authority_repo()
 
 
+def get_llm_failure_repo() -> Any:
+    """FastAPI dependency for LLM failure repository.
+
+    Raises:
+        HTTPException: If repo is not initialized.
+
+    Returns:
+        LLMFailureRepo instance.
+    """
+    return Endpoints.get_llm_failure_repo()
+
+
+def get_llm_usage_repo() -> LLMUsageRepo:
+    """FastAPI dependency for LLM usage repository.
+
+    Raises:
+        HTTPException: If repo is not initialized.
+
+    Returns:
+        LLMUsageRepo instance.
+    """
+    return Endpoints.get_llm_usage_repo()
+
+
 # Type aliases for cleaner endpoint signatures
 PostgresPoolDep = Annotated["PostgresPool", Depends(get_postgres_pool)]
 RedisClientDep = Annotated["RedisClient", Depends(get_redis_client)]
@@ -215,3 +240,4 @@ HybridSearchEngineDep = Annotated["HybridSearchEngine", Depends(get_hybrid_searc
 SourceSchedulerDep = Annotated["SourceScheduler", Depends(get_source_scheduler)]
 SourceConfigRepoDep = Annotated["SourceConfigRepo", Depends(get_source_config_repo)]
 SourceAuthorityRepoDep = Annotated["SourceAuthorityRepo", Depends(get_source_authority_repo)]
+LLMUsageRepoDep = Annotated["LLMUsageRepo", Depends(get_llm_usage_repo)]

@@ -10,6 +10,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from core.llm.providers.base import BaseLLMProvider
+from core.llm.request import LLMCallResult, TokenUsage
 from core.observability.logging import get_logger
 
 log = get_logger("chat_provider")
@@ -46,7 +47,7 @@ class ChatProvider(BaseLLMProvider):
         model: str | None = None,
         temperature: float = 0.0,
         max_tokens: int | None = None,
-    ) -> str:
+    ) -> LLMCallResult:
         """Send a chat completion request.
 
         Args:
@@ -57,7 +58,7 @@ class ChatProvider(BaseLLMProvider):
             max_tokens: Maximum tokens in response.
 
         Returns:
-            The assistant's response text.
+            LLMCallResult containing response content and token usage.
 
         Raises:
             TimeoutError: If the request exceeds the timeout threshold.
@@ -86,7 +87,16 @@ class ChatProvider(BaseLLMProvider):
         try:
             async with asyncio.timeout(self._timeout):
                 response = await client.ainvoke(messages, **kwargs)
-                return response.content
+
+                # Extract token usage from response metadata
+                token_usage_data = response.response_metadata.get("token_usage", {})
+                token_usage = TokenUsage(
+                    input_tokens=token_usage_data.get("prompt_tokens", 0),
+                    output_tokens=token_usage_data.get("completion_tokens", 0),
+                    total_tokens=token_usage_data.get("total_tokens", 0),
+                )
+
+                return LLMCallResult(content=response.content, token_usage=token_usage)
         except TimeoutError:
             log.error(
                 "llm_chat_timeout",

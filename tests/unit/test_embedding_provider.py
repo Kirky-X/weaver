@@ -131,9 +131,13 @@ class TestEmbeddingProviderEmbed:
         texts = ["Hello world", "Test embedding"]
         result = await provider.embed(texts)
 
-        assert len(result) == 2
-        assert result[0] == [0.1, 0.2, 0.3]
-        assert result[1] == [0.4, 0.5, 0.6]
+        # embed() 返回 LLMCallResult
+        assert hasattr(result, "content")
+        assert hasattr(result, "token_usage")
+        assert len(result.content) == 2
+        assert result.content[0] == [0.1, 0.2, 0.3]
+        assert result.content[1] == [0.4, 0.5, 0.6]
+        assert result.token_usage is not None
 
     @pytest.mark.asyncio
     async def test_embed_uses_client_aembed_documents(self, provider):
@@ -173,8 +177,10 @@ class TestEmbeddingProviderEmbed:
                 texts = ["test text"]
                 result = await provider.embed(texts)
 
-                assert len(result) == 1
-                assert result[0] == [0.1, 0.2, 0.3]
+                # embed() 返回 LLMCallResult
+                assert hasattr(result, "content")
+                assert len(result.content) == 1
+                assert result.content[0] == [0.1, 0.2, 0.3]
                 # Verify Ollama native endpoint was called
                 mock_async_client.post.assert_called_once()
 
@@ -210,10 +216,11 @@ class TestEmbeddingProviderEmbed:
                 texts = ["text1", "text2", "text3"]
                 result = await provider.embed(texts)
 
-                assert len(result) == 3
-                assert result[0] == [0.1, 0.2]
-                assert result[1] == [0.3, 0.4]
-                assert result[2] == [0.5, 0.6]
+                # embed() 返回 LLMCallResult
+                assert len(result.content) == 3
+                assert result.content[0] == [0.1, 0.2]
+                assert result.content[1] == [0.3, 0.4]
+                assert result.content[2] == [0.5, 0.6]
 
     @pytest.mark.asyncio
     async def test_embed_model_override_openai(self, provider):
@@ -333,7 +340,8 @@ class TestEmbeddingProviderEdgeCases:
             )
 
             result = await provider.embed([])
-            assert result == []
+            # embed() 返回 LLMCallResult
+            assert result.content == []
 
     @pytest.mark.asyncio
     async def test_embed_single_text(self):
@@ -351,4 +359,5 @@ class TestEmbeddingProviderEdgeCases:
             )
 
             result = await provider.embed(["single text"])
-            assert len(result) == 1
+            # embed() 返回 LLMCallResult
+            assert len(result.content) == 1

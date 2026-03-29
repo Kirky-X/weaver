@@ -8,7 +8,10 @@ implementation that can be extended for specific rerank services.
 
 from __future__ import annotations
 
+from typing import Any
+
 from core.llm.providers.base import BaseLLMProvider
+from core.llm.request import LLMCallResult, TokenUsage
 from core.observability.logging import get_logger
 
 log = get_logger("rerank_provider")
@@ -57,7 +60,7 @@ class RerankProvider(BaseLLMProvider):
         query: str,
         documents: list[str],
         top_n: int = 10,
-    ) -> list[dict]:
+    ) -> LLMCallResult:
         """Rerank documents by relevance to a query.
 
         Args:
@@ -66,11 +69,22 @@ class RerankProvider(BaseLLMProvider):
             top_n: Number of top results to return.
 
         Returns:
-            List of dicts with 'index' and 'score' keys, sorted by relevance.
+            LLMCallResult with rerank results and token usage.
         """
         log.warning("rerank_not_implemented", model=self._model)
         # Pass-through: return documents in original order with dummy scores
-        return [{"index": i, "score": 1.0 - (i * 0.01)} for i in range(min(top_n, len(documents)))]
+        results: list[dict[str, Any]] = [
+            {"index": i, "score": 1.0 - (i * 0.01)} for i in range(min(top_n, len(documents)))
+        ]
+
+        # 估算 token 数量
+        total_chars = len(query) + sum(len(d) for d in documents)
+        estimated_tokens = int(total_chars / 4)
+
+        return LLMCallResult(
+            content=results,
+            token_usage=TokenUsage(input_tokens=estimated_tokens),
+        )
 
     async def close(self) -> None:
         """Clean up resources.

@@ -183,7 +183,7 @@ class TestRateLimiter:
         mock_redis = MagicMock()
         mock_redis.register_script = MagicMock(return_value=MagicMock())
 
-        bucket = RedisTokenBucket(redis=mock_redis)
+        bucket = RedisTokenBucket(redis_client=mock_redis)
         assert bucket._redis is not None
 
 

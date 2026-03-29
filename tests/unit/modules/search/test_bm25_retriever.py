@@ -12,6 +12,17 @@ import pytest
 from modules.search.retrievers.bm25_retriever import BM25Document, BM25Result, BM25Retriever
 
 
+def _has_zh_spacy() -> bool:
+    """Check if zh_core_web_sm spacy model is available."""
+    try:
+        import spacy
+
+        spacy.load("zh_core_web_sm")
+        return True
+    except Exception:
+        return False
+
+
 class TestBM25Document:
     """Tests for BM25Document dataclass."""
 
@@ -266,6 +277,10 @@ class TestBM25RetrieverChinese:
 
         assert retriever.get_document_count() == 3
 
+    @pytest.mark.skipif(
+        not _has_zh_spacy(),
+        reason="zh_core_web_sm spacy model not installed",
+    )
     def test_chinese_retrieval(self) -> None:
         """Test retrieving Chinese documents."""
         retriever = BM25Retriever(language="zh")

@@ -159,104 +159,79 @@ uv run python -m spacy download zh_core_web_sm
 
 ### <span id="configuration">⚙️ 配置</span>
 
-1. 复制配置模板：
+Weaver 使用分层配置策略，支持环境变量和 TOML 文件：
+
+1. **复制配置模板**：
 
 ```bash
 cp config/settings.example.toml config/settings.toml
+cp config/llm.example.toml config/llm.toml
+cp .env.example .env
 ```
 
-2. 编辑 `settings.toml`：
+2. **配置环境变量**（`.env` 文件）：
+
+```bash
+# PostgreSQL
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DATABASE=weaver
+POSTGRES_USER=postgres
+POSTGRES_PASSWORD=your_password
+
+# Neo4j
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=your_password
+NEO4J_ENABLED=true
+
+# Redis
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_DB=0
+REDIS_PASSWORD=  # 可选
+
+# API
+WEAVER_API__API_KEY=your-secure-api-key
+
+# LLM API Keys (供 llm.toml 引用)
+OPENAI_API_KEY=sk-xxx
+ANTHROPIC_API_KEY=sk-xxx
+```
+
+3. **配置 LLM 提供商**（`config/llm.toml`）：
 
 ```toml
-[postgres]
-dsn = "postgresql+asyncpg://user:pass@localhost:5432/weaver"
+[global]
+default_chat_provider = "openai"
+default_embedding_provider = "embedding"
+default_rerank_provider = "rerank"
 
-[neo4j]
-uri = "bolt://localhost:7689"
-auth = '["neo4j","your_password"]'  # JSON 格式: [用户名, 密码]
-
-[redis]
-url = "redis://localhost:6379/0"
-
-[llm]
-embedding_provider = "openai"
-embedding_model = "text-embedding-3-large"
-rerank_provider = "openai"
-
-[llm.providers.openai]
-provider = "openai"
+[providers.openai]
+type = "openai"
 model = "gpt-4o"
-api_key = "your_api_key"
+api_key = "${OPENAI_API_KEY}"
 base_url = "https://api.openai.com/v1"
 rpm_limit = 60
 concurrency = 5
 timeout = 120.0
+capabilities = ["chat", "streaming"]
 
-[llm.providers.ollama]
-provider = "ollama"
-model = "qwen3.5:9b"
-base_url = "http://localhost:11434"
-rpm_limit = 60
-concurrency = 3
-timeout = 300.0
+[providers.embedding]
+type = "embedding"
+model = "text-embedding-3-large"
+api_key = "${OPENAI_API_KEY}"
+base_url = "https://api.openai.com/v1"
+capabilities = ["embedding"]
 
-# LLM 调用点配置 (primary + fallbacks)
-[llm.call_points.classifier]
-primary = "ollama"
-fallbacks = ["openai"]
+# 调用点路由配置
+[call-points.classifier]
+primary = "chat.openai.gpt-4o"
+fallbacks = []
 
-[llm.call_points.cleaner]
-primary = "ollama"
-fallbacks = ["openai"]
-
-[llm.call_points.categorizer]
-primary = "ollama"
-fallbacks = ["openai"]
-
-[llm.call_points.merger]
-primary = "ollama"
-fallbacks = ["openai"]
-
-[llm.call_points.analyze]
-primary = "ollama"
-fallbacks = ["openai"]
-
-[llm.call_points.credibility_checker]
-primary = "ollama"
-fallbacks = ["openai"]
-
-[llm.call_points.entity_extractor]
-primary = "ollama"
-fallbacks = ["openai"]
-
-[llm.call_points.entity_resolver]
-primary = "ollama"
-fallbacks = ["openai"]
-
-[llm.call_points.search_local]
-primary = "ollama"
-fallbacks = ["openai"]
-
-[llm.call_points.search_global]
-primary = "ollama"
-fallbacks = ["openai"]
-
-[fetcher]
-playwright_pool_size = 5
-default_per_host_concurrency = 2
-global_max_concurrency = 32
-httpx_timeout = 15.0
-
-[scheduler]
-crawl_interval_minutes = 30
-neo4j_retry_interval_minutes = 10
-retry_flush_interval_seconds = 30
-
-[api]
-api_key = "your-api-key"
-rate_limit = "100/minute"
-host = "0.0.0.0"
-port = 8000
+[call-points.entity_extractor]
+primary = "chat.openai.gpt-4o"
+fallbacks = []
 ```
 
 <details style="padding:16px; margin: 16px 0">
@@ -265,29 +240,27 @@ port = 8000
 | 配置项 | 类型 | 默认值 | 描述 |
 |--------|------|---------|-------------|
 | **PostgreSQL** ||||
-| `dsn` | string | `postgresql+asyncpg://...` | 数据库连接字符串 |
+| `POSTGRES_HOST` | string | `localhost` | 数据库主机 |
+| `POSTGRES_PORT` | int | `5432` | 数据库端口 |
+| `POSTGRES_DATABASE` | string | `weaver` | 数据库名称 |
+| `POSTGRES_USER` | string | `postgres` | 用户名 |
+| `POSTGRES_PASSWORD` | string | - | 密码（必须设置） |
 | **Neo4j** ||||
-| `uri` | string | `bolt://localhost:7689` | Neo4j 连接地址 |
-| `auth` | string | `'["neo4j","neo4j_password"]'` | JSON 格式认证信息 |
+| `NEO4J_URI` | string | `bolt://localhost:7687` | 连接地址 |
+| `NEO4J_USER` | string | `neo4j` | 用户名 |
+| `NEO4J_PASSWORD` | string | - | 密码（必须设置） |
+| `NEO4J_ENABLED` | bool | `true` | 是否启用 |
 | **Redis** ||||
-| `url` | string | `redis://localhost:6379/0` | Redis 连接地址 |
-| **LLM** ||||
-| `embedding_provider` | string | `openai` | Embedding 提供商 |
-| `embedding_model` | string | `text-embedding-3-large` | Embedding 模型 |
-| `rerank_provider` | string | `openai` | Rerank 提供商 |
+| `REDIS_HOST` | string | `localhost` | Redis 主机 |
+| `REDIS_PORT` | int | `6379` | Redis 端口 |
+| `REDIS_DB` | int | `0` | 数据库编号 |
+| **API** ||||
+| `WEAVER_API__API_KEY` | string | - | API 认证密钥 |
 | **Fetcher** ||||
 | `playwright_pool_size` | int | 5 | Playwright 浏览器池大小 |
 | `default_per_host_concurrency` | int | 2 | 每主机默认并发数 |
 | `global_max_concurrency` | int | 32 | 全局最大并发数 |
 | `httpx_timeout` | float | 15.0 | HTTPX 超时时间（秒） |
-| **Scheduler** ||||
-| `crawl_interval_minutes` | int | 30 | 爬取间隔（分钟） |
-| `neo4j_retry_interval_minutes` | int | 10 | Neo4j 重试间隔（分钟） |
-| **API** ||||
-| `api_key` | string | `change-me-in-production` | API 认证密钥 |
-| `rate_limit` | string | `100/minute` | 速率限制 |
-| `host` | string | `0.0.0.0` | 监听地址 |
-| `port` | int | 8000 | 监听端口 |
 
 </details>
 
@@ -396,10 +369,8 @@ X-API-Key: your-api-key
 | `/api/v1/pipeline/queue/stats` | GET | 获取队列统计 |
 | `/api/v1/articles` | GET | 查询文章列表（支持分页、过滤、排序） |
 | `/api/v1/articles/{id}` | GET | 获取文章详情 |
-| `/api/v1/search` | GET | 统一搜索（自动路由） |
-| `/api/v1/search/local` | GET | 实体聚焦图谱问答 |
-| `/api/v1/search/global` | GET | 社区级聚合搜索 |
-| `/api/v1/search/articles` | GET | 混合向量+关键词相似文章搜索 |
+| `/api/v1/search` | GET | 统一搜索（mode 参数路由：local/global/articles） |
+| `/api/v1/search/drift` | POST | DRIFT 迭代式探索搜索 |
 | `/api/v1/graph/entities/{name}` | GET | 查询实体及其关系 |
 | `/api/v1/graph/articles/{id}/graph` | GET | 获取文章的知识图谱 |
 | `/api/v1/graph/metrics/health` | GET | 图谱健康度摘要 |
@@ -409,7 +380,10 @@ X-API-Key: your-api-key
 | `/api/v1/graph/metrics/high-degree` | GET | 高度数实体列表 |
 | `/api/v1/graph/metrics/modularity` | GET | 模块度评分 |
 | `/api/v1/graph/metrics/distributions` | GET | 类型分布统计 |
+| `/api/v1/graph/communities` | GET | 社区列表查询 |
+| `/api/v1/graph/communities/{id}` | GET | 社区详情 |
 | `/api/v1/admin/sources/authority` | GET | 获取源权威度 |
+| `/api/v1/admin/communities/rebuild` | POST | 手动触发社区重建 |
 | `/metrics` | GET | Prometheus 指标 |
 
 <details style="padding:16px; margin: 16px 0">
@@ -570,6 +544,7 @@ flowchart LR
 | retry_pipeline_processing | 15分钟 | 重试失败的 Pipeline 处理 |
 | sync_neo4j_with_postgres | 1小时 | 同步 Neo4j 与 PostgreSQL 数据一致性 |
 | update_persist_status_metrics | 5分钟 | 更新持久化状态 Prometheus 指标（支撑告警） |
+| community_auto_check | 30分钟 | 社区检测自动检查（基于实体变化阈值触发重建） |
 
 ---
 

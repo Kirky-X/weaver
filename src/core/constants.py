@@ -39,6 +39,9 @@ class RedisKeys:
     # Embedding cache
     EMBEDDING_PREFIX = "emb:"
 
+    # LLM usage stats
+    LLM_USAGE_PREFIX = "llm:usage:"
+
     @classmethod
     def crawl_retry(cls, host: str) -> str:
         """Generate retry queue key for a specific host."""

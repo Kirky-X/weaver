@@ -11,6 +11,44 @@ from core.llm.label import Label
 
 
 @dataclass
+class TokenUsage:
+    """Token 使用量统计。
+
+    Attributes:
+        input_tokens: 输入 token 数量
+        output_tokens: 输出 token 数量
+        total_tokens: 总 token 数量（自动计算）
+    """
+
+    input_tokens: int = 0
+    output_tokens: int = 0
+    total_tokens: int = 0
+
+    def __post_init__(self) -> None:
+        """初始化后自动计算 total_tokens（如果未提供或为 0）。"""
+        if self.total_tokens == 0:
+            self.total_tokens = self.input_tokens + self.output_tokens
+
+
+@dataclass
+class LLMCallResult:
+    """LLM 调用结果。
+
+    用于统一封装 chat、embedding 和 rerank 调用的返回值。
+
+    Attributes:
+        content: 响应内容
+            - chat: str
+            - embedding: list[list[float]] (向量列表)
+            - rerank: list[dict] (包含 index 和 score 的结果列表)
+        token_usage: Token 使用量统计
+    """
+
+    content: str | list[list[float]] | list[dict[str, Any]]
+    token_usage: TokenUsage | None = None
+
+
+@dataclass
 class LLMRequest:
     """统一的 LLM 请求结构。
 
@@ -43,21 +81,34 @@ class LLMResponse:
         content: 响应内容
         label: 实际使用的标签
         latency_ms: 响应延迟（毫秒）
-        tokens_used: Token 使用量
+        tokens_used: Token 使用量（总 token 数，兼容旧代码）
+        token_usage: 完整的 Token 使用量统计
         from_cache: 是否来自缓存
         attempt: 尝试次数
         error: 错误信息（如有）
         metadata: 附加元数据
+        model: 实际使用的模型名称
     """
 
     content: Any
     label: Label
     latency_ms: float
     tokens_used: int | None = None
+    token_usage: TokenUsage | None = None
     from_cache: bool = False
     attempt: int = 0
     error: Exception | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    model: str | None = None
+
+    def __post_init__(self) -> None:
+        """初始化后同步 tokens_used 和 token_usage。"""
+        # 如果提供了 token_usage 但没有 tokens_used，从 token_usage 计算
+        if self.token_usage is not None and self.tokens_used is None:
+            self.tokens_used = self.token_usage.total_tokens
+        # 如果提供了 tokens_used 但没有 token_usage，创建一个简单的 TokenUsage
+        elif self.tokens_used is not None and self.token_usage is None:
+            self.token_usage = TokenUsage(total_tokens=self.tokens_used)
 
     @property
     def success(self) -> bool:

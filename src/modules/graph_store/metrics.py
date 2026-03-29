@@ -119,16 +119,41 @@ class GraphQualityMetrics:
     def __init__(self, pool: Neo4jPool) -> None:
         self._pool = pool
 
-    async def calculate_all_metrics(self) -> GraphMetrics:
-        """Calculate all graph metrics in a single pass."""
-        log.info("graph_metrics_calculation_start")
+    async def calculate_all_metrics(
+        self,
+        include: set[str] | None = None,
+    ) -> GraphMetrics:
+        """Calculate graph metrics with optional selective computation.
+
+        Args:
+            include: Set of items to compute. None means compute all.
+                Supported values: components, orphans, high_degree, modularity, distributions.
+        """
+        log.info("graph_metrics_calculation_start", include=list(include) if include else "all")
 
         metrics = GraphMetrics()
 
-        await self._calculate_counts(metrics)
-        await self._calculate_degree_metrics(metrics)
-        await self._calculate_component_metrics(metrics)
-        await self._calculate_distributions(metrics)
+        # Counts are always cheap — always calculate
+        await self._calculate_counts(
+            metrics, include_orphans=(include is None or "orphans" in include)
+        )
+
+        # Degree metrics (average_degree is cheap, high_degree_entities is selective)
+        await self._calculate_degree_metrics(
+            metrics, include_high_degree=(include is None or "high_degree" in include)
+        )
+
+        # Component analysis — expensive
+        if include is None or "components" in include:
+            await self._calculate_component_metrics(metrics)
+
+        # Distributions — moderate cost
+        if include is None or "distributions" in include:
+            await self._calculate_distributions(metrics)
+
+        # Modularity — moderate cost (calculated alongside components)
+        if include is None or "modularity" in include:
+            await self._calculate_modularity(metrics)
 
         log.info(
             "graph_metrics_calculation_complete",
@@ -139,9 +164,13 @@ class GraphQualityMetrics:
 
         return metrics
 
-    async def _calculate_counts(self, metrics: GraphMetrics) -> None:
+    async def _calculate_counts(
+        self,
+        metrics: GraphMetrics,
+        include_orphans: bool = True,
+    ) -> None:
         """Calculate basic entity and relationship counts."""
-        queries = {
+        queries: dict[str, str] = {
             "entities": "MATCH (e:Entity) RETURN count(e) AS count",
             "articles": "MATCH (a:Article) RETURN count(a) AS count",
             "relationships": (
@@ -156,16 +185,16 @@ class GraphQualityMetrics:
                 RETURN count(r) AS count
             """
             ),
-            "orphans": (
-                """
+        }
+
+        if include_orphans:
+            queries["orphans"] = """
                 MATCH (e:Entity)
                 WHERE NOT ()-[:MENTIONS]->(e)
                   AND NOT (e)-[:RELATED_TO]-()
                   AND NOT ()-[:RELATED_TO]->(e)
                 RETURN count(e) AS count
             """
-            ),
-        }
 
         for key, query in queries.items():
             try:
@@ -189,8 +218,29 @@ class GraphQualityMetrics:
         metrics: GraphMetrics,
         min_degree: int = 10,
         limit: int = 100,
+        include_high_degree: bool = True,
     ) -> None:
-        """Calculate degree distribution and high-degree entities."""
+        """Calculate degree distribution and optionally high-degree entities."""
+        # Always compute average degree (cheap query)
+        if metrics.total_entities > 0:
+            all_degree_query = """
+            MATCH (e:Entity)
+            OPTIONAL MATCH (e)-[r_out:RELATED_TO]->()
+            OPTIONAL MATCH ()-[r_in:RELATED_TO]->(e)
+            WITH e, count(DISTINCT r_out) + count(DISTINCT r_in) AS degree
+            RETURN avg(degree) AS avg_degree
+            """
+            try:
+                avg_result = await self._pool.execute_query(all_degree_query)
+                if avg_result:
+                    metrics.average_degree = avg_result[0].get("avg_degree", 0.0) or 0.0
+            except Exception as exc:
+                log.warning("metrics_avg_degree_failed", error=str(exc))
+
+        # Skip expensive per-entity query when not needed
+        if not include_high_degree:
+            return
+
         degree_query = """
         MATCH (e:Entity)
         OPTIONAL MATCH (e)-[r_out:RELATED_TO]->()
@@ -321,6 +371,68 @@ class GraphQualityMetrics:
             }
         except Exception as exc:
             log.warning("metrics_rel_distribution_failed", error=str(exc))
+
+    async def _calculate_modularity(self, metrics: GraphMetrics) -> None:
+        """Calculate modularity score using connected component data."""
+        if metrics.connected_components <= 1:
+            # Single component or no data — modularity is trivially 0
+            metrics.modularity_score = 0.0 if metrics.total_entities > 0 else None
+            return
+
+        # Reuse component data if already computed, otherwise compute
+        component_query = """
+        MATCH (e:Entity)
+        OPTIONAL MATCH (e)-[:RELATED_TO]-(connected:Entity)
+        WITH e, collect(DISTINCT connected) AS neighbors
+        RETURN e.canonical_name AS entity, [n IN neighbors | n.canonical_name] AS neighbors
+        """
+
+        try:
+            results = await self._pool.execute_query(component_query)
+
+            adjacency: dict[str, set[str]] = defaultdict(set)
+            all_entities: set[str] = set()
+
+            for row in results:
+                entity = row.get("entity")
+                neighbors = row.get("neighbors", [])
+                if entity:
+                    all_entities.add(entity)
+                    for neighbor in neighbors:
+                        if neighbor:
+                            adjacency[entity].add(neighbor)
+                            all_entities.add(neighbor)
+
+            visited: set[str] = set()
+            components: list[set[str]] = []
+            for entity in all_entities:
+                if entity not in visited:
+                    component = _dfs_component(entity, adjacency, visited)
+                    components.append(component)
+
+            # Compute modularity Q = sum[(e_ii / m) - (a_i / 2m)^2]
+            total_edges = sum(len(adjacency.get(n, set())) for n in all_entities) // 2
+            if total_edges == 0:
+                metrics.modularity_score = 0.0
+                return
+
+            q = 0.0
+            for component in components:
+                e_ii = 0
+                for node in component:
+                    for neighbor in adjacency.get(node, set()):
+                        if neighbor in component:
+                            e_ii += 1
+                e_ii //= 2  # each edge counted twice
+
+                a_i = sum(len(adjacency.get(n, set())) for n in component)
+
+                q += (e_ii / total_edges) - (a_i / (2 * total_edges)) ** 2
+
+            metrics.modularity_score = q
+
+        except Exception as exc:
+            log.warning("metrics_modularity_calculation_failed", error=str(exc))
 
     async def get_connected_components(self) -> list[ConnectedComponent]:
         """Get all connected components with details."""

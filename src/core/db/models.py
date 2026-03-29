@@ -15,12 +15,14 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     Enum,
+    Float,
     ForeignKey,
     Index,
     Integer,
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
@@ -539,4 +541,81 @@ class UnknownRelationType(Base):
         Index("idx_unknown_raw_type", "raw_type"),
         Index("idx_unknown_resolved", "resolved"),
         Index("idx_unknown_hit_count", "hit_count"),
+    )
+
+
+class LLMUsageRaw(Base):
+    """Raw LLM usage records for detailed tracking and analysis.
+
+    This table stores individual LLM API calls with full context,
+    enabling detailed analysis and aggregation.
+    """
+
+    __tablename__ = "llm_usage_raw"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    label: Mapped[str] = mapped_column(String(100), nullable=False)
+    call_point: Mapped[str] = mapped_column(String(100), nullable=False)
+    llm_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    model: Mapped[str] = mapped_column(String(100), nullable=False)
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    latency_ms: Mapped[float] = mapped_column(Float, nullable=False)
+    success: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    error_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    article_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    task_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+    )
+
+    __table_args__ = (
+        Index("ix_llm_usage_raw_created_at", "created_at"),
+        Index("ix_llm_usage_raw_label", "label"),
+    )
+
+
+class LLMUsageHourly(Base):
+    """Hourly aggregated LLM usage statistics.
+
+    This table stores pre-aggregated metrics per hour/label/call_point
+    for efficient querying and reporting.
+    """
+
+    __tablename__ = "llm_usage_hourly"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    time_bucket: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    label: Mapped[str] = mapped_column(String(100), nullable=False)
+    call_point: Mapped[str] = mapped_column(String(100), nullable=False)
+    llm_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    model: Mapped[str] = mapped_column(String(100), nullable=False)
+    call_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    input_tokens_sum: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    output_tokens_sum: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_tokens_sum: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    latency_avg_ms: Mapped[float] = mapped_column(Float, nullable=False)
+    latency_min_ms: Mapped[float] = mapped_column(Float, nullable=False)
+    latency_max_ms: Mapped[float] = mapped_column(Float, nullable=False)
+    success_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    failure_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+    )
+
+    __table_args__ = (
+        # Unique constraint for idempotent upsert
+        UniqueConstraint(
+            "time_bucket", "label", "call_point", name="uq_llm_usage_hourly"
+        ),
+        Index("ix_llm_usage_hourly_time_bucket", "time_bucket"),
+        Index("ix_llm_usage_hourly_provider", "provider"),
+        Index("ix_llm_usage_hourly_model", "model"),
     )

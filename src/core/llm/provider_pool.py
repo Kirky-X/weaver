@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from core.constants import HealthStatus
 from core.llm.registry import ProviderInstanceConfig
-from core.llm.request import LLMRequest, LLMResponse, ProviderMetrics
+from core.llm.request import LLMCallResult, LLMRequest, LLMResponse, ProviderMetrics
 from core.observability.logging import get_logger
 from core.resilience.circuit_breaker import CBState, CircuitBreaker
 
@@ -210,17 +210,21 @@ class ProviderPool:
         self._active_requests += 1
 
         try:
-            content = await self._dispatch_to_provider(request)
+            result = await self._dispatch_to_provider(request)
             latency_ms = (time.monotonic() - start_time) * 1000
 
             # 记录成功
             await self._record_success(latency_ms)
 
+            # 从 LLMCallResult 提取 content 和 token_usage
             return LLMResponse(
-                content=content,
+                content=result.content,
                 label=label,
                 latency_ms=latency_ms,
+                tokens_used=result.token_usage.total_tokens if result.token_usage else None,
+                token_usage=result.token_usage,
                 attempt=task.attempt,
+                model=self.config.model,
             )
 
         except Exception as exc:
@@ -234,8 +238,12 @@ class ProviderPool:
         finally:
             self._active_requests -= 1
 
-    async def _dispatch_to_provider(self, request: LLMRequest) -> Any:
-        """分发请求到供应商。"""
+    async def _dispatch_to_provider(self, request: LLMRequest) -> LLMCallResult:
+        """分发请求到供应商。
+
+        Returns:
+            LLMCallResult: 统一的调用结果，包含 content 和 token_usage
+        """
         label = request.label
         payload = request.payload
 
@@ -252,10 +260,12 @@ class ProviderPool:
             texts = payload.get("texts", [])
             if not texts:
                 raise ValueError("Embedding request must contain 'texts' in payload")
-            return await self._provider.embed(
+            embeddings = await self._provider.embed(
                 texts=texts,
                 model=label.model,
             )
+            # embedding 返回 list[list[float]]，包装为 LLMCallResult
+            return LLMCallResult(content=embeddings, token_usage=None)
         elif label.llm_type.value == "rerank":
             # Rerank 特殊处理
             query = payload.get("query", "")
@@ -264,11 +274,13 @@ class ProviderPool:
 
             if hasattr(self._provider, "rerank"):
                 rerank_func = self._provider.rerank
-                return await rerank_func(
+                result = await rerank_func(
                     query=query,
                     documents=documents,
                     top_n=top_n,
                 )
+                # rerank 返回 list[dict]，包装为 LLMCallResult
+                return LLMCallResult(content=result, token_usage=None)
             raise NotImplementedError(f"Provider {self.name} does not support rerank")
 
         raise ValueError(f"Unknown LLM type: {label.llm_type}")

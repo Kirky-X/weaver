@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 
 from core.llm.providers.base import BaseLLMProvider
+from core.llm.request import LLMCallResult, TokenUsage
 from core.observability.logging import get_logger
 
 log = get_logger("aiping_rerank_provider")
@@ -77,7 +78,7 @@ class AIPingRerankProvider(BaseLLMProvider):
         query: str,
         documents: list[str],
         top_n: int = 10,
-    ) -> list[dict]:
+    ) -> LLMCallResult:
         """Rerank documents by relevance to a query using aiping API.
 
         Args:
@@ -86,14 +87,14 @@ class AIPingRerankProvider(BaseLLMProvider):
             top_n: Number of top results to return.
 
         Returns:
-            List of dicts with 'index' and 'score' keys, sorted by relevance.
+            LLMCallResult with rerank results and token usage.
 
         Raises:
             httpx.HTTPStatusError: On API errors.
             httpx.TimeoutException: On timeout.
         """
         if not documents:
-            return []
+            return LLMCallResult(content=[], token_usage=TokenUsage())
 
         request_body: dict[str, Any] = {
             "model": self._model,
@@ -116,17 +117,34 @@ class AIPingRerankProvider(BaseLLMProvider):
             )
             response.raise_for_status()
 
-            result = response.json()
-            results = result.get("results", [])
+            result: dict[str, Any] = response.json()
+            api_results = result.get("results", [])
 
-            return [
+            results: list[dict[str, Any]] = [
                 {
                     "index": item.get("index", i),
                     "score": item.get("relevance_score", 0.0),
                 }
-                for i, item in enumerate(results)
+                for i, item in enumerate(api_results)
                 if i < top_n
             ]
+
+            # 尝试从 API 响应中提取 token 用量
+            usage_data = result.get("usage", {})
+            token_usage = TokenUsage(
+                input_tokens=usage_data.get("prompt_tokens", 0),
+                output_tokens=usage_data.get("completion_tokens", 0),
+            )
+
+            # 如果 API 未返回 token 用量，进行估算
+            if token_usage.input_tokens == 0:
+                total_chars = len(query) + sum(len(d) for d in documents)
+                token_usage.input_tokens = int(total_chars / 4)
+
+            return LLMCallResult(
+                content=results,
+                token_usage=token_usage,
+            )
 
     async def close(self) -> None:
         """Clean up resources.

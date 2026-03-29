@@ -506,5 +506,5 @@ class TestDRIFTSearchEngine:
         mock_llm.call = AsyncMock(side_effect=Exception("LLM error"))
 
         with patch.object(engine._context_builder, "build", AsyncMock(return_value=mock_context)):
-            with pytest.raises(Exception, match="LLM 错误"):
+            with pytest.raises(Exception, match="LLM error"):
                 await engine._primer_phase("测试查询")

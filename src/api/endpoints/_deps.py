@@ -22,6 +22,8 @@ if TYPE_CHECKING:
     from modules.search.engines.local_search import LocalSearchEngine
     from modules.source.source_authority_repo import SourceAuthorityRepo
     from modules.source.source_config_repo import SourceConfigRepo
+    from modules.storage.llm_failure_repo import LLMFailureRepo
+    from modules.storage.llm_usage_repo import LLMUsageRepo
     from modules.storage.vector_repo import VectorRepo
 
 
@@ -44,6 +46,8 @@ class Endpoints:
     _scheduler: SourceScheduler | None = None
     _source_config_repo: SourceConfigRepo | None = None
     _source_authority_repo: SourceAuthorityRepo | None = None
+    _llm_failure_repo: LLMFailureRepo | None = None
+    _llm_usage_repo: LLMUsageRepo | None = None
 
     # ── Postgres ────────────────────────────────────────────────
 
@@ -126,3 +130,15 @@ class Endpoints:
         if Endpoints._source_authority_repo is None:
             raise HTTPException(503, detail="Source authority repo not initialized")
         return Endpoints._source_authority_repo
+
+    @staticmethod
+    def get_llm_failure_repo() -> LLMFailureRepo:
+        if Endpoints._llm_failure_repo is None:
+            raise HTTPException(503, detail="LLM failure repo not initialized")
+        return Endpoints._llm_failure_repo
+
+    @staticmethod
+    def get_llm_usage_repo() -> LLMUsageRepo:
+        if Endpoints._llm_usage_repo is None:
+            raise HTTPException(503, detail="LLM usage repo not initialized")
+        return Endpoints._llm_usage_repo

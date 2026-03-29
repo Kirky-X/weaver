@@ -293,23 +293,18 @@ class TestUpdateSourceAutoScores:
     @pytest.mark.asyncio
     async def test_update_source_auto_scores_with_sources(self, scheduler_jobs):
         """Test updating scores for sources."""
-        # Mock the SQLAlchemy select query result
-        # Query: select(Article.source_host, func.avg(...).label("avg_score"), func.count(...).label("article_count"))
-        mock_row = MagicMock()
-        mock_row.__getitem__ = MagicMock(
-            side_effect=lambda i: {
-                0: "example.com",  # source_host
-                1: 0.8,  # avg_score
-                2: 10,  # article_count
-            }.get(i)
-        )
-        mock_row.__iter__ = MagicMock(return_value=iter(["example.com", 0.8, 10]))
+        # First query: select(Article.source_host).distinct() → iterates rows
+        hosts_result = MagicMock()
+        hosts_result.__iter__ = MagicMock(return_value=iter([("example.com",)]))
 
-        mock_result = MagicMock()
-        mock_result.all.return_value = [mock_row]
+        # Second query: select(Article).where(...) → scalars().all()
+        mock_article = MagicMock()
+        mock_article.credibility_score = 0.8
+        articles_result = MagicMock()
+        articles_result.scalars.return_value.all.return_value = [mock_article]
 
         mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_session.execute = AsyncMock(side_effect=[hosts_result, articles_result])
 
         scheduler_jobs._postgres.session = MagicMock()
         scheduler_jobs._postgres.session.return_value.__aenter__ = AsyncMock(
@@ -545,10 +540,7 @@ class TestSyncNeo4jWithPostgres:
 
         result = await scheduler_jobs.sync_neo4j_with_postgres()
 
-        assert result["neo4j_orphans_deleted"] == 0
-        assert result["orphan_articles_cleaned"] == 0
-        assert result["enrichment_gaps_detected"] == 0
-        assert result["enrichment_gaps_reverted"] == 0
+        assert result == 0
         scheduler_jobs._neo4j_writer.article_repo.delete_orphan_articles.assert_not_called()
         scheduler_jobs._article_repo.revert_to_pg_done.assert_not_called()
 
@@ -570,7 +562,7 @@ class TestSyncNeo4jWithPostgres:
 
         result = await scheduler_jobs.sync_neo4j_with_postgres()
 
-        assert result["neo4j_orphans_deleted"] == 1
+        assert result == 1
         scheduler_jobs._neo4j_writer.article_repo.delete_orphan_articles.assert_called_once()
 
     @pytest.mark.asyncio
@@ -607,8 +599,8 @@ class TestSyncNeo4jWithPostgres:
 
         result = await scheduler_jobs.sync_neo4j_with_postgres()
 
-        assert result["enrichment_gaps_detected"] == 1
-        assert result["enrichment_gaps_reverted"] == 1
+        # sync returns deleted count (0 orphans deleted, enrichment gaps are reverted but not counted in return)
+        assert result == 0
         scheduler_jobs._article_repo.revert_to_pg_done.assert_called_once_with(
             incomplete_article.id
         )

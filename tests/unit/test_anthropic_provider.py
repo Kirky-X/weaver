@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from core.llm.providers.anthropic import AnthropicProvider
+from core.llm.request import LLMCallResult
 
 
 class TestAnthropicProviderInit:
@@ -56,9 +57,16 @@ class TestAnthropicProviderChat:
 
     @pytest.mark.asyncio
     async def test_chat_basic(self, provider, mock_client):
-        """Test basic chat request."""
+        """Test basic chat request returns LLMCallResult."""
         mock_response = MagicMock()
         mock_response.content = "Hello, I'm Claude!"
+        # Anthropic 使用 "usage" 而不是 "token_usage"
+        mock_response.response_metadata = {
+            "usage": {
+                "input_tokens": 10,
+                "output_tokens": 5,
+            }
+        }
         mock_client.ainvoke.return_value = mock_response
 
         result = await provider.chat(
@@ -66,7 +74,12 @@ class TestAnthropicProviderChat:
             user_content="Hello!",
         )
 
-        assert result == "Hello, I'm Claude!"
+        # 验证返回 LLMCallResult
+        assert isinstance(result, LLMCallResult)
+        assert result.content == "Hello, I'm Claude!"
+        assert result.token_usage.input_tokens == 10
+        assert result.token_usage.output_tokens == 5
+        assert result.token_usage.total_tokens == 15
         mock_client.ainvoke.assert_called_once()
 
         call_args = mock_client.ainvoke.call_args
@@ -80,14 +93,16 @@ class TestAnthropicProviderChat:
         """Test chat with temperature parameter."""
         mock_response = MagicMock()
         mock_response.content = "Response"
+        mock_response.response_metadata = {"token_usage": {}}
         mock_client.ainvoke.return_value = mock_response
 
-        await provider.chat(
+        result = await provider.chat(
             system_prompt="System",
             user_content="User",
             temperature=0.7,
         )
 
+        assert isinstance(result, LLMCallResult)
         call_kwargs = mock_client.ainvoke.call_args.kwargs
         assert call_kwargs.get("temperature") == 0.7
 
@@ -96,14 +111,16 @@ class TestAnthropicProviderChat:
         """Test chat with max_tokens parameter."""
         mock_response = MagicMock()
         mock_response.content = "Response"
+        mock_response.response_metadata = {"token_usage": {}}
         mock_client.ainvoke.return_value = mock_response
 
-        await provider.chat(
+        result = await provider.chat(
             system_prompt="System",
             user_content="User",
             max_tokens=1000,
         )
 
+        assert isinstance(result, LLMCallResult)
         call_kwargs = mock_client.ainvoke.call_args.kwargs
         assert call_kwargs.get("max_tokens") == 1000
 
@@ -114,17 +131,39 @@ class TestAnthropicProviderChat:
         mock_bound_client.ainvoke = AsyncMock()
         mock_response = MagicMock()
         mock_response.content = "Response"
+        mock_response.response_metadata = {"token_usage": {}}
         mock_bound_client.ainvoke.return_value = mock_response
 
         mock_client.bind.return_value = mock_bound_client
 
-        await provider.chat(
+        result = await provider.chat(
             system_prompt="System",
             user_content="User",
             model="claude-opus-4",
         )
 
+        assert isinstance(result, LLMCallResult)
         mock_client.bind.assert_called_once_with(model="claude-opus-4")
+
+    @pytest.mark.asyncio
+    async def test_chat_without_token_usage(self, provider, mock_client):
+        """Test chat when response has no usage metadata returns zero token usage."""
+        mock_response = MagicMock()
+        mock_response.content = "Response"
+        mock_response.response_metadata = {}  # 没有 usage 数据
+        mock_client.ainvoke.return_value = mock_response
+
+        result = await provider.chat(
+            system_prompt="System",
+            user_content="User",
+        )
+
+        assert isinstance(result, LLMCallResult)
+        assert result.content == "Response"
+        # 当没有 usage 数据时，token_usage 为默认值 0
+        assert result.token_usage.input_tokens == 0
+        assert result.token_usage.output_tokens == 0
+        assert result.token_usage.total_tokens == 0
 
 
 class TestAnthropicProviderEmbed:

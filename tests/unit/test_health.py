@@ -5,14 +5,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from api.endpoints._deps import Endpoints
 from api.endpoints.health import (
     check_neo4j_health,
     check_postgres_health,
     check_redis_health,
     health_check,
-    set_neo4j_pool,
-    set_postgres_pool,
-    set_redis_client,
 )
 from core.cache.redis import RedisClient
 from core.db.neo4j import Neo4jPool
@@ -207,18 +205,18 @@ class TestHealthCheck:
 
     @pytest.fixture(autouse=True)
     def reset_global_pools(self):
-        """Reset global pool references before and after each test."""
+        """Reset Endpoints pool references before and after each test."""
         # Reset before test
-        set_postgres_pool(None)
-        set_neo4j_pool(None)
-        set_redis_client(None)
+        Endpoints._postgres = None
+        Endpoints._neo4j = None
+        Endpoints._redis = None
 
         yield
 
         # Reset after test
-        set_postgres_pool(None)
-        set_neo4j_pool(None)
-        set_redis_client(None)
+        Endpoints._postgres = None
+        Endpoints._neo4j = None
+        Endpoints._redis = None
 
     @pytest.fixture
     def mock_postgres_pool(self):
@@ -250,9 +248,9 @@ class TestHealthCheck:
     @pytest.mark.asyncio
     async def test_all_healthy(self, mock_postgres_pool, mock_neo4j_pool, mock_redis_client):
         """Test health check when all dependencies are healthy."""
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+        Endpoints._postgres = mock_postgres_pool
+        Endpoints._neo4j = mock_neo4j_pool
+        Endpoints._redis = mock_redis_client
 
         result = await health_check()
 
@@ -273,9 +271,9 @@ class TestHealthCheck:
         async_context.__aexit__ = AsyncMock(return_value=None)
         mock_postgres_pool.session_context = MagicMock(return_value=async_context)
 
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+        Endpoints._postgres = mock_postgres_pool
+        Endpoints._neo4j = mock_neo4j_pool
+        Endpoints._redis = mock_redis_client
 
         result = await health_check()
 
@@ -289,9 +287,9 @@ class TestHealthCheck:
         """Test health check when Neo4j is unhealthy."""
         mock_neo4j_pool.execute_query = AsyncMock(side_effect=Exception("ServiceUnavailable"))
 
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+        Endpoints._postgres = mock_postgres_pool
+        Endpoints._neo4j = mock_neo4j_pool
+        Endpoints._redis = mock_redis_client
 
         result = await health_check()
 
@@ -305,9 +303,9 @@ class TestHealthCheck:
         """Test health check when Redis is unhealthy."""
         mock_redis_client.client.ping = AsyncMock(side_effect=Exception("Connection refused"))
 
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+        Endpoints._postgres = mock_postgres_pool
+        Endpoints._neo4j = mock_neo4j_pool
+        Endpoints._redis = mock_redis_client
 
         result = await health_check()
 
@@ -330,9 +328,9 @@ class TestHealthCheck:
         mock_neo4j_pool.execute_query = AsyncMock(side_effect=Exception("Failed"))
         mock_redis_client.client.ping = AsyncMock(side_effect=Exception("Failed"))
 
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+        Endpoints._postgres = mock_postgres_pool
+        Endpoints._neo4j = mock_neo4j_pool
+        Endpoints._redis = mock_redis_client
 
         result = await health_check()
 
@@ -357,8 +355,8 @@ class TestHealthCheck:
     @pytest.mark.asyncio
     async def test_partial_pools_initialized(self, mock_neo4j_pool, mock_redis_client):
         """Test health check when only some pools are initialized."""
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+        Endpoints._neo4j = mock_neo4j_pool
+        Endpoints._redis = mock_redis_client
         # PostgreSQL pool not set
 
         result = await health_check()
@@ -382,9 +380,9 @@ class TestHealthCheck:
         mock_neo4j_pool.execute_query = AsyncMock(side_effect=TimeoutError())
         mock_redis_client.client.ping = AsyncMock(side_effect=TimeoutError())
 
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+        Endpoints._postgres = mock_postgres_pool
+        Endpoints._neo4j = mock_neo4j_pool
+        Endpoints._redis = mock_redis_client
 
         result = await health_check()
 
@@ -411,9 +409,9 @@ class TestHealthCheck:
 
         # Redis: healthy (default)
 
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+        Endpoints._postgres = mock_postgres_pool
+        Endpoints._neo4j = mock_neo4j_pool
+        Endpoints._redis = mock_redis_client
 
         result = await health_check()
 
@@ -427,9 +425,9 @@ class TestHealthCheck:
         self, mock_postgres_pool, mock_neo4j_pool, mock_redis_client
     ):
         """Test that latency is measured for all dependency checks."""
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+        Endpoints._postgres = mock_postgres_pool
+        Endpoints._neo4j = mock_neo4j_pool
+        Endpoints._redis = mock_redis_client
 
         result = await health_check()
 
@@ -455,9 +453,9 @@ class TestHealthCheck:
         mock_neo4j_pool.execute_query = AsyncMock(side_effect=Exception("Neo4j connection failed"))
         mock_redis_client.client.ping = AsyncMock(side_effect=Exception("Redis connection failed"))
 
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+        Endpoints._postgres = mock_postgres_pool
+        Endpoints._neo4j = mock_neo4j_pool
+        Endpoints._redis = mock_redis_client
 
         result = await health_check()
 
@@ -467,50 +465,50 @@ class TestHealthCheck:
 
 
 class TestGlobalPoolSetters:
-    """Tests for global pool setter functions."""
+    """Tests for Endpoints class pool management."""
 
     def test_set_postgres_pool(self):
-        """Test setting PostgreSQL pool reference."""
+        """Test setting PostgreSQL pool via Endpoints."""
         mock_pool = MagicMock(spec=PostgresPool)
-        set_postgres_pool(mock_pool)
+        Endpoints._postgres = mock_pool
 
-        # Import the global variable to check
-        from api.endpoints.health import _postgres_pool
+        assert Endpoints._postgres is mock_pool
 
-        assert _postgres_pool is mock_pool
+        # Cleanup
+        Endpoints._postgres = None
 
     def test_set_neo4j_pool(self):
-        """Test setting Neo4j pool reference."""
+        """Test setting Neo4j pool via Endpoints."""
         mock_pool = MagicMock(spec=Neo4jPool)
-        set_neo4j_pool(mock_pool)
+        Endpoints._neo4j = mock_pool
 
-        from api.endpoints.health import _neo4j_pool
+        assert Endpoints._neo4j is mock_pool
 
-        assert _neo4j_pool is mock_pool
+        # Cleanup
+        Endpoints._neo4j = None
 
     def test_set_redis_client(self):
-        """Test setting Redis client reference."""
+        """Test setting Redis client via Endpoints."""
         mock_client = MagicMock(spec=RedisClient)
-        set_redis_client(mock_client)
+        Endpoints._redis = mock_client
 
-        from api.endpoints.health import _redis_client
+        assert Endpoints._redis is mock_client
 
-        assert _redis_client is mock_client
+        # Cleanup
+        Endpoints._redis = None
 
     def test_set_pools_to_none(self):
         """Test setting pool references to None."""
         # First set to mock
-        set_postgres_pool(MagicMock(spec=PostgresPool))
-        set_neo4j_pool(MagicMock(spec=Neo4jPool))
-        set_redis_client(MagicMock(spec=RedisClient))
+        Endpoints._postgres = MagicMock(spec=PostgresPool)
+        Endpoints._neo4j = MagicMock(spec=Neo4jPool)
+        Endpoints._redis = MagicMock(spec=RedisClient)
 
         # Then set to None
-        set_postgres_pool(None)
-        set_neo4j_pool(None)
-        set_redis_client(None)
+        Endpoints._postgres = None
+        Endpoints._neo4j = None
+        Endpoints._redis = None
 
-        from api.endpoints.health import _neo4j_pool, _postgres_pool, _redis_client
-
-        assert _postgres_pool is None
-        assert _neo4j_pool is None
-        assert _redis_client is None
+        assert Endpoints._postgres is None
+        assert Endpoints._neo4j is None
+        assert Endpoints._redis is None

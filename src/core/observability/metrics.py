@@ -40,6 +40,23 @@ class MetricsCollector:
         ["call_point", "from_provider", "reason"],
     )
 
+    # LLM token metrics
+    llm_token_input_total = Counter(
+        "llm_token_input_total",
+        "Total number of input tokens used in LLM calls",
+        ["provider", "model", "call_point"],
+    )
+    llm_token_output_total = Counter(
+        "llm_token_output_total",
+        "Total number of output tokens used in LLM calls",
+        ["provider", "model", "call_point"],
+    )
+    llm_token_total = Counter(
+        "llm_token_total",
+        "Total number of tokens used in LLM calls",
+        ["provider", "model", "call_point"],
+    )
+
     # Pipeline metrics
     pipeline_stage_latency = Histogram(
         "pipeline_stage_latency_seconds",

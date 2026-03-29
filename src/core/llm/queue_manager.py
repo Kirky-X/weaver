@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any
 
-from core.event.bus import EventBus, FallbackEvent
+from core.event.bus import EventBus, FallbackEvent, LLMFailureEvent, LLMUsageEvent
 from core.llm.config_manager import LLMConfigManager
 from core.llm.providers.base import BaseLLMProvider
 from core.llm.rate_limiter import RedisTokenBucket
@@ -13,6 +14,9 @@ from core.llm.types import CallPoint, LLMTask
 from core.observability.logging import get_logger
 from core.observability.metrics import MetricsCollector
 from core.resilience.circuit_breaker import CircuitBreaker
+
+# 导入 LLMCallResult 用于类型标注
+from core.llm.request import LLMCallResult, TokenUsage
 
 log = get_logger("queue_manager")
 
@@ -50,9 +54,13 @@ class ProviderQueue:
         provider_name: str,
         concurrency: int,
         provider: BaseLLMProvider,
+        model: str,
+        event_bus: EventBus | None = None,
     ) -> None:
         self.name = provider_name
         self._provider = provider
+        self._model = model
+        self._event_bus = event_bus
         self._queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
         self._semaphore = asyncio.Semaphore(concurrency)
         self.circuit_breaker = CircuitBreaker()
@@ -98,16 +106,23 @@ class ProviderQueue:
                 log.error("worker_unexpected_error", provider=self.name, error=str(exc))
 
     async def _dispatch(self, task: LLMTask) -> str:
-        """Dispatch a task to the underlying LLM provider."""
-        import time
+        """Dispatch a task to the underlying LLM provider.
 
+        适配 LLMCallResult 返回类型，提取 content 返回。
+        发布 LLMUsageEvent 事件用于统计。
+
+        Returns:
+            str: 从 LLMCallResult 中提取的响应内容
+        """
         start = time.monotonic()
         try:
-            result = await self._provider.chat(
+            result: LLMCallResult = await self._provider.chat(
                 system_prompt=task.payload.get("system_prompt", ""),
                 user_content=task.payload.get("user_content", ""),
             )
             latency = time.monotonic() - start
+            latency_ms = latency * 1000
+
             MetricsCollector.llm_call_total.labels(
                 call_point=task.call_point.value,
                 provider=self.name,
@@ -118,10 +133,38 @@ class ProviderQueue:
                 call_point=task.call_point.value,
                 provider=self.name,
                 latency=latency,
+                input_tokens=result.token_usage.input_tokens if result.token_usage else 0,
+                output_tokens=result.token_usage.output_tokens if result.token_usage else 0,
             )
-            return result
+
+            # 发布 LLMUsageEvent（成功）
+            if self._event_bus is not None:
+                usage_event = LLMUsageEvent(
+                    label=f"chat::{self.name}::{self._model}",
+                    call_point=task.call_point.value,
+                    llm_type="chat",
+                    provider=self.name,
+                    model=self._model,
+                    tokens=result.token_usage or TokenUsage(),
+                    latency_ms=latency_ms,
+                    success=True,
+                    article_id=task.payload.get("article_id"),
+                    task_id=task.payload.get("task_id"),
+                )
+                try:
+                    await self._event_bus.publish(usage_event)
+                except Exception as publish_exc:
+                    log.error(
+                        "llm_usage_event_publish_failed",
+                        error=str(publish_exc),
+                        call_point=usage_event.call_point,
+                    )
+
+            # 返回内容（假设为字符串）
+            return str(result.content)
         except Exception as exc:
             latency = time.monotonic() - start
+            latency_ms = latency * 1000
             log.error(
                 "llm_dispatch_failed",
                 call_point=task.call_point.value,
@@ -130,6 +173,31 @@ class ProviderQueue:
                 error_detail=str(exc),
                 latency=latency,
             )
+
+            # 发布 LLMUsageEvent（失败）
+            if self._event_bus is not None:
+                usage_event = LLMUsageEvent(
+                    label=f"chat::{self.name}::{self._model}",
+                    call_point=task.call_point.value,
+                    llm_type="chat",
+                    provider=self.name,
+                    model=self._model,
+                    tokens=TokenUsage(),
+                    latency_ms=latency_ms,
+                    success=False,
+                    error_type=type(exc).__name__,
+                    article_id=task.payload.get("article_id"),
+                    task_id=task.payload.get("task_id"),
+                )
+                try:
+                    await self._event_bus.publish(usage_event)
+                except Exception as publish_exc:
+                    log.error(
+                        "llm_usage_event_publish_failed",
+                        error=str(publish_exc),
+                        call_point=usage_event.call_point,
+                    )
+
             raise
 
 
@@ -172,7 +240,13 @@ class LLMQueueManager:
             self._providers[name] = provider
 
             # Create and start the queue
-            queue = ProviderQueue(name, cfg.concurrency, provider)
+            queue = ProviderQueue(
+                provider_name=name,
+                concurrency=cfg.concurrency,
+                provider=provider,
+                model=cfg.model,
+                event_bus=self._event_bus,
+            )
             await queue.start_workers(cfg.concurrency)
             self._queues[name] = queue
 

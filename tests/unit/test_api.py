@@ -1100,7 +1100,7 @@ class TestAdminEndpoint:
 
     @pytest.mark.asyncio
     async def test_list_authorities_endpoint(self):
-        """Test GET /admin/sources/authorities endpoint."""
+        """Test GET /admin/authorities endpoint."""
         from api.endpoints.admin import list_authorities
 
         mock_authority = MagicMock()
@@ -1126,7 +1126,7 @@ class TestAdminEndpoint:
 
     @pytest.mark.asyncio
     async def test_update_authority_endpoint_success(self):
-        """Test PATCH /admin/sources/{host}/authority endpoint."""
+        """Test PATCH /admin/authorities/{host} endpoint."""
         from api.endpoints.admin import UpdateAuthorityRequest, update_authority
 
         mock_authority = MagicMock()
@@ -1150,7 +1150,7 @@ class TestAdminEndpoint:
 
     @pytest.mark.asyncio
     async def test_update_authority_endpoint_no_fields(self):
-        """Test PATCH /admin/sources/{host}/authority returns 400 when no fields."""
+        """Test PATCH /admin/authorities/{host} returns 400 when no fields."""
         from api.endpoints.admin import UpdateAuthorityRequest, update_authority
 
         mock_repo = MagicMock()
@@ -1166,33 +1166,8 @@ class TestAdminEndpoint:
             )
         assert exc_info.value.status_code == 400
 
-    @pytest.mark.asyncio
-    async def test_get_authority_endpoint(self):
-        """Test GET /admin/sources/{host}/authority endpoint."""
-        from api.endpoints.admin import get_authority
-
-        mock_authority = MagicMock()
-        mock_authority.id = 1
-        mock_authority.host = "example.com"
-        mock_authority.authority = 0.85
-        mock_authority.tier = 1
-        mock_authority.description = "Test"
-        mock_authority.needs_review = False
-        mock_authority.auto_score = 0.80
-        mock_authority.updated_at = datetime(2024, 1, 1, tzinfo=UTC)
-
-        mock_repo = MagicMock()
-        mock_repo.get_or_create = AsyncMock(return_value=mock_authority)
-
-        result = await get_authority(
-            host="example.com",
-            _="test-key",
-            repo=mock_repo,
-        )
-        assert result.data.host == "example.com"
-        assert result.data.authority == 0.85
-
-    # NOTE: _source_authority_repo module-level variable removed in favor of Endpoints class
+    # NOTE: GET /admin/authorities/{host} endpoint was removed (get_or_create side effect)
+    # Use PATCH /admin/authorities/{host} to update authority instead
     # The get_source_authority_repo function now uses api.dependencies.get_source_authority_repo()
 
 

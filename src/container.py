@@ -4,17 +4,14 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Any
 
 from config.settings import Settings
 from core.cache import RedisClient
 from core.db import Neo4jPool, PostgresPool
-from core.event import EventBus, LLMFailureEvent
+from core.event import EventBus, LLMFailureEvent, LLMUsageEvent
 from core.llm.client import LLMClient
-from core.llm.config_manager import LLMConfigManager
-from core.llm.queue_manager import LLMQueueManager
-from core.llm.rate_limiter import RedisTokenBucket
-from core.llm.token_budget import TokenBudgetManager
 from core.observability import get_logger
 from core.prompt import PromptLoader
 from modules.collector import Deduplicator
@@ -25,10 +22,16 @@ from modules.graph_store.incremental_community_updater import IncrementalCommuni
 from modules.graph_store.name_normalizer import name_normalizer
 from modules.graph_store.resolution_rules import resolution_rules
 from modules.pipeline.graph import Pipeline
+from modules.scheduler.llm_usage_aggregator import (
+    LLMUsageAggregatorThread,
+    LLMUsageRawCleanupThread,
+)
 from modules.search.engines.global_search import GlobalSearchEngine
 from modules.search.engines.local_search import LocalSearchEngine
 from modules.source import SourceConfigRepo, SourceRegistry, SourceScheduler
 from modules.storage import ArticleRepo, PendingSyncRepo, SourceAuthorityRepo, VectorRepo
+from modules.storage.llm_usage_buffer import LLMUsageBuffer
+from modules.storage.llm_usage_repo import LLMUsageRepo
 from modules.storage.neo4j import Neo4jArticleRepo, Neo4jEntityRepo
 
 log = get_logger("container")
@@ -43,6 +46,28 @@ async def _handle_llm_failure_async(event: LLMFailureEvent, repo: Any) -> None:
             "llm_failure_handler_error",
             call_point=event.call_point,
             provider=event.provider,
+            error=str(exc),
+        )
+
+
+async def _handle_llm_usage_metrics(event: LLMUsageEvent) -> None:
+    """Async handler for LLMUsageEvent — updates Prometheus token metrics."""
+    try:
+        from core.observability.metrics import metrics
+
+        labels = {
+            "provider": event.provider,
+            "model": event.model,
+            "call_point": event.call_point,
+        }
+        metrics.llm_token_input_total.labels(**labels).inc(event.tokens.input_tokens)
+        metrics.llm_token_output_total.labels(**labels).inc(event.tokens.output_tokens)
+        metrics.llm_token_total.labels(**labels).inc(event.tokens.total_tokens)
+    except Exception as exc:
+        log.error(
+            "llm_usage_metrics_handler_error",
+            label=event.label,
+            call_point=event.call_point,
             error=str(exc),
         )
 
@@ -79,6 +104,9 @@ class Container:
         self._event_bus: EventBus | None = None
         self._llm_failure_repo: Any = None
         self._llm_failure_cleanup_thread: Any = None
+        self._llm_usage_buffer: LLMUsageBuffer | None = None
+        self._llm_usage_aggregator_thread: LLMUsageAggregatorThread | None = None
+        self._llm_usage_raw_cleanup_thread: LLMUsageRawCleanupThread | None = None
         self._pending_sync_repo: PendingSyncRepo | None = None
         self._scheduler_jobs: Any = None
         self._startup_sync_task: asyncio.Task | None = None
@@ -163,30 +191,15 @@ class Container:
     async def init_llm(self) -> LLMClient:
         """Initialize LLM client."""
         if self._llm_client is None:
-            config_manager = LLMConfigManager(self._settings.llm)
-
-            rate_limiter = RedisTokenBucket(self._redis_client.client)
-
-            self._event_bus = EventBus()
-            log.info("event_bus_initialized_in_llm", event_bus_id=id(self._event_bus))
-            queue_manager = LLMQueueManager(
-                config_manager=config_manager,
-                rate_limiter=rate_limiter,
-                event_bus=self._event_bus,
-                circuit_breaker_threshold=self._settings.fetcher.circuit_breaker_threshold,
-                circuit_breaker_timeout=self._settings.fetcher.circuit_breaker_timeout,
+            # Load LLM config from llm.toml
+            project_root = Path(__file__).parent.parent
+            config_path = project_root / "config" / "llm.toml"
+            self._llm_client = await LLMClient.create_from_config(
+                config_path=str(config_path),
+                prompt_loader=self.prompt_loader(),
+                redis_client=self._redis_client,  # Pass RedisClient wrapper, it will be unwrapped in rate_limiter
             )
-            await queue_manager.startup()
-
-            prompt_loader = self.prompt_loader()
-            token_budget = TokenBudgetManager()
-
-            self._llm_client = LLMClient(
-                queue_manager=queue_manager,
-                prompt_loader=prompt_loader,
-                token_budget=token_budget,
-            )
-            log.info("llm_client_initialized")
+            log.info("llm_client_initialized_from_config")
 
         return self._llm_client
 
@@ -273,6 +286,24 @@ class Container:
         if self._pending_sync_repo is None:
             self._pending_sync_repo = PendingSyncRepo(self._postgres_pool)
         return self._pending_sync_repo
+
+    def llm_failure_repo(self) -> Any:
+        """Get LLM failure repository."""
+        if self._llm_failure_repo is None:
+            from modules.storage.llm_failure_repo import LLMFailureRepo
+
+            self._llm_failure_repo = LLMFailureRepo(self._postgres_pool)
+        return self._llm_failure_repo
+
+    def llm_usage_buffer(self) -> LLMUsageBuffer | None:
+        """Get LLM usage buffer (or None if not initialized)."""
+        return self._llm_usage_buffer
+
+    def llm_usage_repo(self) -> LLMUsageRepo:
+        """Get LLM usage repository."""
+        if self._postgres_pool is None:
+            raise RuntimeError("PostgreSQL pool not initialized. Call init_postgres() first.")
+        return LLMUsageRepo(self._postgres_pool)
 
     def scheduler_jobs(self) -> Any:
         """Get scheduler jobs instance."""
@@ -570,6 +601,46 @@ class Container:
         self._llm_failure_cleanup_thread.start()
         log.info("llm_failure_logging_initialized", event_bus_id=id(self._event_bus))
 
+        # Subscribe LLMUsageEvent handler for Prometheus metrics
+        self._event_bus.subscribe(LLMUsageEvent, _handle_llm_usage_metrics)
+        log.info("llm_usage_metrics_subscribed", event_bus_id=id(self._event_bus))
+
+        # Initialize LLM usage statistics: buffer + raw record handler + aggregator thread
+        self._llm_usage_buffer = LLMUsageBuffer(
+            redis_client=self._redis_client,
+            ttl_seconds=self._settings.llm_usage.redis_buffer_ttl_seconds,
+        )
+
+        # Handler: accumulate to Redis buffer
+        async def _handle_llm_usage_buffer(event: LLMUsageEvent) -> None:
+            if self._llm_usage_buffer:
+                await self._llm_usage_buffer.accumulate(event)
+
+        # Handler: insert raw record to PostgreSQL
+        async def _handle_llm_usage_raw(event: LLMUsageEvent) -> None:
+            repo = LLMUsageRepo(self._postgres_pool)
+            await repo.insert_raw(event)
+
+        self._event_bus.subscribe(LLMUsageEvent, _handle_llm_usage_buffer)
+        self._event_bus.subscribe(LLMUsageEvent, _handle_llm_usage_raw)
+        log.info("llm_usage_handlers_subscribed", event_bus_id=id(self._event_bus))
+
+        # Start LLM usage aggregator thread
+        self._llm_usage_aggregator_thread = LLMUsageAggregatorThread(
+            redis_client=self._redis_client,
+            postgres_pool=self._postgres_pool,
+            interval_minutes=self._settings.llm_usage.flush_interval_minutes,
+        )
+        self._llm_usage_aggregator_thread.start()
+
+        # Start LLM usage raw cleanup thread
+        self._llm_usage_raw_cleanup_thread = LLMUsageRawCleanupThread(
+            postgres_pool=self._postgres_pool,
+            retention_days=self._settings.llm_usage.raw_retention_days,
+        )
+        self._llm_usage_raw_cleanup_thread.start()
+        log.info("llm_usage_threads_started")
+
         # Initialize pending sync repo and scheduler jobs
         self._pending_sync_repo = PendingSyncRepo(self._postgres_pool)
         jobs = self.scheduler_jobs()
@@ -628,6 +699,15 @@ class Container:
         if self._llm_failure_cleanup_thread:
             self._llm_failure_cleanup_thread.stop()
             log.info("llm_failure_cleanup_thread_stopped")
+
+        # Stop LLM usage threads
+        if self._llm_usage_aggregator_thread:
+            self._llm_usage_aggregator_thread.stop()
+            log.info("llm_usage_aggregator_thread_stopped")
+
+        if self._llm_usage_raw_cleanup_thread:
+            self._llm_usage_raw_cleanup_thread.stop()
+            log.info("llm_usage_raw_cleanup_thread_stopped")
 
         # Stop scheduler first
         if self._source_scheduler:

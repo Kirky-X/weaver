@@ -3,9 +3,12 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from langchain_openai import OpenAIEmbeddings
 
 from core.llm.providers.base import BaseLLMProvider
+from core.llm.request import LLMCallResult, TokenUsage
 from core.observability.logging import get_logger
 
 log = get_logger("embedding_provider")
@@ -70,7 +73,7 @@ class EmbeddingProvider(BaseLLMProvider):
         self,
         texts: list[str],
         model: str | None = None,
-    ) -> list[list[float]]:
+    ) -> LLMCallResult:
         """Generate embeddings for a list of texts.
 
         Args:
@@ -78,13 +81,15 @@ class EmbeddingProvider(BaseLLMProvider):
             model: Optional model override (not supported by LangChain).
 
         Returns:
-            List of embedding vectors.
+            LLMCallResult with embedding vectors and token usage.
         """
         import httpx
 
+        embeddings: list[list[float]] = []
+        token_usage = TokenUsage()
+
         if self._is_ollama and self._ollama_endpoint:
             # Use Ollama's native /api/embeddings endpoint
-            embeddings = []
             async with httpx.AsyncClient(timeout=60.0) as client:
                 for text in texts:
                     response = await client.post(
@@ -92,11 +97,26 @@ class EmbeddingProvider(BaseLLMProvider):
                         json={"model": model or self._model, "prompt": text},
                     )
                     response.raise_for_status()
-                    data = response.json()
+                    data: dict[str, Any] = response.json()
                     embeddings.append(data["embedding"])
-            return embeddings
 
-        return await self._client.aembed_documents(texts)
+                    # Ollama 可能返回 prompt_eval_count
+                    if "prompt_eval_count" in data:
+                        token_usage.input_tokens += data["prompt_eval_count"]
+        else:
+            # LangChain OpenAI embeddings - 不直接返回 token 用量
+            # 需要通过原始 API 调用获取，这里简化处理
+            embeddings = await self._client.aembed_documents(texts)
+
+            # 估算 token 数量（简化：假设平均每词约 1.3 tokens）
+            total_chars = sum(len(t) for t in texts)
+            estimated_tokens = int(total_chars / 4)  # 粗略估算
+            token_usage.input_tokens = estimated_tokens
+
+        return LLMCallResult(
+            content=embeddings,
+            token_usage=token_usage,
+        )
 
     async def embed_query(self, text: str) -> list[float]:
         """Generate embedding for a single query text.

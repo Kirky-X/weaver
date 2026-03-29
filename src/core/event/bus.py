@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
+from core.llm.request import TokenUsage
 from core.observability.logging import get_logger
 
 log = get_logger("event_bus")
@@ -75,6 +76,37 @@ class LLMFailureEvent(BaseEvent):
     task_id: str | None = None
     attempt: int = 0
     fallback_tried: bool = False
+
+
+@dataclass
+class LLMUsageEvent(BaseEvent):
+    """LLM 调用用量事件，用于统计和监控 LLM 资源消耗。
+
+    Attributes:
+        label: 调用标签 (type.provider.model 格式，如 "chat::aiping::qwen-plus")
+        call_point: 调用点标识 (pipeline 节点名)
+        llm_type: LLM 类型 (chat/embedding/rerank)
+        provider: LLM 提供商名称
+        model: 使用的模型名称
+        tokens: Token 使用量统计
+        latency_ms: 调用延迟（毫秒）
+        success: 调用是否成功
+        error_type: 错误类型（失败时）
+        article_id: 关联的文章 ID
+        task_id: 关联的任务 ID
+    """
+
+    label: str = ""
+    call_point: str = ""
+    llm_type: str = ""
+    provider: str = ""
+    model: str = ""
+    tokens: TokenUsage = field(default_factory=TokenUsage)
+    latency_ms: float = 0.0
+    success: bool = True
+    error_type: str | None = None
+    article_id: int | None = None
+    task_id: str | None = None
 
 
 # ── Event Bus ────────────────────────────────────────────────

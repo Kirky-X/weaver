@@ -9,6 +9,7 @@ from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from core.llm.providers.base import BaseLLMProvider
+from core.llm.request import LLMCallResult, TokenUsage
 from core.observability.logging import get_logger
 
 log = get_logger("anthropic_provider")
@@ -50,7 +51,7 @@ class AnthropicProvider(BaseLLMProvider):
         model: str | None = None,
         temperature: float = 0.0,
         max_tokens: int | None = None,
-    ) -> str:
+    ) -> LLMCallResult:
         """Send a chat completion request to Anthropic API.
 
         Args:
@@ -61,7 +62,7 @@ class AnthropicProvider(BaseLLMProvider):
             max_tokens: Maximum tokens in response.
 
         Returns:
-            The assistant's response text.
+            LLMCallResult containing response text and token usage.
         """
         client = self._client
         if model and model != self._default_model:
@@ -101,12 +102,21 @@ class AnthropicProvider(BaseLLMProvider):
         else:
             result = str(content)
 
+        # Extract token usage from response_metadata
+        usage = response.response_metadata.get("usage", {})
+        token_usage = TokenUsage(
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+        )
+
         log.debug(
             "anthropic_response",
             response_length=len(result),
+            input_tokens=token_usage.input_tokens,
+            output_tokens=token_usage.output_tokens,
         )
 
-        return result
+        return LLMCallResult(content=result, token_usage=token_usage)
 
     async def embed(
         self,

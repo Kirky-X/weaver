@@ -148,7 +148,7 @@ class TestNeo4jWriterWrite:
 
         result = await writer.write(state)
 
-        assert len(result) == 4  # 2 entities × 2 types = 4 (batch lookup per type)
+        assert len(result) == 2  # 2 unique entities → 2 IDs
 
     @pytest.mark.asyncio
     async def test_write_entity_without_name_skipped(self, writer):
@@ -281,14 +281,13 @@ class TestNeo4jWriterWriteEntities:
         state = PipelineState(raw=MagicMock())
         state["language"] = "zh"
 
-        entity_ids, entity_uuids = await writer._write_entities(
+        entity_ids = await writer._write_entities(
             article_neo4j_id="article_id",
             entities=[],
             state=state,
         )
 
         assert entity_ids == []
-        assert entity_uuids == {}
 
     @pytest.mark.asyncio
     async def test_write_entities_adds_alias(self, writer):
@@ -314,7 +313,7 @@ class TestNeo4jWriterWriteEntities:
         state["language"] = "zh"
         state["article_id"] = "test_article_id"
 
-        entity_ids, entity_uuids = await writer._write_entities(
+        entity_ids = await writer._write_entities(
             article_neo4j_id="article_id",
             entities=[
                 {"name": "张三", "type": "人物", "description": "测试人物"},
@@ -324,7 +323,6 @@ class TestNeo4jWriterWriteEntities:
 
         assert len(entity_ids) == 1
         assert entity_ids[0] == "entity_id"
-        assert entity_uuids.get("张三") == "uuid-123"
 
     @pytest.mark.asyncio
     async def test_write_entities_handles_mentions_error(self, writer):
@@ -352,7 +350,7 @@ class TestNeo4jWriterWriteEntities:
         state["language"] = "zh"
         state["article_id"] = "test_article_id"
 
-        entity_ids, entity_uuids = await writer._write_entities(
+        entity_ids = await writer._write_entities(
             article_neo4j_id="article_id",
             entities=[
                 {"name": "张三", "type": "人物"},
@@ -361,7 +359,6 @@ class TestNeo4jWriterWriteEntities:
         )
 
         assert len(entity_ids) == 1
-        assert entity_ids[0] == "entity_id"
 
 
 class TestNeo4jWriterResolveCanonicalName:

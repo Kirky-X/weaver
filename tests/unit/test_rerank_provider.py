@@ -1,9 +1,10 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# Copyright (c) 2026 KirkyX. All Rights Reserved.
 """Unit tests for Rerank Provider."""
 
 import pytest
 
 from core.llm.providers.rerank import RerankProvider
+from core.llm.request import LLMCallResult
 
 
 class TestRerankProviderInit:
@@ -113,11 +114,14 @@ class TestRerankProviderRerank:
         query = "test query"
         documents = ["doc1", "doc2", "doc3"]
 
-        results = await provider.rerank(query, documents)
+        result = await provider.rerank(query, documents)
 
-        assert len(results) == 3
-        assert all("index" in r for r in results)
-        assert all("score" in r for r in results)
+        # rerank() 返回 LLMCallResult
+        assert isinstance(result, LLMCallResult)
+        assert len(result.content) == 3
+        assert all("index" in r for r in result.content)
+        assert all("score" in r for r in result.content)
+        assert result.token_usage is not None
 
     @pytest.mark.asyncio
     async def test_rerank_with_top_n(self, provider):
@@ -125,9 +129,9 @@ class TestRerankProviderRerank:
         query = "test query"
         documents = ["doc1", "doc2", "doc3", "doc4", "doc5"]
 
-        results = await provider.rerank(query, documents, top_n=3)
+        result = await provider.rerank(query, documents, top_n=3)
 
-        assert len(results) == 3
+        assert len(result.content) == 3
 
     @pytest.mark.asyncio
     async def test_rerank_top_n_greater_than_docs(self, provider):
@@ -135,9 +139,9 @@ class TestRerankProviderRerank:
         query = "test query"
         documents = ["doc1", "doc2"]
 
-        results = await provider.rerank(query, documents, top_n=10)
+        result = await provider.rerank(query, documents, top_n=10)
 
-        assert len(results) == 2
+        assert len(result.content) == 2
 
     @pytest.mark.asyncio
     async def test_rerank_empty_documents(self, provider):
@@ -145,9 +149,9 @@ class TestRerankProviderRerank:
         query = "test query"
         documents = []
 
-        results = await provider.rerank(query, documents)
+        result = await provider.rerank(query, documents)
 
-        assert len(results) == 0
+        assert len(result.content) == 0
 
     @pytest.mark.asyncio
     async def test_rerank_single_document(self, provider):
@@ -155,11 +159,11 @@ class TestRerankProviderRerank:
         query = "test query"
         documents = ["only doc"]
 
-        results = await provider.rerank(query, documents)
+        result = await provider.rerank(query, documents)
 
-        assert len(results) == 1
-        assert results[0]["index"] == 0
-        assert results[0]["score"] == 1.0
+        assert len(result.content) == 1
+        assert result.content[0]["index"] == 0
+        assert result.content[0]["score"] == 1.0
 
     @pytest.mark.asyncio
     async def test_rerank_scores_decreasing(self, provider):
@@ -167,9 +171,9 @@ class TestRerankProviderRerank:
         query = "test query"
         documents = ["doc1", "doc2", "doc3"]
 
-        results = await provider.rerank(query, documents)
+        result = await provider.rerank(query, documents)
 
-        scores = [r["score"] for r in results]
+        scores = [r["score"] for r in result.content]
         assert scores == sorted(scores, reverse=True)
 
     @pytest.mark.asyncio
@@ -178,9 +182,9 @@ class TestRerankProviderRerank:
         query = "test query"
         documents = ["doc1", "doc2", "doc3"]
 
-        results = await provider.rerank(query, documents)
+        result = await provider.rerank(query, documents)
 
-        indices = [r["index"] for r in results]
+        indices = [r["index"] for r in result.content]
         assert indices == [0, 1, 2]
 
 

@@ -30,11 +30,13 @@ from core.llm.registry import ProviderInstanceConfig, ProviderRegistry
 from core.llm.request import (
     EmbeddingRequest,
     EmbeddingResponse,
+    LLMCallResult,
     LLMRequest,
     LLMResponse,
     ProviderMetrics,
     RerankRequest,
     RerankResponse,
+    TokenUsage,
 )
 from core.llm.router import LabelRouter, RoutingStrategy
 from core.llm.types import CallPoint, LLMTask, LLMType
@@ -47,6 +49,7 @@ __all__ = [
     "EmbeddingResponse",
     "InvalidLabelError",
     # Request/Response
+    "LLMCallResult",
     "LLMRequest",
     "LLMResponse",
     "LLMTask",
@@ -63,4 +66,5 @@ __all__ = [
     "RerankRequest",
     "RerankResponse",
     "RoutingStrategy",
+    "TokenUsage",
 ]

@@ -47,7 +47,7 @@ class PostgresSettings(BaseSettings):
     DSN is auto-generated from components.
     """
 
-    model_config = SettingsConfigDict(env_prefix="POSTGRES_")
+    model_config = SettingsConfigDict(env_prefix="POSTGRES_", extra="ignore")
 
     host: str = "localhost"
     port: int = 5432
@@ -238,6 +238,22 @@ class ObservabilitySettings(BaseModel):
     """OTLP collector endpoint for OpenTelemetry tracing."""
 
 
+class LLMUsageSettings(BaseModel):
+    """LLM usage statistics configuration.
+
+    Controls the behavior of LLM usage tracking, aggregation, and data retention.
+    """
+
+    flush_interval_minutes: int = 5
+    """Interval in minutes for flushing aggregated usage data to persistent storage."""
+
+    raw_retention_days: int = 2
+    """Number of days to retain raw usage detail records (48h default for debugging)."""
+
+    redis_buffer_ttl_seconds: int = 7200
+    """TTL in seconds for Redis buffer keys (2h default, should exceed flush interval)."""
+
+
 class SearchSettings(BaseModel):
     """Search enhancement settings."""
 
@@ -326,6 +342,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="WEAVER_",
         env_nested_delimiter="__",
+        extra="ignore",
         # Use default sources: env + dotenv
         # TOML will be loaded manually in __init__
     )
@@ -345,6 +362,7 @@ class Settings(BaseSettings):
     dedup: DedupSettings = Field(default_factory=DedupSettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
     search: SearchSettings = Field(default_factory=SearchSettings)
+    llm_usage: LLMUsageSettings = Field(default_factory=LLMUsageSettings)
 
     def __init__(self, **kwargs: Any) -> None:
         """Initialize settings, loading TOML config first."""

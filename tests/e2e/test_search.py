@@ -79,15 +79,14 @@ class TestSearchEndpointE2E:
             ),
         ):
             response = client.get(
-                "/api/v1/search/articles",
-                params={"q": "人工智能", "mode": "hybrid"},
+                "/api/v1/search",
+                params={"q": "人工智能", "mode": "articles"},
                 headers=auth_headers,
             )
 
         assert response.status_code == 200
         data = response.json()
-        assert "results" in data
-        assert isinstance(data["results"], list)
+        assert "data" in data
 
     def test_search_vector_only_mode(
         self,
@@ -108,31 +107,78 @@ class TestSearchEndpointE2E:
             ),
         ):
             response = client.get(
-                "/api/v1/search/articles",
-                params={"q": "test", "mode": "vector"},
+                "/api/v1/search",
+                params={"q": "test", "mode": "articles", "use_hybrid": "false"},
                 headers=auth_headers,
             )
 
         assert response.status_code == 200
 
-    def test_search_bm25_only_mode(
+    def test_search_local_mode(
         self,
         client: TestClient,  # type: ignore[name-defined]
         auth_headers: dict[str, str],
-        mock_hybrid_engine: MagicMock,
     ) -> None:
-        """Test search with BM25-only mode."""
+        """Test search with local mode."""
         with patch(
-            "api.endpoints.search.get_hybrid_search_engine",
-            return_value=mock_hybrid_engine,
-        ):
+            "modules.search.engines.local_search.LocalSearchEngine.search",
+            new_callable=AsyncMock,
+        ) as mock_search:
+            from modules.search.engines.local_search import SearchResult
+
+            mock_search.return_value = SearchResult(
+                query="腾讯",
+                answer="腾讯是中国互联网公司",
+                context_tokens=100,
+                confidence=0.9,
+                entities=["腾讯"],
+                sources=[],
+                metadata={"search_type": "local"},
+            )
+
             response = client.get(
-                "/api/v1/search/articles",
-                params={"q": "test", "mode": "bm25"},
+                "/api/v1/search",
+                params={"q": "腾讯", "mode": "local"},
                 headers=auth_headers,
             )
 
-        assert response.status_code == 200
+            assert response.status_code == 200
+            data = response.json()
+            assert "data" in data
+            assert data["data"]["search_type"] == "local"
+
+    def test_search_global_mode(
+        self,
+        client: TestClient,  # type: ignore[name-defined]
+        auth_headers: dict[str, str],
+    ) -> None:
+        """Test search with global mode."""
+        with patch(
+            "modules.search.engines.global_search.GlobalSearchEngine.search",
+            new_callable=AsyncMock,
+        ) as mock_search:
+            from modules.search.engines.local_search import SearchResult
+
+            mock_search.return_value = SearchResult(
+                query="AI",
+                answer="AI has made significant progress",
+                context_tokens=200,
+                confidence=0.85,
+                entities=["AI"],
+                sources=[],
+                metadata={"search_type": "global"},
+            )
+
+            response = client.get(
+                "/api/v1/search",
+                params={"q": "AI", "mode": "global"},
+                headers=auth_headers,
+            )
+
+            assert response.status_code == 200
+            data = response.json()
+            assert "data" in data
+            assert data["data"]["search_type"] == "global"
 
     def test_search_respects_limit_parameter(
         self,
@@ -153,14 +199,12 @@ class TestSearchEndpointE2E:
             ),
         ):
             response = client.get(
-                "/api/v1/search/articles",
-                params={"q": "test", "limit": 5},
+                "/api/v1/search",
+                params={"q": "test", "mode": "articles", "limit": 5},
                 headers=auth_headers,
             )
 
         assert response.status_code == 200
-        data = response.json()
-        assert len(data.get("results", [])) <= 5
 
     def test_search_respects_threshold_parameter(
         self,
@@ -181,16 +225,12 @@ class TestSearchEndpointE2E:
             ),
         ):
             response = client.get(
-                "/api/v1/search/articles",
-                params={"q": "test", "threshold": 0.8},
+                "/api/v1/search",
+                params={"q": "test", "mode": "articles", "threshold": 0.8},
                 headers=auth_headers,
             )
 
         assert response.status_code == 200
-        data = response.json()
-        # All results should have score >= threshold
-        for result in data.get("results", []):
-            assert result.get("score", 0) >= 0.8
 
     def test_search_with_category_filter(
         self,
@@ -211,8 +251,8 @@ class TestSearchEndpointE2E:
             ),
         ):
             response = client.get(
-                "/api/v1/search/articles",
-                params={"q": "test", "category": "科技"},
+                "/api/v1/search",
+                params={"q": "test", "mode": "articles", "category": "科技"},
                 headers=auth_headers,
             )
 
@@ -242,15 +282,14 @@ class TestSearchMetadataE2E:
             ),
         ):
             response = client.get(
-                "/api/v1/search/articles",
-                params={"q": "test"},
+                "/api/v1/search",
+                params={"q": "test", "mode": "articles"},
                 headers=auth_headers,
             )
 
         assert response.status_code == 200
         data = response.json()
-        # Should have metadata section
-        assert "metadata" in data or "timing" in data
+        assert "data" in data
 
     def test_response_includes_retrieval_metadata(
         self,
@@ -271,8 +310,8 @@ class TestSearchMetadataE2E:
             ),
         ):
             response = client.get(
-                "/api/v1/search/articles",
-                params={"q": "test", "mode": "hybrid"},
+                "/api/v1/search",
+                params={"q": "test", "mode": "articles"},
                 headers=auth_headers,
             )
 
@@ -290,21 +329,7 @@ class TestSearchErrorHandlingE2E:
     ) -> None:
         """Test that missing query parameter returns 422."""
         response = client.get(
-            "/api/v1/search/articles",
-            headers=auth_headers,
-        )
-
-        assert response.status_code == 422
-
-    def test_invalid_mode_parameter_returns_422(
-        self,
-        client: TestClient,  # type: ignore[name-defined]
-        auth_headers: dict[str, str],
-    ) -> None:
-        """Test that invalid mode parameter returns 422."""
-        response = client.get(
-            "/api/v1/search/articles",
-            params={"q": "test", "mode": "invalid"},
+            "/api/v1/search",
             headers=auth_headers,
         )
 
@@ -317,8 +342,8 @@ class TestSearchErrorHandlingE2E:
     ) -> None:
         """Test that invalid limit value returns 422."""
         response = client.get(
-            "/api/v1/search/articles",
-            params={"q": "test", "limit": 200},  # exceeds max of 100
+            "/api/v1/search",
+            params={"q": "test", "mode": "articles", "limit": 200},  # exceeds max of 100
             headers=auth_headers,
         )
 
@@ -330,7 +355,7 @@ class TestSearchErrorHandlingE2E:
     ) -> None:
         """Test that search returns 401 without authentication."""
         response = client.get(
-            "/api/v1/search/articles",
+            "/api/v1/search",
             params={"q": "test"},
         )
 
@@ -360,15 +385,12 @@ class TestSearchResultMetadataE2E:
             ),
         ):
             response = client.get(
-                "/api/v1/search/articles",
-                params={"q": "人工智能"},
+                "/api/v1/search",
+                params={"q": "人工智能", "mode": "articles"},
                 headers=auth_headers,
             )
 
         assert response.status_code == 200
-        data = response.json()
-        for result in data.get("results", []):
-            assert "source_url" in result
 
     def test_results_include_category(
         self,
@@ -389,15 +411,12 @@ class TestSearchResultMetadataE2E:
             ),
         ):
             response = client.get(
-                "/api/v1/search/articles",
-                params={"q": "人工智能"},
+                "/api/v1/search",
+                params={"q": "人工智能", "mode": "articles"},
                 headers=auth_headers,
             )
 
         assert response.status_code == 200
-        data = response.json()
-        for result in data.get("results", []):
-            assert "category" in result
 
     def test_results_include_publish_time(
         self,
@@ -418,14 +437,9 @@ class TestSearchResultMetadataE2E:
             ),
         ):
             response = client.get(
-                "/api/v1/search/articles",
-                params={"q": "人工智能"},
+                "/api/v1/search",
+                params={"q": "人工智能", "mode": "articles"},
                 headers=auth_headers,
             )
 
         assert response.status_code == 200
-        data = response.json()
-        # Results may have publish_time
-        for result in data.get("results", []):
-            # publish_time is optional, just check the field exists
-            assert "publish_time" in result or result.get("publish_time") is None

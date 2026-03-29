@@ -7,13 +7,13 @@ import pytest
 
 
 class TestEventBusSharing:
-    """Test that init_llm() and init_pipeline() share the same EventBus instance."""
+    """Test that init_pipeline() creates EventBus and shares it."""
 
-    def test_init_llm_stores_event_bus_as_instance_variable(self):
-        """Test init_llm() stores EventBus as self._event_bus.
+    def test_init_pipeline_creates_event_bus(self):
+        """Test init_pipeline() creates EventBus as self._event_bus.
 
-        Verifies that EventBus is stored as self._event_bus in init_llm(),
-        so init_pipeline() can share the same instance.
+        Verifies that EventBus is created in init_pipeline() when
+        self._event_bus is None.
         """
         import inspect
 
@@ -23,19 +23,19 @@ class TestEventBusSharing:
         settings = Settings()
         container = Container().configure(settings)
 
-        source = inspect.getsource(container.init_llm)
+        source = inspect.getsource(container.init_pipeline)
 
-        # Verify EventBus is created and stored in init_llm
+        # Verify EventBus is created in init_pipeline
         assert "self._event_bus = EventBus()" in source, (
-            "EventBus must be assigned to self._event_bus in init_llm(). "
-            "This allows init_pipeline() to reuse the same instance."
+            "EventBus must be assigned to self._event_bus in init_pipeline(). "
+            "This allows the pipeline to use a shared instance."
         )
 
     def test_init_pipeline_checks_existing_event_bus(self):
         """Test init_pipeline() checks if self._event_bus already exists.
 
         Verifies that init_pipeline() does NOT create a new EventBus
-        if one was already created by init_llm().
+        if one was already created.
         """
         import inspect
 
@@ -46,15 +46,15 @@ class TestEventBusSharing:
         container = Container().configure(settings)
 
         pipeline_source = inspect.getsource(container.init_pipeline)
-        assert (
-            "if self._event_bus is None:" in pipeline_source
-        ), "init_pipeline must check if self._event_bus already exists before creating one"
-        assert (
-            "self._event_bus = EventBus()" in pipeline_source
-        ), "init_pipeline may create EventBus only when self._event_bus is None"
+        assert "if self._event_bus is None:" in pipeline_source, (
+            "init_pipeline must check if self._event_bus already exists before creating one"
+        )
+        assert "self._event_bus = EventBus()" in pipeline_source, (
+            "init_pipeline may create EventBus only when self._event_bus is None"
+        )
 
     @pytest.mark.asyncio
-    async def test_init_pipeline_reuses_event_bus_from_init_llm(self):
+    async def test_init_pipeline_reuses_event_bus(self):
         """Test init_pipeline() does NOT create a new EventBus if one already exists."""
         from config.settings import Settings
         from container import Container
@@ -62,7 +62,7 @@ class TestEventBusSharing:
         settings = Settings()
         container = Container().configure(settings)
 
-        # Pre-set an event bus (simulates init_llm() having been called first)
+        # Pre-set an event bus
         existing_bus = MagicMock()
         container._event_bus = existing_bus
         container._llm_client = MagicMock()
@@ -72,21 +72,15 @@ class TestEventBusSharing:
         mock_token_budget = MagicMock()
 
         with (
-            patch("container.TokenBudgetManager", return_value=mock_token_budget),
+            patch("core.llm.token_budget.TokenBudgetManager", return_value=mock_token_budget),
             patch("modules.nlp.spacy_extractor.SpacyExtractor", return_value=mock_spacy),
-            patch.object(container, "vector_repo", return_value=MagicMock()),
-            patch.object(container, "article_repo", return_value=MagicMock()),
-            patch.object(container, "neo4j_writer", return_value=MagicMock()),
-            patch.object(container, "source_authority_repo", return_value=MagicMock()),
-            patch.object(container, "entity_resolver", return_value=MagicMock()),
+            patch("modules.pipeline.graph.Pipeline") as mock_pipeline_cls,
             patch.object(container, "_redis_client", MagicMock()),
-            patch("container.EventBus") as mock_event_bus_cls,
         ):
+            mock_pipeline_cls.return_value = MagicMock()
             await container.init_pipeline()
 
-            # EventBus should NOT be instantiated in init_pipeline()
-            mock_event_bus_cls.assert_not_called()
-            # The existing bus from init_llm() should be reused
+            # The existing bus should be reused
             assert container._event_bus is existing_bus
 
     @pytest.mark.asyncio
@@ -104,29 +98,25 @@ class TestEventBusSharing:
 
         mock_spacy = MagicMock()
         mock_token_budget = MagicMock()
-        new_bus = MagicMock()
 
         with (
-            patch("container.TokenBudgetManager", return_value=mock_token_budget),
+            patch("core.llm.token_budget.TokenBudgetManager", return_value=mock_token_budget),
             patch("modules.nlp.spacy_extractor.SpacyExtractor", return_value=mock_spacy),
-            patch.object(container, "vector_repo", return_value=MagicMock()),
-            patch.object(container, "article_repo", return_value=MagicMock()),
-            patch.object(container, "neo4j_writer", return_value=MagicMock()),
-            patch.object(container, "source_authority_repo", return_value=MagicMock()),
-            patch.object(container, "entity_resolver", return_value=MagicMock()),
-            patch.object(container, "_redis_client", MagicMock()),
-            patch("container.EventBus", return_value=new_bus) as mock_event_bus_cls,
+            patch("modules.pipeline.graph.Pipeline") as mock_pipeline_cls,
+            patch("container.EventBus") as mock_event_bus_cls,
         ):
+            new_bus = MagicMock()
+            mock_event_bus_cls.return_value = new_bus
+            mock_pipeline_cls.return_value = MagicMock()
+
             await container.init_pipeline()
 
-            # EventBus SHOULD be instantiated in init_pipeline() since it's None
+            # EventBus SHOULD be instantiated since it was None
             mock_event_bus_cls.assert_called_once()
             assert container._event_bus is new_bus
 
     def test_startup_order_passes_event_bus_to_cleanup_handler(self):
-        """Test startup() calls subscribe() on the same event_bus used by LLM."""
-        # This test verifies the full chain: init_llm sets self._event_bus,
-        # then startup() registers the LLM failure handler on that same bus.
+        """Test startup() calls subscribe() on the same event_bus used by pipeline."""
         import inspect
 
         from config.settings import Settings

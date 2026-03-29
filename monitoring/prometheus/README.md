@@ -435,7 +435,7 @@ docker start weaver-postgres
 - [Prometheus 告警文档](https://prometheus.io/docs/alerting/latest/alertmanager/)
 - [Alertmanager 配置指南](https://prometheus.io/docs/alerting/latest/configuration/)
 - [告警最佳实践](https://sre.google/sre-book/practical-alerting/)
-- [Weaver 监控文档](../../docs/monitoring.md)
+- [Weaver 监控文档](../../docs/MONITORING.md)
 
 ## 更新日志
 

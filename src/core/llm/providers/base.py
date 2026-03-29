@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
+from core.llm.request import LLMCallResult
+
 
 class BaseLLMProvider(ABC):
     """Abstract base class for LLM providers."""
@@ -17,7 +19,7 @@ class BaseLLMProvider(ABC):
         model: str | None = None,
         temperature: float = 0.0,
         max_tokens: int | None = None,
-    ) -> str:
+    ) -> LLMCallResult:
         """Send a chat completion request.
 
         Args:
@@ -28,7 +30,7 @@ class BaseLLMProvider(ABC):
             max_tokens: Maximum tokens in response.
 
         Returns:
-            The assistant's response text.
+            LLMCallResult containing response content and token usage.
         """
         ...
 

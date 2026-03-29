@@ -182,7 +182,8 @@ class TestCommunityMetricsWorkflow:
             }
 
             response = client.get(
-                "/api/v1/graph/metrics/community",
+                "/api/v1/graph/metrics",
+                params={"view": "community"},
                 headers=auth_headers,
             )
 

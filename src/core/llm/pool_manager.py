@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from core.llm.label import Label
 from core.llm.provider_pool import CircuitOpenError, ProviderPool
 from core.llm.registry import ProviderInstanceConfig, ProviderRegistry
-from core.llm.request import LLMRequest, LLMResponse, ProviderMetrics
+from core.llm.request import LLMRequest, LLMResponse, ProviderMetrics, TokenUsage
 from core.llm.types import LLMType
 from core.observability.logging import get_logger
 from core.observability.metrics import MetricsCollector
@@ -277,6 +277,33 @@ class ProviderPoolManager:
                 )
 
                 response = await pool.submit(actual_request)
+
+                # 发布 LLMUsageEvent（成功）
+                if self._event_bus is not None:
+                    from core.event.bus import LLMUsageEvent
+
+                    usage_event = LLMUsageEvent(
+                        label=f"{label.llm_type.value}::{pool.name}::{pool.config.model}",
+                        call_point=request.metadata.get("call_point", label.llm_type.value)
+                        if request.metadata
+                        else label.llm_type.value,
+                        llm_type=label.llm_type.value,
+                        provider=pool.name,
+                        model=pool.config.model,
+                        tokens=response.token_usage or TokenUsage(),
+                        latency_ms=response.latency_ms,
+                        success=True,
+                        article_id=request.metadata.get("article_id") if request.metadata else None,
+                        task_id=request.metadata.get("task_id") if request.metadata else None,
+                    )
+                    try:
+                        await self._event_bus.publish(usage_event)
+                    except Exception as publish_exc:
+                        log.error(
+                            "llm_usage_event_publish_failed",
+                            error=str(publish_exc),
+                            call_point=usage_event.call_point,
+                        )
 
                 # 记录 Fallback 成功
                 if idx > 0:

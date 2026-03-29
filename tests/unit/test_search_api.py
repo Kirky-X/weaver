@@ -113,276 +113,6 @@ def _make_mock_request() -> MagicMock:
     return mock_req
 
 
-# ── Test GET /search/local ──────────────────────────────────────
-
-
-class TestSearchLocalEndpoint:
-    """Tests for GET /search/local endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_search_local_returns_200_with_valid_key(self):
-        """Test GET /search/local with valid API key returns 200 and SearchResponse."""
-        from api.endpoints.search import SearchResponse, search_local
-
-        mock_result = SearchResult(
-            query="腾讯",
-            answer="腾讯是一家中国互联网公司",
-            context_tokens=500,
-            confidence=0.9,
-            entities=["腾讯"],
-            sources=[{"id": "123", "title": "腾讯新闻"}],
-            metadata={"search_type": "local"},
-        )
-        mock_engine = _make_mock_local_engine(result=mock_result)
-
-        result = await search_local(
-            request=_make_mock_request(),
-            q="腾讯",
-            entity_names=None,
-            max_tokens=None,
-            _="valid-key",
-            engine=mock_engine,
-        )
-
-        assert isinstance(result.data, SearchResponse)
-        assert result.data.query == "腾讯"
-        assert result.data.answer == "腾讯是一家中国互联网公司"
-        assert result.data.search_type == "local"
-        assert result.data.confidence == 0.9
-        assert "腾讯" in result.data.entities
-
-    @pytest.mark.asyncio
-    async def test_search_local_with_entity_names_param(self):
-        """Test GET /search/local with entity_names comma-separated parameter."""
-        from api.endpoints.search import SearchResponse, search_local
-
-        mock_result = SearchResult(
-            query="腾讯和阿里巴巴",
-            answer="两家公司都是中国互联网巨头",
-            context_tokens=300,
-            confidence=0.85,
-            entities=["腾讯", "阿里巴巴"],
-            sources=[],
-            metadata={"search_type": "local"},
-        )
-        mock_engine = _make_mock_local_engine(result=mock_result)
-
-        result = await search_local(
-            request=_make_mock_request(),
-            q="腾讯和阿里巴巴",
-            entity_names="腾讯,阿里巴巴",
-            max_tokens=None,
-            _="valid-key",
-            engine=mock_engine,
-        )
-
-        assert isinstance(result.data, SearchResponse)
-        assert result.data.search_type == "local"
-
-    @pytest.mark.asyncio
-    async def test_search_local_returns_503_on_neo4j_exception(self):
-        """Test GET /search/local returns 503 when Neo4j raises exception."""
-        from api.endpoints.search import search_local
-
-        mock_engine = _make_mock_local_engine(exc=Exception("Neo4j connection failed"))
-
-        with pytest.raises(HTTPException) as exc_info:
-            await search_local(
-                request=_make_mock_request(),
-                q="腾讯",
-                entity_names=None,
-                max_tokens=None,
-                _="valid-key",
-                engine=mock_engine,
-            )
-        assert exc_info.value.status_code == 503
-        assert "Graph service unavailable" in exc_info.value.detail
-
-    @pytest.mark.asyncio
-    async def test_search_local_returns_503_on_llm_exception(self):
-        """Test GET /search/local returns 503 when LLM raises exception."""
-        from api.endpoints.search import search_local
-
-        mock_engine = _make_mock_local_engine(exc=Exception("LLM timeout"))
-
-        with pytest.raises(HTTPException) as exc_info:
-            await search_local(
-                request=_make_mock_request(),
-                q="腾讯",
-                entity_names=None,
-                max_tokens=None,
-                _="valid-key",
-                engine=mock_engine,
-            )
-        assert exc_info.value.status_code == 503
-        assert "LLM service unavailable" in exc_info.value.detail
-
-
-class TestSearchLocalHTTPAuth:
-    """HTTP-level auth tests for GET /search/local."""
-
-    def test_search_local_requires_api_key(self):
-        """Test GET /search/local without API key returns 401."""
-        from unittest.mock import MagicMock
-
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
-
-        from api.endpoints.search import router
-
-        app = FastAPI()
-        app.include_router(router)
-        Endpoints._local_engine = _make_mock_local_engine()
-
-        with TestClient(app, raise_server_exceptions=False) as client:
-            response = client.get("/search/local", params={"q": "腾讯"})
-            assert response.status_code == 401
-
-    def test_search_local_missing_q_param_returns_422(self):
-        """Test GET /search/local without q parameter returns 422."""
-        from unittest.mock import MagicMock
-
-        from fastapi import FastAPI
-        from fastapi.testclient import TestClient
-
-        from api.endpoints.search import router
-
-        app = FastAPI()
-        app.include_router(router)
-        Endpoints._local_engine = _make_mock_local_engine()
-
-        with TestClient(app, raise_server_exceptions=False) as client:
-            response = client.get(
-                "/search/local",
-                params={"q": "test"},
-                headers={"X-API-Key": "test-key"},
-            )
-            # With mocked engine and valid key, should get 200 or error at engine level
-            # With wrong key returns 403 (auth failure)
-            assert response.status_code in (200, 403, 422, 503)
-
-
-# ── Test GET /search/global ────────────────────────────────────
-
-
-class TestSearchGlobalEndpoint:
-    """Tests for GET /search/global endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_search_global_returns_200_with_valid_key(self):
-        """Test GET /search/global with valid API key returns 200."""
-        from api.endpoints.search import SearchResponse, search_global
-
-        mock_result = SearchResult(
-            query="AI领域进展",
-            answer="AI领域近期在生成模型方面取得重大突破",
-            context_tokens=800,
-            confidence=0.75,
-            entities=["GPT", "Claude"],
-            sources=[],
-            metadata={"search_type": "global", "intermediate_count": 3},
-        )
-        mock_engine = _make_mock_global_engine(result=mock_result)
-
-        result = await search_global(
-            request=_make_mock_request(),
-            q="AI领域进展",
-            community_level=0,
-            mode="map_reduce",
-            _="valid-key",
-            engine=mock_engine,
-        )
-
-        assert isinstance(result.data, SearchResponse)
-        assert result.data.query == "AI领域进展"
-        assert result.data.search_type == "global"
-        assert result.data.metadata["intermediate_count"] == 3
-
-
-# ── Test GET /search/articles ───────────────────────────────────
-
-
-class TestSearchArticlesEndpoint:
-    """Tests for GET /search/articles endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_search_articles_returns_200_with_valid_key(self):
-        """Test GET /search/articles with valid API key returns 200 and article list."""
-        from api.endpoints.search import SearchResponse, search_articles
-
-        mock_similar = [
-            SimilarArticle(article_id="abc-123", category="tech", similarity=0.92),
-            SimilarArticle(article_id="def-456", category="tech", similarity=0.88),
-        ]
-        mock_vector_repo = _make_mock_vector_repo(similar=mock_similar)
-        mock_llm = _make_mock_llm()
-
-        result = await search_articles(
-            request=_make_mock_request(),
-            q="半导体行业动态",
-            threshold=0.75,
-            limit=20,
-            category=None,
-            _="valid-key",
-            vector_repo=mock_vector_repo,
-            llm=mock_llm,
-        )
-
-        assert isinstance(result.data, SearchResponse)
-        assert result.data.search_type == "articles"
-        assert result.data.query == "半导体行业动态"
-        assert len(result.data.sources) == 2
-        assert result.data.sources[0]["article_id"] == "abc-123"
-        assert result.data.sources[0]["similarity"] == 0.92
-        assert result.data.metadata["total_results"] == 2
-
-    @pytest.mark.asyncio
-    async def test_search_articles_returns_503_on_embedding_failure(self):
-        """Test GET /search/articles returns 503 when embedding service fails."""
-        from api.endpoints.search import search_articles
-
-        mock_vector_repo = _make_mock_vector_repo(similar=[])
-        mock_llm = _make_mock_llm(exc=Exception("Embedding provider unavailable"))
-
-        with pytest.raises(HTTPException) as exc_info:
-            await search_articles(
-                request=_make_mock_request(),
-                q="半导体",
-                threshold=0.75,
-                limit=20,
-                category=None,
-                _="valid-key",
-                vector_repo=mock_vector_repo,
-                llm=mock_llm,
-            )
-        assert exc_info.value.status_code == 503
-        assert "Embedding service unavailable" in exc_info.value.detail
-
-    @pytest.mark.asyncio
-    async def test_search_articles_empty_results(self):
-        """Test GET /search/articles returns 200 with empty list when no similar articles."""
-        from api.endpoints.search import SearchResponse, search_articles
-
-        mock_vector_repo = _make_mock_vector_repo(similar=[])
-        mock_llm = _make_mock_llm()
-
-        result = await search_articles(
-            request=_make_mock_request(),
-            q="未知话题",
-            threshold=0.9,
-            limit=20,
-            category=None,
-            _="valid-key",
-            vector_repo=mock_vector_repo,
-            llm=mock_llm,
-        )
-
-        assert isinstance(result.data, SearchResponse)
-        assert result.data.search_type == "articles"
-        assert result.data.sources == []
-        assert result.data.answer == "Found 0 similar articles."
-
-
 # ── Test GET /search (unified) ─────────────────────────────────
 
 
@@ -416,7 +146,10 @@ class TestSearchUnifiedEndpoint:
             max_tokens=None,
             community_level=0,
             threshold=0.75,
+            limit=20,
             category=None,
+            use_hybrid=True,
+            global_mode="map_reduce",
             _="valid-key",
             local_engine=mock_local_engine,
             global_engine=mock_global_engine,
@@ -455,7 +188,10 @@ class TestSearchUnifiedEndpoint:
             max_tokens=None,
             community_level=0,
             threshold=0.75,
+            limit=20,
             category=None,
+            use_hybrid=True,
+            global_mode="map_reduce",
             _="valid-key",
             local_engine=mock_local_engine,
             global_engine=mock_global_engine,
@@ -487,7 +223,10 @@ class TestSearchUnifiedEndpoint:
             max_tokens=None,
             community_level=0,
             threshold=0.75,
+            limit=20,
             category=None,
+            use_hybrid=True,
+            global_mode="map_reduce",
             _="valid-key",
             local_engine=mock_local_engine,
             global_engine=mock_global_engine,
@@ -501,33 +240,36 @@ class TestSearchUnifiedEndpoint:
         assert result.data.sources[0]["article_id"] == "xyz-789"
 
     @pytest.mark.asyncio
-    async def test_search_mode_auto_defaults_to_global(self):
-        """Test GET /search?mode=auto routes to global engine by default."""
+    async def test_search_default_mode_is_local(self):
+        """Test GET /search without mode defaults to local."""
         from api.endpoints.search import SearchResponse, search_unified
 
         mock_result = SearchResult(
-            query="AI",
-            answer="AI answer",
-            context_tokens=200,
-            confidence=0.7,
-            entities=[],
+            query="腾讯",
+            answer="腾讯答案",
+            context_tokens=100,
+            confidence=0.9,
+            entities=["腾讯"],
             sources=[],
-            metadata={"search_type": "global"},
+            metadata={"search_type": "local"},
         )
-        mock_global_engine = _make_mock_global_engine(result=mock_result)
-        mock_local_engine = _make_mock_local_engine()
+        mock_local_engine = _make_mock_local_engine(result=mock_result)
+        mock_global_engine = _make_mock_global_engine()
         mock_vector_repo = _make_mock_vector_repo()
         mock_llm = _make_mock_llm()
 
         result = await search_unified(
             request=_make_mock_request(),
-            q="AI",
-            mode="auto",
+            q="腾讯",
+            mode="local",  # Default is now local
             entity_names=None,
             max_tokens=None,
             community_level=0,
             threshold=0.75,
+            limit=20,
             category=None,
+            use_hybrid=True,
+            global_mode="map_reduce",
             _="valid-key",
             local_engine=mock_local_engine,
             global_engine=mock_global_engine,
@@ -536,7 +278,159 @@ class TestSearchUnifiedEndpoint:
         )
 
         assert isinstance(result.data, SearchResponse)
-        assert result.data.search_type == "global"
+        assert result.data.search_type == "local"
+
+    @pytest.mark.asyncio
+    async def test_search_local_with_entity_names_param(self):
+        """Test GET /search?mode=local with entity_names comma-separated parameter."""
+        from api.endpoints.search import SearchResponse, search_unified
+
+        mock_result = SearchResult(
+            query="腾讯和阿里巴巴",
+            answer="两家公司都是中国互联网巨头",
+            context_tokens=300,
+            confidence=0.85,
+            entities=["腾讯", "阿里巴巴"],
+            sources=[],
+            metadata={"search_type": "local"},
+        )
+        mock_local_engine = _make_mock_local_engine(result=mock_result)
+        mock_global_engine = _make_mock_global_engine()
+        mock_vector_repo = _make_mock_vector_repo()
+        mock_llm = _make_mock_llm()
+
+        result = await search_unified(
+            request=_make_mock_request(),
+            q="腾讯和阿里巴巴",
+            mode="local",
+            entity_names="腾讯,阿里巴巴",
+            max_tokens=None,
+            community_level=0,
+            threshold=0.75,
+            limit=20,
+            category=None,
+            use_hybrid=True,
+            global_mode="map_reduce",
+            _="valid-key",
+            local_engine=mock_local_engine,
+            global_engine=mock_global_engine,
+            vector_repo=mock_vector_repo,
+            llm=mock_llm,
+        )
+
+        assert isinstance(result.data, SearchResponse)
+        assert result.data.search_type == "local"
+
+    @pytest.mark.asyncio
+    async def test_search_local_returns_503_on_neo4j_exception(self):
+        """Test GET /search?mode=local returns 503 when Neo4j raises exception."""
+        from api.endpoints.search import search_unified
+
+        mock_local_engine = _make_mock_local_engine(exc=Exception("Neo4j connection failed"))
+        mock_global_engine = _make_mock_global_engine()
+        mock_vector_repo = _make_mock_vector_repo()
+        mock_llm = _make_mock_llm()
+
+        with pytest.raises(HTTPException) as exc_info:
+            await search_unified(
+                request=_make_mock_request(),
+                q="腾讯",
+                mode="local",
+                entity_names=None,
+                max_tokens=None,
+                community_level=0,
+                threshold=0.75,
+                limit=20,
+                category=None,
+                use_hybrid=True,
+                global_mode="map_reduce",
+                _="valid-key",
+                local_engine=mock_local_engine,
+                global_engine=mock_global_engine,
+                vector_repo=mock_vector_repo,
+                llm=mock_llm,
+            )
+        assert exc_info.value.status_code == 503
+        assert "Graph service unavailable" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_search_articles_returns_503_on_embedding_failure(self):
+        """Test GET /search?mode=articles returns 503 when embedding service fails."""
+        from api.endpoints.search import search_unified
+
+        mock_vector_repo = _make_mock_vector_repo()
+        mock_llm = _make_mock_llm(exc=Exception("Embedding provider unavailable"))
+        mock_local_engine = _make_mock_local_engine()
+        mock_global_engine = _make_mock_global_engine()
+
+        with pytest.raises(HTTPException) as exc_info:
+            await search_unified(
+                request=_make_mock_request(),
+                q="半导体",
+                mode="articles",
+                entity_names=None,
+                max_tokens=None,
+                community_level=0,
+                threshold=0.75,
+                limit=20,
+                category=None,
+                use_hybrid=True,
+                global_mode="map_reduce",
+                _="valid-key",
+                local_engine=mock_local_engine,
+                global_engine=mock_global_engine,
+                vector_repo=mock_vector_repo,
+                llm=mock_llm,
+            )
+        assert exc_info.value.status_code == 503
+        assert "Embedding service unavailable" in exc_info.value.detail
+
+
+# ── Test HTTP-level (Integration style) ─────────────────────────
+
+
+class TestSearchUnifiedHTTPAuth:
+    """HTTP-level auth tests for GET /search."""
+
+    def test_search_requires_api_key(self):
+        """Test GET /search without API key returns 401."""
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from api.endpoints.search import router
+
+        app = FastAPI()
+        app.include_router(router)
+        Endpoints._local_engine = _make_mock_local_engine()
+        Endpoints._global_engine = _make_mock_global_engine()
+        Endpoints._vector_repo = _make_mock_vector_repo()
+        Endpoints._llm = _make_mock_llm()
+
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.get("/search", params={"q": "腾讯"})
+            assert response.status_code == 401
+
+    def test_search_missing_q_param_returns_422(self):
+        """Test GET /search without q parameter returns 422 (or 403 for auth)."""
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+
+        from api.endpoints.search import router
+
+        app = FastAPI()
+        app.include_router(router)
+        Endpoints._local_engine = _make_mock_local_engine()
+        Endpoints._global_engine = _make_mock_global_engine()
+        Endpoints._vector_repo = _make_mock_vector_repo()
+        Endpoints._llm = _make_mock_llm()
+
+        with TestClient(app, raise_server_exceptions=False) as client:
+            response = client.get(
+                "/search",
+                headers={"X-API-Key": "test-key"},
+            )
+            # With invalid key, auth fails first (403); with valid key, validation fails (422)
+            assert response.status_code in (403, 422)
 
 
 # ── Test Dependency Initialization ───────────────────────────────

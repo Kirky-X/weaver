@@ -8,6 +8,7 @@ from core.event.bus import (
     EventBus,
     FallbackEvent,
     LLMFailureEvent,
+    LLMUsageEvent,
 )
 
 __all__ = [
@@ -17,4 +18,5 @@ __all__ = [
     "EventBus",
     "FallbackEvent",
     "LLMFailureEvent",
+    "LLMUsageEvent",
 ]

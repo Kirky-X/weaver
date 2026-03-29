@@ -10,7 +10,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
+from api.dependencies import get_neo4j_pool
 from api.middleware.auth import verify_api_key
+from api.schemas.response import APIResponse, success_response
 from core.db.models import RelationType, RelationTypeAlias
 from core.db.neo4j import Neo4jPool
 from core.db.postgres import PostgresPool
@@ -109,16 +111,9 @@ class RelationTypeInfo(BaseModel):
     alias_count: int
 
 
-# ── Dependency for Neo4j Client ─────────────────────────────────
+# ── Dependency for PostgreSQL Pool ──────────────────────────────
 
-_neo4j_client: Neo4jPool | None = None
 _pg_pool: PostgresPool | None = None
-
-
-def set_neo4j_client(client: Neo4jPool) -> None:
-    """Set the global Neo4j client instance."""
-    global _neo4j_client
-    _neo4j_client = client
 
 
 def set_postgres_pool(pool: PostgresPool) -> None:
@@ -127,26 +122,16 @@ def set_postgres_pool(pool: PostgresPool) -> None:
     _pg_pool = pool
 
 
-def get_neo4j_client() -> Neo4jPool:
-    """Get the Neo4j client instance."""
-    if _neo4j_client is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Neo4j client not initialized",
-        )
-    return _neo4j_client
-
-
 # ── Endpoints ───────────────────────────────────────────────────
 
 
-@router.get("/entities/{name}", response_model=EntityWithRelations)
+@router.get("/entities/{name}", response_model=APIResponse[EntityWithRelations])
 async def get_entity(
     name: str,
     limit: int = Query(10, ge=1, le=100, description="Max related entities to return"),
     _: str = Depends(verify_api_key),
-    neo4j: Neo4jPool = Depends(get_neo4j_client),
-) -> EntityWithRelations:
+    neo4j: Neo4jPool = Depends(get_neo4j_pool),
+) -> APIResponse[EntityWithRelations]:
     """Get entity information and its relationships.
 
     Args:
@@ -156,9 +141,8 @@ async def get_entity(
         neo4j: Neo4j client.
 
     Returns:
-        Entity with relationships.
+        Entity with relationships wrapped in APIResponse.
     """
-
     canonical_name = urllib.parse.unquote(name)
 
     async with neo4j.session() as session:
@@ -266,20 +250,22 @@ async def get_entity(
                 }
             )
 
-        return EntityWithRelations(
-            entity=entity,
-            relationships=relationships,
-            related_entities=related_entities,
-            mentioned_in_articles=mentioned_in_articles,
+        return success_response(
+            EntityWithRelations(
+                entity=entity,
+                relationships=relationships,
+                related_entities=related_entities,
+                mentioned_in_articles=mentioned_in_articles,
+            )
         )
 
 
-@router.get("/articles/{article_id}/graph", response_model=ArticleGraphResponse)
+@router.get("/articles/{article_id}/graph", response_model=APIResponse[ArticleGraphResponse])
 async def get_article_graph(
     article_id: str,
     _: str = Depends(verify_api_key),
-    neo4j: Neo4jPool = Depends(get_neo4j_client),
-) -> ArticleGraphResponse:
+    neo4j: Neo4jPool = Depends(get_neo4j_pool),
+) -> APIResponse[ArticleGraphResponse]:
     """Get the knowledge graph for a specific article.
 
     Args:
@@ -288,7 +274,7 @@ async def get_article_graph(
         neo4j: Neo4j client.
 
     Returns:
-        Article graph with entities and relationships.
+        Article graph with entities and relationships wrapped in APIResponse.
     """
     async with neo4j.session() as session:
         # Get article node
@@ -399,24 +385,26 @@ async def get_article_graph(
                 )
             )
 
-        return ArticleGraphResponse(
-            article=article,
-            entities=entities,
-            relationships=relationships,
-            related_articles=related_articles,
+        return success_response(
+            ArticleGraphResponse(
+                article=article,
+                entities=entities,
+                relationships=relationships,
+                related_articles=related_articles,
+            )
         )
 
 
 # ── Relation Search Endpoints ─────────────────────────────────
 
 
-@router.get("/relations", response_model=list[RelationTypeSummary])
+@router.get("/relations", response_model=APIResponse[list[RelationTypeSummary]])
 async def get_entity_relations(
     entity: str = Query(..., description="Entity canonical name"),
     entity_type: str = Query("组织机构", description="Entity type"),
     _: str = Depends(verify_api_key),
-    neo4j: Neo4jPool = Depends(get_neo4j_client),
-) -> list[RelationTypeSummary]:
+    neo4j: Neo4jPool = Depends(get_neo4j_pool),
+) -> APIResponse[list[RelationTypeSummary]]:
     """Layer 1: Discover all relation types for an entity.
 
     Args:
@@ -426,29 +414,31 @@ async def get_entity_relations(
         neo4j: Neo4j client.
 
     Returns:
-        List of relation type summaries ordered by target count.
+        List of relation type summaries wrapped in APIResponse.
     """
     repo = Neo4jEntityRepo(neo4j)
     rows = await repo.get_relation_types(entity, entity_type)
-    return [
-        RelationTypeSummary(
-            relation_type=r["relation_type"],
-            target_count=r["target_count"],
-            primary_direction=r["primary_direction"],
-        )
-        for r in rows
-    ]
+    return success_response(
+        [
+            RelationTypeSummary(
+                relation_type=r["relation_type"],
+                target_count=r["target_count"],
+                primary_direction=r["primary_direction"],
+            )
+            for r in rows
+        ]
+    )
 
 
-@router.get("/relations/search", response_model=list[RelatedEntityResult])
+@router.get("/relations/search", response_model=APIResponse[list[RelatedEntityResult]])
 async def search_relations(
     entity: str = Query(..., description="Entity canonical name"),
     entity_type: str = Query("组织机构", description="Entity type"),
     relation_types: str | None = Query(None, description="Comma-separated relation types"),
     limit: int = Query(50, ge=1, le=200),
     _: str = Depends(verify_api_key),
-    neo4j: Neo4jPool = Depends(get_neo4j_client),
-) -> list[RelatedEntityResult]:
+    neo4j: Neo4jPool = Depends(get_neo4j_pool),
+) -> APIResponse[list[RelatedEntityResult]]:
     """Layer 2: Search related entities by relation types.
 
     Args:
@@ -460,37 +450,39 @@ async def search_relations(
         neo4j: Neo4j client.
 
     Returns:
-        List of related entities ordered by weight.
+        List of related entities wrapped in APIResponse.
     """
     repo = Neo4jEntityRepo(neo4j)
     types_list = (
         [t.strip() for t in relation_types.split(",") if t.strip()] if relation_types else None
     )
     rows = await repo.find_by_relation_types(entity, entity_type, types_list, limit)
-    return [
-        RelatedEntityResult(
-            relation_type=r["relation_type"],
-            direction=r["direction"],
-            target_name=r["target_name"],
-            target_type=r["target_type"],
-            target_description=r.get("target_description"),
-            weight=r.get("weight", 1.0),
-        )
-        for r in rows
-    ]
+    return success_response(
+        [
+            RelatedEntityResult(
+                relation_type=r["relation_type"],
+                direction=r["direction"],
+                target_name=r["target_name"],
+                target_type=r["target_type"],
+                target_description=r.get("target_description"),
+                weight=r.get("weight", 1.0),
+            )
+            for r in rows
+        ]
+    )
 
 
-@router.get("/relation-types", response_model=list[RelationTypeInfo])
+@router.get("/relation-types", response_model=APIResponse[list[RelationTypeInfo]])
 async def list_relation_types(
     _: str = Depends(verify_api_key),
-) -> list[RelationTypeInfo]:
+) -> APIResponse[list[RelationTypeInfo]]:
     """List all active relation types with statistics.
 
     Args:
         _: Verified API key.
 
     Returns:
-        List of relation types ordered by sort_order.
+        List of relation types ordered by sort_order, wrapped in APIResponse.
 
     Raises:
         HTTPException: 503 if PostgreSQL pool not initialized.
@@ -517,14 +509,16 @@ async def list_relation_types(
             .order_by(RelationType.sort_order)
         )
         result = await session.execute(stmt)
-        return [
-            RelationTypeInfo(
-                name=row.name,
-                name_en=row.name_en,
-                category=row.category,
-                is_symmetric=row.is_symmetric,
-                description=row.description,
-                alias_count=row.alias_count,
-            )
-            for row in result
-        ]
+        return success_response(
+            [
+                RelationTypeInfo(
+                    name=row.name,
+                    name_en=row.name_en,
+                    category=row.category,
+                    is_symmetric=row.is_symmetric,
+                    description=row.description,
+                    alias_count=row.alias_count,
+                )
+                for row in result
+            ]
+        )
