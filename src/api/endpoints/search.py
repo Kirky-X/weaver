@@ -99,7 +99,9 @@ async def _search_global_impl(
                 query=query, community_level=community_level, use_llm=False
             )
         else:
-            result = await engine.search(query=query, community_level=community_level, use_llm=False)
+            result = await engine.search(
+                query=query, community_level=community_level, use_llm=False
+            )
         return success_response(_result_to_response(result, SearchMode.GLOBAL.value))
     except Exception as exc:
         if "neo4j" in str(exc).lower() or "graph" in str(exc).lower():

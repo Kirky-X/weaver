@@ -9,10 +9,11 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from api.dependencies import get_source_config_repo
+from api.dependencies import get_source_config_repo, get_source_scheduler
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from modules.source.models import SourceConfig
+from modules.source.scheduler import SourceScheduler
 from modules.source.source_config_repo import SourceConfigRepo
 
 router = APIRouter(prefix="/sources", tags=["sources"])
@@ -195,6 +196,7 @@ async def create_source(
     request: SourceCreateRequest,
     _: str = Depends(verify_api_key),
     repo: SourceConfigRepo = Depends(get_source_config_repo),
+    scheduler: SourceScheduler = Depends(get_source_scheduler),
 ) -> APIResponse[SourceResponse]:
     """Create a new news source.
 
@@ -230,11 +232,7 @@ async def create_source(
     saved = await repo.upsert(config)
 
     # Add to in-memory registry so scheduler can find it
-    from container import get_container
-
-    container = get_container()
-    if container._source_scheduler is not None:
-        container._source_scheduler._registry.add_source(saved)
+    scheduler._registry.add_source(saved)
 
     return success_response(SourceResponse.from_config(saved))
 

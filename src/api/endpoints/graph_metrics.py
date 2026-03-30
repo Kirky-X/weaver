@@ -205,15 +205,17 @@ async def _get_full_view(
         average_degree=result.average_degree,
         modularity_score=result.modularity_score,
         orphan_entities=result.orphan_entities,
-        high_degree_entities=result.high_degree_entities
-        if _should_include("high_degree", include_set)
-        else [],
-        entity_type_distribution=result.entity_type_distribution
-        if _should_include("distributions", include_set)
-        else {},
-        relationship_type_distribution=result.relationship_type_distribution
-        if _should_include("distributions", include_set)
-        else {},
+        high_degree_entities=(
+            result.high_degree_entities if _should_include("high_degree", include_set) else []
+        ),
+        entity_type_distribution=(
+            result.entity_type_distribution if _should_include("distributions", include_set) else {}
+        ),
+        relationship_type_distribution=(
+            result.relationship_type_distribution
+            if _should_include("distributions", include_set)
+            else {}
+        ),
         computed_at=result.computed_at.isoformat(),
     )
 

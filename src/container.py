@@ -27,6 +27,7 @@ from modules.scheduler.llm_usage_aggregator import (
     LLMUsageRawCleanupThread,
 )
 from modules.search.engines.global_search import GlobalSearchEngine
+from modules.search.engines.hybrid_search import HybridSearchConfig, HybridSearchEngine
 from modules.search.engines.local_search import LocalSearchEngine
 from modules.source import SourceConfigRepo, SourceRegistry, SourceScheduler
 from modules.storage import ArticleRepo, PendingSyncRepo, SourceAuthorityRepo, VectorRepo
@@ -113,6 +114,7 @@ class Container:
         self._community_updater: IncrementalCommunityUpdater | None = None
         self._local_search_engine: LocalSearchEngine | None = None
         self._global_search_engine: GlobalSearchEngine | None = None
+        self._hybrid_engine: HybridSearchEngine | None = None
         self._shutdown: bool = False  # Idempotency protection
 
     def configure(self, settings: Settings) -> Container:
@@ -405,6 +407,19 @@ class Container:
         if self._global_search_engine is None and self._neo4j_pool is not None:
             self.init_search_engines()
         return self._global_search_engine
+
+    def hybrid_search_engine(self) -> HybridSearchEngine | None:
+        """Get hybrid search engine (or None if unavailable)."""
+        if self._hybrid_engine is None and self._vector_repo is not None:
+            from modules.search.retrievers.bm25_retriever import BM25Retriever
+
+            bm25_retriever = BM25Retriever(self._postgres_pool)
+            self._hybrid_engine = HybridSearchEngine(
+                vector_repo=self._vector_repo,
+                bm25_retriever=bm25_retriever,
+                config=HybridSearchConfig(),
+            )
+        return self._hybrid_engine
 
     # ── Fetcher & Crawler ────────────────────────────────────────
 

@@ -20,10 +20,10 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from starlette.middleware.base import BaseHTTPMiddleware
 
 from api.endpoints import _deps as deps
 from api.endpoints.graph import set_postgres_pool as set_graph_postgres_pool
+from api.endpoints.health import health_check
 from api.middleware.rate_limit import limiter
 from api.router import api_router
 from config.settings import Settings
@@ -214,6 +214,7 @@ async def lifespan(app: FastAPI) -> None:
     deps.Endpoints._llm_usage_repo = container.llm_usage_repo()
     deps.Endpoints._local_engine = container.local_search_engine()
     deps.Endpoints._global_engine = container.global_search_engine()
+    deps.Endpoints._hybrid_engine = container.hybrid_search_engine()
     log.debug("endpoints_registry_populated")
 
     # Setup APScheduler
@@ -294,29 +295,70 @@ async def _graceful_shutdown(app: FastAPI) -> None:
     log.info("graceful_shutdown_complete")
 
 
-class SecurityHeadersMiddleware(BaseHTTPMiddleware):
-    """Middleware to add security headers to all responses."""
-
-    async def dispatch(self, request: Request, call_next):
-        response = await call_next(request)
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        return response
+# ── Pure ASGI Middleware ───────────────────────────────────────────────────
+# Using pure ASGI middleware to avoid BaseHTTPMiddleware issues with TestClient.
+# See: https://github.com/encode/starlette/issues/1931
 
 
-class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
-    """Middleware to limit request body size."""
+class SecurityHeadersMiddleware:
+    """Pure ASGI middleware to add security headers to all responses."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                headers = dict(message.get("headers", []))
+                headers[b"x-content-type-options"] = b"nosniff"
+                headers[b"x-frame-options"] = b"DENY"
+                headers[b"x-xss-protection"] = b"1; mode=block"
+                headers[b"strict-transport-security"] = b"max-age=31536000; includeSubDomains"
+                message["headers"] = list(headers.items())
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
+
+
+class RequestSizeLimitMiddleware:
+    """Pure ASGI middleware to limit request body size."""
 
     MAX_REQUEST_SIZE = 10 * 1024 * 1024  # 10MB
 
-    async def dispatch(self, request: Request, call_next):
-        if request.method in ["POST", "PUT", "PATCH"]:
-            content_length = request.headers.get("content-length")
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        method = scope.get("method", "")
+        if method in ("POST", "PUT", "PATCH"):
+            headers = dict(scope.get("headers", []))
+            content_length = headers.get(b"content-length")
             if content_length and int(content_length) > self.MAX_REQUEST_SIZE:
-                raise HTTPException(status_code=413, detail="Request body too large")
-        return await call_next(request)
+                # Send 413 response
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 413,
+                        "headers": [(b"content-type", b"application/json")],
+                    }
+                )
+                await send(
+                    {
+                        "type": "http.response.body",
+                        "body": b'{"detail":"Request body too large"}',
+                    }
+                )
+                return
+
+        await self.app(scope, receive, send)
 
 
 class BusinessException(Exception):
@@ -362,8 +404,10 @@ def create_app(container: Container | None = None) -> FastAPI:
         allow_headers=["Authorization", "Content-Type", "X-API-Key"],
     )
 
-    app.add_middleware(SecurityHeadersMiddleware)
+    # Add pure ASGI middleware (avoid BaseHTTPMiddleware due to TestClient issues)
+    # Note: Order matters - last added is first executed
     app.add_middleware(RequestSizeLimitMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware)
 
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -390,10 +434,11 @@ def create_app(container: Container | None = None) -> FastAPI:
     @app.get("/health")
     async def health_check_endpoint() -> dict:
         """Health check endpoint with dependency checks."""
-        result = await check_health()
-        if result["status"] != "healthy":
-            raise HTTPException(status_code=503, detail=result)
-        return result
+        result = await health_check()
+        result_dict = result.model_dump()
+        if result.status != "healthy":
+            raise HTTPException(status_code=503, detail=result_dict)
+        return result_dict
 
     @app.get("/metrics")
     async def metrics_endpoint() -> PlainTextResponse:
