@@ -6,17 +6,17 @@ import asyncio
 import time
 from typing import Any
 
-from core.event.bus import EventBus, FallbackEvent, LLMFailureEvent, LLMUsageEvent
+from core.event.bus import EventBus, FallbackEvent, LLMUsageEvent
 from core.llm.config_manager import LLMConfigManager
 from core.llm.providers.base import BaseLLMProvider
 from core.llm.rate_limiter import RedisTokenBucket
+
+# 导入 LLMCallResult 用于类型标注
+from core.llm.request import LLMCallResult, TokenUsage
 from core.llm.types import CallPoint, LLMTask
 from core.observability.logging import get_logger
 from core.observability.metrics import MetricsCollector
 from core.resilience.circuit_breaker import CircuitBreaker
-
-# 导入 LLMCallResult 用于类型标注
-from core.llm.request import LLMCallResult, TokenUsage
 
 log = get_logger("queue_manager")
 
@@ -137,7 +137,7 @@ class ProviderQueue:
                 output_tokens=result.token_usage.output_tokens if result.token_usage else 0,
             )
 
-            # 发布 LLMUsageEvent（成功）
+            # publish LLMUsageEvent (success)
             if self._event_bus is not None:
                 usage_event = LLMUsageEvent(
                     label=f"chat::{self.name}::{self._model}",
@@ -160,7 +160,7 @@ class ProviderQueue:
                         call_point=usage_event.call_point,
                     )
 
-            # 返回内容（假设为字符串）
+            # return content (assumed string)
             return str(result.content)
         except Exception as exc:
             latency = time.monotonic() - start
@@ -174,7 +174,7 @@ class ProviderQueue:
                 latency=latency,
             )
 
-            # 发布 LLMUsageEvent（失败）
+            # publish LLMUsageEvent (failure)
             if self._event_bus is not None:
                 usage_event = LLMUsageEvent(
                     label=f"chat::{self.name}::{self._model}",

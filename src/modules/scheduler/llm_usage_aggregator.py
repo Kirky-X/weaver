@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from collections import defaultdict
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from core.constants import RedisKeys

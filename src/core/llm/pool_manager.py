@@ -15,7 +15,6 @@ from core.observability.logging import get_logger
 from core.observability.metrics import MetricsCollector
 
 if TYPE_CHECKING:
-
     from core.event.bus import EventBus
     from core.llm.rate_limiter import RedisTokenBucket
 
@@ -41,7 +40,7 @@ class AllProvidersFailedError(Exception):
         self.providers = providers
         self.last_error = last_error
         super().__init__(
-            f"All providers failed for label '{label}': {providers}. " f"Last error: {last_error}"
+            f"All providers failed for label '{label}': {providers}. Last error: {last_error}"
         )
 
 
@@ -278,15 +277,17 @@ class ProviderPoolManager:
 
                 response = await pool.submit(actual_request)
 
-                # 发布 LLMUsageEvent（成功）
+                # publish LLMUsageEvent (success)
                 if self._event_bus is not None:
                     from core.event.bus import LLMUsageEvent
 
                     usage_event = LLMUsageEvent(
                         label=f"{label.llm_type.value}::{pool.name}::{pool.config.model}",
-                        call_point=request.metadata.get("call_point", label.llm_type.value)
-                        if request.metadata
-                        else label.llm_type.value,
+                        call_point=(
+                            request.metadata.get("call_point", label.llm_type.value)
+                            if request.metadata
+                            else label.llm_type.value
+                        ),
                         llm_type=label.llm_type.value,
                         provider=pool.name,
                         model=pool.config.model,

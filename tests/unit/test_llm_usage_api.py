@@ -117,20 +117,22 @@ class TestGetLLMUsageEndpoint:
     async def test_get_llm_usage_default_params(self):
         """Test get_llm_usage with default parameters."""
         mock_repo = MagicMock()
-        mock_repo.query_hourly = AsyncMock(return_value=[
-            {
-                "time_bucket": "2024-01-15T10:00:00",
-                "call_count": 100,
-                "input_tokens_sum": 50000,
-                "output_tokens_sum": 25000,
-                "total_tokens_sum": 75000,
-                "latency_avg_ms": 500.5,
-                "latency_min_ms": 200.0,
-                "latency_max_ms": 1500.0,
-                "success_count": 98,
-                "failure_count": 2,
-            }
-        ])
+        mock_repo.query_hourly = AsyncMock(
+            return_value=[
+                {
+                    "time_bucket": "2024-01-15T10:00:00",
+                    "call_count": 100,
+                    "input_tokens_sum": 50000,
+                    "output_tokens_sum": 25000,
+                    "total_tokens_sum": 75000,
+                    "latency_avg_ms": 500.5,
+                    "latency_min_ms": 200.0,
+                    "latency_max_ms": 1500.0,
+                    "success_count": 98,
+                    "failure_count": 2,
+                }
+            ]
+        )
 
         from_time = datetime(2024, 1, 1, tzinfo=UTC)
         to_time = datetime(2024, 1, 31, tzinfo=UTC)
@@ -195,20 +197,22 @@ class TestGetLLMUsageEndpoint:
     async def test_get_llm_usage_monthly_granularity(self):
         """Test get_llm_usage with monthly granularity."""
         mock_repo = MagicMock()
-        mock_repo.query_hourly = AsyncMock(return_value=[
-            {
-                "time_bucket": "2024-01-01T00:00:00",
-                "call_count": 5000,
-                "input_tokens_sum": 2500000,
-                "output_tokens_sum": 1250000,
-                "total_tokens_sum": 3750000,
-                "latency_avg_ms": 450.0,
-                "latency_min_ms": 100.0,
-                "latency_max_ms": 2000.0,
-                "success_count": 4950,
-                "failure_count": 50,
-            }
-        ])
+        mock_repo.query_hourly = AsyncMock(
+            return_value=[
+                {
+                    "time_bucket": "2024-01-01T00:00:00",
+                    "call_count": 5000,
+                    "input_tokens_sum": 2500000,
+                    "output_tokens_sum": 1250000,
+                    "total_tokens_sum": 3750000,
+                    "latency_avg_ms": 450.0,
+                    "latency_min_ms": 100.0,
+                    "latency_max_ms": 2000.0,
+                    "success_count": 4950,
+                    "failure_count": 50,
+                }
+            ]
+        )
 
         from_time = datetime(2024, 1, 1, tzinfo=UTC)
         to_time = datetime(2024, 3, 31, tzinfo=UTC)
@@ -236,17 +240,19 @@ class TestGetLLMUsageSummaryEndpoint:
     async def test_get_llm_usage_summary(self):
         """Test get_llm_usage_summary returns correct statistics."""
         mock_repo = MagicMock()
-        mock_repo.get_summary = AsyncMock(return_value={
-            "total_calls": 1000,
-            "total_input_tokens": 500000,
-            "total_output_tokens": 250000,
-            "total_tokens": 750000,
-            "avg_latency_ms": 450.5,
-            "max_latency_ms": 2000.0,
-            "min_latency_ms": 100.0,
-            "success_rate": 0.98,
-            "error_types": {"rate_limit": 10, "timeout": 5},
-        })
+        mock_repo.get_summary = AsyncMock(
+            return_value={
+                "total_calls": 1000,
+                "total_input_tokens": 500000,
+                "total_output_tokens": 250000,
+                "total_tokens": 750000,
+                "avg_latency_ms": 450.5,
+                "max_latency_ms": 2000.0,
+                "min_latency_ms": 100.0,
+                "success_rate": 0.98,
+                "error_types": {"rate_limit": 10, "timeout": 5},
+            }
+        )
 
         from_time = datetime(2024, 1, 1, tzinfo=UTC)
         to_time = datetime(2024, 1, 31, tzinfo=UTC)
@@ -271,15 +277,17 @@ class TestGetLLMUsageSummaryEndpoint:
     async def test_get_llm_usage_summary_with_filters(self):
         """Test get_llm_usage_summary with filters passed to repo."""
         mock_repo = MagicMock()
-        mock_repo.get_summary = AsyncMock(return_value={
-            "total_calls": 500,
-            "total_input_tokens": 250000,
-            "total_output_tokens": 125000,
-            "total_tokens": 375000,
-            "avg_latency_ms": 400.0,
-            "success_rate": 1.0,
-            "error_types": {},
-        })
+        mock_repo.get_summary = AsyncMock(
+            return_value={
+                "total_calls": 500,
+                "total_input_tokens": 250000,
+                "total_output_tokens": 125000,
+                "total_tokens": 375000,
+                "avg_latency_ms": 400.0,
+                "success_rate": 1.0,
+                "error_types": {},
+            }
+        )
 
         from_time = datetime(2024, 1, 1, tzinfo=UTC)
         to_time = datetime(2024, 1, 31, tzinfo=UTC)
@@ -308,17 +316,19 @@ class TestGetLLMUsageSummaryEndpoint:
     async def test_get_llm_usage_summary_empty_data(self):
         """Test get_llm_usage_summary with no data in range."""
         mock_repo = MagicMock()
-        mock_repo.get_summary = AsyncMock(return_value={
-            "total_calls": 0,
-            "total_input_tokens": 0,
-            "total_output_tokens": 0,
-            "total_tokens": 0,
-            "avg_latency_ms": 0.0,
-            "max_latency_ms": 0.0,
-            "min_latency_ms": 0.0,
-            "success_rate": 1.0,
-            "error_types": {},
-        })
+        mock_repo.get_summary = AsyncMock(
+            return_value={
+                "total_calls": 0,
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "total_tokens": 0,
+                "avg_latency_ms": 0.0,
+                "max_latency_ms": 0.0,
+                "min_latency_ms": 0.0,
+                "success_rate": 1.0,
+                "error_types": {},
+            }
+        )
 
         from_time = datetime(2024, 1, 1, tzinfo=UTC)
         to_time = datetime(2024, 1, 31, tzinfo=UTC)
@@ -345,22 +355,24 @@ class TestGetLLMUsageByProviderEndpoint:
     async def test_get_llm_usage_by_provider(self):
         """Test get_llm_usage_by_provider returns provider statistics."""
         mock_repo = MagicMock()
-        mock_repo.get_by_provider = AsyncMock(return_value=[
-            {
-                "provider": "anthropic",
-                "call_count": 500,
-                "total_tokens": 300000,
-                "avg_latency_ms": 400.0,
-                "success_rate": 0.99,
-            },
-            {
-                "provider": "openai",
-                "call_count": 300,
-                "total_tokens": 200000,
-                "avg_latency_ms": 350.0,
-                "success_rate": 0.98,
-            },
-        ])
+        mock_repo.get_by_provider = AsyncMock(
+            return_value=[
+                {
+                    "provider": "anthropic",
+                    "call_count": 500,
+                    "total_tokens": 300000,
+                    "avg_latency_ms": 400.0,
+                    "success_rate": 0.99,
+                },
+                {
+                    "provider": "openai",
+                    "call_count": 300,
+                    "total_tokens": 200000,
+                    "avg_latency_ms": 350.0,
+                    "success_rate": 0.98,
+                },
+            ]
+        )
 
         from_time = datetime(2024, 1, 1, tzinfo=UTC)
         to_time = datetime(2024, 1, 31, tzinfo=UTC)
@@ -381,15 +393,17 @@ class TestGetLLMUsageByProviderEndpoint:
     async def test_get_llm_usage_by_provider_with_llm_type_filter(self):
         """Test get_llm_usage_by_provider with LLM type filter."""
         mock_repo = MagicMock()
-        mock_repo.get_by_provider = AsyncMock(return_value=[
-            {
-                "provider": "anthropic",
-                "call_count": 400,
-                "total_tokens": 250000,
-                "avg_latency_ms": 420.0,
-                "success_rate": 0.98,
-            },
-        ])
+        mock_repo.get_by_provider = AsyncMock(
+            return_value=[
+                {
+                    "provider": "anthropic",
+                    "call_count": 400,
+                    "total_tokens": 250000,
+                    "avg_latency_ms": 420.0,
+                    "success_rate": 0.98,
+                },
+            ]
+        )
 
         from_time = datetime(2024, 1, 1, tzinfo=UTC)
         to_time = datetime(2024, 1, 31, tzinfo=UTC)
@@ -435,24 +449,26 @@ class TestGetLLMUsageByModelEndpoint:
     async def test_get_llm_usage_by_model(self):
         """Test get_llm_usage_by_model returns model statistics."""
         mock_repo = MagicMock()
-        mock_repo.get_by_model = AsyncMock(return_value=[
-            {
-                "model": "claude-3-opus",
-                "provider": "anthropic",
-                "call_count": 300,
-                "total_tokens": 200000,
-                "avg_latency_ms": 500.0,
-                "success_rate": 0.99,
-            },
-            {
-                "model": "gpt-4",
-                "provider": "openai",
-                "call_count": 200,
-                "total_tokens": 150000,
-                "avg_latency_ms": 400.0,
-                "success_rate": 0.98,
-            },
-        ])
+        mock_repo.get_by_model = AsyncMock(
+            return_value=[
+                {
+                    "model": "claude-3-opus",
+                    "provider": "anthropic",
+                    "call_count": 300,
+                    "total_tokens": 200000,
+                    "avg_latency_ms": 500.0,
+                    "success_rate": 0.99,
+                },
+                {
+                    "model": "gpt-4",
+                    "provider": "openai",
+                    "call_count": 200,
+                    "total_tokens": 150000,
+                    "avg_latency_ms": 400.0,
+                    "success_rate": 0.98,
+                },
+            ]
+        )
 
         from_time = datetime(2024, 1, 1, tzinfo=UTC)
         to_time = datetime(2024, 1, 31, tzinfo=UTC)
@@ -474,16 +490,18 @@ class TestGetLLMUsageByModelEndpoint:
     async def test_get_llm_usage_by_model_with_provider_filter(self):
         """Test get_llm_usage_by_model with provider filter."""
         mock_repo = MagicMock()
-        mock_repo.get_by_model = AsyncMock(return_value=[
-            {
-                "model": "claude-3-opus",
-                "provider": "anthropic",
-                "call_count": 300,
-                "total_tokens": 200000,
-                "avg_latency_ms": 500.0,
-                "success_rate": 0.99,
-            },
-        ])
+        mock_repo.get_by_model = AsyncMock(
+            return_value=[
+                {
+                    "model": "claude-3-opus",
+                    "provider": "anthropic",
+                    "call_count": 300,
+                    "total_tokens": 200000,
+                    "avg_latency_ms": 500.0,
+                    "success_rate": 0.99,
+                },
+            ]
+        )
 
         from_time = datetime(2024, 1, 1, tzinfo=UTC)
         to_time = datetime(2024, 1, 31, tzinfo=UTC)
@@ -529,29 +547,31 @@ class TestGetLLMUsageByCallPointEndpoint:
     async def test_get_llm_usage_by_call_point(self):
         """Test get_llm_usage_by_call_point returns call point statistics."""
         mock_repo = MagicMock()
-        mock_repo.get_by_call_point = AsyncMock(return_value=[
-            {
-                "call_point": "classifier",
-                "call_count": 500,
-                "total_tokens": 300000,
-                "avg_latency_ms": 300.0,
-                "success_rate": 0.99,
-            },
-            {
-                "call_point": "analyzer",
-                "call_count": 300,
-                "total_tokens": 200000,
-                "avg_latency_ms": 500.0,
-                "success_rate": 0.98,
-            },
-            {
-                "call_point": "entity_extractor",
-                "call_count": 200,
-                "total_tokens": 150000,
-                "avg_latency_ms": 400.0,
-                "success_rate": 0.97,
-            },
-        ])
+        mock_repo.get_by_call_point = AsyncMock(
+            return_value=[
+                {
+                    "call_point": "classifier",
+                    "call_count": 500,
+                    "total_tokens": 300000,
+                    "avg_latency_ms": 300.0,
+                    "success_rate": 0.99,
+                },
+                {
+                    "call_point": "analyzer",
+                    "call_count": 300,
+                    "total_tokens": 200000,
+                    "avg_latency_ms": 500.0,
+                    "success_rate": 0.98,
+                },
+                {
+                    "call_point": "entity_extractor",
+                    "call_count": 200,
+                    "total_tokens": 150000,
+                    "avg_latency_ms": 400.0,
+                    "success_rate": 0.97,
+                },
+            ]
+        )
 
         from_time = datetime(2024, 1, 1, tzinfo=UTC)
         to_time = datetime(2024, 1, 31, tzinfo=UTC)
@@ -592,8 +612,8 @@ class TestLLMUsageRepoDependency:
 
     def test_get_llm_usage_repo_returns_repo(self):
         """Test get_llm_usage_repo dependency returns repo from Endpoints."""
-        from api.endpoints.admin import get_llm_usage_repo
         from api.endpoints._deps import Endpoints
+        from api.endpoints.admin import get_llm_usage_repo
 
         mock_repo = MagicMock()
         Endpoints._llm_usage_repo = mock_repo
@@ -603,8 +623,8 @@ class TestLLMUsageRepoDependency:
 
     def test_get_llm_usage_repo_raises_on_not_initialized(self):
         """Test get_llm_usage_repo raises HTTPException when not initialized."""
-        from api.endpoints.admin import get_llm_usage_repo
         from api.endpoints._deps import Endpoints
+        from api.endpoints.admin import get_llm_usage_repo
 
         Endpoints._llm_usage_repo = None
 

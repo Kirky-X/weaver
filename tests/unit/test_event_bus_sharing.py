@@ -46,12 +46,12 @@ class TestEventBusSharing:
         container = Container().configure(settings)
 
         pipeline_source = inspect.getsource(container.init_pipeline)
-        assert "if self._event_bus is None:" in pipeline_source, (
-            "init_pipeline must check if self._event_bus already exists before creating one"
-        )
-        assert "self._event_bus = EventBus()" in pipeline_source, (
-            "init_pipeline may create EventBus only when self._event_bus is None"
-        )
+        assert (
+            "if self._event_bus is None:" in pipeline_source
+        ), "init_pipeline must check if self._event_bus already exists before creating one"
+        assert (
+            "self._event_bus = EventBus()" in pipeline_source
+        ), "init_pipeline may create EventBus only when self._event_bus is None"
 
     @pytest.mark.asyncio
     async def test_init_pipeline_reuses_event_bus(self):

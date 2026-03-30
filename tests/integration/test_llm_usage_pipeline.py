@@ -17,13 +17,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from prometheus_client import CONTENT_TYPE_LATEST, generate_latest, REGISTRY
+from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
 
 from core.event.bus import EventBus, LLMUsageEvent
 from core.llm.request import TokenUsage
 from modules.storage.llm_usage_buffer import LLMUsageBuffer
 from modules.storage.llm_usage_repo import LLMUsageRepo
-
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Task 12.1: Provider → Event → Redis → Flush → DB Complete Chain Tests
@@ -61,6 +60,7 @@ class TestLLMUsageEventFlow:
     @pytest.mark.asyncio
     async def test_event_bus_publishes_llm_usage_event(self, event_bus, captured_events):
         """Test EventBus publishes LLMUsageEvent to handlers."""
+
         async def capture_event(event: LLMUsageEvent) -> None:
             captured_events.append(event)
 
@@ -86,6 +86,7 @@ class TestLLMUsageEventFlow:
     @pytest.mark.asyncio
     async def test_multiple_handlers_receive_same_event(self, event_bus, captured_events):
         """Test multiple handlers all receive the same LLMUsageEvent."""
+
         async def handler1(event: LLMUsageEvent) -> None:
             captured_events.append(("handler1", event))
 
@@ -398,59 +399,69 @@ class TestLLMUsageAPIEndpoints:
     def mock_llm_usage_repo(self):
         """Create mock LLM usage repo."""
         repo = MagicMock()
-        repo.query_hourly = AsyncMock(return_value=[
-            {
-                "time_bucket": "2024-01-15T10:00:00",
-                "call_count": 100,
-                "input_tokens_sum": 50000,
-                "output_tokens_sum": 25000,
-                "total_tokens_sum": 75000,
-                "latency_avg_ms": 500.5,
-                "latency_min_ms": 200.0,
-                "latency_max_ms": 1500.0,
-                "success_count": 98,
-                "failure_count": 2,
+        repo.query_hourly = AsyncMock(
+            return_value=[
+                {
+                    "time_bucket": "2024-01-15T10:00:00",
+                    "call_count": 100,
+                    "input_tokens_sum": 50000,
+                    "output_tokens_sum": 25000,
+                    "total_tokens_sum": 75000,
+                    "latency_avg_ms": 500.5,
+                    "latency_min_ms": 200.0,
+                    "latency_max_ms": 1500.0,
+                    "success_count": 98,
+                    "failure_count": 2,
+                }
+            ]
+        )
+        repo.get_summary = AsyncMock(
+            return_value={
+                "total_calls": 1000,
+                "total_input_tokens": 500000,
+                "total_output_tokens": 250000,
+                "total_tokens": 750000,
+                "avg_latency_ms": 450.5,
+                "max_latency_ms": 2000.0,
+                "min_latency_ms": 100.0,
+                "success_rate": 0.98,
+                "error_types": {"timeout": 10, "rate_limit": 5},
             }
-        ])
-        repo.get_summary = AsyncMock(return_value={
-            "total_calls": 1000,
-            "total_input_tokens": 500000,
-            "total_output_tokens": 250000,
-            "total_tokens": 750000,
-            "avg_latency_ms": 450.5,
-            "max_latency_ms": 2000.0,
-            "min_latency_ms": 100.0,
-            "success_rate": 0.98,
-            "error_types": {"timeout": 10, "rate_limit": 5},
-        })
-        repo.get_by_provider = AsyncMock(return_value=[
-            {
-                "provider": "anthropic",
-                "call_count": 500,
-                "total_tokens": 300000,
-                "avg_latency_ms": 400.0,
-                "success_rate": 0.99,
-            }
-        ])
-        repo.get_by_model = AsyncMock(return_value=[
-            {
-                "model": "claude-3-opus",
-                "provider": "anthropic",
-                "call_count": 300,
-                "total_tokens": 200000,
-                "avg_latency_ms": 500.0,
-                "success_rate": 0.99,
-            }
-        ])
-        repo.get_by_call_point = AsyncMock(return_value=[
-            {
-                "call_point": "classifier",
-                "call_count": 500,
-                "total_tokens": 300000,
-                "avg_latency_ms": 300.0,
-                "success_rate": 0.99,
-            }
-        ])
+        )
+        repo.get_by_provider = AsyncMock(
+            return_value=[
+                {
+                    "provider": "anthropic",
+                    "call_count": 500,
+                    "total_tokens": 300000,
+                    "avg_latency_ms": 400.0,
+                    "success_rate": 0.99,
+                }
+            ]
+        )
+        repo.get_by_model = AsyncMock(
+            return_value=[
+                {
+                    "model": "claude-3-opus",
+                    "provider": "anthropic",
+                    "call_count": 300,
+                    "total_tokens": 200000,
+                    "avg_latency_ms": 500.0,
+                    "success_rate": 0.99,
+                }
+            ]
+        )
+        repo.get_by_call_point = AsyncMock(
+            return_value=[
+                {
+                    "call_point": "classifier",
+                    "call_count": 500,
+                    "total_tokens": 300000,
+                    "avg_latency_ms": 300.0,
+                    "success_rate": 0.99,
+                }
+            ]
+        )
         return repo
 
     @pytest.fixture
@@ -564,15 +575,17 @@ class TestLLMUsageAPIWithFilters:
         """Create mock LLM usage repo."""
         repo = MagicMock()
         repo.query_hourly = AsyncMock(return_value=[])
-        repo.get_summary = AsyncMock(return_value={
-            "total_calls": 0,
-            "total_input_tokens": 0,
-            "total_output_tokens": 0,
-            "total_tokens": 0,
-            "avg_latency_ms": 0.0,
-            "success_rate": 1.0,
-            "error_types": {},
-        })
+        repo.get_summary = AsyncMock(
+            return_value={
+                "total_calls": 0,
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "total_tokens": 0,
+                "avg_latency_ms": 0.0,
+                "success_rate": 1.0,
+                "error_types": {},
+            }
+        )
         return repo
 
     @pytest.fixture
@@ -724,7 +737,7 @@ class TestLLMTokenPrometheusMetrics:
         lines = content.split("\n")
 
         # Find TYPE declarations for LLM token metrics
-        type_lines = [l for l in lines if l.startswith("# TYPE llm_token")]
+        type_lines = [line for line in lines if line.startswith("# TYPE llm_token")]
 
         assert len(type_lines) >= 3, "Should have TYPE declarations for all three token metrics"
 
@@ -804,11 +817,18 @@ class TestPrometheusMetricsIntegration:
         from core.observability.metrics import metrics
 
         # Get initial values (might be 0 or already have some value)
-        initial_input = metrics.llm_token_input_total.labels(
-            provider="test_provider", model="test_model", call_point="test_point"
-        )._value.get() if hasattr(metrics.llm_token_input_total.labels(
-            provider="test_provider", model="test_model", call_point="test_point"
-        ), '_value') else 0
+        initial_input = (
+            metrics.llm_token_input_total.labels(
+                provider="test_provider", model="test_model", call_point="test_point"
+            )._value.get()
+            if hasattr(
+                metrics.llm_token_input_total.labels(
+                    provider="test_provider", model="test_model", call_point="test_point"
+                ),
+                "_value",
+            )
+            else 0
+        )
 
         # Create and publish event
         event = LLMUsageEvent(

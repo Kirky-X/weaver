@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from core.constants import HealthStatus
 from core.llm.registry import ProviderInstanceConfig
@@ -264,10 +264,10 @@ class ProviderPool:
                 texts=texts,
                 model=label.model,
             )
-            # embedding 返回 list[list[float]]，包装为 LLMCallResult
+            # embedding returns list[list[float]], wrap as LLMCallResult
             return LLMCallResult(content=embeddings, token_usage=None)
         elif label.llm_type.value == "rerank":
-            # Rerank 特殊处理
+            # Rerank special handling
             query = payload.get("query", "")
             documents = payload.get("documents", [])
             top_n = payload.get("top_n", len(documents))
@@ -279,7 +279,7 @@ class ProviderPool:
                     documents=documents,
                     top_n=top_n,
                 )
-                # rerank 返回 list[dict]，包装为 LLMCallResult
+                # rerank returns list[dict], wrap as LLMCallResult
                 return LLMCallResult(content=result, token_usage=None)
             raise NotImplementedError(f"Provider {self.name} does not support rerank")
 

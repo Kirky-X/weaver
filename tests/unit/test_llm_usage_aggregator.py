@@ -18,7 +18,6 @@ from modules.scheduler.llm_usage_aggregator import (
 )
 from modules.storage.llm_usage_repo import LLMUsageRepo
 
-
 # ── LLMUsageRepo Tests ────────────────────────────────────────
 
 
@@ -218,9 +217,7 @@ class TestLLMUsageAggregatorThread:
         assert agg["provider"] == "aiping"
         assert agg["model"] == "qwen-plus"
 
-    def test_aggregate_data_multiple_groups(
-        self, aggregator: LLMUsageAggregatorThread
-    ) -> None:
+    def test_aggregate_data_multiple_groups(self, aggregator: LLMUsageAggregatorThread) -> None:
         """Test aggregating data with multiple groups."""
         data = {
             "chat::aiping::qwen-plus::classifier::count": "10",
@@ -245,9 +242,7 @@ class TestLLMUsageAggregatorThread:
         assert ("chat::aiping::qwen-plus", "classifier") in result
         assert ("embedding::aiping::text-embedding", "entity_extractor") in result
 
-    def test_aggregate_data_invalid_field(
-        self, aggregator: LLMUsageAggregatorThread
-    ) -> None:
+    def test_aggregate_data_invalid_field(self, aggregator: LLMUsageAggregatorThread) -> None:
         """Test aggregating data with invalid field format."""
         data = {
             "invalid_field": "100",
@@ -402,9 +397,7 @@ class TestAggregatorIntegration:
         return pool
 
     @pytest.mark.asyncio
-    async def test_full_flush_flow(
-        self, mock_redis: MagicMock, mock_postgres: MagicMock
-    ) -> None:
+    async def test_full_flush_flow(self, mock_redis: MagicMock, mock_postgres: MagicMock) -> None:
         """Test the complete flush flow with mocked dependencies."""
         aggregator = LLMUsageAggregatorThread(
             redis_client=mock_redis,

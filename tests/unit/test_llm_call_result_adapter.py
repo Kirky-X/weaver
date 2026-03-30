@@ -104,9 +104,7 @@ class TestProviderPoolAdapter:
         )
 
     @pytest.mark.asyncio
-    async def test_dispatch_to_provider_returns_llm_call_result(
-        self, provider_pool, mock_provider
-    ):
+    async def test_dispatch_to_provider_returns_llm_call_result(self, provider_pool, mock_provider):
         """Test _dispatch_to_provider returns LLMCallResult for chat."""
         mock_provider.chat.return_value = LLMCallResult(
             content="Hello, world!",
@@ -130,9 +128,7 @@ class TestProviderPoolAdapter:
         )
 
     @pytest.mark.asyncio
-    async def test_dispatch_to_provider_embedding_wraps_result(
-        self, provider_pool, mock_provider
-    ):
+    async def test_dispatch_to_provider_embedding_wraps_result(self, provider_pool, mock_provider):
         """Test _dispatch_to_provider wraps embedding result in LLMCallResult."""
         embeddings = [[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
         mock_provider.embed.return_value = embeddings
@@ -154,9 +150,7 @@ class TestProviderPoolAdapter:
         assert result.token_usage is None  # Embedding doesn't return token usage
 
     @pytest.mark.asyncio
-    async def test_dispatch_to_provider_rerank_wraps_result(
-        self, provider_pool, mock_provider
-    ):
+    async def test_dispatch_to_provider_rerank_wraps_result(self, provider_pool, mock_provider):
         """Test _dispatch_to_provider wraps rerank result in LLMCallResult."""
         rerank_results = [{"index": 0, "score": 0.95}, {"index": 1, "score": 0.85}]
         mock_provider.rerank.return_value = rerank_results
@@ -182,9 +176,7 @@ class TestProviderPoolAdapter:
         assert result.token_usage is None
 
     @pytest.mark.asyncio
-    async def test_execute_task_extracts_content_and_tokens(
-        self, provider_pool, mock_provider
-    ):
+    async def test_execute_task_extracts_content_and_tokens(self, provider_pool, mock_provider):
         """Test _execute_task extracts content and token_usage from LLMCallResult."""
         mock_provider.chat.return_value = LLMCallResult(
             content="Hello, world!",
@@ -203,9 +195,7 @@ class TestProviderPoolAdapter:
         assert response.attempt == 0
 
     @pytest.mark.asyncio
-    async def test_execute_task_handles_missing_token_usage(
-        self, provider_pool, mock_provider
-    ):
+    async def test_execute_task_handles_missing_token_usage(self, provider_pool, mock_provider):
         """Test _execute_task handles LLMCallResult without token_usage."""
         mock_provider.chat.return_value = LLMCallResult(
             content="Hello, world!",
@@ -221,9 +211,7 @@ class TestProviderPoolAdapter:
         assert response.tokens_used is None
 
     @pytest.mark.asyncio
-    async def test_execute_task_records_metrics_on_success(
-        self, provider_pool, mock_provider
-    ):
+    async def test_execute_task_records_metrics_on_success(self, provider_pool, mock_provider):
         """Test _execute_task records success metrics."""
         mock_provider.chat.return_value = LLMCallResult(
             content="Hello!",
@@ -241,9 +229,7 @@ class TestProviderPoolAdapter:
         assert metrics.success_rate == 1.0
 
     @pytest.mark.asyncio
-    async def test_execute_task_records_metrics_on_failure(
-        self, provider_pool, mock_provider
-    ):
+    async def test_execute_task_records_metrics_on_failure(self, provider_pool, mock_provider):
         """Test _execute_task records failure metrics."""
         mock_provider.chat.side_effect = TimeoutError("Request timed out")
 
@@ -309,18 +295,14 @@ class TestProviderQueueAdapter:
         mock_provider.chat.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_dispatch_handles_embedding_result(
-        self, provider_queue, mock_provider
-    ):
+    async def test_dispatch_handles_embedding_result(self, provider_queue, mock_provider):
         """Test _dispatch handles embedding result."""
         embeddings = [[0.1, 0.2], [0.3, 0.4]]
         # 注意：当前 _dispatch 只调用 chat，这个测试验证未来的扩展性
         # 如果需要支持 embedding，需要修改 _dispatch 方法
 
     @pytest.mark.asyncio
-    async def test_dispatch_handles_missing_token_usage(
-        self, provider_queue, mock_provider
-    ):
+    async def test_dispatch_handles_missing_token_usage(self, provider_queue, mock_provider):
         """Test _dispatch handles missing token_usage."""
         mock_provider.chat.return_value = LLMCallResult(
             content="Response without token count",
@@ -333,9 +315,7 @@ class TestProviderQueueAdapter:
         assert result == "Response without token count"
 
     @pytest.mark.asyncio
-    async def test_dispatch_converts_non_string_content(
-        self, provider_queue, mock_provider
-    ):
+    async def test_dispatch_converts_non_string_content(self, provider_queue, mock_provider):
         """Test _dispatch converts non-string content to string."""
         # 模拟返回 dict 内容的情况
         mock_provider.chat.return_value = LLMCallResult(

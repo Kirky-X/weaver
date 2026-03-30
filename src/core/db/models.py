@@ -612,9 +612,7 @@ class LLMUsageHourly(Base):
 
     __table_args__ = (
         # Unique constraint for idempotent upsert
-        UniqueConstraint(
-            "time_bucket", "label", "call_point", name="uq_llm_usage_hourly"
-        ),
+        UniqueConstraint("time_bucket", "label", "call_point", name="uq_llm_usage_hourly"),
         Index("ix_llm_usage_hourly_time_bucket", "time_bucket"),
         Index("ix_llm_usage_hourly_provider", "provider"),
         Index("ix_llm_usage_hourly_model", "model"),

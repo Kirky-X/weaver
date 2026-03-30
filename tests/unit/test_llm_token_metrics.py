@@ -4,7 +4,7 @@
 from datetime import UTC, datetime
 
 import pytest
-from prometheus_client import Counter, REGISTRY
+from prometheus_client import REGISTRY, Counter
 
 from core.event.bus import EventBus, LLMUsageEvent
 from core.llm.request import TokenUsage

@@ -345,7 +345,11 @@ async def get_llm_usage(
     # Convert to response models
     usage_records = [
         LLMUsageRecord(
-            time_bucket=datetime.fromisoformat(r["time_bucket"]) if isinstance(r["time_bucket"], str) else r["time_bucket"],
+            time_bucket=(
+                datetime.fromisoformat(r["time_bucket"])
+                if isinstance(r["time_bucket"], str)
+                else r["time_bucket"]
+            ),
             label=r.get("label", ""),
             call_point=r.get("call_point", ""),
             llm_type=r.get("llm_type", ""),

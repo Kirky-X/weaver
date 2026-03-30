@@ -7,8 +7,8 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import and_, cast, delete, func, select
-from sqlalchemy.types import Integer
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.types import Integer
 
 from core.db.models import LLMUsageHourly, LLMUsageRaw
 from core.event.bus import LLMUsageEvent
@@ -510,10 +510,7 @@ class LLMUsageRepo:
         total_calls = summary_row.total_calls or 0
         success_count = summary_row.success_count or 0
 
-        error_types = {
-            row.error_type or "unknown": row.count
-            for row in error_rows
-        }
+        error_types = {row.error_type or "unknown": row.count for row in error_rows}
 
         return {
             "total_calls": total_calls,
@@ -550,19 +547,23 @@ class LLMUsageRepo:
             "model": LLMUsageHourly.model,
         }.get(group_by, LLMUsageHourly.label)
 
-        stmt = select(
-            group_column.label("group_key"),
-            func.sum(LLMUsageHourly.call_count).label("total_calls"),
-            func.sum(LLMUsageHourly.input_tokens_sum).label("total_input_tokens"),
-            func.sum(LLMUsageHourly.output_tokens_sum).label("total_output_tokens"),
-            func.sum(LLMUsageHourly.total_tokens_sum).label("total_tokens"),
-            func.avg(LLMUsageHourly.latency_avg_ms).label("avg_latency_ms"),
-            func.sum(LLMUsageHourly.success_count).label("total_success"),
-            func.sum(LLMUsageHourly.failure_count).label("total_failure"),
-        ).where(
-            LLMUsageHourly.time_bucket >= start_time,
-            LLMUsageHourly.time_bucket < end_time,
-        ).group_by(group_column)
+        stmt = (
+            select(
+                group_column.label("group_key"),
+                func.sum(LLMUsageHourly.call_count).label("total_calls"),
+                func.sum(LLMUsageHourly.input_tokens_sum).label("total_input_tokens"),
+                func.sum(LLMUsageHourly.output_tokens_sum).label("total_output_tokens"),
+                func.sum(LLMUsageHourly.total_tokens_sum).label("total_tokens"),
+                func.avg(LLMUsageHourly.latency_avg_ms).label("avg_latency_ms"),
+                func.sum(LLMUsageHourly.success_count).label("total_success"),
+                func.sum(LLMUsageHourly.failure_count).label("total_failure"),
+            )
+            .where(
+                LLMUsageHourly.time_bucket >= start_time,
+                LLMUsageHourly.time_bucket < end_time,
+            )
+            .group_by(group_column)
+        )
 
         async with self._pool.session() as session:
             result = await session.execute(stmt)
