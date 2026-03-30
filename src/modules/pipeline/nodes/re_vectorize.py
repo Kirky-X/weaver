@@ -33,7 +33,7 @@ class ReVectorizeNode:
             f"{cleaned['title']}\n{cleaned['body'][:2000]}",
         ]
 
-        embeddings = await self._llm.embed("embedding.embedding.qwen3-embedding:0.6b", texts)
+        embeddings = await self._llm.embed("embedding.aiping_embedding.Qwen3-Embedding-0.6B", texts)
 
         state["vectors"] = {
             "title": embeddings[0],

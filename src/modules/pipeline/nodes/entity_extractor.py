@@ -81,7 +81,9 @@ class EntityExtractorNode:
         if spacy_entities:
             try:
                 entity_texts = [f"{e.name}（{e.type}）" for e in spacy_entities]
-                entity_embeds = await self._llm.batch_embed(entity_texts)
+                entity_embeds = await self._llm.embed(
+                    "embedding.aiping_embedding.Qwen3-Embedding-0.6B", entity_texts
+                )
 
                 for i, e in enumerate(spacy_entities):
                     if i < len(entity_embeds) and entity_embeds[i]:
