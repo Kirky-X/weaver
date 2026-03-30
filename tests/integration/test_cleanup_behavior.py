@@ -45,8 +45,11 @@ async def test_multiple_container_shutdown_calls():
     container._redis_client = MagicMock()
     container._redis_client.shutdown = AsyncMock()
 
-    container._pool_manager = MagicMock()
-    container._pool_manager.close_all = AsyncMock()
+    container._neo4j_pool = MagicMock()
+    container._neo4j_pool.shutdown = AsyncMock()
+
+    container._playwright_pool = MagicMock()
+    container._playwright_pool.shutdown = AsyncMock()
 
     # Call shutdown multiple times
     await container.shutdown()
@@ -58,4 +61,5 @@ async def test_multiple_container_shutdown_calls():
     # Verify shutdown was only called once
     assert container._postgres_pool.shutdown.call_count == 1
     assert container._redis_client.shutdown.call_count == 1
-    assert container._pool_manager.close_all.call_count == 1
+    assert container._neo4j_pool.shutdown.call_count == 1
+    assert container._playwright_pool.shutdown.call_count == 1

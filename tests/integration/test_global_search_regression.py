@@ -29,7 +29,7 @@ def mock_llm():
     """Mock LLM client."""
     llm = MagicMock()
     llm.call = AsyncMock(return_value={"content": "Generated answer"})
-    llm.batch_embed = AsyncMock(return_value=[[0.1] * 1536])
+    llm.embed = AsyncMock(return_value=[[0.1] * 1536])
     return llm
 
 
@@ -77,7 +77,7 @@ class TestGlobalSearchRegression:
 
         assert context is not None
         # Verify vector search was attempted
-        assert mock_llm.batch_embed.called or mock_neo4j_pool.execute_query.called
+        assert mock_llm.embed.called or mock_neo4j_pool.execute_query.called
 
     @pytest.mark.asyncio
     async def test_global_search_fallback_to_text_search(self, mock_neo4j_pool, mock_llm):

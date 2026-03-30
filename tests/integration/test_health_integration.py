@@ -7,12 +7,8 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from api.endpoints.health import (
-    health_check as check_health,
-    set_neo4j_pool,
-    set_postgres_pool,
-    set_redis_client,
-)
+from api.endpoints._deps import Endpoints
+from api.endpoints.health import health_check as check_health
 
 
 def create_test_app():
@@ -37,13 +33,13 @@ class TestHealthEndpointIntegration:
     @pytest.fixture(autouse=True)
     def reset_global_pools(self):
         """Reset global pool references before and after each test."""
-        set_postgres_pool(None)
-        set_neo4j_pool(None)
-        set_redis_client(None)
+        Endpoints._postgres = None
+        Endpoints._neo4j = None
+        Endpoints._redis = None
         yield
-        set_postgres_pool(None)
-        set_neo4j_pool(None)
-        set_redis_client(None)
+        Endpoints._postgres = None
+        Endpoints._neo4j = None
+        Endpoints._redis = None
 
     @pytest.fixture
     def mock_postgres_pool(self):
@@ -92,9 +88,9 @@ class TestHealthEndpointIntegration:
     ):
         """Test health endpoint returns 200 when all services are healthy."""
         # Set global pools
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+        Endpoints._postgres = mock_postgres_pool
+        Endpoints._neo4j = mock_neo4j_pool
+        Endpoints._redis = mock_redis_client
 
         # Make request
         response = client.get("/health")
@@ -141,9 +137,9 @@ class TestHealthEndpointIntegration:
         mock_postgres_pool.session_context = MagicMock(return_value=async_context)
 
         # Set global pools
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+        Endpoints._postgres = mock_postgres_pool
+        Endpoints._neo4j = mock_neo4j_pool
+        Endpoints._redis = mock_redis_client
 
         # Make request
         response = client.get("/health")
@@ -175,9 +171,9 @@ class TestHealthEndpointIntegration:
         mock_neo4j_pool.execute_query = AsyncMock(side_effect=Exception("ServiceUnavailable"))
 
         # Set global pools
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+        Endpoints._postgres = mock_postgres_pool
+        Endpoints._neo4j = mock_neo4j_pool
+        Endpoints._redis = mock_redis_client
 
         # Make request
         response = client.get("/health")
@@ -204,9 +200,9 @@ class TestHealthEndpointIntegration:
         mock_redis_client.client.ping = AsyncMock(side_effect=Exception("Connection refused"))
 
         # Set global pools
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+        Endpoints._postgres = mock_postgres_pool
+        Endpoints._neo4j = mock_neo4j_pool
+        Endpoints._redis = mock_redis_client
 
         # Make request
         response = client.get("/health")
@@ -241,9 +237,9 @@ class TestHealthEndpointIntegration:
         mock_redis_client.client.ping = AsyncMock(side_effect=Exception("Failed"))
 
         # Set global pools
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+        Endpoints._postgres = mock_postgres_pool
+        Endpoints._neo4j = mock_neo4j_pool
+        Endpoints._redis = mock_redis_client
 
         # Make request
         response = client.get("/health")
@@ -278,9 +274,9 @@ class TestHealthEndpointIntegration:
         mock_redis_client.client.ping = AsyncMock(side_effect=TimeoutError())
 
         # Set global pools
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+        Endpoints._postgres = mock_postgres_pool
+        Endpoints._neo4j = mock_neo4j_pool
+        Endpoints._redis = mock_redis_client
 
         # Make request
         response = client.get("/health")
@@ -320,9 +316,9 @@ class TestHealthEndpointIntegration:
     ):
         """Test health endpoint response format is correct."""
         # Set global pools
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+        Endpoints._postgres = mock_postgres_pool
+        Endpoints._neo4j = mock_neo4j_pool
+        Endpoints._redis = mock_redis_client
 
         # Make request
         response = client.get("/health")
@@ -361,9 +357,9 @@ class TestHealthEndpointIntegration:
         mock_postgres_pool.session_context = MagicMock(return_value=async_context)
 
         # Neo4j and Redis healthy
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+        Endpoints._postgres = mock_postgres_pool
+        Endpoints._neo4j = mock_neo4j_pool
+        Endpoints._redis = mock_redis_client
 
         # Make request
         response = client.get("/health")
@@ -400,9 +396,9 @@ class TestHealthEndpointIntegration:
         mock_redis_client.client.ping = AsyncMock(side_effect=Exception("Redis connection refused"))
 
         # Set global pools
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+        Endpoints._postgres = mock_postgres_pool
+        Endpoints._neo4j = mock_neo4j_pool
+        Endpoints._redis = mock_redis_client
 
         # Make request
         response = client.get("/health")
@@ -422,9 +418,9 @@ class TestHealthEndpointIntegration:
     ):
         """Test health endpoint handles concurrent requests correctly."""
         # Set global pools
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+        Endpoints._postgres = mock_postgres_pool
+        Endpoints._neo4j = mock_neo4j_pool
+        Endpoints._redis = mock_redis_client
 
         # Make multiple concurrent requests
         import concurrent.futures
@@ -453,9 +449,9 @@ class TestHealthEndpointIntegration:
         import time
 
         # Set global pools
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+        Endpoints._postgres = mock_postgres_pool
+        Endpoints._neo4j = mock_neo4j_pool
+        Endpoints._redis = mock_redis_client
 
         # Measure response time
         start_time = time.time()

@@ -1,0 +1,768 @@
+================================================================================
+LLM Usage API 验证报告
+生成时间: 2026-03-30 00:00:32 UTC
+================================================================================
+
+第一部分: Endpoint Probe (15 个端点探测)
+================================================================================
+--- #1 GET /admin/llm-usage (默认 hourly 粒度) ---
+
+请求:
+  方法: GET
+  URL: /admin/llm-usage
+  参数:
+    from = 2024-01-01T00:00:00Z
+    to = 2024-01-31T23:59:59Z
+
+响应:
+  状态码: 200
+  预期状态码: 200
+  延迟: 3.3ms
+  Body:
+    {
+        "code": 0,
+        "message": "success",
+        "data": {
+            "records": [
+                {
+                    "time_bucket": "2024-01-15T10:00:00",
+                    "label": "",
+                    "call_point": "",
+                    "llm_type": "",
+                    "provider": "",
+                    "model": "",
+                    "call_count": 100,
+                    "input_tokens": 50000,
+                    "output_tokens": 25000,
+                    "total_tokens": 75000,
+                    "latency_avg_ms": 500.5,
+                    "latency_min_ms": 200.0,
+                    "latency_max_ms": 1500.0,
+                    "success_count": 98,
+                    "failure_count": 2
+                },
+                {
+                    "time_bucket": "2024-01-15T11:00:00",
+                    "label": "",
+                    "call_point": "",
+                    "llm_type": "",
+                    "provider": "",
+                    "model": "",
+                    "call_count": 85,
+                    "input_tokens": 42000,
+                    "output_tokens": 21000,
+                    "total_tokens": 63000,
+                    "latency_avg_ms": 480.2,
+                    "latency_min_ms": 180.0,
+                    "latency_max_ms": 1200.0,
+                    "success_count": 84,
+                    "failure_count": 1
+                },
+                {
+                    "time_bucket": "2024-01-15T12:00:00",
+                    "label": "",
+                    "call_point": "",
+                    "llm_type": "",
+                    "provider": "",
+                    "model": "",
+                    "call_count": 120,
+                    "input_tokens": 60000,
+                    "output_tokens": 30000,
+                    "total_tokens": 90000,
+                    "latency_avg_ms": 520.8,
+                    "latency_min_ms": 150.0,
+                    "latency_max_ms": 1800.0,
+                    "success_count": 118,
+                    "failure_count": 2
+                }
+            ],
+            "total": 3
+        },
+        "timestamp": "2026-03-30T08:00:31.922446"
+    }
+
+结果: PASS [OK]
+
+--- #2 GET /admin/llm-usage (daily 粒度) ---
+
+请求:
+  方法: GET
+  URL: /admin/llm-usage
+  参数:
+    from = 2024-01-01T00:00:00Z
+    to = 2024-01-31T23:59:59Z
+    granularity = daily
+
+响应:
+  状态码: 200
+  预期状态码: 200
+  延迟: 1.9ms
+  Body:
+    {
+        "code": 0,
+        "message": "success",
+        "data": {
+            "records": [
+                {
+                    "time_bucket": "2024-01-15T10:00:00",
+                    "label": "",
+                    "call_point": "",
+                    "llm_type": "",
+                    "provider": "",
+                    "model": "",
+                    "call_count": 100,
+                    "input_tokens": 50000,
+                    "output_tokens": 25000,
+                    "total_tokens": 75000,
+                    "latency_avg_ms": 500.5,
+                    "latency_min_ms": 200.0,
+                    "latency_max_ms": 1500.0,
+                    "success_count": 98,
+                    "failure_count": 2
+                },
+                {
+                    "time_bucket": "2024-01-15T11:00:00",
+                    "label": "",
+                    "call_point": "",
+                    "llm_type": "",
+                    "provider": "",
+                    "model": "",
+                    "call_count": 85,
+                    "input_tokens": 42000,
+                    "output_tokens": 21000,
+                    "total_tokens": 63000,
+                    "latency_avg_ms": 480.2,
+                    "latency_min_ms": 180.0,
+                    "latency_max_ms": 1200.0,
+                    "success_count": 84,
+                    "failure_count": 1
+                },
+                {
+                    "time_bucket": "2024-01-15T12:00:00",
+                    "label": "",
+                    "call_point": "",
+                    "llm_type": "",
+                    "provider": "",
+                    "model": "",
+                    "call_count": 120,
+                    "input_tokens": 60000,
+                    "output_tokens": 30000,
+                    "total_tokens": 90000,
+                    "latency_avg_ms": 520.8,
+                    "latency_min_ms": 150.0,
+                    "latency_max_ms": 1800.0,
+                    "success_count": 118,
+                    "failure_count": 2
+                }
+            ],
+            "total": 3
+        },
+        "timestamp": "2026-03-30T08:00:31.934104"
+    }
+
+结果: PASS [OK]
+
+--- #3 GET /admin/llm-usage (monthly 粒度) ---
+
+请求:
+  方法: GET
+  URL: /admin/llm-usage
+  参数:
+    from = 2024-01-01T00:00:00Z
+    to = 2024-01-31T23:59:59Z
+    granularity = monthly
+
+响应:
+  状态码: 200
+  预期状态码: 200
+  延迟: 1.4ms
+  Body:
+    {
+        "code": 0,
+        "message": "success",
+        "data": {
+            "records": [
+                {
+                    "time_bucket": "2024-01-15T10:00:00",
+                    "label": "",
+                    "call_point": "",
+                    "llm_type": "",
+                    "provider": "",
+                    "model": "",
+                    "call_count": 100,
+                    "input_tokens": 50000,
+                    "output_tokens": 25000,
+                    "total_tokens": 75000,
+                    "latency_avg_ms": 500.5,
+                    "latency_min_ms": 200.0,
+                    "latency_max_ms": 1500.0,
+                    "success_count": 98,
+                    "failure_count": 2
+                },
+                {
+                    "time_bucket": "2024-01-15T11:00:00",
+                    "label": "",
+                    "call_point": "",
+                    "llm_type": "",
+                    "provider": "",
+                    "model": "",
+                    "call_count": 85,
+                    "input_tokens": 42000,
+                    "output_tokens": 21000,
+                    "total_tokens": 63000,
+                    "latency_avg_ms": 480.2,
+                    "latency_min_ms": 180.0,
+                    "latency_max_ms": 1200.0,
+                    "success_count": 84,
+                    "failure_count": 1
+                },
+                {
+                    "time_bucket": "2024-01-15T12:00:00",
+                    "label": "",
+                    "call_point": "",
+                    "llm_type": "",
+                    "provider": "",
+                    "model": "",
+                    "call_count": 120,
+                    "input_tokens": 60000,
+                    "output_tokens": 30000,
+                    "total_tokens": 90000,
+                    "latency_avg_ms": 520.8,
+                    "latency_min_ms": 150.0,
+                    "latency_max_ms": 1800.0,
+                    "success_count": 118,
+                    "failure_count": 2
+                }
+            ],
+            "total": 3
+        },
+        "timestamp": "2026-03-30T08:00:31.944594"
+    }
+
+结果: PASS [OK]
+
+--- #4 GET /admin/llm-usage (provider=anthropic) ---
+
+请求:
+  方法: GET
+  URL: /admin/llm-usage
+  参数:
+    from = 2024-01-01T00:00:00Z
+    to = 2024-01-31T23:59:59Z
+    provider = anthropic
+
+响应:
+  状态码: 200
+  预期状态码: 200
+  延迟: 1.4ms
+  Body:
+    {
+        "code": 0,
+        "message": "success",
+        "data": {
+            "records": [
+                {
+                    "time_bucket": "2024-01-15T10:00:00",
+                    "label": "",
+                    "call_point": "",
+                    "llm_type": "",
+                    "provider": "",
+                    "model": "",
+                    "call_count": 100,
+                    "input_tokens": 50000,
+                    "output_tokens": 25000,
+                    "total_tokens": 75000,
+                    "latency_avg_ms": 500.5,
+                    "latency_min_ms": 200.0,
+                    "latency_max_ms": 1500.0,
+                    "success_count": 98,
+                    "failure_count": 2
+                },
+                {
+                    "time_bucket": "2024-01-15T11:00:00",
+                    "label": "",
+                    "call_point": "",
+                    "llm_type": "",
+                    "provider": "",
+                    "model": "",
+                    "call_count": 85,
+                    "input_tokens": 42000,
+                    "output_tokens": 21000,
+                    "total_tokens": 63000,
+                    "latency_avg_ms": 480.2,
+                    "latency_min_ms": 180.0,
+                    "latency_max_ms": 1200.0,
+                    "success_count": 84,
+                    "failure_count": 1
+                },
+                {
+                    "time_bucket": "2024-01-15T12:00:00",
+                    "label": "",
+                    "call_point": "",
+                    "llm_type": "",
+                    "provider": "",
+                    "model": "",
+                    "call_count": 120,
+                    "input_tokens": 60000,
+                    "output_tokens": 30000,
+                    "total_tokens": 90000,
+                    "latency_avg_ms": 520.8,
+                    "latency_min_ms": 150.0,
+                    "latency_max_ms": 1800.0,
+                    "success_count": 118,
+                    "failure_count": 2
+                }
+            ],
+            "total": 3
+        },
+        "timestamp": "2026-03-30T08:00:31.955234"
+    }
+
+结果: PASS [OK]
+
+--- #5 GET /admin/llm-usage (多筛选: model+llm_type+call_point) ---
+
+请求:
+  方法: GET
+  URL: /admin/llm-usage
+  参数:
+    from = 2024-01-01T00:00:00Z
+    to = 2024-01-31T23:59:59Z
+    model = claude-sonnet-4
+    llm_type = chat
+    call_point = classifier
+
+响应:
+  状态码: 200
+  预期状态码: 200
+  延迟: 1.7ms
+  Body:
+    {
+        "code": 0,
+        "message": "success",
+        "data": {
+            "records": [
+                {
+                    "time_bucket": "2024-01-15T10:00:00",
+                    "label": "",
+                    "call_point": "",
+                    "llm_type": "",
+                    "provider": "",
+                    "model": "",
+                    "call_count": 100,
+                    "input_tokens": 50000,
+                    "output_tokens": 25000,
+                    "total_tokens": 75000,
+                    "latency_avg_ms": 500.5,
+                    "latency_min_ms": 200.0,
+                    "latency_max_ms": 1500.0,
+                    "success_count": 98,
+                    "failure_count": 2
+                },
+                {
+                    "time_bucket": "2024-01-15T11:00:00",
+                    "label": "",
+                    "call_point": "",
+                    "llm_type": "",
+                    "provider": "",
+                    "model": "",
+                    "call_count": 85,
+                    "input_tokens": 42000,
+                    "output_tokens": 21000,
+                    "total_tokens": 63000,
+                    "latency_avg_ms": 480.2,
+                    "latency_min_ms": 180.0,
+                    "latency_max_ms": 1200.0,
+                    "success_count": 84,
+                    "failure_count": 1
+                },
+                {
+                    "time_bucket": "2024-01-15T12:00:00",
+                    "label": "",
+                    "call_point": "",
+                    "llm_type": "",
+                    "provider": "",
+                    "model": "",
+                    "call_count": 120,
+                    "input_tokens": 60000,
+                    "output_tokens": 30000,
+                    "total_tokens": 90000,
+                    "latency_avg_ms": 520.8,
+                    "latency_min_ms": 150.0,
+                    "latency_max_ms": 1800.0,
+                    "success_count": 118,
+                    "failure_count": 2
+                }
+            ],
+            "total": 3
+        },
+        "timestamp": "2026-03-30T08:00:31.965062"
+    }
+
+结果: PASS [OK]
+
+--- #6 GET /admin/llm-usage (空数据范围) ---
+
+请求:
+  方法: GET
+  URL: /admin/llm-usage
+  参数:
+    from = 2024-01-01T00:00:00Z
+    to = 2024-01-31T23:59:59Z
+
+响应:
+  状态码: 200
+  预期状态码: 200
+  延迟: 1.4ms
+  Body:
+    {
+        "code": 0,
+        "message": "success",
+        "data": {
+            "records": [],
+            "total": 0
+        },
+        "timestamp": "2026-03-30T08:00:31.975970"
+    }
+
+结果: PASS [OK]
+
+--- #7 GET /admin/llm-usage (缺少 from 参数, 预期 422) ---
+
+请求:
+  方法: GET
+  URL: /admin/llm-usage
+  参数:
+    to = 2024-01-31T23:59:59Z
+
+响应:
+  状态码: 422
+  预期状态码: 422
+  延迟: 2.1ms
+  Body:
+    {
+        "detail": [
+            {
+                "type": "missing",
+                "loc": [
+                    "query",
+                    "from"
+                ],
+                "msg": "Field required",
+                "input": null
+            }
+        ]
+    }
+
+结果: PASS [OK]
+
+--- #8 GET /admin/llm-usage (缺少 to 参数, 预期 422) ---
+
+请求:
+  方法: GET
+  URL: /admin/llm-usage
+  参数:
+    from = 2024-01-01T00:00:00Z
+
+响应:
+  状态码: 422
+  预期状态码: 422
+  延迟: 1.6ms
+  Body:
+    {
+        "detail": [
+            {
+                "type": "missing",
+                "loc": [
+                    "query",
+                    "to"
+                ],
+                "msg": "Field required",
+                "input": null
+            }
+        ]
+    }
+
+结果: PASS [OK]
+
+--- #9 GET /admin/llm-usage (granularity=invalid, 预期 422) ---
+
+请求:
+  方法: GET
+  URL: /admin/llm-usage
+  参数:
+    from = 2024-01-01T00:00:00Z
+    to = 2024-01-31T23:59:59Z
+    granularity = invalid
+
+响应:
+  状态码: 422
+  预期状态码: 422
+  延迟: 1.5ms
+  Body:
+    {
+        "detail": [
+            {
+                "type": "string_pattern_mismatch",
+                "loc": [
+                    "query",
+                    "granularity"
+                ],
+                "msg": "String should match pattern '^(hourly|daily|monthly)$'",
+                "input": "invalid",
+                "ctx": {
+                    "pattern": "^(hourly|daily|monthly)$"
+                }
+            }
+        ]
+    }
+
+结果: PASS [OK]
+
+--- #10 GET /admin/llm-usage/summary (基础查询) ---
+
+请求:
+  方法: GET
+  URL: /admin/llm-usage/summary
+  参数:
+    from = 2024-01-01T00:00:00Z
+    to = 2024-01-31T23:59:59Z
+
+响应:
+  状态码: 200
+  预期状态码: 200
+  延迟: 1.6ms
+  Body:
+    {
+        "code": 0,
+        "message": "success",
+        "data": {
+            "total_calls": 305,
+            "total_input_tokens": 152000,
+            "total_output_tokens": 76000,
+            "total_tokens": 228000,
+            "avg_latency_ms": 500.5,
+            "max_latency_ms": 1800.0,
+            "min_latency_ms": 150.0,
+            "success_rate": 0.9836,
+            "error_types": {
+                "timeout": 3,
+                "rate_limit": 2
+            }
+        },
+        "timestamp": "2026-03-30T08:00:32.017803"
+    }
+
+结果: PASS [OK]
+
+--- #11 GET /admin/llm-usage/summary (带筛选: provider+model) ---
+
+请求:
+  方法: GET
+  URL: /admin/llm-usage/summary
+  参数:
+    from = 2024-01-01T00:00:00Z
+    to = 2024-01-31T23:59:59Z
+    provider = anthropic
+    model = claude-sonnet-4
+
+响应:
+  状态码: 200
+  预期状态码: 200
+  延迟: 1.6ms
+  Body:
+    {
+        "code": 0,
+        "message": "success",
+        "data": {
+            "total_calls": 305,
+            "total_input_tokens": 152000,
+            "total_output_tokens": 76000,
+            "total_tokens": 228000,
+            "avg_latency_ms": 500.5,
+            "max_latency_ms": 1800.0,
+            "min_latency_ms": 150.0,
+            "success_rate": 0.9836,
+            "error_types": {
+                "timeout": 3,
+                "rate_limit": 2
+            }
+        },
+        "timestamp": "2026-03-30T08:00:32.029029"
+    }
+
+结果: PASS [OK]
+
+--- #12 GET /admin/llm-usage/by-provider (基础查询) ---
+
+请求:
+  方法: GET
+  URL: /admin/llm-usage/by-provider
+  参数:
+    from = 2024-01-01T00:00:00Z
+    to = 2024-01-31T23:59:59Z
+
+响应:
+  状态码: 200
+  预期状态码: 200
+  延迟: 1.5ms
+  Body:
+    {
+        "code": 0,
+        "message": "success",
+        "data": [
+            {
+                "provider": "anthropic",
+                "call_count": 180,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 135000,
+                "avg_latency_ms": 480.0,
+                "success_rate": 0.99
+            },
+            {
+                "provider": "aiping",
+                "call_count": 125,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 93000,
+                "avg_latency_ms": 520.0,
+                "success_rate": 0.97
+            }
+        ],
+        "timestamp": "2026-03-30T08:00:32.038725"
+    }
+
+结果: PASS [OK]
+
+--- #13 GET /admin/llm-usage/by-model (provider 筛选) ---
+
+请求:
+  方法: GET
+  URL: /admin/llm-usage/by-model
+  参数:
+    from = 2024-01-01T00:00:00Z
+    to = 2024-01-31T23:59:59Z
+    provider = anthropic
+
+响应:
+  状态码: 200
+  预期状态码: 200
+  延迟: 1.7ms
+  Body:
+    {
+        "code": 0,
+        "message": "success",
+        "data": [
+            {
+                "model": "claude-sonnet-4",
+                "provider": "anthropic",
+                "call_count": 120,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 90000,
+                "avg_latency_ms": 500.0,
+                "success_rate": 0.99
+            },
+            {
+                "model": "claude-haiku-4",
+                "provider": "anthropic",
+                "call_count": 60,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 45000,
+                "avg_latency_ms": 350.0,
+                "success_rate": 0.98
+            },
+            {
+                "model": "qwen-plus",
+                "provider": "aiping",
+                "call_count": 80,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 60000,
+                "avg_latency_ms": 550.0,
+                "success_rate": 0.96
+            }
+        ],
+        "timestamp": "2026-03-30T08:00:32.050071"
+    }
+
+结果: PASS [OK]
+
+--- #14 GET /admin/llm-usage/by-call-point (基础查询) ---
+
+请求:
+  方法: GET
+  URL: /admin/llm-usage/by-call-point
+  参数:
+    from = 2024-01-01T00:00:00Z
+    to = 2024-01-31T23:59:59Z
+
+响应:
+  状态码: 200
+  预期状态码: 200
+  延迟: 2.8ms
+  Body:
+    {
+        "code": 0,
+        "message": "success",
+        "data": [
+            {
+                "call_point": "classifier",
+                "call_count": 100,
+                "total_tokens": 50000,
+                "avg_latency_ms": 300.0,
+                "success_rate": 0.99
+            },
+            {
+                "call_point": "analyzer",
+                "call_count": 80,
+                "total_tokens": 80000,
+                "avg_latency_ms": 600.0,
+                "success_rate": 0.98
+            },
+            {
+                "call_point": "entity_extractor",
+                "call_count": 125,
+                "total_tokens": 98000,
+                "avg_latency_ms": 450.0,
+                "success_rate": 0.97
+            }
+        ],
+        "timestamp": "2026-03-30T08:00:32.062957"
+    }
+
+结果: PASS [OK]
+
+--- #15 GET /admin/llm-usage (无认证, 预期 401) ---
+
+请求:
+  方法: GET
+  URL: /admin/llm-usage
+  参数:
+    from = 2024-01-01T00:00:00Z
+    to = 2024-01-31T23:59:59Z
+
+响应:
+  状态码: 401
+  预期状态码: 401
+  延迟: 71.3ms
+  Body:
+    {
+        "detail": "Missing API key. Provide X-API-Key header."
+    }
+
+结果: PASS [OK]
+
+================================================================================
+Endpoint Probe 汇总: 15/15 PASS
+
+
+================================================================================
+第三部分: 总结
+================================================================================
+
+  Endpoint Probes: 15/15 PASS
+  Pytest: SKIPPED (--skip-pytest)
+  总体结果: PASS

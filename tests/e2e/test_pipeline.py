@@ -22,7 +22,7 @@ class TestPipelineEndpoint:
             headers=auth_headers,
         )
         assert response.status_code == 200
-        data = response.json()
+        data = response.json()["data"]
         assert "task_id" in data
         assert data["task_id"] is not None
         # Status should be queued or running
@@ -41,7 +41,7 @@ class TestPipelineEndpoint:
             headers=auth_headers,
         )
         assert trigger_response.status_code == 200
-        task_id = trigger_response.json()["task_id"]
+        task_id = trigger_response.json()["data"]["task_id"]
 
         # Get the task status
         response = client.get(
@@ -49,7 +49,7 @@ class TestPipelineEndpoint:
             headers=auth_headers,
         )
         assert response.status_code == 200
-        data = response.json()
+        data = response.json()["data"]
         assert data["task_id"] == task_id
         assert "status" in data
 
@@ -81,7 +81,7 @@ class TestPipelineEndpoint:
             headers=auth_headers,
         )
         assert response.status_code == 200
-        data = response.json()
+        data = response.json()["data"]
         assert "task_id" in data
 
     def test_get_nonexistent_task_returns_404(
@@ -107,7 +107,7 @@ class TestPipelineEndpoint:
             headers=auth_headers,
         )
         assert response.status_code == 200
-        data = response.json()
-        # Should have numeric stats
-        assert isinstance(data.get("pending", 0), int)
-        assert isinstance(data.get("running", 0), int)
+        data = response.json()["data"]
+        # Should have queue_depth and article_stats
+        assert isinstance(data.get("queue_depth", 0), int)
+        assert isinstance(data.get("total_tasks", 0), int)

@@ -278,7 +278,7 @@ class TestCommunityReportGenerationPerformance:
         mock_llm._queue.enqueue = AsyncMock(
             return_value='{"title": "Test", "summary": "Summary", "rank": 5}'
         )
-        mock_llm.batch_embed = AsyncMock(return_value=[[0.1] * 1536])
+        mock_llm.embed = AsyncMock(return_value=[[0.1] * 1536])
 
         generator = CommunityReportGenerator(mock_pool, mock_llm)
         generator._repo = MagicMock()

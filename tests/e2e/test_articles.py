@@ -14,7 +14,6 @@ class TestArticlesEndpoint:
         self,
         client: TestClient,  # type: ignore[name-defined]
         auth_headers: dict[str, str],
-        clean_tables: None,
     ) -> None:
         """Test that GET /api/v1/articles returns empty list with fresh DB."""
         response = client.get(
@@ -23,10 +22,12 @@ class TestArticlesEndpoint:
         )
         assert response.status_code == 200
         data = response.json()
-        # Should be a paginated response
-        assert "items" in data or isinstance(data, list)
-        if "items" in data:
-            assert len(data["items"]) == 0
+        # API returns APIResponse wrapper: {code, message, data, timestamp}
+        assert data["code"] == 0
+        assert "data" in data
+        items_data = data["data"]
+        assert "items" in items_data
+        assert len(items_data["items"]) == 0
 
     def test_list_articles_pagination(
         self,
@@ -41,9 +42,11 @@ class TestArticlesEndpoint:
         )
         assert response.status_code == 200
         data = response.json()
-        # Should respect pagination params
-        if "items" in data:
-            assert len(data["items"]) <= 10
+        # API returns APIResponse wrapper: {code, message, data, timestamp}
+        assert data["code"] == 0
+        items_data = data["data"]
+        assert "items" in items_data
+        assert len(items_data["items"]) <= 10
 
     def test_list_articles_filter_by_category(
         self,

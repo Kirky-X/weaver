@@ -30,7 +30,7 @@ class TestSourcesCRUD:
             headers=auth_headers,
         )
         assert response.status_code == 201
-        data = response.json()
+        data = response.json()["data"]
         assert data["id"] == unique_source_id
         assert data["name"] == "Test Source"
         assert data["enabled"] is True
@@ -63,7 +63,7 @@ class TestSourcesCRUD:
             headers=auth_headers,
         )
         assert response.status_code == 200
-        data = response.json()
+        data = response.json()["data"]
         source_ids = [s["id"] for s in data]
         assert unique_source_id in source_ids
 
@@ -94,7 +94,7 @@ class TestSourcesCRUD:
             headers=auth_headers,
         )
         assert response.status_code == 200
-        data = response.json()
+        data = response.json()["data"]
         assert data["id"] == unique_source_id
         assert data["name"] == "Get Test Source"
         assert data["url"] == "https://example.com/get-test.xml"
@@ -130,7 +130,7 @@ class TestSourcesCRUD:
             headers=auth_headers,
         )
         assert response.status_code == 200
-        data = response.json()
+        data = response.json()["data"]
         assert data["name"] == "Updated Name"
         assert data["enabled"] is False
         # Original fields should be preserved

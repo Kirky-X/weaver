@@ -83,7 +83,7 @@ class TestCommunityReportCost:
         llm._queue.enqueue = AsyncMock(
             return_value='{"title": "Test", "summary": "Summary content", "rank": 5}'
         )
-        llm.batch_embed = AsyncMock(return_value=[[0.1] * 1536])
+        llm.embed = AsyncMock(return_value=[[0.1] * 1536])
         return llm
 
     def estimate_report_tokens(

@@ -1,4 +1,4 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved.
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Tests for EmbeddingProvider."""
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ class TestEmbeddingProviderInit:
 
     def test_init_openai_provider(self):
         """Test initialization with OpenAI-compatible endpoint."""
-        with patch("core.llm.providers.embedding.OpenAIEmbeddings") as mock_embeddings:
+        with patch("core.llm.providers.embedding.AsyncOpenAI") as mock_openai:
             from core.llm.providers.embedding import EmbeddingProvider
 
             provider = EmbeddingProvider(
@@ -23,13 +23,13 @@ class TestEmbeddingProviderInit:
                 timeout=30.0,
             )
 
-            mock_embeddings.assert_called_once()
+            mock_openai.assert_called_once()
             assert provider._is_ollama is False
-            assert provider._ollama_endpoint is None
+            assert provider._ollama_base_url is None
 
     def test_init_ollama_provider_with_v1_path(self):
         """Test initialization with Ollama endpoint (with /v1 path)."""
-        with patch("core.llm.providers.embedding.OpenAIEmbeddings") as mock_embeddings:
+        with patch("core.llm.providers.embedding.AsyncOpenAI") as mock_openai:
             from core.llm.providers.embedding import EmbeddingProvider
 
             provider = EmbeddingProvider(
@@ -40,11 +40,11 @@ class TestEmbeddingProviderInit:
 
             # Should detect Ollama and set up native endpoint
             assert provider._is_ollama is True
-            assert provider._ollama_endpoint == "http://localhost:11434/api/embeddings"
+            assert provider._ollama_base_url == "http://localhost:11434"
 
     def test_init_ollama_provider_without_v1_path(self):
         """Test initialization with Ollama endpoint (without /v1 path)."""
-        with patch("core.llm.providers.embedding.OpenAIEmbeddings") as mock_embeddings:
+        with patch("core.llm.providers.embedding.AsyncOpenAI") as mock_openai:
             from core.llm.providers.embedding import EmbeddingProvider
 
             provider = EmbeddingProvider(
@@ -54,11 +54,11 @@ class TestEmbeddingProviderInit:
             )
 
             assert provider._is_ollama is True
-            assert provider._ollama_endpoint == "http://localhost:11434/api/embeddings"
+            assert provider._ollama_base_url == "http://localhost:11434"
 
     def test_init_ollama_detected_by_port(self):
         """Test Ollama detection by port number."""
-        with patch("core.llm.providers.embedding.OpenAIEmbeddings") as mock_embeddings:
+        with patch("core.llm.providers.embedding.AsyncOpenAI") as mock_openai:
             from core.llm.providers.embedding import EmbeddingProvider
 
             provider = EmbeddingProvider(
@@ -71,7 +71,7 @@ class TestEmbeddingProviderInit:
 
     def test_init_custom_model(self):
         """Test initialization with custom model."""
-        with patch("core.llm.providers.embedding.OpenAIEmbeddings") as mock_embeddings:
+        with patch("core.llm.providers.embedding.AsyncOpenAI") as mock_openai:
             from core.llm.providers.embedding import EmbeddingProvider
 
             provider = EmbeddingProvider(
@@ -88,7 +88,7 @@ class TestEmbeddingProviderChat:
 
     def test_chat_raises_not_implemented(self):
         """Test that chat() raises NotImplementedError."""
-        with patch("core.llm.providers.embedding.OpenAIEmbeddings"):
+        with patch("core.llm.providers.embedding.AsyncOpenAI"):
             from core.llm.providers.embedding import EmbeddingProvider
 
             provider = EmbeddingProvider(
@@ -110,14 +110,18 @@ class TestEmbeddingProviderEmbed:
     @pytest.fixture
     def provider(self):
         """Create an EmbeddingProvider instance."""
-        with patch("core.llm.providers.embedding.OpenAIEmbeddings") as mock_embeddings:
+        with patch("core.llm.providers.embedding.AsyncOpenAI") as mock_openai:
             from core.llm.providers.embedding import EmbeddingProvider
 
-            mock_instance = MagicMock()
-            mock_instance.aembed_documents = AsyncMock(
-                return_value=[[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]]
-            )
-            mock_embeddings.return_value = mock_instance
+            mock_client = MagicMock()
+            mock_embeddings = MagicMock()
+            mock_embeddings.data = [
+                MagicMock(embedding=[0.1, 0.2, 0.3]),
+                MagicMock(embedding=[0.4, 0.5, 0.6]),
+            ]
+            mock_client.embeddings = MagicMock()
+            mock_client.embeddings.create = AsyncMock(return_value=mock_embeddings)
+            mock_openai.return_value = mock_client
 
             provider = EmbeddingProvider(
                 api_key="test-key",
@@ -131,30 +135,26 @@ class TestEmbeddingProviderEmbed:
         texts = ["Hello world", "Test embedding"]
         result = await provider.embed(texts)
 
-        # embed() 返回 LLMCallResult
-        assert hasattr(result, "content")
-        assert hasattr(result, "token_usage")
-        assert len(result.content) == 2
-        assert result.content[0] == [0.1, 0.2, 0.3]
-        assert result.content[1] == [0.4, 0.5, 0.6]
-        assert result.token_usage is not None
+        assert len(result) == 2
+        assert result[0] == [0.1, 0.2, 0.3]
+        assert result[1] == [0.4, 0.5, 0.6]
 
     @pytest.mark.asyncio
-    async def test_embed_uses_client_aembed_documents(self, provider):
-        """Test that embed() calls client's aembed_documents."""
+    async def test_embed_uses_client_embeddings_create(self, provider):
+        """Test that embed() calls client's embeddings.create."""
         texts = ["text1", "text2"]
         await provider.embed(texts)
 
-        provider._client.aembed_documents.assert_called_once_with(texts)
+        provider._client.embeddings.create.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_embed_ollama_native_endpoint(self):
         """Test embed() with Ollama native endpoint."""
-        with patch("core.llm.providers.embedding.OpenAIEmbeddings") as mock_embeddings:
+        with patch("core.llm.providers.embedding.AsyncOpenAI") as mock_openai:
             from core.llm.providers.embedding import EmbeddingProvider
 
-            mock_instance = MagicMock()
-            mock_embeddings.return_value = mock_instance
+            mock_client = MagicMock()
+            mock_openai.return_value = mock_client
 
             provider = EmbeddingProvider(
                 api_key="test-key",
@@ -163,7 +163,7 @@ class TestEmbeddingProviderEmbed:
             )
 
             # Mock httpx.AsyncClient at the module level where it's imported
-            with patch("httpx.AsyncClient") as mock_client:
+            with patch("httpx.AsyncClient") as mock_client_class:
                 mock_response = MagicMock()
                 mock_response.json.return_value = {"embedding": [0.1, 0.2, 0.3]}
                 mock_response.raise_for_status = MagicMock()
@@ -172,26 +172,24 @@ class TestEmbeddingProviderEmbed:
                 mock_async_client.__aenter__ = AsyncMock(return_value=mock_async_client)
                 mock_async_client.__aexit__ = AsyncMock(return_value=None)
                 mock_async_client.post = AsyncMock(return_value=mock_response)
-                mock_client.return_value = mock_async_client
+                mock_client_class.return_value = mock_async_client
 
                 texts = ["test text"]
                 result = await provider.embed(texts)
 
-                # embed() 返回 LLMCallResult
-                assert hasattr(result, "content")
-                assert len(result.content) == 1
-                assert result.content[0] == [0.1, 0.2, 0.3]
+                assert len(result) == 1
+                assert result[0] == [0.1, 0.2, 0.3]
                 # Verify Ollama native endpoint was called
                 mock_async_client.post.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_embed_multiple_texts_ollama(self):
         """Test embed() with multiple texts for Ollama."""
-        with patch("core.llm.providers.embedding.OpenAIEmbeddings") as mock_embeddings:
+        with patch("core.llm.providers.embedding.AsyncOpenAI") as mock_openai:
             from core.llm.providers.embedding import EmbeddingProvider
 
-            mock_instance = MagicMock()
-            mock_embeddings.return_value = mock_instance
+            mock_client = MagicMock()
+            mock_openai.return_value = mock_client
 
             provider = EmbeddingProvider(
                 api_key="test-key",
@@ -199,7 +197,7 @@ class TestEmbeddingProviderEmbed:
                 model="nomic-embed-text",
             )
 
-            with patch("httpx.AsyncClient") as mock_client:
+            with patch("httpx.AsyncClient") as mock_client_class:
                 # Create different responses for each call
                 responses = [
                     MagicMock(json=lambda: {"embedding": [0.1, 0.2]}, raise_for_status=MagicMock()),
@@ -211,34 +209,34 @@ class TestEmbeddingProviderEmbed:
                 mock_async_client.__aenter__ = AsyncMock(return_value=mock_async_client)
                 mock_async_client.__aexit__ = AsyncMock(return_value=None)
                 mock_async_client.post = AsyncMock(side_effect=responses)
-                mock_client.return_value = mock_async_client
+                mock_client_class.return_value = mock_async_client
 
                 texts = ["text1", "text2", "text3"]
                 result = await provider.embed(texts)
 
-                # embed() 返回 LLMCallResult
-                assert len(result.content) == 3
-                assert result.content[0] == [0.1, 0.2]
-                assert result.content[1] == [0.3, 0.4]
-                assert result.content[2] == [0.5, 0.6]
+                assert len(result) == 3
+                assert result[0] == [0.1, 0.2]
+                assert result[1] == [0.3, 0.4]
+                assert result[2] == [0.5, 0.6]
 
     @pytest.mark.asyncio
     async def test_embed_model_override_openai(self, provider):
-        """Test embed() with model override (OpenAI ignores it)."""
+        """Test embed() with model override."""
         texts = ["test"]
         await provider.embed(texts, model="override-model")
 
-        # Model override is not supported by LangChain, so it's ignored
-        provider._client.aembed_documents.assert_called_once_with(texts)
+        # Check the call was made with the override model
+        call_kwargs = provider._client.embeddings.create.call_args[1]
+        assert call_kwargs["model"] == "override-model"
 
     @pytest.mark.asyncio
     async def test_embed_model_override_ollama(self):
         """Test embed() with model override for Ollama."""
-        with patch("core.llm.providers.embedding.OpenAIEmbeddings") as mock_embeddings:
+        with patch("core.llm.providers.embedding.AsyncOpenAI") as mock_openai:
             from core.llm.providers.embedding import EmbeddingProvider
 
-            mock_instance = MagicMock()
-            mock_embeddings.return_value = mock_instance
+            mock_client = MagicMock()
+            mock_openai.return_value = mock_client
 
             provider = EmbeddingProvider(
                 api_key="test-key",
@@ -246,7 +244,7 @@ class TestEmbeddingProviderEmbed:
                 model="default-model",
             )
 
-            with patch("httpx.AsyncClient") as mock_client:
+            with patch("httpx.AsyncClient") as mock_client_class:
                 mock_response = MagicMock()
                 mock_response.json.return_value = {"embedding": [0.1, 0.2]}
                 mock_response.raise_for_status = MagicMock()
@@ -255,7 +253,7 @@ class TestEmbeddingProviderEmbed:
                 mock_async_client.__aenter__ = AsyncMock(return_value=mock_async_client)
                 mock_async_client.__aexit__ = AsyncMock(return_value=None)
                 mock_async_client.post = AsyncMock(return_value=mock_response)
-                mock_client.return_value = mock_async_client
+                mock_client_class.return_value = mock_async_client
 
                 await provider.embed(["test"], model="override-model")
 
@@ -270,12 +268,15 @@ class TestEmbeddingProviderEmbedQuery:
     @pytest.fixture
     def provider(self):
         """Create an EmbeddingProvider instance."""
-        with patch("core.llm.providers.embedding.OpenAIEmbeddings") as mock_embeddings:
+        with patch("core.llm.providers.embedding.AsyncOpenAI") as mock_openai:
             from core.llm.providers.embedding import EmbeddingProvider
 
-            mock_instance = MagicMock()
-            mock_instance.aembed_query = AsyncMock(return_value=[0.1, 0.2, 0.3])
-            mock_embeddings.return_value = mock_instance
+            mock_client = MagicMock()
+            mock_embeddings = MagicMock()
+            mock_embeddings.data = [MagicMock(embedding=[0.1, 0.2, 0.3])]
+            mock_client.embeddings = MagicMock()
+            mock_client.embeddings.create = AsyncMock(return_value=mock_embeddings)
+            mock_openai.return_value = mock_client
 
             provider = EmbeddingProvider(
                 api_key="test-key",
@@ -289,14 +290,14 @@ class TestEmbeddingProviderEmbedQuery:
         result = await provider.embed_query("search query")
 
         assert result == [0.1, 0.2, 0.3]
-        provider._client.aembed_query.assert_called_once_with("search query")
 
     @pytest.mark.asyncio
     async def test_embed_query_empty_string(self, provider):
         """Test embed_query() with empty string."""
         result = await provider.embed_query("")
 
-        provider._client.aembed_query.assert_called_once_with("")
+        # Should return the embedding
+        assert result == [0.1, 0.2, 0.3]
 
 
 class TestEmbeddingProviderClose:
@@ -305,7 +306,11 @@ class TestEmbeddingProviderClose:
     @pytest.fixture
     def provider(self):
         """Create an EmbeddingProvider instance."""
-        with patch("core.llm.providers.embedding.OpenAIEmbeddings"):
+        with patch("core.llm.providers.embedding.AsyncOpenAI") as mock_openai:
+            mock_client = MagicMock()
+            mock_client.close = AsyncMock()
+            mock_openai.return_value = mock_client
+
             from core.llm.providers.embedding import EmbeddingProvider
 
             provider = EmbeddingProvider(
@@ -319,6 +324,7 @@ class TestEmbeddingProviderClose:
         """Test close() does not raise errors."""
         # Should not raise any exception
         await provider.close()
+        provider._client.close.assert_called_once()
 
 
 class TestEmbeddingProviderEdgeCases:
@@ -327,12 +333,15 @@ class TestEmbeddingProviderEdgeCases:
     @pytest.mark.asyncio
     async def test_embed_empty_list(self):
         """Test embed() with empty list."""
-        with patch("core.llm.providers.embedding.OpenAIEmbeddings") as mock_embeddings:
+        with patch("core.llm.providers.embedding.AsyncOpenAI") as mock_openai:
             from core.llm.providers.embedding import EmbeddingProvider
 
-            mock_instance = MagicMock()
-            mock_instance.aembed_documents = AsyncMock(return_value=[])
-            mock_embeddings.return_value = mock_instance
+            mock_client = MagicMock()
+            mock_embeddings = MagicMock()
+            mock_embeddings.data = []
+            mock_client.embeddings = MagicMock()
+            mock_client.embeddings.create = AsyncMock(return_value=mock_embeddings)
+            mock_openai.return_value = mock_client
 
             provider = EmbeddingProvider(
                 api_key="test-key",
@@ -340,18 +349,20 @@ class TestEmbeddingProviderEdgeCases:
             )
 
             result = await provider.embed([])
-            # embed() 返回 LLMCallResult
-            assert result.content == []
+            assert result == []
 
     @pytest.mark.asyncio
     async def test_embed_single_text(self):
         """Test embed() with single text."""
-        with patch("core.llm.providers.embedding.OpenAIEmbeddings") as mock_embeddings:
+        with patch("core.llm.providers.embedding.AsyncOpenAI") as mock_openai:
             from core.llm.providers.embedding import EmbeddingProvider
 
-            mock_instance = MagicMock()
-            mock_instance.aembed_documents = AsyncMock(return_value=[[0.1, 0.2]])
-            mock_embeddings.return_value = mock_instance
+            mock_client = MagicMock()
+            mock_embeddings = MagicMock()
+            mock_embeddings.data = [MagicMock(embedding=[0.1, 0.2])]
+            mock_client.embeddings = MagicMock()
+            mock_client.embeddings.create = AsyncMock(return_value=mock_embeddings)
+            mock_openai.return_value = mock_client
 
             provider = EmbeddingProvider(
                 api_key="test-key",
@@ -359,5 +370,4 @@ class TestEmbeddingProviderEdgeCases:
             )
 
             result = await provider.embed(["single text"])
-            # embed() 返回 LLMCallResult
-            assert len(result.content) == 1
+            assert len(result) == 1

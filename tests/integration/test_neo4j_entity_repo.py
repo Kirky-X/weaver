@@ -175,7 +175,7 @@ class TestNeo4jEntityRepoIntegration:
         await entity_repo.merge_relation(
             from_neo4j_id="source-id",
             to_neo4j_id="target-id",
-            relation_type="RELATED_TO",
+            edge_type="RELATED_TO",
             properties={"weight": 0.9, "source_article_id": "article-123"},
         )
 
@@ -189,7 +189,7 @@ class TestNeo4jEntityRepoIntegration:
         await entity_repo.merge_relation(
             from_neo4j_id="source-id",
             to_neo4j_id="target-id",
-            relation_type="RELATED_TO",
+            edge_type="RELATED_TO",
         )
 
         mock_pool.execute_query.assert_called_once()

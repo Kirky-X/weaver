@@ -71,7 +71,7 @@ class TestQualityScorerNodeIntegration:
         from core.llm.output_validator import QualityScorerOutput
         from modules.pipeline.nodes.quality_scorer import QualityScorerNode
 
-        mock_llm.call = AsyncMock(return_value=QualityScorerOutput(score=0.75))
+        mock_llm.call_at = AsyncMock(return_value=QualityScorerOutput(score=0.75))
 
         node = QualityScorerNode(mock_llm, mock_budget, mock_prompt_loader)
         state = _make_state()
@@ -97,7 +97,7 @@ class TestQualityScorerNodeIntegration:
         result = await node.execute(state)
 
         assert "quality_score" not in result
-        mock_llm.call.assert_not_called()
+        mock_llm.call_at.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_quality_scorer_uses_default_on_llm_error(
@@ -106,7 +106,7 @@ class TestQualityScorerNodeIntegration:
         """Test that quality scorer uses default 0.5 score on LLM failure."""
         from modules.pipeline.nodes.quality_scorer import QualityScorerNode
 
-        mock_llm.call = AsyncMock(side_effect=Exception("LLM error"))
+        mock_llm.call_at = AsyncMock(side_effect=Exception("LLM error"))
 
         node = QualityScorerNode(mock_llm, mock_budget, mock_prompt_loader)
         state = _make_state()
@@ -125,7 +125,7 @@ class TestQualityScorerNodeIntegration:
         from core.llm.output_validator import QualityScorerOutput
         from modules.pipeline.nodes.quality_scorer import QualityScorerNode
 
-        mock_llm.call = AsyncMock(return_value=QualityScorerOutput(score=0.85))
+        mock_llm.call_at = AsyncMock(return_value=QualityScorerOutput(score=0.85))
 
         node = QualityScorerNode(mock_llm, mock_budget, mock_prompt_loader)
         state = _make_state()
@@ -154,7 +154,7 @@ class TestReVectorizeNodeIntegration:
         """Test that re-vectorize sets the vectors dict in state."""
         from modules.pipeline.nodes.re_vectorize import ReVectorizeNode
 
-        mock_llm.batch_embed = AsyncMock(return_value=[[0.1] * 10, [0.2] * 10])
+        mock_llm.embed = AsyncMock(return_value=[[0.1] * 10, [0.2] * 10])
 
         node = ReVectorizeNode(mock_llm)
         state = _make_state()
@@ -180,7 +180,7 @@ class TestReVectorizeNodeIntegration:
         result = await node.execute(state)
 
         assert "vectors" not in result
-        mock_llm.batch_embed.assert_not_called()
+        mock_llm.embed.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_re_vectorize_skips_merged_state(self, mock_llm):
@@ -194,14 +194,14 @@ class TestReVectorizeNodeIntegration:
         result = await node.execute(state)
 
         assert "vectors" not in result
-        mock_llm.batch_embed.assert_not_called()
+        mock_llm.embed.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_re_vectorize_custom_model_id(self, mock_llm):
         """Test that re-vectorize uses a custom model_id when specified."""
         from modules.pipeline.nodes.re_vectorize import ReVectorizeNode
 
-        mock_llm.batch_embed = AsyncMock(return_value=[[0.1] * 10, [0.2] * 10])
+        mock_llm.embed = AsyncMock(return_value=[[0.1] * 10, [0.2] * 10])
 
         node = ReVectorizeNode(mock_llm, model_id="custom-embedding-model")
         state = _make_state()
@@ -313,7 +313,7 @@ class TestPipelineBatchMergerNodeIntegration:
         from modules.pipeline.nodes.batch_merger import BatchMergerNode
 
         mock_llm = AsyncMock()
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             return_value=MagicMock(
                 primary_url="https://example.com/article1",
                 merged_urls=["https://example.com/article2"],
@@ -366,7 +366,7 @@ class TestPipelineTaskIdPropagation:
         from modules.pipeline.nodes.quality_scorer import QualityScorerNode
 
         mock_llm = AsyncMock()
-        mock_llm.call = AsyncMock(return_value=QualityScorerOutput(score=0.8))
+        mock_llm.call_at = AsyncMock(return_value=QualityScorerOutput(score=0.8))
 
         mock_budget = MagicMock()
         mock_budget.truncate = lambda text, call_point: text
@@ -390,7 +390,7 @@ class TestPipelineTaskIdPropagation:
         from modules.pipeline.nodes.re_vectorize import ReVectorizeNode
 
         mock_llm = AsyncMock()
-        mock_llm.batch_embed = AsyncMock(return_value=[[0.1] * 10, [0.2] * 10])
+        mock_llm.embed = AsyncMock(return_value=[[0.1] * 10, [0.2] * 10])
 
         node = ReVectorizeNode(mock_llm)
         task_id = uuid.uuid4()

@@ -158,24 +158,26 @@ class TestSourcesEndpoint:
         mock_repo.get = AsyncMock(return_value=None)
         mock_repo.upsert = AsyncMock(side_effect=lambda cfg: cfg)
 
+        # Mock scheduler with registry
+        mock_scheduler = MagicMock()
+        mock_scheduler._registry = MagicMock()
+        mock_scheduler._registry.add_source = MagicMock()
+
         request = SourceCreateRequest(
             id="new-source",
             name="New Source",
             url="https://new.com/feed.xml",
         )
 
-        # Mock container to avoid RuntimeError
-        mock_container = MagicMock()
-        mock_container._source_scheduler = None
-
-        with patch("container.get_container", return_value=mock_container):
-            result = await create_source(
-                request=request,
-                _="test-key",
-                repo=mock_repo,
-            )
+        result = await create_source(
+            request=request,
+            _="test-key",
+            repo=mock_repo,
+            scheduler=mock_scheduler,
+        )
         assert result.data.id == "new-source"
         mock_repo.upsert.assert_called_once()
+        mock_scheduler._registry.add_source.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_create_source_endpoint_conflict(self):

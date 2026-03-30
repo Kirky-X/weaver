@@ -48,9 +48,8 @@ class TestCommunityReportGeneratorGenerateReport:
         llm = MagicMock()
         llm._prompts = MagicMock()
         llm._prompts.get = MagicMock(return_value="Test prompt")
-        llm._queue = MagicMock()
-        llm._queue.enqueue = AsyncMock()
-        llm.batch_embed = AsyncMock(return_value=[[0.1] * 1536])
+        llm.call_at = AsyncMock()
+        llm.embed = AsyncMock(return_value=[[0.1] * 1536])
 
         generator = CommunityReportGenerator(pool, llm)
         generator._repo = MagicMock()
@@ -78,18 +77,17 @@ class TestCommunityReportGeneratorGenerateReport:
             ]
         )
 
-        # Mock LLM response
-        llm_response = json.dumps(
-            {
-                "title": "AI技术社区",
-                "summary": "这是一个关于AI技术的社区",
-                "full_content": "完整报告内容...",
-                "key_entities": ["OpenAI", "GPT-4"],
-                "key_relationships": ["OpenAI --开发--> GPT-4"],
-                "rank": 8.5,
-            }
+        # Mock LLM response - call_at returns CommunityReportOutput when output_model is used
+        generator._llm.call_at = AsyncMock(
+            return_value=CommunityReportOutput(
+                title="AI技术社区",
+                summary="这是一个关于AI技术的社区",
+                full_content="完整报告内容...",
+                key_entities=["OpenAI", "GPT-4"],
+                key_relationships=["OpenAI --开发--> GPT-4"],
+                rank=8.5,
+            )
         )
-        generator._llm._queue.enqueue = AsyncMock(return_value=llm_response)
 
         result = await generator.generate_report("community-1")
 
@@ -135,7 +133,7 @@ class TestCommunityReportGeneratorGenerateReport:
         )
 
         # LLM returns None
-        generator._llm._queue.enqueue = AsyncMock(return_value=None)
+        generator._llm.call_at = AsyncMock(return_value=None)
 
         result = await generator.generate_report("community-1")
 
@@ -155,9 +153,8 @@ class TestCommunityReportGeneratorGenerateAllReports:
         llm = MagicMock()
         llm._prompts = MagicMock()
         llm._prompts.get = MagicMock(return_value="Test prompt")
-        llm._queue = MagicMock()
-        llm._queue.enqueue = AsyncMock()
-        llm.batch_embed = AsyncMock(return_value=[[0.1] * 1536])
+        llm.call_at = AsyncMock()
+        llm.embed = AsyncMock(return_value=[[0.1] * 1536])
 
         generator = CommunityReportGenerator(pool, llm)
         generator._repo = MagicMock()

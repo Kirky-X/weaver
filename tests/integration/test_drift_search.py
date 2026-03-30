@@ -121,16 +121,14 @@ class TestDRIFTSarchPrimerPhase:
                 "total_communities": 3,
                 "community_ids": ["c1", "c2", "c3"],
             }
-            mock_context.to_string.return_value = "Community context..."
+            mock_context.to_prompt.return_value = "Community context..."
             mock_build.return_value = mock_context
 
             # Mock LLM response
-            mock_llm.call = AsyncMock(
-                return_value={
-                    "content": (
-                        "Initial answer about the topic.\n\n后续问题：\n1. What about X?\n2. How does Y work?"
-                    )
-                }
+            mock_llm.call_at = AsyncMock(
+                return_value=(
+                    "Initial answer about the topic.\n\n后续问题：\n1. What about X?\n2. How does Y work?"
+                )
             )
 
             result = await engine._primer_phase("What is AI?")
@@ -279,8 +277,8 @@ class TestDRIFTSarchAggregation:
             llm=mock_llm,
         )
 
-        mock_llm.call = AsyncMock(
-            return_value={"content": "Comprehensive answer combining all sources. [置信度: 0.85]"}
+        mock_llm.call_at = AsyncMock(
+            return_value="Comprehensive answer combining all sources. [置信度: 0.85]"
         )
 
         primer = {"answer": "Initial answer from communities"}
@@ -306,9 +304,7 @@ class TestDRIFTSarchAggregation:
             llm=mock_llm,
         )
 
-        mock_llm.call = AsyncMock(
-            return_value={"content": "Answer based on primer only. [置信度: 0.75]"}
-        )
+        mock_llm.call_at = AsyncMock(return_value="Answer based on primer only. [置信度: 0.75]")
 
         result = await engine._aggregate_results(
             query="Query",
@@ -334,11 +330,11 @@ class TestDRIFTSarchFullWorkflow:
         with patch.object(engine._context_builder, "build", new_callable=AsyncMock) as mock_build:
             mock_context = MagicMock()
             mock_context.metadata = {"total_communities": 2}
-            mock_context.to_string.return_value = "Context"
+            mock_context.to_prompt.return_value = "Context"
             mock_build.return_value = mock_context
 
             # Mock LLM responses
-            mock_llm.call = AsyncMock(return_value={"content": "Answer [置信度: 0.8]"})
+            mock_llm.call_at = AsyncMock(return_value="Answer [置信度: 0.8]")
 
             result = await engine.search("What is machine learning?")
 
@@ -390,10 +386,10 @@ class TestDRIFTSarchFullWorkflow:
         with patch.object(engine._context_builder, "build", new_callable=AsyncMock) as mock_build:
             mock_context = MagicMock()
             mock_context.metadata = {"total_communities": 1}
-            mock_context.to_string.return_value = "Context"
+            mock_context.to_prompt.return_value = "Context"
             mock_build.return_value = mock_context
 
-            mock_llm.call = AsyncMock(return_value={"content": "Answer [置信度: 0.8]"})
+            mock_llm.call_at = AsyncMock(return_value="Answer [置信度: 0.8]")
 
             result = await engine.search("Test query")
 

@@ -275,7 +275,7 @@ class TestDRIFTSearchEnginePrimerPhase:
         """Test primer phase with communities found."""
         mock_pool = MagicMock()
         mock_llm = MagicMock()
-        mock_llm.call = AsyncMock(return_value={"content": "答案内容\n\n1. 后续问题？"})
+        mock_llm.call_at = AsyncMock(return_value="答案内容\n\n1. 后续问题？")
 
         with (
             patch("modules.search.engines.drift_search.GlobalContextBuilder") as mock_builder,
@@ -398,7 +398,7 @@ class TestDRIFTSearchEngineAggregateResults:
         """Test result aggregation."""
         mock_pool = MagicMock()
         mock_llm = MagicMock()
-        mock_llm.call = AsyncMock(return_value={"content": "最终答案 [置信度: 0.8]"})
+        mock_llm.call_at = AsyncMock(return_value="最终答案 [置信度: 0.8]")
 
         with (
             patch("modules.search.engines.drift_search.GlobalContextBuilder"),
@@ -459,10 +459,10 @@ class TestDRIFTSearchEngineSearch:
         """Test full DRIFT search flow."""
         mock_pool = MagicMock()
         mock_llm = MagicMock()
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             side_effect=[
-                {"content": "初始答案\n\n1. 后续问题？"},
-                {"content": "最终答案 [置信度: 0.85]"},
+                "初始答案\n\n1. 后续问题？",
+                "最终答案 [置信度: 0.85]",
             ]
         )
 

@@ -118,7 +118,7 @@ class TestDRIFTSearchEngine:
         """Create mock LLM client."""
         llm = MagicMock()
         llm.call = AsyncMock(return_value={"content": "Test answer"})
-        llm.batch_embed = AsyncMock(return_value=[[0.1] * 1024])
+        llm.embed = AsyncMock(return_value=[[0.1] * 1024])
         return llm
 
     @pytest.fixture
@@ -194,10 +194,10 @@ class TestDRIFTSearchEngine:
             engine_with_mocks._context_builder, "build", AsyncMock(return_value=mock_context)
         ):
             # Mock LLM responses
-            mock_llm.call = AsyncMock(
+            mock_llm.call_at = AsyncMock(
                 side_effect=[
-                    {"content": "初始答案\n\n1. 后续问题一？\n2. 后续问题二？"},
-                    {"content": "综合答案 [置信度: 0.85]"},
+                    "初始答案\n\n1. 后续问题一？\n2. 后续问题二？",
+                    "综合答案 [置信度: 0.85]",
                 ]
             )
 
@@ -243,9 +243,7 @@ class TestDRIFTSearchEngine:
         }
         mock_context.to_string = MagicMock(return_value="Community reports")
 
-        mock_llm.call = AsyncMock(
-            return_value={"content": "初步答案\n\n1. 后续问题一？\n2. 后续问题二？"}
-        )
+        mock_llm.call_at = AsyncMock(return_value="初步答案\n\n1. 后续问题一？\n2. 后续问题二？")
 
         with patch.object(engine._context_builder, "build", AsyncMock(return_value=mock_context)):
             result = await engine._primer_phase("测试查询")
@@ -315,7 +313,7 @@ class TestDRIFTSearchEngine:
     @pytest.mark.asyncio
     async def test_aggregate_results(self, engine, mock_llm):
         """Test result aggregation."""
-        mock_llm.call = AsyncMock(return_value={"content": "综合答案 [置信度: 0.8]"})
+        mock_llm.call_at = AsyncMock(return_value="综合答案 [置信度: 0.8]")
 
         result = await engine._aggregate_results(
             query="测试查询",
@@ -503,7 +501,7 @@ class TestDRIFTSearchEngine:
         mock_context.metadata = {"total_communities": 2}
         mock_context.to_string = MagicMock(return_value="Context")
 
-        mock_llm.call = AsyncMock(side_effect=Exception("LLM error"))
+        mock_llm.call_at = AsyncMock(side_effect=Exception("LLM error"))
 
         with patch.object(engine._context_builder, "build", AsyncMock(return_value=mock_context)):
             with pytest.raises(Exception, match="LLM error"):

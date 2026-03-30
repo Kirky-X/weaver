@@ -15,6 +15,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+# Skip all BM25 tests if spacy model is not available
+try:
+    import spacy
+
+    spacy.load("zh_core_web_sm")
+    SPACY_AVAILABLE = True
+except (ImportError, OSError):
+    SPACY_AVAILABLE = False
+
 from modules.search.engines.hybrid_search import (
     HybridSearchConfig,
     HybridSearchEngine,
@@ -85,6 +94,7 @@ def mock_vector_repo() -> MagicMock:
     return repo
 
 
+@pytest.mark.skipif(not SPACY_AVAILABLE, reason="spacy model zh_core_web_sm not available")
 class TestBM25RetrievalIntegration:
     """Integration tests for BM25 retrieval."""
 
@@ -210,6 +220,7 @@ class TestMMRIntegration:
         assert len(results_low) == 2
 
 
+@pytest.mark.skipif(not SPACY_AVAILABLE, reason="spacy model zh_core_web_sm not available")
 class TestHybridSearchEngineIntegration:
     """Integration tests for HybridSearchEngine."""
 
@@ -390,6 +401,7 @@ class TestSearchPipelineIntegration:
             # (either from BM25 or vector or both)
 
 
+@pytest.mark.skipif(not SPACY_AVAILABLE, reason="spacy model zh_core_web_sm not available")
 class TestSearchStatistics:
     """Tests for search statistics and metadata."""
 

@@ -385,7 +385,7 @@ class TestVectorizeNodeIntegration:
         from modules.pipeline.nodes.vectorize import VectorizeNode
 
         mock_embedding = [0.1] * 1024
-        mock_llm_client.batch_embed = AsyncMock(return_value=[mock_embedding])
+        mock_llm_client.embed = AsyncMock(return_value=[mock_embedding])
 
         pipeline_state["cleaned"] = {
             "title": "Test Title",
@@ -415,7 +415,7 @@ class TestVectorizeNodeIntegration:
 
         result = await node.execute(pipeline_state)
 
-        mock_llm_client.batch_embed.assert_not_called()
+        mock_llm_client.embed.assert_not_called()
 
 
 class TestBatchMergerNodeIntegration:
@@ -709,7 +709,7 @@ class TestEntityExtractorNodeIntegration:
                 relations=[],
             )
         )
-        mock_llm_client.batch_embed = AsyncMock(return_value=[[0.1] * 1024])
+        mock_llm_client.embed = AsyncMock(return_value=[[0.1] * 1024])
 
         pipeline_state["cleaned"] = {
             "title": "OpenAI releases GPT-4",
@@ -750,7 +750,7 @@ class TestEntityExtractorNodeIntegration:
         mock_llm_client.call_at = AsyncMock(
             return_value=EntityExtractorOutput(entities=[], relations=[])
         )
-        mock_llm_client.batch_embed = AsyncMock(return_value=[])
+        mock_llm_client.embed = AsyncMock(return_value=[])
 
         pipeline_state["cleaned"] = {"title": "Test", "body": "Content"}
         pipeline_state["language"] = "zh"
@@ -797,8 +797,7 @@ class TestPipelineNodeChain:
 
         state = PipelineState(raw=sample_raw_article)
 
-        mock_llm_client.call_at = AsyncMock()
-        mock_llm_client.call.side_effect = [
+        mock_llm_client.call_at.side_effect = [
             ClassifierOutput(is_news=True, confidence=0.95),
             CleanerOutput(content=CleanerContent(title="Cleaned Title", body="Cleaned body")),
             CategorizerOutput(category="technology", language="zh", region="CN"),
@@ -816,7 +815,7 @@ class TestPipelineNodeChain:
                 score=0.7,
             ),
         ]
-        mock_llm_client.batch_embed = AsyncMock(return_value=[[0.1] * 1024])
+        mock_llm_client.embed = AsyncMock(return_value=[[0.1] * 1024])
 
         classifier = ClassifierNode(
             llm=mock_llm_client,
@@ -1091,7 +1090,7 @@ class TestPipelineErrorHandlingIntegration:
         from modules.pipeline.nodes.classifier import ClassifierNode
 
         mock_llm = AsyncMock(spec=LLMClient)
-        mock_llm.call.side_effect = TimeoutError("LLM timeout")
+        mock_llm.call_at.side_effect = TimeoutError("LLM timeout")
 
         mock_budget = MagicMock(spec=TokenBudgetManager)
         mock_budget.truncate = lambda x, y: x
@@ -1119,7 +1118,7 @@ class TestPipelineErrorHandlingIntegration:
         from modules.pipeline.nodes.categorizer import CategorizerNode
 
         mock_llm = AsyncMock(spec=LLMClient)
-        mock_llm.call.side_effect = Exception("Rate limit exceeded")
+        mock_llm.call_at.side_effect = Exception("Rate limit exceeded")
 
         mock_prompt_loader = MagicMock(spec=PromptLoader)
         mock_prompt_loader.get_version.return_value = "v1.0"
@@ -1141,7 +1140,7 @@ class TestPipelineErrorHandlingIntegration:
         from modules.pipeline.nodes.classifier import ClassifierNode
 
         mock_llm = AsyncMock(spec=LLMClient)
-        mock_llm.call.side_effect = ValueError("Invalid JSON response")
+        mock_llm.call_at.side_effect = ValueError("Invalid JSON response")
 
         mock_budget = MagicMock(spec=TokenBudgetManager)
         mock_budget.truncate = lambda x, y: x
@@ -1344,7 +1343,7 @@ class TestEntityExtractorNodeExtra:
                 relations=[],
             )
         )
-        mock_llm_client.batch_embed = AsyncMock(return_value=[[0.1] * 1024])
+        mock_llm_client.embed = AsyncMock(return_value=[[0.1] * 1024])
 
         pipeline_state["cleaned"] = {"title": "Title", "body": "Body"}
         pipeline_state["language"] = "zh"
