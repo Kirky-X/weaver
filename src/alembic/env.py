@@ -4,14 +4,13 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from logging.config import fileConfig
 
 from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
-
-from config.settings import Settings
 
 # Import your models' Base for autogenerate support
 from core.db.models import Base
@@ -29,9 +28,25 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 target_metadata = Base.metadata
 
-# Get settings for database URL
-settings = Settings()
-config.set_main_option("sqlalchemy.url", settings.postgres.dsn)
+# Get database URL from multiple sources:
+# 1. Alembic -x postgres_dsn=<dsn> command line argument
+# 2. WEAVER_POSTGRES__DSN environment variable (full DSN override)
+# 3. Settings class (built from components)
+dsn_override = config.get_main_option("postgres_dsn")
+if dsn_override:
+    # Use DSN from command line argument
+    sqlalchemy_url = dsn_override
+elif os.environ.get("WEAVER_POSTGRES__DSN"):
+    # Use DSN from environment variable
+    sqlalchemy_url = os.environ["WEAVER_POSTGRES__DSN"]
+else:
+    # Build from Settings components
+    from config.settings import Settings
+
+    settings = Settings()
+    sqlalchemy_url = settings.postgres.dsn
+
+config.set_main_option("sqlalchemy.url", sqlalchemy_url)
 
 
 def run_migrations_offline() -> None:
