@@ -14,7 +14,7 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: weaver
     ports:
-      - "5434:5432"
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -36,12 +36,16 @@ services:
       NEO4J_dbms_memory_heap_max__size: 1g
       NEO4J_dbms_memory_pagecache_size: 512m
     ports:
-      - "7476:7474"
-      - "7689:7687"
+      - "7474:7474"
+      - "7687:7687"
     volumes:
       - neo4j_data:/data
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider localhost:7474 || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider localhost:7474 || exit 1",
+        ]
       interval: 10s
       timeout: 10s
       retries: 15
@@ -53,7 +57,7 @@ services:
     image: redis:7-alpine
     container_name: weaver_redis
     ports:
-      - "6381:6379"
+      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:

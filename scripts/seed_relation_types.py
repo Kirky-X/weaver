@@ -199,7 +199,8 @@ async def seed(reset: bool = False) -> None:
     from core.db.postgres import PostgresPool
 
     settings = Settings()
-    pool = PostgresPool(settings.postgres)
+    pool = PostgresPool(settings.postgres.dsn)
+    await pool.startup()
 
     async with pool.session() as session:
         if reset:
