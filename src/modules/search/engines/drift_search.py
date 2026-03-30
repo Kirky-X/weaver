@@ -15,7 +15,7 @@ from typing import Any
 
 from core.db.neo4j import Neo4jPool
 from core.llm.client import LLMClient
-from core.llm.types import CallPoint, LLMTask, LLMType
+from core.llm.types import CallPoint
 from core.observability.logging import get_logger
 from modules.search.context.global_context import GlobalContextBuilder
 from modules.search.engines.local_search import LocalSearchEngine
@@ -208,22 +208,16 @@ class DRIFTSearchEngine:
 2. 生成简洁的初步答案（200字以内）
 3. 提出3个后续问题以深入探索"""
 
-        user_content = f"用户问题：{query}\n\n社区报告摘要：\n{context.to_string()}"
+        user_content = f"用户问题：{query}\n\n社区报告摘要：\n{context.to_prompt()}"
 
-        task = LLMTask(
+        result = await self._llm.call_at(
             call_point=CallPoint.COMMUNITY_REPORT,
-            llm_type=LLMType.CHAT,
             payload={
                 "system_prompt": system_prompt,
                 "user_content": user_content,
             },
-            priority=5,
         )
-
-        llm_result = await self._llm.call(task)
-        response_text = (
-            llm_result.get("content", "") if isinstance(llm_result, dict) else str(llm_result)
-        )
+        response_text = str(result) if result else ""
 
         # Parse follow-up questions
         follow_up_questions = self._extract_follow_up_questions(response_text)
@@ -325,20 +319,14 @@ class DRIFTSearchEngine:
 
         user_content = f"用户问题：{query}\n\n探索结果：\n{chr(10).join(context_parts)}"
 
-        task = LLMTask(
+        result = await self._llm.call_at(
             call_point=CallPoint.SEARCH_GLOBAL,
-            llm_type=LLMType.CHAT,
             payload={
                 "system_prompt": system_prompt,
                 "user_content": user_content,
             },
-            priority=5,
         )
-
-        llm_result = await self._llm.call(task)
-        response_text = (
-            llm_result.get("content", "") if isinstance(llm_result, dict) else str(llm_result)
-        )
+        response_text = str(result) if result else ""
 
         # Extract confidence
         confidence = self._extract_confidence(response_text)

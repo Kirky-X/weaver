@@ -121,7 +121,7 @@ async def _search_articles_impl(
 ) -> APIResponse[SearchResponse]:
     """Internal implementation for articles search."""
     try:
-        embeddings = await llm.batch_embed([query])
+        embeddings = await llm.embed("embedding.aiping_embedding.Qwen3-Embedding-0.6B", [query])
         query_vector = embeddings[0]
     except Exception:
         raise HTTPException(status_code=503, detail="Embedding service unavailable")

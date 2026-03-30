@@ -129,8 +129,8 @@ class LocalSearchEngine:
         prompt = self._build_prompt(query, context)
 
         try:
-            response = await self._llm.call(
-                call_point=CallPoint.SEARCH_LOCAL,
+            response = await self._llm.call_at(
+                CallPoint.SEARCH_LOCAL,
                 payload={"query": query, "context": prompt},
             )
 
