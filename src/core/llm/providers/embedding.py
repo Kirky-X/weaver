@@ -1,21 +1,20 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Embedding LLM provider using LangChain's OpenAIEmbeddings."""
+"""Embedding LLM provider using OpenAI-compatible API."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from langchain_openai import OpenAIEmbeddings
+from openai import AsyncOpenAI
 
 from core.llm.providers.base import BaseLLMProvider
-from core.llm.request import LLMCallResult, TokenUsage
 from core.observability.logging import get_logger
 
 log = get_logger("embedding_provider")
 
 
 class EmbeddingProvider(BaseLLMProvider):
-    """OpenAI-compatible embedding provider using LangChain."""
+    """OpenAI-compatible embedding provider using the official openai library."""
 
     def __init__(
         self,
@@ -25,34 +24,25 @@ class EmbeddingProvider(BaseLLMProvider):
         timeout: float = 30.0,
     ) -> None:
         self._model = model
+        self._is_ollama = "ollama" in base_url.lower() or "11434" in base_url
 
-        # Check if this is an Ollama endpoint
-        is_ollama = "ollama" in base_url.lower() or "11434" in base_url
-
-        if is_ollama:
-            # For Ollama, use the native /api/embeddings endpoint
-            # Map /v1 base URL to /api for embeddings
-            ollama_base_url = base_url.replace("/v1", "") if "/v1" in base_url else base_url
-
-            # Override to use Ollama's native API
-            self._client = OpenAIEmbeddings(
-                api_key=api_key,
-                base_url=f"{ollama_base_url}/v1",  # Keep /v1 for OpenAI compatibility
-                model=model,
-                timeout=timeout,
-            )
-            # Store the actual endpoint for direct calls
-            self._ollama_endpoint = f"{ollama_base_url}/api/embeddings"
-            self._is_ollama = True
+        # Normalize base URL
+        if self._is_ollama:
+            # For Ollama, remove /v1 suffix if present
+            if base_url.endswith("/v1"):
+                base_url = base_url[:-3]
+            self._ollama_base_url = base_url
         else:
-            self._client = OpenAIEmbeddings(
-                api_key=api_key,
-                base_url=base_url,
-                model=model,
-                timeout=timeout,
-            )
-            self._is_ollama = False
-            self._ollama_endpoint = None
+            # For OpenAI-compatible APIs, ensure /v1 suffix
+            if not base_url.endswith("/v1"):
+                base_url = base_url.rstrip("/") + "/v1"
+            self._ollama_base_url = None
+
+        self._client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout,
+        )
 
     async def chat(
         self,
@@ -73,50 +63,41 @@ class EmbeddingProvider(BaseLLMProvider):
         self,
         texts: list[str],
         model: str | None = None,
-    ) -> LLMCallResult:
+    ) -> list[list[float]]:
         """Generate embeddings for a list of texts.
 
         Args:
             texts: List of input texts.
-            model: Optional model override (not supported by LangChain).
+            model: Optional model override.
 
         Returns:
-            LLMCallResult with embedding vectors and token usage.
+            List of embedding vectors.
         """
-        import httpx
+        model_name = model or self._model
 
-        embeddings: list[list[float]] = []
-        token_usage = TokenUsage()
+        if self._is_ollama:
+            # Ollama uses /api/embeddings endpoint with different format
+            import httpx
 
-        if self._is_ollama and self._ollama_endpoint:
-            # Use Ollama's native /api/embeddings endpoint
+            embeddings: list[list[float]] = []
             async with httpx.AsyncClient(timeout=60.0) as client:
                 for text in texts:
                     response = await client.post(
-                        self._ollama_endpoint,
-                        json={"model": model or self._model, "prompt": text},
+                        f"{self._ollama_base_url}/api/embeddings",
+                        json={"model": model_name, "prompt": text},
                     )
                     response.raise_for_status()
                     data: dict[str, Any] = response.json()
                     embeddings.append(data["embedding"])
+            return embeddings
 
-                    # Ollama 可能返回 prompt_eval_count
-                    if "prompt_eval_count" in data:
-                        token_usage.input_tokens += data["prompt_eval_count"]
-        else:
-            # LangChain OpenAI embeddings - 不直接返回 token 用量
-            # 需要通过原始 API 调用获取，这里简化处理
-            embeddings = await self._client.aembed_documents(texts)
-
-            # 估算 token 数量（简化：假设平均每词约 1.3 tokens）
-            total_chars = sum(len(t) for t in texts)
-            estimated_tokens = int(total_chars / 4)  # 粗略估算
-            token_usage.input_tokens = estimated_tokens
-
-        return LLMCallResult(
-            content=embeddings,
-            token_usage=token_usage,
+        # Use OpenAI-compatible API via official library
+        response = await self._client.embeddings.create(
+            model=model_name,
+            input=texts,
         )
+
+        return [item.embedding for item in response.data]
 
     async def embed_query(self, text: str) -> list[float]:
         """Generate embedding for a single query text.
@@ -127,10 +108,9 @@ class EmbeddingProvider(BaseLLMProvider):
         Returns:
             Embedding vector.
         """
-        return await self._client.aembed_query(text)
+        result = await self.embed([text])
+        return result[0] if result else []
 
     async def close(self) -> None:
-        """Clean up resources.
-
-        No explicit cleanup needed for OpenAI embedding client.
-        """
+        """Clean up resources."""
+        await self._client.close()
