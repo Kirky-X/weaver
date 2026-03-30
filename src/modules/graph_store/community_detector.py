@@ -219,13 +219,12 @@ class CommunityDetector:
         Returns:
             List of orphan entity canonical names.
         """
+        # Find entities that either:
+        # 1. Have no relationships to other entities at all, OR
+        # 2. Only have HAS_ENTITY, MENTIONS, or FOLLOWED_BY relationships
         query = """
         MATCH (e:Entity)
-        WHERE NOT (e)-[r]-(:Entity)
-              OR ALL(
-                rel IN [(e)-[r]-(:Entity) | type(r)]
-                WHERE rel IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
-              )
+        WHERE NOT EXISTS((e)-[:HAS_ENTITY|MENTIONS|FOLLOWED_BY]-(:Entity))
         RETURN e.canonical_name AS name
         """
         results = await self._pool.execute_query(query)

@@ -373,32 +373,22 @@ class CommunityReportGenerator:
                 relationships=relationships_text,
             )
 
-            # Use the LLM client's call method with structured output
-            # Note: We need to use a custom call since we're not using CallPoint enum
-            from core.llm.types import LLMTask, LLMType
-
             system_prompt = prompt_loader.get("community_report", "system")
 
-            task = LLMTask(
+            raw_result = await self._llm.call_at(
                 call_point=CallPoint.COMMUNITY_REPORT,
-                llm_type=LLMType.CHAT,
                 payload={
                     "system_prompt": system_prompt,
                     "user_content": user_content,
                 },
-                priority=5,
+                output_model=CommunityReportOutput,
             )
-
-            raw_result = await self._llm._queue.enqueue(task)
 
             if not raw_result:
                 log.warning("llm_empty_response", community_id=community_id)
                 return None
 
-            # Parse JSON output
-            from core.llm.output_validator import parse_llm_json
-
-            return parse_llm_json(raw_result, CommunityReportOutput)
+            return raw_result
 
         except Exception as exc:
             log.error(
@@ -423,7 +413,9 @@ class CommunityReportGenerator:
             True if successful.
         """
         try:
-            embeddings = await self._llm.batch_embed([content])
+            embeddings = await self._llm.embed(
+                "embedding.aiping_embedding.Qwen3-Embedding-0.6B", [content]
+            )
             if embeddings:
                 await self._repo.update_report_embedding(report_id, embeddings[0])
                 log.debug("report_embedding_stored", report_id=report_id)

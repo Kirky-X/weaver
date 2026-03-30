@@ -61,11 +61,11 @@ class CommunityResponse(BaseModel):
     """Response model for a single community."""
 
     id: str
-    title: str
+    title: str | None = None
     level: int
     entity_count: int
     parent_id: str | None
-    rank: float
+    rank: float | None = None
     period: str | None
     has_report: bool = False
 
@@ -74,12 +74,12 @@ class CommunityDetailResponse(BaseModel):
     """Detailed response model for a community."""
 
     id: str
-    title: str
+    title: str | None = None
     level: int
     entity_count: int
     parent_id: str | None
     children_ids: list[str] = Field(default_factory=list)
-    rank: float
+    rank: float | None = None
     period: str | None
     modularity: float | None
     entities: list[dict[str, str]] = Field(default_factory=list)
@@ -242,9 +242,16 @@ async def regenerate_report(
                 }
             )
         else:
+            # Check if community not found
+            error_msg = result.error or "Unknown error"
+            if "not found" in error_msg.lower():
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Community '{community_id}' not found",
+                )
             raise HTTPException(
                 status_code=500,
-                detail=f"Report regeneration failed: {result.error}",
+                detail=f"Report regeneration failed: {error_msg}",
             )
 
     except HTTPException:

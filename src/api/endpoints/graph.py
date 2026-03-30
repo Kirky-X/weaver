@@ -503,7 +503,8 @@ async def list_relation_types(
                 RelationType.description,
                 func.count(RelationTypeAlias.id).label("alias_count"),
             )
-            .outerjoin(RelationTypeAlias)
+            .select_from(RelationType)
+            .outerjoin(RelationTypeAlias, RelationTypeAlias.relation_type_id == RelationType.id)
             .where(RelationType.is_active == True)  # noqa: E712
             .group_by(RelationType.id)
             .order_by(RelationType.sort_order)
