@@ -269,7 +269,7 @@ class URLValidator:
                 )
 
     def is_safe_url(self, url: str) -> bool:
-        """Synchronously check if a URL is safe (without DNS resolution).
+        """Check if a URL is safe synchronously (without DNS resolution).
 
         This is a fast synchronous check that only validates:
         - URL scheme

@@ -39,7 +39,7 @@ class Neo4jPool:
             log.info("neo4j_driver_closed")
 
     def close(self) -> None:
-        """Synchronously close the Neo4j driver."""
+        """Close the Neo4j driver synchronously."""
         import asyncio
 
         if self._driver:

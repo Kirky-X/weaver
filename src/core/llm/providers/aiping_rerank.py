@@ -136,7 +136,7 @@ class AIPingRerankProvider(BaseLLMProvider):
                 output_tokens=usage_data.get("completion_tokens", 0),
             )
 
-            # 如果 API 未返回 token 用量，进行估算
+            # 如果 API 未返回 token 用量,进行估算
             if token_usage.input_tokens == 0:
                 total_chars = len(query) + sum(len(d) for d in documents)
                 token_usage.input_tokens = int(total_chars / 4)

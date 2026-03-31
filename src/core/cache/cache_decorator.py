@@ -38,7 +38,7 @@ def cache_result(
     key_prefix: str = "",
     key_builder: Callable[..., str] | None = None,
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
-    """Decorator to cache function results in Redis.
+    """Cache function results in Redis.
 
     Args:
         ttl: Time to live in seconds.

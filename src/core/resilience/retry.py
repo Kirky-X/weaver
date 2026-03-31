@@ -247,7 +247,7 @@ def with_network_retry(
     min_wait: float = DEFAULT_MIN_WAIT,
     max_wait: float = DEFAULT_MAX_WAIT,
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
-    """Decorator for async functions that need network retry logic.
+    """Provide decorator for async functions that need network retry logic.
 
     Usage:
         @with_network_retry(max_attempts=3)
@@ -262,7 +262,7 @@ def with_llm_retry(
     min_wait: float = DEFAULT_MIN_WAIT,
     max_wait: float = DEFAULT_MAX_WAIT,
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
-    """Decorator for async functions that need LLM retry logic.
+    """Provide decorator for async functions that need LLM retry logic.
 
     Usage:
         @with_llm_retry(max_attempts=3)
@@ -277,7 +277,7 @@ def with_db_retry(
     min_wait: float = DEFAULT_MIN_WAIT,
     max_wait: float = DEFAULT_MAX_WAIT,
 ) -> Callable[[Callable[..., T]], Callable[..., T]]:
-    """Decorator for async functions that need database retry logic.
+    """Provide decorator for async functions that need database retry logic.
 
     Usage:
         @with_db_retry(max_attempts=3)

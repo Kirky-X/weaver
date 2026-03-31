@@ -300,7 +300,7 @@ class PreStartupHealthChecker:
         }
 
     def check_and_exit(self, exit_on_failure: bool = True) -> bool:
-        """Synchronous entry point that runs health checks and optionally exits.
+        """Run health checks synchronously and optionally exit.
 
         This method runs all health checks synchronously and prints a formatted
         report. If any required service is unhealthy and exit_on_failure is True,

@@ -17,7 +17,7 @@ class TokenUsage:
     Attributes:
         input_tokens: 输入 token 数量
         output_tokens: 输出 token 数量
-        total_tokens: 总 token 数量（自动计算）
+        total_tokens: 总 token 数量(自动计算)
     """
 
     input_tokens: int = 0
@@ -25,7 +25,7 @@ class TokenUsage:
     total_tokens: int = 0
 
     def __post_init__(self) -> None:
-        """初始化后自动计算 total_tokens（如果未提供或为 0）。"""
+        """初始化后自动计算 total_tokens(如果未提供或为 0)。"""
         if self.total_tokens == 0:
             self.total_tokens = self.input_tokens + self.output_tokens
 
@@ -80,12 +80,12 @@ class LLMResponse:
     Attributes:
         content: 响应内容
         label: 实际使用的标签
-        latency_ms: 响应延迟（毫秒）
-        tokens_used: Token 使用量（总 token 数，兼容旧代码）
+        latency_ms: 响应延迟(毫秒)
+        tokens_used: Token 使用量(总 token 数,兼容旧代码)
         token_usage: 完整的 Token 使用量统计
         from_cache: 是否来自缓存
         attempt: 尝试次数
-        error: 错误信息（如有）
+        error: 错误信息(如有)
         metadata: 附加元数据
         model: 实际使用的模型名称
     """
@@ -103,10 +103,10 @@ class LLMResponse:
 
     def __post_init__(self) -> None:
         """初始化后同步 tokens_used 和 token_usage。"""
-        # 如果提供了 token_usage 但没有 tokens_used，从 token_usage 计算
+        # 如果提供了 token_usage 但没有 tokens_used,从 token_usage 计算
         if self.token_usage is not None and self.tokens_used is None:
             self.tokens_used = self.token_usage.total_tokens
-        # 如果提供了 tokens_used 但没有 token_usage，创建一个简单的 TokenUsage
+        # 如果提供了 tokens_used 但没有 token_usage,创建一个简单的 TokenUsage
         elif self.tokens_used is not None and self.token_usage is None:
             self.token_usage = TokenUsage(total_tokens=self.tokens_used)
 
@@ -140,7 +140,7 @@ class EmbeddingResponse:
     Attributes:
         embeddings: 嵌入向量列表
         label: 实际使用的标签
-        latency_ms: 响应延迟（毫秒）
+        latency_ms: 响应延迟(毫秒)
         from_cache: 各文本是否来自缓存
         metadata: 附加元数据
     """
@@ -176,9 +176,9 @@ class RerankResponse:
     """Rerank 响应结构。
 
     Attributes:
-        results: 重排结果列表，每项包含 index 和 score
+        results: 重排结果列表,每项包含 index 和 score
         label: 实际使用的标签
-        latency_ms: 响应延迟（毫秒）
+        latency_ms: 响应延迟(毫秒)
         metadata: 附加元数据
     """
 
@@ -196,7 +196,7 @@ class ProviderMetrics:
         total_requests: 总请求数
         successful_requests: 成功请求数
         failed_requests: 失败请求数
-        total_latency_ms: 总延迟（毫秒）
+        total_latency_ms: 总延迟(毫秒)
         last_request_time: 最后请求时间
         last_error: 最后错误信息
         last_error_time: 最后错误时间
@@ -220,7 +220,7 @@ class ProviderMetrics:
 
     @property
     def avg_latency_ms(self) -> float:
-        """平均延迟（毫秒）。"""
+        """平均延迟(毫秒)。"""
         if self.successful_requests == 0:
             return 0.0
         return self.total_latency_ms / self.successful_requests
@@ -229,7 +229,7 @@ class ProviderMetrics:
         """记录成功调用。
 
         Args:
-            latency_ms: 延迟时间（毫秒）
+            latency_ms: 延迟时间(毫秒)
         """
         self.total_requests += 1
         self.successful_requests += 1
