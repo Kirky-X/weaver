@@ -1,8 +1,8 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Redis 缓冲层：LLM 用量事件累加器。
 
-将 LLM 调用用量事件实时累加到 Redis HASH 中，
-按小时聚合，支持 TTL 自动过期。
+将 LLM 调用用量事件实时累加到 Redis HASH 中,
+按小时聚合,支持 TTL 自动过期。
 
 Redis Key 设计:
     Key:   llm:usage:{YYYYMMDDHH}    TTL: 7200s (2h)
@@ -34,12 +34,12 @@ METRICS = ("count", "input_tok", "output_tok", "total_tok", "latency_ms", "succe
 class LLMUsageBuffer:
     """LLM 用量事件 Redis 缓冲层。
 
-    将 LLMUsageEvent 累加到 Redis HASH 中，按小时分桶。
+    将 LLMUsageEvent 累加到 Redis HASH 中,按小时分桶。
     支持自动 TTL 管理和故障容错。
 
     Attributes:
         _redis: Redis 客户端实例
-        _ttl: Key 过期时间（秒）
+        _ttl: Key 过期时间(秒)
     """
 
     def __init__(
@@ -51,7 +51,7 @@ class LLMUsageBuffer:
 
         Args:
             redis_client: Redis 客户端实例
-            ttl_seconds: Key 过期时间（秒），默认 7200s (2h)
+            ttl_seconds: Key 过期时间(秒),默认 7200s (2h)
         """
         self._redis = redis_client
         self._ttl = ttl_seconds
@@ -85,7 +85,7 @@ class LLMUsageBuffer:
 
         使用 Redis pipeline 批量执行 HINCRBY 操作。
         首次写入时设置 TTL。
-        所有异常被捕获并记录日志，不阻塞主链路。
+        所有异常被捕获并记录日志,不阻塞主链路。
 
         Args:
             event: LLM 用量事件
@@ -97,7 +97,7 @@ class LLMUsageBuffer:
             # 构建 field 前缀
             field_prefix = f"{event.label}::{event.call_point}"
 
-            # 获取 Redis client（用于创建 pipeline）
+            # 获取 Redis client(用于创建 pipeline)
             client = self._redis.client
 
             # 构建 pipeline 批量操作
@@ -127,7 +127,7 @@ class LLMUsageBuffer:
                     event.tokens.total_tokens,
                 )
 
-                # latency_ms: +event.latency_ms（取整）
+                # latency_ms: +event.latency_ms(取整)
                 pipe.hincrby(
                     bucket_key,
                     f"{field_prefix}::latency_ms",
@@ -148,7 +148,7 @@ class LLMUsageBuffer:
                     0 if event.success else 1,
                 )
 
-                # 设置 TTL（使用 EXPIRE，如果 key 已存在则刷新过期时间）
+                # 设置 TTL(使用 EXPIRE,如果 key 已存在则刷新过期时间)
                 pipe.expire(bucket_key, self._ttl)
 
                 # 执行 pipeline
@@ -163,7 +163,7 @@ class LLMUsageBuffer:
             )
 
         except Exception as exc:
-            # 捕获所有异常，记录日志，不阻塞主链路
+            # 捕获所有异常,记录日志,不阻塞主链路
             log.error(
                 "llm_usage_buffer_failed",
                 label=event.label,

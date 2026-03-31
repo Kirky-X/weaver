@@ -135,7 +135,7 @@ class SmartFetcher(BaseFetcher):
     async def _do_fetch(
         self, url: str, headers: dict[str, str] | None, host: str
     ) -> tuple[int, str, dict[str, str]]:
-        """Internal fetch logic without circuit breaker concerns.
+        """Implement internal fetch logic without circuit breaker concerns.
 
         Args:
             url: The URL to fetch.

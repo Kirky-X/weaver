@@ -66,7 +66,7 @@ def source_parser_plugin(
     supported_types: list[str] | None = None,
     capabilities: list[str] | None = None,
 ) -> Callable:
-    """Decorator to register a source parser as a plugin.
+    """Define decorator to register a source parser as a plugin.
 
     Args:
         name: Unique plugin name.

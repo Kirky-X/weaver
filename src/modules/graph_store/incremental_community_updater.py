@@ -2,8 +2,8 @@
 """Incremental community updater for knowledge graph.
 
 Periodically updates community assignments based on new entities and relationships,
-avoiding full graph rebuilds. Uses 2-hop subgraph extraction and connected component
-clustering (can be replaced with Leiden algorithm).
+avoiding full graph rebuilds. Uses 2 hop subgraph extraction and Leiden algorithm
+for optimal community detection (falls back to connected components if unavailable).
 """
 
 from __future__ import annotations
@@ -15,6 +15,15 @@ from datetime import UTC, datetime
 
 from core.db.neo4j import Neo4jPool
 from core.observability.logging import get_logger
+
+# Optional: Leiden algorithm for better community detection
+try:
+    import igraph as ig
+    import leidenalg
+
+    LEIDEN_AVAILABLE = True
+except ImportError:
+    LEIDEN_AVAILABLE = False
 
 log = get_logger("incremental_community_updater")
 
@@ -326,7 +335,7 @@ class IncrementalCommunityUpdater:
         return False
 
     async def execute(self, entity_names: list[str]) -> IncrementalUpdateResult:
-        """Main entry point for incremental community update.
+        """Provide main entry point for incremental community update.
 
         Identifies affected communities, extracts subgraph, clusters,
         writes diff, and marks stale reports.
@@ -749,14 +758,10 @@ class IncrementalCommunityUpdater:
         node_ids: list[str],
         edges: list[tuple[str, str, float]],
     ) -> dict[str, str]:
-        """Cluster nodes into communities using connected components.
+        """Cluster nodes into communities using Leiden algorithm.
 
-        TODO: Replace with Leiden algorithm for better community detection.
-        Install python-igraph and leidenalg, then use:
-            import igraph as ig
-            from leidenalg import find_partition
-            g = ig.Graph(len(node_ids), edges=(...))
-            partition = find_partition(g, leidenalg.ModularityVertexPartition)
+        Uses Leiden algorithm for optimal community detection with modularity
+        optimization. Falls back to connected components when leidenalg is unavailable.
 
         Args:
             node_ids: List of node IDs.
@@ -764,6 +769,100 @@ class IncrementalCommunityUpdater:
 
         Returns:
             Dict mapping node_id to new community_id.
+        """
+        if not node_ids:
+            return {}
+
+        # Try Leiden algorithm first
+        if LEIDEN_AVAILABLE:
+            return self._cluster_with_leiden(node_ids, edges)
+        else:
+            log.debug("leiden_unavailable_using_connected_components")
+            return self._cluster_with_connected_components(node_ids, edges)
+
+    def _cluster_with_leiden(
+        self,
+        node_ids: list[str],
+        edges: list[tuple[str, str, float]],
+    ) -> dict[str, str]:
+        """Cluster nodes using Leiden algorithm for optimal modularity.
+
+        Args:
+            node_ids: List of node IDs.
+            edges: List of (source, target, weight) tuples.
+
+        Returns:
+            Dict mapping node_id to community_id.
+        """
+        try:
+            # Create node ID to index mapping
+            node_id_to_idx = {node_id: idx for idx, node_id in enumerate(node_ids)}
+
+            # Build edge list for igraph (using indices)
+            edge_list = []
+            weights = []
+            node_id_set = set(node_ids)
+
+            for source, target, weight in edges:
+                if source in node_id_set and target in node_id_set:
+                    edge_list.append((node_id_to_idx[source], node_id_to_idx[target]))
+                    weights.append(weight)
+
+            if not edge_list:
+                # No edges - each node is its own community
+                return {node_id: str(uuid.uuid4()) for node_id in node_ids}
+
+            # Create igraph graph
+            g = ig.Graph(n=len(node_ids), edges=edge_list, directed=False)
+            g.es["weight"] = weights
+
+            # Apply Leiden algorithm with modularity optimization
+            partition = leidenalg.find_partition(
+                g,
+                leidenalg.ModularityVertexPartition,
+                weights="weight",
+                seed=42,  # Reproducible results
+            )
+
+            # Map nodes to communities
+            assignments = {}
+            for idx, community_id in enumerate(partition.membership):
+                node_id = node_ids[idx]
+                # Use community index as part of UUID for reproducibility
+                community_uuid = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"community_{community_id}"))
+                assignments[node_id] = community_uuid
+
+            log.debug(
+                "leiden_clustering_complete",
+                communities=len(set(partition.membership)),
+                nodes=len(assignments),
+                modularity=partition.q,
+            )
+
+            return assignments
+
+        except Exception as exc:
+            log.warning(
+                "leiden_clustering_failed_using_fallback",
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+            # Fall back to connected components
+            return self._cluster_with_connected_components(node_ids, edges)
+
+    def _cluster_with_connected_components(
+        self,
+        node_ids: list[str],
+        edges: list[tuple[str, str, float]],
+    ) -> dict[str, str]:
+        """Cluster nodes using connected components (fallback method).
+
+        Args:
+            node_ids: List of node IDs.
+            edges: List of (source, target, weight) tuples.
+
+        Returns:
+            Dict mapping node_id to community_id.
         """
         if not node_ids:
             return {}

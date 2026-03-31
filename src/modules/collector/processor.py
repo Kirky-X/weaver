@@ -91,7 +91,7 @@ class DiscoveryProcessor:
         max_items: int | None = None,
         task_id: uuid.UUID | None = None,
     ) -> None:
-        """Callback to save discovered items to database and trigger pipeline.
+        """Handle callback to save discovered items to database and trigger pipeline.
 
         Deduplication flow:
         1. URL deduplication (exact match)

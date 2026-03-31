@@ -25,9 +25,9 @@ from modules.source.plugin import (
     PluginMetadata,
     get_plugin,
     get_registered_plugins,
+    scan_and_load_external_plugins as _scan_plugins,
     source_parser_plugin,
 )
-from modules.source.plugin import scan_and_load_external_plugins as _scan_plugins
 from modules.source.registry import SourceRegistry
 from modules.source.rss_parser import RSSParser
 from modules.source.scheduler import SourceScheduler
@@ -38,18 +38,18 @@ __all__ = [
     "BaseSourceParser",
     # Models
     "NewsItem",
-    "SourceConfig",
+    # Plugin system
+    "PluginMetadata",
     # Core classes
     "RSSParser",
+    "SourceConfig",
     "SourceConfigRepo",
     "SourceRegistry",
     "SourceScheduler",
-    # Plugin system
-    "PluginMetadata",
     "get_plugin",
     "get_registered_plugins",
-    "source_parser_plugin",
     "load_plugins",
+    "source_parser_plugin",
 ]
 
 
