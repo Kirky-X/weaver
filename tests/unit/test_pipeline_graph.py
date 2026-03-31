@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.collector.models import ArticleRaw
-from modules.pipeline.graph import PHASE1_STAGES, PHASE3_STAGES, Pipeline
-from modules.pipeline.state import PipelineState
+from modules.ingestion.domain.models import ArticleRaw
+from modules.processing.pipeline.graph import PHASE1_STAGES, PHASE3_STAGES, Pipeline
+from modules.processing.pipeline.state import PipelineState
 
 
 class TestPipelineConstants:
@@ -250,7 +250,7 @@ class TestPipelineProcessBatch:
             body="Test article body content for processing.",
             source="test_source",
             source_host="example.com",
-            publish_time=datetime.now(UTC),
+            pubDate=datetime.now(UTC),
         )
 
     @pytest.mark.asyncio

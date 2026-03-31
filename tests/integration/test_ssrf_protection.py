@@ -9,8 +9,8 @@ import httpx
 import pytest
 
 from core.security import URLValidationError, URLValidator
-from modules.fetcher.httpx_fetcher import HttpxFetcher, RedirectBlockedError
-from modules.fetcher.smart_fetcher import SmartFetcher
+from modules.ingestion.fetching.httpx_fetcher import HttpxFetcher, RedirectBlockedError
+from modules.ingestion.fetching.smart_fetcher import SmartFetcher
 
 
 class TestSSRFProtection:

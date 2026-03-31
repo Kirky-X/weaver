@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.graph_store.metrics import (
+from modules.knowledge.graph.metrics import (
     ConnectedComponent,
     EntityDegree,
     GraphMetrics,

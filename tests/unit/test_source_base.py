@@ -20,7 +20,7 @@ class TestRSSParser:
     @pytest.mark.asyncio
     async def test_rss_parser_initializes(self, mock_fetcher):
         """Test that RSS parser initializes."""
-        from modules.source.rss_parser import RSSParser
+        from modules.ingestion.parsing.rss_parser import RSSParser
 
         parser = RSSParser(fetcher=mock_fetcher)
 
@@ -30,7 +30,7 @@ class TestRSSParser:
     @pytest.mark.asyncio
     async def test_rss_parser_has_parse_method(self, mock_fetcher):
         """Test RSS parser has parse method."""
-        from modules.source.rss_parser import RSSParser
+        from modules.ingestion.parsing.rss_parser import RSSParser
 
         parser = RSSParser(fetcher=mock_fetcher)
 
@@ -44,7 +44,7 @@ class TestNewsNowParser:
     @pytest.mark.asyncio
     async def test_newsnow_parser_initializes(self, mock_fetcher):
         """Test that NewsNow parser initializes."""
-        from modules.source.newsnow_parser import NewsNowParser
+        from modules.ingestion.parsing.newsnow_parser import NewsNowParser
 
         parser = NewsNowParser(fetcher=mock_fetcher)
 
@@ -54,7 +54,7 @@ class TestNewsNowParser:
     @pytest.mark.asyncio
     async def test_newsnow_parser_has_parse_method(self, mock_fetcher):
         """Test NewsNow parser has parse method."""
-        from modules.source.newsnow_parser import NewsNowParser
+        from modules.ingestion.parsing.newsnow_parser import NewsNowParser
 
         parser = NewsNowParser(fetcher=mock_fetcher)
 
@@ -67,7 +67,7 @@ class TestSourceParserConfiguration:
 
     def test_source_config_required_fields(self):
         """Test that SourceConfig requires expected fields."""
-        from modules.source.models import SourceConfig
+        from modules.ingestion.domain.models import SourceConfig
 
         config = SourceConfig(
             id="test_source",
@@ -85,7 +85,7 @@ class TestSourceParserConfiguration:
 
     def test_source_config_optional_fields(self):
         """Test SourceConfig with optional fields."""
-        from modules.source.models import SourceConfig
+        from modules.ingestion.domain.models import SourceConfig
 
         config = SourceConfig(
             id="test_source",
@@ -107,7 +107,7 @@ class TestSourceParserErrorHandling:
     @pytest.mark.asyncio
     async def test_rss_parser_handles_fetch_error(self, mock_fetcher):
         """Test RSS parser handles fetch errors."""
-        from modules.source.rss_parser import RSSParser
+        from modules.ingestion.parsing.rss_parser import RSSParser
 
         mock_fetcher.fetch = AsyncMock(side_effect=Exception("Network error"))
 
@@ -124,7 +124,7 @@ class TestSourceParserErrorHandling:
     @pytest.mark.asyncio
     async def test_newsnow_parser_handles_fetch_error(self, mock_fetcher):
         """Test NewsNow parser handles fetch errors."""
-        from modules.source.newsnow_parser import NewsNowParser
+        from modules.ingestion.parsing.newsnow_parser import NewsNowParser
 
         mock_fetcher.fetch = AsyncMock(side_effect=Exception("Network error"))
 

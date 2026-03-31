@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from modules.graph_store.community_detector import CommunityDetector
-from modules.graph_store.incremental_community_updater import IncrementalCommunityUpdater
+from modules.knowledge.graph.community_detector import CommunityDetector
+from modules.knowledge.graph.incremental_community_updater import IncrementalCommunityUpdater
 
 
 @pytest.fixture

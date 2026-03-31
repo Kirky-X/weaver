@@ -17,8 +17,8 @@ from core.db.models import Article, PersistStatus
 from core.db.postgres import PostgresPool
 from core.observability.logging import get_logger
 from core.observability.metrics import metrics
-from modules.collector.retry import RetryQueue
-from modules.graph_store.neo4j_writer import Neo4jWriter
+from modules.ingestion.deduplication.retry import RetryQueue
+from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 from modules.storage.article_repo import ArticleRepo
 from modules.storage.pending_sync_repo import PendingSyncRepo
 from modules.storage.source_authority_repo import SourceAuthorityRepo
@@ -466,7 +466,7 @@ class SchedulerJobs:
 
             for article in articles:
                 try:
-                    from modules.collector.models import ArticleRaw
+                    from modules.ingestion.domain.models import ArticleRaw
 
                     raw = ArticleRaw(
                         url=article.source_url,

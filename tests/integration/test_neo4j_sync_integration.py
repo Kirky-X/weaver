@@ -194,7 +194,7 @@ class TestSyncPendingToNeo4j:
         self, postgres_pool, neo4j_pool
     ):
         """Test sync_pending_to_neo4j returns 0 when no pending records."""
-        from modules.graph_store.neo4j_writer import Neo4jWriter
+        from modules.knowledge.graph.neo4j_writer import Neo4jWriter
         from modules.scheduler.jobs import SchedulerJobs
         from modules.storage.article_repo import ArticleRepo
         from modules.storage.vector_repo import VectorRepo
@@ -224,7 +224,7 @@ class TestConsistencyCheck:
     @pytest.mark.asyncio
     async def test_consistency_check_with_real_services(self, postgres_pool, neo4j_pool):
         """Test consistency_check with real Neo4j and PostgreSQL."""
-        from modules.graph_store.neo4j_writer import Neo4jWriter
+        from modules.knowledge.graph.neo4j_writer import Neo4jWriter
         from modules.scheduler.jobs import SchedulerJobs
         from modules.storage.article_repo import ArticleRepo
         from modules.storage.vector_repo import VectorRepo

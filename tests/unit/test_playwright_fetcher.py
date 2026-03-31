@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.fetcher.playwright_fetcher import PlaywrightFetcher
+from modules.ingestion.fetching.playwright_fetcher import PlaywrightFetcher
 
 
 class TestPlaywrightFetcherInit:

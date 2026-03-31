@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.search.engines.local_search import LocalSearchEngine, SearchResult
+from modules.knowledge.search.engines.local_search import LocalSearchEngine, SearchResult
 
 
 @pytest.fixture

@@ -86,7 +86,7 @@ class TestGlobalContextBuilderFallback:
     @pytest.mark.asyncio
     async def test_fallback_returns_entities_when_no_communities(self):
         """When Community nodes don't exist, fallback returns Article-Entity aggregation."""
-        from modules.search.context.global_context import GlobalContextBuilder
+        from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         pool = MockNeo4jPool(
             community_results=[],  # No communities
@@ -118,7 +118,7 @@ class TestGlobalContextBuilderFallback:
     @pytest.mark.asyncio
     async def test_fallback_filters_by_query_keyword(self):
         """Fallback matches query tokens against entity_name and article title."""
-        from modules.search.context.global_context import GlobalContextBuilder
+        from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         pool = MockNeo4jPool(
             community_results=[],
@@ -158,7 +158,7 @@ class TestGlobalContextBuilderFallback:
     @pytest.mark.asyncio
     async def test_fallback_returns_empty_when_nothing_matches(self):
         """Fallback returns empty list when no entities/articles match query."""
-        from modules.search.context.global_context import GlobalContextBuilder
+        from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         pool = MockNeo4jPool(
             community_results=[],
@@ -173,7 +173,7 @@ class TestGlobalContextBuilderFallback:
     @pytest.mark.asyncio
     async def test_build_sets_fallback_metadata_when_using_fallback(self):
         """build() sets metadata.fallback_source='entity_article' when results come from fallback."""
-        from modules.search.context.global_context import GlobalContextBuilder
+        from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         pool = MockNeo4jPool(
             community_results=[],  # No communities
@@ -201,7 +201,7 @@ class TestGlobalContextBuilderFallback:
     @pytest.mark.asyncio
     async def test_build_returns_empty_when_fallback_also_empty(self):
         """build() returns empty context when both Community and fallback queries return nothing."""
-        from modules.search.context.global_context import GlobalContextBuilder
+        from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         pool = MockNeo4jPool(
             community_results=[],
@@ -221,7 +221,7 @@ class TestGlobalContextBuilderFallback:
     @pytest.mark.asyncio
     async def test_find_relevant_communities_calls_fallback_after_community_failure(self):
         """_find_relevant_communities calls _find_entity_article_fallback when Community returns empty."""
-        from modules.search.context.global_context import GlobalContextBuilder
+        from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         pool = MockNeo4jPool(
             community_results=[],
@@ -254,7 +254,7 @@ class TestGlobalContextBuilderFallback:
     @pytest.mark.asyncio
     async def test_fallback_sorting_by_article_score(self):
         """Fallback results are sorted by article.score descending."""
-        from modules.search.context.global_context import GlobalContextBuilder
+        from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         pool = MockNeo4jPool(
             community_results=[],

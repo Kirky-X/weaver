@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.search.engines.global_search import GlobalSearchEngine, MapReduceResult
+from modules.knowledge.search.engines.global_search import GlobalSearchEngine, MapReduceResult
 
 
 @pytest.fixture
@@ -52,7 +52,7 @@ class TestGlobalSearchEngineBasic:
     @pytest.mark.asyncio
     async def test_global_search_returns_search_result(self, mock_neo4j_pool, mock_llm):
         """Test that global search returns SearchResult."""
-        from modules.search.engines.local_search import SearchResult
+        from modules.knowledge.search.engines.local_search import SearchResult
 
         # Mock context builder
         mock_context = MagicMock()
@@ -84,7 +84,7 @@ class TestGlobalSearchEngineEdgeCases:
     @pytest.mark.asyncio
     async def test_global_search_with_no_communities(self, mock_neo4j_pool, mock_llm):
         """Test global search with no communities found."""
-        from modules.search.engines.local_search import SearchResult
+        from modules.knowledge.search.engines.local_search import SearchResult
 
         # Mock empty context
         mock_context = MagicMock()

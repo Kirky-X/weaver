@@ -23,11 +23,11 @@ from typing import Any
 # Add src to Python path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
-from modules.search.engines.hybrid_search import HybridSearchConfig, HybridSearchEngine
-from modules.search.fusion.rrf import reciprocal_rank_fusion
-from modules.search.rerankers.flashrank_reranker import FlashrankReranker
-from modules.search.rerankers.mmr_reranker import MMRReranker
-from modules.search.retrievers.bm25_retriever import BM25Document, BM25Retriever
+from modules.knowledge.search.engines.hybrid_search import HybridSearchConfig, HybridSearchEngine
+from modules.knowledge.search.fusion.rrf import reciprocal_rank_fusion
+from modules.knowledge.search.rerankers.flashrank_reranker import FlashrankReranker
+from modules.knowledge.search.rerankers.mmr_reranker import MMRReranker
+from modules.knowledge.search.retrievers.bm25_retriever import BM25Document, BM25Retriever
 
 
 class PerformanceReport:

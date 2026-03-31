@@ -11,7 +11,7 @@ class TestPipelineState:
 
     def test_state_initialization(self):
         """Test PipelineState can be initialized."""
-        from modules.pipeline.state import PipelineState
+        from modules.processing.pipeline.state import PipelineState
 
         state = PipelineState()
         assert state is not None
@@ -19,7 +19,7 @@ class TestPipelineState:
 
     def test_state_set_item(self):
         """Test PipelineState can set items."""
-        from modules.pipeline.state import PipelineState
+        from modules.processing.pipeline.state import PipelineState
 
         state = PipelineState()
         state["test_key"] = "test_value"
@@ -31,7 +31,7 @@ class TestSourceModels:
 
     def test_source_config_creation(self):
         """Test SourceConfig can be created."""
-        from modules.source.models import SourceConfig
+        from modules.ingestion.domain.models import SourceConfig
 
         config = SourceConfig(
             id="test_source",
@@ -46,7 +46,7 @@ class TestSourceModels:
 
     def test_news_item_creation(self):
         """Test NewsItem can be created."""
-        from modules.source.models import NewsItem
+        from modules.ingestion.domain.models import NewsItem
 
         item = NewsItem(
             url="https://example.com/article1",
@@ -63,7 +63,7 @@ class TestCollectorModels:
 
     def test_article_raw_creation(self):
         """Test ArticleRaw can be created."""
-        from modules.collector.models import ArticleRaw
+        from modules.ingestion.domain.models import ArticleRaw
 
         raw = ArticleRaw(
             url="https://example.com/article",

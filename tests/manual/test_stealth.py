@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from modules.fetcher.playwright_pool import PlaywrightContextPool
+from modules.ingestion.fetching.playwright_pool import PlaywrightContextPool
 
 
 async def test_stealth():

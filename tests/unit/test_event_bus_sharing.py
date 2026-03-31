@@ -73,8 +73,8 @@ class TestEventBusSharing:
 
         with (
             patch("core.llm.token_budget.TokenBudgetManager", return_value=mock_token_budget),
-            patch("modules.nlp.spacy_extractor.SpacyExtractor", return_value=mock_spacy),
-            patch("modules.pipeline.graph.Pipeline") as mock_pipeline_cls,
+            patch("modules.processing.nlp.spacy_extractor.SpacyExtractor", return_value=mock_spacy),
+            patch("modules.processing.pipeline.graph.Pipeline") as mock_pipeline_cls,
             patch.object(container, "_redis_client", MagicMock()),
         ):
             mock_pipeline_cls.return_value = MagicMock()
@@ -101,8 +101,8 @@ class TestEventBusSharing:
 
         with (
             patch("core.llm.token_budget.TokenBudgetManager", return_value=mock_token_budget),
-            patch("modules.nlp.spacy_extractor.SpacyExtractor", return_value=mock_spacy),
-            patch("modules.pipeline.graph.Pipeline") as mock_pipeline_cls,
+            patch("modules.processing.nlp.spacy_extractor.SpacyExtractor", return_value=mock_spacy),
+            patch("modules.processing.pipeline.graph.Pipeline") as mock_pipeline_cls,
             patch("container.EventBus") as mock_event_bus_cls,
         ):
             new_bus = MagicMock()

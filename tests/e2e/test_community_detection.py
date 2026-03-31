@@ -51,10 +51,10 @@ class TestCommunityDetectionWorkflow:
         # The rebuild endpoint creates a CommunityDetector internally,
         # so we mock the class itself.
         with patch(
-            "modules.graph_store.community_detector.CommunityDetector.rebuild_communities",
+            "modules.knowledge.graph.community_detector.CommunityDetector.rebuild_communities",
             new_callable=AsyncMock,
         ) as mock_rebuild:
-            from modules.graph_store.community_models import CommunityDetectionResult
+            from modules.knowledge.graph.community_models import CommunityDetectionResult
 
             mock_rebuild.return_value = CommunityDetectionResult(
                 communities=[],
@@ -84,21 +84,21 @@ class TestCommunityDetectionWorkflow:
         # so we mock the class methods directly.
         with (
             patch(
-                "modules.graph_store.community_repo.Neo4jCommunityRepo.list_communities",
+                "modules.knowledge.graph.community_repo.Neo4jCommunityRepo.list_communities",
                 new_callable=AsyncMock,
             ) as mock_list,
             patch(
-                "modules.graph_store.community_repo.Neo4jCommunityRepo.count_communities",
+                "modules.knowledge.graph.community_repo.Neo4jCommunityRepo.count_communities",
                 new_callable=AsyncMock,
                 return_value=2,
             ) as mock_count,
             patch(
-                "modules.graph_store.community_repo.Neo4jCommunityRepo.get_report",
+                "modules.knowledge.graph.community_repo.Neo4jCommunityRepo.get_report",
                 new_callable=AsyncMock,
                 return_value=None,
             ),
         ):
-            from modules.graph_store.community_models import Community
+            from modules.knowledge.graph.community_models import Community
 
             mock_list.return_value = [
                 Community(
@@ -136,7 +136,7 @@ class TestCommunityDetectionWorkflow:
         auth_headers: dict[str, str],
     ) -> None:
         """Test getting individual community detail."""
-        from modules.graph_store.community_models import Community
+        from modules.knowledge.graph.community_models import Community
 
         mock_community = Community(
             id="comm-1",
@@ -148,12 +148,12 @@ class TestCommunityDetectionWorkflow:
 
         with (
             patch(
-                "modules.graph_store.community_repo.Neo4jCommunityRepo.get_community",
+                "modules.knowledge.graph.community_repo.Neo4jCommunityRepo.get_community",
                 new_callable=AsyncMock,
                 return_value=mock_community,
             ),
             patch(
-                "modules.graph_store.community_repo.Neo4jCommunityRepo.get_report",
+                "modules.knowledge.graph.community_repo.Neo4jCommunityRepo.get_report",
                 new_callable=AsyncMock,
                 return_value=None,
             ),
@@ -182,7 +182,7 @@ class TestCommunityDetectionWorkflow:
     ) -> None:
         """Test getting non-existent community returns 404."""
         with patch(
-            "modules.graph_store.community_repo.Neo4jCommunityRepo.get_community",
+            "modules.knowledge.graph.community_repo.Neo4jCommunityRepo.get_community",
             new_callable=AsyncMock,
             return_value=None,
         ):
@@ -200,10 +200,10 @@ class TestCommunityDetectionWorkflow:
     ) -> None:
         """Test regenerating community report."""
         with patch(
-            "modules.graph_store.community_report_generator.CommunityReportGenerator.regenerate_report",
+            "modules.knowledge.graph.community_report_generator.CommunityReportGenerator.regenerate_report",
             new_callable=AsyncMock,
         ) as mock_regenerate:
-            from modules.graph_store.community_report_generator import ReportGenerationResult
+            from modules.knowledge.graph.community_report_generator import ReportGenerationResult
 
             mock_regenerate.return_value = ReportGenerationResult(
                 community_id="comm-1",
@@ -231,21 +231,21 @@ class TestCommunityMetricsWorkflow:
         """Test getting community-level metrics."""
         with (
             patch(
-                "modules.graph_store.community_repo.Neo4jCommunityRepo.count_communities",
+                "modules.knowledge.graph.community_repo.Neo4jCommunityRepo.count_communities",
                 new_callable=AsyncMock,
                 return_value=10,
             ),
             patch(
-                "modules.graph_store.community_repo.Neo4jCommunityRepo.get_community_metrics",
+                "modules.knowledge.graph.community_repo.Neo4jCommunityRepo.get_community_metrics",
                 new_callable=AsyncMock,
             ) as mock_metrics,
             patch(
-                "modules.graph_store.community_repo.Neo4jCommunityRepo.get_level_distribution",
+                "modules.knowledge.graph.community_repo.Neo4jCommunityRepo.get_level_distribution",
                 new_callable=AsyncMock,
                 return_value=[{"level": 0, "count": 5}, {"level": 1, "count": 5}],
             ),
             patch(
-                "modules.graph_store.community_repo.Neo4jCommunityRepo.list_communities",
+                "modules.knowledge.graph.community_repo.Neo4jCommunityRepo.list_communities",
                 new_callable=AsyncMock,
                 return_value=[],
             ),
@@ -282,10 +282,10 @@ class TestCommunitySearchIntegration:
     ) -> None:
         """Test DRIFT search end-to-end."""
         with patch(
-            "modules.search.engines.drift_search.DRIFTSearchEngine.search",
+            "modules.knowledge.search.engines.drift_search.DRIFTSearchEngine.search",
             new_callable=AsyncMock,
         ) as mock_search:
-            from modules.search.engines.drift_search import DriftHierarchy, DriftResult
+            from modules.knowledge.search.engines.drift_search import DriftHierarchy, DriftResult
 
             mock_search.return_value = DriftResult(
                 query="What are the latest AI breakthroughs?",
@@ -336,10 +336,10 @@ class TestCommunityDetectionScheduler:
     ) -> None:
         """Test forcing a community rebuild."""
         with patch(
-            "modules.graph_store.community_detector.CommunityDetector.rebuild_communities",
+            "modules.knowledge.graph.community_detector.CommunityDetector.rebuild_communities",
             new_callable=AsyncMock,
         ) as mock_rebuild:
-            from modules.graph_store.community_models import CommunityDetectionResult
+            from modules.knowledge.graph.community_models import CommunityDetectionResult
 
             mock_rebuild.return_value = CommunityDetectionResult(
                 communities=[],

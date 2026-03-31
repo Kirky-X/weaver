@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.source.models import SourceConfig
-from modules.source.newsnow_parser import NewsNowParser
+from modules.ingestion.domain.models import SourceConfig
+from modules.ingestion.parsing.newsnow_parser import NewsNowParser
 
 
 class TestNewsNowParserInit:

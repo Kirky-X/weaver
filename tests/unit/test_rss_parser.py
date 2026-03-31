@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.source.models import SourceConfig
-from modules.source.rss_parser import RSSParser
+from modules.ingestion.domain.models import SourceConfig
+from modules.ingestion.parsing.rss_parser import RSSParser
 
 
 class TestRSSParserInit:

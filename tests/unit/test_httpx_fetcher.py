@@ -6,7 +6,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from modules.fetcher.httpx_fetcher import HttpxFetcher, RedirectBlockedError, SecureRedirectHandler
+from modules.ingestion.fetching.httpx_fetcher import (
+    HttpxFetcher,
+    RedirectBlockedError,
+    SecureRedirectHandler,
+)
 
 
 class TestRedirectBlockedError:
@@ -324,7 +328,7 @@ class TestHttpxFetcherMetrics:
         with patch.object(fetcher._client, "send", new_callable=AsyncMock) as mock_send:
             mock_send.return_value = mock_response
 
-            with patch("modules.fetcher.httpx_fetcher.MetricsCollector") as mock_metrics:
+            with patch("modules.ingestion.fetching.httpx_fetcher.MetricsCollector") as mock_metrics:
                 await fetcher.fetch("https://example.com")
 
                 # Verify metrics were called
@@ -341,7 +345,7 @@ class TestHttpxFetcherMetrics:
         with patch.object(fetcher._client, "send", new_callable=AsyncMock) as mock_send:
             mock_send.side_effect = httpx.TransportError("Connection failed")
 
-            with patch("modules.fetcher.httpx_fetcher.MetricsCollector") as mock_metrics:
+            with patch("modules.ingestion.fetching.httpx_fetcher.MetricsCollector") as mock_metrics:
                 with pytest.raises(httpx.TransportError):
                     await fetcher.fetch("https://example.com")
 

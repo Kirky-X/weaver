@@ -14,8 +14,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from modules.graph_store.community_detector import CommunityDetector
-from modules.graph_store.community_models import CommunityDetectionResult
+from modules.knowledge.graph.community_detector import CommunityDetector
+from modules.knowledge.graph.community_models import CommunityDetectionResult
 
 
 @dataclass
@@ -257,7 +257,7 @@ class TestCommunityReportGenerationPerformance:
     @pytest.mark.asyncio
     async def test_report_generation_single_community(self):
         """Test report generation time for single community."""
-        from modules.graph_store.community_report_generator import (
+        from modules.knowledge.graph.community_report_generator import (
             CommunityReportGenerator,
             ReportGenerationResult,
         )
@@ -297,8 +297,8 @@ class TestCommunityReportGenerationPerformance:
     @pytest.mark.asyncio
     async def test_batch_report_generation(self):
         """Test batch report generation for multiple communities."""
-        from modules.graph_store.community_models import Community
-        from modules.graph_store.community_report_generator import (
+        from modules.knowledge.graph.community_models import Community
+        from modules.knowledge.graph.community_report_generator import (
             CommunityReportGenerator,
             ReportGenerationResult,
         )

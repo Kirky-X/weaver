@@ -23,7 +23,7 @@ from typing import Any
 # Add src to Python path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from modules.search.retrievers.bm25_retriever import BM25Document, BM25Retriever
+from modules.knowledge.search.retrievers.bm25_retriever import BM25Document, BM25Retriever
 
 
 class SearchQualityEvaluator:

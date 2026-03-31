@@ -135,7 +135,7 @@ def mock_neo4j_pool():
 @pytest.fixture(scope="session")
 def sample_source_config():
     """Sample source config for testing - session scoped for immutability."""
-    from modules.source.models import SourceConfig
+    from modules.ingestion.domain.models import SourceConfig
 
     return SourceConfig(
         id="test_source",
@@ -150,7 +150,7 @@ def sample_source_config():
 @pytest.fixture
 def sample_news_item():
     """Sample news item for testing."""
-    from modules.source.models import NewsItem
+    from modules.ingestion.domain.models import NewsItem
 
     return NewsItem(
         url="https://example.com/article1",
@@ -163,7 +163,7 @@ def sample_news_item():
 @pytest.fixture
 def sample_article_raw():
     """Sample article raw data for testing."""
-    from modules.collector.models import ArticleRaw
+    from modules.ingestion.domain.models import ArticleRaw
 
     return ArticleRaw(
         url="https://example.com/article",
@@ -211,8 +211,8 @@ def sample_article():
 @pytest.fixture
 def sample_pipeline_state():
     """Sample pipeline state for testing."""
-    from modules.collector.models import ArticleRaw
-    from modules.pipeline.state import PipelineState
+    from modules.ingestion.domain.models import ArticleRaw
+    from modules.processing.pipeline.state import PipelineState
 
     raw = ArticleRaw(
         url="https://example.com/pipeline-test",

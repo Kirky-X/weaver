@@ -21,7 +21,7 @@ class TestGlobalContextBuilder:
 
     def test_global_context_builder_initializes(self, mock_neo4j_pool):
         """Test that GlobalContextBuilder initializes correctly."""
-        from modules.search.context.global_context import GlobalContextBuilder
+        from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         builder = GlobalContextBuilder(
             neo4j_pool=mock_neo4j_pool,
@@ -33,7 +33,7 @@ class TestGlobalContextBuilder:
 
     def test_global_context_builder_with_custom_params(self, mock_neo4j_pool):
         """Test GlobalContextBuilder with custom parameters."""
-        from modules.search.context.global_context import GlobalContextBuilder
+        from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         builder = GlobalContextBuilder(
             neo4j_pool=mock_neo4j_pool,
@@ -46,7 +46,7 @@ class TestGlobalContextBuilder:
     @pytest.mark.asyncio
     async def test_global_context_build_returns_context(self, mock_neo4j_pool):
         """Test that build returns a context object."""
-        from modules.search.context.global_context import GlobalContextBuilder
+        from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         mock_neo4j_pool.execute = AsyncMock(return_value=[])
 
@@ -62,7 +62,7 @@ class TestLocalContextBuilder:
 
     def test_local_context_builder_initializes(self, mock_neo4j_pool):
         """Test that LocalContextBuilder initializes correctly."""
-        from modules.search.context.local_context import LocalContextBuilder
+        from modules.knowledge.search.context.local_context import LocalContextBuilder
 
         builder = LocalContextBuilder(
             neo4j_pool=mock_neo4j_pool,
@@ -73,7 +73,7 @@ class TestLocalContextBuilder:
 
     def test_local_context_builder_with_custom_params(self, mock_neo4j_pool):
         """Test LocalContextBuilder with custom parameters."""
-        from modules.search.context.local_context import LocalContextBuilder
+        from modules.knowledge.search.context.local_context import LocalContextBuilder
 
         builder = LocalContextBuilder(
             neo4j_pool=mock_neo4j_pool,
@@ -85,7 +85,7 @@ class TestLocalContextBuilder:
     @pytest.mark.asyncio
     async def test_local_context_build_returns_context(self, mock_neo4j_pool):
         """Test that build returns a context object."""
-        from modules.search.context.local_context import LocalContextBuilder
+        from modules.knowledge.search.context.local_context import LocalContextBuilder
 
         mock_neo4j_pool.execute = AsyncMock(return_value=[])
 
@@ -98,7 +98,7 @@ class TestLocalContextBuilder:
     @pytest.mark.asyncio
     async def test_local_context_with_entity_names(self, mock_neo4j_pool):
         """Test LocalContextBuilder with specific entity names."""
-        from modules.search.context.local_context import LocalContextBuilder
+        from modules.knowledge.search.context.local_context import LocalContextBuilder
 
         mock_neo4j_pool.execute = AsyncMock(return_value=[])
 
@@ -119,7 +119,7 @@ class TestContextBuilderEdgeCases:
     @pytest.mark.asyncio
     async def test_context_build_with_empty_results(self, mock_neo4j_pool):
         """Test context building with empty Neo4j results."""
-        from modules.search.context.global_context import GlobalContextBuilder
+        from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         mock_neo4j_pool.execute = AsyncMock(return_value=[])
 
@@ -132,7 +132,7 @@ class TestContextBuilderEdgeCases:
     @pytest.mark.asyncio
     async def test_context_respects_token_budget(self, mock_neo4j_pool):
         """Test that context building respects token budget."""
-        from modules.search.context.local_context import LocalContextBuilder
+        from modules.knowledge.search.context.local_context import LocalContextBuilder
 
         mock_neo4j_pool.execute = AsyncMock(return_value=[])
 
@@ -155,7 +155,7 @@ class TestContextBuilderErrorHandling:
     @pytest.mark.asyncio
     async def test_context_handles_neo4j_error(self, mock_neo4j_pool):
         """Test context builder handles Neo4j errors."""
-        from modules.search.context.global_context import GlobalContextBuilder
+        from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         mock_neo4j_pool.execute = AsyncMock(side_effect=Exception("Neo4j connection failed"))
 

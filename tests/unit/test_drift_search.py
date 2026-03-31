@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from modules.search.engines.drift_search import (
+from modules.knowledge.search.engines.drift_search import (
     DriftConfig,
     DriftHierarchy,
     DriftResult,
@@ -131,7 +131,7 @@ class TestDRIFTSearchEngine:
     @pytest.fixture
     def mock_local_engine(self):
         """Create mock LocalSearchEngine."""
-        from modules.search.engines.local_search import SearchResult
+        from modules.knowledge.search.engines.local_search import SearchResult
 
         engine = MagicMock()
         engine.search = AsyncMock(
@@ -281,7 +281,7 @@ class TestDRIFTSearchEngine:
     @pytest.mark.asyncio
     async def test_follow_up_phase_early_termination(self, mock_neo4j_pool, mock_llm):
         """Test follow-up phase terminates early on high confidence."""
-        from modules.search.engines.local_search import SearchResult
+        from modules.knowledge.search.engines.local_search import SearchResult
 
         config = DriftConfig(confidence_threshold=0.7)
         mock_local = MagicMock()

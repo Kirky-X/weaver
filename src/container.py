@@ -14,22 +14,27 @@ from core.event import EventBus, LLMFailureEvent, LLMUsageEvent
 from core.llm.client import LLMClient
 from core.observability import get_logger
 from core.prompt import PromptLoader
-from modules.collector import Deduplicator
-from modules.collector.crawler import Crawler
-from modules.fetcher import PlaywrightContextPool, SmartFetcher
-from modules.graph_store import EntityResolver, Neo4jWriter
-from modules.graph_store.incremental_community_updater import IncrementalCommunityUpdater
-from modules.graph_store.name_normalizer import name_normalizer
-from modules.graph_store.resolution_rules import resolution_rules
-from modules.pipeline.graph import Pipeline
+from modules.ingestion import (
+    Crawler,
+    Deduplicator,
+    PlaywrightContextPool,
+    SmartFetcher,
+    SourceConfigRepo,
+    SourceRegistry,
+    SourceScheduler,
+)
+from modules.knowledge.graph import EntityResolver, Neo4jWriter
+from modules.knowledge.graph.incremental_community_updater import IncrementalCommunityUpdater
+from modules.knowledge.graph.name_normalizer import name_normalizer
+from modules.knowledge.graph.resolution_rules import resolution_rules
+from modules.knowledge.search.engines.global_search import GlobalSearchEngine
+from modules.knowledge.search.engines.hybrid_search import HybridSearchConfig, HybridSearchEngine
+from modules.knowledge.search.engines.local_search import LocalSearchEngine
+from modules.processing.pipeline.graph import Pipeline
 from modules.scheduler.llm_usage_aggregator import (
     LLMUsageAggregatorThread,
     LLMUsageRawCleanupThread,
 )
-from modules.search.engines.global_search import GlobalSearchEngine
-from modules.search.engines.hybrid_search import HybridSearchConfig, HybridSearchEngine
-from modules.search.engines.local_search import LocalSearchEngine
-from modules.source import SourceConfigRepo, SourceRegistry, SourceScheduler
 from modules.storage import ArticleRepo, PendingSyncRepo, SourceAuthorityRepo, VectorRepo
 from modules.storage.llm_usage_buffer import LLMUsageBuffer
 from modules.storage.llm_usage_repo import LLMUsageRepo
@@ -411,7 +416,7 @@ class Container:
     def hybrid_search_engine(self) -> HybridSearchEngine | None:
         """Get hybrid search engine (or None if unavailable)."""
         if self._hybrid_engine is None and self._vector_repo is not None:
-            from modules.search.retrievers.bm25_retriever import BM25Retriever
+            from modules.knowledge.search.retrievers.bm25_retriever import BM25Retriever
 
             bm25_retriever = BM25Retriever(self._postgres_pool)
             self._hybrid_engine = HybridSearchEngine(
@@ -457,9 +462,9 @@ class Container:
     async def init_smart_fetcher(self) -> SmartFetcher:
         """Initialize smart fetcher."""
         if self._smart_fetcher is None:
-            from modules.fetcher.httpx_fetcher import HttpxFetcher
-            from modules.fetcher.playwright_fetcher import PlaywrightFetcher
-            from modules.fetcher.rate_limiter import HostRateLimiter
+            from modules.ingestion.fetching.httpx_fetcher import HttpxFetcher
+            from modules.ingestion.fetching.playwright_fetcher import PlaywrightFetcher
+            from modules.ingestion.fetching.rate_limiter import HostRateLimiter
 
             settings = self._settings.fetcher
 
@@ -526,7 +531,7 @@ class Container:
         """Initialize the processing pipeline."""
         if self._pipeline is None:
             from core.llm.token_budget import TokenBudgetManager
-            from modules.nlp.spacy_extractor import SpacyExtractor
+            from modules.processing.nlp.spacy_extractor import SpacyExtractor
 
             if self._event_bus is None:
                 self._event_bus = EventBus()
@@ -591,7 +596,7 @@ class Container:
         await self.init_playwright_pool()
         await self.init_smart_fetcher()
 
-        from modules.collector.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         processor = DiscoveryProcessor(
             crawler=self.crawler(),

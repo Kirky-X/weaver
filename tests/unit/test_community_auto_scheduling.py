@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from modules.graph_store.incremental_community_updater import (
+from modules.knowledge.graph.incremental_community_updater import (
     IncrementalCommunityUpdater,
     IncrementalUpdateResult,
 )
@@ -48,7 +48,7 @@ class TestCheckAndRun:
             None,  # _update_full_rebuild_metadata execute
         ]
 
-        with patch("modules.graph_store.community_detector.CommunityDetector") as MockDetector:
+        with patch("modules.knowledge.graph.community_detector.CommunityDetector") as MockDetector:
             mock_detector = MagicMock()
             mock_detector.rebuild_communities = AsyncMock(return_value=_make_rebuild_result())
             MockDetector.return_value = mock_detector
@@ -70,7 +70,7 @@ class TestCheckAndRun:
             None,  # _update_full_rebuild_metadata
         ]
 
-        with patch("modules.graph_store.community_detector.CommunityDetector") as MockDetector:
+        with patch("modules.knowledge.graph.community_detector.CommunityDetector") as MockDetector:
             mock_detector = MagicMock()
             mock_detector.rebuild_communities = AsyncMock(
                 return_value=_make_rebuild_result(8, 120, 0.50)
@@ -106,7 +106,7 @@ class TestCheckAndRun:
             None,  # _update_full_rebuild_metadata
         ]
 
-        with patch("modules.graph_store.community_detector.CommunityDetector") as MockDetector:
+        with patch("modules.knowledge.graph.community_detector.CommunityDetector") as MockDetector:
             mock_detector = MagicMock()
             mock_detector.rebuild_communities = AsyncMock(
                 return_value=_make_rebuild_result(6, 100, 0.42)
@@ -155,7 +155,7 @@ class TestForceRebuild:
             None,  # _update_full_rebuild_metadata
         ]
 
-        with patch("modules.graph_store.community_detector.CommunityDetector") as MockDetector:
+        with patch("modules.knowledge.graph.community_detector.CommunityDetector") as MockDetector:
             mock_detector = MagicMock()
             mock_detector.rebuild_communities = AsyncMock(
                 return_value=_make_rebuild_result(12, 200, 0.48)
@@ -176,7 +176,7 @@ class TestForceRebuild:
             None,  # _update_full_rebuild_metadata
         ]
 
-        with patch("modules.graph_store.community_detector.CommunityDetector") as MockDetector:
+        with patch("modules.knowledge.graph.community_detector.CommunityDetector") as MockDetector:
             mock_detector = MagicMock()
             mock_detector.rebuild_communities = AsyncMock(
                 return_value=_make_rebuild_result(10, 150, 0.55)

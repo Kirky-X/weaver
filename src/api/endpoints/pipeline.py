@@ -23,7 +23,7 @@ from core.cache.redis import RedisClient
 from core.constants import PipelineTaskStatus
 from core.db.postgres import PostgresPool
 from core.observability.metrics import metrics
-from modules.source.scheduler import SourceScheduler
+from modules.ingestion.scheduling.scheduler import SourceScheduler
 from modules.storage.article_repo import ArticleRepo
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])

@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from modules.fetcher.playwright_pool import PlaywrightContextPool
+from modules.ingestion.fetching.playwright_pool import PlaywrightContextPool
 
 
 class TestPlaywrightContextPool:
@@ -27,14 +27,14 @@ class TestPlaywrightContextPool:
     @pytest.mark.asyncio
     async def test_startup_creates_pool(self):
         """Test startup creates browser contexts."""
-        with patch("modules.fetcher.playwright_pool.Stealth") as mock_stealth_class:
+        with patch("modules.ingestion.fetching.playwright_pool.Stealth") as mock_stealth_class:
             mock_stealth_instance = MagicMock()
             mock_stealth_instance.apply_stealth_async = AsyncMock()
             mock_stealth_class.return_value = mock_stealth_instance
 
             pool = PlaywrightContextPool(pool_size=3)
 
-            with patch("modules.fetcher.playwright_pool.async_playwright") as mock_pw:
+            with patch("modules.ingestion.fetching.playwright_pool.async_playwright") as mock_pw:
                 mock_pw_instance = MagicMock()
                 mock_browser = MagicMock()
                 mock_context = MagicMock()
@@ -177,14 +177,14 @@ class TestPlaywrightContextPool:
     @pytest.mark.asyncio
     async def test_user_agent_set(self):
         """Test user agent is set on context creation."""
-        with patch("modules.fetcher.playwright_pool.Stealth") as mock_stealth_class:
+        with patch("modules.ingestion.fetching.playwright_pool.Stealth") as mock_stealth_class:
             mock_stealth_instance = MagicMock()
             mock_stealth_instance.apply_stealth_async = AsyncMock()
             mock_stealth_class.return_value = mock_stealth_instance
 
             pool = PlaywrightContextPool(pool_size=1)
 
-            with patch("modules.fetcher.playwright_pool.async_playwright") as mock_pw:
+            with patch("modules.ingestion.fetching.playwright_pool.async_playwright") as mock_pw:
                 mock_pw_instance = MagicMock()
                 mock_browser = MagicMock()
                 mock_context = MagicMock()
@@ -260,14 +260,14 @@ class TestPlaywrightContextPoolStealth:
     @pytest.mark.asyncio
     async def test_stealth_applied_to_context(self):
         """Test stealth is applied when creating context."""
-        with patch("modules.fetcher.playwright_pool.Stealth") as mock_stealth_class:
+        with patch("modules.ingestion.fetching.playwright_pool.Stealth") as mock_stealth_class:
             mock_stealth_instance = MagicMock()
             mock_stealth_instance.apply_stealth_async = AsyncMock()
             mock_stealth_class.return_value = mock_stealth_instance
 
             pool = PlaywrightContextPool(pool_size=1, stealth_enabled=True)
 
-            with patch("modules.fetcher.playwright_pool.async_playwright") as mock_pw:
+            with patch("modules.ingestion.fetching.playwright_pool.async_playwright") as mock_pw:
                 mock_pw_instance = MagicMock()
                 mock_browser = MagicMock()
                 mock_context = MagicMock()
@@ -285,7 +285,7 @@ class TestPlaywrightContextPoolStealth:
     @pytest.mark.asyncio
     async def test_apply_stealth_to_page_when_enabled(self):
         """Test apply_stealth_to_page works when stealth is enabled."""
-        with patch("modules.fetcher.playwright_pool.Stealth") as mock_stealth_class:
+        with patch("modules.ingestion.fetching.playwright_pool.Stealth") as mock_stealth_class:
             mock_stealth_instance = MagicMock()
             mock_stealth_instance.apply_stealth_async = AsyncMock()
             mock_stealth_class.return_value = mock_stealth_instance
@@ -313,14 +313,14 @@ class TestPlaywrightContextPoolStealth:
     @pytest.mark.asyncio
     async def test_browser_launch_args(self):
         """Test browser is launched with anti-detection args."""
-        with patch("modules.fetcher.playwright_pool.Stealth") as mock_stealth_class:
+        with patch("modules.ingestion.fetching.playwright_pool.Stealth") as mock_stealth_class:
             mock_stealth_instance = MagicMock()
             mock_stealth_instance.apply_stealth_async = AsyncMock()
             mock_stealth_class.return_value = mock_stealth_instance
 
             pool = PlaywrightContextPool(pool_size=1)
 
-            with patch("modules.fetcher.playwright_pool.async_playwright") as mock_pw:
+            with patch("modules.ingestion.fetching.playwright_pool.async_playwright") as mock_pw:
                 mock_pw_instance = MagicMock()
                 mock_browser = MagicMock()
                 mock_context = MagicMock()

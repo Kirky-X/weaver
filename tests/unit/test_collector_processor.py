@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.collector.models import ArticleRaw
+from modules.ingestion.domain.models import ArticleRaw
 
 
 @pytest.fixture
@@ -48,7 +48,7 @@ class TestDiscoveryProcessor:
     @pytest.mark.asyncio
     async def test_processor_initializes(self, mock_crawler, mock_article_repo):
         """Test that processor initializes correctly."""
-        from modules.collector.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
@@ -60,7 +60,7 @@ class TestDiscoveryProcessor:
     @pytest.mark.asyncio
     async def test_processor_with_pipeline(self, mock_crawler, mock_article_repo, mock_pipeline):
         """Test processor with optional pipeline."""
-        from modules.collector.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
@@ -77,7 +77,7 @@ class TestDiscoveryProcessorEdgeCases:
     @pytest.mark.asyncio
     async def test_processor_without_deduplicator(self, mock_crawler, mock_article_repo):
         """Test processor without deduplicator."""
-        from modules.collector.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
@@ -90,7 +90,7 @@ class TestDiscoveryProcessorEdgeCases:
     @pytest.mark.asyncio
     async def test_processor_set_deduplicator(self, mock_crawler, mock_article_repo):
         """Test setting deduplicator on processor."""
-        from modules.collector.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
@@ -109,7 +109,7 @@ class TestDiscoveryProcessorErrorHandling:
     @pytest.mark.asyncio
     async def test_processor_handles_crawler_error(self, mock_article_repo, mock_pipeline):
         """Test processor handles crawler errors."""
-        from modules.collector.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         mock_crawler = AsyncMock(side_effect=Exception("Crawler error"))
 

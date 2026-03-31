@@ -19,7 +19,7 @@ class TestSourceRegistryBasic:
 
     def test_registry_initializes(self, mock_fetcher):
         """Test that registry initializes correctly."""
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -28,7 +28,7 @@ class TestSourceRegistryBasic:
 
     def test_registry_has_default_parsers(self, mock_fetcher):
         """Test that registry has default parsers."""
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -38,8 +38,8 @@ class TestSourceRegistryBasic:
 
     def test_registry_add_source(self, mock_fetcher):
         """Test adding a source to registry."""
-        from modules.source.models import SourceConfig
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.domain.models import SourceConfig
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -62,7 +62,7 @@ class TestSourceRegistryEdgeCases:
 
     def test_registry_with_empty_list(self, mock_fetcher):
         """Test registry behavior with no sources."""
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -71,8 +71,8 @@ class TestSourceRegistryEdgeCases:
 
     def test_registry_list_enabled_only(self, mock_fetcher):
         """Test listing only enabled sources."""
-        from modules.source.models import SourceConfig
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.domain.models import SourceConfig
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -103,8 +103,8 @@ class TestSourceRegistryEdgeCases:
 
     def test_registry_update_source(self, mock_fetcher):
         """Test updating an existing source."""
-        from modules.source.models import SourceConfig
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.domain.models import SourceConfig
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -138,7 +138,7 @@ class TestSourceRegistryErrorHandling:
 
     def test_registry_get_unknown_source(self, mock_fetcher):
         """Test getting an unknown source."""
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -147,8 +147,8 @@ class TestSourceRegistryErrorHandling:
 
     def test_registry_remove_source(self, mock_fetcher):
         """Test removing a source."""
-        from modules.source.models import SourceConfig
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.domain.models import SourceConfig
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
