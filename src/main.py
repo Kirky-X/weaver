@@ -38,7 +38,7 @@ _scheduler = None
 
 
 async def _setup_scheduler(container: Container) -> Any:
-    """Setup APScheduler with compensation jobs.
+    """Set up APScheduler with compensation jobs.
 
     Args:
         container: The application container.
@@ -539,7 +539,7 @@ app = create_app()
 
 
 async def main() -> None:
-    """Main entry point for the application."""
+    """Provide main entry point for the application."""
     import uvicorn
 
     settings = Settings()

@@ -8,15 +8,15 @@ dependencies = [
     "alembic>=1.18.4",
     "apscheduler>=3.11.2",
     "asyncpg>=0.31.0",
-    "dependency-injector>=4.48.3",
+    "dependency-injector>=4.49.0",
     "fastapi>=0.135.1",
     "feedparser>=6.0.12",
     "httpx[http2]>=0.28.1",
-    "json_repair>=0.58.6",
-    "langchain>=1.2.12",
+    "json_repair>=0.58.7",
+    "langchain>=1.2.13",
     "langchain-anthropic>=1.4.0",
     "langchain-core>=1.2.12",
-    "langchain-openai>=1.1.11",
+    "langchain-openai>=1.1.12",
     "langgraph>=1.1.3",
     "neo4j>=6.1.0",
     "numpy>=1.26.4,<2.0.0",
@@ -27,23 +27,26 @@ dependencies = [
     "playwright-stealth>=2.0.2",
     "prometheus-client>=0.24.1",
     "pydantic-settings>=2.13.1",
-    "redis[hiredis]>=7.3.0",
+    "redis[hiredis]>=7.4.0",
     "simhash>=2.1.2",
     "slowapi>=0.1.9",
-    "spacy>=3.8.11",
+    "spacy>=3.8.14",
     "sqlalchemy[asyncio]>=2.0.48",
-    "loguru",
+    "loguru>=0.7.3",
     "tiktoken>=0.12.0",
     "trafilatura>=2.0.0",
     "uvicorn[standard]>=0.42.0",
     "opentelemetry-exporter-otlp>=1.40.0",
-    "tenacity>=8.2.0",
+    "tenacity>=9.1.4",
     "ntplib>=0.4.0",
     # ── Search Enhancement ─────────────────────────────────
-    "bm25s>=0.2.0",
-    "flashrank>=0.2.5",
+    "bm25s>=0.3.3",
+    "flashrank>=0.2.10",
     # ── Community Detection ──────────────────────────────────
-    "graspologic>=3.4.1",
+    "graspologic>=3.4.4",
+    # ── Advanced Community Detection ─────────────────────────
+    "python-igraph>=0.11.0",
+    "leidenalg>=0.11.0",
 ]
 
 [build-system]
@@ -55,10 +58,10 @@ packages = ["src"]
 
 [dependency-groups]
 dev = [
-    "anyio>=4.12.1",
+    "anyio>=4.13.0",
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
-    "pytest-cov>=7.0.0",
+    "pytest-cov>=7.1.0",
     "pytest-mock>=3.15.1",
     "pytest-timeout>=2.4.0",
     "pytest-xdist>=3.8.0",
@@ -71,9 +74,9 @@ dev = [
     "ruff>=0.15.6",
     # ── Type checking ──────────────────────────────────────
     "mypy>=1.19.1",
-    "types-redis>=4.6.0",
-    "types-PyYAML>=6.0.12",
-    "types-aiofiles>=25.1.0",
+    "types-redis>=4.6.0.20241004",
+    "types-PyYAML>=6.0.12.20250915",
+    "types-aiofiles>=25.1.0.20251011",
     # ── Security ───────────────────────────────────────────
     "bandit>=1.9.4",
     # ── Docstring style ───────────────────────────────────
@@ -108,7 +111,7 @@ exclude = [
     ".tox",
     ".venv",
     "__pycache__",
-    "alembic/versions",        # 自动生成的迁移文件
+    "src/alembic/versions",    # 自动生成的迁移文件
     "docs",
     "monitoring",
     "scripts/rollback",         # 回滚脚本
@@ -135,6 +138,8 @@ select = [
     # ── 安全 ─────────────────────────────────────────────
     "S",      # bandit
     "PD",     # pandas-avoidance（部分）
+    # ── 文档风格 ───────────────────────────────────────
+    "D",      # pydocstyle（包括 D401）
 ]
 # 忽略的规则
 ignore = [
@@ -171,6 +176,17 @@ ignore = [
     "RUF001",
     "RUF012",
     "UP046",   # pydantic GenericModel 模式（与 pydantic 2.x 兼容）
+    # ── Docstring 规则忽略 ───────────────────────────
+    "D100",    # 模块 docstring（初创期放宽）
+    "D104",    # 包 docstring（初创期放宽）
+    "D107",    # __init__ docstring（可从类 docstring 推断）
+    "D203",    # 类前空行（与 D211 冲突）
+    "D212",    # 多行 docstring 首行（与 D213 冲突）
+    "D213",    # 多行 docstring 首行（选择 D212）
+    "D400",    # 首行句点结尾（Google 风格不强制）
+    "D415",    # 首行以动词/问号结尾（D401 已涵盖）
+    "D416",    # 首行以冒号结尾（函数名已说明）
+    "D417",    # 参数描述缺失（FastAPI Depends 参数在签名中已说明）
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -205,12 +221,14 @@ ignore = [
     "RUF015", # 测试代码
     "F821",   # 测试代码
     "S106",   # 测试中的密码参数
+    "D",      # 测试文件不需要 docstring
 ]  # 测试文件放宽要求
-"alembic/env.py" = ["E402", "F401", "F811"]
-"src/scripts/*.py" = ["S603", "S607", "F811", "F541"]      # 脚本允许 subprocess 调用
-"scripts/*.py" = ["S603", "S607", "S608", "F841", "F811", "F541", "S104", "S106", "RET503"]  # 脚本允许 subprocess 调用、SQL 动态构建和未使用变量
-"src/config/*" = ["S104", "S105", "S106"]   # 配置文件允许 0.0.0.0 监听和密码参数
-"container.py" = ["S106"]                   # 容器日志记录需要密码参数
+"alembic/env.py" = ["E402", "F401", "F811", "D"]
+"alembic/versions/*.py" = ["D"]  # 自动生成的迁移文件不需要 docstring
+"src/scripts/*.py" = ["S603", "S607", "F811", "F541", "D"]      # 脚本允许 subprocess 调用
+"scripts/*.py" = ["S603", "S607", "S608", "F841", "F811", "F541", "S104", "S106", "RET503", "D"]  # 脚本允许 subprocess 调用、SQL 动态构建和未使用变量
+"src/config/*" = ["S104", "S105", "S106", "D"]   # 配置文件允许 0.0.0.0 监听和密码参数
+"container.py" = ["S106", "D"]                   # 容器日志记录需要密码参数
 "src/core/*" = [
     "N818",
     "UP047",
@@ -227,6 +245,7 @@ ignore = [
     "S112",
     "UP042",
     "RUF006",
+    "D",      # core 模块放宽 docstring 要求
 ]  # core 模块放宽要求
 
 "src/modules/*" = [
@@ -250,11 +269,13 @@ ignore = [
     "F811",
     "C401",
     "B005",
+    "D",      # modules 模块放宽 docstring 要求
 ]  # modules 模块放宽要求
 
 "src/main.py" = [
     "N818",
     "F811",
+    "D",      # main.py 放宽 docstring 要求
 ]  # main.py 放宽要求
 
 [tool.ruff.lint.isort]
