@@ -117,6 +117,7 @@ async def rebuild_communities(
 
     Returns:
         Rebuild statistics.
+
     """
     log.info("community_rebuild_requested", max_cluster_size=request.max_cluster_size)
 
@@ -175,6 +176,7 @@ async def generate_all_reports(
 
     Returns:
         Generation statistics.
+
     """
     log.info("report_generation_requested", level=level)
 
@@ -227,6 +229,7 @@ async def regenerate_report(
 
     Returns:
         Generation result.
+
     """
     generator = CommunityReportGenerator(pool=pool, llm_client=llm)
 
@@ -285,6 +288,7 @@ async def list_communities(
 
     Returns:
         List of communities.
+
     """
     repo = Neo4jCommunityRepo(pool)
 
@@ -337,6 +341,7 @@ async def get_community(
 
     Returns:
         Community details with entities and report.
+
     """
     repo = Neo4jCommunityRepo(pool)
 

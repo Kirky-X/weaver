@@ -189,6 +189,7 @@ async def get_subgraph(
 
     Returns:
         Subgraph with nodes and edges within N hops.
+
     """
     # Validate max_hops to prevent Cypher injection
     if not 1 <= request.max_hops <= 4:

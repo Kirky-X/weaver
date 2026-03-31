@@ -241,6 +241,7 @@ def _parse_include_param(include: str | None) -> set[str] | None:
     Returns:
         - None if include is None or 'all' (include everything)
         - Set of specific includes otherwise
+
     """
     if include is None or include.lower() == "all":
         return None
@@ -256,6 +257,7 @@ def _should_include(item: str, include_set: set[str] | None) -> bool:
 
     Returns:
         True if item should be included
+
     """
     if include_set is None:
         return True

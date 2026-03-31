@@ -11,6 +11,7 @@ Example:
     @router.get("/items")
     async def list_items(pool = Depends(get_postgres_pool)):
         ...
+
 """
 
 from __future__ import annotations
@@ -49,6 +50,7 @@ def get_container() -> Container:
 
     Raises:
         HTTPException: If container is not initialized.
+
     """
     import container as container_module
 
@@ -65,6 +67,7 @@ def get_postgres_pool() -> PostgresPool:
 
     Returns:
         PostgresPool instance.
+
     """
     return Endpoints.get_postgres_pool()
 
@@ -77,6 +80,7 @@ def get_redis_client() -> RedisClient:
 
     Returns:
         RedisClient instance.
+
     """
     return Endpoints.get_redis()
 
@@ -89,6 +93,7 @@ def get_neo4j_pool() -> Neo4jPool:
 
     Returns:
         Neo4jPool instance.
+
     """
     return Endpoints.get_neo4j_pool()
 
@@ -101,6 +106,7 @@ def get_llm_client() -> LLMClient:
 
     Returns:
         LLMClient instance.
+
     """
     return Endpoints.get_llm()
 
@@ -113,6 +119,7 @@ def get_vector_repo() -> VectorRepo:
 
     Returns:
         VectorRepo instance.
+
     """
     return Endpoints.get_vector_repo()
 
@@ -125,6 +132,7 @@ def get_article_repo(pool: Annotated[PostgresPool, Depends(get_postgres_pool)]) 
 
     Returns:
         ArticleRepo instance.
+
     """
     from modules.storage.article_repo import ArticleRepo
 
@@ -139,6 +147,7 @@ def get_local_search_engine() -> LocalSearchEngine:
 
     Returns:
         LocalSearchEngine instance.
+
     """
     return Endpoints.get_local_engine()
 
@@ -151,6 +160,7 @@ def get_global_search_engine() -> GlobalSearchEngine:
 
     Returns:
         GlobalSearchEngine instance.
+
     """
     return Endpoints.get_global_engine()
 
@@ -163,6 +173,7 @@ def get_hybrid_search_engine() -> HybridSearchEngine:
 
     Returns:
         HybridSearchEngine instance.
+
     """
     return Endpoints.get_hybrid_engine()
 
@@ -175,6 +186,7 @@ def get_source_scheduler() -> SourceScheduler:
 
     Returns:
         SourceScheduler instance.
+
     """
     return Endpoints.get_scheduler()
 
@@ -187,6 +199,7 @@ def get_source_config_repo() -> SourceConfigRepo:
 
     Returns:
         SourceConfigRepo instance.
+
     """
     return Endpoints.get_source_config_repo()
 
@@ -199,6 +212,7 @@ def get_source_authority_repo() -> SourceAuthorityRepo:
 
     Returns:
         SourceAuthorityRepo instance.
+
     """
     return Endpoints.get_source_authority_repo()
 
@@ -211,6 +225,7 @@ def get_llm_failure_repo() -> Any:
 
     Returns:
         LLMFailureRepo instance.
+
     """
     return Endpoints.get_llm_failure_repo()
 
@@ -223,6 +238,7 @@ def get_llm_usage_repo() -> LLMUsageRepo:
 
     Returns:
         LLMUsageRepo instance.
+
     """
     return Endpoints.get_llm_usage_repo()
 

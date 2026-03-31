@@ -147,6 +147,7 @@ async def list_articles(
 
     Returns:
         Paginated list of articles.
+
     """
     async with pool.session() as session:
         from sqlalchemy import func
@@ -222,6 +223,7 @@ async def get_article(
 
     Raises:
         HTTPException: If article not found.
+
     """
     try:
         article_uuid = uuid.UUID(article_id)

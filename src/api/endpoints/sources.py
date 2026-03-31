@@ -36,6 +36,7 @@ def _validate_source_url(v: str) -> str:
 
     Raises:
         ValueError: If URL is invalid or points to a blocked host.
+
     """
     parsed = urlparse(v)
     if not parsed.scheme:
@@ -129,6 +130,7 @@ class SourceResponse(BaseModel):
 
     @classmethod
     def from_config(cls, config: SourceConfig) -> SourceResponse:
+        """Create SourceResponse from SourceConfig."""
         return cls(
             id=config.id,
             name=config.name,
@@ -161,6 +163,7 @@ async def list_sources(
 
     Returns:
         List of source configurations.
+
     """
     sources = await repo.list_sources(enabled_only=enabled_only)
     return success_response([SourceResponse.from_config(s) for s in sources])
@@ -184,6 +187,7 @@ async def get_source(
 
     Raises:
         HTTPException: 404 if source not found.
+
     """
     source = await repo.get(source_id)
     if source is None:
@@ -210,6 +214,7 @@ async def create_source(
 
     Raises:
         HTTPException: If source ID already exists.
+
     """
     existing = await repo.get(request.id)
     if existing is not None:
@@ -257,6 +262,7 @@ async def update_source(
 
     Raises:
         HTTPException: If source not found.
+
     """
     existing = await repo.get(source_id)
     if existing is None:
@@ -302,6 +308,7 @@ async def delete_source(
 
     Raises:
         HTTPException: If source not found.
+
     """
     deleted = await repo.delete(source_id)
     if not deleted:

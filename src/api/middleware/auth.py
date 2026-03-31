@@ -31,6 +31,7 @@ async def verify_api_key(
 
     Raises:
         HTTPException: If the API key is missing, invalid, or not configured.
+
     """
     from container import get_settings
 

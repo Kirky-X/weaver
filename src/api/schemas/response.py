@@ -19,6 +19,7 @@ class APIResponse(BaseModel, Generic[T]):
         message: Response message.
         data: Response payload.
         timestamp: Response timestamp.
+
     """
 
     code: int = Field(default=0, description="Response code, 0 for success")
@@ -37,6 +38,7 @@ class ErrorResponse(BaseModel):
         code: Error code.
         message: Error message.
         details: Optional error details.
+
     """
 
     code: int = Field(description="Error code")
@@ -53,6 +55,7 @@ class PaginatedResponse(BaseModel, Generic[T]):
         page: Current page number.
         page_size: Number of items per page.
         total_pages: Total number of pages.
+
     """
 
     items: list[T] = Field(default_factory=list, description="List of items")
@@ -79,6 +82,7 @@ class PaginatedResponse(BaseModel, Generic[T]):
 
         Returns:
             PaginatedResponse instance.
+
         """
         total_pages = (total + page_size - 1) // page_size if page_size > 0 else 0
         return cls(

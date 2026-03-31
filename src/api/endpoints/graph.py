@@ -142,6 +142,7 @@ async def get_entity(
 
     Returns:
         Entity with relationships wrapped in APIResponse.
+
     """
     canonical_name = urllib.parse.unquote(name)
 
@@ -275,6 +276,7 @@ async def get_article_graph(
 
     Returns:
         Article graph with entities and relationships wrapped in APIResponse.
+
     """
     async with neo4j.session() as session:
         # Get article node
@@ -415,6 +417,7 @@ async def get_entity_relations(
 
     Returns:
         List of relation type summaries wrapped in APIResponse.
+
     """
     repo = Neo4jEntityRepo(neo4j)
     rows = await repo.get_relation_types(entity, entity_type)
@@ -451,6 +454,7 @@ async def search_relations(
 
     Returns:
         List of related entities wrapped in APIResponse.
+
     """
     repo = Neo4jEntityRepo(neo4j)
     types_list = (
@@ -486,6 +490,7 @@ async def list_relation_types(
 
     Raises:
         HTTPException: 503 if PostgreSQL pool not initialized.
+
     """
     if _pg_pool is None:
         raise HTTPException(

@@ -45,6 +45,7 @@ async def check_postgres_health(pool: Any) -> dict[str, Any]:
 
     Returns:
         dict with status, latency_ms, and optional error message.
+
     """
     start = time.monotonic()
     try:
@@ -72,6 +73,7 @@ async def check_neo4j_health(pool: Any) -> dict[str, Any]:
 
     Returns:
         dict with status, latency_ms, and optional error message.
+
     """
     start = time.monotonic()
     try:
@@ -98,6 +100,7 @@ async def check_redis_health(client: Any) -> dict[str, Any]:
 
     Returns:
         dict with status, latency_ms, and optional error message.
+
     """
     start = time.monotonic()
     try:
@@ -120,10 +123,11 @@ async def check_redis_health(client: Any) -> dict[str, Any]:
 
 
 async def health_check() -> HealthCheckResponse:
-    """Aggregated health check for all dependencies.
+    """Perform aggregated health check for all dependencies.
 
     Returns:
         HealthCheckResponse with overall status and individual check results.
+
     """
     from api.endpoints import _deps as deps
 

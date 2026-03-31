@@ -104,6 +104,7 @@ async def trigger_pipeline(
 
     Returns:
         Task ID and initial status.
+
     """
     task_id = str(uuid.uuid4())
     now = datetime.now(UTC).isoformat()
@@ -199,6 +200,7 @@ async def get_task_status(
 
     Raises:
         HTTPException: If task not found.
+
     """
     status_data = await redis.client.hget(TASK_STATUS_KEY, task_id)
 
@@ -260,6 +262,7 @@ async def get_queue_stats(
 
     Returns:
         Queue statistics including article-level stats.
+
     """
     from sqlalchemy import case, func, select
 

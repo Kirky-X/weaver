@@ -121,6 +121,7 @@ async def list_authorities(
 
     Returns:
         List of source authorities.
+
     """
     if needs_review_only:
         authorities = await repo.get_needs_review()
@@ -166,6 +167,7 @@ async def update_authority(
 
     Raises:
         HTTPException: If no updates provided.
+
     """
     if request.authority is None and request.tier is None and request.description is None:
         raise HTTPException(
@@ -234,6 +236,7 @@ async def list_llm_failures(
 
     Returns:
         List of LLM failure records ordered by creation time (newest first).
+
     """
     failures = await repo.query(
         call_point=call_point,
@@ -281,6 +284,7 @@ async def get_llm_failure_stats(
 
     Returns:
         Statistics summary including total count and breakdowns.
+
     """
     stats = await repo.get_stats(since=since)
 
@@ -331,6 +335,7 @@ async def get_llm_usage(
 
     Returns:
         Aggregated LLM usage records with total count.
+
     """
     records = await repo.query_hourly(
         start_time=from_,
@@ -403,6 +408,7 @@ async def get_llm_usage_summary(
 
     Returns:
         Summary statistics for the specified time range and filters.
+
     """
     summary = await repo.get_summary(
         start_time=from_,
@@ -449,6 +455,7 @@ async def get_llm_usage_by_provider(
 
     Returns:
         List of provider-level usage statistics.
+
     """
     records = await repo.get_by_provider(
         start_time=from_,
@@ -493,6 +500,7 @@ async def get_llm_usage_by_model(
 
     Returns:
         List of model-level usage statistics.
+
     """
     records = await repo.get_by_model(
         start_time=from_,
@@ -537,6 +545,7 @@ async def get_llm_usage_by_call_point(
 
     Returns:
         List of call point level usage statistics.
+
     """
     records = await repo.get_by_call_point(
         start_time=from_,

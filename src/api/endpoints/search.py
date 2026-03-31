@@ -68,7 +68,7 @@ async def _search_local_impl(
     max_tokens: int | None,
     engine: LocalSearchEngine,
 ) -> APIResponse[SearchResponse]:
-    """Internal implementation for local search."""
+    """Implement local search internally."""
     try:
         names: list[str] | None = (
             [n.strip() for n in entity_names.split(",") if n.strip()] if entity_names else None
@@ -92,7 +92,7 @@ async def _search_global_impl(
     mode: str,
     engine: GlobalSearchEngine,
 ) -> APIResponse[SearchResponse]:
-    """Internal implementation for global search."""
+    """Implement global search internally."""
     try:
         if mode == "simple":
             result = await engine.search_simple(
@@ -119,7 +119,7 @@ async def _search_articles_impl(
     llm: LLMClient,
     hybrid_engine: HybridSearchEngine | None,
 ) -> APIResponse[SearchResponse]:
-    """Internal implementation for articles search."""
+    """Implement articles search internally."""
     try:
         embeddings = await llm.embed("embedding.aiping_embedding.Qwen3-Embedding-0.6B", [query])
         query_vector = embeddings[0]
@@ -361,6 +361,7 @@ async def search_drift(
 
     Returns:
         Hierarchical search result with primer and follow-up answers.
+
     """
     from modules.search.engines.drift_search import DriftConfig, DRIFTSearchEngine
 
