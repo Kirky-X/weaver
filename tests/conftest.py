@@ -212,7 +212,7 @@ def sample_article():
 def sample_pipeline_state():
     """Sample pipeline state for testing."""
     from modules.collector.models import ArticleRaw
-    from modules.pipeline.state import PipelineState
+    from modules.processing.pipeline.state import PipelineState
 
     raw = ArticleRaw(
         url="https://example.com/pipeline-test",

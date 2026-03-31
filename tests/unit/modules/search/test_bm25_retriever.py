@@ -13,13 +13,41 @@ from modules.search.retrievers.bm25_retriever import BM25Document, BM25Result, B
 
 
 def _has_zh_spacy() -> bool:
-    """Check if zh_core_web_sm spacy model is available."""
+    """Check if Chinese spacy model is available (zh_core_web_sm or zh_core_web_lg)."""
     try:
         import spacy
 
-        spacy.load("zh_core_web_sm")
+        # Try zh_core_web_sm first (lighter model)
+        try:
+            spacy.load("zh_core_web_sm")
+            return True
+        except Exception:
+            # Fall back to zh_core_web_lg (large model, no transformer dependencies)
+            spacy.load("zh_core_web_lg")
+            return True
+    except Exception as e:
+        print(f"INFO: Chinese spacy model not available: {e}")
+        return False
+
+
+def _can_import_torch() -> bool:
+    """Check if torch can be imported without errors."""
+    try:
+        import torch
+
         return True
-    except Exception:
+    except (ImportError, ModuleNotFoundError):
+        return False
+
+
+def _spacy_transformers_compatible() -> bool:
+    """Check if spacy transformers are compatible (no torch import errors)."""
+    try:
+        # Try to import the problematic module
+        from curated_transformers.models.activations import GeluNew
+
+        return True
+    except (ImportError, ModuleNotFoundError, ValueError):
         return False
 
 
@@ -263,6 +291,10 @@ class TestBM25RetrieverPersistence:
 class TestBM25RetrieverChinese:
     """Tests for Chinese text handling."""
 
+    @pytest.mark.skipif(
+        not _has_zh_spacy(),
+        reason="zh_core_web_lg or zh_core_web_sm spacy model not installed",
+    )
     def test_chinese_indexing(self) -> None:
         """Test indexing Chinese documents."""
         retriever = BM25Retriever(language="zh")

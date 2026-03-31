@@ -6,7 +6,7 @@ import uuid
 import pytest
 from sqlalchemy import text
 
-from modules.pipeline.state import PipelineState
+from modules.processing.pipeline.state import PipelineState
 from modules.storage.article_repo import ArticleRepo
 
 
