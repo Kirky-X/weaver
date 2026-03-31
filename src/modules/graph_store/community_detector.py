@@ -1,5 +1,5 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Community detector using Hierarchical Leiden algorithm."""
+"""Community detector using Leiden algorithm."""
 
 from __future__ import annotations
 
@@ -8,24 +8,8 @@ import uuid
 from collections import defaultdict
 from datetime import UTC, datetime
 
-try:
-    from graspologic.partition import hierarchical_leiden
-
-    GRASPOLOGIC_AVAILABLE = True
-except (AttributeError, ImportError) as e:
-    # Handle POT (Python Optimal Transport) compatibility issue with PyTorch 2.x
-    # Known issue: pot 0.9.6 uses torch.Tensor which was removed in PyTorch 2.x
-    hierarchical_leiden = None
-    GRASPOLOGIC_AVAILABLE = False
-    from core.observability.logging import get_logger
-
-    log = get_logger("community_detector")
-    log.warning(
-        "graspologic_unavailable",
-        reason="POT library incompatible with PyTorch 2.x",
-        error=str(e),
-        workaround="Install compatible versions or skip community detection tests",
-    )
+import igraph as ig
+import leidenalg as la
 
 from core.db.neo4j import Neo4jPool
 from core.observability.logging import get_logger
@@ -40,11 +24,10 @@ log = get_logger("community_detector")
 
 
 class CommunityDetector:
-    """Detects communities in the knowledge graph using Hierarchical Leiden.
+    """Detects communities in the knowledge graph using Leiden algorithm.
 
-    Uses the graspologic library's implementation of the Hierarchical Leiden
-    algorithm to partition entities into hierarchical communities based on
-    their RELATED_TO relationships.
+    Uses leidenalg + igraph implementation of the Leiden algorithm to
+    partition entities into communities based on their relationships.
 
     Args:
         pool: Neo4j connection pool.
@@ -79,18 +62,6 @@ class CommunityDetector:
         Returns:
             CommunityDetectionResult with detected communities.
         """
-        if not GRASPOLOGIC_AVAILABLE:
-            log.error("community_detection_graspologic_unavailable")
-            return CommunityDetectionResult(
-                communities=[],
-                total_entities=0,
-                total_communities=0,
-                modularity=0.0,
-                levels=0,
-                orphan_count=0,
-                execution_time_ms=0.0,
-            )
-
         start_time = time.time()
         max_cluster_size = max_cluster_size or self._max_cluster_size
         seed = seed if seed is not None else self._default_seed
@@ -265,7 +236,7 @@ class CommunityDetector:
         max_cluster_size: int,
         seed: int,
     ) -> list[HierarchicalCluster]:
-        """Run graspologic's Hierarchical Leiden algorithm.
+        """Run Leiden community detection algorithm.
 
         Args:
             edges: List of (source, target, weight) tuples.
@@ -275,33 +246,28 @@ class CommunityDetector:
         Returns:
             List of HierarchicalCluster results.
         """
-        # Convert to graspologic format
-        # hierarchical_leiden returns HierarchicalClusters object
-        result = hierarchical_leiden(
-            graph=edges,  # Edge list format: List[Tuple[node, node, weight]]
-            max_cluster_size=max_cluster_size,
-            random_seed=seed,
+        g = ig.Graph.TupleList(edges, edge_attrs=["weight"], directed=False)
+
+        partition = la.find_partition(
+            g,
+            la.RBConfigurationVertexPartition,
+            seed=seed,
+            max_comm_size=max_cluster_size,
+            resolution_parameter=1.0,
         )
 
         clusters = []
-        # result is a HierarchicalClusters object with __iter__
-        for partition in result:
+        for idx, membership in enumerate(partition.membership):
+            node_name = g.vs[idx]["name"]
             clusters.append(
                 HierarchicalCluster(
-                    node=partition.node,
-                    cluster=partition.cluster,
-                    level=partition.level,
-                    parent_cluster=(
-                        partition.parent_cluster if hasattr(partition, "parent_cluster") else None
-                    ),
-                    is_final_cluster=(
-                        partition.is_final_cluster
-                        if hasattr(partition, "is_final_cluster")
-                        else False
-                    ),
+                    node=node_name,
+                    cluster=membership,
+                    level=0,
+                    parent_cluster=None,
+                    is_final_cluster=True,
                 )
             )
-
         return clusters
 
     def _build_communities_from_clusters(
