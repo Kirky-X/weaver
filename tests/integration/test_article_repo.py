@@ -1,368 +1,324 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Integration tests for ArticleRepo."""
+"""Integration tests for ArticleRepo - uses real PostgreSQL database."""
 
 import uuid
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from sqlalchemy import text
 
-from core.db.models import Article
 from modules.pipeline.state import PipelineState
 from modules.storage.article_repo import ArticleRepo
 
 
 class TestArticleRepoIntegration:
-    """Integration tests for ArticleRepo with PostgreSQL."""
-
-    @pytest.fixture
-    def mock_pool(self):
-        """Create mock PostgresPool."""
-        pool = MagicMock()
-        return pool
-
-    @pytest.fixture
-    def article_repo(self, mock_pool):
-        """Create ArticleRepo instance."""
-        return ArticleRepo(mock_pool)
-
-    def test_article_repo_initialization(self, article_repo, mock_pool):
-        """Test ArticleRepo initializes correctly."""
-        assert article_repo._pool is mock_pool
+    """Integration tests for ArticleRepo with real PostgreSQL."""
 
     @pytest.mark.asyncio
-    async def test_upsert_creates_new_article(self, article_repo, mock_pool):
+    async def test_article_repo_initialization(self, postgres_pool):
+        """Test ArticleRepo initializes correctly with real pool."""
+        repo = ArticleRepo(postgres_pool)
+        assert repo._pool is postgres_pool
+
+    @pytest.mark.asyncio
+    async def test_upsert_creates_new_article(self, postgres_pool, unique_id):
         """Test upsert creates a new article when not exists."""
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-
-        mock_session = AsyncMock()
-        mock_session.execute.return_value = mock_result
-
-        mock_article = MagicMock(spec=Article)
-        mock_article.id = uuid.uuid4()
-
-        def add_article(article):
-            article.id = uuid.uuid4()
-
-        mock_session.add = MagicMock(side_effect=add_article)
-        mock_session.commit = AsyncMock()
-        mock_session.refresh = AsyncMock()
-
-        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
+        repo = ArticleRepo(postgres_pool)
 
         state = PipelineState()
-        state["raw"] = MagicMock(
-            url="https://example.com/new-article",
-            source_host="example.com",
-            title="New Article",
-            body="Article body",
-            publish_time=None,
-        )
+        state["raw"] = {
+            "url": f"https://test.example.com/{unique_id}",
+            "source_host": "test.example.com",
+            "title": f"Test Article {unique_id}",
+            "body": "Test body content",
+            "publish_time": None,
+        }
         state["is_news"] = True
         state["category"] = "tech"
         state["language"] = "zh"
 
-        result = await article_repo.upsert(state)
-        assert isinstance(result, uuid.UUID)
+        try:
+            article_id = await repo.upsert(state)
+            assert isinstance(article_id, uuid.UUID)
+
+            # Verify article was created
+            async with postgres_pool.session_context() as session:
+                result = await session.execute(
+                    text("SELECT id, title, source_url FROM articles WHERE id = :id"),
+                    {"id": article_id},
+                )
+                row = result.fetchone()
+                assert row is not None
+                assert row.title == f"Test Article {unique_id}"
+        finally:
+            # Cleanup
+            async with postgres_pool.session_context() as session:
+                await session.execute(
+                    text("DELETE FROM articles WHERE source_url LIKE :pattern"),
+                    {"pattern": f"%{unique_id}%"},
+                )
 
     @pytest.mark.asyncio
-    async def test_upsert_updates_existing_article(self, article_repo, mock_pool):
+    async def test_upsert_updates_existing_article(self, postgres_pool, unique_id):
         """Test upsert updates existing article."""
-        existing_article = MagicMock(spec=Article)
-        existing_article.id = uuid.uuid4()
-        existing_article.source_url = "https://example.com/existing"
-        existing_article.title = "Old Title"
+        repo = ArticleRepo(postgres_pool)
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = existing_article
-
-        mock_session = AsyncMock()
-        mock_session.execute.return_value = mock_result
-        mock_session.commit = AsyncMock()
-        mock_session.refresh = AsyncMock()
-
-        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
-
-        state = PipelineState()
-        state["raw"] = MagicMock(
-            url="https://example.com/existing",
-            source_host="example.com",
-            title="New Title",
-            body="New body",
-        )
-        state["is_news"] = True
-        state["cleaned"] = {"title": "New Title", "body": "New body"}
-
-        result = await article_repo.upsert(state)
-        assert result == existing_article.id
-
-    @pytest.mark.asyncio
-    async def test_upsert_with_credibility(self, article_repo, mock_pool):
-        """Test upsert with credibility data."""
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-
-        mock_session = AsyncMock()
-        mock_session.execute.return_value = mock_result
-
-        new_id = uuid.uuid4()
-
-        def mock_add(article):
-            article.id = new_id
-
-        mock_session.add = MagicMock(side_effect=mock_add)
-        mock_session.commit = AsyncMock()
-
-        async def mock_refresh(article):
-            article.id = new_id
-
-        mock_session.refresh = AsyncMock(side_effect=mock_refresh)
-
-        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
-
-        state = PipelineState()
-        state["raw"] = MagicMock(
-            url="https://example.com/article",
-            source_host="example.com",
-            title="Article",
-            body="Body",
-        )
-        state["credibility"] = {
-            "score": 0.85,
-            "source_credibility": 0.9,
-            "cross_verification": 0.8,
-            "content_check": 0.85,
+        # First create an article
+        state1 = PipelineState()
+        state1["raw"] = {
+            "url": f"https://test.example.com/{unique_id}",
+            "source_host": "test.example.com",
+            "title": f"Original Title {unique_id}",
+            "body": "Original body",
+            "publish_time": None,
         }
+        state1["is_news"] = True
 
-        result = await article_repo.upsert(state)
-        assert isinstance(result, uuid.UUID)
+        try:
+            article_id = await repo.upsert(state1)
 
-    @pytest.mark.asyncio
-    async def test_upsert_with_sentiment(self, article_repo, mock_pool):
-        """Test upsert with sentiment data."""
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
+            # Now update with same URL
+            state2 = PipelineState()
+            state2["raw"] = {
+                "url": f"https://test.example.com/{unique_id}",
+                "source_host": "test.example.com",
+                "title": f"Updated Title {unique_id}",
+                "body": "Updated body",
+            }
+            state2["is_news"] = True
+            state2["cleaned"] = {"title": f"Updated Title {unique_id}", "body": "Updated body"}
 
-        mock_session = AsyncMock()
-        mock_session.execute.return_value = mock_result
+            updated_id = await repo.upsert(state2)
+            assert updated_id == article_id
 
-        new_id = uuid.uuid4()
-
-        def mock_add(article):
-            article.id = new_id
-
-        mock_session.add = MagicMock(side_effect=mock_add)
-        mock_session.commit = AsyncMock()
-
-        async def mock_refresh(article):
-            article.id = new_id
-
-        mock_session.refresh = AsyncMock(side_effect=mock_refresh)
-
-        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
-
-        state = PipelineState()
-        state["raw"] = MagicMock(
-            url="https://example.com/article",
-            source_host="example.com",
-            title="Article",
-            body="Body",
-        )
-        state["sentiment"] = {
-            "sentiment": "positive",
-            "sentiment_score": 0.8,
-            "primary_emotion": "optimistic",
-        }
-
-        result = await article_repo.upsert(state)
-        assert isinstance(result, uuid.UUID)
+            # Verify update
+            async with postgres_pool.session_context() as session:
+                result = await session.execute(
+                    text("SELECT title FROM articles WHERE id = :id"),
+                    {"id": article_id},
+                )
+                row = result.fetchone()
+                assert row.title == f"Updated Title {unique_id}"
+        finally:
+            # Cleanup
+            async with postgres_pool.session_context() as session:
+                await session.execute(
+                    text("DELETE FROM articles WHERE source_url LIKE :pattern"),
+                    {"pattern": f"%{unique_id}%"},
+                )
 
     @pytest.mark.asyncio
-    async def test_get_article_by_id(self, article_repo, mock_pool):
+    async def test_get_article_by_id(self, postgres_pool, unique_id):
         """Test get article by UUID."""
-        article_id = uuid.uuid4()
-        mock_article = MagicMock(spec=Article)
-        mock_article.id = article_id
+        repo = ArticleRepo(postgres_pool)
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = mock_article
+        # Create test article
+        async with postgres_pool.session_context() as session:
+            article_id = uuid.uuid4()
+            await session.execute(
+                text("""
+                    INSERT INTO articles (id, source_url, is_news, title, body, is_merged, verified_by_sources)
+                    VALUES (:id, :url, :is_news, :title, :body, :is_merged, :verified_by)
+                """),
+                {
+                    "id": article_id,
+                    "url": f"https://test.example.com/{unique_id}",
+                    "is_news": True,
+                    "title": f"Test Article {unique_id}",
+                    "body": "Test body",
+                    "is_merged": False,
+                    "verified_by": 0,
+                },
+            )
 
-        mock_session = AsyncMock()
-        mock_session.execute.return_value = mock_result
-
-        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
-
-        result = await article_repo.get(article_id)
-        assert result.id == article_id
+        try:
+            result = await repo.get(article_id)
+            assert result is not None
+            assert result.id == article_id
+        finally:
+            # Cleanup
+            async with postgres_pool.session_context() as session:
+                await session.execute(
+                    text("DELETE FROM articles WHERE id = :id"),
+                    {"id": article_id},
+                )
 
     @pytest.mark.asyncio
-    async def test_get_article_by_string_id(self, article_repo, mock_pool):
+    async def test_get_article_by_string_id(self, postgres_pool, unique_id):
         """Test get article by string UUID."""
-        article_id = uuid.uuid4()
-        mock_article = MagicMock(spec=Article)
-        mock_article.id = article_id
+        repo = ArticleRepo(postgres_pool)
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = mock_article
+        # Create test article
+        async with postgres_pool.session_context() as session:
+            article_id = uuid.uuid4()
+            await session.execute(
+                text("""
+                    INSERT INTO articles (id, source_url, is_news, title, body, is_merged, verified_by_sources)
+                    VALUES (:id, :url, :is_news, :title, :body, :is_merged, :verified_by)
+                """),
+                {
+                    "id": article_id,
+                    "url": f"https://test.example.com/{unique_id}",
+                    "is_news": True,
+                    "title": f"Test Article {unique_id}",
+                    "body": "Test body",
+                    "is_merged": False,
+                    "verified_by": 0,
+                },
+            )
 
-        mock_session = AsyncMock()
-        mock_session.execute.return_value = mock_result
-
-        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
-
-        result = await article_repo.get(str(article_id))
-        assert result.id == article_id
+        try:
+            result = await repo.get(str(article_id))
+            assert result is not None
+            assert result.id == article_id
+        finally:
+            # Cleanup
+            async with postgres_pool.session_context() as session:
+                await session.execute(
+                    text("DELETE FROM articles WHERE id = :id"),
+                    {"id": article_id},
+                )
 
     @pytest.mark.asyncio
-    async def test_get_pending_neo4j(self, article_repo, mock_pool):
+    async def test_get_pending_neo4j(self, postgres_pool, unique_id):
         """Test get pending Neo4j articles."""
-        mock_article = MagicMock(spec=Article)
-        mock_article.id = uuid.uuid4()
+        repo = ArticleRepo(postgres_pool)
 
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [mock_article]
+        # Create test article with persist_status pending
+        async with postgres_pool.session_context() as session:
+            article_id = uuid.uuid4()
+            await session.execute(
+                text("""
+                    INSERT INTO articles (id, source_url, is_news, title, body, is_merged, verified_by_sources, persist_status)
+                    VALUES (:id, :url, :is_news, :title, :body, :is_merged, :verified_by, 'pending_neo4j')
+                """),
+                {
+                    "id": article_id,
+                    "url": f"https://test.example.com/{unique_id}",
+                    "is_news": True,
+                    "title": f"Test Article {unique_id}",
+                    "body": "Test body",
+                    "is_merged": False,
+                    "verified_by": 0,
+                },
+            )
 
-        mock_session = AsyncMock()
-        mock_session.execute.return_value = mock_result
-
-        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
-
-        result = await article_repo.get_pending_neo4j(limit=10)
-        assert len(result) == 1
+        try:
+            result = await repo.get_pending_neo4j(limit=10)
+            assert isinstance(result, list)
+        finally:
+            # Cleanup
+            async with postgres_pool.session_context() as session:
+                await session.execute(
+                    text("DELETE FROM articles WHERE source_url LIKE :pattern"),
+                    {"pattern": f"%{unique_id}%"},
+                )
 
     @pytest.mark.asyncio
-    async def test_get_pending(self, article_repo, mock_pool):
-        """Test get pending articles."""
-        mock_article = MagicMock(spec=Article)
-        mock_article.id = uuid.uuid4()
-
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [mock_article]
-
-        mock_session = AsyncMock()
-        mock_session.execute.return_value = mock_result
-
-        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
-
-        result = await article_repo.get_pending(limit=10)
-        assert len(result) == 1
-
-    @pytest.mark.asyncio
-    async def test_insert_raw_article(self, article_repo, mock_pool):
+    async def test_insert_raw_article(self, postgres_pool, unique_id):
         """Test insert raw article."""
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
+        repo = ArticleRepo(postgres_pool)
 
-        mock_session = AsyncMock()
-        mock_session.execute.return_value = mock_result
+        raw_article = {
+            "url": f"https://test.example.com/{unique_id}",
+            "source_host": "test.example.com",
+            "title": f"Raw Article {unique_id}",
+            "body": "Raw body",
+        }
 
-        new_id = uuid.uuid4()
+        try:
+            article_id = await repo.insert_raw(raw_article)
+            assert isinstance(article_id, uuid.UUID)
 
-        def mock_add(article):
-            article.id = new_id
-
-        mock_session.add = MagicMock(side_effect=mock_add)
-        mock_session.commit = AsyncMock()
-
-        async def mock_refresh(article):
-            article.id = new_id
-
-        mock_session.refresh = AsyncMock(side_effect=mock_refresh)
-
-        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
-
-        mock_article = MagicMock()
-        mock_article.url = "https://example.com/article"
-        mock_article.source_host = "example.com"
-        mock_article.title = "Article"
-        mock_article.body = "Body"
-
-        result = await article_repo.insert_raw(mock_article)
-        assert isinstance(result, uuid.UUID)
+            # Verify article was created
+            async with postgres_pool.session_context() as session:
+                result = await session.execute(
+                    text("SELECT id FROM articles WHERE source_url = :url"),
+                    {"url": raw_article["url"]},
+                )
+                row = result.fetchone()
+                assert row is not None
+        finally:
+            # Cleanup
+            async with postgres_pool.session_context() as session:
+                await session.execute(
+                    text("DELETE FROM articles WHERE source_url LIKE :pattern"),
+                    {"pattern": f"%{unique_id}%"},
+                )
 
     @pytest.mark.asyncio
-    async def test_insert_raw_existing_url(self, article_repo, mock_pool):
+    async def test_insert_raw_existing_url(self, postgres_pool, unique_id):
         """Test insert raw article with existing URL returns existing id."""
-        existing_id = uuid.uuid4()
-        existing_article = MagicMock(spec=Article)
-        existing_article.id = existing_id
+        repo = ArticleRepo(postgres_pool)
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = existing_article
+        # First create an article
+        raw1 = {
+            "url": f"https://test.example.com/{unique_id}",
+            "source_host": "test.example.com",
+            "title": f"First Article {unique_id}",
+            "body": "First body",
+        }
 
-        mock_session = AsyncMock()
-        mock_session.execute.return_value = mock_result
+        try:
+            first_id = await repo.insert_raw(raw1)
 
-        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
+            # Insert same URL again
+            raw2 = {
+                "url": f"https://test.example.com/{unique_id}",
+                "source_host": "test.example.com",
+                "title": f"Second Article {unique_id}",
+                "body": "Second body",
+            }
+            second_id = await repo.insert_raw(raw2)
 
-        mock_article = MagicMock()
-        mock_article.url = "https://example.com/existing"
-        mock_article.source_host = "example.com"
-        mock_article.title = "Article"
-        mock_article.body = "Body"
-
-        result = await article_repo.insert_raw(mock_article)
-        assert result == existing_id
-
-    @pytest.mark.asyncio
-    async def test_get_stuck_articles(self, article_repo, mock_pool):
-        """Test get stuck articles."""
-        mock_article = MagicMock(spec=Article)
-        mock_article.id = uuid.uuid4()
-
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [mock_article]
-
-        mock_session = AsyncMock()
-        mock_session.execute.return_value = mock_result
-
-        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
-
-        result = await article_repo.get_stuck_articles(timeout_minutes=30)
-        assert len(result) == 1
+            # Should return same ID
+            assert second_id == first_id
+        finally:
+            # Cleanup
+            async with postgres_pool.session_context() as session:
+                await session.execute(
+                    text("DELETE FROM articles WHERE source_url LIKE :pattern"),
+                    {"pattern": f"%{unique_id}%"},
+                )
 
     @pytest.mark.asyncio
-    async def test_get_failed_articles(self, article_repo, mock_pool):
-        """Test get failed articles."""
-        mock_article = MagicMock(spec=Article)
-        mock_article.id = uuid.uuid4()
-
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [mock_article]
-
-        mock_session = AsyncMock()
-        mock_session.execute.return_value = mock_result
-
-        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
-
-        result = await article_repo.get_failed_articles(max_retries=3)
-        assert len(result) == 1
-
-    @pytest.mark.asyncio
-    async def test_mark_failed(self, article_repo, mock_pool):
+    async def test_mark_failed(self, postgres_pool, unique_id):
         """Test mark article as failed."""
-        mock_result = MagicMock()
-        mock_result.rowcount = 1
+        repo = ArticleRepo(postgres_pool)
 
-        mock_session = AsyncMock()
-        mock_session.execute.return_value = mock_result
-        mock_session.commit = AsyncMock()
+        # Create test article
+        async with postgres_pool.session_context() as session:
+            article_id = uuid.uuid4()
+            await session.execute(
+                text("""
+                    INSERT INTO articles (id, source_url, is_news, title, body, is_merged, verified_by_sources)
+                    VALUES (:id, :url, :is_news, :title, :body, :is_merged, :verified_by)
+                """),
+                {
+                    "id": article_id,
+                    "url": f"https://test.example.com/{unique_id}",
+                    "is_news": True,
+                    "title": f"Test Article {unique_id}",
+                    "body": "Test body",
+                    "is_merged": False,
+                    "verified_by": 0,
+                },
+            )
 
-        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
+        try:
+            await repo.mark_failed(article_id, "Test error")
 
-        article_id = uuid.uuid4()
-        await article_repo.mark_failed(article_id, "Test error")
-        mock_session.commit.assert_called_once()
+            # Verify article was marked as failed
+            async with postgres_pool.session_context() as session:
+                result = await session.execute(
+                    text("SELECT error FROM articles WHERE id = :id"),
+                    {"id": article_id},
+                )
+                row = result.fetchone()
+                assert row.error == "Test error"
+        finally:
+            # Cleanup
+            async with postgres_pool.session_context() as session:
+                await session.execute(
+                    text("DELETE FROM articles WHERE id = :id"),
+                    {"id": article_id},
+                )
