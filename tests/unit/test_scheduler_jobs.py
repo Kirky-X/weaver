@@ -540,7 +540,12 @@ class TestSyncNeo4jWithPostgres:
 
         result = await scheduler_jobs.sync_neo4j_with_postgres()
 
-        assert result == 0
+        assert result == {
+            "neo4j_orphans_deleted": 0,
+            "orphan_articles_cleaned": 0,
+            "enrichment_gaps_detected": 0,
+            "enrichment_gaps_reverted": 0,
+        }
         scheduler_jobs._neo4j_writer.article_repo.delete_orphan_articles.assert_not_called()
         scheduler_jobs._article_repo.revert_to_pg_done.assert_not_called()
 
@@ -562,7 +567,10 @@ class TestSyncNeo4jWithPostgres:
 
         result = await scheduler_jobs.sync_neo4j_with_postgres()
 
-        assert result == 1
+        assert result["neo4j_orphans_deleted"] == 1
+        assert result["orphan_articles_cleaned"] == 0
+        assert result["enrichment_gaps_detected"] == 0
+        assert result["enrichment_gaps_reverted"] == 0
         scheduler_jobs._neo4j_writer.article_repo.delete_orphan_articles.assert_called_once()
 
     @pytest.mark.asyncio
@@ -599,8 +607,11 @@ class TestSyncNeo4jWithPostgres:
 
         result = await scheduler_jobs.sync_neo4j_with_postgres()
 
-        # sync returns deleted count (0 orphans deleted, enrichment gaps are reverted but not counted in return)
-        assert result == 0
+        # sync returns dict with stats (1 enrichment gap detected and reverted)
+        assert result["neo4j_orphans_deleted"] == 0
+        assert result["orphan_articles_cleaned"] == 0
+        assert result["enrichment_gaps_detected"] == 1
+        assert result["enrichment_gaps_reverted"] == 1
         scheduler_jobs._article_repo.revert_to_pg_done.assert_called_once_with(
             incomplete_article.id
         )
