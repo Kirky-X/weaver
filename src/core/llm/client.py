@@ -486,6 +486,7 @@ class LLMClient:
                 priority=provider_cfg.get("priority", 100),
                 weight=provider_cfg.get("weight", 100),
                 capabilities=capabilities,
+                extra_body=provider_cfg.get("extra_body", {}),
             )
 
             await pool_manager.register_provider(instance_config)

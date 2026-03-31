@@ -48,11 +48,13 @@ class AIPingRerankProvider(BaseLLMProvider):
         base_url: str,
         model: str = "Qwen3-Reranker-0.6B",
         timeout: float = 30.0,
+        extra_body: dict[str, Any] | None = None,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._timeout = timeout
+        self._default_extra_body = extra_body or {}
 
     async def chat(
         self,
@@ -103,6 +105,8 @@ class AIPingRerankProvider(BaseLLMProvider):
             "top_n": top_n,
             "return_documents": False,
         }
+        if self._default_extra_body:
+            request_body["extra_body"] = self._default_extra_body
 
         headers = {
             "Authorization": f"Bearer {self._api_key}",

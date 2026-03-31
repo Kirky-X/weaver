@@ -30,11 +30,13 @@ class RerankProvider(BaseLLMProvider):
         base_url: str,
         model: str = "",
         timeout: float = 30.0,
+        extra_body: dict[str, Any] | None = None,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url
         self._model = model
         self._timeout = timeout
+        self._default_extra_body = extra_body or {}
 
     async def chat(
         self,

@@ -33,9 +33,11 @@ class AnthropicProvider(BaseLLMProvider):
         base_url: str,
         model: str = "claude-sonnet-4-20250514",
         timeout: float = 300.0,
+        extra_body: dict[str, Any] | None = None,
     ) -> None:
         self._default_model = model
         self._base_url = base_url
+        self._default_extra_body = extra_body or {}
         self._client = ChatAnthropic(
             api_key=api_key,
             anthropic_api_url=base_url,

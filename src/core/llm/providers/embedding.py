@@ -22,8 +22,10 @@ class EmbeddingProvider(BaseLLMProvider):
         base_url: str,
         model: str = "text-embedding-3-large",
         timeout: float = 30.0,
+        extra_body: dict[str, Any] | None = None,
     ) -> None:
         self._model = model
+        self._default_extra_body = extra_body or {}
         self._is_ollama = "ollama" in base_url.lower() or "11434" in base_url
 
         # Normalize base URL
@@ -92,10 +94,10 @@ class EmbeddingProvider(BaseLLMProvider):
             return embeddings
 
         # Use OpenAI-compatible API via official library
-        response = await self._client.embeddings.create(
-            model=model_name,
-            input=texts,
-        )
+        create_kwargs: dict[str, Any] = {"model": model_name, "input": texts}
+        if self._default_extra_body:
+            create_kwargs["extra_body"] = self._default_extra_body
+        response = await self._client.embeddings.create(**create_kwargs)
 
         return [item.embedding for item in response.data]
 

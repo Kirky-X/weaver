@@ -72,7 +72,9 @@ class ChatProvider(BaseLLMProvider):
         extra_kwargs: dict[str, Any] = {}
         model_name = model or self._default_model
         if "ollama" in self._base_url.lower() or "qwen" in model_name.lower():
-            extra_kwargs["extra_body"] = {"think": False}
+            extra_kwargs["extra_body"] = {**self._default_extra_body, "think": False}
+        elif self._default_extra_body:
+            extra_kwargs["extra_body"] = self._default_extra_body
 
         kwargs: dict[str, Any] = {"temperature": temperature}
         if max_tokens:
