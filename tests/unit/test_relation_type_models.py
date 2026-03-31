@@ -9,11 +9,9 @@ from sqlalchemy import select
 from core.db.models import RelationType, RelationTypeAlias, UnknownRelationType
 
 
-@pytest.mark.describe("RelationType Model")
 class TestRelationTypeModel:
     """Tests for RelationType ORM model."""
 
-    @pytest.mark.it("should create a RelationType instance")
     def test_create_relation_type(self) -> None:
         """Test creating a RelationType instance."""
         rt = RelationType(
@@ -31,23 +29,19 @@ class TestRelationTypeModel:
         assert rt.sort_order == 1
         assert rt.is_active is True
 
-    @pytest.mark.it("should have correct table name")
     def test_relation_type_table_name(self) -> None:
         """Test RelationType has correct table name."""
         assert RelationType.__tablename__ == "relation_types"
 
-    @pytest.mark.it("should have aliases relationship")
     def test_relation_type_aliases_relationship(self) -> None:
         """Test RelationType has aliases relationship."""
         assert hasattr(RelationType, "aliases")
         assert RelationType.aliases.property.key == "aliases"
 
 
-@pytest.mark.describe("RelationTypeAlias Model")
 class TestRelationTypeAliasModel:
     """Tests for RelationTypeAlias ORM model."""
 
-    @pytest.mark.it("should create a RelationTypeAlias instance")
     def test_create_relation_type_alias(self) -> None:
         """Test creating a RelationTypeAlias instance."""
         alias = RelationTypeAlias(
@@ -57,23 +51,19 @@ class TestRelationTypeAliasModel:
         assert alias.alias == "战略合作"
         assert alias.relation_type_id == 1
 
-    @pytest.mark.it("should have correct table name")
     def test_relation_type_alias_table_name(self) -> None:
         """Test RelationTypeAlias has correct table name."""
         assert RelationTypeAlias.__tablename__ == "relation_type_aliases"
 
-    @pytest.mark.it("should have relation_type relationship")
     def test_relation_type_alias_relationship(self) -> None:
         """Test RelationTypeAlias has relation_type relationship."""
         assert hasattr(RelationTypeAlias, "relation_type")
         assert RelationTypeAlias.relation_type.property.key == "relation_type"
 
 
-@pytest.mark.describe("UnknownRelationType Model")
 class TestUnknownRelationTypeModel:
     """Tests for UnknownRelationType ORM model."""
 
-    @pytest.mark.it("should create an UnknownRelationType instance")
     def test_create_unknown_relation_type(self) -> None:
         """Test creating an UnknownRelationType instance."""
         urt = UnknownRelationType(
@@ -88,12 +78,10 @@ class TestUnknownRelationTypeModel:
         assert urt.resolved is False
         assert urt.article_id is None
 
-    @pytest.mark.it("should have correct table name")
     def test_unknown_relation_type_table_name(self) -> None:
         """Test UnknownRelationType has correct table name."""
         assert UnknownRelationType.__tablename__ == "unknown_relation_types"
 
-    @pytest.mark.it("should have default values")
     def test_unknown_relation_type_defaults(self) -> None:
         """Test UnknownRelationType has correct default values."""
         now = datetime.now(UTC)
@@ -110,11 +98,9 @@ class TestUnknownRelationTypeModel:
         assert isinstance(urt.last_seen_at, datetime)
 
 
-@pytest.mark.describe("RelationType Data")
 class TestRelationTypeData:
     """Tests for relation type seed data."""
 
-    @pytest.mark.it("should have 17 standard relation types")
     def test_relation_type_count(self) -> None:
         """Test that we have 17 standard relation types."""
         # This matches the seed data
@@ -139,7 +125,6 @@ class TestRelationTypeData:
         ]
         assert len(expected_types) == 17
 
-    @pytest.mark.it("should have symmetric relations marked correctly")
     def test_symmetric_relations(self) -> None:
         """Test that symmetric relations are correctly identified."""
         symmetric = {"PARTNERS_WITH", "COMPETES_WITH"}
@@ -148,4 +133,5 @@ class TestRelationTypeData:
             ("竞争", "COMPETES_WITH", "商业"),
         ]
         for name, name_en, _ in expected_types:
+            assert name_en in symmetric
             assert name_en in symmetric

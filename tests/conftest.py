@@ -77,9 +77,9 @@ async def postgres_pool():
     await pool.shutdown()
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def mock_redis():
-    """Mock Redis client for testing."""
+    """Mock Redis client for testing - module scoped for performance."""
     redis = MagicMock()
     redis.client = MagicMock()
     redis.client.get = AsyncMock(return_value=None)
@@ -102,9 +102,9 @@ def mock_redis():
     return redis
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def mock_postgres_pool():
-    """Mock PostgreSQL pool for testing."""
+    """Mock PostgreSQL pool for testing - module scoped for performance."""
     pool = MagicMock()
     session = MagicMock()
     session.__aenter__ = AsyncMock(return_value=session)
@@ -119,9 +119,9 @@ def mock_postgres_pool():
     return pool
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def mock_neo4j_pool():
-    """Mock Neo4j pool for testing."""
+    """Mock Neo4j pool for testing - module scoped for performance."""
     pool = MagicMock()
     session = MagicMock()
     session.__aenter__ = AsyncMock(return_value=session)
@@ -132,9 +132,9 @@ def mock_neo4j_pool():
     return pool
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def sample_source_config():
-    """Sample source config for testing."""
+    """Sample source config for testing - session scoped for immutability."""
     from modules.source.models import SourceConfig
 
     return SourceConfig(
@@ -235,9 +235,9 @@ def mock_llm_client():
     return llm
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def mock_settings():
-    """Mock settings for testing."""
+    """Mock settings for testing - module scoped for performance."""
     settings = MagicMock()
     settings.api.api_key = "test-api-key"
     settings.llm.model = "gpt-4"
@@ -302,9 +302,9 @@ def mock_spacy_extractor():
     return extractor
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def mock_embedder():
-    """Mock embedder for testing."""
+    """Mock embedder for testing - module scoped for performance."""
     embedder = MagicMock()
     embedder.embed = AsyncMock(return_value=[0.1] * 1536)
     embedder.embed_batch = AsyncMock(return_value=[[0.1] * 1536 for _ in range(5)])
@@ -341,6 +341,11 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "integration: mark test as integration test")
     config.addinivalue_line("markers", "e2e: mark test as end-to-end test")
     config.addinivalue_line("markers", "slow: mark test as slow running")
+    config.addinivalue_line(
+        "markers", "no_parallel: mark test as not suitable for parallel execution"
+    )
+    config.addinivalue_line("markers", "describe: mark test class as describing a feature")
+    config.addinivalue_line("markers", "it: mark test method as a specific behavior")
 
 
 def pytest_collection_modifyitems(config, items):

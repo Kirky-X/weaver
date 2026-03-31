@@ -18,7 +18,7 @@ from modules.collector.models import ArticleRaw
 from modules.pipeline.state import PipelineState
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture
 def mock_credibility_metrics():
     """Mock credibility metrics to avoid Prometheus mock issues in tests."""
     with patch(

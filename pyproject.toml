@@ -575,6 +575,9 @@ filterwarnings = [
     "ignore:Stealth has already been applied:UserWarning:playwright_stealth",
     # pytest/mock compatibility issue (known side effect)
     "ignore:coroutine.*was never awaited:RuntimeWarning",
+    # 第三方库 SyntaxWarning
+    "ignore:invalid escape sequence:SyntaxWarning:graspologic",
+    "ignore:invalid escape sequence:SyntaxWarning:hyppo",
 ]
 
 # ────────────────────────────────────────────────────────────

@@ -79,7 +79,9 @@ class LLMUsageAggregatorThread:
             # Immediate flush on startup
             self._execute_flush(loop)
             # Then loop: sleep interval between runs
-            while not self._stop_event.wait(self._interval):
+            # Defensive: ensure interval is a valid numeric value (handles mock in tests)
+            interval = self._interval if isinstance(self._interval, (int, float)) else 300
+            while not self._stop_event.wait(interval):
                 # Each iteration gets a fresh loop to avoid loop-state corruption
                 # if the postgres pool was closed by container.shutdown().
                 loop.close()
@@ -352,7 +354,9 @@ class LLMUsageRawCleanupThread:
             # Immediate cleanup on startup
             self._execute_cleanup(loop)
             # Then loop: sleep interval between runs
-            while not self._stop_event.wait(self._interval):
+            # Defensive: ensure interval is a valid numeric value (handles mock in tests)
+            interval = self._interval if isinstance(self._interval, (int, float)) else 21600
+            while not self._stop_event.wait(interval):
                 # Each iteration gets a fresh loop to avoid loop-state corruption
                 loop.close()
                 loop = asyncio.new_event_loop()
