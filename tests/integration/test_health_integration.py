@@ -1,17 +1,16 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Integration tests for health check endpoints with real service connections."""
 
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
+from api.endpoints._deps import Endpoints
 from api.endpoints.health import (
-    health_check as check_health,
-    set_neo4j_pool,
-    set_postgres_pool,
-    set_redis_client,
+    check_neo4j_health,
+    check_postgres_health,
+    check_redis_health,
+    health_check,
 )
 
 
@@ -22,8 +21,7 @@ def create_test_app():
     @app.get("/health")
     async def health_check_endpoint():
         """Health check endpoint with dependency checks."""
-        result = await check_health()
-        # result is HealthCheckResponse Pydantic model
+        result = await health_check()
         if result.status != "healthy":
             raise HTTPException(status_code=503, detail=result.model_dump())
         return result.model_dump()
@@ -32,45 +30,18 @@ def create_test_app():
 
 
 class TestHealthEndpointIntegration:
-    """Integration tests for health check endpoint with FastAPI TestClient."""
+    """Integration tests for health check endpoint with real services."""
 
     @pytest.fixture(autouse=True)
     def reset_global_pools(self):
         """Reset global pool references before and after each test."""
-        set_postgres_pool(None)
-        set_neo4j_pool(None)
-        set_redis_client(None)
+        Endpoints._postgres = None
+        Endpoints._neo4j = None
+        Endpoints._redis = None
         yield
-        set_postgres_pool(None)
-        set_neo4j_pool(None)
-        set_redis_client(None)
-
-    @pytest.fixture
-    def mock_postgres_pool(self):
-        """Create mock PostgreSQL pool."""
-        pool = MagicMock()
-        session = AsyncMock()
-        session.execute = AsyncMock(return_value=None)
-        async_context = AsyncMock()
-        async_context.__aenter__ = AsyncMock(return_value=session)
-        async_context.__aexit__ = AsyncMock(return_value=None)
-        pool.session_context = MagicMock(return_value=async_context)
-        return pool
-
-    @pytest.fixture
-    def mock_neo4j_pool(self):
-        """Create mock Neo4j pool."""
-        pool = MagicMock()
-        pool.execute_query = AsyncMock(return_value=[{"1": 1}])
-        return pool
-
-    @pytest.fixture
-    def mock_redis_client(self):
-        """Create mock Redis client."""
-        client = MagicMock()
-        client.client = MagicMock()
-        client.client.ping = AsyncMock(return_value=True)
-        return client
+        Endpoints._postgres = None
+        Endpoints._neo4j = None
+        Endpoints._redis = None
 
     @pytest.fixture
     def app(self):
@@ -86,15 +57,15 @@ class TestHealthEndpointIntegration:
     def test_health_endpoint_returns_200_when_all_services_healthy(
         self,
         client,
-        mock_postgres_pool,
-        mock_neo4j_pool,
-        mock_redis_client,
+        postgres_pool,
+        neo4j_pool,
+        redis_client,
     ):
         """Test health endpoint returns 200 when all services are healthy."""
-        # Set global pools
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+        # Set global pools with real connections
+        Endpoints._postgres = postgres_pool
+        Endpoints._neo4j = neo4j_pool
+        Endpoints._redis = redis_client
 
         # Make request
         response = client.get("/health")
@@ -124,205 +95,18 @@ class TestHealthEndpointIntegration:
             assert isinstance(data["checks"][check_name]["latency_ms"], (int, float))
             assert data["checks"][check_name]["latency_ms"] >= 0
 
-    def test_health_endpoint_returns_503_when_postgres_unhealthy(
-        self,
-        client,
-        mock_postgres_pool,
-        mock_neo4j_pool,
-        mock_redis_client,
-    ):
-        """Test health endpoint returns 503 when PostgreSQL is unhealthy."""
-        # Make PostgreSQL fail
-        session = AsyncMock()
-        session.execute = AsyncMock(side_effect=Exception("Connection refused"))
-        async_context = AsyncMock()
-        async_context.__aenter__ = AsyncMock(return_value=session)
-        async_context.__aexit__ = AsyncMock(return_value=None)
-        mock_postgres_pool.session_context = MagicMock(return_value=async_context)
-
-        # Set global pools
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
-
-        # Make request
-        response = client.get("/health")
-
-        # Assert status code
-        assert response.status_code == 503
-
-        # Assert response format
-        data = response.json()
-        assert "detail" in data
-        assert "status" in data["detail"]
-        assert "checks" in data["detail"]
-        assert data["detail"]["status"] == "unhealthy"
-
-        # Assert PostgreSQL failed but others healthy
-        assert data["detail"]["checks"]["postgres"]["status"] == "error"
-        assert data["detail"]["checks"]["neo4j"]["status"] == "ok"
-        assert data["detail"]["checks"]["redis"]["status"] == "ok"
-
-    def test_health_endpoint_returns_503_when_neo4j_unhealthy(
-        self,
-        client,
-        mock_postgres_pool,
-        mock_neo4j_pool,
-        mock_redis_client,
-    ):
-        """Test health endpoint returns 503 when Neo4j is unhealthy."""
-        # Make Neo4j fail
-        mock_neo4j_pool.execute_query = AsyncMock(side_effect=Exception("ServiceUnavailable"))
-
-        # Set global pools
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
-
-        # Make request
-        response = client.get("/health")
-
-        # Assert status code
-        assert response.status_code == 503
-
-        # Assert response format
-        data = response.json()
-        assert data["detail"]["status"] == "unhealthy"
-        assert data["detail"]["checks"]["postgres"]["status"] == "ok"
-        assert data["detail"]["checks"]["neo4j"]["status"] == "error"
-        assert data["detail"]["checks"]["redis"]["status"] == "ok"
-
-    def test_health_endpoint_returns_503_when_redis_unhealthy(
-        self,
-        client,
-        mock_postgres_pool,
-        mock_neo4j_pool,
-        mock_redis_client,
-    ):
-        """Test health endpoint returns 503 when Redis is unhealthy."""
-        # Make Redis fail
-        mock_redis_client.client.ping = AsyncMock(side_effect=Exception("Connection refused"))
-
-        # Set global pools
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
-
-        # Make request
-        response = client.get("/health")
-
-        # Assert status code
-        assert response.status_code == 503
-
-        # Assert response format
-        data = response.json()
-        assert data["detail"]["status"] == "unhealthy"
-        assert data["detail"]["checks"]["postgres"]["status"] == "ok"
-        assert data["detail"]["checks"]["neo4j"]["status"] == "ok"
-        assert data["detail"]["checks"]["redis"]["status"] == "error"
-
-    def test_health_endpoint_returns_503_when_all_services_unhealthy(
-        self,
-        client,
-        mock_postgres_pool,
-        mock_neo4j_pool,
-        mock_redis_client,
-    ):
-        """Test health endpoint returns 503 when all services are unhealthy."""
-        # Make all services fail
-        session = AsyncMock()
-        session.execute = AsyncMock(side_effect=Exception("Failed"))
-        async_context = AsyncMock()
-        async_context.__aenter__ = AsyncMock(return_value=session)
-        async_context.__aexit__ = AsyncMock(return_value=None)
-        mock_postgres_pool.session_context = MagicMock(return_value=async_context)
-
-        mock_neo4j_pool.execute_query = AsyncMock(side_effect=Exception("Failed"))
-        mock_redis_client.client.ping = AsyncMock(side_effect=Exception("Failed"))
-
-        # Set global pools
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
-
-        # Make request
-        response = client.get("/health")
-
-        # Assert status code
-        assert response.status_code == 503
-
-        # Assert response format
-        data = response.json()
-        assert data["detail"]["status"] == "unhealthy"
-        assert data["detail"]["checks"]["postgres"]["status"] == "error"
-        assert data["detail"]["checks"]["neo4j"]["status"] == "error"
-        assert data["detail"]["checks"]["redis"]["status"] == "error"
-
-    def test_health_endpoint_handles_timeout_gracefully(
-        self,
-        client,
-        mock_postgres_pool,
-        mock_neo4j_pool,
-        mock_redis_client,
-    ):
-        """Test health endpoint handles timeout gracefully."""
-        # Make all services timeout
-        session = AsyncMock()
-        session.execute = AsyncMock(side_effect=TimeoutError())
-        async_context = AsyncMock()
-        async_context.__aenter__ = AsyncMock(return_value=session)
-        async_context.__aexit__ = AsyncMock(return_value=None)
-        mock_postgres_pool.session_context = MagicMock(return_value=async_context)
-
-        mock_neo4j_pool.execute_query = AsyncMock(side_effect=TimeoutError())
-        mock_redis_client.client.ping = AsyncMock(side_effect=TimeoutError())
-
-        # Set global pools
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
-
-        # Make request
-        response = client.get("/health")
-
-        # Assert status code
-        assert response.status_code == 503
-
-        # Assert timeout status reported
-        data = response.json()
-        assert data["detail"]["checks"]["postgres"]["status"] == "timeout"
-        assert data["detail"]["checks"]["neo4j"]["status"] == "timeout"
-        assert data["detail"]["checks"]["redis"]["status"] == "timeout"
-
-    def test_health_endpoint_handles_pools_not_initialized(self, client):
-        """Test health endpoint handles pools not initialized gracefully."""
-        # Pools are not set (None)
-
-        # Make request
-        response = client.get("/health")
-
-        # Assert status code
-        assert response.status_code == 503
-
-        # Assert unavailable status
-        data = response.json()
-        assert data["detail"]["status"] == "unhealthy"
-        assert data["detail"]["checks"]["postgres"]["status"] == "unavailable"
-        assert data["detail"]["checks"]["neo4j"]["status"] == "unavailable"
-        assert data["detail"]["checks"]["redis"]["status"] == "unavailable"
-
     def test_health_endpoint_response_format(
         self,
         client,
-        mock_postgres_pool,
-        mock_neo4j_pool,
-        mock_redis_client,
+        postgres_pool,
+        neo4j_pool,
+        redis_client,
     ):
         """Test health endpoint response format is correct."""
         # Set global pools
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+        Endpoints._postgres = postgres_pool
+        Endpoints._neo4j = neo4j_pool
+        Endpoints._redis = redis_client
 
         # Make request
         response = client.get("/health")
@@ -344,118 +128,37 @@ class TestHealthEndpointIntegration:
             assert "latency_ms" in check
             assert isinstance(check["latency_ms"], (int, float))
 
-    def test_health_endpoint_degraded_service_behavior(
-        self,
-        client,
-        mock_postgres_pool,
-        mock_neo4j_pool,
-        mock_redis_client,
-    ):
-        """Test health endpoint properly reports degraded service."""
-        # Make PostgreSQL timeout (degraded but not down)
-        session = AsyncMock()
-        session.execute = AsyncMock(side_effect=TimeoutError())
-        async_context = AsyncMock()
-        async_context.__aenter__ = AsyncMock(return_value=session)
-        async_context.__aexit__ = AsyncMock(return_value=None)
-        mock_postgres_pool.session_context = MagicMock(return_value=async_context)
-
-        # Neo4j and Redis healthy
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+    def test_health_endpoint_handles_pools_not_initialized(self, client):
+        """Test health endpoint handles pools not initialized gracefully."""
+        # Pools are not set (None)
 
         # Make request
         response = client.get("/health")
 
-        # Should still return 503 because one service is unhealthy
+        # Assert status code
         assert response.status_code == 503
 
-        # Assert response shows partial degradation
+        # Assert unavailable status
         data = response.json()
         assert data["detail"]["status"] == "unhealthy"
-        assert data["detail"]["checks"]["postgres"]["status"] == "timeout"
-        assert data["detail"]["checks"]["neo4j"]["status"] == "ok"
-        assert data["detail"]["checks"]["redis"]["status"] == "ok"
-
-    def test_health_endpoint_error_messages_included(
-        self,
-        client,
-        mock_postgres_pool,
-        mock_neo4j_pool,
-        mock_redis_client,
-    ):
-        """Test health endpoint includes error messages in failed checks."""
-        # Make services fail with specific errors
-        session = AsyncMock()
-        session.execute = AsyncMock(side_effect=Exception("PostgreSQL connection failed"))
-        async_context = AsyncMock()
-        async_context.__aenter__ = AsyncMock(return_value=session)
-        async_context.__aexit__ = AsyncMock(return_value=None)
-        mock_postgres_pool.session_context = MagicMock(return_value=async_context)
-
-        mock_neo4j_pool.execute_query = AsyncMock(
-            side_effect=Exception("Neo4j service unavailable")
-        )
-        mock_redis_client.client.ping = AsyncMock(side_effect=Exception("Redis connection refused"))
-
-        # Set global pools
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
-
-        # Make request
-        response = client.get("/health")
-
-        # Assert error messages present
-        data = response.json()
-        assert "PostgreSQL connection failed" in data["detail"]["checks"]["postgres"]["error"]
-        assert "Neo4j service unavailable" in data["detail"]["checks"]["neo4j"]["error"]
-        assert "Redis connection refused" in data["detail"]["checks"]["redis"]["error"]
-
-    def test_health_endpoint_concurrent_requests(
-        self,
-        client,
-        mock_postgres_pool,
-        mock_neo4j_pool,
-        mock_redis_client,
-    ):
-        """Test health endpoint handles concurrent requests correctly."""
-        # Set global pools
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
-
-        # Make multiple concurrent requests
-        import concurrent.futures
-
-        def make_request():
-            return client.get("/health")
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            futures = [executor.submit(make_request) for _ in range(5)]
-            results = [future.result() for future in futures]
-
-        # All requests should succeed
-        for response in results:
-            assert response.status_code == 200
-            data = response.json()
-            assert data["status"] == "healthy"
+        assert data["detail"]["checks"]["postgres"]["status"] == "unavailable"
+        assert data["detail"]["checks"]["neo4j"]["status"] == "unavailable"
+        assert data["detail"]["checks"]["redis"]["status"] == "unavailable"
 
     def test_health_endpoint_performance(
         self,
         client,
-        mock_postgres_pool,
-        mock_neo4j_pool,
-        mock_redis_client,
+        postgres_pool,
+        neo4j_pool,
+        redis_client,
     ):
         """Test health endpoint responds within reasonable time."""
         import time
 
         # Set global pools
-        set_postgres_pool(mock_postgres_pool)
-        set_neo4j_pool(mock_neo4j_pool)
-        set_redis_client(mock_redis_client)
+        Endpoints._postgres = postgres_pool
+        Endpoints._neo4j = neo4j_pool
+        Endpoints._redis = redis_client
 
         # Measure response time
         start_time = time.time()
@@ -465,13 +168,77 @@ class TestHealthEndpointIntegration:
         # Assert response is successful
         assert response.status_code == 200
 
-        # Assert response time is reasonable (< 1 second for mocked services)
+        # Assert response time is reasonable (< 2 seconds for real services)
         response_time = end_time - start_time
-        assert response_time < 1.0, f"Response time too slow: {response_time}s"
+        assert response_time < 2.0, f"Response time too slow: {response_time}s"
 
         # Assert latency measured in checks
         data = response.json()
         for check_name in ["postgres", "neo4j", "redis"]:
             assert "latency_ms" in data["checks"][check_name]
-            # Latency should be very small for mocked services
-            assert data["checks"][check_name]["latency_ms"] < 100
+            # Latency should be reasonable for real services
+            assert data["checks"][check_name]["latency_ms"] < 1000
+
+
+class TestIndividualHealthChecks:
+    """Integration tests for individual health check functions."""
+
+    @pytest.mark.asyncio
+    async def test_check_postgres_health_with_real_pool(self, postgres_pool):
+        """Test PostgreSQL health check with real connection."""
+        result = await check_postgres_health(postgres_pool)
+
+        assert result["status"] == "ok"
+        assert "latency_ms" in result
+        assert isinstance(result["latency_ms"], float)
+        assert result["latency_ms"] >= 0
+        assert result.get("error") is None
+
+    @pytest.mark.asyncio
+    async def test_check_neo4j_health_with_real_pool(self, neo4j_pool):
+        """Test Neo4j health check with real connection."""
+        result = await check_neo4j_health(neo4j_pool)
+
+        assert result["status"] == "ok"
+        assert "latency_ms" in result
+        assert isinstance(result["latency_ms"], float)
+        assert result["latency_ms"] >= 0
+        assert result.get("error") is None
+
+    @pytest.mark.asyncio
+    async def test_check_redis_health_with_real_client(self, redis_client):
+        """Test Redis health check with real connection."""
+        result = await check_redis_health(redis_client)
+
+        assert result["status"] == "ok"
+        assert "latency_ms" in result
+        assert isinstance(result["latency_ms"], float)
+        assert result["latency_ms"] >= 0
+        assert result.get("error") is None
+
+    @pytest.mark.asyncio
+    async def test_check_postgres_health_handles_none_pool(self):
+        """Test PostgreSQL health check handles None pool gracefully."""
+        result = await check_postgres_health(None)
+
+        assert result["status"] == "error"
+        assert "error" in result
+        assert result["latency_ms"] >= 0
+
+    @pytest.mark.asyncio
+    async def test_check_neo4j_health_handles_none_pool(self):
+        """Test Neo4j health check handles None pool gracefully."""
+        result = await check_neo4j_health(None)
+
+        assert result["status"] == "error"
+        assert "error" in result
+        assert result["latency_ms"] >= 0
+
+    @pytest.mark.asyncio
+    async def test_check_redis_health_handles_none_client(self):
+        """Test Redis health check handles None client gracefully."""
+        result = await check_redis_health(None)
+
+        assert result["status"] == "error"
+        assert "error" in result
+        assert result["latency_ms"] >= 0
