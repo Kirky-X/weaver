@@ -279,7 +279,7 @@ class TestDRIFTSarchAggregation:
             llm=mock_llm,
         )
 
-        mock_llm.call = AsyncMock(
+        mock_llm.call_at = AsyncMock(
             return_value={"content": "Comprehensive answer combining all sources. [置信度: 0.85]"}
         )
 
