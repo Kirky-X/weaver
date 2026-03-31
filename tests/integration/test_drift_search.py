@@ -33,7 +33,8 @@ def mock_llm():
     """Mock LLM client."""
     llm = MagicMock()
     llm.call = AsyncMock(return_value={"content": "Generated answer"})
-    llm.batch_embed = AsyncMock(return_value=[[0.1] * 1536])
+    llm.call_at = AsyncMock(return_value="Generated answer")
+    llm.embed = AsyncMock(return_value=[[0.1] * 1536])
     return llm
 
 
@@ -124,10 +125,13 @@ class TestDRIFTSarchPrimerPhase:
             mock_context.to_prompt.return_value = "Community context..."
             mock_build.return_value = mock_context
 
-            # Mock LLM response
+            # Mock LLM response (call_at returns raw string, source uses str(result))
             mock_llm.call_at = AsyncMock(
                 return_value=(
-                    "Initial answer about the topic.\n\n后续问题：\n1. What about X?\n2. How does Y work?"
+                    "Initial answer about the topic.\n\n"
+                    "后续问题：\n"
+                    "1. What about X?\n"
+                    "2. How does Y work?"
                 )
             )
 
@@ -277,6 +281,7 @@ class TestDRIFTSarchAggregation:
             llm=mock_llm,
         )
 
+        # Source uses call_at, not call; returns string via str(result)
         mock_llm.call_at = AsyncMock(
             return_value="Comprehensive answer combining all sources. [置信度: 0.85]"
         )
@@ -304,6 +309,7 @@ class TestDRIFTSarchAggregation:
             llm=mock_llm,
         )
 
+        # Source uses call_at, not call; returns string via str(result)
         mock_llm.call_at = AsyncMock(return_value="Answer based on primer only. [置信度: 0.75]")
 
         result = await engine._aggregate_results(
@@ -333,7 +339,7 @@ class TestDRIFTSarchFullWorkflow:
             mock_context.to_prompt.return_value = "Context"
             mock_build.return_value = mock_context
 
-            # Mock LLM responses
+            # Source uses call_at (not call); returns string
             mock_llm.call_at = AsyncMock(return_value="Answer [置信度: 0.8]")
 
             result = await engine.search("What is machine learning?")
@@ -389,6 +395,7 @@ class TestDRIFTSarchFullWorkflow:
             mock_context.to_prompt.return_value = "Context"
             mock_build.return_value = mock_context
 
+            # Source uses call_at (not call); returns string
             mock_llm.call_at = AsyncMock(return_value="Answer [置信度: 0.8]")
 
             result = await engine.search("Test query")
