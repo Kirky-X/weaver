@@ -279,7 +279,7 @@ class SchedulerJobs:
             log.error("cleanup_orphan_entity_vectors_failed", error=str(exc))
             return 0
 
-    async def sync_neo4j_with_postgres(self) -> int:
+    async def sync_neo4j_with_postgres(self) -> dict[str, Any]:
         """Synchronize Neo4j articles with PostgreSQL.
 
         Detects and cleans up three types of inconsistency:
@@ -288,7 +288,8 @@ class SchedulerJobs:
         3. Entity count mismatch between Neo4j and PostgreSQL entity_vectors
 
         Returns:
-            Number of orphan articles deleted.
+            Dict with counts of orphans deleted, articles cleaned, and
+            enrichment gaps detected/reverted.
         """
         log.info("sync_neo4j_with_postgres_start")
 
@@ -310,8 +311,12 @@ class SchedulerJobs:
                     orphan_count=len(orphan_ids),
                 )
 
-            # 2. Detect enrichment gaps (NEO4J_DONE but NULL enrichment fields)
+            # 2. Count articles without mentions (orphan relationships)
+            orphan_cleaned = await self._neo4j_writer.article_repo.count_articles_without_mentions()
+
+            # 3. Detect enrichment gaps (NEO4J_DONE but NULL enrichment fields)
             incomplete = await self._article_repo.get_incomplete_articles(limit=100)
+            reverted_count = 0
             for article in incomplete:
                 log.warning(
                     "enrichment_gap_detected",
@@ -319,17 +324,29 @@ class SchedulerJobs:
                     url=article.source_url,
                 )
                 # Revert to PG_DONE so retry pipeline picks it up
-                await self._article_repo.revert_to_pg_done(article.id)
+                reverted = await self._article_repo.revert_to_pg_done(article.id)
+                if reverted:
+                    reverted_count += 1
                 log.info("enrichment_gap_reverted", article_id=str(article.id))
 
-            # 3. Entity-level consistency check
+            # 4. Entity-level consistency check
             await self._entity_consistency_check()
 
             log.info("sync_neo4j_with_postgres_complete", deleted=deleted, gaps=len(incomplete))
-            return deleted
+            return {
+                "neo4j_orphans_deleted": deleted,
+                "orphan_articles_cleaned": orphan_cleaned,
+                "enrichment_gaps_detected": len(incomplete),
+                "enrichment_gaps_reverted": reverted_count,
+            }
         except Exception as exc:
             log.error("sync_neo4j_with_postgres_failed", error=str(exc))
-            return 0
+            return {
+                "neo4j_orphans_deleted": 0,
+                "orphan_articles_cleaned": 0,
+                "enrichment_gaps_detected": 0,
+                "enrichment_gaps_reverted": 0,
+            }
 
     async def _entity_consistency_check(self) -> None:
         """Check entity count consistency between Neo4j and PostgreSQL entity_vectors.
