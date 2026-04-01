@@ -14,8 +14,8 @@ from core.db.models import Article, PersistStatus
 from core.db.postgres import PostgresPool
 from core.exceptions import InvalidStateTransitionError
 from core.observability.logging import get_logger
-from modules.collector.deduplicator import Deduplicator
-from modules.pipeline.state import PipelineState
+from modules.ingestion.deduplication import Deduplicator
+from modules.processing.pipeline.state import PipelineState
 
 log = get_logger("article_repo")
 
@@ -511,8 +511,7 @@ class ArticleRepo:
         Returns:
             The article UUID.
         """
-        from modules.collector.models import ArticleRaw as RawModel
-        from modules.source.models import NewsItem
+        from modules.ingestion.domain.models import ArticleRaw as RawModel, NewsItem
 
         # Convert if needed
         if isinstance(article, RawModel):

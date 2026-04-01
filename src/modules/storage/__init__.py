@@ -1,17 +1,36 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved.
-"""Storage module - Database repositories and storage backends."""
+# Copyright (c) 2026 KirkyX. All Rights Reserved
+"""Storage module - Database repositories and storage backends.
 
-from modules.storage.article_repo import ArticleRepo
-from modules.storage.llm_failure_repo import LLMFailureRepo
-from modules.storage.llm_usage_repo import LLMUsageRepo
-from modules.storage.pending_sync_repo import PendingSyncRepo
-from modules.storage.source_authority_repo import SourceAuthorityRepo
-from modules.storage.vector_repo import VectorRepo
+This module provides:
+- postgres: PostgreSQL repositories
+- neo4j: Neo4j graph repositories
+- redis: Redis storage (future)
+
+For LLM usage statistics, use modules.analytics instead.
+"""
+
+# Backward compatibility - re-export from analytics module
+# These will be deprecated in a future version
+from modules.analytics.llm_failure import LLMFailureRepo
+from modules.analytics.llm_usage import LLMUsageRepo
+
+# Neo4j repositories
+from modules.storage.neo4j import Neo4jArticleRepo, Neo4jEntityRepo
+
+# PostgreSQL repositories
+from modules.storage.postgres import (
+    ArticleRepo,
+    PendingSyncRepo,
+    SourceAuthorityRepo,
+    VectorRepo,
+)
 
 __all__ = [
     "ArticleRepo",
     "LLMFailureRepo",
     "LLMUsageRepo",
+    "Neo4jArticleRepo",
+    "Neo4jEntityRepo",
     "PendingSyncRepo",
     "SourceAuthorityRepo",
     "VectorRepo",
