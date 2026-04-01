@@ -94,7 +94,7 @@ class TestContainerNeo4jToggle:
 
         container._llm_failure_repo = MagicMock()
         container._event_bus = MagicMock()
-        container._llm_failure_cleanup_thread = MagicMock()
+        container._setup_scheduler = MagicMock()  # Mock scheduler setup
 
         with patch("core.db.initializer.initialize_database", new_callable=AsyncMock):
             with patch.object(Container, "init_neo4j", new_callable=AsyncMock) as mock_init_neo4j:
@@ -131,7 +131,7 @@ class TestContainerNeo4jToggle:
 
         container._llm_failure_repo = MagicMock()
         container._event_bus = MagicMock()
-        container._llm_failure_cleanup_thread = MagicMock()
+        container._setup_scheduler = MagicMock()  # Mock scheduler setup
 
         with patch("core.db.initializer.initialize_database", new_callable=AsyncMock):
             with patch.object(Container, "init_neo4j", new_callable=AsyncMock) as mock_init_neo4j:
