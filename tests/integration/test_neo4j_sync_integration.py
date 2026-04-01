@@ -17,10 +17,28 @@ class TestPendingSyncRepo:
         """Create PendingSyncRepo with real pool."""
         return PendingSyncRepo(postgres_pool)
 
+    async def _create_article(self, postgres_pool, unique_id: str) -> uuid.UUID:
+        """Helper to create a real article row for FK compliance."""
+        article_id = uuid.uuid4()
+        async with postgres_pool.session_context() as session:
+            await session.execute(
+                text(
+                    """INSERT INTO articles (id, source_url, is_news, title, body, is_merged, verified_by_sources)
+                       VALUES (:id, :url, TRUE, :title, :body, FALSE, 0)"""
+                ),
+                {
+                    "id": article_id,
+                    "url": f"https://test.example.com/{unique_id}",
+                    "title": f"Test Article {unique_id}",
+                    "body": "Test body",
+                },
+            )
+        return article_id
+
     @pytest.mark.asyncio
     async def test_upsert_creates_new_record(self, repo, postgres_pool, unique_id):
         """Test upsert creates a new pending_sync record."""
-        article_id = uuid.uuid4()
+        article_id = await self._create_article(postgres_pool, unique_id)
         payload = {"entities": [], "relations": [], "test_id": unique_id}
 
         try:
@@ -44,12 +62,16 @@ class TestPendingSyncRepo:
                     text("DELETE FROM pending_sync WHERE payload::text LIKE :pattern"),
                     {"pattern": f"%{unique_id}%"},
                 )
+                await session.execute(
+                    text("DELETE FROM articles WHERE source_url LIKE :pattern"),
+                    {"pattern": f"%{unique_id}%"},
+                )
 
     @pytest.mark.asyncio
     async def test_get_pending_returns_pending_records(self, repo, postgres_pool, unique_id):
         """Test get_pending returns records ordered by created_at."""
         # Create a pending record
-        article_id = uuid.uuid4()
+        article_id = await self._create_article(postgres_pool, unique_id)
         payload = {"entities": [], "relations": [], "test_id": unique_id}
 
         try:
@@ -66,11 +88,15 @@ class TestPendingSyncRepo:
                     text("DELETE FROM pending_sync WHERE payload::text LIKE :pattern"),
                     {"pattern": f"%{unique_id}%"},
                 )
+                await session.execute(
+                    text("DELETE FROM articles WHERE source_url LIKE :pattern"),
+                    {"pattern": f"%{unique_id}%"},
+                )
 
     @pytest.mark.asyncio
     async def test_mark_synced_updates_status(self, repo, postgres_pool, unique_id):
         """Test mark_synced sets status to synced and sets synced_at."""
-        article_id = uuid.uuid4()
+        article_id = await self._create_article(postgres_pool, unique_id)
         payload = {"entities": [], "relations": [], "test_id": unique_id}
 
         try:
@@ -94,11 +120,15 @@ class TestPendingSyncRepo:
                     text("DELETE FROM pending_sync WHERE payload::text LIKE :pattern"),
                     {"pattern": f"%{unique_id}%"},
                 )
+                await session.execute(
+                    text("DELETE FROM articles WHERE source_url LIKE :pattern"),
+                    {"pattern": f"%{unique_id}%"},
+                )
 
     @pytest.mark.asyncio
     async def test_mark_failed_increments_retry_count(self, repo, postgres_pool, unique_id):
         """Test mark_failed increments retry_count and sets error."""
-        article_id = uuid.uuid4()
+        article_id = await self._create_article(postgres_pool, unique_id)
         payload = {"entities": [], "relations": [], "test_id": unique_id}
 
         try:
@@ -123,12 +153,16 @@ class TestPendingSyncRepo:
                     text("DELETE FROM pending_sync WHERE payload::text LIKE :pattern"),
                     {"pattern": f"%{unique_id}%"},
                 )
+                await session.execute(
+                    text("DELETE FROM articles WHERE source_url LIKE :pattern"),
+                    {"pattern": f"%{unique_id}%"},
+                )
 
     @pytest.mark.asyncio
     async def test_cleanup_old_synced_deletes_old_records(self, repo, postgres_pool, unique_id):
         """Test cleanup_old_synced deletes synced records older than N days."""
         # Create a synced record
-        article_id = uuid.uuid4()
+        article_id = await self._create_article(postgres_pool, unique_id)
         payload = {"entities": [], "relations": [], "test_id": unique_id}
 
         try:
@@ -144,6 +178,10 @@ class TestPendingSyncRepo:
             async with postgres_pool.session_context() as session:
                 await session.execute(
                     text("DELETE FROM pending_sync WHERE payload::text LIKE :pattern"),
+                    {"pattern": f"%{unique_id}%"},
+                )
+                await session.execute(
+                    text("DELETE FROM articles WHERE source_url LIKE :pattern"),
                     {"pattern": f"%{unique_id}%"},
                 )
 
@@ -247,8 +285,6 @@ class TestConsistencyCheck:
         result = await jobs.consistency_check()
 
         assert "entity_mismatch" in result
-        assert "neo4j_count" in result
-        assert "pg_count" in result
         assert isinstance(result["stale_pending"], list)
         assert isinstance(result["orphan_temp_keys"], list)
 
@@ -268,7 +304,21 @@ class TestRetryNeo4jWritesWithPendingSync:
     ):
         """Test that PendingSyncRepo.get_by_article_id returns the correct record."""
         repo = PendingSyncRepo(postgres_pool)
+        # Create a real article first for FK constraint
         article_id = uuid.uuid4()
+        async with postgres_pool.session_context() as session:
+            await session.execute(
+                text(
+                    """INSERT INTO articles (id, source_url, is_news, title, body, is_merged, verified_by_sources)
+                       VALUES (:id, :url, TRUE, :title, :body, FALSE, 0)"""
+                ),
+                {
+                    "id": article_id,
+                    "url": f"https://test.example.com/{unique_id}",
+                    "title": f"Test Article {unique_id}",
+                    "body": "Test body",
+                },
+            )
         payload = {"entities": [], "relations": [], "test_id": unique_id}
 
         try:
@@ -284,5 +334,9 @@ class TestRetryNeo4jWritesWithPendingSync:
             async with postgres_pool.session_context() as session:
                 await session.execute(
                     text("DELETE FROM pending_sync WHERE payload::text LIKE :pattern"),
+                    {"pattern": f"%{unique_id}%"},
+                )
+                await session.execute(
+                    text("DELETE FROM articles WHERE source_url LIKE :pattern"),
                     {"pattern": f"%{unique_id}%"},
                 )

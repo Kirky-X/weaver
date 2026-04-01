@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -13,13 +14,15 @@ from modules.search.rerankers.flashrank_reranker import FlashrankReranker, Reran
 class TestFlashrankRerankerInit:
     """Tests for FlashrankReranker initialization."""
 
-    def test_init_default_params(self) -> None:
+    @patch("modules.search.rerankers.flashrank_reranker.FlashrankReranker._initialize_ranker")
+    def test_init_default_params(self, mock_init: MagicMock) -> None:
         """Test initialization with default parameters."""
         reranker = FlashrankReranker()
 
         assert reranker._model_name == "tiny"
         assert reranker._enabled is True
-        # Availability depends on flashrank being installed
+        assert reranker._available is False  # Not initialized because mock prevented it
+        mock_init.assert_called_once()
 
     def test_init_custom_params(self, tmp_path: Path) -> None:
         """Test initialization with custom parameters."""
@@ -45,7 +48,8 @@ class TestFlashrankRerankerInit:
 class TestFlashrankRerankerRerank:
     """Tests for FlashrankReranker rerank method."""
 
-    def test_rerank_empty_candidates(self) -> None:
+    @patch("modules.search.rerankers.flashrank_reranker.FlashrankReranker._initialize_ranker")
+    def test_rerank_empty_candidates(self, mock_init: MagicMock) -> None:
         """Test reranking empty candidate list."""
         reranker = FlashrankReranker()
         results = reranker.rerank("test query", candidates=[])
@@ -162,7 +166,8 @@ class TestFlashrankRerankerWithMetadata:
 class TestFlashrankRerankerHelpers:
     """Tests for FlashrankReranker helper methods."""
 
-    def test_is_available(self) -> None:
+    @patch("modules.search.rerankers.flashrank_reranker.FlashrankReranker._initialize_ranker")
+    def test_is_available(self, mock_init: MagicMock) -> None:
         """Test is_available method."""
         reranker_enabled = FlashrankReranker(enabled=True)
         reranker_disabled = FlashrankReranker(enabled=False)
@@ -170,7 +175,8 @@ class TestFlashrankRerankerHelpers:
         # Enabled may or may not be available depending on installation
         assert reranker_disabled.is_available() is False
 
-    def test_get_model_info(self) -> None:
+    @patch("modules.search.rerankers.flashrank_reranker.FlashrankReranker._initialize_ranker")
+    def test_get_model_info(self, mock_init: MagicMock) -> None:
         """Test get_model_info method."""
         reranker = FlashrankReranker(model_name="small", enabled=True)
 

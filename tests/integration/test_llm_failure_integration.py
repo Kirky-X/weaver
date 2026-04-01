@@ -24,7 +24,7 @@ class TestLLMFailureEventChain:
         """Test LLMFailureEvent can be published and received via EventBus."""
         received_events = []
 
-        def handler(event):
+        async def handler(event):
             received_events.append(event)
 
         event_bus.subscribe(LLMFailureEvent, handler)
@@ -36,7 +36,7 @@ class TestLLMFailureEventChain:
                 error_type="RateLimitError",
                 error_detail="Rate limit exceeded",
                 latency_ms=1500.0,
-                article_id=str(uuid4()),
+                article_id=None,
                 task_id="task-123",
                 attempt=1,
                 fallback_tried=True,
@@ -55,7 +55,6 @@ class TestLLMFailureEventChain:
         self, repo, event_bus, postgres_pool, unique_id
     ):
         """Test EventBus handler correctly records failure to LLMFailureRepo."""
-        article_id = str(uuid4())
 
         async def handle(event):
             await repo.record(event)
@@ -69,7 +68,7 @@ class TestLLMFailureEventChain:
                 error_type="ApiError",
                 error_detail="Invalid API key",
                 latency_ms=300.0,
-                article_id=article_id,
+                article_id=None,
                 task_id="task-456",
                 attempt=0,
                 fallback_tried=False,
@@ -80,7 +79,7 @@ class TestLLMFailureEventChain:
         async with postgres_pool.session_context() as session:
             result = await session.execute(
                 text(
-                    "SELECT call_point, provider, error_type FROM llm_failure_logs WHERE call_point = :cp"
+                    "SELECT call_point, provider, error_type FROM llm_failures WHERE call_point = :cp"
                 ),
                 {"cp": f"analyzer_{unique_id}"},
             )
@@ -92,7 +91,7 @@ class TestLLMFailureEventChain:
         # Cleanup
         async with postgres_pool.session_context() as session:
             await session.execute(
-                text("DELETE FROM llm_failure_logs WHERE call_point = :cp"),
+                text("DELETE FROM llm_failures WHERE call_point = :cp"),
                 {"cp": f"analyzer_{unique_id}"},
             )
 
@@ -115,7 +114,7 @@ class TestLLMFailureEventChain:
                     error_type="Timeout",
                     error_detail=f"Timeout on attempt {i}",
                     latency_ms=30000.0,
-                    article_id=str(uuid4()),
+                    article_id=None,
                     task_id=f"task-{i}",
                     attempt=i,
                     fallback_tried=i > 0,
@@ -125,7 +124,7 @@ class TestLLMFailureEventChain:
         # Verify 3 records were created
         async with postgres_pool.session_context() as session:
             result = await session.execute(
-                text("SELECT COUNT(*) FROM llm_failure_logs WHERE call_point LIKE :pattern"),
+                text("SELECT COUNT(*) FROM llm_failures WHERE call_point LIKE :pattern"),
                 {"pattern": f"node_{unique_id}%"},
             )
             count = result.scalar()
@@ -134,7 +133,7 @@ class TestLLMFailureEventChain:
         # Cleanup
         async with postgres_pool.session_context() as session:
             await session.execute(
-                text("DELETE FROM llm_failure_logs WHERE call_point LIKE :pattern"),
+                text("DELETE FROM llm_failures WHERE call_point LIKE :pattern"),
                 {"pattern": f"node_{unique_id}%"},
             )
 
@@ -156,17 +155,43 @@ class TestLLMFailureEventChain:
                 error_type="Test",
                 error_detail="Test",
                 latency_ms=0.0,
-                article_id=str(uuid4()),
+                article_id=None,
                 task_id="test",
                 attempt=0,
                 fallback_tried=False,
             )
         )
 
-        # Cleanup with days=0 deletes all records
-        removed = await repo.cleanup_older_than(days=0)
+        # Verify the record was created
+        async with postgres_pool.session_context() as session:
+            result = await session.execute(
+                text("SELECT COUNT(*) FROM llm_failures WHERE call_point = :cp"),
+                {"cp": f"cleanup_test_{unique_id}"},
+            )
+            assert result.scalar() == 1
 
+        # Manually backdate the record so it is older than the cutoff
+        async with postgres_pool.session_context() as session:
+            await session.execute(
+                text(
+                    "UPDATE llm_failures SET created_at = created_at - INTERVAL '2 days' "
+                    "WHERE call_point = :cp"
+                ),
+                {"cp": f"cleanup_test_{unique_id}"},
+            )
+            await session.commit()
+
+        # Cleanup with days=1 should delete the backdated record
+        removed = await repo.cleanup_older_than(days=1)
         assert removed >= 1
+
+        # Verify record was deleted
+        async with postgres_pool.session_context() as session:
+            result = await session.execute(
+                text("SELECT COUNT(*) FROM llm_failures WHERE call_point = :cp"),
+                {"cp": f"cleanup_test_{unique_id}"},
+            )
+            assert result.scalar() == 0
 
     @pytest.mark.asyncio
     async def test_handler_error_does_not_propagate(self, event_bus):

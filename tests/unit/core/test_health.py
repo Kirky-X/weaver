@@ -153,8 +153,7 @@ class TestCheckRedisHealth:
     def mock_redis_client(self):
         """Create a mock Redis client."""
         client = MagicMock(spec=RedisClient)
-        client.client = MagicMock()
-        client.client.ping = AsyncMock(return_value=True)
+        client.ping = AsyncMock(return_value=True)
         return client
 
     @pytest.mark.asyncio
@@ -166,12 +165,12 @@ class TestCheckRedisHealth:
         assert "latency_ms" in result
         assert isinstance(result["latency_ms"], float)
         assert result["latency_ms"] >= 0
-        mock_redis_client.client.ping.assert_called_once()
+        mock_redis_client.ping.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_redis_health_timeout(self, mock_redis_client):
         """Test Redis health check when connection times out."""
-        mock_redis_client.client.ping = AsyncMock(side_effect=TimeoutError())
+        mock_redis_client.ping = AsyncMock(side_effect=TimeoutError())
 
         result = await check_redis_health(mock_redis_client)
 
@@ -182,7 +181,7 @@ class TestCheckRedisHealth:
     @pytest.mark.asyncio
     async def test_redis_health_error(self, mock_redis_client):
         """Test Redis health check when connection fails."""
-        mock_redis_client.client.ping = AsyncMock(side_effect=Exception("Connection refused"))
+        mock_redis_client.ping = AsyncMock(side_effect=Exception("Connection refused"))
 
         result = await check_redis_health(mock_redis_client)
 
@@ -241,8 +240,7 @@ class TestHealthCheck:
     def mock_redis_client(self):
         """Create a mock Redis client."""
         client = MagicMock(spec=RedisClient)
-        client.client = MagicMock()
-        client.client.ping = AsyncMock(return_value=True)
+        client.ping = AsyncMock(return_value=True)
         return client
 
     @pytest.mark.asyncio
@@ -301,7 +299,7 @@ class TestHealthCheck:
     @pytest.mark.asyncio
     async def test_redis_unhealthy(self, mock_postgres_pool, mock_neo4j_pool, mock_redis_client):
         """Test health check when Redis is unhealthy."""
-        mock_redis_client.client.ping = AsyncMock(side_effect=Exception("Connection refused"))
+        mock_redis_client.ping = AsyncMock(side_effect=Exception("Connection refused"))
 
         Endpoints._postgres = mock_postgres_pool
         Endpoints._neo4j = mock_neo4j_pool
@@ -326,7 +324,7 @@ class TestHealthCheck:
         mock_postgres_pool.session_context = MagicMock(return_value=async_context)
 
         mock_neo4j_pool.execute_query = AsyncMock(side_effect=Exception("Failed"))
-        mock_redis_client.client.ping = AsyncMock(side_effect=Exception("Failed"))
+        mock_redis_client.ping = AsyncMock(side_effect=Exception("Failed"))
 
         Endpoints._postgres = mock_postgres_pool
         Endpoints._neo4j = mock_neo4j_pool
@@ -378,7 +376,7 @@ class TestHealthCheck:
         mock_postgres_pool.session_context = MagicMock(return_value=async_context)
 
         mock_neo4j_pool.execute_query = AsyncMock(side_effect=TimeoutError())
-        mock_redis_client.client.ping = AsyncMock(side_effect=TimeoutError())
+        mock_redis_client.ping = AsyncMock(side_effect=TimeoutError())
 
         Endpoints._postgres = mock_postgres_pool
         Endpoints._neo4j = mock_neo4j_pool
@@ -451,7 +449,7 @@ class TestHealthCheck:
         mock_postgres_pool.session_context = MagicMock(return_value=async_context)
 
         mock_neo4j_pool.execute_query = AsyncMock(side_effect=Exception("Neo4j connection failed"))
-        mock_redis_client.client.ping = AsyncMock(side_effect=Exception("Redis connection failed"))
+        mock_redis_client.ping = AsyncMock(side_effect=Exception("Redis connection failed"))
 
         Endpoints._postgres = mock_postgres_pool
         Endpoints._neo4j = mock_neo4j_pool

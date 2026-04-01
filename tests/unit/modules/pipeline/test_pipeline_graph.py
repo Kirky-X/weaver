@@ -1012,3 +1012,432 @@ class TestPipelinePersistFallback:
         mock_article_repo.upsert.assert_called_once()
         mock_neo4j_writer.write.assert_called_once()
         mock_article_repo.mark_failed.assert_not_called()
+
+
+class TestPipelinePersistBatch:
+    """Test _persist_batch method."""
+
+    @pytest.fixture
+    def mock_llm(self):
+        """Mock LLM client."""
+        return MagicMock()
+
+    @pytest.fixture
+    def mock_budget(self):
+        """Mock token budget manager."""
+        return MagicMock()
+
+    @pytest.fixture
+    def mock_prompt_loader(self):
+        """Mock prompt loader."""
+        return MagicMock()
+
+    @pytest.fixture
+    def mock_event_bus(self):
+        """Mock event bus."""
+        return MagicMock()
+
+    @pytest.mark.asyncio
+    async def test_persist_batch_empty_list(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
+        """Test persist_batch with empty list."""
+        pipeline = Pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+        )
+
+        await pipeline._persist_batch([])
+
+    @pytest.mark.asyncio
+    async def test_persist_batch_all_terminal(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
+        """Test persist_batch skips all terminal articles."""
+        pipeline = Pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+        )
+
+        states = [PipelineState(raw=MagicMock()) for _ in range(3)]
+        for state in states:
+            state["terminal"] = True
+
+        await pipeline._persist_batch(states)
+
+    @pytest.mark.asyncio
+    async def test_persist_batch_with_article_repo(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
+        """Test persist_batch with article_repo."""
+        import uuid
+
+        article_ids = [uuid.uuid4() for _ in range(2)]
+        mock_article_repo = MagicMock()
+        mock_article_repo.bulk_upsert = AsyncMock(return_value=article_ids)
+
+        pipeline = Pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+            article_repo=mock_article_repo,
+        )
+
+        raw = MagicMock()
+        raw.url = "https://example.com/test"
+
+        states = [PipelineState(raw=raw) for _ in range(2)]
+        for state in states:
+            state["cleaned"] = {"title": "Title", "body": "Body"}
+
+        await pipeline._persist_batch(states)
+
+        mock_article_repo.bulk_upsert.assert_called_once()
+        for state in states:
+            assert "article_id" in state
+
+    @pytest.mark.asyncio
+    async def test_persist_batch_with_vectors(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
+        """Test persist_batch with vector persistence."""
+        import uuid
+
+        article_id = uuid.uuid4()
+        mock_article_repo = MagicMock()
+        mock_article_repo.bulk_upsert = AsyncMock(return_value=[article_id])
+
+        mock_vector_repo = MagicMock()
+        mock_vector_repo.bulk_upsert_article_vectors = AsyncMock(return_value=1)
+
+        pipeline = Pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+            article_repo=mock_article_repo,
+            vector_repo=mock_vector_repo,
+        )
+
+        raw = MagicMock()
+        raw.url = "https://example.com/test"
+
+        state = PipelineState(raw=raw)
+        state["cleaned"] = {"title": "Title", "body": "Body"}
+        state["vectors"] = {
+            "title": [0.1] * 1024,
+            "content": [0.2] * 1024,
+            "model_id": "test-model",
+        }
+
+        await pipeline._persist_batch([state])
+
+        mock_vector_repo.bulk_upsert_article_vectors.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_persist_batch_with_neo4j(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
+        """Test persist_batch with Neo4j persistence."""
+        import uuid
+
+        article_id = uuid.uuid4()
+        mock_article_repo = MagicMock()
+        mock_article_repo.bulk_upsert = AsyncMock(return_value=[article_id])
+        mock_article_repo.update_persist_status = AsyncMock()
+
+        mock_neo4j_writer = MagicMock()
+        mock_neo4j_writer.write = AsyncMock(return_value=["entity1"])
+
+        pipeline = Pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+            article_repo=mock_article_repo,
+            neo4j_writer=mock_neo4j_writer,
+        )
+
+        raw = MagicMock()
+        raw.url = "https://example.com/test"
+
+        state = PipelineState(raw=raw)
+        state["cleaned"] = {"title": "Title", "body": "Body"}
+
+        await pipeline._persist_batch([state])
+
+        mock_neo4j_writer.write.assert_called_once()
+        assert "neo4j_ids" in state
+
+    @pytest.mark.asyncio
+    async def test_persist_batch_handles_pg_error(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
+        """Test persist_batch handles PostgreSQL errors."""
+        import uuid
+
+        article_id = uuid.uuid4()
+        mock_article_repo = MagicMock()
+        mock_article_repo.bulk_upsert = AsyncMock(side_effect=Exception("PG error"))
+        mock_article_repo.mark_failed = AsyncMock()
+
+        pipeline = Pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+            article_repo=mock_article_repo,
+        )
+
+        raw = MagicMock()
+        raw.url = "https://example.com/test"
+
+        state = PipelineState(raw=raw)
+        state["article_id"] = str(article_id)
+        state["cleaned"] = {"title": "Title", "body": "Body"}
+
+        await pipeline._persist_batch([state])
+
+    @pytest.mark.asyncio
+    async def test_persist_batch_handles_neo4j_error(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
+        """Test persist_batch handles Neo4j errors."""
+        import uuid
+
+        article_id = uuid.uuid4()
+        mock_article_repo = MagicMock()
+        mock_article_repo.bulk_upsert = AsyncMock(return_value=[article_id])
+        mock_article_repo.update_persist_status = AsyncMock()
+        mock_article_repo.mark_failed = AsyncMock()
+
+        mock_neo4j_writer = MagicMock()
+        mock_neo4j_writer.write = AsyncMock(side_effect=Exception("Neo4j error"))
+
+        pipeline = Pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+            article_repo=mock_article_repo,
+            neo4j_writer=mock_neo4j_writer,
+        )
+
+        raw = MagicMock()
+        raw.url = "https://example.com/test"
+
+        state = PipelineState(raw=raw)
+        state["cleaned"] = {"title": "Title", "body": "Body"}
+
+        await pipeline._persist_batch([state])
+
+        mock_article_repo.mark_failed.assert_called_once()
+
+
+class TestPipelineCommunityUpdate:
+    """Test _maybe_trigger_community_update method."""
+
+    @pytest.fixture
+    def mock_llm(self):
+        """Mock LLM client."""
+        return MagicMock()
+
+    @pytest.fixture
+    def mock_budget(self):
+        """Mock token budget manager."""
+        return MagicMock()
+
+    @pytest.fixture
+    def mock_prompt_loader(self):
+        """Mock prompt loader."""
+        return MagicMock()
+
+    @pytest.fixture
+    def mock_event_bus(self):
+        """Mock event bus."""
+        return MagicMock()
+
+    @pytest.mark.asyncio
+    async def test_community_update_no_updater(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
+        """Test community update without updater."""
+        pipeline = Pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+        )
+
+        raw = MagicMock()
+        state = PipelineState(raw=raw)
+        state["entities"] = [{"name": "Entity1"}]
+
+        await pipeline._maybe_trigger_community_update([state])
+
+    @pytest.mark.asyncio
+    async def test_community_update_no_entities(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
+        """Test community update without entities."""
+        mock_updater = MagicMock()
+        mock_updater.get_stats = AsyncMock(
+            return_value=MagicMock(pending_entity_count=0, last_incremental_update_at=None)
+        )
+
+        pipeline = Pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+            community_updater=mock_updater,
+        )
+
+        raw = MagicMock()
+        state = PipelineState(raw=raw)
+
+        await pipeline._maybe_trigger_community_update([state])
+
+        mock_updater.get_stats.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_community_update_triggers(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
+        """Test community update triggers when conditions met."""
+        from dataclasses import dataclass
+
+        @dataclass
+        class UpdateResult:
+            affected_communities: int
+            entities_reassigned: int
+            duration_seconds: float
+
+        mock_updater = MagicMock()
+        mock_updater.get_stats = AsyncMock(
+            return_value=MagicMock(pending_entity_count=10, last_incremental_update_at=None)
+        )
+        mock_updater.should_trigger = AsyncMock(return_value=True)
+        mock_updater.run_incremental_update = AsyncMock(
+            return_value=UpdateResult(
+                affected_communities=5, entities_reassigned=3, duration_seconds=1.5
+            )
+        )
+
+        pipeline = Pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+            community_updater=mock_updater,
+        )
+
+        raw = MagicMock()
+        state = PipelineState(raw=raw)
+        state["entities"] = [{"canonical_name": "Entity1"}, {"name": "Entity2"}]
+
+        await pipeline._maybe_trigger_community_update([state])
+
+        mock_updater.run_incremental_update.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_community_update_increments_pending(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
+        """Test community update increments pending when not triggered."""
+        mock_updater = MagicMock()
+        mock_updater.get_stats = AsyncMock(
+            return_value=MagicMock(pending_entity_count=5, last_incremental_update_at=None)
+        )
+        mock_updater.should_trigger = AsyncMock(return_value=False)
+        mock_updater.increment_pending_count = AsyncMock()
+
+        pipeline = Pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+            community_updater=mock_updater,
+        )
+
+        raw = MagicMock()
+        state = PipelineState(raw=raw)
+        state["entities"] = [{"canonical_name": "Entity1"}]
+
+        await pipeline._maybe_trigger_community_update([state])
+
+        mock_updater.increment_pending_count.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_community_update_handles_error(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
+        """Test community update handles errors gracefully."""
+        mock_updater = MagicMock()
+        mock_updater.get_stats = AsyncMock(side_effect=Exception("Update error"))
+
+        pipeline = Pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+            community_updater=mock_updater,
+        )
+
+        raw = MagicMock()
+        state = PipelineState(raw=raw)
+        state["entities"] = [{"name": "Entity1"}]
+
+        # Should not raise
+        await pipeline._maybe_trigger_community_update([state])
+
+    @pytest.mark.asyncio
+    async def test_community_update_entity_with_attrs(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
+        """Test community update extracts entity names from objects with attributes."""
+        mock_updater = MagicMock()
+        mock_updater.get_stats = AsyncMock(
+            return_value=MagicMock(pending_entity_count=0, last_incremental_update_at=None)
+        )
+        mock_updater.should_trigger = AsyncMock(return_value=True)
+
+        from dataclasses import dataclass
+
+        @dataclass
+        class UpdateResult:
+            affected_communities: int
+            entities_reassigned: int
+            duration_seconds: float
+
+        mock_updater.run_incremental_update = AsyncMock(
+            return_value=UpdateResult(
+                affected_communities=1, entities_reassigned=0, duration_seconds=0.5
+            )
+        )
+
+        pipeline = Pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+            community_updater=mock_updater,
+        )
+
+        raw = MagicMock()
+
+        # Entity with canonical_name attribute
+        class MockEntity:
+            canonical_name = "TestEntity"
+
+        state = PipelineState(raw=raw)
+        state["entities"] = [MockEntity()]
+
+        await pipeline._maybe_trigger_community_update([state])
+
+        mock_updater.run_incremental_update.assert_called_once()

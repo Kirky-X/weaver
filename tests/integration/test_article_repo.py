@@ -22,18 +22,20 @@ class TestArticleRepoIntegration:
     @pytest.mark.asyncio
     async def test_upsert_creates_new_article(self, postgres_pool, unique_id):
         """Test upsert creates a new article when not exists."""
+        from types import SimpleNamespace
+
         repo = ArticleRepo(postgres_pool)
 
         state = PipelineState()
-        state["raw"] = {
-            "url": f"https://test.example.com/{unique_id}",
-            "source_host": "test.example.com",
-            "title": f"Test Article {unique_id}",
-            "body": "Test body content",
-            "publish_time": None,
-        }
+        state["raw"] = SimpleNamespace(
+            url=f"https://test.example.com/{unique_id}",
+            source_host="test.example.com",
+            title=f"Test Article {unique_id}",
+            body="Test body content",
+            publish_time=None,
+        )
         state["is_news"] = True
-        state["category"] = "tech"
+        state["category"] = "科技"
         state["language"] = "zh"
 
         try:
@@ -59,45 +61,51 @@ class TestArticleRepoIntegration:
 
     @pytest.mark.asyncio
     async def test_upsert_updates_existing_article(self, postgres_pool, unique_id):
-        """Test upsert updates existing article."""
+        """Test upsert updates existing article with enriched fields."""
+        from decimal import Decimal
+        from types import SimpleNamespace
+
         repo = ArticleRepo(postgres_pool)
 
         # First create an article
         state1 = PipelineState()
-        state1["raw"] = {
-            "url": f"https://test.example.com/{unique_id}",
-            "source_host": "test.example.com",
-            "title": f"Original Title {unique_id}",
-            "body": "Original body",
-            "publish_time": None,
-        }
+        state1["raw"] = SimpleNamespace(
+            url=f"https://test.example.com/{unique_id}",
+            source_host="test.example.com",
+            title=f"Original Title {unique_id}",
+            body="Original body",
+            publish_time=None,
+        )
         state1["is_news"] = True
 
         try:
             article_id = await repo.upsert(state1)
 
-            # Now update with same URL
+            # Now update with enrichment fields
             state2 = PipelineState()
-            state2["raw"] = {
-                "url": f"https://test.example.com/{unique_id}",
-                "source_host": "test.example.com",
-                "title": f"Updated Title {unique_id}",
-                "body": "Updated body",
-            }
+            state2["raw"] = SimpleNamespace(
+                url=f"https://test.example.com/{unique_id}",
+                source_host="test.example.com",
+                title=f"Original Title {unique_id}",
+                body="Original body",
+                publish_time=None,
+            )
             state2["is_news"] = True
-            state2["cleaned"] = {"title": f"Updated Title {unique_id}", "body": "Updated body"}
+            state2["score"] = Decimal("0.85")
+            state2["quality_score"] = Decimal("0.90")
 
             updated_id = await repo.upsert(state2)
             assert updated_id == article_id
 
-            # Verify update
+            # Verify update - enrichment fields should be set
             async with postgres_pool.session_context() as session:
                 result = await session.execute(
-                    text("SELECT title FROM articles WHERE id = :id"),
+                    text("SELECT score, quality_score FROM articles WHERE id = :id"),
                     {"id": article_id},
                 )
                 row = result.fetchone()
-                assert row.title == f"Updated Title {unique_id}"
+                assert row.score == Decimal("0.85")
+                assert row.quality_score == Decimal("0.90")
         finally:
             # Cleanup
             async with postgres_pool.session_context() as session:
@@ -183,13 +191,13 @@ class TestArticleRepoIntegration:
         """Test get pending Neo4j articles."""
         repo = ArticleRepo(postgres_pool)
 
-        # Create test article with persist_status pending
+        # Create test article with persist_status pg_done (what get_pending_neo4j queries)
         async with postgres_pool.session_context() as session:
             article_id = uuid.uuid4()
             await session.execute(
                 text("""
                     INSERT INTO articles (id, source_url, is_news, title, body, is_merged, verified_by_sources, persist_status)
-                    VALUES (:id, :url, :is_news, :title, :body, :is_merged, :verified_by, 'pending_neo4j')
+                    VALUES (:id, :url, :is_news, :title, :body, :is_merged, :verified_by, 'pg_done')
                 """),
                 {
                     "id": article_id,
@@ -216,14 +224,16 @@ class TestArticleRepoIntegration:
     @pytest.mark.asyncio
     async def test_insert_raw_article(self, postgres_pool, unique_id):
         """Test insert raw article."""
+        from modules.ingestion.domain.models import ArticleRaw
+
         repo = ArticleRepo(postgres_pool)
 
-        raw_article = {
-            "url": f"https://test.example.com/{unique_id}",
-            "source_host": "test.example.com",
-            "title": f"Raw Article {unique_id}",
-            "body": "Raw body",
-        }
+        raw_article = ArticleRaw(
+            url=f"https://test.example.com/{unique_id}",
+            source_host="test.example.com",
+            title=f"Raw Article {unique_id}",
+            body="Raw body content for testing insert_raw",
+        )
 
         try:
             article_id = await repo.insert_raw(raw_article)
@@ -233,7 +243,7 @@ class TestArticleRepoIntegration:
             async with postgres_pool.session_context() as session:
                 result = await session.execute(
                     text("SELECT id FROM articles WHERE source_url = :url"),
-                    {"url": raw_article["url"]},
+                    {"url": raw_article.url},
                 )
                 row = result.fetchone()
                 assert row is not None
@@ -248,26 +258,28 @@ class TestArticleRepoIntegration:
     @pytest.mark.asyncio
     async def test_insert_raw_existing_url(self, postgres_pool, unique_id):
         """Test insert raw article with existing URL returns existing id."""
+        from modules.ingestion.domain.models import ArticleRaw
+
         repo = ArticleRepo(postgres_pool)
 
         # First create an article
-        raw1 = {
-            "url": f"https://test.example.com/{unique_id}",
-            "source_host": "test.example.com",
-            "title": f"First Article {unique_id}",
-            "body": "First body",
-        }
+        raw1 = ArticleRaw(
+            url=f"https://test.example.com/{unique_id}",
+            source_host="test.example.com",
+            title=f"First Article {unique_id}",
+            body="First body content for testing duplicate detection",
+        )
 
         try:
             first_id = await repo.insert_raw(raw1)
 
             # Insert same URL again
-            raw2 = {
-                "url": f"https://test.example.com/{unique_id}",
-                "source_host": "test.example.com",
-                "title": f"Second Article {unique_id}",
-                "body": "Second body",
-            }
+            raw2 = ArticleRaw(
+                url=f"https://test.example.com/{unique_id}",
+                source_host="test.example.com",
+                title=f"Second Article {unique_id}",
+                body="Second body content for testing duplicate detection",
+            )
             second_id = await repo.insert_raw(raw2)
 
             # Should return same ID
@@ -310,11 +322,11 @@ class TestArticleRepoIntegration:
             # Verify article was marked as failed
             async with postgres_pool.session_context() as session:
                 result = await session.execute(
-                    text("SELECT error FROM articles WHERE id = :id"),
+                    text("SELECT processing_error FROM articles WHERE id = :id"),
                     {"id": article_id},
                 )
                 row = result.fetchone()
-                assert row.error == "Test error"
+                assert row.processing_error == "Test error"
         finally:
             # Cleanup
             async with postgres_pool.session_context() as session:

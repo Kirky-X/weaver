@@ -3,7 +3,7 @@
 
 import pytest
 from fastapi import FastAPI, HTTPException
-from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
 from api.endpoints._deps import Endpoints
 from api.endpoints.health import (
@@ -48,15 +48,10 @@ class TestHealthEndpointIntegration:
         """Create FastAPI app for testing."""
         return create_test_app()
 
-    @pytest.fixture
-    def client(self, app):
-        """Create TestClient for testing."""
-        with TestClient(app) as client:
-            yield client
-
-    def test_health_endpoint_returns_200_when_all_services_healthy(
+    @pytest.mark.asyncio
+    async def test_health_endpoint_returns_200_when_all_services_healthy(
         self,
-        client,
+        app,
         postgres_pool,
         neo4j_pool,
         redis_client,
@@ -67,8 +62,8 @@ class TestHealthEndpointIntegration:
         Endpoints._neo4j = neo4j_pool
         Endpoints._redis = redis_client
 
-        # Make request
-        response = client.get("/health")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get("/health")
 
         # Assert status code
         assert response.status_code == 200
@@ -95,9 +90,10 @@ class TestHealthEndpointIntegration:
             assert isinstance(data["checks"][check_name]["latency_ms"], (int, float))
             assert data["checks"][check_name]["latency_ms"] >= 0
 
-    def test_health_endpoint_response_format(
+    @pytest.mark.asyncio
+    async def test_health_endpoint_response_format(
         self,
-        client,
+        app,
         postgres_pool,
         neo4j_pool,
         redis_client,
@@ -108,8 +104,8 @@ class TestHealthEndpointIntegration:
         Endpoints._neo4j = neo4j_pool
         Endpoints._redis = redis_client
 
-        # Make request
-        response = client.get("/health")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get("/health")
 
         # Assert response headers
         assert response.headers["content-type"] == "application/json"
@@ -128,12 +124,11 @@ class TestHealthEndpointIntegration:
             assert "latency_ms" in check
             assert isinstance(check["latency_ms"], (int, float))
 
-    def test_health_endpoint_handles_pools_not_initialized(self, client):
+    @pytest.mark.asyncio
+    async def test_health_endpoint_handles_pools_not_initialized(self, app):
         """Test health endpoint handles pools not initialized gracefully."""
-        # Pools are not set (None)
-
-        # Make request
-        response = client.get("/health")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get("/health")
 
         # Assert status code
         assert response.status_code == 503
@@ -145,9 +140,10 @@ class TestHealthEndpointIntegration:
         assert data["detail"]["checks"]["neo4j"]["status"] == "unavailable"
         assert data["detail"]["checks"]["redis"]["status"] == "unavailable"
 
-    def test_health_endpoint_performance(
+    @pytest.mark.asyncio
+    async def test_health_endpoint_performance(
         self,
-        client,
+        app,
         postgres_pool,
         neo4j_pool,
         redis_client,
@@ -162,7 +158,8 @@ class TestHealthEndpointIntegration:
 
         # Measure response time
         start_time = time.time()
-        response = client.get("/health")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.get("/health")
         end_time = time.time()
 
         # Assert response is successful
