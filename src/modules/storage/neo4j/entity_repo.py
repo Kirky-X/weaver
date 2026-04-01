@@ -814,6 +814,43 @@ class Neo4jEntityRepo:
         result = await self._pool.execute_query(query, params)
         return [dict(record) for record in result]
 
+    async def find_entities_by_keys(
+        self,
+        keys: list[dict[str, str]],
+    ) -> list[dict[str, Any]]:
+        """Find multiple entities by (canonical_name, type) keys in a single query.
+
+        This is an optimized batch query to avoid N+1 patterns when entities
+        have different types. Each key dict must have 'canonical_name' and 'type'.
+
+        Args:
+            keys: List of dicts with 'canonical_name' and 'type' keys.
+
+        Returns:
+            List of entity dicts found (may be fewer than input if some not found).
+        """
+        if not keys:
+            return []
+
+        query = """
+        UNWIND $keys AS key
+        MATCH (e:Entity {canonical_name: key.canonical_name, type: key.type})
+        RETURN elementId(e) AS neo4j_id,
+               e.id AS id,
+               e.canonical_name AS canonical_name,
+               e.type AS type,
+               e.aliases AS aliases,
+               e.description AS description
+        """
+
+        params = {
+            "keys": [
+                {"canonical_name": k.get("canonical_name"), "type": k.get("type")} for k in keys
+            ]
+        }
+        result = await self._pool.execute_query(query, params)
+        return [dict(record) for record in result]
+
     async def delete_entities_batch(
         self,
         neo4j_ids: list[str],

@@ -111,6 +111,12 @@ class TestNeo4jWriterWrite:
         writer._entity_repo.find_entity = AsyncMock(
             return_value={"neo4j_id": "entity-id", "canonical_name": "Entity 1"}
         )
+        writer._entity_repo.find_entities_by_keys = AsyncMock(
+            return_value=[
+                {"neo4j_id": "entity-id-1", "canonical_name": "Entity 1", "type": "PERSON"},
+                {"neo4j_id": "entity-id-2", "canonical_name": "Entity 2", "type": "ORG"},
+            ]
+        )
         writer._entity_repo.merge_mentions_batch = AsyncMock(return_value=2)
         writer._entity_repo.add_alias = AsyncMock()
         return writer

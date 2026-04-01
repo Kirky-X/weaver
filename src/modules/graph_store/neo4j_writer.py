@@ -196,15 +196,22 @@ class Neo4jWriter:
             except Exception as exc:
                 log.warning("neo4j_aliases_batch_failed", error=str(exc))
 
+        # Batch query to get entity IDs instead of N+1 individual queries
+        entity_keys = [
+            {"canonical_name": e["canonical_name"], "type": e["type"]} for e in entity_data
+        ]
+        existing_entities = await self._entity_repo.find_entities_by_keys(entity_keys)
+
+        # Build lookup map for quick access
+        existing_map = {(e["canonical_name"], e["type"]): e["neo4j_id"] for e in existing_entities}
+
+        # Collect IDs and populate name_to_id map in same order as entity_data
         entity_ids: list[str] = []
         for entity in entity_data:
-            existing = await self._entity_repo.find_entity(
-                entity["canonical_name"],
-                entity["type"],
-            )
-            if existing:
-                entity_ids.append(existing["neo4j_id"])
-                entity_name_to_id[entity["canonical_name"]] = existing["neo4j_id"]
+            key = (entity["canonical_name"], entity["type"])
+            if key in existing_map:
+                entity_ids.append(existing_map[key])
+                entity_name_to_id[entity["canonical_name"]] = existing_map[key]
 
         if mentions_data and entity_name_to_id:
             mentions_with_ids = [
