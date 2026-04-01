@@ -83,7 +83,7 @@ class TestNeo4jWriterWrite:
         article_id = str(uuid.uuid4())
 
         writer._article_repo.create_article = AsyncMock(return_value="neo4j_article_id")
-        writer._entity_repo.find_entity = AsyncMock(return_value=None)
+        writer._entity_repo.find_entities_by_keys = AsyncMock(return_value=[])
         writer._entity_repo.merge_entity = AsyncMock(return_value="entity_id")
         writer._entity_repo.add_alias = AsyncMock()
         writer._entity_repo.merge_mentions_relation = AsyncMock()
@@ -113,15 +113,12 @@ class TestNeo4jWriterWrite:
 
         writer._article_repo.create_article = AsyncMock(return_value="neo4j_article_id")
         writer._entity_repo.find_entity = AsyncMock(
-            return_value={
-                "neo4j_id": "entity_id",
-                "canonical_name": "张三",
-            }
-        )
-        writer._entity_repo.find_entities_batch = AsyncMock(
+            return_value=None
+        )  # For _resolve_canonical_name
+        writer._entity_repo.find_entities_by_keys = AsyncMock(
             return_value=[
-                {"neo4j_id": "entity_id_1", "canonical_name": "张三"},
-                {"neo4j_id": "entity_id_2", "canonical_name": "OpenAI"},
+                {"neo4j_id": "entity_id_1", "canonical_name": "张三", "type": "人物"},
+                {"neo4j_id": "entity_id_2", "canonical_name": "OpenAI", "type": "组织机构"},
             ]
         )
         writer._entity_repo.merge_entities_batch = AsyncMock(
@@ -156,6 +153,7 @@ class TestNeo4jWriterWrite:
         article_id = str(uuid.uuid4())
 
         writer._article_repo.create_article = AsyncMock(return_value="neo4j_article_id")
+        writer._entity_repo.find_entities_by_keys = AsyncMock(return_value=[])
         writer._entity_repo.merge_entity = AsyncMock()
 
         raw = MagicMock()
@@ -184,6 +182,7 @@ class TestNeo4jWriterWrite:
         article_id = str(uuid.uuid4())
 
         writer._article_repo.create_article = AsyncMock(return_value="neo4j_article_id")
+        writer._entity_repo.find_entities_by_keys = AsyncMock(return_value=[])
         writer._entity_repo.merge_entity = AsyncMock()
 
         raw = MagicMock()
@@ -213,7 +212,8 @@ class TestNeo4jWriterWrite:
 
         writer._article_repo.create_article = AsyncMock(return_value="neo4j_article_id")
         writer._entity_repo.find_entity = AsyncMock(return_value=None)
-        writer._entity_repo.merge_entity = AsyncMock(side_effect=Exception("Merge error"))
+        writer._entity_repo.find_entities_by_keys = AsyncMock(return_value=[])
+        writer._entity_repo.merge_entities_batch = AsyncMock(side_effect=Exception("Merge error"))
 
         raw = MagicMock()
         raw.title = "Test Article"
@@ -293,14 +293,11 @@ class TestNeo4jWriterWriteEntities:
     async def test_write_entities_adds_alias(self, writer):
         """Test write entities adds alias when name differs."""
         writer._entity_repo.find_entity = AsyncMock(
-            return_value={
-                "neo4j_id": "entity_id",
-                "canonical_name": "张三",
-            }
-        )
-        writer._entity_repo.find_entities_batch = AsyncMock(
+            return_value=None
+        )  # For _resolve_canonical_name
+        writer._entity_repo.find_entities_by_keys = AsyncMock(
             return_value=[
-                {"neo4j_id": "entity_id", "canonical_name": "张三", "id": "uuid-123"},
+                {"neo4j_id": "entity_id", "canonical_name": "张三", "type": "人物"},
             ]
         )
         writer._entity_repo.merge_entities_batch = AsyncMock(
@@ -328,14 +325,11 @@ class TestNeo4jWriterWriteEntities:
     async def test_write_entities_handles_mentions_error(self, writer):
         """Test write entities handles MENTIONS relation error."""
         writer._entity_repo.find_entity = AsyncMock(
-            return_value={
-                "neo4j_id": "entity_id",
-                "canonical_name": "张三",
-            }
-        )
-        writer._entity_repo.find_entities_batch = AsyncMock(
+            return_value=None
+        )  # For _resolve_canonical_name
+        writer._entity_repo.find_entities_by_keys = AsyncMock(
             return_value=[
-                {"neo4j_id": "entity_id", "canonical_name": "张三", "id": "uuid-123"},
+                {"neo4j_id": "entity_id", "canonical_name": "张三", "type": "人物"},
             ]
         )
         writer._entity_repo.merge_entities_batch = AsyncMock(
