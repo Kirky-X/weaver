@@ -45,6 +45,18 @@ class RedisClient:
             await self._redis.close()
             log.info("redis_client_closed")
 
+    async def ping(self) -> bool:
+        """Ping Redis server to check connectivity.
+
+        Returns:
+            True if ping successful.
+
+        Raises:
+            RuntimeError: If client not started.
+            ConnectionError: If ping fails.
+        """
+        return await self.client.ping()
+
     @property
     def client(self) -> Redis:
         """Return the raw Redis client.

@@ -12,6 +12,22 @@ from core.observability.logging import get_logger
 
 log = get_logger("embedding_provider")
 
+# Default extra_body for aiping.cn API
+DEFAULT_AIPING_EMBEDDING_EXTRA_BODY: dict[str, Any] = {
+    "provider": {
+        "only": [],
+        "order": [],
+        "sort": "latency",
+        "input_price_range": [0, 0],
+        "output_price_range": [0, 0],
+        "input_length_range": [],
+        "output_length_range": [],
+        "throughput_range": [],
+        "latency_range": [],
+    },
+    "consume_type": "api",
+}
+
 
 class EmbeddingProvider(BaseLLMProvider):
     """OpenAI-compatible embedding provider using the official openai library."""
@@ -22,9 +38,12 @@ class EmbeddingProvider(BaseLLMProvider):
         base_url: str,
         model: str = "text-embedding-3-large",
         timeout: float = 30.0,
+        extra_body: dict[str, Any] | None = None,
     ) -> None:
         self._model = model
         self._is_ollama = "ollama" in base_url.lower() or "11434" in base_url
+        self._extra_body = extra_body
+        self._is_aiping = "aiping" in base_url.lower()
 
         # Normalize base URL
         if self._is_ollama:
@@ -91,11 +110,20 @@ class EmbeddingProvider(BaseLLMProvider):
                     embeddings.append(data["embedding"])
             return embeddings
 
+        # Build kwargs for OpenAI-compatible API
+        kwargs: dict[str, Any] = {
+            "model": model_name,
+            "input": texts,
+        }
+
+        # Add extra_body for aiping.cn or custom providers
+        if self._extra_body:
+            kwargs["extra_body"] = self._extra_body
+        elif self._is_aiping:
+            kwargs["extra_body"] = DEFAULT_AIPING_EMBEDDING_EXTRA_BODY
+
         # Use OpenAI-compatible API via official library
-        response = await self._client.embeddings.create(
-            model=model_name,
-            input=texts,
-        )
+        response = await self._client.embeddings.create(**kwargs)
 
         return [item.embedding for item in response.data]
 

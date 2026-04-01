@@ -105,7 +105,7 @@ async def check_redis_health(client: Any) -> dict[str, Any]:
     start = time.monotonic()
     try:
         async with asyncio.timeout(5):
-            await client.client.ping()
+            await client.ping()
         latency_ms = (time.monotonic() - start) * 1000
         metrics.health_check_status.labels(service="redis").set(HEALTH_STATUS_CODES["ok"])
         metrics.health_check_latency.labels(service="redis").observe(latency_ms / 1000)

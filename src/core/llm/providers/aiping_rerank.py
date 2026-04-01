@@ -17,6 +17,22 @@ from core.observability.logging import get_logger
 
 log = get_logger("aiping_rerank_provider")
 
+# Default extra_body for aiping.cn API
+DEFAULT_AIPING_RERANK_EXTRA_BODY: dict[str, Any] = {
+    "provider": {
+        "only": [],
+        "order": [],
+        "sort": "latency",
+        "input_price_range": [0, 0],
+        "output_price_range": [],
+        "input_length_range": [],
+        "output_length_range": [],
+        "throughput_range": [],
+        "latency_range": [],
+    },
+    "consume_type": "api",
+}
+
 
 class AIPingRerankProvider(BaseLLMProvider):
     """Rerank provider for aiping AI service.
@@ -48,11 +64,13 @@ class AIPingRerankProvider(BaseLLMProvider):
         base_url: str,
         model: str = "Qwen3-Reranker-0.6B",
         timeout: float = 30.0,
+        extra_body: dict[str, Any] | None = None,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._timeout = timeout
+        self._extra_body = extra_body or DEFAULT_AIPING_RERANK_EXTRA_BODY
 
     async def chat(
         self,
@@ -104,6 +122,10 @@ class AIPingRerankProvider(BaseLLMProvider):
             "return_documents": False,
         }
 
+        # Add extra_body for provider routing
+        if self._extra_body:
+            request_body["extra_body"] = self._extra_body
+
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
@@ -129,14 +151,14 @@ class AIPingRerankProvider(BaseLLMProvider):
                 if i < top_n
             ]
 
-            # 尝试从 API 响应中提取 token 用量
+            # Try to extract token usage from API response
             usage_data = result.get("usage", {})
             token_usage = TokenUsage(
                 input_tokens=usage_data.get("prompt_tokens", 0),
                 output_tokens=usage_data.get("completion_tokens", 0),
             )
 
-            # 如果 API 未返回 token 用量,进行估算
+            # Estimate token usage if API doesn't return it
             if token_usage.input_tokens == 0:
                 total_chars = len(query) + sum(len(d) for d in documents)
                 token_usage.input_tokens = int(total_chars / 4)

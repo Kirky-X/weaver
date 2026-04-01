@@ -59,6 +59,7 @@ class ProviderFactory(Protocol):
         base_url: str,
         model: str,
         timeout: float,
+        extra_body: dict[str, Any] | None = None,
     ) -> BaseLLMProvider: ...
 
 
@@ -78,6 +79,7 @@ class ProviderInstanceConfig:
         priority: 优先级（越低越优先）
         weight: 负载均衡权重
         capabilities: 能力集合
+        extra_body: 额外的请求体参数（如aiping.cn的provider配置）
     """
 
     name: str
@@ -91,6 +93,7 @@ class ProviderInstanceConfig:
     priority: int = 100
     weight: int = 100
     capabilities: frozenset[ProviderCapability] = frozenset({ProviderCapability.CHAT})
+    extra_body: dict[str, Any] | None = None
 
     def supports(self, llm_type: LLMType) -> bool:
         """检查是否支持指定的 LLM 类型。"""
@@ -180,6 +183,7 @@ class ProviderRegistry:
             base_url=base_url,
             model=model,
             timeout=config.timeout,
+            extra_body=config.extra_body,
         )
 
     def get_metadata(self, provider_type: str) -> ProviderMetadata | None:
@@ -197,6 +201,7 @@ class ProviderRegistry:
     def _register_builtin_providers(self) -> None:
         """注册内置供应商。"""
         # 延迟导入避免循环依赖
+        from core.llm.providers.aiping_chat import AIPingChatProvider
         from core.llm.providers.aiping_rerank import AIPingRerankProvider
         from core.llm.providers.anthropic import AnthropicProvider
         from core.llm.providers.chat import ChatProvider
@@ -206,7 +211,7 @@ class ProviderRegistry:
         # OpenAI 兼容 Chat Provider
         self.register(
             "openai",
-            lambda api_key, base_url, model, timeout: ChatProvider(
+            lambda api_key, base_url, model, timeout, extra_body=None: ChatProvider(
                 api_key=api_key,
                 base_url=base_url or "https://api.openai.com/v1",
                 model=model or "gpt-4o",
@@ -232,7 +237,7 @@ class ProviderRegistry:
         # Anthropic Claude
         self.register(
             "anthropic",
-            lambda api_key, base_url, model, timeout: AnthropicProvider(
+            lambda api_key, base_url, model, timeout, extra_body=None: AnthropicProvider(
                 api_key=api_key,
                 base_url=base_url,
                 model=model or "claude-sonnet-4-20250514",
@@ -256,11 +261,12 @@ class ProviderRegistry:
         # Embedding Provider (OpenAI 兼容)
         self.register(
             "embedding",
-            lambda api_key, base_url, model, timeout: EmbeddingProvider(
+            lambda api_key, base_url, model, timeout, extra_body=None: EmbeddingProvider(
                 api_key=api_key,
                 base_url=base_url or "https://api.openai.com/v1",
                 model=model or "text-embedding-3-large",
                 timeout=timeout,
+                extra_body=extra_body,
             ),
             ProviderMetadata(
                 name="embedding",
@@ -274,7 +280,7 @@ class ProviderRegistry:
         # Rerank Provider
         self.register(
             "rerank",
-            lambda api_key, base_url, model, timeout: RerankProvider(
+            lambda api_key, base_url, model, timeout, extra_body=None: RerankProvider(
                 api_key=api_key,
                 base_url=base_url,
                 model=model or "jina-reranker-v2",
@@ -292,7 +298,7 @@ class ProviderRegistry:
         # Ollama (本地模型) - 使用 OpenAI 兼容接口
         self.register(
             "ollama",
-            lambda api_key, base_url, model, timeout: ChatProvider(
+            lambda api_key, base_url, model, timeout, extra_body=None: ChatProvider(
                 api_key=api_key or "ollama",
                 base_url=base_url or "http://localhost:11434/v1",
                 model=model or "qwen3.5:9b",
@@ -313,14 +319,39 @@ class ProviderRegistry:
             ),
         )
 
+        # aiping AI Chat Provider
+        self.register(
+            "aiping",
+            lambda api_key, base_url, model, timeout, extra_body=None: AIPingChatProvider(
+                api_key=api_key,
+                base_url=base_url or "https://www.aiping.cn/api/v1",
+                model=model or "GLM-4-9B-0414",
+                timeout=timeout,
+                extra_body=extra_body,
+            ),
+            ProviderMetadata(
+                name="aiping",
+                display_name="aiping AI",
+                capabilities=frozenset(
+                    {
+                        ProviderCapability.CHAT,
+                        ProviderCapability.STREAMING,
+                    }
+                ),
+                default_base_url="https://www.aiping.cn/api/v1",
+                default_model="GLM-4-9B-0414",
+            ),
+        )
+
         # aiping AI Rerank (Custom REST API)
         self.register(
             "aiping_rerank",
-            lambda api_key, base_url, model, timeout: AIPingRerankProvider(
+            lambda api_key, base_url, model, timeout, extra_body=None: AIPingRerankProvider(
                 api_key=api_key,
                 base_url=base_url or "https://www.aiping.cn/api/v1",
                 model=model or "Qwen3-Reranker-0.6B",
                 timeout=timeout,
+                extra_body=extra_body,
             ),
             ProviderMetadata(
                 name="aiping_rerank",
