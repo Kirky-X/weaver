@@ -114,7 +114,7 @@ class LLMUsageAggregatorThread:
         5. UPSERT to llm_usage_hourly
         6. DEL the processed Redis key
         """
-        from modules.analytics.llm_usage.llm_usage_repo import LLMUsageRepo
+        from modules.analytics.llm_usage.repo import LLMUsageRepo
 
         # Calculate current hour bucket (to exclude)
         now = datetime.now(UTC)
@@ -379,7 +379,7 @@ class LLMUsageRawCleanupThread:
 
     async def _cleanup(self) -> None:
         """Execute cleanup of old raw records."""
-        from modules.analytics.llm_usage.llm_usage_repo import LLMUsageRepo
+        from modules.analytics.llm_usage.repo import LLMUsageRepo
 
         repo = LLMUsageRepo(self._postgres)
         deleted = await repo.cleanup_raw_older_than(self._retention_days)

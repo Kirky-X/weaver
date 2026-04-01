@@ -589,7 +589,9 @@ class GlobalContextBuilder(ContextBuilder):
         Returns:
             List of SearchContext, one per relevant community.
         """
-        communities, _ = await self._find_relevant_communities(query, community_level)
+        communities, used_fallback, search_method = await self._find_relevant_communities(
+            query, community_level
+        )
 
         contexts = []
         for comm in communities:
