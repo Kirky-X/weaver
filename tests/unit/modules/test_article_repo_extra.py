@@ -10,7 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from core.db.models import Article, PersistStatus
 from core.exceptions import InvalidStateTransitionError
-from modules.storage.article_repo import (
+from modules.storage.postgres.article_repo import (
     ArticleRepo,
     is_enrichment_complete,
 )

@@ -33,7 +33,7 @@ class TestVectorRepoBatchOperations:
     @pytest.mark.asyncio
     async def test_bulk_upsert_empty_list_returns_zero(self):
         """Bulk upsert with empty list should return 0."""
-        from modules.storage.vector_repo import VectorRepo
+        from modules.storage.postgres.vector_repo import VectorRepo
 
         mock_pool = MagicMock()
         repo = VectorRepo(pool=mock_pool)
@@ -47,7 +47,7 @@ class TestVectorRepoBatchOperations:
     @pytest.mark.asyncio
     async def test_bulk_upsert_single_article_with_both_embeddings(self):
         """Bulk upsert should handle single article with title and content embeddings."""
-        from modules.storage.vector_repo import VectorRepo
+        from modules.storage.postgres.vector_repo import VectorRepo
 
         mock_session = MagicMock()
         mock_result = MagicMock()
@@ -77,7 +77,7 @@ class TestVectorRepoBatchOperations:
     @pytest.mark.asyncio
     async def test_bulk_upsert_filters_none_embeddings(self):
         """Bulk upsert should filter out None embeddings."""
-        from modules.storage.vector_repo import VectorRepo
+        from modules.storage.postgres.vector_repo import VectorRepo
 
         mock_session = MagicMock()
         mock_result = MagicMock()
@@ -106,7 +106,7 @@ class TestVectorRepoBatchOperations:
     @pytest.mark.asyncio
     async def test_bulk_upsert_uses_on_conflict_upsert(self):
         """Bulk upsert should use INSERT ON CONFLICT for upsert semantics."""
-        from modules.storage.vector_repo import VectorRepo
+        from modules.storage.postgres.vector_repo import VectorRepo
 
         mock_session = MagicMock()
         mock_result = MagicMock()
@@ -143,7 +143,7 @@ class TestBatchFindSimilar:
     @pytest.mark.asyncio
     async def test_batch_find_similar_empty_queries(self):
         """Batch find with empty queries should return empty dict."""
-        from modules.storage.vector_repo import VectorRepo
+        from modules.storage.postgres.vector_repo import VectorRepo
 
         mock_pool = MagicMock()
         repo = VectorRepo(pool=mock_pool)
@@ -155,7 +155,7 @@ class TestBatchFindSimilar:
     @pytest.mark.asyncio
     async def test_batch_find_similar_uses_single_session(self):
         """Batch find should use a single session for all queries."""
-        from modules.storage.vector_repo import VectorRepo
+        from modules.storage.postgres.vector_repo import VectorRepo
 
         mock_session = MagicMock()
 
@@ -442,7 +442,7 @@ class TestPerformanceComparison:
     @pytest.mark.asyncio
     async def test_bulk_vs_individual_upsert_comparison(self):
         """Verify bulk upsert makes fewer DB calls than individual upserts."""
-        from modules.storage.vector_repo import VectorRepo
+        from modules.storage.postgres.vector_repo import VectorRepo
 
         mock_session = MagicMock()
         execute_calls = 0
@@ -475,7 +475,7 @@ class TestPerformanceComparison:
     @pytest.mark.asyncio
     async def test_batch_find_vs_individual_queries(self):
         """Verify batch_find uses fewer sessions than individual finds."""
-        from modules.storage.vector_repo import VectorRepo
+        from modules.storage.postgres.vector_repo import VectorRepo
 
         mock_session = MagicMock()
 

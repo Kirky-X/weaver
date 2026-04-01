@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 
-from modules.storage.pending_sync_repo import PendingSyncRepo
+from modules.storage.postgres.pending_sync_repo import PendingSyncRepo
 
 
 class TestPendingSyncRepo:

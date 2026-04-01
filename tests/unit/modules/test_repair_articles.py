@@ -69,7 +69,7 @@ class TestRepairArticlesDryRun:
                 mock_init.return_value = (AsyncMock(), AsyncMock(), AsyncMock(), MagicMock())
 
                 # Mock ArticleRepo where it's imported (in repair_articles function)
-                with patch("modules.storage.article_repo.ArticleRepo") as mock_repo_class:
+                with patch("modules.storage.postgres.article_repo.ArticleRepo") as mock_repo_class:
                     mock_repo = AsyncMock()
                     mock_repo.get_incomplete_articles = AsyncMock(return_value=[])
                     mock_repo_class.return_value = mock_repo
@@ -104,7 +104,7 @@ class TestRepairArticlesDryRun:
             ) as mock_shutdown:
                 mock_init.return_value = (AsyncMock(), AsyncMock(), AsyncMock(), MagicMock())
 
-                with patch("modules.storage.article_repo.ArticleRepo") as mock_repo_class:
+                with patch("modules.storage.postgres.article_repo.ArticleRepo") as mock_repo_class:
                     mock_repo = AsyncMock()
                     mock_repo.get_incomplete_articles = AsyncMock(return_value=[mock_article])
                     mock_repo_class.return_value = mock_repo
@@ -143,7 +143,7 @@ class TestRepairArticlesForceMode:
             ) as mock_shutdown:
                 mock_init.return_value = (AsyncMock(), AsyncMock(), AsyncMock(), MagicMock())
 
-                with patch("modules.storage.article_repo.ArticleRepo") as mock_repo_class:
+                with patch("modules.storage.postgres.article_repo.ArticleRepo") as mock_repo_class:
                     mock_repo = AsyncMock()
                     # First call returns article, second returns empty
                     mock_repo.get_incomplete_articles = AsyncMock(side_effect=[[mock_article], []])
@@ -169,7 +169,7 @@ class TestRepairArticlesLimit:
             ) as mock_shutdown:
                 mock_init.return_value = (AsyncMock(), AsyncMock(), AsyncMock(), MagicMock())
 
-                with patch("modules.storage.article_repo.ArticleRepo") as mock_repo_class:
+                with patch("modules.storage.postgres.article_repo.ArticleRepo") as mock_repo_class:
                     mock_repo = AsyncMock()
                     mock_repo.get_incomplete_articles = AsyncMock(return_value=[])
                     mock_repo_class.return_value = mock_repo

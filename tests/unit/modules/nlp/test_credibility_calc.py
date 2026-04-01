@@ -3,7 +3,7 @@
 
 import pytest
 
-from modules.processing.nodes.credibility_checker import CredibilityCheckerNode
+from modules.pipeline.nodes.credibility_checker import CredibilityCheckerNode
 
 
 class TestCredibilityWeights:

@@ -12,11 +12,11 @@ import pytest
 
 from core.event.bus import LLMUsageEvent
 from core.llm.request import TokenUsage
+from modules.analytics.llm_usage.repo import LLMUsageRepo
 from modules.scheduler.llm_usage_aggregator import (
     LLMUsageAggregatorThread,
     LLMUsageRawCleanupThread,
 )
-from modules.storage.llm_usage_repo import LLMUsageRepo
 
 # ── LLMUsageRepo Tests ────────────────────────────────────────
 

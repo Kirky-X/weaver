@@ -33,7 +33,7 @@ async def test_article_repo_has_get_stuck_articles_method():
     """验证 ArticleRepo 有 get_stuck_articles 方法"""
     from unittest.mock import MagicMock
 
-    from modules.storage.article_repo import ArticleRepo
+    from modules.storage.postgres.article_repo import ArticleRepo
 
     mock_pool = MagicMock()
     mock_session = MagicMock()
@@ -51,7 +51,7 @@ async def test_article_repo_has_get_failed_articles_method():
     """验证 ArticleRepo 有 get_failed_articles 方法"""
     from unittest.mock import MagicMock
 
-    from modules.storage.article_repo import ArticleRepo
+    from modules.storage.postgres.article_repo import ArticleRepo
 
     mock_pool = MagicMock()
     mock_session = MagicMock()
@@ -68,7 +68,7 @@ async def test_article_repo_has_get_failed_articles_method():
 
 def test_pipeline_has_stage_tracking():
     """验证 Pipeline 有进度阶段跟踪常量"""
-    from modules.processing.pipeline.graph import PHASE1_STAGES, PHASE3_STAGES
+    from modules.pipeline.graph import PHASE1_STAGES, PHASE3_STAGES
 
     assert "classifier" in PHASE1_STAGES, "PHASE1_STAGES should contain classifier"
     assert "cleaner" in PHASE1_STAGES, "PHASE1_STAGES should contain cleaner"

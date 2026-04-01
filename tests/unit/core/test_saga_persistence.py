@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from core.db.models import PersistStatus
-from modules.processing.nodes.batch_merger import BatchMergerNode
-from modules.processing.pipeline.state import PipelineState
+from modules.pipeline.nodes.batch_merger import BatchMergerNode
+from modules.pipeline.state import PipelineState
 
 
 class TestPersistBatchSagaSuccess:

@@ -30,7 +30,7 @@ class TestTaskProgressStats:
     @pytest.mark.asyncio
     async def test_get_progress_stats_returns_all_zeros_for_new_task(self):
         """Test that querying a task with no articles returns all zeros."""
-        from modules.storage.article_repo import ArticleRepo
+        from modules.storage.postgres.article_repo import ArticleRepo
 
         pool = get_test_pool()
         await pool.startup()
@@ -51,7 +51,7 @@ class TestTaskProgressStats:
     @pytest.mark.asyncio
     async def test_get_progress_stats_with_mixed_statuses(self):
         """Test progress stats with articles in various persist statuses."""
-        from modules.storage.article_repo import ArticleRepo
+        from modules.storage.postgres.article_repo import ArticleRepo
 
         pool = get_test_pool()
         await pool.startup()
@@ -103,7 +103,7 @@ class TestTaskProgressStats:
     @pytest.mark.asyncio
     async def test_get_progress_stats_excludes_other_tasks(self):
         """Test that stats only include articles for the specific task_id."""
-        from modules.storage.article_repo import ArticleRepo
+        from modules.storage.postgres.article_repo import ArticleRepo
 
         pool = get_test_pool()
         await pool.startup()
@@ -163,7 +163,7 @@ class TestTaskProgressStats:
     @pytest.mark.asyncio
     async def test_get_progress_stats_excludes_null_task_id(self):
         """Test that articles with NULL task_id are excluded from stats."""
-        from modules.storage.article_repo import ArticleRepo
+        from modules.storage.postgres.article_repo import ArticleRepo
 
         pool = get_test_pool()
         await pool.startup()

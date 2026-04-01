@@ -11,8 +11,8 @@ import pytest
 from core.llm.output_validator import CredibilityOutput
 from core.llm.types import CallPoint
 from modules.collector.models import ArticleRaw
-from modules.processing.nodes.credibility_checker import CredibilityCheckerNode
-from modules.processing.pipeline.state import PipelineState
+from modules.pipeline.nodes.credibility_checker import CredibilityCheckerNode
+from modules.pipeline.state import PipelineState
 
 
 @pytest.fixture

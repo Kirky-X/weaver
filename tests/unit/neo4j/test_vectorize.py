@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from modules.collector.models import ArticleRaw
-from modules.processing.nodes.vectorize import VectorizeNode
-from modules.processing.pipeline.state import PipelineState
+from modules.pipeline.nodes.vectorize import VectorizeNode
+from modules.pipeline.state import PipelineState
 
 
 @pytest.fixture

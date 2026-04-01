@@ -11,7 +11,7 @@ class TestPipelineState:
 
     def test_state_initialization(self):
         """Test PipelineState can be initialized."""
-        from modules.processing.pipeline.state import PipelineState
+        from modules.pipeline.state import PipelineState
 
         state = PipelineState()
         assert state is not None
@@ -19,7 +19,7 @@ class TestPipelineState:
 
     def test_state_set_item(self):
         """Test PipelineState can set items."""
-        from modules.processing.pipeline.state import PipelineState
+        from modules.pipeline.state import PipelineState
 
         state = PipelineState()
         state["test_key"] = "test_value"

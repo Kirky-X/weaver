@@ -10,7 +10,7 @@ from fastapi import HTTPException
 
 from api.endpoints._deps import Endpoints
 from modules.search.engines.local_search import SearchResult
-from modules.storage.vector_repo import SimilarArticle
+from modules.storage.postgres.vector_repo import SimilarArticle
 
 # ── Mock Factories ───────────────────────────────────────────────
 

@@ -22,7 +22,7 @@ import numpy as np
 from sqlalchemy import text
 
 from core.db.postgres import PostgresPool
-from modules.storage.vector_repo import VectorRepo
+from modules.storage.postgres.vector_repo import VectorRepo
 
 
 class PerformanceReport:

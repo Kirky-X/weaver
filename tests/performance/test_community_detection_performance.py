@@ -313,6 +313,7 @@ class TestCommunityReportGenerationPerformance:
                 Community(id=f"comm-{i}", title=f"C{i}", level=0, entity_count=5) for i in range(5)
             ]
         )
+        generator._repo.get_report = AsyncMock(return_value=None)
         generator.generate_report = AsyncMock(
             return_value=ReportGenerationResult(
                 community_id="comm-1",

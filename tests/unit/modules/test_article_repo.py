@@ -11,7 +11,7 @@ import pytest
 
 from core.db.models import Article, PersistStatus
 from core.exceptions import InvalidStateTransitionError
-from modules.storage.article_repo import (
+from modules.storage.postgres.article_repo import (
     STATE_TO_ARTICLE_FIELDS,
     ArticleRepo,
     _apply_state_to_article,

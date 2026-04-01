@@ -9,7 +9,7 @@ import pytest
 
 from core.db.models import LLMFailure
 from core.event.bus import LLMFailureEvent
-from modules.storage.llm_failure_repo import LLMFailureRepo
+from modules.analytics.llm_failure.repo import LLMFailureRepo
 
 
 class TestLLMFailureRepo:

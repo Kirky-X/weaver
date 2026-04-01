@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from modules.graph_store.neo4j_writer import Neo4jWriter
-from modules.processing.pipeline.state import PipelineState
+from modules.pipeline.state import PipelineState
 
 
 class TestNeo4jWriterInit:

@@ -8,7 +8,7 @@ import pytest
 
 from core.event.bus import LLMUsageEvent
 from core.llm.request import TokenUsage
-from modules.storage.llm_usage_buffer import (
+from modules.analytics.llm_usage.buffer import (
     DEFAULT_TTL_SECONDS,
     REDIS_KEY_PREFIX,
     LLMUsageBuffer,
@@ -271,7 +271,7 @@ class TestLLMUsageBuffer:
     async def test_get_current_bucket_key(self, buffer):
         """Test get_current_bucket_key() returns correctly formatted key."""
         # 使用 patch 控制当前时间
-        with patch("modules.storage.llm_usage_buffer.datetime") as mock_dt:
+        with patch("modules.analytics.llm_usage.buffer.datetime") as mock_dt:
             mock_dt.now.return_value = datetime(2026, 3, 29, 15, 0, 0, tzinfo=UTC)
             mock_dt.side_effect = lambda *args, **kwargs: datetime(*args, **kwargs)
 

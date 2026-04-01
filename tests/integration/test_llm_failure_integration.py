@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import text
 
 from core.event.bus import EventBus, LLMFailureEvent
-from modules.storage.llm_failure_repo import LLMFailureRepo
+from modules.analytics.llm_failure.repo import LLMFailureRepo
 
 
 class TestLLMFailureEventChain:

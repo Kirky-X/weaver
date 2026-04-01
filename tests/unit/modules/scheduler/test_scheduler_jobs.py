@@ -623,7 +623,7 @@ class TestRevertToPgDone:
     @pytest.mark.asyncio
     async def test_revert_to_pg_done_sets_status(self):
         """Test revert_to_pg_done sets status to PG_DONE regardless of current state."""
-        from modules.storage.article_repo import ArticleRepo
+        from modules.storage.postgres.article_repo import ArticleRepo
 
         mock_result = MagicMock()
         mock_result.rowcount = 1
@@ -653,7 +653,7 @@ class TestRevertToPgDone:
     @pytest.mark.asyncio
     async def test_revert_to_pg_done_not_found(self):
         """Test revert_to_pg_done returns False when article not found."""
-        from modules.storage.article_repo import ArticleRepo
+        from modules.storage.postgres.article_repo import ArticleRepo
 
         mock_result = MagicMock()
         mock_result.rowcount = 0
@@ -685,7 +685,7 @@ class TestGetIncompleteArticles:
     @pytest.mark.asyncio
     async def test_get_incomplete_articles_returns_matching_articles(self):
         """Test get_incomplete_articles returns articles with NEO4J_DONE and all null fields."""
-        from modules.storage.article_repo import ArticleRepo
+        from modules.storage.postgres.article_repo import ArticleRepo
 
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = []
@@ -711,7 +711,7 @@ class TestGetIncompleteArticles:
     @pytest.mark.asyncio
     async def test_get_incomplete_articles_respects_limit(self):
         """Test get_incomplete_articles respects the limit parameter."""
-        from modules.storage.article_repo import ArticleRepo
+        from modules.storage.postgres.article_repo import ArticleRepo
 
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = []
@@ -812,7 +812,7 @@ class TestSyncPendingToNeo4j:
         import uuid
         from datetime import UTC, datetime
 
-        from modules.storage.pending_sync_repo import PendingSync
+        from modules.storage.postgres.pending_sync_repo import PendingSync
 
         mock_record = MagicMock(spec=PendingSync)
         mock_record.id = 1
@@ -845,7 +845,7 @@ class TestSyncPendingToNeo4j:
         import uuid
         from datetime import UTC, datetime
 
-        from modules.storage.pending_sync_repo import PendingSync
+        from modules.storage.postgres.pending_sync_repo import PendingSync
 
         mock_record = MagicMock(spec=PendingSync)
         mock_record.id = 1
@@ -936,7 +936,7 @@ class TestConsistencyCheck:
         import uuid
         from datetime import UTC, datetime
 
-        from modules.storage.pending_sync_repo import PendingSync
+        from modules.storage.postgres.pending_sync_repo import PendingSync
 
         mock_record = MagicMock(spec=PendingSync)
         mock_record.id = 1

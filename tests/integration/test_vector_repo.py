@@ -7,7 +7,7 @@ import uuid
 import pytest
 from sqlalchemy import text
 
-from modules.storage.vector_repo import SimilarArticle, SimilarEntity, VectorRepo
+from modules.storage.postgres.vector_repo import SimilarArticle, SimilarEntity, VectorRepo
 
 
 class TestSimilarArticle:

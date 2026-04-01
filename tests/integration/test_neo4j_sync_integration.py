@@ -6,7 +6,7 @@ import uuid
 import pytest
 from sqlalchemy import text
 
-from modules.storage.pending_sync_repo import PendingSyncRepo
+from modules.storage.postgres.pending_sync_repo import PendingSyncRepo
 
 
 class TestPendingSyncRepo:
@@ -196,8 +196,8 @@ class TestSyncPendingToNeo4j:
         """Test sync_pending_to_neo4j returns 0 when no pending records."""
         from modules.graph_store.neo4j_writer import Neo4jWriter
         from modules.scheduler.jobs import SchedulerJobs
-        from modules.storage.article_repo import ArticleRepo
-        from modules.storage.vector_repo import VectorRepo
+        from modules.storage.postgres.article_repo import ArticleRepo
+        from modules.storage.postgres.vector_repo import VectorRepo
 
         pending_sync_repo = PendingSyncRepo(postgres_pool)
         article_repo = ArticleRepo(postgres_pool)
@@ -226,8 +226,8 @@ class TestConsistencyCheck:
         """Test consistency_check with real Neo4j and PostgreSQL."""
         from modules.graph_store.neo4j_writer import Neo4jWriter
         from modules.scheduler.jobs import SchedulerJobs
-        from modules.storage.article_repo import ArticleRepo
-        from modules.storage.vector_repo import VectorRepo
+        from modules.storage.postgres.article_repo import ArticleRepo
+        from modules.storage.postgres.vector_repo import VectorRepo
 
         pending_sync_repo = PendingSyncRepo(postgres_pool)
         article_repo = ArticleRepo(postgres_pool)

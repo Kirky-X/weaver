@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
-from modules.processing.pipeline.config import (
+from modules.pipeline.config import (
     BatchConfig,
     PhaseConfig,
     PipelineConfig,

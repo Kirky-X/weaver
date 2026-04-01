@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.storage.source_authority_repo import SourceAuthorityRepo
+from modules.storage.postgres.source_authority_repo import SourceAuthorityRepo
 
 
 class TestSourceAuthorityRepoInit:

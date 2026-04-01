@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.storage.vector_repo import VectorRepo
+from modules.storage.postgres.vector_repo import VectorRepo
 
 
 class MockRow:

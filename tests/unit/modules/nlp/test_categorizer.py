@@ -10,12 +10,12 @@ import pytest
 
 from core.llm.output_validator import CategorizerOutput
 from modules.collector.models import ArticleRaw
-from modules.processing.nodes.categorizer import (
+from modules.pipeline.nodes.categorizer import (
     CategorizerNode,
     normalize_category,
     normalize_emotion,
 )
-from modules.processing.pipeline.state import PipelineState
+from modules.pipeline.state import PipelineState
 
 
 @pytest.fixture

@@ -21,8 +21,8 @@ from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
 
 from core.event.bus import EventBus, LLMUsageEvent
 from core.llm.request import TokenUsage
-from modules.storage.llm_usage_buffer import LLMUsageBuffer
-from modules.storage.llm_usage_repo import LLMUsageRepo
+from modules.analytics.llm_usage.buffer import LLMUsageBuffer
+from modules.analytics.llm_usage.repo import LLMUsageRepo
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Task 12.1: Provider → Event → Redis → Flush → DB Complete Chain Tests

@@ -3,7 +3,7 @@
 
 import pytest
 
-from modules.processing.nodes.batch_merger import UnionFind
+from modules.pipeline.nodes.batch_merger import UnionFind
 
 
 class TestUnionFind:
