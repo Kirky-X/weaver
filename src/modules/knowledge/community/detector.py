@@ -13,12 +13,12 @@ import leidenalg
 
 from core.db.neo4j import Neo4jPool
 from core.observability.logging import get_logger
-from modules.graph_store.community_models import (
+from modules.knowledge.community.models import (
     Community,
     CommunityDetectionResult,
     HierarchicalCluster,
 )
-from modules.graph_store.community_repo import Neo4jCommunityRepo
+from modules.knowledge.community.repo import Neo4jCommunityRepo
 
 log = get_logger("community_detector")
 
