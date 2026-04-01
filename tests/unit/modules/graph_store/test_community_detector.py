@@ -5,10 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from modules.graph_store.community_detector import (
-    GRASPOLOGIC_AVAILABLE,
-    CommunityDetector,
-)
+from modules.graph_store.community_detector import CommunityDetector
 from modules.graph_store.community_models import (
     Community,
     CommunityDetectionResult,
@@ -137,10 +134,6 @@ class TestCommunityDetectorGetOrphanEntities:
         assert orphans == []
 
 
-@pytest.mark.skipif(
-    not GRASPOLOGIC_AVAILABLE,
-    reason="graspologic not available due to PyTorch 2.x compatibility issues",
-)
 class TestCommunityDetectorRunHierarchicalLeiden:
     """Test _run_hierarchical_leiden method."""
 
@@ -321,10 +314,6 @@ class TestCommunityDetectorCalculateModularity:
         assert modularity == 0.0
 
 
-@pytest.mark.skipif(
-    not GRASPOLOGIC_AVAILABLE,
-    reason="graspologic not available due to PyTorch 2.x compatibility issues",
-)
 class TestCommunityDetectorDetectCommunities:
     """Test detect_communities method."""
 
