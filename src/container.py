@@ -626,7 +626,7 @@ class Container:
         # Initialize LLM usage statistics: buffer + raw record handler + aggregator thread
         self._llm_usage_buffer = LLMUsageBuffer(
             redis_client=self._redis_client,
-            ttl_seconds=self._settings.llm_usage.redis_buffer_ttl_seconds,
+            ttl_seconds=self._settings.scheduler.llm_usage_redis_buffer_ttl_seconds,
         )
 
         # Handler: accumulate to Redis buffer
@@ -647,14 +647,14 @@ class Container:
         self._llm_usage_aggregator_thread = LLMUsageAggregatorThread(
             redis_client=self._redis_client,
             postgres_pool=self._postgres_pool,
-            interval_minutes=self._settings.llm_usage.flush_interval_minutes,
+            interval_minutes=self._settings.scheduler.llm_usage_aggregate_interval_minutes,
         )
         self._llm_usage_aggregator_thread.start()
 
         # Start LLM usage raw cleanup thread
         self._llm_usage_raw_cleanup_thread = LLMUsageRawCleanupThread(
             postgres_pool=self._postgres_pool,
-            retention_days=self._settings.llm_usage.raw_retention_days,
+            retention_days=self._settings.scheduler.llm_usage_raw_retention_days,
         )
         self._llm_usage_raw_cleanup_thread.start()
         log.info("llm_usage_threads_started")

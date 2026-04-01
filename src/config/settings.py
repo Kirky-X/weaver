@@ -212,23 +212,64 @@ class APISettings(BaseModel):
 
 
 class SchedulerSettings(BaseModel):
-    """APScheduler settings."""
+    """Unified scheduler configuration."""
 
+    # ── Global ──────────────────────────────────────────
+    enabled: bool = True
+    """Master switch. False skips all APScheduler job registration."""
+    misfire_grace_time_seconds: int = 300
+    """Grace period for missed executions (seconds)."""
+    job_timeout_seconds: int = 600
+    """Max execution time per job (seconds). Exceeded → warning."""
+
+    # ── Data Sync ───────────────────────────────────────
     crawl_interval_minutes: int = 30
     neo4j_retry_interval_minutes: int = 10
+    sync_pending_to_neo4j_interval_minutes: int = 10
+    retry_neo4j_writes_interval_minutes: int = 10
+    sync_neo4j_with_postgres_interval_hours: int = 1
+    consistency_check_cron_hour: int = 3
+    consistency_check_cron_minute: int = 0
+
+    # ── Pipeline Retry ──────────────────────────────────
     retry_flush_interval_seconds: int = 30
     pipeline_retry_interval_minutes: int = 15
-
-    # Batch processing settings
     pipeline_retry_batch_size: int = 20
-    """Number of articles to process in a single batch."""
-
-    # Dynamic batch sizing settings
     pipeline_retry_dynamic_batch: bool = False
-    """Enable dynamic batch sizing based on success rate."""
-
     pipeline_retry_success_rate_threshold: float = 0.8
-    """Success rate threshold for increasing batch size (0.0-1.0)."""
+    pipeline_retry_stuck_timeout_minutes: int = 30
+    pipeline_retry_max_retries: int = 3
+
+    # ── Cleanup ─────────────────────────────────────────
+    cleanup_old_synced_days: int = 7
+    cleanup_old_synced_cron_hour: int = 3
+    cleanup_old_synced_cron_minute: int = 30
+
+    llm_failure_cleanup_interval_hours: int = 24
+    llm_failure_cleanup_retention_days: int = 3
+
+    llm_usage_raw_cleanup_interval_hours: int = 6
+    llm_usage_raw_retention_days: int = 2
+
+    archive_old_neo4j_nodes_cron_day_of_week: str = "sat"
+    archive_old_neo4j_nodes_cron_hour: int = 2
+    archive_old_neo4j_days: int = 90
+
+    cleanup_orphan_vectors_cron_day_of_week: str = "sat"
+    cleanup_orphan_vectors_cron_hour: int = 3
+
+    # ── Aggregation ─────────────────────────────────────
+    llm_usage_aggregate_interval_minutes: int = 5
+    llm_usage_redis_buffer_ttl_seconds: int = 7200
+
+    # ── Metrics ─────────────────────────────────────────
+    persist_status_metrics_interval_minutes: int = 5
+
+    # ── Source Scoring ──────────────────────────────────
+    source_auto_score_cron_hour: int = 3
+
+    # ── Knowledge Graph ─────────────────────────────────
+    community_check_interval_minutes: int = 30
 
 
 class DedupSettings(BaseModel):
@@ -248,22 +289,6 @@ class ObservabilitySettings(BaseModel):
 
     otlp_endpoint: str = "http://localhost:4317"
     """OTLP collector endpoint for OpenTelemetry tracing."""
-
-
-class LLMUsageSettings(BaseModel):
-    """LLM usage statistics configuration.
-
-    Controls the behavior of LLM usage tracking, aggregation, and data retention.
-    """
-
-    flush_interval_minutes: int = 5
-    """Interval in minutes for flushing aggregated usage data to persistent storage."""
-
-    raw_retention_days: int = 2
-    """Number of days to retain raw usage detail records (48h default for debugging)."""
-
-    redis_buffer_ttl_seconds: int = 7200
-    """TTL in seconds for Redis buffer keys (2h default, should exceed flush interval)."""
 
 
 class SearchSettings(BaseModel):
@@ -374,7 +399,6 @@ class Settings(BaseSettings):
     dedup: DedupSettings = Field(default_factory=DedupSettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
     search: SearchSettings = Field(default_factory=SearchSettings)
-    llm_usage: LLMUsageSettings = Field(default_factory=LLMUsageSettings)
 
     def __init__(self, **kwargs: Any) -> None:
         """Initialize settings, loading TOML config first."""
