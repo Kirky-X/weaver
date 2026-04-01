@@ -13,9 +13,9 @@ from pathlib import Path
 # Fix: allow `from api` style imports to resolve correctly regardless of CWD.
 sys.path.insert(0, str(Path(__file__).parent))
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -23,6 +23,7 @@ from slowapi.errors import RateLimitExceeded
 from api.endpoints import _deps as deps
 from api.endpoints.graph import set_postgres_pool as set_graph_postgres_pool
 from api.endpoints.health import health_check
+from api.middleware.api_response import register_exception_handlers
 from api.middleware.rate_limit import limiter
 from api.router import api_router
 from api.schemas.response import APIResponse, success_response
@@ -288,15 +289,6 @@ class RequestSizeLimitMiddleware:
         await self.app(scope, receive, send)
 
 
-class BusinessException(Exception):
-    """Custom business exception for API errors."""
-
-    def __init__(self, code: int, message: str, http_status: int = 400):
-        self.code = code
-        self.message = message
-        self.http_status = http_status
-
-
 def create_app(container: Container | None = None) -> FastAPI:
     """Create and configure the FastAPI application.
 
@@ -337,21 +329,12 @@ def create_app(container: Container | None = None) -> FastAPI:
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(HTTPLoggingMiddleware)  # HTTP request/response logging
 
+    # Register centralized exception handlers
+    register_exception_handlers(app)
+
+    # Keep RateLimitExceeded handler (from slowapi)
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-    @app.exception_handler(BusinessException)
-    async def business_exception_handler(request: Request, exc: BusinessException):
-        return JSONResponse(
-            status_code=exc.http_status, content={"code": exc.code, "message": exc.message}
-        )
-
-    @app.exception_handler(Exception)
-    async def global_exception_handler(request: Request, exc: Exception):
-        log.error("unhandled_exception", error=str(exc), path=request.url.path)
-        return JSONResponse(
-            status_code=500, content={"code": 500, "message": "Internal server error"}
-        )
 
     if container is None:
         container = Container().configure(settings)
