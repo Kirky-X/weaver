@@ -1,0 +1,106 @@
+# LLM Provider Configuration for Production (aiping.cn)
+# Uses aiping.cn API for chat, embedding, and rerank
+
+[global]
+default_chat_provider = "aiping_chat"
+default_embedding_provider = "aiping_embed"
+default_rerank_provider = "aiping_rerank"
+circuit_breaker_threshold = 5
+circuit_breaker_timeout = 60.0
+default_timeout = 120.0
+
+# aiping chat provider
+[providers.aiping_chat]
+type = "aiping"
+model = "GLM-4-9B-0414"
+api_key = "${AIPING_API_KEY}"
+base_url = "https://www.aiping.cn/api/v1"
+rpm_limit = 60
+concurrency = 5
+timeout = 120.0
+priority = 100
+weight = 100
+capabilities = ["chat", "streaming"]
+extra_body = { provider = { only = [], order = [], sort = "latency", input_price_range = [0, 0], output_price_range = [], input_length_range = [], output_length_range = [], throughput_range = [], latency_range = [] }, consume_type = "api" }
+
+# aiping embedding provider
+[providers.aiping_embed]
+type = "embedding"
+model = "Qwen3-Embedding-0.6B"
+api_key = "${AIPING_API_KEY}"
+base_url = "https://www.aiping.cn/api/v1"
+rpm_limit = 60
+concurrency = 10
+timeout = 60.0
+priority = 100
+weight = 100
+capabilities = ["embedding"]
+extra_body = { provider = { only = [], order = [], sort = "latency", input_price_range = [0, 0], output_price_range = [], input_length_range = [], output_length_range = [], throughput_range = [], latency_range = [] }, consume_type = "api" }
+
+# aiping rerank provider
+[providers.aiping_rerank]
+type = "aiping_rerank"
+model = "Qwen3-Reranker-0.6B"
+api_key = "${AIPING_API_KEY}"
+base_url = "https://www.aiping.cn/api/v1"
+rpm_limit = 60
+concurrency = 5
+timeout = 30.0
+priority = 100
+weight = 100
+capabilities = ["rerank"]
+extra_body = { provider = { only = [], order = [], sort = "latency", input_price_range = [0, 0], output_price_range = [], input_length_range = [], output_length_range = [], throughput_range = [], latency_range = [] }, consume_type = "api" }
+
+# Call Point Routing
+[call-points.classifier]
+primary = "chat.aiping_chat.GLM-4-9B-0414"
+fallbacks = []
+
+[call-points.cleaner]
+primary = "chat.aiping_chat.GLM-4-9B-0414"
+fallbacks = []
+
+[call-points.categorizer]
+primary = "chat.aiping_chat.GLM-4-9B-0414"
+fallbacks = []
+
+[call-points.analyze]
+primary = "chat.aiping_chat.GLM-4-9B-0414"
+fallbacks = []
+
+[call-points.entity_extractor]
+primary = "chat.aiping_chat.GLM-4-9B-0414"
+fallbacks = []
+
+[call-points.credibility_checker]
+primary = "chat.aiping_chat.GLM-4-9B-0414"
+fallbacks = []
+
+[call-points.quality_scorer]
+primary = "chat.aiping_chat.GLM-4-9B-0414"
+fallbacks = []
+
+[call-points.merger]
+primary = "chat.aiping_chat.GLM-4-9B-0414"
+fallbacks = []
+
+[call-points.embedding]
+primary = "embedding.aiping_embed.Qwen3-Embedding-0.6B"
+fallbacks = []
+
+[call-points.rerank]
+primary = "rerank.aiping_rerank.Qwen3-Reranker-0.6B"
+fallbacks = []
+
+# Default Labels
+[defaults.chat]
+label = "chat.aiping_chat.GLM-4-9B-0414"
+fallbacks = []
+
+[defaults.embedding]
+label = "embedding.aiping_embed.Qwen3-Embedding-0.6B"
+fallbacks = []
+
+[defaults.rerank]
+label = "rerank.aiping_rerank.Qwen3-Reranker-0.6B"
+fallbacks = []
