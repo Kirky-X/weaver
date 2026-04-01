@@ -12,6 +12,7 @@ from typing import Any
 import json_repair
 from sqlalchemy import and_, select
 
+from config.settings import SchedulerSettings
 from core.cache.redis import RedisClient
 from core.db.models import Article, PersistStatus
 from core.db.postgres import PostgresPool
@@ -48,6 +49,7 @@ class SchedulerJobs:
         source_authority_repo: SourceAuthorityRepo,
         pending_sync_repo: PendingSyncRepo,
         pipeline: Any = None,
+        settings: SchedulerSettings | None = None,
     ) -> None:
         self._postgres = postgres_pool
         self._redis = redis_client
@@ -58,6 +60,7 @@ class SchedulerJobs:
         self._pending_sync_repo = pending_sync_repo
         self._retry_queue = RetryQueue(redis_client)
         self._pipeline = pipeline
+        self._settings = settings or SchedulerSettings()
 
     async def retry_neo4j_writes(self) -> int:
         """Retry failed Neo4j writes.
@@ -398,12 +401,27 @@ class SchedulerJobs:
             return 0
 
         log.info("retry_pipeline_processing_start")
+        metrics.pipeline_retry_total.labels(status="started").inc()
 
         retry_count = 0
 
         try:
+            # Calculate dynamic batch size if enabled
+            batch_size = self._settings.pipeline_retry_batch_size
+            if self._settings.pipeline_retry_dynamic_batch:
+                success_rate = await self._get_recent_success_rate()
+                if success_rate >= self._settings.pipeline_retry_success_rate_threshold:
+                    batch_size = min(batch_size * 2, 50)
+                else:
+                    batch_size = max(batch_size // 2, 5)
+                log.debug(
+                    "retry_pipeline_processing_batch_size",
+                    batch_size=batch_size,
+                    success_rate=success_rate,
+                )
+
             # 1. Get pending articles (never processed)
-            pending_articles = await self._article_repo.get_pending(limit=20)
+            pending_articles = await self._article_repo.get_pending(limit=batch_size)
 
             # 2. Get stuck articles (PROCESSING beyond timeout)
             stuck_articles = await self._article_repo.get_stuck_articles(timeout_minutes=30)
@@ -415,6 +433,7 @@ class SchedulerJobs:
 
             if not articles:
                 log.info("retry_pipeline_processing_no_items")
+                metrics.pipeline_retry_total.labels(status="completed").inc()
                 return 0
 
             log.info(
@@ -464,6 +483,7 @@ class SchedulerJobs:
                             error=str(exc),
                         )
 
+            success_count = 0
             for article in articles:
                 try:
                     from modules.ingestion.domain.models import ArticleRaw
@@ -478,6 +498,15 @@ class SchedulerJobs:
 
                     await self._pipeline.process_batch([raw], article_ids=[article.id])
                     retry_count += 1
+                    success_count += 1
+
+                    # Emit success metric based on article type
+                    if article in pending_articles:
+                        metrics.pipeline_retry_success_total.labels(type="pending").inc()
+                    elif article in stuck_articles:
+                        metrics.pipeline_retry_success_total.labels(type="stuck").inc()
+                    else:
+                        metrics.pipeline_retry_success_total.labels(type="failed").inc()
 
                     log.debug(
                         "retry_pipeline_processing_success",
@@ -495,9 +524,22 @@ class SchedulerJobs:
                     except Exception:
                         pass
 
+            # Update success rate in Redis if dynamic batching is enabled
+            if self._settings.pipeline_retry_dynamic_batch and articles:
+                new_rate = success_count / len(articles) if articles else 1.0
+                key = "pipeline:retry:success_rate"
+                await self._redis.set(key, str(new_rate), ex=3600)  # 1 hour TTL
+                log.debug(
+                    "retry_pipeline_processing_success_rate_updated",
+                    success_rate=new_rate,
+                    success_count=success_count,
+                    total_processed=len(articles),
+                )
+
         except Exception as exc:
             log.error("retry_pipeline_processing_error", error=str(exc))
 
+        metrics.pipeline_retry_total.labels(status="completed").inc()
         log.info("retry_pipeline_processing_complete", count=retry_count)
         return retry_count
 
@@ -690,6 +732,24 @@ class SchedulerJobs:
         except Exception as exc:
             log.error("cleanup_old_synced_failed", error=str(exc))
             return 0
+
+    async def _get_recent_success_rate(self) -> float:
+        """Get recent pipeline success rate from Redis.
+
+        Reads success rate from "pipeline:retry:success_rate" key.
+        Returns 1.0 if no data exists (assume success for new system).
+
+        Returns:
+            Success rate between 0.0 and 1.0.
+        """
+        try:
+            key = "pipeline:retry:success_rate"
+            rate_str = await self._redis.get(key)
+            if rate_str is None:
+                return 1.0
+            return float(rate_str)
+        except (ValueError, TypeError):
+            return 1.0
 
     async def _reconstruct_state(self, article: Article) -> dict:
         """Reconstruct pipeline state from article for retry."""

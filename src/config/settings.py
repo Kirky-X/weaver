@@ -217,6 +217,18 @@ class SchedulerSettings(BaseModel):
     crawl_interval_minutes: int = 30
     neo4j_retry_interval_minutes: int = 10
     retry_flush_interval_seconds: int = 30
+    pipeline_retry_interval_minutes: int = 15
+
+    # Batch processing settings
+    pipeline_retry_batch_size: int = 20
+    """Number of articles to process in a single batch."""
+
+    # Dynamic batch sizing settings
+    pipeline_retry_dynamic_batch: bool = False
+    """Enable dynamic batch sizing based on success rate."""
+
+    pipeline_retry_success_rate_threshold: float = 0.8
+    """Success rate threshold for increasing batch size (0.0-1.0)."""
 
 
 class DedupSettings(BaseModel):

@@ -124,7 +124,9 @@ async def _setup_scheduler(container: Container) -> Any:
     # 6. retry_pipeline_processing: retry failed/stuck pipeline processing
     scheduler.add_job(
         jobs.retry_pipeline_processing,
-        trigger=IntervalTrigger(minutes=15),
+        trigger=IntervalTrigger(
+            minutes=container.settings.scheduler.pipeline_retry_interval_minutes
+        ),
         id="retry_pipeline_processing",
         name="Retry failed pipeline processing",
         max_instances=1,

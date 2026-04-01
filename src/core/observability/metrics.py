@@ -163,6 +163,18 @@ class MetricsCollector:
         ["status"],
     )
 
+    # Pipeline retry metrics
+    pipeline_retry_total = Counter(
+        "pipeline_retry_total",
+        "Pipeline 重试总数",
+        ["status"],  # status: started, completed
+    )
+    pipeline_retry_success_total = Counter(
+        "pipeline_retry_success_total",
+        "Pipeline 重试成功数量",
+        ["type"],  # type: pending, stuck, failed
+    )
+
 
 # Global metrics instance for use across modules
 metrics = MetricsCollector()
