@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from core.db.neo4j import Neo4jPool
 from core.observability.logging import get_logger
-from modules.pipeline.state import PipelineState
+from modules.processing.pipeline.state import PipelineState
 from modules.storage.neo4j.article_repo import Neo4jArticleRepo
 from modules.storage.neo4j.entity_repo import Neo4jEntityRepo
 

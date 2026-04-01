@@ -16,15 +16,15 @@ if TYPE_CHECKING:
     from core.db.neo4j import Neo4jPool
     from core.db.postgres import PostgresPool
     from core.llm.client import LLMClient
-    from modules.collector.source_scheduler import SourceScheduler
-    from modules.search.engines.global_search import GlobalSearchEngine
-    from modules.search.engines.hybrid_search import HybridSearchEngine
-    from modules.search.engines.local_search import LocalSearchEngine
-    from modules.source.source_authority_repo import SourceAuthorityRepo
-    from modules.source.source_config_repo import SourceConfigRepo
+    from modules.ingestion.scheduling.scheduler import SourceScheduler
+    from modules.ingestion.scheduling.source_config_repo import SourceConfigRepo
+    from modules.knowledge.search.engines.global_search import GlobalSearchEngine
+    from modules.knowledge.search.engines.hybrid_search import HybridSearchEngine
+    from modules.knowledge.search.engines.local_search import LocalSearchEngine
     from modules.storage.llm_failure_repo import LLMFailureRepo
     from modules.storage.llm_usage_repo import LLMUsageRepo
-    from modules.storage.vector_repo import VectorRepo
+    from modules.storage.postgres.source_authority_repo import SourceAuthorityRepo
+    from modules.storage.postgres.vector_repo import VectorRepo
 
 
 class Endpoints:

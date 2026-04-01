@@ -14,7 +14,7 @@ from api.schemas.response import APIResponse, success_response
 from core.cache import get_redis_client
 from core.constants import GraphHealthStatus
 from core.db.neo4j import Neo4jPool
-from modules.graph_store.metrics import GraphQualityMetrics
+from modules.knowledge.metrics import GraphQualityMetrics
 
 router = APIRouter(prefix="/graph/metrics", tags=["graph-metrics"])
 
@@ -266,7 +266,7 @@ def _should_include(item: str, include_set: set[str] | None) -> bool:
 
 async def _get_community_view(neo4j: Neo4jPool) -> APIResponse[CommunityMetricsResponse]:
     """Get community metrics view."""
-    from modules.graph_store.community_repo import Neo4jCommunityRepo
+    from modules.knowledge.community.repo import Neo4jCommunityRepo
 
     repo = Neo4jCommunityRepo(neo4j)
     total_communities = await repo.count_communities()

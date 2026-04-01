@@ -22,7 +22,7 @@ from modules.pipeline.state import PipelineState
 
 if TYPE_CHECKING:
     from core.protocols import ArticleRepository, VectorRepository
-    from modules.graph_store.neo4j_writer import Neo4jWriter
+    from modules.knowledge.graph.writer import Neo4jWriter
 
 log = get_logger("node.batch_merger")
 

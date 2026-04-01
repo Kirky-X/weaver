@@ -16,8 +16,8 @@ from core.observability.metrics import MetricsCollector
 from modules.pipeline.state import PipelineState
 
 if TYPE_CHECKING:
-    from modules.source.source_authority_repo import SourceAuthorityRepo
-    from modules.source.source_config_repo import SourceConfigRepo
+    from modules.ingestion.scheduling.source_config_repo import SourceConfigRepo
+    from modules.storage.postgres.source_authority_repo import SourceAuthorityRepo
 
 log = get_logger("node.credibility_checker")
 

@@ -21,7 +21,7 @@ from typing import Any, Self
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from core.constants import PipelineState, ProcessingStatus
-from modules.collector.models import ArticleRaw
+from modules.ingestion.domain.models import ArticleRaw
 
 # ── Deprecated Aliases (for backward compatibility) ─────────────────────────
 # These will be removed in a future version. Use core.constants instead.

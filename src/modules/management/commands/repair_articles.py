@@ -33,10 +33,10 @@ from core.llm.client import LLMClient  # noqa: E402
 from core.llm.token_budget import TokenBudgetManager  # noqa: E402
 from core.observability.logging import get_logger  # noqa: E402
 from core.prompt.loader import PromptLoader  # noqa: E402
-from modules.collector.models import ArticleRaw  # noqa: E402
-from modules.nlp.spacy_extractor import SpacyExtractor  # noqa: E402
-from modules.pipeline.graph import Pipeline  # noqa: E402
-from modules.pipeline.state import PipelineState  # noqa: E402
+from modules.ingestion.domain.models import ArticleRaw  # noqa: E402
+from modules.processing.nlp.spacy_extractor import SpacyExtractor  # noqa: E402
+from modules.processing.pipeline.graph import Pipeline  # noqa: E402
+from modules.processing.pipeline.state import PipelineState  # noqa: E402
 
 log = get_logger("repair_articles")
 
@@ -92,7 +92,7 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
     postgres_pool, redis_client, llm_client, prompt_loader = await _init_minimal_container()
 
     try:
-        from modules.storage.article_repo import ArticleRepo
+        from modules.storage.postgres.article_repo import ArticleRepo
 
         article_repo = ArticleRepo(postgres_pool)
 

@@ -12,7 +12,7 @@ from modules.collector.deduplicator import Deduplicator
 from modules.collector.simhash_dedup import SimHashDeduplicator, TitleItem
 from modules.fetcher.exceptions import FetchError
 from modules.pipeline.graph import Pipeline
-from modules.storage.article_repo import ArticleRepo
+from modules.storage.postgres.article_repo import ArticleRepo
 
 log = get_logger("discovery_processor")
 

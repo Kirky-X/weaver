@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
-from modules.collector.models import ArticleRaw
+from modules.ingestion.domain.models import ArticleRaw
 
 
 class CredibilityInfo(TypedDict, total=False):

@@ -14,9 +14,9 @@ from api.schemas.response import APIResponse, success_response
 from core.constants import ProcessingStatus
 from core.db.neo4j import Neo4jPool
 from core.observability.logging import get_logger
-from modules.graph_store.community_detector import CommunityDetector
-from modules.graph_store.community_repo import Neo4jCommunityRepo
-from modules.graph_store.community_report_generator import (
+from modules.knowledge.community.detector import CommunityDetector
+from modules.knowledge.community.repo import Neo4jCommunityRepo
+from modules.knowledge.community.report_generator import (
     CommunityReportGenerator,
     ReportGenerationResult,
 )

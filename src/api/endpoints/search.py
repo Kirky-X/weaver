@@ -15,10 +15,10 @@ from api.schemas.response import APIResponse, success_response
 from core.constants import SearchMode
 from core.llm.client import LLMClient
 from core.observability.logging import get_logger
-from modules.search.engines.global_search import GlobalSearchEngine
-from modules.search.engines.hybrid_search import HybridSearchEngine
-from modules.search.engines.local_search import LocalSearchEngine, SearchResult
-from modules.storage.vector_repo import VectorRepo
+from modules.knowledge.search.engines.global_search import GlobalSearchEngine
+from modules.knowledge.search.engines.hybrid_search import HybridSearchEngine
+from modules.knowledge.search.engines.local_search import LocalSearchEngine, SearchResult
+from modules.storage.postgres.vector_repo import VectorRepo
 
 router = APIRouter(prefix="/search", tags=["search"])
 
@@ -363,7 +363,7 @@ async def search_drift(
         Hierarchical search result with primer and follow-up answers.
 
     """
-    from modules.search.engines.drift_search import DriftConfig, DRIFTSearchEngine
+    from modules.knowledge.search.engines.drift_search import DriftConfig, DRIFTSearchEngine
 
     try:
         config = DriftConfig(

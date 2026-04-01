@@ -14,26 +14,31 @@ from core.event import EventBus, LLMFailureEvent, LLMUsageEvent
 from core.llm.client import LLMClient
 from core.observability import get_logger
 from core.prompt import PromptLoader
-from modules.collector import Deduplicator
-from modules.collector.crawler import Crawler
-from modules.fetcher import PlaywrightContextPool, SmartFetcher
-from modules.graph_store import EntityResolver, Neo4jWriter
-from modules.graph_store.incremental_community_updater import IncrementalCommunityUpdater
-from modules.graph_store.name_normalizer import name_normalizer
-from modules.graph_store.resolution_rules import resolution_rules
-from modules.pipeline.graph import Pipeline
-from modules.scheduler.llm_usage_aggregator import (
+from modules.analytics.llm_usage.aggregator import (
     LLMUsageAggregatorThread,
     LLMUsageRawCleanupThread,
 )
-from modules.search.engines.global_search import GlobalSearchEngine
-from modules.search.engines.hybrid_search import HybridSearchConfig, HybridSearchEngine
-from modules.search.engines.local_search import LocalSearchEngine
-from modules.source import SourceConfigRepo, SourceRegistry, SourceScheduler
-from modules.storage import ArticleRepo, PendingSyncRepo, SourceAuthorityRepo, VectorRepo
-from modules.storage.llm_usage_buffer import LLMUsageBuffer
-from modules.storage.llm_usage_repo import LLMUsageRepo
+from modules.analytics.llm_usage.buffer import LLMUsageBuffer
+from modules.analytics.llm_usage.repo import LLMUsageRepo
+from modules.ingestion import (
+    Crawler,
+    Deduplicator,
+    PlaywrightContextPool,
+    SmartFetcher,
+    SourceConfigRepo,
+    SourceRegistry,
+    SourceScheduler,
+)
+from modules.knowledge import EntityResolver, Neo4jWriter
+from modules.knowledge.community.incremental_updater import IncrementalCommunityUpdater
+from modules.knowledge.graph.name_normalizer import name_normalizer
+from modules.knowledge.graph.resolution_rules import resolution_rules
+from modules.knowledge.search.engines.global_search import GlobalSearchEngine
+from modules.knowledge.search.engines.hybrid_search import HybridSearchConfig, HybridSearchEngine
+from modules.knowledge.search.engines.local_search import LocalSearchEngine
+from modules.processing.pipeline.graph import Pipeline
 from modules.storage.neo4j import Neo4jArticleRepo, Neo4jEntityRepo
+from modules.storage.postgres import ArticleRepo, PendingSyncRepo, SourceAuthorityRepo, VectorRepo
 
 log = get_logger("container")
 
@@ -292,7 +297,7 @@ class Container:
     def llm_failure_repo(self) -> Any:
         """Get LLM failure repository."""
         if self._llm_failure_repo is None:
-            from modules.storage.llm_failure_repo import LLMFailureRepo
+            from modules.analytics.llm_failure.repo import LLMFailureRepo
 
             self._llm_failure_repo = LLMFailureRepo(self._postgres_pool)
         return self._llm_failure_repo
@@ -411,7 +416,7 @@ class Container:
     def hybrid_search_engine(self) -> HybridSearchEngine | None:
         """Get hybrid search engine (or None if unavailable)."""
         if self._hybrid_engine is None and self._vector_repo is not None:
-            from modules.search.retrievers.bm25_retriever import BM25Retriever
+            from modules.knowledge.search.retrievers.bm25_retriever import BM25Retriever
 
             bm25_retriever = BM25Retriever(self._postgres_pool)
             self._hybrid_engine = HybridSearchEngine(
@@ -457,9 +462,7 @@ class Container:
     async def init_smart_fetcher(self) -> SmartFetcher:
         """Initialize smart fetcher."""
         if self._smart_fetcher is None:
-            from modules.fetcher.httpx_fetcher import HttpxFetcher
-            from modules.fetcher.playwright_fetcher import PlaywrightFetcher
-            from modules.fetcher.rate_limiter import HostRateLimiter
+            from modules.ingestion.fetching import HostRateLimiter, HttpxFetcher, PlaywrightFetcher
 
             settings = self._settings.fetcher
 
@@ -526,7 +529,7 @@ class Container:
         """Initialize the processing pipeline."""
         if self._pipeline is None:
             from core.llm.token_budget import TokenBudgetManager
-            from modules.nlp.spacy_extractor import SpacyExtractor
+            from modules.processing.nlp.spacy_extractor import SpacyExtractor
 
             if self._event_bus is None:
                 self._event_bus = EventBus()
@@ -591,7 +594,7 @@ class Container:
         await self.init_playwright_pool()
         await self.init_smart_fetcher()
 
-        from modules.collector.processor import DiscoveryProcessor
+        from modules.ingestion.processor import DiscoveryProcessor
 
         processor = DiscoveryProcessor(
             crawler=self.crawler(),
@@ -604,8 +607,8 @@ class Container:
         processor.set_pipeline(self.pipeline())
 
         # Initialize LLM failure logging
-        from modules.scheduler.llm_failure_cleanup import LLMFailureCleanupThread
-        from modules.storage.llm_failure_repo import LLMFailureRepo
+        from modules.analytics.llm_failure.cleanup import LLMFailureCleanupThread
+        from modules.analytics.llm_failure.repo import LLMFailureRepo
 
         self._llm_failure_repo = LLMFailureRepo(self._postgres_pool)
         self._event_bus.subscribe(

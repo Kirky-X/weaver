@@ -22,7 +22,7 @@ from api.schemas.llm_usage import (
 )
 from api.schemas.response import APIResponse, success_response
 from core.observability.logging import get_logger
-from modules.storage.source_authority_repo import SourceAuthorityRepo
+from modules.storage.postgres.source_authority_repo import SourceAuthorityRepo
 
 if TYPE_CHECKING:
     from modules.storage.llm_failure_repo import LLMFailureRepo

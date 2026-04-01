@@ -20,12 +20,12 @@ from core.event.bus import EventBus  # noqa: E402
 from core.llm.client import LLMClient  # noqa: E402
 from core.llm.token_budget import TokenBudgetManager  # noqa: E402
 from core.prompt.loader import PromptLoader  # noqa: E402
-from modules.collector.models import ArticleRaw  # noqa: E402
-from modules.graph_store.neo4j_writer import Neo4jWriter  # noqa: E402
-from modules.nlp.spacy_extractor import SpacyExtractor  # noqa: E402
-from modules.storage.article_repo import ArticleRepo  # noqa: E402
-from modules.storage.source_authority_repo import SourceAuthorityRepo  # noqa: E402
-from modules.storage.vector_repo import VectorRepo  # noqa: E402
+from modules.ingestion.domain.models import ArticleRaw  # noqa: E402
+from modules.knowledge.graph.writer import Neo4jWriter  # noqa: E402
+from modules.processing.nlp.spacy_extractor import SpacyExtractor  # noqa: E402
+from modules.storage.postgres.article_repo import ArticleRepo  # noqa: E402
+from modules.storage.postgres.source_authority_repo import SourceAuthorityRepo  # noqa: E402
+from modules.storage.postgres.vector_repo import VectorRepo  # noqa: E402
 
 
 async def main():
@@ -70,7 +70,7 @@ async def main():
 
     # Process pending articles
     print("\nProcessing pending articles...")
-    from modules.pipeline.graph import Pipeline
+    from modules.processing.pipeline.graph import Pipeline
 
     pipeline = Pipeline(
         llm=llm_client,

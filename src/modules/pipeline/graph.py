@@ -14,11 +14,11 @@ from core.llm.token_budget import TokenBudgetManager
 from core.observability.logging import get_logger
 from core.observability.metrics import MetricsCollector
 from core.prompt.loader import PromptLoader
-from modules.collector.models import ArticleRaw
-from modules.graph_store.entity_resolver import EntityResolver
-from modules.graph_store.incremental_community_updater import (
+from modules.ingestion.domain.models import ArticleRaw
+from modules.knowledge.community.incremental_updater import (
     IncrementalCommunityUpdater,
 )
+from modules.knowledge.graph.entity_resolver import EntityResolver
 from modules.nlp.spacy_extractor import SpacyExtractor
 from modules.pipeline.nodes.analyze import AnalyzeNode
 from modules.pipeline.nodes.batch_merger import BatchMergerNode

@@ -14,9 +14,9 @@ This package contains all business logic modules:
 - community: Community detection and reporting
 
 Note: Import specific modules to avoid circular imports:
-    from modules.fetcher import SmartFetcher
+    from modules.ingestion.fetching import SmartFetcher
     from modules.storage import ArticleRepo
-    from modules.pipeline.graph import Pipeline
+    from modules.processing.pipeline.graph import Pipeline
 """
 
 __all__ = []

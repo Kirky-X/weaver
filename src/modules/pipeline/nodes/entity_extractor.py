@@ -16,7 +16,7 @@ from modules.nlp.spacy_extractor import SpacyExtractor
 from modules.pipeline.state import PipelineState
 
 if TYPE_CHECKING:
-    from modules.graph_store.relation_type_normalizer import RelationTypeNormalizer
+    from modules.knowledge.core.relation_types import RelationTypeNormalizer
 
 log = get_logger("node.entity_extractor")
 
