@@ -20,6 +20,7 @@ from core.observability.logging import get_logger
 from core.observability.metrics import metrics
 from modules.ingestion.deduplication.retry import RetryQueue
 from modules.knowledge.graph.writer import Neo4jWriter
+from modules.scheduler.wrapper import scheduled_task
 from modules.storage.postgres.article_repo import ArticleRepo
 from modules.storage.postgres.pending_sync_repo import PendingSyncRepo
 from modules.storage.postgres.source_authority_repo import SourceAuthorityRepo
@@ -50,6 +51,7 @@ class SchedulerJobs:
         pending_sync_repo: PendingSyncRepo,
         pipeline: Any = None,
         settings: SchedulerSettings | None = None,
+        llm_failure_repo: Any = None,
     ) -> None:
         self._postgres = postgres_pool
         self._redis = redis_client
@@ -61,7 +63,9 @@ class SchedulerJobs:
         self._retry_queue = RetryQueue(redis_client)
         self._pipeline = pipeline
         self._settings = settings or SchedulerSettings()
+        self._llm_failure_repo = llm_failure_repo
 
+    @scheduled_task("retry_neo4j_writes", timeout_seconds=300)
     async def retry_neo4j_writes(self) -> int:
         """Retry failed Neo4j writes.
 
@@ -137,6 +141,7 @@ class SchedulerJobs:
             log.info("retry_neo4j_writes_complete", retry_count=retry_count)
             return retry_count
 
+    @scheduled_task("flush_retry_queue", timeout_seconds=60)
     async def flush_retry_queue(self) -> int:
         """Flush expired retry queue items back to crawl queue.
 
@@ -174,6 +179,7 @@ class SchedulerJobs:
         log.info("flush_retry_queue_complete", count=requeue_count)
         return requeue_count
 
+    @scheduled_task("update_source_auto_scores", timeout_seconds=600)
     async def update_source_auto_scores(self) -> int:
         """Automatically update source authority scores based on history.
 
@@ -227,6 +233,7 @@ class SchedulerJobs:
         log.info("update_source_auto_scores_complete", count=update_count)
         return update_count
 
+    @scheduled_task("archive_old_neo4j_nodes", timeout_seconds=600)
     async def archive_old_neo4j_nodes(self) -> int:
         """Archive old Neo4j article nodes.
 
@@ -247,6 +254,7 @@ class SchedulerJobs:
             log.error("archive_old_neo4j_nodes_failed", error=str(exc))
             return 0
 
+    @scheduled_task("cleanup_orphan_entity_vectors", timeout_seconds=600)
     async def cleanup_orphan_entity_vectors(self) -> int:
         """Clean up orphan entity vectors.
 
@@ -282,6 +290,7 @@ class SchedulerJobs:
             log.error("cleanup_orphan_entity_vectors_failed", error=str(exc))
             return 0
 
+    @scheduled_task("sync_neo4j_with_postgres", timeout_seconds=600)
     async def sync_neo4j_with_postgres(self) -> dict[str, Any]:
         """Synchronize Neo4j articles with PostgreSQL.
 
@@ -382,6 +391,7 @@ class SchedulerJobs:
         except Exception as exc:
             log.error("entity_consistency_check_failed", error=str(exc))
 
+    @scheduled_task("retry_pipeline_processing", timeout_seconds=600)
     async def retry_pipeline_processing(self) -> int:
         """Retry failed or stuck pipeline processing.
 
@@ -543,6 +553,7 @@ class SchedulerJobs:
         log.info("retry_pipeline_processing_complete", count=retry_count)
         return retry_count
 
+    @scheduled_task("update_persist_status_metrics", timeout_seconds=60)
     async def update_persist_status_metrics(self) -> None:
         """Update Prometheus gauge for article persist status counts.
 
@@ -577,6 +588,7 @@ class SchedulerJobs:
         except Exception as exc:
             log.error("persist_status_metrics_update_error", error=str(exc))
 
+    @scheduled_task("sync_pending_to_neo4j", timeout_seconds=300)
     async def sync_pending_to_neo4j(self) -> int:
         """Sync pending records to Neo4j.
 
@@ -650,6 +662,7 @@ class SchedulerJobs:
             log.error("sync_pending_to_neo4j_error", error=str(exc))
             return 0
 
+    @scheduled_task("consistency_check", timeout_seconds=600)
     async def consistency_check(self) -> dict[str, Any]:
         """Perform consistency check between Neo4j and PostgreSQL.
 
@@ -717,6 +730,7 @@ class SchedulerJobs:
             results["error"] = str(exc)
             return results
 
+    @scheduled_task("cleanup_old_synced", timeout_seconds=300)
     async def cleanup_old_synced(self) -> int:
         """Clean up synced records older than 7 days.
 
@@ -775,6 +789,38 @@ class SchedulerJobs:
             "category": article.category,
             "score": article.score,
         }
+
+    @scheduled_task("llm_failure_cleanup", timeout_seconds=300)
+    async def llm_failure_cleanup(self) -> int:
+        """Clean up LLM failure records older than retention days."""
+        if not self._llm_failure_repo:
+            return 0
+        deleted = await self._llm_failure_repo.cleanup_older_than(
+            self._settings.llm_failure_cleanup_retention_days
+        )
+        return deleted
+
+    @scheduled_task("llm_usage_raw_cleanup", timeout_seconds=300)
+    async def llm_usage_raw_cleanup(self) -> int:
+        """Clean up old raw LLM usage records."""
+        from modules.analytics.llm_usage.repo import LLMUsageRepo
+
+        repo = LLMUsageRepo(self._postgres)
+        deleted = await repo.cleanup_raw_older_than(self._settings.llm_usage_raw_retention_days)
+        return deleted
+
+    @scheduled_task("llm_usage_aggregate", timeout_seconds=300)
+    async def aggregate_llm_usage(self) -> int:
+        """Aggregate LLM usage data from Redis buffer to PostgreSQL."""
+        from modules.analytics.llm_usage.aggregator import LLMUsageAggregatorThread
+
+        aggregator = LLMUsageAggregatorThread(
+            redis_client=self._redis,
+            postgres_pool=self._postgres,
+            interval_minutes=1,
+        )
+        await aggregator._flush()
+        return 1
 
 
 class RetryManager:

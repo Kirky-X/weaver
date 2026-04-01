@@ -2,7 +2,7 @@
 """Unit tests for scheduler jobs."""
 
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -992,3 +992,107 @@ class TestCleanupOldSynced:
         result = await scheduler_jobs.cleanup_old_synced()
 
         assert result == 0
+
+
+class TestLLMFailureCleanup:
+    """Test llm_failure_cleanup job."""
+
+    @pytest.fixture
+    def scheduler_jobs(self):
+        from modules.scheduler.jobs import SchedulerJobs
+
+        mock_llm_failure_repo = MagicMock()
+        mock_llm_failure_repo.cleanup_older_than = AsyncMock(return_value=5)
+        return SchedulerJobs(
+            postgres_pool=MagicMock(),
+            redis_client=MagicMock(),
+            neo4j_writer=MagicMock(),
+            vector_repo=MagicMock(),
+            article_repo=MagicMock(),
+            source_authority_repo=MagicMock(),
+            pending_sync_repo=MagicMock(),
+            llm_failure_repo=mock_llm_failure_repo,
+        )
+
+    @pytest.mark.asyncio
+    async def test_llm_failure_cleanup_calls_repo(self, scheduler_jobs):
+        result = await scheduler_jobs.llm_failure_cleanup()
+        assert result == 5
+        scheduler_jobs._llm_failure_repo.cleanup_older_than.assert_awaited_once_with(3)
+
+    @pytest.mark.asyncio
+    async def test_llm_failure_cleanup_no_repo(self):
+        from modules.scheduler.jobs import SchedulerJobs
+
+        jobs = SchedulerJobs(
+            postgres_pool=MagicMock(),
+            redis_client=MagicMock(),
+            neo4j_writer=MagicMock(),
+            vector_repo=MagicMock(),
+            article_repo=MagicMock(),
+            source_authority_repo=MagicMock(),
+            pending_sync_repo=MagicMock(),
+            llm_failure_repo=None,
+        )
+        result = await jobs.llm_failure_cleanup()
+        assert result == 0
+
+
+class TestLLMUsageRawCleanup:
+    """Test llm_usage_raw_cleanup job."""
+
+    @pytest.fixture
+    def scheduler_jobs(self):
+        from modules.scheduler.jobs import SchedulerJobs
+
+        return SchedulerJobs(
+            postgres_pool=MagicMock(),
+            redis_client=MagicMock(),
+            neo4j_writer=MagicMock(),
+            vector_repo=MagicMock(),
+            article_repo=MagicMock(),
+            source_authority_repo=MagicMock(),
+            pending_sync_repo=MagicMock(),
+        )
+
+    @pytest.mark.asyncio
+    async def test_llm_usage_raw_cleanup(self, scheduler_jobs):
+        with patch("modules.analytics.llm_usage.repo.LLMUsageRepo") as MockRepo:
+            mock_repo = AsyncMock()
+            mock_repo.cleanup_raw_older_than = AsyncMock(return_value=10)
+            MockRepo.return_value = mock_repo
+
+            result = await scheduler_jobs.llm_usage_raw_cleanup()
+
+            assert result == 10
+            mock_repo.cleanup_raw_older_than.assert_awaited_once_with(2)
+
+
+class TestAggregateLLMUsage:
+    """Test aggregate_llm_usage job."""
+
+    @pytest.fixture
+    def scheduler_jobs(self):
+        from modules.scheduler.jobs import SchedulerJobs
+
+        return SchedulerJobs(
+            postgres_pool=MagicMock(),
+            redis_client=MagicMock(),
+            neo4j_writer=MagicMock(),
+            vector_repo=MagicMock(),
+            article_repo=MagicMock(),
+            source_authority_repo=MagicMock(),
+            pending_sync_repo=MagicMock(),
+        )
+
+    @pytest.mark.asyncio
+    async def test_aggregate_llm_usage(self, scheduler_jobs):
+        with patch("modules.analytics.llm_usage.aggregator.LLMUsageAggregatorThread") as MockAgg:
+            mock_agg = MagicMock()
+            mock_agg._flush = AsyncMock()
+            MockAgg.return_value = mock_agg
+
+            result = await scheduler_jobs.aggregate_llm_usage()
+
+            assert result == 1
+            mock_agg._flush.assert_awaited_once()
