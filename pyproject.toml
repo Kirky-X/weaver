@@ -42,8 +42,6 @@ dependencies = [
     # ── Search Enhancement ─────────────────────────────────
     "bm25s>=0.3.3",
     "flashrank>=0.2.10",
-    # ── Community Detection ──────────────────────────────────
-    "graspologic>=3.4.4",
     # ── Advanced Community Detection ─────────────────────────
     "python-igraph>=0.11.0",
     "leidenalg>=0.11.0",
@@ -596,9 +594,6 @@ filterwarnings = [
     "ignore:Stealth has already been applied:UserWarning:playwright_stealth",
     # pytest/mock compatibility issue (known side effect)
     "ignore:coroutine.*was never awaited:RuntimeWarning",
-    # 第三方库 SyntaxWarning
-    "ignore:invalid escape sequence:SyntaxWarning:graspologic",
-    "ignore:invalid escape sequence:SyntaxWarning:hyppo",
 ]
 
 # ────────────────────────────────────────────────────────────
