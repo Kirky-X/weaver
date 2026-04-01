@@ -43,7 +43,7 @@ async def verify_api_key(
             detail="Missing API key. Provide X-API-Key header.",
         )
 
-    expected_key = settings.api.api_key
+    expected_key = settings.api.get_api_key()
 
     # Security check: ensure expected_key is properly configured
     if not expected_key or len(expected_key) < MIN_API_KEY_LENGTH:

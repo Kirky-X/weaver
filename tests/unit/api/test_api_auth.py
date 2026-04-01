@@ -19,7 +19,7 @@ class TestVerifyApiKeyEdgeCases:
         from api.middleware.auth import verify_api_key
 
         mock_settings = MagicMock()
-        mock_settings.api.api_key = "valid-key"
+        mock_settings.api.get_api_key.return_value = "valid-key"
 
         with patch("container.get_settings", return_value=mock_settings):
             with pytest.raises(HTTPException) as exc_info:
@@ -33,7 +33,7 @@ class TestVerifyApiKeyEdgeCases:
         from api.middleware.auth import verify_api_key
 
         mock_settings = MagicMock()
-        mock_settings.api.api_key = "valid-key"
+        mock_settings.api.get_api_key.return_value = "valid-key"
 
         with patch("container.get_settings", return_value=mock_settings):
             with pytest.raises(HTTPException) as exc_info:
@@ -46,7 +46,7 @@ class TestVerifyApiKeyEdgeCases:
         from api.middleware.auth import verify_api_key
 
         mock_settings = MagicMock()
-        mock_settings.api.api_key = "my-secret-key"
+        mock_settings.api.get_api_key.return_value = "my-secret-key"
 
         with patch("container.get_settings", return_value=mock_settings):
             result = await verify_api_key(key="my-secret-key")
@@ -58,7 +58,7 @@ class TestVerifyApiKeyEdgeCases:
         from api.middleware.auth import verify_api_key
 
         mock_settings = MagicMock()
-        mock_settings.api.api_key = "expected-key"
+        mock_settings.api.get_api_key.return_value = "expected-key"
 
         with (
             patch("container.get_settings", return_value=mock_settings),
@@ -75,7 +75,7 @@ class TestVerifyApiKeyEdgeCases:
         from api.middleware.auth import verify_api_key
 
         mock_settings = MagicMock()
-        mock_settings.api.api_key = "correct-key"
+        mock_settings.api.get_api_key.return_value = "correct-key"
 
         with (
             patch("container.get_settings", return_value=mock_settings),
@@ -175,7 +175,7 @@ class TestAuthMiddlewareIntegration:
 
         # Override get_settings to return a known API key
         mock_settings = MagicMock()
-        mock_settings.api.api_key = "correct-key"
+        mock_settings.api.get_api_key.return_value = "correct-key"
 
         with patch("container.get_settings", return_value=mock_settings):
             with TestClient(app) as client:
@@ -208,7 +208,7 @@ class TestAuthMiddlewareIntegration:
         app.dependency_overrides[get_postgres_pool] = lambda: mock_pool
 
         mock_settings = MagicMock()
-        mock_settings.api.api_key = "correct-key"
+        mock_settings.api.get_api_key.return_value = "correct-key"
 
         with patch("container.get_settings", return_value=mock_settings):
             with TestClient(app) as client:

@@ -29,7 +29,7 @@ class TestAuthMiddleware:
         from api.middleware.auth import verify_api_key
 
         mock_settings = MagicMock()
-        mock_settings.api.api_key = "valid-key"
+        mock_settings.api.get_api_key.return_value = "valid-key"
 
         with patch("container.get_settings", return_value=mock_settings):
             with pytest.raises(HTTPException) as exc_info:
@@ -43,7 +43,7 @@ class TestAuthMiddleware:
         from api.middleware.auth import verify_api_key
 
         mock_settings = MagicMock()
-        mock_settings.api.api_key = "valid-key"
+        mock_settings.api.get_api_key.return_value = "valid-key"
 
         with patch("container.get_settings", return_value=mock_settings):
             result = await verify_api_key(key="valid-key")

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import secrets
 from pathlib import Path
 from typing import Any
 
@@ -177,10 +178,31 @@ class PromptSettings(BaseModel):
 class APISettings(BaseModel):
     """API layer settings."""
 
-    api_key: str = "change-me-in-production"
+    api_key: str = ""  # Empty default - get_api_key() will generate if not set
     rate_limit: str = "100/minute"
     host: str = "0.0.0.0"
     port: int = 8000
+
+    def get_api_key(self) -> str:
+        """Get API key, generating one if not set.
+
+        Returns:
+            The configured API key or a securely generated random key.
+        """
+        if self.api_key:
+            return self.api_key
+
+        # Generate a secure random key
+        generated = secrets.token_urlsafe(32)
+        from core.observability.logging import get_logger
+
+        log = get_logger("config.settings")
+        log.info(
+            "api_key_generated",
+            message="Generated random API key (set WEAVER_API__API_KEY environment variable to override)",
+            key_prefix=generated[:8] + "...",
+        )
+        return generated
 
     def validate_security(self) -> list[str]:
         """Validate security settings and return warnings.
@@ -193,7 +215,10 @@ class APISettings(BaseModel):
 
         environment = os.environ.get("ENVIRONMENT", "development")
 
-        if self.api_key in ["change-me-in-production", ""]:
+        # Use get_api_key() to check the actual key (including generated ones)
+        actual_key = self.get_api_key()
+
+        if not actual_key:
             if environment == "production":
                 raise ValueError(
                     "API_KEY must be set in production environment. "
@@ -201,11 +226,11 @@ class APISettings(BaseModel):
                 )
             warnings.append("Using default API key. Set WEAVER_API__API_KEY for production.")
 
-        if len(self.api_key) < 32:
+        if len(actual_key) < 32:
             if environment == "production":
                 raise ValueError("API key must be at least 32 characters in production.")
             warnings.append(
-                f"API key length ({len(self.api_key)}) is less than recommended 32 characters."
+                f"API key length ({len(actual_key)}) is less than recommended 32 characters."
             )
 
         return warnings
