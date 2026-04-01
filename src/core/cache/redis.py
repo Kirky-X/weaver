@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import Any, cast
 
 from redis.asyncio import ConnectionPool, Redis
@@ -137,8 +138,37 @@ class RedisClient:
         return await self.client.zrem(name, *members)
 
     async def keys(self, pattern: str) -> list[str]:
-        """Find keys matching a pattern."""
+        """Return all keys matching pattern.
+
+        .. deprecated:: 0.2.0
+            Use :meth:`scan_iter` instead. The KEYS command is O(N) and
+            can block the Redis server for long periods on large datasets.
+        """
+        warnings.warn(
+            "keys() is deprecated. Use scan_iter() for production code. "
+            "The KEYS command can block the Redis server.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         return await self.client.keys(pattern)
+
+    async def scan_iter(self, pattern: str, count: int = 100):
+        """Iterate over keys matching pattern using SCAN (non-blocking).
+
+        Args:
+            pattern: Pattern to match (e.g., "session:*").
+            count: Hint for number of keys per iteration.
+
+        Yields:
+            Keys matching the pattern.
+        """
+        cursor = 0
+        while True:
+            cursor, keys = await self.client.scan(cursor, match=pattern, count=count)
+            for key in keys:
+                yield key
+            if cursor == 0:
+                break
 
     async def scan(
         self,
