@@ -9,7 +9,6 @@ import signal
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
 
 # Fix: allow `from api` style imports to resolve correctly regardless of CWD.
 sys.path.insert(0, str(Path(__file__).parent))
@@ -35,144 +34,6 @@ from core.observability.tracing import configure_tracing, instrument_fastapi
 log = get_logger("main")
 configure_logging(debug=os.environ.get("DEBUG", "").lower() in ("true", "1", "yes"))
 
-_scheduler = None
-
-
-async def _setup_scheduler(container: Container) -> Any:
-    """Set up APScheduler with compensation jobs.
-
-    Args:
-        container: The application container.
-
-    Returns:
-        The scheduler instance.
-    """
-    global _scheduler
-
-    try:
-        from apscheduler.schedulers.asyncio import AsyncIOScheduler as AsyncScheduler
-        from apscheduler.triggers.cron import CronTrigger
-        from apscheduler.triggers.interval import IntervalTrigger
-    except ImportError:
-        log.warning("apscheduler_not_installed")
-        return None
-
-    # Import jobs
-    from modules.scheduler.jobs import SchedulerJobs
-
-    # Create jobs instance
-    jobs = SchedulerJobs(
-        postgres_pool=container.postgres_pool(),
-        redis_client=container.redis_client(),
-        neo4j_writer=container.neo4j_writer(),
-        vector_repo=container.vector_repo(),
-        article_repo=container.article_repo(),
-        source_authority_repo=container.source_authority_repo(),
-        pipeline=container.pipeline(),
-    )
-
-    # Create scheduler
-    scheduler = AsyncScheduler()
-
-    # Add jobs as per dev.md:
-    # 1. retry_neo4j_writes: scan persist_status='pg_done' > 10min
-    scheduler.add_job(
-        jobs.retry_neo4j_writes,
-        trigger=IntervalTrigger(minutes=10),
-        id="retry_neo4j_writes",
-        name="Retry failed Neo4j writes",
-        max_instances=1,
-        coalesce=True,
-    )
-
-    # 2. flush_retry_queue: requeue expired crawl retries
-    scheduler.add_job(
-        jobs.flush_retry_queue,
-        trigger=IntervalTrigger(seconds=30),
-        id="flush_retry_queue",
-        name="Flush expired crawl retry queue",
-        max_instances=1,
-        coalesce=True,
-    )
-
-    # 3. update_source_auto_scores: auto-calculate source authority
-    scheduler.add_job(
-        jobs.update_source_auto_scores,
-        trigger=CronTrigger(hour=3),
-        id="update_source_auto_scores",
-        name="Update source authority scores",
-        max_instances=1,
-    )
-
-    # 4. archive_old_neo4j_nodes: cleanup old articles
-    scheduler.add_job(
-        jobs.archive_old_neo4j_nodes,
-        trigger=CronTrigger(day_of_week=6, hour=2),
-        id="archive_old_neo4j_nodes",
-        name="Archive old Neo4j nodes",
-        max_instances=1,
-    )
-
-    # 5. cleanup_orphan_entity_vectors: cleanup orphan vectors
-    scheduler.add_job(
-        jobs.cleanup_orphan_entity_vectors,
-        trigger=CronTrigger(day_of_week=6, hour=3),
-        id="cleanup_orphan_entity_vectors",
-        name="Clean up orphan entity vectors",
-        max_instances=1,
-    )
-
-    # 6. retry_pipeline_processing: retry failed/stuck pipeline processing
-    scheduler.add_job(
-        jobs.retry_pipeline_processing,
-        trigger=IntervalTrigger(
-            minutes=container.settings.scheduler.pipeline_retry_interval_minutes
-        ),
-        id="retry_pipeline_processing",
-        name="Retry failed pipeline processing",
-        max_instances=1,
-        coalesce=True,
-    )
-
-    # 7. sync_neo4j_with_postgres: ensure data consistency
-    scheduler.add_job(
-        jobs.sync_neo4j_with_postgres,
-        trigger=IntervalTrigger(hours=1),
-        id="sync_neo4j_with_postgres",
-        name="Sync Neo4j with PostgreSQL",
-        max_instances=1,
-        coalesce=True,
-    )
-
-    # 8. update_persist_status_metrics: update persist status gauge for alerting
-    scheduler.add_job(
-        jobs.update_persist_status_metrics,
-        trigger=IntervalTrigger(minutes=5),
-        id="update_persist_status_metrics",
-        name="Update persist status Prometheus metrics",
-        max_instances=1,
-        coalesce=True,
-    )
-
-    # 9. community_auto_check: periodic community detection check
-    community_updater = container.community_updater()
-    if community_updater is not None:
-        scheduler.add_job(
-            community_updater.check_and_run,
-            trigger=IntervalTrigger(minutes=30),
-            id="community_auto_check",
-            name="Community auto detection check",
-            max_instances=1,
-            coalesce=True,
-        )
-
-    # Start scheduler
-    scheduler.start()
-    _scheduler = scheduler
-
-    log.info("scheduler_started")
-    return scheduler
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> None:
@@ -181,8 +42,6 @@ async def lifespan(app: FastAPI) -> None:
     Args:
         app: The FastAPI application.
     """
-    global _scheduler
-
     # Startup
     container = app.state.container
 
@@ -223,15 +82,6 @@ async def lifespan(app: FastAPI) -> None:
     deps.Endpoints._global_engine = container.global_search_engine()
     deps.Endpoints._hybrid_engine = container.hybrid_search_engine()
     log.debug("endpoints_registry_populated")
-
-    # Setup APScheduler
-    try:
-        scheduler = await _setup_scheduler(container)
-        app.state.scheduler = scheduler
-    except Exception as exc:
-        import traceback
-
-        log.error("scheduler_setup_failed", error=str(exc), traceback=traceback.format_exc())
 
     log.info(
         "application_started", host=container.settings.api.host, port=container.settings.api.port
@@ -287,16 +137,7 @@ async def _graceful_shutdown(app: FastAPI) -> None:
     except Exception as exc:
         log.warning("requeue_failed", error=str(exc))
 
-    # 4. Shutdown APScheduler
-    global _scheduler
-    if _scheduler:
-        try:
-            _scheduler.shutdown()
-            log.info("scheduler_stopped")
-        except Exception as exc:
-            log.warning("scheduler_shutdown_failed", error=str(exc))
-
-    # 5. Shutdown container (includes browser pool)
+    # 4. Shutdown container (includes browser pool)
     await container.shutdown()
 
     log.info("graceful_shutdown_complete")

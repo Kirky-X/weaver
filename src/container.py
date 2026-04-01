@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -14,10 +13,6 @@ from core.event import EventBus, LLMFailureEvent, LLMUsageEvent
 from core.llm.client import LLMClient
 from core.observability import get_logger
 from core.prompt import PromptLoader
-from modules.analytics.llm_usage.aggregator import (
-    LLMUsageAggregatorThread,
-    LLMUsageRawCleanupThread,
-)
 from modules.analytics.llm_usage.buffer import LLMUsageBuffer
 from modules.analytics.llm_usage.repo import LLMUsageRepo
 from modules.ingestion import (
@@ -109,13 +104,10 @@ class Container:
         self._deduplicator: Deduplicator | None = None
         self._event_bus: EventBus | None = None
         self._llm_failure_repo: Any = None
-        self._llm_failure_cleanup_thread: Any = None
         self._llm_usage_buffer: LLMUsageBuffer | None = None
-        self._llm_usage_aggregator_thread: LLMUsageAggregatorThread | None = None
-        self._llm_usage_raw_cleanup_thread: LLMUsageRawCleanupThread | None = None
         self._pending_sync_repo: PendingSyncRepo | None = None
         self._scheduler_jobs: Any = None
-        self._startup_sync_task: asyncio.Task | None = None
+        self._scheduler: Any = None  # AsyncIOScheduler instance
         self._community_updater: IncrementalCommunityUpdater | None = None
         self._local_search_engine: LocalSearchEngine | None = None
         self._global_search_engine: GlobalSearchEngine | None = None
@@ -326,8 +318,192 @@ class Container:
                 source_authority_repo=self._source_authority_repo,
                 pending_sync_repo=self._pending_sync_repo,
                 pipeline=self._pipeline,
+                settings=self._settings.scheduler,
+                llm_failure_repo=self._llm_failure_repo,
             )
         return self._scheduler_jobs
+
+    def _setup_scheduler(self) -> None:
+        """Register all APScheduler jobs (single entry point)."""
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from apscheduler.triggers.cron import CronTrigger
+        from apscheduler.triggers.date import DateTrigger
+        from apscheduler.triggers.interval import IntervalTrigger
+
+        settings = self._settings.scheduler
+        if not settings.enabled:
+            log.info("scheduler_disabled")
+            return
+
+        scheduler = AsyncIOScheduler(
+            job_defaults={
+                "misfire_grace_time": settings.misfire_grace_time_seconds,
+                "coalesce": True,
+                "max_instances": 1,
+            },
+        )
+        self._scheduler = scheduler
+
+        jobs = self.scheduler_jobs()
+
+        # ── Data Sync ──
+        scheduler.add_job(
+            jobs.sync_pending_to_neo4j,
+            IntervalTrigger(minutes=settings.sync_pending_to_neo4j_interval_minutes),
+            id="sync_pending_to_neo4j",
+            name="Sync pending to Neo4j",
+            max_instances=1,
+            coalesce=True,
+        )
+        scheduler.add_job(
+            jobs.retry_neo4j_writes,
+            IntervalTrigger(minutes=settings.retry_neo4j_writes_interval_minutes),
+            id="retry_neo4j_writes",
+            name="Retry failed Neo4j writes",
+            max_instances=1,
+            coalesce=True,
+        )
+        scheduler.add_job(
+            jobs.sync_neo4j_with_postgres,
+            IntervalTrigger(hours=settings.sync_neo4j_with_postgres_interval_hours),
+            id="sync_neo4j_with_postgres",
+            name="Sync Neo4j with PostgreSQL",
+            max_instances=1,
+            coalesce=True,
+        )
+        scheduler.add_job(
+            jobs.consistency_check,
+            CronTrigger(
+                hour=settings.consistency_check_cron_hour,
+                minute=settings.consistency_check_cron_minute,
+            ),
+            id="consistency_check",
+            name="Consistency check",
+            max_instances=1,
+        )
+
+        # ── Cleanup ──
+        scheduler.add_job(
+            jobs.cleanup_old_synced,
+            CronTrigger(
+                hour=settings.cleanup_old_synced_cron_hour,
+                minute=settings.cleanup_old_synced_cron_minute,
+            ),
+            id="cleanup_old_synced",
+            name="Cleanup old synced records",
+            max_instances=1,
+        )
+        scheduler.add_job(
+            jobs.llm_failure_cleanup,
+            IntervalTrigger(hours=settings.llm_failure_cleanup_interval_hours),
+            id="llm_failure_cleanup",
+            name="LLM failure record cleanup",
+            max_instances=1,
+            coalesce=True,
+        )
+        scheduler.add_job(
+            jobs.llm_usage_raw_cleanup,
+            IntervalTrigger(hours=settings.llm_usage_raw_cleanup_interval_hours),
+            id="llm_usage_raw_cleanup",
+            name="LLM usage raw record cleanup",
+            max_instances=1,
+            coalesce=True,
+        )
+
+        # ── Archive (weekly, conditional on Neo4j) ──
+        if self._neo4j_writer is not None:
+            scheduler.add_job(
+                jobs.archive_old_neo4j_nodes,
+                CronTrigger(
+                    day_of_week=settings.archive_old_neo4j_nodes_cron_day_of_week,
+                    hour=settings.archive_old_neo4j_nodes_cron_hour,
+                ),
+                id="archive_old_neo4j_nodes",
+                name="Archive old Neo4j nodes",
+                max_instances=1,
+            )
+            scheduler.add_job(
+                jobs.cleanup_orphan_entity_vectors,
+                CronTrigger(
+                    day_of_week=settings.cleanup_orphan_vectors_cron_day_of_week,
+                    hour=settings.cleanup_orphan_vectors_cron_hour,
+                ),
+                id="cleanup_orphan_entity_vectors",
+                name="Cleanup orphan entity vectors",
+                max_instances=1,
+            )
+
+        # ── Pipeline Retry ──
+        scheduler.add_job(
+            jobs.retry_pipeline_processing,
+            IntervalTrigger(minutes=settings.pipeline_retry_interval_minutes),
+            id="retry_pipeline_processing",
+            name="Retry failed pipeline processing",
+            max_instances=1,
+            coalesce=True,
+        )
+
+        # ── Crawl Retry ──
+        scheduler.add_job(
+            jobs.flush_retry_queue,
+            IntervalTrigger(seconds=settings.retry_flush_interval_seconds),
+            id="flush_retry_queue",
+            name="Flush expired crawl retry queue",
+            max_instances=1,
+            coalesce=True,
+        )
+
+        # ── LLM Usage Aggregation ──
+        scheduler.add_job(
+            jobs.aggregate_llm_usage,
+            IntervalTrigger(minutes=settings.llm_usage_aggregate_interval_minutes),
+            id="llm_usage_aggregate",
+            name="LLM usage aggregation (Redis to PG)",
+            max_instances=1,
+            coalesce=True,
+        )
+
+        # ── Source Scoring ──
+        scheduler.add_job(
+            jobs.update_source_auto_scores,
+            CronTrigger(hour=settings.source_auto_score_cron_hour),
+            id="update_source_auto_scores",
+            name="Update source authority scores",
+            max_instances=1,
+        )
+
+        # ── Community Detection ──
+        community_updater = self.community_updater()
+        if community_updater is not None:
+            scheduler.add_job(
+                community_updater.check_and_run,
+                IntervalTrigger(minutes=settings.community_check_interval_minutes),
+                id="community_auto_check",
+                name="Community auto detection check",
+                max_instances=1,
+                coalesce=True,
+            )
+
+        # ── Metrics ──
+        scheduler.add_job(
+            jobs.update_persist_status_metrics,
+            IntervalTrigger(minutes=settings.persist_status_metrics_interval_minutes),
+            id="update_persist_status_metrics",
+            name="Update persist status Prometheus metrics",
+            max_instances=1,
+            coalesce=True,
+        )
+
+        # ── Startup: run sync once immediately ──
+        scheduler.add_job(
+            jobs.sync_pending_to_neo4j,
+            DateTrigger(),
+            id="startup_sync_pending_to_neo4j",
+            replace_existing=True,
+        )
+
+        scheduler.start()
+        log.info("scheduler_started", jobs=len(scheduler.get_jobs()))
 
     # ── Neo4j Repositories ─────────────────────────────────────────
 
@@ -607,7 +783,6 @@ class Container:
         processor.set_pipeline(self.pipeline())
 
         # Initialize LLM failure logging
-        from modules.analytics.llm_failure.cleanup import LLMFailureCleanupThread
         from modules.analytics.llm_failure.repo import LLMFailureRepo
 
         self._llm_failure_repo = LLMFailureRepo(self._postgres_pool)
@@ -615,8 +790,6 @@ class Container:
             LLMFailureEvent,
             lambda e: _handle_llm_failure_async(e, self._llm_failure_repo),
         )
-        self._llm_failure_cleanup_thread = LLMFailureCleanupThread(self._llm_failure_repo)
-        self._llm_failure_cleanup_thread.start()
         log.info("llm_failure_logging_initialized", event_bus_id=id(self._event_bus))
 
         # Subscribe LLMUsageEvent handler for Prometheus metrics
@@ -643,59 +816,11 @@ class Container:
         self._event_bus.subscribe(LLMUsageEvent, _handle_llm_usage_raw)
         log.info("llm_usage_handlers_subscribed", event_bus_id=id(self._event_bus))
 
-        # Start LLM usage aggregator thread
-        self._llm_usage_aggregator_thread = LLMUsageAggregatorThread(
-            redis_client=self._redis_client,
-            postgres_pool=self._postgres_pool,
-            interval_minutes=self._settings.scheduler.llm_usage_aggregate_interval_minutes,
-        )
-        self._llm_usage_aggregator_thread.start()
-
-        # Start LLM usage raw cleanup thread
-        self._llm_usage_raw_cleanup_thread = LLMUsageRawCleanupThread(
-            postgres_pool=self._postgres_pool,
-            retention_days=self._settings.scheduler.llm_usage_raw_retention_days,
-        )
-        self._llm_usage_raw_cleanup_thread.start()
-        log.info("llm_usage_threads_started")
-
-        # Initialize pending sync repo and scheduler jobs
+        # Initialize pending sync repo
         self._pending_sync_repo = PendingSyncRepo(self._postgres_pool)
-        jobs = self.scheduler_jobs()
 
-        # Register APScheduler jobs for neo4j sync
-        from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
-        scheduler = AsyncIOScheduler()
-        # sync_pending_to_neo4j every 10 minutes
-        scheduler.add_job(
-            jobs.sync_pending_to_neo4j,
-            "interval",
-            minutes=10,
-            id="sync_pending_to_neo4j",
-        )
-        # consistency_check daily at 03:00
-        scheduler.add_job(
-            jobs.consistency_check,
-            "cron",
-            hour=3,
-            minute=0,
-            id="consistency_check",
-        )
-        # cleanup_old_synced daily at 03:30
-        scheduler.add_job(
-            jobs.cleanup_old_synced,
-            "cron",
-            hour=3,
-            minute=30,
-            id="cleanup_old_synced",
-        )
-        scheduler.start()
-        log.info("scheduler_jobs_registered")
-
-        # Startup sync: sync any pending records on container startup
-        self._startup_sync_task = asyncio.create_task(jobs.sync_pending_to_neo4j())
-        log.info("startup_sync_triggered")
+        # Setup unified scheduler (replaces all threads + duplicate scheduler)
+        self._setup_scheduler()
 
         log.info("container_started")
 
@@ -713,21 +838,12 @@ class Container:
         self._shutdown = True
         log.info("container_shutting_down")
 
-        # Stop LLM failure cleanup thread
-        if self._llm_failure_cleanup_thread:
-            self._llm_failure_cleanup_thread.stop()
-            log.info("llm_failure_cleanup_thread_stopped")
+        # Stop main scheduler (replaces all thread stop calls)
+        if self._scheduler:
+            self._scheduler.shutdown(wait=False)
+            log.info("main_scheduler_stopped")
 
-        # Stop LLM usage threads
-        if self._llm_usage_aggregator_thread:
-            self._llm_usage_aggregator_thread.stop()
-            log.info("llm_usage_aggregator_thread_stopped")
-
-        if self._llm_usage_raw_cleanup_thread:
-            self._llm_usage_raw_cleanup_thread.stop()
-            log.info("llm_usage_raw_cleanup_thread_stopped")
-
-        # Stop scheduler first
+        # Stop source scheduler
         if self._source_scheduler:
             self._source_scheduler.stop()
             log.info("source_scheduler_stopped")
