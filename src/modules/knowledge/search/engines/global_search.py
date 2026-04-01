@@ -7,6 +7,7 @@ broad, exploratory queries that span multiple communities.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -73,6 +74,7 @@ class GlobalSearchEngine:
         default_max_tokens: int = 12000,
         max_communities: int = 10,
         hybrid_engine: HybridSearchEngine | None = None,
+        llm_concurrency: int = 3,
     ) -> None:
         """Initialize global search engine.
 
@@ -82,12 +84,14 @@ class GlobalSearchEngine:
             default_max_tokens: Default max tokens for context.
             max_communities: Maximum communities to process.
             hybrid_engine: Optional hybrid search engine for enhanced retrieval.
+            llm_concurrency: Maximum concurrent LLM calls in Map phase.
         """
         self._pool = neo4j_pool
         self._llm = llm
         self._default_max_tokens = default_max_tokens
         self._max_communities = max_communities
         self._hybrid_engine = hybrid_engine
+        self._llm_concurrency = llm_concurrency
         self._context_builder = GlobalContextBuilder(
             neo4j_pool=neo4j_pool,
             default_max_tokens=default_max_tokens,
@@ -179,48 +183,94 @@ class GlobalSearchEngine:
                 reverse=True,
             )
 
-            intermediate_answers = []
+            intermediate_answers: list[str | None] = []
             total_tokens = 0
-            community_weights = []
+            community_weights: list[dict[str, Any]] = []
 
-            for i, community in enumerate(sorted_communities):
-                map_prompt = self._build_map_prompt(query, community)
+            # Process communities in parallel with concurrency limit
+            semaphore = asyncio.Semaphore(self._llm_concurrency)
 
-                response = await self._llm.call(
-                    call_point=CallPoint.SEARCH_GLOBAL,
-                    payload={
-                        "query": query,
-                        "context": map_prompt,
-                        "phase": "map",
-                        "community_index": i,
-                        "community_title": community.title,
-                        "community_weight": community.similarity_score,
-                    },
-                )
+            async def process_community(
+                community: CommunityContext, index: int
+            ) -> tuple[int, str | None, dict[str, Any], int]:
+                """Process a single community with error handling."""
+                try:
+                    map_prompt = self._build_map_prompt(query, community)
 
-                answer = response if isinstance(response, str) else str(response)
-                intermediate_answers.append(answer)
-                community_weights.append(
-                    {
+                    async with semaphore:
+                        response = await self._llm.call(
+                            call_point=CallPoint.SEARCH_GLOBAL,
+                            payload={
+                                "query": query,
+                                "context": map_prompt,
+                                "phase": "map",
+                                "community_index": index,
+                                "community_title": community.title,
+                                "community_weight": community.similarity_score,
+                            },
+                        )
+
+                    answer = response if isinstance(response, str) else str(response)
+                    weight_info = {
                         "community_id": community.id,
                         "title": community.title,
                         "weight": community.similarity_score,
                     }
-                )
-                total_tokens += len(map_prompt) // 4
+                    tokens = len(map_prompt) // 4
+                    return (index, answer, weight_info, tokens)
+                except Exception as e:
+                    log.warning(
+                        "community_llm_failed",
+                        community_id=community.id,
+                        error=str(e),
+                    )
+                    return (index, None, {}, 0)
 
-            reduce_prompt = self._build_reduce_prompt(
-                query, intermediate_answers, community_weights
-            )
+            tasks = [
+                process_community(community, i) for i, community in enumerate(sorted_communities)
+            ]
+            results = await asyncio.gather(*tasks)
+
+            # Sort by index and collect results
+            results.sort(key=lambda x: x[0])
+            for idx, answer, weight_info, tokens in results:
+                intermediate_answers.append(answer)
+                if weight_info:
+                    community_weights.append(weight_info)
+                total_tokens += tokens
+
+            # Filter out None answers for reduce phase
+            valid_answers: list[str] = [a for a in intermediate_answers if a is not None]
+            valid_weights: list[dict[str, Any]] = [
+                w for w, a in zip(community_weights, intermediate_answers) if a is not None
+            ]
+
+            # Check if we have any valid answers
+            if not valid_answers:
+                return SearchResult(
+                    query=query,
+                    answer="All community LLM calls failed. Please try again.",
+                    context_tokens=total_tokens,
+                    confidence=0.0,
+                    metadata={
+                        "search_type": SearchMode.GLOBAL.value,
+                        "communities": len(sorted_communities),
+                        "intermediate_count": 0,
+                        "llm_used": True,
+                        "error": "all_map_calls_failed",
+                    },
+                )
+
+            reduce_prompt = self._build_reduce_prompt(query, valid_answers, valid_weights)
 
             final_response = await self._llm.call(
                 call_point=CallPoint.SEARCH_GLOBAL,
                 payload={
                     "query": query,
-                    "intermediate_answers": intermediate_answers,
+                    "intermediate_answers": valid_answers,
                     "context": reduce_prompt,
                     "phase": "reduce",
-                    "community_weights": community_weights,
+                    "community_weights": valid_weights,
                 },
             )
 
@@ -236,12 +286,12 @@ class GlobalSearchEngine:
                 entities=list(
                     set(e for c in sorted_communities if c.key_entities for e in c.key_entities)
                 ),
-                confidence=self._estimate_confidence(intermediate_answers),
+                confidence=self._estimate_confidence(valid_answers),
                 metadata={
                     "search_type": SearchMode.GLOBAL.value,
                     "communities": len(sorted_communities),
                     "community_level": community_level,
-                    "intermediate_count": len(intermediate_answers),
+                    "intermediate_count": len(valid_answers),
                     "llm_used": True,
                     "hybrid_used": self._hybrid_engine is not None,
                     "search_method": "vector_similarity",
@@ -275,9 +325,11 @@ class GlobalSearchEngine:
         Returns:
             List of CommunityContext with report content.
         """
-        communities, used_fallback, search_method = (
-            await self._context_builder._find_relevant_communities(query, level)
-        )
+        (
+            communities,
+            used_fallback,
+            search_method,
+        ) = await self._context_builder._find_relevant_communities(query, level)
 
         if not communities:
             return []
@@ -325,7 +377,7 @@ class GlobalSearchEngine:
 {community.full_content}
 
 ### Key Entities
-{', '.join(community.key_entities) if community.key_entities else 'N/A'}
+{", ".join(community.key_entities) if community.key_entities else "N/A"}
 
 ### Statistics
 - Entity Count: {community.entity_count}
@@ -376,9 +428,9 @@ Answer:"""
         weighted_answers = []
         for i, (answer, weight_info) in enumerate(zip(intermediate_answers, community_weights)):
             weight = weight_info.get("weight", 1.0)
-            title = weight_info.get("title", f"Community {i+1}")
+            title = weight_info.get("title", f"Community {i + 1}")
             weighted_answers.append(
-                f"### Perspective {i+1}: {title}\n(Relevance: {weight:.2f})\n\n{answer}"
+                f"### Perspective {i + 1}: {title}\n(Relevance: {weight:.2f})\n\n{answer}"
             )
 
         answers_text = "\n\n---\n\n".join(weighted_answers)
