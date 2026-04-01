@@ -130,4 +130,4 @@ echo ""
 docker compose -f "$COMPOSE_FILE" ps $COMPOSE_SERVICES
 echo ""
 log_info "Environment ready. Run the test with:"
-echo "    uv run python scripts/test_full_pipeline.py"
+echo "    uv run python scripts/run_36kr_full_pipeline.py"
