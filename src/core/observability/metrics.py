@@ -175,6 +175,19 @@ class MetricsCollector:
         ["type"],  # type: pending, stuck, failed
     )
 
+    # Scheduler job metrics
+    scheduler_job_duration = Histogram(
+        "scheduler_job_duration_seconds",
+        "Scheduled job execution duration",
+        ["job", "status"],
+        buckets=[0.5, 1, 5, 10, 30, 60, 120, 300, 600],
+    )
+    scheduler_job_total = Counter(
+        "scheduler_job_total",
+        "Total scheduled job executions",
+        ["job", "status"],
+    )
+
 
 # Global metrics instance for use across modules
 metrics = MetricsCollector()
