@@ -21,6 +21,15 @@ from core.db.neo4j import Neo4jPool
 router = APIRouter(prefix="/graph/visualization", tags=["graph-visualization"])
 
 
+# Whitelist for hop patterns to prevent Cypher injection
+_HOPS_PATTERNS = {
+    1: "*1..1",
+    2: "*1..2",
+    3: "*1..3",
+    4: "*1..4",
+}
+
+
 # ── Response Models ─────────────────────────────────────────────
 
 
@@ -199,8 +208,9 @@ async def get_subgraph(
         )
 
     max_hops = int(request.max_hops)
+    hop_pattern = _HOPS_PATTERNS.get(max_hops, "*1..2")  # Default to 2 hops
     cypher = f"""
-    MATCH path = (center:Entity {{canonical_name: $center}})-[:RELATED_TO*1..{max_hops}]-(related:Entity)
+    MATCH path = (center:Entity {{canonical_name: $center}})-[:RELATED_TO{hop_pattern}]-(related:Entity)
     """
 
     params: dict[str, Any] = {"center": request.center_entity}

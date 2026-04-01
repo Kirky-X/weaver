@@ -1,12 +1,28 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Centralized dependency registry for API endpoints.
 
+.. deprecated:: 0.2.0
+    This Service Locator pattern is deprecated. New endpoints should use
+    FastAPI's Depends() mechanism with dependencies from api/dependencies.py.
+
+    Migration path:
+        # OLD (deprecated)
+        from api.endpoints._deps import Endpoints
+        pool = Endpoints.get_postgres_pool()
+
+        # NEW (recommended)
+        from api.dependencies import get_postgres_pool
+        @router.get("/")
+        async def handler(pool: PostgresPool = Depends(get_postgres_pool)):
+            ...
+
 All endpoint modules use Endpoints.get_*() to obtain pool/client instances.
 The Container calls register_endpoints() once at startup to inject all dependencies.
 """
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
@@ -53,6 +69,12 @@ class Endpoints:
 
     @staticmethod
     def get_postgres_pool() -> PostgresPool:
+        warnings.warn(
+            "Endpoints.get_postgres_pool() is deprecated. "
+            "Use Depends(get_postgres_pool) from api.dependencies instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         if Endpoints._postgres is None:
             raise HTTPException(503, detail="Postgres pool not initialized")
         return Endpoints._postgres
