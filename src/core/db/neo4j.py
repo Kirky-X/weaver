@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from typing import Any
 
 from neo4j import AsyncDriver, AsyncGraphDatabase
@@ -69,6 +70,30 @@ class Neo4jPool:
         if self._driver is None:
             raise RuntimeError("Neo4jPool not started. Call startup() first.")
         return self._driver.session(database=database)
+
+    @asynccontextmanager
+    async def session_context(self, database: str = "neo4j"):
+        """Context manager for Neo4j session with automatic cleanup.
+
+        Use for multiple queries in a single transaction:
+            async with pool.session_context() as session:
+                await session.run(query1, params1)
+                await session.run(query2, params2)
+
+        Args:
+            database: Database name (default "neo4j").
+
+        Yields:
+            AsyncSession: Neo4j async session.
+        """
+        if self._driver is None:
+            raise RuntimeError("Neo4j driver not initialized")
+
+        session = self._driver.session(database=database)
+        try:
+            yield session
+        finally:
+            await session.close()
 
     async def execute_query(
         self,
