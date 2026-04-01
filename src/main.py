@@ -26,6 +26,7 @@ from api.endpoints.graph import set_postgres_pool as set_graph_postgres_pool
 from api.endpoints.health import health_check
 from api.middleware.rate_limit import limiter
 from api.router import api_router
+from api.schemas.response import APIResponse, success_response
 from config.settings import Settings
 from container import Container, set_container, set_settings
 from core.observability.logging import configure_logging, get_logger
@@ -517,14 +518,13 @@ def create_app(container: Container | None = None) -> FastAPI:
 
     app.include_router(api_router)
 
-    @app.get("/health")
-    async def health_check_endpoint() -> dict:
+    @app.get("/health", response_model=APIResponse[dict])
+    async def health_check_endpoint() -> APIResponse[dict]:
         """Health check endpoint with dependency checks."""
         result = await health_check()
-        result_dict = result.model_dump()
         if result.status != "healthy":
-            raise HTTPException(status_code=503, detail=result_dict)
-        return result_dict
+            raise HTTPException(status_code=503, detail=result.model_dump())
+        return success_response(result.model_dump())
 
     @app.get("/metrics")
     async def metrics_endpoint() -> PlainTextResponse:

@@ -35,11 +35,13 @@ openspec/
 .claude/
 docs/report/
 docs/36kr_pipeline_test.md
+docs/superpowers/
 REQUIREMENT_COMPLIANCE_REPORT.md
 doc/
 REVIEW_REPORT.md
 CLAUDE.md
 llm.md
+coverage.json
 
 # IDE/Tool directories
 .iflow/
