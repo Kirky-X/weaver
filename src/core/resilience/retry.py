@@ -19,7 +19,7 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
-from core.llm.output_validator import OutputParserException
+from core.llm.utils.json_parser import OutputParserException
 from core.observability.logging import get_logger
 
 log = get_logger("retry")

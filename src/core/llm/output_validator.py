@@ -1,74 +1,11 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# Copyright (c) 2026 KirkyX. All Rights Reserved.
 """Structured output validation and Pydantic output models for LLM responses."""
 
 from __future__ import annotations
 
-import re
-from typing import TypeVar
-
-import json_repair
 from pydantic import BaseModel, Field
 
 from core.constants import SentimentType
-
-T = TypeVar("T", bound=BaseModel)
-
-
-class OutputParserException(Exception):
-    """Raised when LLM output cannot be parsed into the expected model."""
-
-    pass
-
-
-def parse_llm_json(raw: str | list, model_cls: type[T]) -> T:
-    """Parse raw LLM output into a Pydantic model.
-
-    Uses json_repair to handle LLM JSON quirks:
-    - Markdown code block wrappers (```json ... ```)
-    - Trailing content after valid JSON
-    - Trailing commas, missing commas
-    - Single-quoted keys/values
-    - Inline comments
-    - Claude extended thinking format
-
-    json_repair.loads returns a parsed object directly (no separate json.loads step).
-    Pydantic model_validate is always the final validation layer.
-
-    Args:
-        raw: Raw string output from the LLM, or list of text blocks.
-        model_cls: Target Pydantic model class.
-
-    Returns:
-        Validated Pydantic model instance.
-
-    Raises:
-        OutputParserException: If parsing or validation fails.
-    """
-    if isinstance(raw, list):
-        raw = "".join(block.text if hasattr(block, "text") else str(block) for block in raw)
-
-    # Strip Markdown code block wrappers
-    clean = raw.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-
-    # Extract JSON object if there's trailing text (safety net; repair also handles this)
-    json_match = re.search(r"\{[\s\S]*\}", clean)
-    if json_match:
-        clean = json_match.group(0)
-
-    # json_repair.loads returns parsed object directly
-    data = json_repair.loads(clean)
-    # Handle completely invalid input (returns empty string)
-    if data == "":
-        raise OutputParserException(f"解析失败: 无法修复为有效 JSON\n原始内容: {raw[:200]}")
-    # Handle plain numeric output (e.g., "0.85" → 0.85) for single-field
-    # numeric models like QualityScorerOutput(score: float).
-    if isinstance(data, (int, float)) and model_cls.__name__ == "QualityScorerOutput":
-        return model_cls(score=float(data))
-    try:
-        return model_cls.model_validate(data)
-    except Exception as e:  # Pydantic ValidationError
-        raise OutputParserException(f"验证失败: {e!s}\n原始内容: {raw[:200]}")
-
 
 # ── Output Models ────────────────────────────────────────────
 

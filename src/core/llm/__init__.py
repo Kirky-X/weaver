@@ -1,70 +1,61 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Core LLM module - Label-based LLM client and provider management.
+# Copyright (c) 2026 KirkyX. All Rights Reserved.
+"""LLM module - Unified LLM client with LiteLLM backend.
 
-This module provides a unified interface for LLM operations with:
-- Label-based provider selection (e.g., "chat.aiping.GLM-4-9B-0414")
-- Automatic fallback chains
-- Provider-level rate limiting and circuit breaking
+This module provides a unified interface for LLM interactions with:
+- Two-layer nested configuration (Provider + Model)
+- LiteLLM unified calling interface
+- Label-based routing with fallback support
+- Circuit breaker for fault tolerance
+- json_repair for robust JSON parsing
 
-Example usage:
-    from core.llm import LLMClient, Label
+Usage:
+    from core.llm import LLMClient
 
-    # Create client
-    client = await LLMClient.create_from_config(
-        "config/llm.toml",
-        prompt_loader,
-        redis_client,
-    )
+    client = await LLMClient.create_from_config("config/llm.toml")
 
-    # Make a call
-    response = await client.call(
-        "chat.cc_stitch.claude-sonnet-4",
-        payload={"user_content": "Hello"},
-    )
+    # Chat call with label
+    response = await client.call("chat.aiping.GLM-4-9B-0414", payload)
 
+    # Using call point routing
+    result = await client.call_at("classifier", payload)
+
+    # Embedding
+    vectors = await client.embed_default(["text1", "text2"])
+
+    # Rerank
+    ranked = await client.rerank_default(query, documents)
 """
 
-from core.llm.label import InvalidLabelError, Label
-from core.llm.pool_manager import AllProvidersFailedError, ProviderPoolManager
-from core.llm.registry import ProviderInstanceConfig, ProviderRegistry
-from core.llm.request import (
-    EmbeddingRequest,
-    EmbeddingResponse,
-    LLMCallResult,
-    LLMRequest,
+from core.llm.client import LLMClient
+from core.llm.config import LLMConfigLoader
+from core.llm.types import (
+    CallPoint,
+    Capability,
+    CircuitState,
+    GlobalConfig,
+    Label,
     LLMResponse,
-    ProviderMetrics,
-    RerankRequest,
-    RerankResponse,
+    LLMTask,
+    LLMType,
+    ModelConfig,
+    ProviderConfig,
+    RoutingConfig,
     TokenUsage,
 )
-from core.llm.router import LabelRouter, RoutingStrategy
-from core.llm.types import CallPoint, LLMTask, LLMType
 
 __all__ = [
-    "AllProvidersFailedError",
-    # Core types
     "CallPoint",
-    "EmbeddingRequest",
-    "EmbeddingResponse",
-    "InvalidLabelError",
-    # Request/Response
-    "LLMCallResult",
-    "LLMRequest",
+    "Capability",
+    "CircuitState",
+    "GlobalConfig",
+    "LLMClient",
+    "LLMConfigLoader",
     "LLMResponse",
     "LLMTask",
     "LLMType",
     "Label",
-    # Routing
-    "LabelRouter",
-    "ProviderInstanceConfig",
-    "ProviderMetrics",
-    # Pool management
-    "ProviderPoolManager",
-    # Registry
-    "ProviderRegistry",
-    "RerankRequest",
-    "RerankResponse",
-    "RoutingStrategy",
+    "ModelConfig",
+    "ProviderConfig",
+    "RoutingConfig",
     "TokenUsage",
 ]

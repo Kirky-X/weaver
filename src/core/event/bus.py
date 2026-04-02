@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
 
-from core.llm.request import TokenUsage
+from core.llm.types import TokenUsage
 from core.observability.logging import get_logger
 
 log = get_logger("event_bus")

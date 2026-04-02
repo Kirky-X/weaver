@@ -1,4 +1,4 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+# Copyright (c) 2026 KirkyX. All Rights Reserved.
 """Redis Token Bucket rate limiter (multi-process safe via Lua script).
 
 适用场景:
@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import time
+from typing import Any
 
 # Lua script for atomic token consumption
 _LUA_CONSUME = """

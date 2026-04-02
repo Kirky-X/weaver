@@ -13,8 +13,21 @@ class TestNeo4jSettingsEnabled:
 
     def test_enabled_default_true(self):
         """Test enabled defaults to True."""
-        settings = Neo4jSettings()
-        assert settings.enabled is True
+        # Clear any environment variables that might affect the test
+        import os
+
+        old_values = {}
+        for key in ["NEO4J_URI", "NEO4J_USER", "NEO4J_PASSWORD", "NEO4J_ENABLED"]:
+            old_values[key] = os.environ.pop(key, None)
+
+        try:
+            settings = Neo4jSettings()
+            assert settings.enabled is True
+        finally:
+            # Restore environment variables
+            for key, value in old_values.items():
+                if value is not None:
+                    os.environ[key] = value
 
     def test_enabled_from_env(self):
         """Test enabled can be set from environment variable."""
