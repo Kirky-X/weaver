@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from modules.fetcher.rate_limiter import HostRateLimiter
+from modules.ingestion.fetching.rate_limiter import HostRateLimiter
 
 
 class TestHostRateLimiterInit:

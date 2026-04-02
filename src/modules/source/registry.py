@@ -22,7 +22,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from core.observability.logging import get_logger
-from modules.fetcher.base import BaseFetcher
+from modules.ingestion.fetching.base import BaseFetcher
 from modules.source.base import BaseSourceParser
 from modules.source.models import SourceConfig
 from modules.source.newsnow_parser import NewsNowParser
@@ -194,16 +194,22 @@ class SourceRegistry:
         result = []
         for source_type, parser in self._parsers.items():
             metadata = self._parser_metadata.get(source_type)
-            result.append({
-                "source_type": source_type,
-                "class_name": parser.__class__.__name__,
-                "metadata": {
-                    "name": metadata.name if metadata else "unknown",
-                    "version": metadata.version if metadata else "unknown",
-                    "description": metadata.description if metadata else "",
-                    "capabilities": metadata.capabilities if metadata else [],
-                } if metadata else None,
-            })
+            result.append(
+                {
+                    "source_type": source_type,
+                    "class_name": parser.__class__.__name__,
+                    "metadata": (
+                        {
+                            "name": metadata.name if metadata else "unknown",
+                            "version": metadata.version if metadata else "unknown",
+                            "description": metadata.description if metadata else "",
+                            "capabilities": metadata.capabilities if metadata else [],
+                        }
+                        if metadata
+                        else None
+                    ),
+                }
+            )
         return result
 
     def load_plugins(self, plugin_paths: list[str] | None = None) -> list[str]:

@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from modules.collector.models import ArticleRaw
-from modules.pipeline.graph import PHASE1_STAGES, PHASE3_STAGES, Pipeline
 from modules.pipeline.state import PipelineState
+from modules.processing.pipeline.graph import PHASE1_STAGES, PHASE3_STAGES, Pipeline
 
 
 class TestPipelineConstants:

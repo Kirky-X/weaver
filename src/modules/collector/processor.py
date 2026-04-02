@@ -8,10 +8,9 @@ from typing import Any
 
 from core.observability.logging import get_logger
 from modules.collector.crawler import Crawler
-from modules.collector.deduplicator import Deduplicator
-from modules.collector.simhash_dedup import SimHashDeduplicator, TitleItem
-from modules.fetcher.exceptions import FetchError
-from modules.pipeline.graph import Pipeline
+from modules.ingestion.deduplication import Deduplicator, SimHashDeduplicator, TitleItem
+from modules.ingestion.fetching.exceptions import FetchError
+from modules.processing.pipeline.graph import Pipeline
 from modules.storage.postgres.article_repo import ArticleRepo
 
 log = get_logger("discovery_processor")
@@ -127,9 +126,10 @@ class DiscoveryProcessor:
                         title_items.append(TitleItem(url=item.url, title=title))
 
                 if title_items:
-                    unique_items, filtered_count = (
-                        await self._simhash_dedup.dedup_titles_with_metrics(title_items)
-                    )
+                    (
+                        unique_items,
+                        filtered_count,
+                    ) = await self._simhash_dedup.dedup_titles_with_metrics(title_items)
                     # Filter original items based on unique titles
                     unique_urls = {item.url for item in unique_items}
                     items = [item for item in items if item.url in unique_urls]
