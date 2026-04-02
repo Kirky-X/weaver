@@ -72,14 +72,33 @@ class SpacyExtractor:
     def _load(self, model_name: str) -> object | None:
         """Load a spaCy model (cached).
 
+        Supports loading from:
+        1. Local wheel file (via SPACY_ZH_MODEL_PATH env var for zh models)
+        2. Installed spaCy model name
+
         Args:
             model_name: Name of the spaCy model to load.
 
         Returns:
             Loaded spaCy NLP pipeline or None if loading fails.
         """
+        import os
+
         import spacy
 
+        # Check for local wheel file path (for Chinese models)
+        if model_name.startswith("zh_core_web"):
+            local_path = os.getenv("SPACY_ZH_MODEL_PATH")
+            if local_path and os.path.exists(local_path):
+                try:
+                    # Load from wheel file directly
+                    nlp = spacy.load(local_path, exclude=["parser", "tagger", "lemmatizer"])
+                    log.info("spacy_model_loaded_from_local", path=local_path)
+                    return nlp
+                except (OSError, ValueError, ImportError) as e:
+                    log.warning("spacy_local_load_failed", path=local_path, error=str(e))
+
+        # Fallback to installed model
         try:
             return spacy.load(model_name, exclude=["parser", "tagger", "lemmatizer"])
         except (OSError, ValueError, ImportError) as e:

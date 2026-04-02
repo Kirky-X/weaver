@@ -68,8 +68,11 @@ class BM25Retriever:
         b: BM25 b parameter (document length normalization).
     """
 
-    # Stemmer is not needed for Chinese, only for English
-    SUPPORTED_LANGUAGES = {"zh": "zh_core_web_sm", "en": "en_core_web_sm"}
+    # Model preferences for each language (tried in order)
+    MODEL_MAP = {
+        "zh": ["zh_core_web_lg", "zh_core_web_sm", "zh_core_web_trf"],
+        "en": ["en_core_web_sm", "en_core_web_trf"],
+    }
 
     def __init__(
         self,
@@ -110,17 +113,43 @@ class BM25Retriever:
         )
 
     def _load_spacy_model(self) -> None:
-        """Load spacy model for tokenization."""
+        """Load spacy model for tokenization.
+
+        Tries models in order from MODEL_MAP, with local wheel support for Chinese.
+        """
+        import os
+
         if self._nlp is not None:
             return
 
-        model_name = self.SUPPORTED_LANGUAGES.get(self._language, "zh_core_web_sm")
-        try:
-            self._nlp = spacy.load(model_name, disable=["ner", "parser", "lemmatizer"])
-            log.info("spacy_model_loaded", model=model_name)
-        except OSError:
-            log.warning("spacy_model_not_found", model=model_name, fallback="simple_tokenizer")
-            self._nlp = None
+        model_candidates = self.MODEL_MAP.get(self._language, ["zh_core_web_sm"])
+
+        for model_name in model_candidates:
+            # Check for local wheel file path (for Chinese models)
+            if model_name.startswith("zh_core_web"):
+                local_path = os.getenv("SPACY_ZH_MODEL_PATH")
+                if local_path and os.path.exists(local_path):
+                    try:
+                        self._nlp = spacy.load(local_path, disable=["ner", "parser", "lemmatizer"])
+                        log.info("spacy_model_loaded_from_local", path=local_path)
+                        return
+                    except (OSError, ValueError, ImportError) as e:
+                        log.warning("spacy_local_load_failed", path=local_path, error=str(e))
+
+            # Try installed model
+            try:
+                self._nlp = spacy.load(model_name, disable=["ner", "parser", "lemmatizer"])
+                log.info("spacy_model_loaded", model=model_name)
+                return
+            except OSError:
+                log.warning("spacy_model_not_found", model=model_name)
+                continue
+
+        # All models failed, use simple tokenizer
+        log.warning(
+            "spacy_no_model_available", language=self._language, fallback="simple_tokenizer"
+        )
+        self._nlp = None
 
     def _tokenize(self, text: str) -> list[str]:
         """Tokenize text using spacy or simple whitespace tokenization.

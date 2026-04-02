@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 from core.observability.logging import get_logger
@@ -10,11 +11,9 @@ from core.observability.logging import get_logger
 log = get_logger("spacy_extractor")
 
 MODEL_MAP = {
-    # zh_core_web_sm is preferred over zh_core_web_trf because:
-    # - trf model requires spacy-transformers + PyTorch/TensorFlow
-    # - sm model is lighter weight and works out of the box
-    # - sm model provides adequate NER accuracy for production use
-    "zh": ["zh_core_web_sm", "zh_core_web_trf"],
+    # zh_core_web_lg is preferred for better accuracy
+    # Falls back to sm if lg not available
+    "zh": ["zh_core_web_lg", "zh_core_web_sm", "zh_core_web_trf"],
     "en": ["en_core_web_sm", "en_core_web_trf"],
     "default": ["xx_ent_wiki_sm"],
 }
@@ -72,6 +71,10 @@ class SpacyExtractor:
     def _load(self, model_name: str) -> object | None:
         """Load a spaCy model (cached).
 
+        Supports loading from:
+        1. Local wheel file (via SPACY_ZH_MODEL_PATH env var for zh models)
+        2. Installed spaCy model name
+
         Args:
             model_name: Name of the spaCy model to load.
 
@@ -80,6 +83,19 @@ class SpacyExtractor:
         """
         import spacy
 
+        # Check for local wheel file path (for Chinese models)
+        if model_name.startswith("zh_core_web"):
+            local_path = os.getenv("SPACY_ZH_MODEL_PATH")
+            if local_path and os.path.exists(local_path):
+                try:
+                    # Load from wheel file directly
+                    nlp = spacy.load(local_path, exclude=["parser", "tagger", "lemmatizer"])
+                    log.info("spacy_model_loaded_from_local", path=local_path)
+                    return nlp
+                except (OSError, ValueError, ImportError) as e:
+                    log.warning("spacy_local_load_failed", path=local_path, error=str(e))
+
+        # Fallback to installed model
         try:
             return spacy.load(model_name, exclude=["parser", "tagger", "lemmatizer"])
         except (OSError, ValueError, ImportError) as e:

@@ -1,6 +1,6 @@
 # LLM Provider Configuration Template
 # ============================================================
-# Two-layer nested configuration: Provider (厂商) + Model (模型)
+# Two-layer nested configuration: Provider + Model
 # Copy this file to config/llm.toml and configure your providers.
 # API keys must use environment variable reference: ${ENV_VAR}
 # ============================================================
@@ -17,9 +17,9 @@ default_timeout = 120.0             # Default timeout for all LLM calls (seconds
 # Provider: OpenAI
 # ============================================================
 [providers.openai]
-type = "openai"                     # LiteLLM provider type
+type = "openai"
 base_url = "https://api.openai.com/v1"
-api_key = "${OPENAI_API_KEY}"       # Environment variable reference
+api_key = "${OPENAI_API_KEY}"
 rpm_limit = 500
 concurrency = 10
 timeout = 120.0
@@ -56,50 +56,21 @@ weight = 100
   capabilities = ["chat", "vision"]
 
 # ============================================================
-# Provider: Ollama (Local)
+# Provider: Ollama (Local) - Fallback for embedding
 # ============================================================
 [providers.ollama]
 type = "openai"
 base_url = "http://localhost:11434/v1"
-api_key = "ollama"                  # Ollama doesn't require a real key
+api_key = "ollama"                  # Ollama does not require a real key
 rpm_limit = 0                       # No rate limit for local
 concurrency = 3
 timeout = 300.0
-priority = 200                      # Lower priority (higher number)
+priority = 200                      # Lower priority (higher number = lower priority)
 weight = 50
 
-  [providers.ollama.models.chat]
-  model_id = "qwen3.5:9b"
-  temperature = 0.0
-  max_tokens = 4096
-  capabilities = ["chat"]
-
-# ============================================================
-# Provider: aiping.cn (OpenAI-compatible)
-# ============================================================
-[providers.aiping]
-type = "openai"                     # Use openai type for OpenAI-compatible APIs
-base_url = "https://www.aiping.cn/api/v1"
-api_key = "${AIPING_API_KEY}"
-rpm_limit = 100
-concurrency = 8
-timeout = 300.0
-priority = 100
-weight = 100
-
-  [providers.aiping.models.chat]
-  model_id = "GLM-4-9B-0414"
-  temperature = 0.0
-  max_tokens = 4096
-  capabilities = ["chat"]
-
-  [providers.aiping.models.embedding]
-  model_id = "Qwen3-Embedding-0.6B"
+  [providers.ollama.models.embedding]
+  model_id = "nomic-embed-text"
   capabilities = ["embedding"]
-
-  [providers.aiping.models.rerank]
-  model_id = "Qwen3-Reranker-0.6B"
-  capabilities = ["rerank"]
 
 # ============================================================
 # Default Labels (used when no call point specified)
@@ -110,10 +81,10 @@ fallbacks = ["chat.anthropic.claude-sonnet-4-20250514"]
 
 [defaults.embedding]
 label = "embedding.openai.text-embedding-3-large"
-fallbacks = []
+fallbacks = ["embedding.ollama.nomic-embed-text"]
 
 [defaults.rerank]
-label = "rerank.aiping.Qwen3-Reranker-0.6B"
+label = ""                          # Rerank requires specialized provider
 fallbacks = []
 
 # ============================================================
@@ -122,20 +93,36 @@ fallbacks = []
 # ============================================================
 [call-points.classifier]
 primary = "chat.openai.gpt-4o"
-fallbacks = []
+fallbacks = ["chat.anthropic.claude-sonnet-4-20250514"]
 
 [call-points.cleaner]
 primary = "chat.openai.gpt-4o"
-fallbacks = []
+fallbacks = ["chat.anthropic.claude-sonnet-4-20250514"]
+
+[call-points.categorizer]
+primary = "chat.openai.gpt-4o"
+fallbacks = ["chat.anthropic.claude-sonnet-4-20250514"]
+
+[call-points.analyze]
+primary = "chat.openai.gpt-4o"
+fallbacks = ["chat.anthropic.claude-sonnet-4-20250514"]
 
 [call-points.entity_extractor]
 primary = "chat.openai.gpt-4o"
-fallbacks = []
+fallbacks = ["chat.anthropic.claude-sonnet-4-20250514"]
+
+[call-points.credibility_checker]
+primary = "chat.openai.gpt-4o"
+fallbacks = ["chat.anthropic.claude-sonnet-4-20250514"]
+
+[call-points.quality_scorer]
+primary = "chat.openai.gpt-4o"
+fallbacks = ["chat.anthropic.claude-sonnet-4-20250514"]
+
+[call-points.merger]
+primary = "chat.openai.gpt-4o"
+fallbacks = ["chat.anthropic.claude-sonnet-4-20250514"]
 
 [call-points.embedding]
 primary = "embedding.openai.text-embedding-3-large"
-fallbacks = []
-
-[call-points.rerank]
-primary = "rerank.aiping.Qwen3-Reranker-0.6B"
-fallbacks = []
+fallbacks = ["embedding.ollama.nomic-embed-text"]

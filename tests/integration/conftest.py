@@ -1,11 +1,19 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Shared fixtures for integration tests - NO MOCKS.
+"""Shared fixtures for integration tests with service fallback.
 
-All fixtures use real service connections (PostgreSQL, Neo4j, Redis, EventBus).
+Supports three modes:
+1. Real services available: Use real connections
+2. Services unavailable: Skip tests gracefully
+3. Mock mode: Use mocks for isolated testing
+
+All fixtures use real service connections (PostgreSQL, Neo4j, Redis, EventBus)
+when available, or skip tests when services are not running.
 """
 
 import os
 import uuid
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
 import pytest
 
@@ -32,6 +40,48 @@ def get_redis_url():
     return os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
 
+async def check_postgres_available() -> bool:
+    """Check if PostgreSQL is available."""
+    try:
+        from core.db.postgres import PostgresPool
+
+        dsn = get_postgres_dsn()
+        pool = PostgresPool(dsn)
+        await pool.startup()
+        await pool.shutdown()
+        return True
+    except Exception:
+        return False
+
+
+async def check_neo4j_available() -> bool:
+    """Check if Neo4j is available."""
+    try:
+        from core.db.neo4j import Neo4jPool
+
+        uri, auth = get_neo4j_config()
+        pool = Neo4jPool(uri, auth)
+        await pool.startup()
+        await pool.shutdown()
+        return True
+    except Exception:
+        return False
+
+
+async def check_redis_available() -> bool:
+    """Check if Redis is available."""
+    try:
+        from redis import asyncio as aioredis
+
+        url = get_redis_url()
+        client = aioredis.from_url(url)
+        await client.ping()
+        await client.aclose()
+        return True
+    except Exception:
+        return False
+
+
 @pytest.fixture
 def unique_id():
     """Generate unique test ID to avoid conflicts."""
@@ -40,8 +90,14 @@ def unique_id():
 
 @pytest.fixture
 async def postgres_pool():
-    """Create a real PostgreSQL pool for integration tests."""
+    """Create a real PostgreSQL pool for integration tests.
+
+    Skips tests if PostgreSQL is not available.
+    """
     from core.db.postgres import PostgresPool
+
+    if not await check_postgres_available():
+        pytest.skip("PostgreSQL not available")
 
     dsn = get_postgres_dsn()
     pool = PostgresPool(dsn)
@@ -52,8 +108,14 @@ async def postgres_pool():
 
 @pytest.fixture
 async def neo4j_pool():
-    """Create a real Neo4j pool for integration tests."""
+    """Create a real Neo4j pool for integration tests.
+
+    Skips tests if Neo4j is not available.
+    """
     from core.db.neo4j import Neo4jPool
+
+    if not await check_neo4j_available():
+        pytest.skip("Neo4j not available")
 
     uri, auth = get_neo4j_config()
     pool = Neo4jPool(uri, auth)
@@ -64,8 +126,14 @@ async def neo4j_pool():
 
 @pytest.fixture
 async def redis_client():
-    """Create a real Redis client for integration tests."""
+    """Create a real Redis client for integration tests.
+
+    Skips tests if Redis is not available.
+    """
     from redis import asyncio as aioredis
+
+    if not await check_redis_available():
+        pytest.skip("Redis not available")
 
     url = get_redis_url()
     client = aioredis.from_url(url)
@@ -79,3 +147,55 @@ def event_bus():
     from core.event.bus import EventBus
 
     return EventBus()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Optional fixtures for tests that can work with or without services
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+async def optional_postgres_pool():
+    """Optional PostgreSQL pool - returns None if not available."""
+    from core.db.postgres import PostgresPool
+
+    if not await check_postgres_available():
+        yield None
+        return
+
+    dsn = get_postgres_dsn()
+    pool = PostgresPool(dsn)
+    await pool.startup()
+    yield pool
+    await pool.shutdown()
+
+
+@pytest.fixture
+async def optional_neo4j_pool():
+    """Optional Neo4j pool - returns None if not available."""
+    from core.db.neo4j import Neo4jPool
+
+    if not await check_neo4j_available():
+        yield None
+        return
+
+    uri, auth = get_neo4j_config()
+    pool = Neo4jPool(uri, auth)
+    await pool.startup()
+    yield pool
+    await pool.shutdown()
+
+
+@pytest.fixture
+async def optional_redis_client():
+    """Optional Redis client - returns None if not available."""
+    from redis import asyncio as aioredis
+
+    if not await check_redis_available():
+        yield None
+        return
+
+    url = get_redis_url()
+    client = aioredis.from_url(url)
+    yield client
+    await client.aclose()
