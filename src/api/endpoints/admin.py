@@ -25,8 +25,8 @@ from core.observability.logging import get_logger
 from modules.storage.postgres.source_authority_repo import SourceAuthorityRepo
 
 if TYPE_CHECKING:
-    from modules.storage.llm_failure_repo import LLMFailureRepo
-    from modules.storage.llm_usage_repo import LLMUsageRepo
+    from modules.analytics.llm_failure.repo import LLMFailureRepo
+    from modules.analytics.llm_usage.repo import LLMUsageRepo
 
 log = get_logger("admin_api")
 

@@ -9,7 +9,7 @@ import pytest
 from core.db.models import LLMUsageHourly, LLMUsageRaw
 from core.event.bus import LLMUsageEvent
 from core.llm.request import TokenUsage
-from modules.storage.llm_usage_repo import LLMUsageRepo
+from modules.analytics.llm_usage.repo import LLMUsageRepo
 
 
 class TestLLMUsageRepoInsertRaw:
