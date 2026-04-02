@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from core.db.neo4j import Neo4jPool
+from core.db.pool_protocols import GraphPool
 from core.observability.logging import get_logger
 
 log = get_logger("neo4j_article_repo")
@@ -19,10 +19,10 @@ class Neo4jArticleRepo:
     including article node creation and FOLLOWED_BY relationships.
 
     Args:
-        pool: Neo4j connection pool.
+        pool: Graph database pool (Neo4j or LadybugDB).
     """
 
-    def __init__(self, pool: Neo4jPool) -> None:
+    def __init__(self, pool: GraphPool) -> None:
         self._pool = pool
 
     async def create_article(
