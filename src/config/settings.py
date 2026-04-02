@@ -344,6 +344,38 @@ class SearchSettings(BaseModel):
     """Half-life in days for temporal decay. After this many days, the decay multiplier reaches 0.5."""
 
 
+class IntentRoutingSettings(BaseModel):
+    """Intent-aware routing configuration."""
+
+    enabled: bool = True
+    """Enable intent-aware routing."""
+
+    classification_threshold: float = 0.7
+    """Minimum confidence to use classification."""
+
+    fallback_mode: str = "local"
+    """Fallback mode if classification fails."""
+
+    allow_explicit_mode: bool = True
+    """Allow users to override with mode parameter."""
+
+
+class TemporalInferenceSettings(BaseModel):
+    """Temporal inference configuration."""
+
+    enabled: bool = True
+    """Enable temporal parsing."""
+
+    default_window_days: int = 7
+    """Default time window in days."""
+
+    parse_chinese_expressions: bool = True
+    """Parse Chinese relative expressions."""
+
+    auto_anchor: bool = True
+    """Automatically anchor relative times."""
+
+
 def settings_customise_sources(
     settings: type[BaseSettings],
     init_settings: PydanticBaseSettingsSource,
@@ -424,6 +456,8 @@ class Settings(BaseSettings):
     dedup: DedupSettings = Field(default_factory=DedupSettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
     search: SearchSettings = Field(default_factory=SearchSettings)
+    intent_routing: IntentRoutingSettings = Field(default_factory=IntentRoutingSettings)
+    temporal_inference: TemporalInferenceSettings = Field(default_factory=TemporalInferenceSettings)
 
     def __init__(self, **kwargs: Any) -> None:
         """Initialize settings, loading TOML config first."""

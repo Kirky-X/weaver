@@ -18,6 +18,9 @@ from core.observability.logging import get_logger
 from modules.knowledge.search.engines.global_search import GlobalSearchEngine
 from modules.knowledge.search.engines.hybrid_search import HybridSearchEngine
 from modules.knowledge.search.engines.local_search import LocalSearchEngine, SearchResult
+
+# MAGMA intent-aware routing
+from modules.knowledge.search.intent.router import IntentRouter, RoutingConfig
 from modules.storage.postgres.vector_repo import VectorRepo
 
 router = APIRouter(prefix="/search", tags=["search"])
@@ -239,12 +242,13 @@ async def _search_articles_impl(
 async def search_unified(
     request: Request,
     q: str = Query(..., description="Search query"),
-    mode: str = Query(
-        "local",
-        description="Search mode: local, global, or articles. Default: local (entity-focused Q&A)",
+    mode: str | None = Query(
+        None,
+        description="DEPRECATED: Use automatic intent-aware routing instead",
+        deprecated="Use automatic intent-aware routing instead of manual mode selection",
     ),
-    entity_names: str | None = Query(None, description="Comma-separated entity names (local mode)"),
-    max_tokens: int | None = Query(None, description="Max context tokens (local/global mode)"),
+    entity_names: str | None = Query(None, description="DEPRECATED: Intent router handles this"),
+    max_tokens: int | None = Query(None, description="DEPRECATED: Intent router handles this"),
     community_level: int = Query(0, ge=0, le=10, description="Community level (global mode)"),
     threshold: float = Query(
         0.0, ge=0.0, le=1.0, description="Similarity threshold (articles mode)"
@@ -260,46 +264,81 @@ async def search_unified(
     llm: LLMClient = Depends(deps.Endpoints.get_llm),
     hybrid_engine: HybridSearchEngine = Depends(deps.Endpoints.get_hybrid_engine),
 ) -> APIResponse[SearchResponse]:
-    """Unified search endpoint with mode-based routing.
+    """Unified search endpoint with MAGMA-inspired intent-aware routing.
 
-    **Modes:**
-    - `local` (default): Entity-focused knowledge graph Q&A.
-      Best for: "Who is X?", "How are X and Y related?", specific entity queries.
-    - `global`: Community-level aggregated search (Map-Reduce pattern).
-      Best for: broad exploratory queries spanning multiple topics.
-    - `articles`: Find similar articles using hybrid vector + keyword scoring.
+    **Intent-Aware Routing:** The system now automatically classifies your query
+    to determine the best search strategy:
+
+    | Intent Type | Description | Search Strategy |
+    |-------------|-------------|-----------------|
+    | **WHY** | "为什么..."、原因 | Local search with causal relationship focus |
+    | **WHEN** | "什么时候..."、时间 | Local search with temporal window and sorting |
+    | **ENTITY** | "X是什么..."、实体 | Local search with entity filtering |
+    | **MULTI_HOP** | "X和Y的关系..."、对比 | Global search with deeper community traversal |
+    | **OPEN** | "关于..."、探索 | Global search with standard community level |
 
     **Migration from deprecated endpoints:**
-    - `/search/local?q=xxx` → `/search?mode=local&q=xxx`
-    - `/search/global?q=xxx` → `/search?mode=global&q=xxx`
-    - `/search/articles?q=xxx` → `/search?mode=articles&q=xxx`
+    - `/search/local?q=xxx` → `/search?q=xxx` (mode now optional, defaults to intent routing)
+    - `/search/global?q=xxx` → `/search?q=xxx`
+    - `/search/articles?q=xxx` → `/search?q=xxx`
+
+    **Backward Compatibility:** The `mode` parameter is **deprecated** but still supported
+    for explicit override. Users who prefer manual mode selection can still use `?mode=local`.
     """
-    if mode == SearchMode.ARTICLES.value:
-        return await _search_articles_impl(
-            query=q,
-            threshold=threshold,
-            limit=limit,
-            category=category,
-            use_hybrid=use_hybrid,
-            vector_repo=vector_repo,
-            llm=llm,
-            hybrid_engine=hybrid_engine,
-        )
+    # Initialize intent router
+    intent_router = IntentRouter(
+        local_engine=local_engine,
+        global_engine=global_engine,
+        vector_repo=vector_repo,
+        hybrid_engine=hybrid_engine,
+        llm=llm,
+        config=RoutingConfig(
+            enable_intent_routing=True,
+            fallback_mode=mode or "local",
+        ),
+    )
 
-    if mode == SearchMode.GLOBAL.value:
-        return await _search_global_impl(
-            query=q,
-            community_level=community_level,
-            mode=global_mode,
-            engine=global_engine,
-        )
+    # Classify query intent
+    classification = await intent_router._classifier.classify(q)
 
-    # Default: local mode
-    return await _search_local_impl(
-        query=q,
-        entity_names=entity_names,
-        max_tokens=max_tokens,
-        engine=local_engine,
+    # Route to appropriate engine
+    get_logger(__name__).info(
+        "explicit_mode_override" if mode else "intent_routing",
+        mode=mode,
+        intent=classification.intent.value,
+    )
+    engine_result = await intent_router.route(q, classification)
+
+    # Handle both dict and SearchResult object returns
+    if isinstance(engine_result, dict):
+        result_answer = engine_result.get("answer", "")
+        result_tokens = engine_result.get("context_tokens", 0)
+        result_confidence = engine_result.get("confidence", 0.0)
+        result_entities = engine_result.get("entities", [])
+        result_sources = engine_result.get("sources", [])
+        result_metadata = engine_result.get("metadata", {})
+    else:
+        result_answer = engine_result.answer
+        result_tokens = engine_result.context_tokens
+        result_confidence = engine_result.confidence
+        result_entities = engine_result.entities
+        result_sources = engine_result.sources if isinstance(engine_result.sources, list) else []
+        result_metadata = engine_result.metadata
+
+    if mode:
+        result_metadata["explicit_mode"] = mode
+
+    return success_response(
+        SearchResponse(
+            query=q,
+            answer=result_answer,
+            context_tokens=result_tokens,
+            confidence=result_confidence,
+            search_type="auto",
+            entities=result_entities,
+            sources=result_sources,
+            metadata=result_metadata,
+        )
     )
 
 
