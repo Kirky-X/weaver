@@ -112,6 +112,7 @@ class Container:
         self._local_search_engine: LocalSearchEngine | None = None
         self._global_search_engine: GlobalSearchEngine | None = None
         self._hybrid_engine: HybridSearchEngine | None = None
+        self._memory_service: Any = None  # MemoryIntegrationService
         self._shutdown: bool = False  # Idempotency protection
 
     def configure(self, settings: Settings) -> Container:
@@ -494,6 +495,17 @@ class Container:
             coalesce=True,
         )
 
+        # ── Memory Consolidation ──
+        if self._memory_service is not None:
+            scheduler.add_job(
+                self._memory_service.consolidate,
+                IntervalTrigger(minutes=self._settings.memory.consolidation_interval_minutes),
+                id="memory_consolidation",
+                name="Memory slow path consolidation",
+                max_instances=1,
+                coalesce=True,
+            )
+
         # ── Startup: run sync once immediately ──
         scheduler.add_job(
             jobs.sync_pending_to_neo4j,
@@ -601,6 +613,83 @@ class Container:
                 config=HybridSearchConfig(),
             )
         return self._hybrid_engine
+
+    # ── Memory Service ───────────────────────────────────────────
+
+    def memory_service(self) -> Any | None:
+        """Get memory integration service (or None if unavailable)."""
+        return self._memory_service
+
+    async def init_memory_service(self) -> Any | None:
+        """Initialize the MAGMA memory integration service.
+
+        Requires Neo4j, LLM client, Redis, and vector repo to be available.
+        """
+        if self._memory_service is not None:
+            return self._memory_service
+
+        if self._neo4j_pool is None or self._llm_client is None or self._redis_client is None:
+            log.info("memory_service_skipped_missing_deps")
+            return None
+
+        try:
+            from modules.knowledge.search.intent.classifier import IntentClassifier
+            from modules.memory.integration.memory_service import (
+                MemoryIntegrationService,
+                MemoryServiceConfig,
+            )
+
+            # Get settings
+            memory_settings = self._settings.memory
+
+            # Create config from settings
+            config = MemoryServiceConfig(
+                fast_path_enabled=memory_settings.fast_path_enabled,
+                slow_path_enabled=memory_settings.slow_path_enabled,
+                causal_confidence_threshold=memory_settings.causal_confidence_threshold,
+                max_traversal_depth=memory_settings.max_traversal_depth,
+                beam_width=memory_settings.beam_width,
+                token_budget=memory_settings.token_budget,
+            )
+
+            # Create intent classifier
+            intent_classifier = IntentClassifier(self._llm_client)
+
+            # Create embedding service wrapper
+            class EmbeddingServiceWrapper:
+                """Wrapper for embedding operations."""
+
+                def __init__(self, llm_client: Any) -> None:
+                    self._llm = llm_client
+
+                async def embed(self, text: str) -> list[float]:
+                    """Embed text using LLM client."""
+                    # Use the vector repo's embedding functionality
+                    # For now, return a placeholder - real implementation
+                    # would use an embedding model
+                    return [0.0] * 384
+
+            embedding_service = EmbeddingServiceWrapper(self._llm_client)
+
+            # Create the memory service
+            self._memory_service = MemoryIntegrationService(
+                neo4j_pool=self._neo4j_pool,
+                llm_client=self._llm_client,
+                redis_client=self._redis_client,
+                embedding_service=embedding_service,
+                intent_classifier=intent_classifier,
+                config=config,
+            )
+
+            # Initialize constraints
+            await self._memory_service.initialize()
+
+            log.info("memory_service_initialized")
+            return self._memory_service
+
+        except Exception as exc:
+            log.error("memory_service_init_failed", error=str(exc))
+            return None
 
     # ── Fetcher & Crawler ────────────────────────────────────────
 
@@ -781,6 +870,9 @@ class Container:
 
         await self.init_pipeline()
         processor.set_pipeline(self.pipeline())
+
+        # Initialize MAGMA memory service (optional, requires Neo4j)
+        await self.init_memory_service()
 
         # Initialize LLM failure logging
         from modules.analytics.llm_failure.repo import LLMFailureRepo

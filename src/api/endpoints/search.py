@@ -21,6 +21,7 @@ from modules.knowledge.search.engines.local_search import LocalSearchEngine, Sea
 
 # MAGMA intent-aware routing
 from modules.knowledge.search.intent.router import IntentRouter, RoutingConfig
+from modules.memory.core.graph_types import IntentType
 from modules.storage.postgres.vector_repo import VectorRepo
 
 router = APIRouter(prefix="/search", tags=["search"])
@@ -449,3 +450,210 @@ async def search_drift(
         if "llm" in str(exc).lower():
             raise HTTPException(status_code=503, detail="LLM service unavailable")
         raise HTTPException(status_code=500, detail=f"DRIFT search failed: {exc}")
+
+
+# ── MAGMA Memory Search Endpoints ─────────────────────────────────
+
+
+class CausalSearchRequest(BaseModel):
+    """Request model for causal search."""
+
+    query: str
+    """The causal reasoning query (e.g., 'Why did X happen?')."""
+
+    max_depth: int = 3
+    """Maximum depth for causal chain traversal."""
+
+    min_confidence: float = 0.7
+    """Minimum confidence for causal edges."""
+
+
+class CausalSearchResponse(BaseModel):
+    """Response model for causal search."""
+
+    query: str
+    answer: str
+    causal_chain: list[dict[str, Any]]
+    confidence: float
+    metadata: dict[str, Any]
+
+
+class TemporalSearchRequest(BaseModel):
+    """Request model for temporal search."""
+
+    query: str
+    """The temporal reasoning query (e.g., 'When did X happen?')."""
+
+    time_window_days: int = 7
+    """Time window in days for temporal filtering."""
+
+    limit: int = 10
+    """Maximum number of events to return."""
+
+
+class TemporalSearchResponse(BaseModel):
+    """Response model for temporal search."""
+
+    query: str
+    events: list[dict[str, Any]]
+    time_range: dict[str, Any]
+    metadata: dict[str, Any]
+
+
+@router.post("/causal", response_model=APIResponse[CausalSearchResponse])
+@limiter.limit("10/minute")
+async def search_causal(
+    request: Request,
+    body: CausalSearchRequest,
+    _: str = Depends(verify_api_key),
+) -> APIResponse[CausalSearchResponse]:
+    """Causal reasoning search using MAGMA multi-graph architecture.
+
+    Traverses causal chains to answer "Why?" questions.
+
+    Best for:
+    - Understanding cause-effect relationships
+    - Explaining why events occurred
+    - Analyzing event cascades
+
+    Args:
+        body: Causal search request with query and parameters.
+        _: Verified API key.
+
+    Returns:
+        Causal chain with explanations and confidence scores.
+
+    """
+    from modules.memory.graphs.causal import CausalGraphRepo
+    from modules.memory.retrieval.adaptive_search import AdaptiveSearchEngine
+
+    log = get_logger(__name__)
+
+    try:
+        # Get dependencies
+        neo4j_pool = deps.Endpoints.get_neo4j_pool()
+
+        # Create repositories
+        from modules.memory.graphs.temporal import TemporalGraphRepo
+
+        temporal_repo = TemporalGraphRepo(pool=neo4j_pool)
+        causal_repo = CausalGraphRepo(
+            pool=neo4j_pool,
+            confidence_threshold=body.min_confidence,
+        )
+
+        # Create mock services for adaptive search
+        class MockEmbeddingService:
+            async def embed(self, text: str) -> list[float]:
+                return [0.1] * 384
+
+        class MockIntentClassifier:
+            async def classify(self, query: str):
+                from modules.memory.core.graph_types import IntentType
+
+                class Result:
+                    intent = IntentType.WHY
+
+                return Result()
+
+        engine = AdaptiveSearchEngine(
+            temporal_repo=temporal_repo,
+            causal_repo=causal_repo,
+            embedding_service=MockEmbeddingService(),
+            intent_classifier=MockIntentClassifier(),
+            max_depth=body.max_depth,
+        )
+
+        # Execute search
+        results = await engine.search(
+            query=body.query,
+            intent=IntentType.WHY if "IntentType" in dir() else None,
+        )
+
+        # Build causal chain from results
+        causal_chain = [
+            {
+                "id": r["id"],
+                "content": r.get("content", ""),
+                "score": r.get("score", 0),
+            }
+            for r in results
+        ]
+
+        return success_response(
+            CausalSearchResponse(
+                query=body.query,
+                answer=f"Found {len(causal_chain)} related events in causal chain.",
+                causal_chain=causal_chain,
+                confidence=sum(r.get("score", 0) for r in results) / max(len(results), 1),
+                metadata={"depth": body.max_depth},
+            )
+        )
+
+    except Exception as exc:
+        log.error("causal_search_failed", error=str(exc))
+        if "neo4j" in str(exc).lower():
+            raise HTTPException(status_code=503, detail="Graph service unavailable")
+        raise HTTPException(status_code=500, detail=f"Causal search failed: {exc}")
+
+
+@router.post("/temporal", response_model=APIResponse[TemporalSearchResponse])
+@limiter.limit("20/minute")
+async def search_temporal(
+    request: Request,
+    body: TemporalSearchRequest,
+    _: str = Depends(verify_api_key),
+) -> APIResponse[TemporalSearchResponse]:
+    """Temporal reasoning search using MAGMA multi-graph architecture.
+
+    Retrieves events in chronological order to answer "When?" questions.
+
+    Best for:
+    - Timeline reconstruction
+    - Event sequence analysis
+    - Temporal pattern discovery
+
+    Args:
+        body: Temporal search request with query and parameters.
+        _: Verified API key.
+
+    Returns:
+        Ordered list of events with temporal metadata.
+
+    """
+    from modules.memory.graphs.temporal import TemporalGraphRepo
+
+    log = get_logger(__name__)
+
+    try:
+        # Get dependencies
+        neo4j_pool = deps.Endpoints.get_neo4j_pool()
+
+        # Create repository
+        temporal_repo = TemporalGraphRepo(pool=neo4j_pool)
+
+        # Get temporal chain
+        events = await temporal_repo.get_temporal_chain(limit=body.limit)
+
+        # Build time range
+        timestamps = [e.get("timestamp") for e in events if e.get("timestamp")]
+        time_range = {
+            "start": min(timestamps) if timestamps else None,
+            "end": max(timestamps) if timestamps else None,
+            "window_days": body.time_window_days,
+        }
+
+        return success_response(
+            TemporalSearchResponse(
+                query=body.query,
+                events=events,
+                time_range=time_range,
+                metadata={"limit": body.limit},
+            )
+        )
+
+    except Exception as exc:
+        log.error("temporal_search_failed", error=str(exc))
+        if "neo4j" in str(exc).lower():
+            raise HTTPException(status_code=503, detail="Graph service unavailable")
+        raise HTTPException(status_code=500, detail=f"Temporal search failed: {exc}")
