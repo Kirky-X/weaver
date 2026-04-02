@@ -51,7 +51,8 @@ class TestEndpointsDependencyRegistry:
 
         mock_pool = MagicMock()
         Endpoints._postgres = mock_pool
-        result = Endpoints.get_postgres_pool()
+        with pytest.warns(DeprecationWarning, match="Use Depends"):
+            result = Endpoints.get_postgres_pool()
         assert result == mock_pool
         # Cleanup
         Endpoints._postgres = None
@@ -61,8 +62,9 @@ class TestEndpointsDependencyRegistry:
         from api.endpoints._deps import Endpoints
 
         Endpoints._postgres = None
-        with pytest.raises(HTTPException) as exc_info:
-            Endpoints.get_postgres_pool()
+        with pytest.warns(DeprecationWarning, match="Use Depends"):
+            with pytest.raises(HTTPException) as exc_info:
+                Endpoints.get_postgres_pool()
         assert exc_info.value.status_code == 503
 
     def test_get_neo4j_pool_returns_when_set(self):
@@ -382,7 +384,6 @@ class TestDependencyErrorHandling:
 
         # All getters should raise HTTPException with 503
         getters = [
-            Endpoints.get_postgres_pool,
             Endpoints.get_neo4j_pool,
             Endpoints.get_redis,
             Endpoints.get_llm,
@@ -398,4 +399,10 @@ class TestDependencyErrorHandling:
         for getter in getters:
             with pytest.raises(HTTPException) as exc_info:
                 getter()
+            assert exc_info.value.status_code == 503
+
+        # get_postgres_pool is deprecated, test separately with warning
+        with pytest.warns(DeprecationWarning, match="Use Depends"):
+            with pytest.raises(HTTPException) as exc_info:
+                Endpoints.get_postgres_pool()
             assert exc_info.value.status_code == 503
