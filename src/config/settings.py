@@ -85,6 +85,7 @@ class DuckDBSettings(BaseSettings):
     """DuckDB fallback settings.
 
     Used when PostgreSQL is unavailable.
+    Reads DUCKDB_ENABLED, DUCKDB_DB_PATH from environment.
     """
 
     model_config = SettingsConfigDict(env_prefix="DUCKDB_")
@@ -97,6 +98,7 @@ class LadybugSettings(BaseSettings):
     """LadybugDB (graph DB) fallback settings.
 
     Used when Neo4j is unavailable.
+    Reads LADYBUG_ENABLED, LADYBUG_DB_PATH from environment.
     """
 
     model_config = SettingsConfigDict(env_prefix="LADYBUG_")
@@ -515,6 +517,8 @@ class Settings(BaseSettings):
     health_check: HealthCheckSettings = Field(default_factory=HealthCheckSettings)
     postgres: PostgresSettings = Field(default_factory=PostgresSettings)
     neo4j: Neo4jSettings = Field(default_factory=Neo4jSettings)
+    duckdb: DuckDBSettings = Field(default_factory=DuckDBSettings)
+    ladybug: LadybugSettings = Field(default_factory=LadybugSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
     duckdb: DuckDBSettings = Field(default_factory=DuckDBSettings)
     ladybug: LadybugSettings = Field(default_factory=LadybugSettings)

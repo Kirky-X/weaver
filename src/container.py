@@ -8,7 +8,8 @@ from typing import Any
 
 from config.settings import Settings
 from core.cache import RedisClient
-from core.db import Neo4jPool, PostgresPool
+from core.db.pool_protocols import GraphPool, RelationalPool
+from core.db.strategy import DatabaseStrategy, create_strategy
 from core.event import EventBus, LLMFailureEvent, LLMUsageEvent
 from core.llm.client import LLMClient
 from core.observability import get_logger
@@ -82,8 +83,7 @@ class Container:
 
     def __init__(self) -> None:
         self._settings: Settings | None = None
-        self._postgres_pool: PostgresPool | None = None
-        self._neo4j_pool: Neo4jPool | None = None
+        self._strategy: DatabaseStrategy | None = None
         self._redis_client: RedisClient | None = None
         self._llm_client: LLMClient | None = None
         self._prompt_loader: PromptLoader | None = None
@@ -136,41 +136,48 @@ class Container:
 
     # ── Database Pools ──────────────────────────────────────────
 
-    async def init_postgres(self) -> PostgresPool:
-        """Initialize PostgreSQL connection pool."""
-        if self._postgres_pool is None:
-            pg_settings = self._settings.postgres
-            self._postgres_pool = PostgresPool(
-                dsn=pg_settings.dsn,
-                pool_size=pg_settings.pool_size,
-                max_overflow=pg_settings.max_overflow,
-                pool_timeout=pg_settings.pool_timeout,
+    async def init_strategy(self) -> DatabaseStrategy:
+        """Initialize database strategy with failover support."""
+        if self._strategy is None:
+            self._strategy = await create_strategy(
+                pg_settings=self._settings.postgres,
+                neo4j_settings=self._settings.neo4j,
+                duckdb_settings=self._settings.duckdb,
+                ladybug_settings=self._settings.ladybug,
             )
-            await self._postgres_pool.startup()
-            log.info("postgres_initialized")
-        return self._postgres_pool
-
-    def postgres_pool(self) -> PostgresPool:
-        """Get PostgreSQL pool."""
-        if self._postgres_pool is None:
-            raise RuntimeError("PostgreSQL pool not initialized. Call init_postgres() first.")
-        return self._postgres_pool
-
-    async def init_neo4j(self) -> Neo4jPool:
-        """Initialize Neo4j connection pool."""
-        if self._neo4j_pool is None:
-            log.info("init_neo4j_start", uri=self._settings.neo4j.uri, password="***")
-            self._neo4j_pool = Neo4jPool(
-                self._settings.neo4j.uri,
-                (self._settings.neo4j.user, self._settings.neo4j.password),
+            log.info(
+                "database_strategy_initialized",
+                relational_type=self._strategy.relational_type,
+                graph_type=self._strategy.graph_type,
             )
-            await self._neo4j_pool.startup()
-            log.info("neo4j_initialized")
-        return self._neo4j_pool
+        return self._strategy
 
-    def neo4j_pool(self) -> Neo4jPool | None:
-        """Get Neo4j pool (or None if unavailable)."""
-        return self._neo4j_pool
+    def relational_pool(self) -> RelationalPool:
+        """Get relational database pool (PostgreSQL or DuckDB)."""
+        if self._strategy is None:
+            raise RuntimeError("Database strategy not initialized. Call init_strategy() first.")
+        return self._strategy.relational_pool
+
+    def graph_pool(self) -> GraphPool | None:
+        """Get graph database pool (Neo4j or LadybugDB), or None if unavailable."""
+        if self._strategy is None:
+            return None
+        return self._strategy.graph_pool
+
+    # Legacy accessors for backward compatibility
+    def postgres_pool(self) -> RelationalPool:
+        """Get relational pool (PostgreSQL or DuckDB fallback).
+
+        Deprecated: Use relational_pool() instead.
+        """
+        return self.relational_pool()
+
+    def neo4j_pool(self) -> GraphPool | None:
+        """Get graph pool (Neo4j or LadybugDB fallback).
+
+        Deprecated: Use graph_pool() instead.
+        """
+        return self.graph_pool()
 
     async def init_redis(self) -> RedisClient:
         """Initialize Redis client."""
@@ -230,9 +237,9 @@ class Container:
     def source_config_repo(self) -> SourceConfigRepo:
         """Get source config repository (database-backed)."""
         if self._source_config_repo is None:
-            if self._postgres_pool is None:
-                raise RuntimeError("PostgreSQL pool not initialized. Call init_postgres() first.")
-            self._source_config_repo = SourceConfigRepo(self._postgres_pool)
+            if self._strategy is None:
+                raise RuntimeError("Database strategy not initialized. Call init_strategy() first.")
+            self._source_config_repo = SourceConfigRepo(self._strategy.relational_pool)
         return self._source_config_repo
 
     async def init_source_scheduler(
@@ -270,21 +277,44 @@ class Container:
     # ── Repositories ──────────────────────────────────────────────
 
     def article_repo(self) -> ArticleRepo:
-        """Get article repository."""
+        """Get article repository (PostgreSQL or DuckDB implementation)."""
         if self._article_repo is None:
-            self._article_repo = ArticleRepo(self._postgres_pool)
+            if self._strategy is None:
+                raise RuntimeError("Database strategy not initialized. Call init_strategy() first.")
+            if self._strategy.relational_type == "duckdb":
+                from modules.storage.duckdb import DuckDBArticleRepo
+
+                self._article_repo = DuckDBArticleRepo(self._strategy.relational_pool)
+            else:
+                self._article_repo = ArticleRepo(self._strategy.relational_pool)
         return self._article_repo
 
     def source_authority_repo(self) -> SourceAuthorityRepo:
-        """Get source authority repository."""
+        """Get source authority repository (PostgreSQL or DuckDB implementation)."""
         if self._source_authority_repo is None:
-            self._source_authority_repo = SourceAuthorityRepo(self._postgres_pool)
+            if self._strategy is None:
+                raise RuntimeError("Database strategy not initialized. Call init_strategy() first.")
+            if self._strategy.relational_type == "duckdb":
+                from modules.storage.duckdb import DuckDBSourceAuthorityRepo
+
+                self._source_authority_repo = DuckDBSourceAuthorityRepo(
+                    self._strategy.relational_pool
+                )
+            else:
+                self._source_authority_repo = SourceAuthorityRepo(self._strategy.relational_pool)
         return self._source_authority_repo
 
     def pending_sync_repo(self) -> PendingSyncRepo:
-        """Get pending sync repository."""
+        """Get pending sync repository (PostgreSQL or DuckDB implementation)."""
         if self._pending_sync_repo is None:
-            self._pending_sync_repo = PendingSyncRepo(self._postgres_pool)
+            if self._strategy is None:
+                raise RuntimeError("Database strategy not initialized. Call init_strategy() first.")
+            if self._strategy.relational_type == "duckdb":
+                from modules.storage.duckdb import DuckDBPendingSyncRepo
+
+                self._pending_sync_repo = DuckDBPendingSyncRepo(self._strategy.relational_pool)
+            else:
+                self._pending_sync_repo = PendingSyncRepo(self._strategy.relational_pool)
         return self._pending_sync_repo
 
     def llm_failure_repo(self) -> Any:
@@ -292,7 +322,7 @@ class Container:
         if self._llm_failure_repo is None:
             from modules.analytics.llm_failure.repo import LLMFailureRepo
 
-            self._llm_failure_repo = LLMFailureRepo(self._postgres_pool)
+            self._llm_failure_repo = LLMFailureRepo(self.relational_pool())
         return self._llm_failure_repo
 
     def llm_usage_buffer(self) -> LLMUsageBuffer | None:
@@ -301,9 +331,7 @@ class Container:
 
     def llm_usage_repo(self) -> LLMUsageRepo:
         """Get LLM usage repository."""
-        if self._postgres_pool is None:
-            raise RuntimeError("PostgreSQL pool not initialized. Call init_postgres() first.")
-        return LLMUsageRepo(self._postgres_pool)
+        return LLMUsageRepo(self.relational_pool())
 
     def scheduler_jobs(self) -> Any:
         """Get scheduler jobs instance."""
@@ -311,7 +339,7 @@ class Container:
             from modules.scheduler.jobs import SchedulerJobs
 
             self._scheduler_jobs = SchedulerJobs(
-                postgres_pool=self._postgres_pool,
+                postgres_pool=self.relational_pool(),
                 redis_client=self._redis_client,
                 neo4j_writer=self._neo4j_writer,
                 vector_repo=self._vector_repo,
@@ -517,37 +545,74 @@ class Container:
         scheduler.start()
         log.info("scheduler_started", jobs=len(scheduler.get_jobs()))
 
-    # ── Neo4j Repositories ─────────────────────────────────────────
+    # ── Graph Repositories ─────────────────────────────────────────
 
-    def neo4j_entity_repo(self) -> Neo4jEntityRepo | None:
-        """Get Neo4j entity repository (or None if unavailable)."""
-        if self._neo4j_pool is None:
+    def graph_entity_repo(self) -> Any | None:
+        """Get graph entity repository (Neo4j or LadybugDB implementation)."""
+        graph_pool = self.graph_pool()
+        if graph_pool is None:
+            return None
+        if self._strategy is None:
             return None
         if self._neo4j_entity_repo is None:
-            self._neo4j_entity_repo = Neo4jEntityRepo(self._neo4j_pool)
+            if self._strategy.graph_type == "ladybug":
+                from modules.storage.ladybug import LadybugEntityRepo
+
+                self._neo4j_entity_repo = LadybugEntityRepo(graph_pool)
+            else:
+                self._neo4j_entity_repo = Neo4jEntityRepo(graph_pool)
         return self._neo4j_entity_repo
 
-    def neo4j_article_repo(self) -> Neo4jArticleRepo | None:
-        """Get Neo4j article repository (or None if unavailable)."""
-        if self._neo4j_pool is None:
+    def graph_article_repo(self) -> Any | None:
+        """Get graph article repository (Neo4j or LadybugDB implementation)."""
+        graph_pool = self.graph_pool()
+        if graph_pool is None:
+            return None
+        if self._strategy is None:
             return None
         if self._neo4j_article_repo is None:
-            self._neo4j_article_repo = Neo4jArticleRepo(self._neo4j_pool)
+            if self._strategy.graph_type == "ladybug":
+                from modules.storage.ladybug import LadybugArticleRepo
+
+                self._neo4j_article_repo = LadybugArticleRepo(graph_pool)
+            else:
+                self._neo4j_article_repo = Neo4jArticleRepo(graph_pool)
         return self._neo4j_article_repo
 
-    def neo4j_writer(self) -> Neo4jWriter | None:
-        """Get Neo4j writer (or None if unavailable)."""
-        if self._neo4j_pool is None:
+    def graph_writer(self) -> Any | None:
+        """Get graph writer (Neo4j or LadybugDB implementation)."""
+        graph_pool = self.graph_pool()
+        if graph_pool is None:
+            return None
+        if self._strategy is None:
             return None
         if self._neo4j_writer is None:
-            self._neo4j_writer = Neo4jWriter(self._neo4j_pool)
+            if self._strategy.graph_type == "ladybug":
+                from modules.storage.ladybug import LadybugWriter
+
+                self._neo4j_writer = LadybugWriter(graph_pool)
+            else:
+                self._neo4j_writer = Neo4jWriter(graph_pool)
         return self._neo4j_writer
+
+    # Legacy accessors for backward compatibility
+    def neo4j_entity_repo(self) -> Any | None:
+        """Get graph entity repository. Deprecated: Use graph_entity_repo()."""
+        return self.graph_entity_repo()
+
+    def neo4j_article_repo(self) -> Any | None:
+        """Get graph article repository. Deprecated: Use graph_article_repo()."""
+        return self.graph_article_repo()
+
+    def neo4j_writer(self) -> Any | None:
+        """Get graph writer. Deprecated: Use graph_writer()."""
+        return self.graph_writer()
 
     def entity_resolver(self) -> EntityResolver:
         """Get entity resolver."""
         if self._entity_resolver is None:
             self._entity_resolver = EntityResolver(
-                entity_repo=self.neo4j_entity_repo(),
+                entity_repo=self.graph_entity_repo(),
                 vector_repo=self.vector_repo(),
                 llm=self._llm_client,
                 resolution_rules=resolution_rules,
@@ -557,47 +622,58 @@ class Container:
 
     def community_updater(self) -> IncrementalCommunityUpdater | None:
         """Get community updater (or None if Neo4j unavailable)."""
-        if self._neo4j_pool is None:
+        if self._strategy is None or self._strategy.graph_type != "neo4j":
             return None
         if self._community_updater is None:
-            self._community_updater = IncrementalCommunityUpdater(pool=self._neo4j_pool)
+            self._community_updater = IncrementalCommunityUpdater(pool=self.graph_pool())
         return self._community_updater
 
     # ── Vector Repository ─────────────────────────────────────────
 
-    def vector_repo(self) -> VectorRepo:
-        """Get vector repository."""
+    def vector_repo(self) -> Any:
+        """Get vector repository (PostgreSQL pgvector or DuckDB implementation)."""
         if self._vector_repo is None:
-            self._vector_repo = VectorRepo(self._postgres_pool)
+            if self._strategy is None:
+                raise RuntimeError("Database strategy not initialized. Call init_strategy() first.")
+            if self._strategy.relational_type == "duckdb":
+                from modules.storage.duckdb import DuckDBVectorRepo
+
+                self._vector_repo = DuckDBVectorRepo(self._strategy.relational_pool)
+            else:
+                self._vector_repo = VectorRepo(self._strategy.relational_pool)
         return self._vector_repo
 
     # ── Search Engines ───────────────────────────────────────────────
 
     def init_search_engines(self) -> tuple[LocalSearchEngine, GlobalSearchEngine] | None:
-        """Initialize search engines (requires neo4j pool to be available)."""
-        if self._neo4j_pool is None or self._llm_client is None:
+        """Initialize search engines (requires graph pool to be available)."""
+        graph_pool = self.graph_pool()
+        if graph_pool is None or self._llm_client is None:
+            return None
+        if self._strategy is None or self._strategy.graph_type == "ladybug":
+            # LadybugDB doesn't support search engines yet
             return None
         if self._local_search_engine is None:
             self._local_search_engine = LocalSearchEngine(
-                neo4j_pool=self._neo4j_pool,
+                neo4j_pool=graph_pool,
                 llm=self._llm_client,
             )
         if self._global_search_engine is None:
             self._global_search_engine = GlobalSearchEngine(
-                neo4j_pool=self._neo4j_pool,
+                neo4j_pool=graph_pool,
                 llm=self._llm_client,
             )
         return (self._local_search_engine, self._global_search_engine)
 
     def local_search_engine(self) -> LocalSearchEngine | None:
         """Get local search engine (or None if unavailable)."""
-        if self._local_search_engine is None and self._neo4j_pool is not None:
+        if self._local_search_engine is None and self.graph_pool() is not None:
             self.init_search_engines()
         return self._local_search_engine
 
     def global_search_engine(self) -> GlobalSearchEngine | None:
         """Get global search engine (or None if unavailable)."""
-        if self._global_search_engine is None and self._neo4j_pool is not None:
+        if self._global_search_engine is None and self.graph_pool() is not None:
             self.init_search_engines()
         return self._global_search_engine
 
@@ -606,7 +682,7 @@ class Container:
         if self._hybrid_engine is None and self._vector_repo is not None:
             from modules.knowledge.search.retrievers.bm25_retriever import BM25Retriever
 
-            bm25_retriever = BM25Retriever(self._postgres_pool)
+            bm25_retriever = BM25Retriever(self.relational_pool())
             self._hybrid_engine = HybridSearchEngine(
                 vector_repo=self._vector_repo,
                 bm25_retriever=bm25_retriever,
@@ -837,23 +913,20 @@ class Container:
 
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-        from core.db.initializer import initialize_database
+        # Initialize database strategy with failover support
+        await self.init_strategy()
 
-        await initialize_database(
-            self._settings.postgres.dsn,
-            alembic_ini_path=os.path.join(project_root, "alembic.ini"),
-            script_location=os.path.join(project_root, "src", "alembic"),
-        )
+        # Only run migrations if using PostgreSQL
+        if self._strategy is not None and self._strategy.relational_type == "postgresql":
+            from core.db.initializer import initialize_database
 
-        await self.init_postgres()
+            await initialize_database(
+                self._settings.postgres.dsn,
+                alembic_ini_path=os.path.join(project_root, "alembic.ini"),
+                script_location=os.path.join(project_root, "src", "alembic"),
+            )
+
         await self.init_redis()
-        if self._settings.neo4j.enabled:
-            try:
-                await self.init_neo4j()
-            except ConnectionError as exc:
-                log.warning("neo4j_unavailable_skipping", error=str(exc))
-        else:
-            log.info("neo4j_disabled_skipping")
         await self.init_llm()
         self.init_search_engines()
         await self.init_playwright_pool()
@@ -877,7 +950,7 @@ class Container:
         # Initialize LLM failure logging
         from modules.analytics.llm_failure.repo import LLMFailureRepo
 
-        self._llm_failure_repo = LLMFailureRepo(self._postgres_pool)
+        self._llm_failure_repo = LLMFailureRepo(self.relational_pool())
         self._event_bus.subscribe(
             LLMFailureEvent,
             lambda e: _handle_llm_failure_async(e, self._llm_failure_repo),
@@ -899,17 +972,17 @@ class Container:
             if self._llm_usage_buffer:
                 await self._llm_usage_buffer.accumulate(event)
 
-        # Handler: insert raw record to PostgreSQL
+        # Handler: insert raw record to database
         async def _handle_llm_usage_raw(event: LLMUsageEvent) -> None:
-            repo = LLMUsageRepo(self._postgres_pool)
+            repo = LLMUsageRepo(self.relational_pool())
             await repo.insert_raw(event)
 
         self._event_bus.subscribe(LLMUsageEvent, _handle_llm_usage_buffer)
         self._event_bus.subscribe(LLMUsageEvent, _handle_llm_usage_raw)
         log.info("llm_usage_handlers_subscribed", event_bus_id=id(self._event_bus))
 
-        # Initialize pending sync repo
-        self._pending_sync_repo = PendingSyncRepo(self._postgres_pool)
+        # Initialize pending sync repo (already done in property getter, but ensure it exists)
+        _ = self.pending_sync_repo()
 
         # Setup unified scheduler (replaces all threads + duplicate scheduler)
         self._setup_scheduler()
@@ -959,13 +1032,13 @@ class Container:
             await self._redis_client.shutdown()
             log.info("redis_client_shutdown")
 
-        if self._postgres_pool:
-            await self._postgres_pool.shutdown()
-            log.info("postgres_pool_shutdown")
-
-        if self._neo4j_pool:
-            await self._neo4j_pool.shutdown()
-            log.info("neo4j_pool_shutdown")
+        # Shutdown database pools from strategy
+        if self._strategy is not None:
+            await self._strategy.relational_pool.shutdown()
+            log.info("relational_pool_shutdown", type=self._strategy.relational_type)
+            if self._strategy.graph_pool is not None:
+                await self._strategy.graph_pool.shutdown()
+                log.info("graph_pool_shutdown", type=self._strategy.graph_type)
 
         log.info("container_shutdown_complete")
 
