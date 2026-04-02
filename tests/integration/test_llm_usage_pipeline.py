@@ -20,7 +20,7 @@ from fastapi.testclient import TestClient
 from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY, generate_latest
 
 from core.event.bus import EventBus, LLMUsageEvent
-from core.llm.request import TokenUsage
+from core.llm.types import TokenUsage
 from modules.analytics.llm_usage.buffer import LLMUsageBuffer
 from modules.analytics.llm_usage.repo import LLMUsageRepo
 
