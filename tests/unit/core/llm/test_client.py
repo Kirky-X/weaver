@@ -87,7 +87,7 @@ class TestLLMClientInit:
         with patch.dict(os.environ, {"AIPING_API_KEY": "test-key"}):
             client = await LLMClient.create_from_config(str(test_config))
             providers = client.list_providers()
-            assert len(providers) == 1
+            assert len(providers) == 1  # aiping only (rerank uses same provider)
             assert "aiping" in providers
 
     @pytest.mark.asyncio

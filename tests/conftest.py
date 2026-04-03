@@ -5,10 +5,17 @@ import asyncio
 import os
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import pytest_asyncio
+from dotenv import load_dotenv
+
+# Load environment variables from .env file before any tests run
+_env_file = Path(__file__).parent.parent / ".env"
+if _env_file.exists():
+    load_dotenv(_env_file, override=True)
 
 from core.observability.logging import get_logger
 
