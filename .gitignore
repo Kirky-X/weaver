@@ -22,6 +22,7 @@ spec/
 
 # Configuration files with secrets
 temp/
+data/
 
 # Docker development files
 docker/docker-compose.dev.yml
@@ -48,6 +49,9 @@ coverage.json
 .iflow/
 .opencode/
 .qoder/
+
+# Documentation files
+AGENTS.md
 
 # Coverage files
 .coverage
