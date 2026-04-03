@@ -23,6 +23,7 @@ spec/
 # Configuration files with secrets
 temp/
 data/
+llm.md
 
 # Docker development files
 docker/docker-compose.dev.yml
