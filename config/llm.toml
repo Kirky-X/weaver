@@ -1,0 +1,164 @@
+# LLM Provider Configuration
+# ============================================================
+# Two-layer nested configuration: Provider + Model
+# API keys must use environment variable reference: ${ENV_VAR}
+# ============================================================
+
+# ============================================================
+# Global Settings
+# ============================================================
+[global]
+circuit_breaker_threshold = 5
+circuit_breaker_timeout = 60.0
+default_timeout = 120.0
+
+# ============================================================
+# Provider: aiping.cn (Primary)
+# ============================================================
+[providers.aiping]
+type = "openai"
+base_url = "https://www.aiping.cn/api/v1"
+api_key = "${WEAVER_LLM__PROVIDERS__AIPING__API_KEY}"
+rpm_limit = 100
+concurrency = 8
+timeout = 300.0
+priority = 100
+weight = 100
+
+  [providers.aiping.models.chat]
+  model_id = "GLM-4-9B-0414"
+  temperature = 0.0
+  max_tokens = 4096
+  capabilities = ["chat"]
+
+  [providers.aiping.models.embedding]
+  model_id = "Qwen3-Embedding-0.6B"
+  capabilities = ["embedding"]
+
+  [providers.aiping.models.rerank]
+  model_id = "Qwen3-Reranker-0.6B"
+  capabilities = ["rerank"]
+
+# ============================================================
+# Provider: DMXAPI (Fallback for chat/rerank)
+# https://www.dmxapi.cn - OpenAI-compatible API
+# ============================================================
+[providers.dmx]
+type = "openai"
+base_url = "https://www.dmxapi.cn/v1"
+api_key = "${WEAVER_LLM__PROVIDERS__DMX__API_KEY}"
+rpm_limit = 60
+concurrency = 5
+timeout = 120.0
+priority = 150                     # Lower priority than aiping
+weight = 80
+
+  [providers.dmx.models.chat]
+  model_id = "glm-4.7-free"          # Free model available
+  temperature = 0.0
+  max_tokens = 4096
+  capabilities = ["chat"]
+
+  [providers.dmx.models.rerank]
+  model_id = "bge-reranker-v2-m3-free"
+  capabilities = ["rerank"]
+
+# ============================================================
+# Provider: Ollama (Local Fallback for embedding)
+# Requires: ollama pull qwen3-embedding:0.6b
+# ============================================================
+[providers.ollama]
+type = "openai"
+base_url = "http://localhost:11434/v1"
+api_key = "ollama"                  # Ollama does not require a real key
+rpm_limit = 0                       # No rate limit for local
+concurrency = 3
+timeout = 300.0
+priority = 200                      # Lowest priority (local fallback)
+weight = 50
+
+  [providers.ollama.models.embedding]
+  model_id = "qwen3-embedding:0.6b"
+  capabilities = ["embedding"]
+
+# ============================================================
+# Default Labels
+# ============================================================
+[defaults.chat]
+label = "chat.aiping.GLM-4-9B-0414"
+fallbacks = ["chat.dmx.glm-4.7-free"]
+
+[defaults.embedding]
+label = "embedding.aiping.Qwen3-Embedding-0.6B"
+fallbacks = ["embedding.ollama.qwen3-embedding:0.6b"]
+
+[defaults.rerank]
+label = "rerank.aiping.Qwen3-Reranker-0.6B"
+fallbacks = ["rerank.dmx.bge-reranker-v2-m3-free"]
+
+# ============================================================
+# Call Point Routing
+# ============================================================
+[call-points.classifier]
+primary = "chat.aiping.GLM-4-9B-0414"
+fallbacks = ["chat.dmx.glm-4.7-free"]
+
+[call-points.cleaner]
+primary = "chat.aiping.GLM-4-9B-0414"
+fallbacks = ["chat.dmx.glm-4.7-free"]
+
+[call-points.categorizer]
+primary = "chat.aiping.GLM-4-9B-0414"
+fallbacks = ["chat.dmx.glm-4.7-free"]
+
+[call-points.analyze]
+primary = "chat.aiping.GLM-4-9B-0414"
+fallbacks = ["chat.dmx.glm-4.7-free"]
+
+[call-points.entity_extractor]
+primary = "chat.aiping.GLM-4-9B-0414"
+fallbacks = ["chat.dmx.glm-4.7-free"]
+
+[call-points.credibility_checker]
+primary = "chat.aiping.GLM-4-9B-0414"
+fallbacks = ["chat.dmx.glm-4.7-free"]
+
+[call-points.quality_scorer]
+primary = "chat.aiping.GLM-4-9B-0414"
+fallbacks = ["chat.dmx.glm-4.7-free"]
+
+[call-points.merger]
+primary = "chat.aiping.GLM-4-9B-0414"
+fallbacks = ["chat.dmx.glm-4.7-free"]
+
+[call-points.embedding]
+primary = "embedding.aiping.Qwen3-Embedding-0.6B"
+fallbacks = ["embedding.ollama.qwen3-embedding:0.6b"]
+
+[call-points.rerank]
+primary = "rerank.aiping.Qwen3-Reranker-0.6B"
+fallbacks = ["rerank.dmx.bge-reranker-v2-m3-free"]
+
+[call-points.causal_inference]
+primary = "chat.aiping.GLM-4-9B-0414"
+fallbacks = ["chat.dmx.glm-4.7-free"]
+
+[call-points.search_local]
+primary = "chat.aiping.GLM-4-9B-0414"
+fallbacks = ["chat.dmx.glm-4.7-free"]
+
+[call-points.search_global]
+primary = "chat.aiping.GLM-4-9B-0414"
+fallbacks = ["chat.dmx.glm-4.7-free"]
+
+[call-points.community_report]
+primary = "chat.aiping.GLM-4-9B-0414"
+fallbacks = ["chat.dmx.glm-4.7-free"]
+
+[call-points.entity_facts]
+primary = "chat.aiping.GLM-4-9B-0414"
+fallbacks = ["chat.dmx.glm-4.7-free"]
+
+[call-points.narrative_synthesis]
+primary = "chat.aiping.GLM-4-9B-0414"
+fallbacks = ["chat.dmx.glm-4.7-free"]
