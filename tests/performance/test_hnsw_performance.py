@@ -24,7 +24,8 @@ class TestHNSWPerformance:
         import os
 
         dsn = os.getenv(
-            "POSTGRES_DSN", "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver"
+            "POSTGRES_DSN",
+            f"postgresql+asyncpg://{os.getenv('POSTGRES_USER', 'postgres')}:{os.getenv('POSTGRES_PASSWORD', 'invalid')}@{os.getenv('POSTGRES_HOST', 'localhost')}:{os.getenv('POSTGRES_PORT', '5432')}/{os.getenv('POSTGRES_DATABASE', 'weaver')}",
         )
         pool = PostgresPool(dsn)
         await pool.startup()
@@ -163,8 +164,7 @@ class TestHNSWPerformance:
             elapsed = time.time() - start_time
             rate = total_inserted / elapsed if elapsed > 0 else 0
             print(
-                f"已插入 {total_inserted}/{num_vectors} 向量 "
-                f"({rate:.1f} 向量/秒, {elapsed:.1f}s)"
+                f"已插入 {total_inserted}/{num_vectors} 向量 ({rate:.1f} 向量/秒, {elapsed:.1f}s)"
             )
 
         total_time = time.time() - start_time
@@ -334,7 +334,7 @@ class TestHNSWPerformance:
             query_time = (time.time() - start) * 1000  # Convert to ms
             query_times.append(query_time)
 
-            print(f"查询 {i+1}/{num_queries}: {query_time:.2f}ms, 结果数: {len(results)}")
+            print(f"查询 {i + 1}/{num_queries}: {query_time:.2f}ms, 结果数: {len(results)}")
 
         # Analyze performance
         avg_time = np.mean(query_times)
@@ -525,7 +525,7 @@ class TestHNSWPerformance:
             query_time = (time.time() - start) * 1000
             query_times.append(query_time)
 
-            print(f"查询 {i+1}: {query_time:.2f}ms, 结果数: {len(results)}")
+            print(f"查询 {i + 1}: {query_time:.2f}ms, 结果数: {len(results)}")
 
         # Performance assertions
         avg_time = np.mean(query_times)
@@ -551,7 +551,8 @@ class TestHNSWIndexCreation:
         import os
 
         dsn = os.getenv(
-            "POSTGRES_DSN", "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver"
+            "POSTGRES_DSN",
+            f"postgresql+asyncpg://{os.getenv('POSTGRES_USER', 'postgres')}:{os.getenv('POSTGRES_PASSWORD', 'invalid')}@{os.getenv('POSTGRES_HOST', 'localhost')}:{os.getenv('POSTGRES_PORT', '5432')}/{os.getenv('POSTGRES_DATABASE', 'weaver')}",
         )
         pool = PostgresPool(dsn)
         await pool.startup()
@@ -631,7 +632,8 @@ class TestVectorRepoPerformance:
         import os
 
         dsn = os.getenv(
-            "POSTGRES_DSN", "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver"
+            "POSTGRES_DSN",
+            f"postgresql+asyncpg://{os.getenv('POSTGRES_USER', 'postgres')}:{os.getenv('POSTGRES_PASSWORD', 'invalid')}@{os.getenv('POSTGRES_HOST', 'localhost')}:{os.getenv('POSTGRES_PORT', '5432')}/{os.getenv('POSTGRES_DATABASE', 'weaver')}",
         )
         pool = PostgresPool(dsn)
         await pool.startup()
@@ -704,9 +706,9 @@ class TestVectorRepoPerformance:
         batch_time = time.time() - batch_start
 
         print("\n查询性能对比:")
-        print(f"  单独查询: {individual_time*1000:.2f}ms ({num_queries} 次查询)")
-        print(f"  批量查询: {batch_time*1000:.2f}ms ({num_queries} 次查询)")
-        print(f"  性能提升: {individual_time/batch_time:.2f}x")
+        print(f"  单独查询: {individual_time * 1000:.2f}ms ({num_queries} 次查询)")
+        print(f"  批量查询: {batch_time * 1000:.2f}ms ({num_queries} 次查询)")
+        print(f"  性能提升: {individual_time / batch_time:.2f}x")
 
         # Batch should be faster or at least not significantly slower
         assert (

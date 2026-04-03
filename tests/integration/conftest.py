@@ -19,11 +19,11 @@ import pytest
 
 
 def get_postgres_dsn():
-    """Get PostgreSQL DSN with three-level fallback."""
+    """Get PostgreSQL DSN from environment variables."""
     return (
         os.getenv("WEAVER_POSTGRES__DSN")
         or os.getenv("POSTGRES_DSN")
-        or "postgresql+asyncpg://weaver:weaver@localhost:5432/weaver"
+        or f"postgresql+asyncpg://{os.getenv('POSTGRES_USER', 'postgres')}:{os.getenv('POSTGRES_PASSWORD', 'invalid')}@{os.getenv('POSTGRES_HOST', 'localhost')}:{os.getenv('POSTGRES_PORT', '5432')}/{os.getenv('POSTGRES_DATABASE', 'weaver')}"
     )
 
 

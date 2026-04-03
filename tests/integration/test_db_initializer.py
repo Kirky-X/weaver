@@ -23,8 +23,15 @@ class TestDatabaseInitializerIntegration:
         # Prevent E2E test env vars from leaking into this test
         monkeypatch.delenv("WEAVER_POSTGRES__DSN", raising=False)
         monkeypatch.delenv("POSTGRES_DSN", raising=False)
-        # Use port 5432 (Docker weaver stack)
-        return "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver"
+        # Use port 5432 (Docker weaver stack) - read from env for CI compatibility
+        return (
+            f"postgresql+asyncpg://"
+            f"{os.getenv('POSTGRES_USER', 'postgres')}:"
+            f"{os.getenv('POSTGRES_PASSWORD', 'invalid')}@"
+            f"{os.getenv('POSTGRES_HOST', 'localhost')}:"
+            f"{os.getenv('POSTGRES_PORT', '5432')}/"
+            f"{os.getenv('POSTGRES_DATABASE', 'weaver')}"
+        )
 
     @pytest.mark.asyncio
     async def test_parse_dsn_from_settings(self, test_dsn):

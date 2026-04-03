@@ -17,7 +17,7 @@ async def neo4j_pool():
     # Use port 7687 (Docker weaver stack) and password from .env
     uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
     user = os.getenv("NEO4J_USER", "neo4j")
-    password = os.getenv("NEO4J_PASSWORD", "password")
+    password = os.getenv("NEO4J_PASSWORD", "weavertest")
     pool = Neo4jPool(uri, (user, password))
     await pool.startup()
     yield pool
