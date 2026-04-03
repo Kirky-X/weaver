@@ -1,4 +1,7 @@
-version: "3.8"
+# Weaver Infrastructure Services
+# Usage: docker compose up -d
+# Stop:  docker compose down
+# Clean: docker compose down -v
 
 services:
   postgres:
@@ -6,85 +9,67 @@ services:
     container_name: weaver_postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      POSTGRES_DB: weaver
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-invalid}
+      POSTGRES_DB: ${POSTGRES_DATABASE:-weaver}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
       interval: 10s
       timeout: 5s
       retries: 5
     networks:
-      - weaver_network
+      - weaver
 
   neo4j:
     image: neo4j:5.25
     container_name: weaver_neo4j
     environment:
-      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?NEO4J_PASSWORD is required}
+      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-weavertest}
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_dbms_memory_heap_initial__size: 512m
-      NEO4J_dbms_memory_heap_max__size: 2g
-      NEO4J_dbms_memory_pagecache_size: 1g
+      NEO4J_dbms_memory_heap_max__size: 1g
     ports:
       - "7474:7474"
       - "7687:7687"
     volumes:
       - neo4j_data:/data
       - neo4j_logs:/logs
-      - neo4j_import:/var/lib/neo4j/import
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider localhost:7474 || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider localhost:7474 || exit 1",
+        ]
       interval: 30s
       timeout: 10s
       retries: 3
     networks:
-      - weaver_network
-
-  app:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    container_name: weaver_app
-    environment:
-      WEAVER_POSTGRES__DSN: "postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/weaver"
-      WEAVER_NEO4J__URI: "bolt://neo4j:7687"
-      WEAVER_NEO4J__AUTH: '["neo4j","${NEO4J_PASSWORD}"]'
-      WEAVER_REDIS__URL: "redis://redis:6379/0"
-      WEAVER_API__API_KEY: ${API_KEY:?API_KEY is required}
-      ENVIRONMENT: ${ENVIRONMENT:-production}
-    ports:
-      - "8000:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      neo4j:
-        condition: service_healthy
-    volumes:
-      - ../src/config:/app/src/config:ro
-    networks:
-      - weaver_network
+      - weaver
 
   redis:
-    image: redis:6-alpine
+    image: redis:7.2-alpine
     container_name: weaver_redis
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     networks:
-      - weaver_network
+      - weaver
 
 volumes:
   postgres_data:
   neo4j_data:
   neo4j_logs:
-  neo4j_import:
   redis_data:
 
 networks:
-  weaver_network:
+  weaver:
     driver: bridge
