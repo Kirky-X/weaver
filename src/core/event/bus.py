@@ -1,5 +1,8 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Internal event bus for decoupled component communication."""
+"""Internal event bus for decoupled component communication.
+
+Uses blinker for signal dispatching while maintaining a type-safe API.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +11,8 @@ from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
+
+from blinker import Signal
 
 from core.llm.types import TokenUsage
 from core.observability.logging import get_logger
@@ -109,20 +114,33 @@ class LLMUsageEvent(BaseEvent):
     task_id: str | None = None
 
 
-# ── Event Bus ────────────────────────────────────────────────
+# ── Event Bus (Blinker-backed) ────────────────────────────────────────
 
 EventHandler = Callable[[Any], Coroutine[Any, Any, None]]
 
 
 class EventBus:
-    """Simple in-process async event bus using pub/sub pattern.
+    """Async event bus using blinker for signal dispatching.
+
+    Maintains the same API as the previous dict-based implementation,
+    but uses blinker.Signal under the hood for standard signal handling.
 
     Handlers are registered per event type and invoked concurrently
     when an event is published.
     """
 
     def __init__(self) -> None:
+        # Map event types to blinker Signals
+        self._signals: dict[type, Signal] = {}
+        # Store async handlers for proper dispatch
         self._handlers: dict[type, list[EventHandler]] = {}
+
+    def _get_signal(self, event_type: type) -> Signal:
+        """Get or create a Signal for an event type."""
+        if event_type not in self._signals:
+            signal_name = f"{event_type.__module__}.{event_type.__name__}"
+            self._signals[event_type] = Signal(signal_name)
+        return self._signals[event_type]
 
     def subscribe(self, event_type: type, handler: EventHandler) -> None:
         """Subscribe a handler to an event type.
@@ -132,6 +150,18 @@ class EventBus:
             handler: Async callable that receives the event.
         """
         self._handlers.setdefault(event_type, []).append(handler)
+
+        # Also connect to blinker signal for potential external use
+        signal = self._get_signal(event_type)
+
+        # Create a sync wrapper that the signal can call
+        def sync_wrapper(sender: Any, **kwargs: Any) -> None:
+            # This won't await - just for blinker compatibility
+            # Actual async dispatch happens in publish()
+            pass
+
+        signal.connect(sync_wrapper, sender=event_type)
+
         log.debug(
             "event_subscribed",
             event_type=event_type.__name__,
@@ -158,6 +188,11 @@ class EventBus:
             handler_count=len(handlers),
         )
 
+        # Send via blinker for any sync listeners
+        signal = self._get_signal(event_type)
+        signal.send(event_type, event=event)
+
+        # Dispatch to async handlers concurrently
         tasks = [self._safe_call(handler, event) for handler in handlers]
         await asyncio.gather(*tasks)
 

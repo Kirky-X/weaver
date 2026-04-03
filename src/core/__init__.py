@@ -18,7 +18,7 @@ Example usage:
     from core.observability import get_logger
 """
 
-from core.cache import RedisClient, cache_result, get_redis_client, invalidate_cache
+from core.cache import RedisClient
 from core.db import (
     Article,
     ArticleVector,
@@ -64,12 +64,9 @@ __all__ = [
     "ServiceCheckResult",
     "SourceAuthority",
     "VectorType",
-    "cache_result",
     "configure_tracing",
     "get_current_time_with_timezone",
     "get_logger",
-    "get_redis_client",
     "get_tracer",
-    "invalidate_cache",
     "run_pre_startup_health_check",
 ]
