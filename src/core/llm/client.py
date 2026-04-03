@@ -14,6 +14,7 @@ from core.llm.config import LLMConfigLoader
 from core.llm.pool import ProviderPool
 from core.llm.router import LabelRouter
 from core.llm.types import (
+    CallPoint,
     GlobalConfig,
     Label,
     LLMType,
@@ -154,7 +155,9 @@ class LLMClient:
 
         # 如果有prompt_loader,构建system_prompt
         if self._prompts:
-            system_prompt = self._prompts.get(call_point)
+            # Extract string value from CallPoint enum if needed
+            prompt_name = call_point.value if isinstance(call_point, CallPoint) else str(call_point)
+            system_prompt = self._prompts.get(prompt_name)
             current_time = get_current_time_with_timezone()
             system_prompt = f"当前时间: {current_time}\n\n{system_prompt}"
 

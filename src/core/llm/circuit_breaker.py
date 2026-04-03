@@ -1,4 +1,4 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved.
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Circuit breaker wrapper using pybreaker.
 
 NOTE: pybreaker's call_async is designed for Tornado @gen.coroutine,
@@ -81,44 +81,63 @@ class ProviderCircuitBreaker:
         try:
             # 执行async函数
             result = await func(*args, **kwargs)
-            # 成功时记录(关闭熔断器或重置计数器)
-            self._breaker.success()
+            # 成功时记录(重置失败计数器,半开状态→关闭)
+            self._record_success()
             return result
         except PyCircuitBreakerError:
             log.warning("circuit_open_during_call", provider=self.name)
             raise CircuitOpenError(self.name) from None
         except Exception as e:
-            # 失败时检查是否需要打开熔断器
-            # pybreaker通过fail_counter跟踪失败次数
-            if self._breaker.fail_counter + 1 >= self._breaker.fail_max:
-                self._breaker.open()
-                log.error(
-                    "circuit_opened_after_failures",
-                    provider=self.name,
-                    fail_counter=self._breaker.fail_counter + 1,
-                    fail_max=self._breaker.fail_max,
-                )
-            else:
-                # 手动增加失败计数(通过触发一次内部调用)
-                # pybreaker没有公开的failure()方法,我们需要使用其内部机制
-                log.error(
-                    "circuit_failure_recorded",
-                    provider=self.name,
-                    error=str(e),
-                    fail_counter=self._breaker.fail_counter,
-                )
+            # 失败时递增计数器,达到阈值则打开熔断器
+            self._record_failure()
+            log.error(
+                "circuit_failure_recorded",
+                provider=self.name,
+                error=str(e),
+                fail_counter=self._breaker.fail_counter,
+            )
             raise
+
+    def _record_success(self) -> None:
+        """记录成功调用.
+
+        使用pybreaker内部state_storage操作计数器.
+        半开状态下达到success_threshold后关闭熔断器.
+        """
+        storage = self._breaker._state_storage
+        if self._breaker.current_state == "half-open":
+            storage.increment_success_counter()
+            if self._breaker.success_counter >= self._breaker.success_threshold:
+                self._breaker.close()
+                log.info("circuit_closed_after_success", provider=self.name)
+        else:
+            # closed状态: 重置失败计数器
+            storage.reset_counter()
+
+    def _record_failure(self) -> None:
+        """记录失败调用.
+
+        使用pybreaker内部state_storage递增失败计数器.
+        达到fail_max阈值则打开熔断器.
+        """
+        storage = self._breaker._state_storage
+        storage.increment_counter()
+        if self._breaker.fail_counter >= self._breaker.fail_max:
+            self._breaker.open()
+            log.error(
+                "circuit_opened_after_failures",
+                provider=self.name,
+                fail_counter=self._breaker.fail_counter,
+                fail_max=self._breaker.fail_max,
+            )
 
     def record_success(self) -> None:
         """记录成功调用（半开状态下使用）."""
-        self._breaker.success()
+        self._record_success()
 
     def record_failure(self) -> None:
         """记录失败调用."""
-        # pybreaker没有公开的failure()方法
-        # 通过检查并手动打开熔断器
-        if self._breaker.fail_counter + 1 >= self._breaker.fail_max:
-            self._breaker.open()
+        self._record_failure()
 
     @property
     def is_open(self) -> bool:
