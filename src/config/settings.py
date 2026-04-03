@@ -520,8 +520,6 @@ class Settings(BaseSettings):
     duckdb: DuckDBSettings = Field(default_factory=DuckDBSettings)
     ladybug: LadybugSettings = Field(default_factory=LadybugSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
-    duckdb: DuckDBSettings = Field(default_factory=DuckDBSettings)
-    ladybug: LadybugSettings = Field(default_factory=LadybugSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
     fetcher: FetcherSettings = Field(default_factory=FetcherSettings)
     prompt: PromptSettings = Field(default_factory=PromptSettings)
