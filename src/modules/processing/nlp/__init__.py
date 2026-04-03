@@ -1,8 +1,3 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
-"""NLP module - Natural language processing utilities."""
+"""内容处理域 - NLP 工具"""
 
-from modules.processing.nlp.spacy_extractor import SpacyExtractor
-
-__all__ = [
-    "SpacyExtractor",
-]
+# Phase 3 完成后从 modules.processing.nlp 迁移

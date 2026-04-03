@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from modules.graph_store.community_models import (
+from modules.knowledge.graph.community_models import (
     Community,
     CommunityDetectionResult,
     CommunityReport,
@@ -240,7 +240,7 @@ class TestRegenerateReportEndpoint:
     async def test_regenerate_report_success(self, mock_pool, mock_llm):
         """Test successful report regeneration."""
         from api.endpoints.communities import regenerate_report
-        from modules.graph_store.community_report_generator import (
+        from modules.knowledge.graph.community_report_generator import (
             ReportGenerationResult,
         )
 
@@ -273,7 +273,7 @@ class TestRegenerateReportEndpoint:
     async def test_regenerate_report_failure(self, mock_pool, mock_llm):
         """Test report regeneration failure."""
         from api.endpoints.communities import regenerate_report
-        from modules.graph_store.community_report_generator import (
+        from modules.knowledge.graph.community_report_generator import (
             ReportGenerationResult,
         )
 

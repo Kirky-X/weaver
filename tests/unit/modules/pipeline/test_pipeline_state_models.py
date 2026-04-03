@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from core.constants import PipelineState, ProcessingStatus
 from modules.ingestion.domain.models import ArticleRaw
-from modules.pipeline.state_models import (
+from modules.processing.pipeline.state_models import (
     CleanedData,
     CredibilityModel,
     EntityData,

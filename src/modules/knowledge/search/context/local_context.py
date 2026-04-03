@@ -13,7 +13,7 @@ from typing import Any
 
 from core.db.neo4j import Neo4jPool
 from core.observability.logging import get_logger
-from modules.knowledge.core.relation_types import RelationTypeNormalizer
+from modules.knowledge.graph.relation_type_normalizer import RelationTypeNormalizer
 from modules.knowledge.search.context.builder import ContextBuilder, SearchContext
 
 log = get_logger("search.local_context")

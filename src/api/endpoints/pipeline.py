@@ -24,7 +24,7 @@ from core.constants import PipelineTaskStatus
 from core.db.postgres import PostgresPool
 from core.observability.metrics import metrics
 from modules.ingestion.scheduling.scheduler import SourceScheduler
-from modules.storage.postgres.article_repo import ArticleRepo
+from modules.storage.article_repo import ArticleRepo
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 

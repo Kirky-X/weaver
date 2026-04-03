@@ -1,2 +1,3 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Metrics submodule - Prometheus metrics."""
+"""分析统计域 - Prometheus 指标"""
+
+# Phase 5 完成后迁移

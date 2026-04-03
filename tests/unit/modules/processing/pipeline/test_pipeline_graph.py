@@ -250,7 +250,7 @@ class TestPipelineProcessBatch:
             body="Test article body content for processing.",
             source="test_source",
             source_host="example.com",
-            publish_time=datetime.now(UTC),
+            pubDate=datetime.now(UTC),
         )
 
     @pytest.mark.asyncio

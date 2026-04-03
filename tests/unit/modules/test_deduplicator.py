@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.ingestion.deduplication import Deduplicator
+from modules.ingestion.deduplication.deduplicator import Deduplicator
 
 
 class TestDeduplicator:

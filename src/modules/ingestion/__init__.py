@@ -1,19 +1,46 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Ingestion module - Content ingestion domain.
+"""
+内容摄入域模块
 
-This module consolidates content ingestion functionality:
-- fetching: Web content fetching (formerly fetcher)
-- parsing: Data source parsing (formerly source core)
-- scheduling: Source scheduling (formerly source.scheduler)
-- deduplication: URL/content deduplication (formerly collector core)
-- crawling: Web crawling (formerly collector.crawler)
-- domain: Unified data models (NewsItem, ArticleRaw, SourceConfig)
+合并了原 collector、fetcher、source 模块，提供完整的内容摄入流程：
+- 数据源发现和解析（RSS/API）
+- URL 和标题去重
+- 网页抓取（HTTPX/Playwright）
+- 源调度管理
+
+公开 API:
+- Deduplicator: URL 两级去重
+- RetryQueue: 失败重试队列
+- SimHashDeduplicator: 标题相似度去重
+- SmartFetcher: 智能抓取器
+- FetchError, CircuitOpenError: 抓取异常
+- SourceRegistry: 源注册表
+- RSSParser: RSS 解析器
+- SourceScheduler: 源调度器
+- Crawler: 网页爬虫
+- NewsItem, RawArticle, SourceConfig: 数据模型
 """
 
-# Internal imports from submodules
+# Crawling
 from modules.ingestion.crawling import Crawler
-from modules.ingestion.deduplication import Deduplicator, RetryQueue, SimHashDeduplicator, TitleItem
-from modules.ingestion.domain import ArticleRaw, NewsItem, SourceConfig
+
+# Deduplication
+from modules.ingestion.deduplication import (
+    Deduplicator,
+    RetryQueue,
+    SimHashDeduplicator,
+    TitleItem,
+)
+
+# Domain models
+from modules.ingestion.domain.models import (
+    ArticleRaw,
+    NewsItem,
+    RawArticle,
+    SourceConfig,
+)
+
+# Fetching
 from modules.ingestion.fetching import (
     BaseFetcher,
     CircuitOpenError,
@@ -24,64 +51,54 @@ from modules.ingestion.fetching import (
     PlaywrightFetcher,
     SmartFetcher,
 )
+
+# Parsing
 from modules.ingestion.parsing import (
     BaseSourceParser,
-    NewsNowParser,
     PluginMetadata,
     RSSParser,
     SourceRegistry,
     get_plugin,
     get_registered_plugins,
-    scan_and_load_external_plugins,
+    load_plugins,
     source_parser_plugin,
 )
+
+# Scheduling
 from modules.ingestion.scheduling import SourceConfigRepo, SourceScheduler
 
 __all__ = [
     # Domain models
     "ArticleRaw",
+    "NewsItem",
+    "RawArticle",
+    "SourceConfig",
     # Fetching
     "BaseFetcher",
-    # Parsing
-    "BaseSourceParser",
     "CircuitOpenError",
-    # Crawling
-    "Crawler",
-    # Deduplication
-    "Deduplicator",
     "FetchError",
     "HostRateLimiter",
     "HttpxFetcher",
-    "NewsItem",
-    "NewsNowParser",
     "PlaywrightContextPool",
     "PlaywrightFetcher",
-    "PluginMetadata",
-    "RSSParser",
-    "RetryQueue",
-    "SimHashDeduplicator",
     "SmartFetcher",
-    "SourceConfig",
-    # Scheduling
-    "SourceConfigRepo",
+    # Parsing
+    "BaseSourceParser",
+    "RSSParser",
     "SourceRegistry",
-    "SourceScheduler",
-    "TitleItem",
+    "source_parser_plugin",
+    "PluginMetadata",
     "get_plugin",
     "get_registered_plugins",
-    "scan_and_load_external_plugins",
-    "source_parser_plugin",
+    "load_plugins",
+    # Scheduling
+    "SourceScheduler",
+    "SourceConfigRepo",
+    # Deduplication
+    "Deduplicator",
+    "RetryQueue",
+    "SimHashDeduplicator",
+    "TitleItem",
+    # Crawling
+    "Crawler",
 ]
-
-
-def load_plugins(plugin_paths: list[str] | None = None) -> list[str]:
-    """Load external parser plugins.
-
-    Args:
-        plugin_paths: Optional list of directory paths to scan.
-
-    Returns:
-        List of loaded plugin names.
-    """
-    scan_and_load_external_plugins(plugin_paths)
-    return list(get_registered_plugins().keys())

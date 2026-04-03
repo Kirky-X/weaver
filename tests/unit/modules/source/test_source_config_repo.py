@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from modules.source.models import SourceConfig
-from modules.source.source_config_repo import SourceConfigRepo
+from modules.ingestion.domain.models import SourceConfig
+from modules.ingestion.scheduling.source_config_repo import SourceConfigRepo
 
 
 class TestSourceConfigRepoInit:

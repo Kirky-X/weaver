@@ -104,7 +104,7 @@ class TestSourcesEndpoint:
     def test_source_response_from_config(self):
         """Test SourceResponse.from_config factory method."""
         from api.endpoints.sources import SourceResponse
-        from modules.source.models import SourceConfig
+        from modules.ingestion.domain.models import SourceConfig
 
         config = SourceConfig(
             id="test-id",

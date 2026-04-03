@@ -13,19 +13,19 @@ Configuration file format (pipeline_config.yaml):
         concurrency: 5
         stages:
           - name: classifier
-            class: modules.pipeline.nodes.classifier.ClassifierNode
+            class: modules.processing.pipeline.nodes.classifier.ClassifierNode
             enabled: true
             timeout: 30
           - name: cleaner
-            class: modules.pipeline.nodes.cleaner.CleanerNode
+            class: modules.processing.pipeline.nodes.cleaner.CleanerNode
             enabled: true
             timeout: 60
           - name: categorizer
-            class: modules.pipeline.nodes.categorizer.CategorizerNode
+            class: modules.processing.pipeline.nodes.categorizer.CategorizerNode
             enabled: true
             timeout: 45
           - name: vectorize
-            class: modules.pipeline.nodes.vectorize.VectorizeNode
+            class: modules.processing.pipeline.nodes.vectorize.VectorizeNode
             enabled: true
             timeout: 120
 
@@ -33,28 +33,28 @@ Configuration file format (pipeline_config.yaml):
         concurrency: 5
         stages:
           - name: re_vectorize
-            class: modules.pipeline.nodes.re_vectorize.ReVectorizeNode
+            class: modules.processing.pipeline.nodes.re_vectorize.ReVectorizeNode
             enabled: true
             timeout: 120
           - name: analyze
-            class: modules.pipeline.nodes.analyze.AnalyzeNode
+            class: modules.processing.pipeline.nodes.analyze.AnalyzeNode
             enabled: true
             timeout: 90
           - name: quality_scorer
-            class: modules.pipeline.nodes.quality_scorer.QualityScorerNode
+            class: modules.processing.pipeline.nodes.quality_scorer.QualityScorerNode
             enabled: true
             timeout: 60
           - name: credibility
-            class: modules.pipeline.nodes.credibility_checker.CredibilityCheckerNode
+            class: modules.processing.pipeline.nodes.credibility_checker.CredibilityCheckerNode
             enabled: true
             timeout: 45
           - name: entity_extractor
-            class: modules.pipeline.nodes.entity_extractor.EntityExtractorNode
+            class: modules.processing.pipeline.nodes.entity_extractor.EntityExtractorNode
             enabled: true
             timeout: 120
 
       batch:
-        merger_class: modules.pipeline.nodes.batch_merger.BatchMergerNode
+        merger_class: modules.processing.pipeline.nodes.batch_merger.BatchMergerNode
         enabled: true
         timeout: 180
 
@@ -118,7 +118,7 @@ class PhaseConfig:
 class BatchConfig:
     """Configuration for batch processing."""
 
-    merger_class: str = "modules.pipeline.nodes.batch_merger.BatchMergerNode"
+    merger_class: str = "modules.processing.pipeline.nodes.batch_merger.BatchMergerNode"
     enabled: bool = True
     timeout: int = 180
 
@@ -142,17 +142,20 @@ class PipelineConfig:
             concurrency=5,
             stages=[
                 StageConfig(
-                    name="classifier", class_path="modules.pipeline.nodes.classifier.ClassifierNode"
+                    name="classifier",
+                    class_path="modules.processing.pipeline.nodes.classifier.ClassifierNode",
                 ),
                 StageConfig(
-                    name="cleaner", class_path="modules.pipeline.nodes.cleaner.CleanerNode"
+                    name="cleaner",
+                    class_path="modules.processing.pipeline.nodes.cleaner.CleanerNode",
                 ),
                 StageConfig(
                     name="categorizer",
-                    class_path="modules.pipeline.nodes.categorizer.CategorizerNode",
+                    class_path="modules.processing.pipeline.nodes.categorizer.CategorizerNode",
                 ),
                 StageConfig(
-                    name="vectorize", class_path="modules.pipeline.nodes.vectorize.VectorizeNode"
+                    name="vectorize",
+                    class_path="modules.processing.pipeline.nodes.vectorize.VectorizeNode",
                 ),
             ],
         )
@@ -161,22 +164,23 @@ class PipelineConfig:
             stages=[
                 StageConfig(
                     name="re_vectorize",
-                    class_path="modules.pipeline.nodes.re_vectorize.ReVectorizeNode",
+                    class_path="modules.processing.pipeline.nodes.re_vectorize.ReVectorizeNode",
                 ),
                 StageConfig(
-                    name="analyze", class_path="modules.pipeline.nodes.analyze.AnalyzeNode"
+                    name="analyze",
+                    class_path="modules.processing.pipeline.nodes.analyze.AnalyzeNode",
                 ),
                 StageConfig(
                     name="quality_scorer",
-                    class_path="modules.pipeline.nodes.quality_scorer.QualityScorerNode",
+                    class_path="modules.processing.pipeline.nodes.quality_scorer.QualityScorerNode",
                 ),
                 StageConfig(
                     name="credibility",
-                    class_path="modules.pipeline.nodes.credibility_checker.CredibilityCheckerNode",
+                    class_path="modules.processing.pipeline.nodes.credibility_checker.CredibilityCheckerNode",
                 ),
                 StageConfig(
                     name="entity_extractor",
-                    class_path="modules.pipeline.nodes.entity_extractor.EntityExtractorNode",
+                    class_path="modules.processing.pipeline.nodes.entity_extractor.EntityExtractorNode",
                 ),
             ],
         )
@@ -256,7 +260,7 @@ def _dict_to_batch(data: dict[str, Any]) -> BatchConfig:
     """Convert dictionary to BatchConfig."""
     return BatchConfig(
         merger_class=data.get(
-            "merger_class", "modules.pipeline.nodes.batch_merger.BatchMergerNode"
+            "merger_class", "modules.processing.pipeline.nodes.batch_merger.BatchMergerNode"
         ),
         enabled=data.get("enabled", True),
         timeout=data.get("timeout", 180),

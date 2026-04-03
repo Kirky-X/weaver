@@ -1,16 +1,3 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
-"""LLM usage statistics submodule."""
+"""分析统计域 - LLM 使用统计"""
 
-from modules.analytics.llm_usage.aggregator import (
-    LLMUsageAggregatorThread,
-    LLMUsageRawCleanupThread,
-)
-from modules.analytics.llm_usage.buffer import LLMUsageBuffer
-from modules.analytics.llm_usage.repo import LLMUsageRepo
-
-__all__ = [
-    "LLMUsageAggregatorThread",
-    "LLMUsageBuffer",
-    "LLMUsageRawCleanupThread",
-    "LLMUsageRepo",
-]
+# Phase 5 完成后从 modules.storage 和 modules.scheduler 迁移

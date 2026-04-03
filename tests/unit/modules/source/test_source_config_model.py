@@ -3,7 +3,7 @@
 
 import pytest
 
-from modules.source.models import SourceConfig
+from modules.ingestion.domain.models import SourceConfig
 
 
 class TestSourceConfigModel:

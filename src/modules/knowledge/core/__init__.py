@@ -1,12 +1,3 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Knowledge graph core - Shared abstractions and data models."""
+"""知识图谱域 - 核心抽象和数据模型"""
 
-from modules.knowledge.core.relation_types import (
-    NormalizedRelation,
-    RelationTypeNormalizer,
-)
-
-__all__ = [
-    "NormalizedRelation",
-    "RelationTypeNormalizer",
-]
+# Phase 4 完成后迁移 RelationTypeNormalizer 等

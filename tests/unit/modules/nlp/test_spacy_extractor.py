@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from modules.nlp.spacy_extractor import (
+from modules.processing.nlp.spacy_extractor import (
     MODEL_MAP,
     SPACY_TO_ENTITY_TYPE,
     SpacyEntity,

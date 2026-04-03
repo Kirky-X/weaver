@@ -44,7 +44,7 @@ async def setup_test_graph(neo4j_pool):
 @pytest.mark.asyncio
 async def test_graph_metrics_calculation(neo4j_pool, setup_test_graph):
     """Test graph metrics with real data."""
-    from modules.graph_store.metrics import GraphQualityMetrics
+    from modules.knowledge.graph.metrics import GraphQualityMetrics
 
     metrics = GraphQualityMetrics(neo4j_pool)
     result = await metrics.calculate_all_metrics()
@@ -56,7 +56,7 @@ async def test_graph_metrics_calculation(neo4j_pool, setup_test_graph):
 @pytest.mark.asyncio
 async def test_connected_components(neo4j_pool, setup_test_graph):
     """Test connected components detection."""
-    from modules.graph_store.metrics import GraphQualityMetrics
+    from modules.knowledge.graph.metrics import GraphQualityMetrics
 
     metrics = GraphQualityMetrics(neo4j_pool)
     components = await metrics.get_connected_components()
@@ -67,7 +67,7 @@ async def test_connected_components(neo4j_pool, setup_test_graph):
 @pytest.mark.asyncio
 async def test_orphan_entities(neo4j_pool):
     """Test orphan entity detection."""
-    from modules.graph_store.metrics import GraphQualityMetrics
+    from modules.knowledge.graph.metrics import GraphQualityMetrics
 
     await neo4j_pool.execute_query("""
         MERGE (e:Entity {canonical_name: 'MetricsTest_Orphan', type: '人物'})
@@ -87,7 +87,7 @@ async def test_orphan_entities(neo4j_pool):
 @pytest.mark.asyncio
 async def test_modularity_calculation(neo4j_pool, setup_test_graph):
     """Test modularity with real graph."""
-    from modules.graph_store.metrics import GraphQualityMetrics
+    from modules.knowledge.graph.metrics import GraphQualityMetrics
 
     metrics = GraphQualityMetrics(neo4j_pool)
     score = await metrics.calculate_modularity()

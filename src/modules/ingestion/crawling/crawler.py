@@ -79,7 +79,7 @@ class Crawler:
                 title=item.title,
                 body=body,
                 source=item.source,
-                publish_time=item.pubDate,
+                pubDate=item.pubDate,
                 source_host=host,
                 description=item.description or "",
             )

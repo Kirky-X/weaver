@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.ingestion.deduplication import RetryQueue
+from modules.ingestion.deduplication.retry import RetryQueue
 
 
 class TestRetryQueue:

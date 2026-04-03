@@ -14,8 +14,6 @@ from core.event import EventBus, LLMFailureEvent, LLMUsageEvent
 from core.llm.client import LLMClient
 from core.observability import get_logger
 from core.prompt import PromptLoader
-from modules.analytics.llm_usage.buffer import LLMUsageBuffer
-from modules.analytics.llm_usage.repo import LLMUsageRepo
 from modules.ingestion import (
     Crawler,
     Deduplicator,
@@ -25,14 +23,16 @@ from modules.ingestion import (
     SourceRegistry,
     SourceScheduler,
 )
-from modules.knowledge import EntityResolver, Neo4jWriter
-from modules.knowledge.community.incremental_updater import IncrementalCommunityUpdater
+from modules.knowledge.graph import EntityResolver, Neo4jWriter
+from modules.knowledge.graph.incremental_community_updater import IncrementalCommunityUpdater
 from modules.knowledge.graph.name_normalizer import name_normalizer
 from modules.knowledge.graph.resolution_rules import resolution_rules
 from modules.knowledge.search.engines.global_search import GlobalSearchEngine
 from modules.knowledge.search.engines.hybrid_search import HybridSearchConfig, HybridSearchEngine
 from modules.knowledge.search.engines.local_search import LocalSearchEngine
 from modules.processing.pipeline.graph import Pipeline
+from modules.storage.llm_usage_buffer import LLMUsageBuffer
+from modules.storage.llm_usage_repo import LLMUsageRepo
 from modules.storage.neo4j import Neo4jArticleRepo, Neo4jEntityRepo
 from modules.storage.postgres import ArticleRepo, PendingSyncRepo, SourceAuthorityRepo, VectorRepo
 
@@ -803,7 +803,9 @@ class Container:
     async def init_smart_fetcher(self) -> SmartFetcher:
         """Initialize smart fetcher."""
         if self._smart_fetcher is None:
-            from modules.ingestion.fetching import HostRateLimiter, HttpxFetcher, PlaywrightFetcher
+            from modules.ingestion.fetching.httpx_fetcher import HttpxFetcher
+            from modules.ingestion.fetching.playwright_fetcher import PlaywrightFetcher
+            from modules.ingestion.fetching.rate_limiter import HostRateLimiter
 
             settings = self._settings.fetcher
 
@@ -932,7 +934,7 @@ class Container:
         await self.init_playwright_pool()
         await self.init_smart_fetcher()
 
-        from modules.ingestion.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         processor = DiscoveryProcessor(
             crawler=self.crawler(),

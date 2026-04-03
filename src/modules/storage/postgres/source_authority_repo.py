@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from sqlalchemy import select, update
 
 from core.db.models import SourceAuthority
-from core.db.pool_protocols import RelationalPool
+from core.db.postgres import PostgresPool
 from core.observability.logging import get_logger
 
 log = get_logger("source_authority_repo")
@@ -18,10 +18,10 @@ class SourceAuthorityRepo:
     """Repository for source authority scores.
 
     Args:
-        pool: Relational database pool (PostgreSQL or DuckDB).
+        pool: PostgreSQL connection pool.
     """
 
-    def __init__(self, pool: RelationalPool) -> None:
+    def __init__(self, pool: PostgresPool) -> None:
         self._pool = pool
 
     async def get_or_create(

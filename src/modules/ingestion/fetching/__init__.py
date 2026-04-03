@@ -1,5 +1,5 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Fetcher module - Web content fetching with Playwright and HTTPX.
+"""Fetching submodule - Web content fetching with Playwright and HTTPX.
 
 This module provides:
 - BaseFetcher: Abstract interface for all fetcher implementations

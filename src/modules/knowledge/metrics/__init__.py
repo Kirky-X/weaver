@@ -1,9 +1,3 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Metrics submodule - Graph quality and health metrics."""
+"""知识图谱域 - 图指标"""
 
-from modules.knowledge.metrics.graph_metrics import GraphMetrics, GraphQualityMetrics
-
-__all__ = [
-    "GraphMetrics",
-    "GraphQualityMetrics",
-]
+# Phase 4 完成后从 modules.knowledge.graph.metrics 迁移

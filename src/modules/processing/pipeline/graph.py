@@ -15,10 +15,10 @@ from core.observability.logging import get_logger
 from core.observability.metrics import MetricsCollector
 from core.prompt.loader import PromptLoader
 from modules.ingestion.domain.models import ArticleRaw
-from modules.knowledge.community.incremental_updater import (
+from modules.knowledge.graph.entity_resolver import EntityResolver
+from modules.knowledge.graph.incremental_community_updater import (
     IncrementalCommunityUpdater,
 )
-from modules.knowledge.graph.entity_resolver import EntityResolver
 from modules.processing.nlp.spacy_extractor import SpacyExtractor
 from modules.processing.nodes.analyze import AnalyzeNode
 from modules.processing.nodes.batch_merger import BatchMergerNode

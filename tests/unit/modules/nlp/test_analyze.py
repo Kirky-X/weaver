@@ -10,9 +10,9 @@ import pytest
 
 from core.llm.output_validator import AnalyzeOutput
 from core.llm.types import CallPoint
-from modules.collector.models import ArticleRaw
-from modules.pipeline.nodes.analyze import AnalyzeNode
-from modules.pipeline.state import PipelineState
+from modules.ingestion.domain.models import ArticleRaw
+from modules.processing.nodes.analyze import AnalyzeNode
+from modules.processing.pipeline.state import PipelineState
 
 
 @pytest.fixture

@@ -1,27 +1,28 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Analytics module - Analysis and statistics domain.
+"""Analytics module - LLM usage statistics and metrics.
 
-This module provides:
-- llm_usage: LLM usage statistics (from storage + scheduler)
-- llm_failure: LLM failure records (from storage + scheduler)
-- metrics: Prometheus metrics
+Consolidates LLM usage tracking and metrics:
+- LLM usage repository (hourly aggregation, multi-dimensional queries)
+- LLM failure tracking
+- Prometheus metrics
 """
 
-from modules.analytics.llm_failure import LLMFailureCleanupThread, LLMFailureRepo
-from modules.analytics.llm_usage import (
+from modules.analytics.llm_failure_cleanup import LLMFailureCleanupThread
+from modules.analytics.llm_failure_repo import LLMFailureRepo
+from modules.analytics.llm_usage_aggregator import (
     LLMUsageAggregatorThread,
-    LLMUsageBuffer,
     LLMUsageRawCleanupThread,
-    LLMUsageRepo,
 )
+from modules.analytics.llm_usage_buffer import LLMUsageBuffer
+from modules.analytics.llm_usage_repo import LLMUsageRepo
 
 __all__ = [
-    # LLM failure
-    "LLMFailureCleanupThread",
-    "LLMFailureRepo",
     # LLM usage
-    "LLMUsageAggregatorThread",
-    "LLMUsageBuffer",
-    "LLMUsageRawCleanupThread",
     "LLMUsageRepo",
+    "LLMUsageBuffer",
+    "LLMUsageAggregatorThread",
+    "LLMUsageRawCleanupThread",
+    # LLM failure
+    "LLMFailureRepo",
+    "LLMFailureCleanupThread",
 ]

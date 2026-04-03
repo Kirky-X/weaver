@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.collector.models import ArticleRaw
+from modules.ingestion.domain.models import ArticleRaw
 
 
 @pytest.fixture

@@ -1,7 +1,7 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for entity resolution rules module."""
 
-from modules.graph_store.resolution_rules import (
+from modules.knowledge.graph.resolution_rules import (
     EntityResolutionRules,
     MatchType,
     ResolutionResult,

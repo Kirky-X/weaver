@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 
 from core.observability.logging import get_logger
@@ -10,11 +11,10 @@ from core.observability.logging import get_logger
 log = get_logger("spacy_extractor")
 
 MODEL_MAP = {
-    # zh_core_web_sm is preferred over zh_core_web_trf because:
+    # zh_core_web_lg is preferred over zh_core_web_trf because:
     # - trf model requires spacy-transformers + PyTorch/TensorFlow
-    # - sm model is lighter weight and works out of the box
-    # - sm model provides adequate NER accuracy for production use
-    "zh": ["zh_core_web_sm", "zh_core_web_trf"],
+    # - lg model provides better NER accuracy for production use
+    "zh": ["zh_core_web_lg", "zh_core_web_trf"],
     "en": ["en_core_web_sm", "en_core_web_trf"],
     "default": ["xx_ent_wiki_sm"],
 }
@@ -82,8 +82,6 @@ class SpacyExtractor:
         Returns:
             Loaded spaCy NLP pipeline or None if loading fails.
         """
-        import os
-
         import spacy
 
         # Check for local wheel file path (for Chinese models)

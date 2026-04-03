@@ -1,5 +1,5 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Scheduling submodule - Source scheduling implementations."""
+"""Scheduling submodule - Source scheduling and configuration persistence."""
 
 from modules.ingestion.scheduling.scheduler import SourceScheduler
 from modules.ingestion.scheduling.source_config_repo import SourceConfigRepo

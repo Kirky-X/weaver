@@ -1,8 +1,11 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Ingestion domain data models.
+"""Unified data models for the ingestion domain.
 
-This module contains unified data models for the ingestion domain,
-consolidating models from source and collector modules.
+This module provides the core data structures that flow through
+the entire ingestion pipeline:
+- NewsItem: Items discovered from RSS/API sources
+- RawArticle: Articles after crawling and content extraction
+- SourceConfig: Configuration for data sources
 """
 
 from __future__ import annotations
@@ -15,6 +18,9 @@ from datetime import datetime
 class NewsItem:
     """Represents a single news item discovered from a source.
 
+    This is the primary data structure for items found via RSS feeds
+    or API endpoints before crawling.
+
     Attributes:
         url: The article URL.
         title: The article title.
@@ -23,7 +29,7 @@ class NewsItem:
         pubDate: Publication date from the feed.
         description: Brief description/summary from the feed.
         body: Full article body text. When present (e.g. from content:encoded
-            in RSS), the Crawler will use it directly without re-fetching the URL.
+            in RSS), the Crawler will use it directly without re-fetching.
     """
 
     url: str
@@ -33,6 +39,36 @@ class NewsItem:
     pubDate: datetime | None = None
     description: str = ""
     body: str = ""
+
+
+@dataclass
+class RawArticle(NewsItem):
+    """Raw article content after crawling and content extraction.
+
+    Inherits from NewsItem and adds crawling-specific metadata.
+
+    Attributes:
+        body: Extracted body text (via trafilatura).
+        tier: Source tier (1=authoritative, 2+=general). Lower = more authoritative.
+        crawl_status: Status of the crawl operation.
+        crawl_error: Error message if crawl failed.
+        publish_time: Alias for pubDate for backward compatibility.
+    """
+
+    # Override body to be required (no empty default for crawled articles)
+    body: str = ""
+    tier: int = 2
+    crawl_status: str = "pending"
+    crawl_error: str | None = None
+    # Backward compatible field - syncs with pubDate via __post_init__
+    publish_time: datetime | None = None
+
+    def __post_init__(self) -> None:
+        """Sync publish_time with pubDate."""
+        if self.pubDate is None and self.publish_time is not None:
+            self.pubDate = self.publish_time
+        elif self.pubDate is not None and self.publish_time is None:
+            self.publish_time = self.pubDate
 
 
 @dataclass
@@ -77,26 +113,6 @@ class SourceConfig:
                 raise ValueError(f"tier must be in range [1, 3], got {self.tier}")
 
 
-@dataclass
-class ArticleRaw:
-    """Raw article content after crawling and content extraction.
-
-    Attributes:
-        url: The URL of the article.
-        title: Extracted title.
-        body: Extracted body text (via trafilatura).
-        source: Source identifier.
-        publish_time: Publication time from the feed.
-        source_host: The hostname of the source.
-        tier: Source tier (1=authoritative, 2+=general). Lower = more authoritative.
-        description: Description/summary from RSS feed (fallback when body is empty).
-    """
-
-    url: str
-    title: str
-    body: str
-    source: str = ""
-    publish_time: datetime | None = None
-    source_host: str = ""
-    tier: int = 2
-    description: str = ""
+# Backward compatibility: ArticleRaw alias for RawArticle
+# (matches original collector/models.py naming)
+ArticleRaw = RawArticle

@@ -18,11 +18,9 @@ from core.observability.logging import get_logger
 from modules.knowledge.search.engines.global_search import GlobalSearchEngine
 from modules.knowledge.search.engines.hybrid_search import HybridSearchEngine
 from modules.knowledge.search.engines.local_search import LocalSearchEngine, SearchResult
-
-# MAGMA intent-aware routing
 from modules.knowledge.search.intent.router import IntentRouter, RoutingConfig
 from modules.memory.core.graph_types import IntentType
-from modules.storage.postgres.vector_repo import VectorRepo
+from modules.storage.vector_repo import VectorRepo
 
 router = APIRouter(prefix="/search", tags=["search"])
 

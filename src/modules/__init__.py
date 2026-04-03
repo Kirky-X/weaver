@@ -1,22 +1,22 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Modules package - Business logic modules for the weaver application.
 
-This package contains all business logic modules:
-- fetcher: Web content fetching (Playwright, HTTPX)
-- collector: Web crawling and content collection
-- graph_store: Neo4j graph database operations
-- nlp: Natural language processing utilities
+This package contains all business logic modules organized by domain:
+
+- ingestion: Content ingestion (crawling, fetching, deduplication, parsing, scheduling)
+- processing: Data processing (pipeline, nlp, nodes)
+- knowledge: Knowledge graph and search (graph, search, community, metrics)
+- analytics: LLM analytics (usage tracking, failure analysis)
 - storage: Database repositories (PostgreSQL, Neo4j)
-- pipeline: Data processing pipeline with LangGraph
 - scheduler: Background job scheduling
-- source: RSS feed and data source management
-- search: Local and global search engines
-- community: Community detection and reporting
+- management: CLI commands and management utilities
 
 Note: Import specific modules to avoid circular imports:
-    from modules.ingestion.fetching import SmartFetcher
+    from modules.ingestion import Crawler, Deduplicator
     from modules.storage import ArticleRepo
     from modules.processing.pipeline.graph import Pipeline
+    from modules.knowledge.graph import Neo4jWriter
+    from modules.knowledge.search import GlobalSearchEngine
 """
 
 __all__ = []

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from modules.source.plugin import (
+from modules.ingestion.parsing.plugin import (
     PluginMetadata,
     _plugin_registry,
     discover_plugins_from_directory,
@@ -183,7 +183,7 @@ class TestDiscoverPluginsFromDirectory:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             plugin_code = """
-from modules.source.plugin import source_parser_plugin
+from modules.ingestion.parsing.plugin import source_parser_plugin
 
 @source_parser_plugin(name="file_plugin")
 class FileParser:

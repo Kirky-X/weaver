@@ -1,74 +1,53 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Knowledge module - Knowledge graph domain.
+"""Knowledge module - Knowledge graph and search operations.
 
-This module consolidates knowledge graph functionality:
-- core: Shared abstractions and data models
-- graph: Graph building and management (formerly graph_store core)
-- community: Community detection and reporting
-- search: Search engines (formerly search)
-- metrics: Graph metrics
+Consolidates graph_store and search modules:
+- Entity resolution and relation normalization
+- Community detection and reporting
+- Multiple search modes (Local/Global/DRIFT/Hybrid)
 """
 
-# Internal imports from submodules
-from modules.knowledge.community import (
-    Community,
-    CommunityDetector,
-    CommunityReport,
-    CommunityReportGenerator,
-    IncrementalCommunityUpdater,
-    IncrementalUpdateResult,
-    Neo4jCommunityRepo,
-)
-from modules.knowledge.core import NormalizedRelation, RelationTypeNormalizer
+# Graph operations
 from modules.knowledge.graph import (
-    EntityResolutionRules,
     EntityResolver,
-    EntityType,
+    GraphMetrics,
     GraphPruner,
-    MatchType,
+    IncrementalCommunityUpdater,
     NameNormalizer,
     Neo4jWriter,
-    PruneResult,
-    ResolutionResult,
-    ResolutionRule,
+    RelationTypeNormalizer,
 )
-from modules.knowledge.metrics import GraphMetrics
+from modules.knowledge.graph.community_detector import CommunityDetector
+from modules.knowledge.graph.community_report_generator import CommunityReportGenerator
+
+# Search operations
 from modules.knowledge.search import (
     ContextBuilder,
     GlobalContextBuilder,
     GlobalSearchEngine,
     LocalContextBuilder,
     LocalSearchEngine,
-    MapReduceResult,
-    SearchResult,
 )
+from modules.knowledge.search.engines.hybrid_search import HybridSearchEngine
 
 __all__ = [
-    "Community",
-    "CommunityDetector",
-    "CommunityReport",
-    "CommunityReportGenerator",
-    "ContextBuilder",
-    "EntityResolutionRules",
-    "EntityResolver",
-    "EntityType",
-    "GlobalContextBuilder",
-    "GlobalSearchEngine",
-    "GraphMetrics",
-    "GraphPruner",
-    "IncrementalCommunityUpdater",
-    "IncrementalUpdateResult",
-    "LocalContextBuilder",
-    "LocalSearchEngine",
-    "MapReduceResult",
-    "MatchType",
-    "NameNormalizer",
-    "Neo4jCommunityRepo",
+    # Graph operations
     "Neo4jWriter",
-    "NormalizedRelation",
-    "PruneResult",
+    "EntityResolver",
+    "NameNormalizer",
     "RelationTypeNormalizer",
-    "ResolutionResult",
-    "ResolutionRule",
-    "SearchResult",
+    "GraphPruner",
+    # Community
+    "CommunityDetector",
+    "CommunityReportGenerator",
+    "IncrementalCommunityUpdater",
+    # Search
+    "LocalSearchEngine",
+    "GlobalSearchEngine",
+    "HybridSearchEngine",
+    "ContextBuilder",
+    "LocalContextBuilder",
+    "GlobalContextBuilder",
+    # Metrics
+    "GraphMetrics",
 ]

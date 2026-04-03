@@ -10,9 +10,9 @@ import pytest
 
 from core.llm.output_validator import ClassifierOutput
 from core.llm.types import CallPoint
-from modules.collector.models import ArticleRaw
-from modules.pipeline.nodes.classifier import ClassifierNode
-from modules.pipeline.state import PipelineState
+from modules.ingestion.domain.models import ArticleRaw
+from modules.processing.nodes.classifier import ClassifierNode
+from modules.processing.pipeline.state import PipelineState
 
 
 @pytest.fixture

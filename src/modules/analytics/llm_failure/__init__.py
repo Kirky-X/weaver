@@ -1,10 +1,3 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
-"""LLM failure records submodule."""
+"""分析统计域 - LLM 失败记录"""
 
-from modules.analytics.llm_failure.cleanup import LLMFailureCleanupThread
-from modules.analytics.llm_failure.repo import LLMFailureRepo
-
-__all__ = [
-    "LLMFailureCleanupThread",
-    "LLMFailureRepo",
-]
+# Phase 5 完成后从 modules.storage 和 modules.scheduler 迁移

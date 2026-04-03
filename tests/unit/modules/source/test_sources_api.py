@@ -118,7 +118,7 @@ class TestSourceResponseModel:
     def test_source_response_from_config(self):
         """Test SourceResponse.from_config factory method."""
         from api.endpoints.sources import SourceResponse
-        from modules.source.models import SourceConfig
+        from modules.ingestion.domain.models import SourceConfig
 
         config = SourceConfig(
             id="test-id",
@@ -145,7 +145,7 @@ class TestSourcesEndpoint:
     async def test_list_sources_endpoint(self):
         """Test GET /sources endpoint."""
         from api.endpoints.sources import list_sources
-        from modules.source.models import SourceConfig
+        from modules.ingestion.domain.models import SourceConfig
 
         mock_repo = AsyncMock()
         mock_repo.list_sources = AsyncMock(
@@ -173,7 +173,7 @@ class TestSourcesEndpoint:
     async def test_create_source_endpoint_success(self):
         """Test POST /sources endpoint creates new source."""
         from api.endpoints.sources import SourceCreateRequest, create_source
-        from modules.source.models import SourceConfig
+        from modules.ingestion.domain.models import SourceConfig
 
         new_config = SourceConfig(
             id="new-source",
@@ -214,7 +214,7 @@ class TestSourcesEndpoint:
     async def test_create_source_endpoint_conflict(self):
         """Test POST /sources returns 409 for existing source."""
         from api.endpoints.sources import SourceCreateRequest, create_source
-        from modules.source.models import SourceConfig
+        from modules.ingestion.domain.models import SourceConfig
 
         mock_repo = AsyncMock()
         mock_repo.get = AsyncMock(
@@ -243,7 +243,7 @@ class TestSourcesEndpoint:
     async def test_update_source_endpoint_success(self):
         """Test PUT /sources/{source_id} endpoint."""
         from api.endpoints.sources import SourceUpdateRequest, update_source
-        from modules.source.models import SourceConfig
+        from modules.ingestion.domain.models import SourceConfig
 
         mock_existing = SourceConfig(
             id="source-1",

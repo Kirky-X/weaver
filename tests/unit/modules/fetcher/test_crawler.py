@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.collector.crawler import GLOBAL_MAX_CONCURRENCY, Crawler
+from modules.ingestion.crawling.crawler import GLOBAL_MAX_CONCURRENCY, Crawler
 from modules.ingestion.fetching.exceptions import FetchError
 
 

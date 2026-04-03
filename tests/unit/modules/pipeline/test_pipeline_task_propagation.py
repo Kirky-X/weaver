@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from core.db.models import Article
-from modules.collector.models import ArticleRaw
-from modules.storage.postgres.article_repo import ArticleRepo
+from modules.ingestion.domain.models import ArticleRaw
+from modules.storage.article_repo import ArticleRepo
 
 
 class TestArticleRepoTaskIdInsertion:
@@ -126,7 +126,7 @@ class TestSourceSchedulerTaskIdPropagation:
     def test_scheduler_on_items_callback_accepts_task_id(self):
         """Test that on_items_discovered callback type hints include task_id."""
 
-        from modules.source.scheduler import SourceScheduler
+        from modules.ingestion.scheduling.scheduler import SourceScheduler
 
         sig = inspect.signature(SourceScheduler.__init__)
         params = sig.parameters
@@ -141,7 +141,7 @@ class TestDiscoveryProcessorTaskIdPropagation:
 
     def test_on_items_discovered_has_task_id_parameter(self):
         """Test that on_items_discovered method has task_id parameter."""
-        from modules.collector.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         sig = inspect.signature(DiscoveryProcessor.on_items_discovered)
         params = list(sig.parameters.keys())
@@ -149,7 +149,7 @@ class TestDiscoveryProcessorTaskIdPropagation:
 
     def test_on_items_discovered_task_id_default_is_none(self):
         """Test that task_id defaults to None in on_items_discovered."""
-        from modules.collector.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         sig = inspect.signature(DiscoveryProcessor.on_items_discovered)
         task_id_param = sig.parameters.get("task_id")
@@ -159,7 +159,7 @@ class TestDiscoveryProcessorTaskIdPropagation:
     @pytest.mark.asyncio
     async def test_on_items_discovered_passes_task_id_to_insert_raw(self):
         """Test that on_items_discovered passes task_id to article_repo.insert_raw."""
-        from modules.collector.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         mock_crawler = AsyncMock()
         mock_crawler.crawl_batch.return_value = [
@@ -199,7 +199,7 @@ class TestDiscoveryProcessorTaskIdPropagation:
     @pytest.mark.asyncio
     async def test_on_items_discovered_works_without_task_id(self):
         """Test backward compatibility - on_items_discovered works without task_id."""
-        from modules.collector.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         mock_crawler = AsyncMock()
         mock_crawler.crawl_batch.return_value = [

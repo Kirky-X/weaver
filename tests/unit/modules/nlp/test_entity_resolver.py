@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.graph_store.entity_resolver import EntityResolver
+from modules.knowledge.graph.entity_resolver import EntityResolver
 
 
 class TestEntityResolver:
@@ -50,7 +50,7 @@ class TestEntityResolver:
     @pytest.fixture
     def mock_rules(self):
         """Mock resolution rules."""
-        from modules.graph_store.resolution_rules import MatchType
+        from modules.knowledge.graph.resolution_rules import MatchType
 
         rules = MagicMock()
         rules.get_canonical_suggestion = MagicMock(return_value="张三")

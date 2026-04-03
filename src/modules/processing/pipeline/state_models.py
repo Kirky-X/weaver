@@ -14,38 +14,13 @@ Example:
 
 from __future__ import annotations
 
-import warnings
 from datetime import datetime
 from typing import Any, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from core.constants import PipelineState, ProcessingStatus
+from core.constants import PipelineState
 from modules.ingestion.domain.models import ArticleRaw
-
-# ── Deprecated Aliases (for backward compatibility) ─────────────────────────
-# These will be removed in a future version. Use core.constants instead.
-
-
-def __getattr__(name: str) -> Any:
-    """Provide deprecated aliases for backward compatibility."""
-    if name == "PipelineStage":
-        warnings.warn(
-            "PipelineStage in state_models is deprecated. "
-            "Use PipelineState from core.constants instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return PipelineState
-    if name == "PersistStatus":
-        warnings.warn(
-            "PersistStatus in state_models is deprecated. "
-            "Use ProcessingStatus from core.constants instead.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return ProcessingStatus
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 class CredibilityModel(BaseModel):

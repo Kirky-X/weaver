@@ -1,7 +1,7 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for name normalizer module."""
 
-from modules.graph_store.name_normalizer import (
+from modules.knowledge.graph.name_normalizer import (
     NameNormalizer,
     NameScript,
     NormalizationResult,
