@@ -1,5 +1,5 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Community detector using Hierarchical Leiden algorithm."""
+"""Community detector using Leiden algorithm."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ log = get_logger("community_detector")
 
 
 class CommunityDetector:
-    """Detects communities in the knowledge graph using Hierarchical Leiden.
+    """Detects communities in the knowledge graph using Leiden algorithm.
 
     Uses the leidenalg + igraph libraries' implementation of the Hierarchical Leiden
     algorithm to partition entities into hierarchical communities based on
