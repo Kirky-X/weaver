@@ -11,8 +11,8 @@ import trafilatura
 
 from core.observability.logging import get_logger
 from modules.collector.models import ArticleRaw
-from modules.fetcher.base import BaseFetcher
-from modules.fetcher.exceptions import FetchError
+from modules.ingestion.fetching.base import BaseFetcher
+from modules.ingestion.fetching.exceptions import FetchError
 from modules.source.models import NewsItem
 
 log = get_logger("crawler")

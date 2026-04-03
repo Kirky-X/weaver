@@ -11,7 +11,7 @@ class TestDeduplicatorInit:
 
     def test_init_with_defaults(self):
         """Test Deduplicator initializes with default TTL."""
-        from modules.collector.deduplicator import Deduplicator
+        from modules.ingestion.deduplication import Deduplicator
 
         mock_redis = MagicMock()
         mock_repo = MagicMock()
@@ -24,7 +24,7 @@ class TestDeduplicatorInit:
 
     def test_init_with_custom_ttl(self):
         """Test Deduplicator initializes with custom TTL."""
-        from modules.collector.deduplicator import Deduplicator
+        from modules.ingestion.deduplication import Deduplicator
 
         mock_redis = MagicMock()
         mock_repo = MagicMock()
@@ -58,7 +58,7 @@ class TestDeduplicatorDedup:
     @pytest.fixture
     def dedup(self, mock_redis, mock_repo):
         """Create Deduplicator instance."""
-        from modules.collector.deduplicator import Deduplicator
+        from modules.ingestion.deduplication import Deduplicator
 
         return Deduplicator(redis=mock_redis, article_repo=mock_repo)
 
@@ -155,7 +155,7 @@ class TestDeduplicatorDedupUrls:
 
     @pytest.fixture
     def dedup(self, mock_redis, mock_repo):
-        from modules.collector.deduplicator import Deduplicator
+        from modules.ingestion.deduplication import Deduplicator
 
         return Deduplicator(redis=mock_redis, article_repo=mock_repo)
 
@@ -183,42 +183,42 @@ class TestDeduplicatorNormalizeUrl:
 
     def test_normalize_url_http_to_https(self):
         """Test HTTP URLs are upgraded to HTTPS."""
-        from modules.collector.deduplicator import Deduplicator
+        from modules.ingestion.deduplication import Deduplicator
 
         result = Deduplicator.normalize_url("http://example.com/path")
         assert result.startswith("https://")
 
     def test_normalize_url_protocol_relative(self):
         """Test protocol-relative URLs become HTTPS."""
-        from modules.collector.deduplicator import Deduplicator
+        from modules.ingestion.deduplication import Deduplicator
 
         result = Deduplicator.normalize_url("//example.com/path")
         assert result.startswith("https://")
 
     def test_normalize_url_lowercase_domain(self):
         """Test domain is lowercased."""
-        from modules.collector.deduplicator import Deduplicator
+        from modules.ingestion.deduplication import Deduplicator
 
         result = Deduplicator.normalize_url("https://Example.COM/path")
         assert "example.com" in result
 
     def test_normalize_url_remove_www(self):
         """Test www prefix is removed."""
-        from modules.collector.deduplicator import Deduplicator
+        from modules.ingestion.deduplication import Deduplicator
 
         result = Deduplicator.normalize_url("https://www.example.com/path")
         assert "www." not in result
 
     def test_normalize_url_remove_default_port(self):
         """Test default ports are removed."""
-        from modules.collector.deduplicator import Deduplicator
+        from modules.ingestion.deduplication import Deduplicator
 
         result = Deduplicator.normalize_url("https://example.com:443/path")
         assert ":443" not in result
 
     def test_normalize_url_remove_query_string(self):
         """Test query strings are removed."""
-        from modules.collector.deduplicator import Deduplicator
+        from modules.ingestion.deduplication import Deduplicator
 
         result = Deduplicator.normalize_url("https://example.com/path?foo=bar")
         assert "?foo=bar" not in result
@@ -226,21 +226,21 @@ class TestDeduplicatorNormalizeUrl:
 
     def test_normalize_url_remove_fragment(self):
         """Test fragments are removed."""
-        from modules.collector.deduplicator import Deduplicator
+        from modules.ingestion.deduplication import Deduplicator
 
         result = Deduplicator.normalize_url("https://example.com/path#section")
         assert "#section" not in result
 
     def test_normalize_url_remove_trailing_slash(self):
         """Test trailing slash is removed."""
-        from modules.collector.deduplicator import Deduplicator
+        from modules.ingestion.deduplication import Deduplicator
 
         result = Deduplicator.normalize_url("https://example.com/path/")
         assert not result.endswith("/")
 
     def test_normalize_url_wechat_preserves_biz(self):
         """Test WeChat URLs preserve __biz parameter."""
-        from modules.collector.deduplicator import Deduplicator
+        from modules.ingestion.deduplication import Deduplicator
 
         result = Deduplicator.normalize_url(
             "https://mp.weixin.qq.com/s?__biz=abc123&mid=123&other=value"
@@ -251,7 +251,7 @@ class TestDeduplicatorNormalizeUrl:
 
     def test_normalize_url_hash_consistency(self):
         """Test URL hash is consistent for equivalent URLs."""
-        from modules.collector.deduplicator import Deduplicator
+        from modules.ingestion.deduplication import Deduplicator
 
         hash1 = Deduplicator._hash("https://example.com/path")
         hash2 = Deduplicator._hash("https://EXAMPLE.COM/path/")
@@ -276,7 +276,7 @@ class TestDeduplicatorCleanupExpired:
 
     @pytest.fixture
     def dedup(self, mock_redis, mock_repo):
-        from modules.collector.deduplicator import Deduplicator
+        from modules.ingestion.deduplication import Deduplicator
 
         return Deduplicator(redis=mock_redis, article_repo=mock_repo)
 

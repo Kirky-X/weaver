@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from modules.collector.models import ArticleRaw
-from modules.fetcher.exceptions import FetchError
+from modules.ingestion.fetching.exceptions import FetchError
 
 
 @pytest.fixture
@@ -310,7 +310,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
     ):
         """Test flow with SimHash deduplication."""
         from modules.collector.processor import DiscoveryProcessor
-        from modules.collector.simhash_dedup import TitleItem
+        from modules.ingestion.deduplication import TitleItem
 
         # URL dedup returns all items
         mock_deduplicator.dedup = AsyncMock(return_value=sample_items)

@@ -81,6 +81,32 @@ class Neo4jSettings(BaseSettings):
     enabled: bool = True
 
 
+class DuckDBSettings(BaseSettings):
+    """DuckDB fallback settings.
+
+    Used when PostgreSQL is unavailable.
+    Reads DUCKDB_ENABLED, DUCKDB_DB_PATH from environment.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="DUCKDB_")
+
+    enabled: bool = True
+    db_path: str = "data/weaver.duckdb"
+
+
+class LadybugSettings(BaseSettings):
+    """LadybugDB (graph DB) fallback settings.
+
+    Used when Neo4j is unavailable.
+    Reads LADYBUG_ENABLED, LADYBUG_DB_PATH from environment.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="LADYBUG_")
+
+    enabled: bool = True
+    db_path: str = "data/weaver_graph.ladybug"
+
+
 class RedisSettings(BaseSettings):
     """Redis connection settings.
 
@@ -344,6 +370,82 @@ class SearchSettings(BaseModel):
     """Half-life in days for temporal decay. After this many days, the decay multiplier reaches 0.5."""
 
 
+class IntentRoutingSettings(BaseModel):
+    """Intent-aware routing configuration."""
+
+    enabled: bool = True
+    """Enable intent-aware routing."""
+
+    classification_threshold: float = 0.7
+    """Minimum confidence to use classification."""
+
+    fallback_mode: str = "local"
+    """Fallback mode if classification fails."""
+
+    allow_explicit_mode: bool = True
+    """Allow users to override with mode parameter."""
+
+
+class TemporalInferenceSettings(BaseModel):
+    """Temporal inference configuration."""
+
+    enabled: bool = True
+    """Enable temporal parsing."""
+
+    default_window_days: int = 7
+    """Default time window in days."""
+
+    parse_chinese_expressions: bool = True
+    """Parse Chinese relative expressions."""
+
+    auto_anchor: bool = True
+    """Automatically anchor relative times."""
+
+
+class MemorySettings(BaseModel):
+    """MAGMA memory system configuration.
+
+    Controls dual-stream memory evolution parameters.
+    """
+
+    # Fast Path
+    fast_path_enabled: bool = True
+    """Enable synchronous event ingestion on critical path."""
+
+    # Slow Path
+    slow_path_enabled: bool = True
+    """Enable asynchronous structural consolidation."""
+
+    consolidation_interval_minutes: int = 30
+    """Interval for background consolidation worker."""
+
+    causal_confidence_threshold: float = 0.7
+    """Minimum confidence for causal edges to be stored."""
+
+    consolidation_batch_size: int = 10
+    """Number of events to process per consolidation run."""
+
+    # Retrieval
+    max_traversal_depth: int = 5
+    """Maximum depth for heuristic beam search."""
+
+    beam_width: int = 10
+    """Number of candidates to keep at each traversal step."""
+
+    token_budget: int = 4000
+    """Maximum tokens for retrieved context."""
+
+    # Edge weights (λ parameters for Equation 5)
+    structure_weight: float = 1.0
+    """Weight for structural alignment score (λ₁)."""
+
+    semantic_weight: float = 0.5
+    """Weight for semantic similarity score (λ₂)."""
+
+    traversal_decay: float = 0.9
+    """Decay factor for cumulative traversal scores."""
+
+
 def settings_customise_sources(
     settings: type[BaseSettings],
     init_settings: PydanticBaseSettingsSource,
@@ -415,7 +517,11 @@ class Settings(BaseSettings):
     health_check: HealthCheckSettings = Field(default_factory=HealthCheckSettings)
     postgres: PostgresSettings = Field(default_factory=PostgresSettings)
     neo4j: Neo4jSettings = Field(default_factory=Neo4jSettings)
+    duckdb: DuckDBSettings = Field(default_factory=DuckDBSettings)
+    ladybug: LadybugSettings = Field(default_factory=LadybugSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
+    duckdb: DuckDBSettings = Field(default_factory=DuckDBSettings)
+    ladybug: LadybugSettings = Field(default_factory=LadybugSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
     fetcher: FetcherSettings = Field(default_factory=FetcherSettings)
     prompt: PromptSettings = Field(default_factory=PromptSettings)
@@ -424,6 +530,9 @@ class Settings(BaseSettings):
     dedup: DedupSettings = Field(default_factory=DedupSettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
     search: SearchSettings = Field(default_factory=SearchSettings)
+    intent_routing: IntentRoutingSettings = Field(default_factory=IntentRoutingSettings)
+    temporal_inference: TemporalInferenceSettings = Field(default_factory=TemporalInferenceSettings)
+    memory: MemorySettings = Field(default_factory=MemorySettings)
 
     def __init__(self, **kwargs: Any) -> None:
         """Initialize settings, loading TOML config first."""

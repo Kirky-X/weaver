@@ -10,7 +10,7 @@ from datetime import datetime
 from sqlalchemy import select, text
 
 from core.db.models import EntityVector, VectorType
-from core.db.postgres import PostgresPool
+from core.db.pool_protocols import RelationalPool
 from core.observability.logging import get_logger
 
 log = get_logger("vector_repo")
@@ -43,10 +43,10 @@ class VectorRepo:
     article and entity vectors.
 
     Args:
-        pool: PostgreSQL connection pool.
+        pool: Relational database pool (PostgreSQL only for pgvector support).
     """
 
-    def __init__(self, pool: PostgresPool) -> None:
+    def __init__(self, pool: RelationalPool) -> None:
         self._pool = pool
 
     async def upsert_article_vectors(

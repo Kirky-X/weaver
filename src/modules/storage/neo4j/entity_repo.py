@@ -10,7 +10,7 @@ from typing import Any
 
 from neo4j.exceptions import ConstraintError
 
-from core.db.neo4j import Neo4jPool
+from core.db.pool_protocols import GraphPool
 from core.observability.logging import get_logger
 
 log = get_logger("neo4j_entity_repo")
@@ -30,13 +30,13 @@ class Neo4jEntityRepo:
     Supports both single and batch operations for efficiency.
 
     Args:
-        pool: Neo4j connection pool.
+        pool: Graph database pool (Neo4j or LadybugDB).
     """
 
     MAX_MERGE_RETRIES = 3
     DEFAULT_BATCH_SIZE = 1000
 
-    def __init__(self, pool: Neo4jPool) -> None:
+    def __init__(self, pool: GraphPool) -> None:
         self._pool = pool
 
     async def ensure_constraints(self) -> None:

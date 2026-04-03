@@ -188,6 +188,34 @@ class MetricsCollector:
         ["job", "status"],
     )
 
+    # Memory system metrics (MAGMA)
+    memory_ingestion_latency = Histogram(
+        "memory_ingestion_latency_seconds",
+        "Fast path ingestion latency",
+        ["status"],
+        buckets=[0.05, 0.1, 0.25, 0.5, 1, 2],
+    )
+    memory_consolidation_events = Counter(
+        "memory_consolidation_events_total",
+        "Total consolidation events processed",
+        ["status"],  # success, failure, filtered
+    )
+    memory_causal_edges_created = Counter(
+        "memory_causal_edges_created_total",
+        "Total causal edges created",
+        ["relation_type"],  # CAUSES, ENABLES, PREVENTS
+    )
+    memory_retrieval_latency = Histogram(
+        "memory_retrieval_latency_seconds",
+        "Adaptive retrieval latency",
+        ["intent_type"],
+        buckets=[0.1, 0.25, 0.5, 1, 2, 5],
+    )
+    memory_queue_depth = Gauge(
+        "memory_queue_depth",
+        "Current consolidation queue depth",
+    )
+
 
 # Global metrics instance for use across modules
 metrics = MetricsCollector()

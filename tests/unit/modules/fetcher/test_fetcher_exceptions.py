@@ -3,7 +3,7 @@
 
 import pytest
 
-from modules.fetcher.exceptions import CircuitOpenError, FetchError
+from modules.ingestion.fetching.exceptions import CircuitOpenError, FetchError
 
 
 class TestFetchError:

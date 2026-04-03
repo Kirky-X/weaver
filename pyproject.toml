@@ -48,6 +48,9 @@ dependencies = [
     "typing-extensions>=4.15.0",
     "nest-asyncio>=1.6.0",
     "litellm>=1.83.0",
+    "duckdb>=1.5.1",
+    "duckdb-engine>=0.17.0",
+    "real-ladybug>=0.15.3",
 ]
 
 [build-system]

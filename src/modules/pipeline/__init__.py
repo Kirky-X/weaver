@@ -1,25 +1,15 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Pipeline module - Data processing pipeline with LangGraph.
+"""Pipeline module - Re-exports from processing.pipeline for backward compatibility.
 
-This module provides:
-- Pipeline: Main processing pipeline (import from graph)
-- PipelineState: State management for pipeline execution
-- PipelineConfig: Configuration data classes
-- PipelineConfigLoader: Configuration file loader
+.. deprecated:: 0.3.0
+    Import from modules.processing.pipeline instead:
 
-Usage:
-    # Direct imports (recommended)
-    from modules.pipeline.graph import Pipeline
-    from modules.pipeline.config import PipelineConfig, PipelineConfigLoader
-
-    # Configuration-driven initialization
-    loader = PipelineConfigLoader()
-    config = loader.load_with_env_override()
-    pipeline = Pipeline.from_config(llm, config, ...)
+    from modules.processing.pipeline.graph import Pipeline
 """
 
-# Import from core.constants instead of deprecated state_models aliases
 from core.constants import PipelineState as PipelineStage, ProcessingStatus as PersistStatus
+
+# Re-export other components (these remain local)
 from modules.pipeline.config import (
     BatchConfig,
     PhaseConfig,
@@ -39,22 +29,23 @@ from modules.pipeline.state_models import (
     VectorData,
 )
 
+# Re-export Pipeline for backward compatibility
+from modules.processing.pipeline.graph import Pipeline
+
 __all__ = [
-    # Config
     "BatchConfig",
     "CleanedData",
     "CredibilityModel",
     "EntityData",
     "PersistStatus",
     "PhaseConfig",
+    "Pipeline",
     "PipelineConfig",
     "PipelineConfigLoader",
     "PipelineStage",
-    # State (TypedDict - legacy)
     "PipelineState",
     "RelationData",
     "StageConfig",
-    # State (Pydantic - validated, recommended for new code)
     "ValidatedPipelineState",
     "VectorData",
     "dict_to_config",

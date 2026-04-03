@@ -9,7 +9,7 @@ from urllib.parse import urlparse
 import json_repair
 
 from core.observability.logging import get_logger
-from modules.fetcher.base import BaseFetcher
+from modules.ingestion.fetching.base import BaseFetcher
 from modules.source.base import BaseSourceParser
 from modules.source.models import NewsItem, SourceConfig
 

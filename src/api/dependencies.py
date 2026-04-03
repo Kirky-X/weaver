@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from modules.storage.postgres.source_authority_repo import SourceAuthorityRepo
     from modules.ingestion.scheduling.source_config_repo import SourceConfigRepo
     from modules.storage.postgres.article_repo import ArticleRepo
-    from modules.storage.llm_usage_repo import LLMUsageRepo
+    from modules.analytics.llm_usage.repo import LLMUsageRepo
     from modules.storage.postgres.vector_repo import VectorRepo
 
 from api.endpoints._deps import Endpoints

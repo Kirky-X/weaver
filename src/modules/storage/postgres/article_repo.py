@@ -11,7 +11,7 @@ from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.models import Article, PersistStatus
-from core.db.postgres import PostgresPool
+from core.db.pool_protocols import RelationalPool
 from core.exceptions import InvalidStateTransitionError
 from core.observability.logging import get_logger
 from modules.ingestion.deduplication import Deduplicator
@@ -153,10 +153,10 @@ class ArticleRepo:
     and URL dedup queries.
 
     Args:
-        pool: PostgreSQL connection pool.
+        pool: Relational database pool (PostgreSQL or DuckDB).
     """
 
-    def __init__(self, pool: PostgresPool) -> None:
+    def __init__(self, pool: RelationalPool) -> None:
         self._pool = pool
 
     async def bulk_upsert(self, states: list[PipelineState]) -> list[uuid.UUID]:

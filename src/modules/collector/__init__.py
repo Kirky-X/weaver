@@ -1,19 +1,19 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Collector module - Web crawling and content collection.
 
-Public API:
-- Deduplicator: URL deduplication using Redis
-- RetryQueue: Retry queue management for failed crawl tasks
-- Crawler: Main web crawler implementation (import directly)
+.. deprecated:: 0.3.0
+    Deduplicator and RetryQueue have moved to modules.ingestion.deduplication.
 
-Internal components (private, not exported):
-- models: Data models for article collection
-- processor: Article processing logic
-- interleaver: Feed interleaving utilities
+    Migration:
+        # OLD
+        from modules.collector import Deduplicator, RetryQueue
+
+        # NEW
+        from modules.ingestion.deduplication import Deduplicator, RetryQueue
 """
 
-from modules.collector.deduplicator import Deduplicator
-from modules.collector.retry import RetryQueue
+# Re-export from ingestion.deduplication for backward compatibility
+from modules.ingestion.deduplication import Deduplicator, RetryQueue
 
 __all__ = [
     "Deduplicator",

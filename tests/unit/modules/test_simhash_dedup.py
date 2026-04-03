@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.collector.simhash_dedup import SimHashDeduplicator, TitleItem
+from modules.ingestion.deduplication import SimHashDeduplicator, TitleItem
 
 
 class TestSimHashFingerprint:

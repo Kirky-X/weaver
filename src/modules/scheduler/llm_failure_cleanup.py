@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from core.observability.logging import get_logger
 
 if TYPE_CHECKING:
-    from modules.storage.llm_failure_repo import LLMFailureRepo
+    from modules.analytics.llm_failure.repo import LLMFailureRepo
 
 log = get_logger("llm_failure_cleanup")
 
