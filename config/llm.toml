@@ -26,7 +26,7 @@ priority = 100
 weight = 100
 
   [providers.aiping.models.chat]
-  model_id = "GLM-4-9B-0414"
+  model_id = "GLM-Z1-9B-0414"
   temperature = 0.0
   max_tokens = 4096
   capabilities = ["chat"]
@@ -85,7 +85,7 @@ weight = 50
 # Default Labels
 # ============================================================
 [defaults.chat]
-label = "chat.aiping.GLM-4-9B-0414"
+label = "chat.aiping.GLM-Z1-9B-0414"
 fallbacks = ["chat.dmx.glm-4.7-free"]
 
 [defaults.embedding]
@@ -100,7 +100,7 @@ fallbacks = ["rerank.dmx.bge-reranker-v2-m3-free"]
 # Call Point Routing
 # ============================================================
 [call-points.classifier]
-primary = "chat.aiping.GLM-4-9B-0414"
+primary = "chat.aiping.GLM-Z1-9B-0414"
 fallbacks = ["chat.dmx.glm-4.7-free"]
 
 [call-points.cleaner]
@@ -108,19 +108,19 @@ primary = "chat.aiping.GLM-4-9B-0414"
 fallbacks = ["chat.dmx.glm-4.7-free"]
 
 [call-points.categorizer]
-primary = "chat.aiping.GLM-4-9B-0414"
+primary = "chat.aiping.GLM-Z1-9B-0414"
 fallbacks = ["chat.dmx.glm-4.7-free"]
 
 [call-points.analyze]
-primary = "chat.aiping.GLM-4-9B-0414"
+primary = "chat.aiping.GLM-Z1-9B-0414"
 fallbacks = ["chat.dmx.glm-4.7-free"]
 
 [call-points.entity_extractor]
-primary = "chat.aiping.GLM-4-9B-0414"
+primary = "chat.aiping.GLM-Z1-9B-0414"
 fallbacks = ["chat.dmx.glm-4.7-free"]
 
 [call-points.credibility_checker]
-primary = "chat.aiping.GLM-4-9B-0414"
+primary = "chat.aiping.GLM-Z1-9B-0414"
 fallbacks = ["chat.dmx.glm-4.7-free"]
 
 [call-points.quality_scorer]
