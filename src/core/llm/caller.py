@@ -6,12 +6,17 @@ from __future__ import annotations
 import time
 from typing import Any
 
+import httpx
 from litellm import acompletion, aembedding, arerank
+from openai import AsyncOpenAI
 
 from core.llm.types import Label, LLMResponse, LLMType, TokenUsage
 from core.observability.logging import get_logger
 
 log = get_logger("litellm_caller")
+
+# LiteLLM原生支持的rerank provider类型
+LITELLM_RERANK_PROVIDERS = frozenset({"cohere", "huggingface", "jina", "infinity"})
 
 
 class LiteLLMCaller:
@@ -152,7 +157,11 @@ class LiteLLMCaller:
 
         latency_ms = (time.monotonic() - start_time) * 1000
 
-        embeddings = [item.embedding for item in response.data]
+        # Handle both OpenAI SDK objects (has .embedding) and LiteLLM dicts (has ['embedding'])
+        embeddings = [
+            item.embedding if hasattr(item, "embedding") else item["embedding"]
+            for item in response.data
+        ]
 
         usage = response.usage
         token_usage = TokenUsage(
@@ -188,9 +197,12 @@ class LiteLLMCaller:
     ) -> LLMResponse:
         """执行rerank调用.
 
+        对于LiteLLM支持的provider类型（cohere, huggingface等）使用LiteLLM。
+        对于OpenAI兼容的rerank API，使用自定义HTTP调用。
+
         Args:
             label: 调用标签
-            provider_type: LiteLLM provider类型
+            provider_type: provider类型
             api_key: API密钥
             api_base: API基础URL
             query: 查询文本
@@ -201,32 +213,43 @@ class LiteLLMCaller:
         Returns:
             LLM响应，content为rerank结果列表
         """
-        model = self._build_model_name(provider_type, label.model)
         top_n = top_n or len(documents)
-
         start_time = time.monotonic()
 
-        kwargs: dict[str, Any] = {
-            "model": model,
-            "query": query,
-            "documents": documents,
-            "top_n": top_n,
-            "api_key": api_key,
-            "timeout": timeout,
-        }
+        # LiteLLM支持的provider使用原生arerank
+        if provider_type in LITELLM_RERANK_PROVIDERS:
+            model = f"{provider_type}/{label.model}"
+            kwargs: dict[str, Any] = {
+                "model": model,
+                "query": query,
+                "documents": documents,
+                "top_n": top_n,
+                "api_key": api_key,
+                "timeout": timeout,
+            }
+            if api_base:
+                kwargs["api_base"] = api_base
 
-        if api_base:
-            kwargs["api_base"] = api_base
-
-        response = await arerank(**kwargs)
+            response = await arerank(**kwargs)
+            results = [{"index": r.index, "score": r.relevance_score} for r in response.results]
+        else:
+            # OpenAI兼容的rerank API使用自定义HTTP调用
+            results = await self._rerank_openai_compatible(
+                api_base=api_base,
+                api_key=api_key,
+                model=label.model,
+                query=query,
+                documents=documents,
+                top_n=top_n,
+                timeout=timeout,
+            )
 
         latency_ms = (time.monotonic() - start_time) * 1000
 
-        results = [{"index": r.index, "score": r.relevance_score} for r in response.results]
-
         log.debug(
             "rerank_call_complete",
-            model=model,
+            provider_type=provider_type,
+            model=label.model,
             latency_ms=latency_ms,
             num_documents=len(documents),
             top_n=top_n,
@@ -239,6 +262,67 @@ class LiteLLMCaller:
             token_usage=None,
             model=label.model,
         )
+
+    async def _rerank_openai_compatible(
+        self,
+        api_base: str,
+        api_key: str,
+        model: str,
+        query: str,
+        documents: list[str],
+        top_n: int,
+        timeout: float,
+    ) -> list[dict[str, Any]]:
+        """使用 OpenAI 库调用 OpenAI 兼容的 rerank API.
+
+        用于 aiping.cn 等 OpenAI 兼容的 rerank API。
+        使用 OpenAI 库的 client.post() 方法保持依赖一致性。
+
+        Args:
+            api_base: API基础URL
+            api_key: API密钥
+            model: 模型ID
+            query: 查询文本
+            documents: 文档列表
+            top_n: 返回数量
+            timeout: 超时时间
+
+        Returns:
+            rerank结果列表 [{"index": int, "score": float}, ...]
+        """
+        if not documents:
+            return []
+
+        # 使用 OpenAI 库的 AsyncOpenAI 客户端
+        client = AsyncOpenAI(
+            api_key=api_key,
+            base_url=api_base.rstrip("/"),
+            timeout=timeout,
+        )
+
+        # 使用 client.post() 发送自定义请求
+        response = await client.post(
+            "/rerank",
+            body={
+                "model": model,
+                "query": query,
+                "documents": documents,
+                "top_n": top_n,
+            },
+            cast_to=httpx.Response,
+        )
+
+        result: dict[str, Any] = response.json()
+        api_results = result.get("results", [])
+
+        return [
+            {
+                "index": item.get("index", i),
+                "score": item.get("relevance_score", 0.0),
+            }
+            for i, item in enumerate(api_results)
+            if i < top_n
+        ]
 
     async def call(
         self,
