@@ -87,8 +87,11 @@ async def create_strategy(
             raise RuntimeError("PostgreSQL unavailable and DuckDB fallback disabled") from exc
 
         # Fallback to DuckDB
+        from modules.storage.duckdb.schema import initialize_duckdb_schema
+
         duckdb_pool = DuckDBPool(db_path=duckdb_settings.db_path)
         await duckdb_pool.startup()
+        await initialize_duckdb_schema(duckdb_pool)
         relational_pool = duckdb_pool
         relational_type = "duckdb"
         log.info("duckdb_connected", db_path=duckdb_settings.db_path)
