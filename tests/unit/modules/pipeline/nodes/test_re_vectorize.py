@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock
 import pytest
 
 from modules.ingestion.domain.models import ArticleRaw
-from modules.pipeline.nodes.re_vectorize import ReVectorizeNode
-from modules.pipeline.state import PipelineState
+from modules.processing.nodes.re_vectorize import ReVectorizeNode
+from modules.processing.pipeline.state import PipelineState
 
 
 @pytest.fixture

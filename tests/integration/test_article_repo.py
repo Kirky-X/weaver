@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import text
 
 from modules.processing.pipeline.state import PipelineState
-from modules.storage.article_repo import ArticleRepo
+from modules.storage import ArticleRepo
 
 
 class TestArticleRepoIntegration:

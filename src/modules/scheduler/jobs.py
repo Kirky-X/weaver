@@ -20,10 +20,8 @@ from core.observability.logging import get_logger
 from core.observability.metrics import metrics
 from modules.ingestion.deduplication.retry import RetryQueue
 from modules.knowledge.graph.neo4j_writer import Neo4jWriter
-from modules.storage.article_repo import ArticleRepo
-from modules.storage.pending_sync_repo import PendingSyncRepo
-from modules.storage.source_authority_repo import SourceAuthorityRepo
-from modules.storage.vector_repo import VectorRepo
+from modules.scheduler.wrapper import scheduled_task
+from modules.storage import ArticleRepo, PendingSyncRepo, SourceAuthorityRepo, VectorRepo
 
 log = get_logger("scheduler_jobs")
 

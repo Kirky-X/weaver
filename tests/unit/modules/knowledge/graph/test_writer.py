@@ -78,7 +78,7 @@ class TestNeo4jWriterEnsureConstraints:
 
             writer = Neo4jWriter(pool=MagicMock())
             mock_entity_repo.return_value.ensure_constraints = AsyncMock()
-            return writer
+            yield writer
 
     @pytest.mark.asyncio
     async def test_ensure_constraints_calls_repo(self, writer):
@@ -127,6 +127,7 @@ class TestNeo4jWriterWrite:
             mock_entity_repo.find_entity = AsyncMock(
                 return_value={"neo4j_id": "entity-id", "canonical_name": "Entity 1"}
             )
+            mock_entity_repo.find_entities_by_keys = AsyncMock(return_value=[])
             mock_entity_repo.merge_mentions_batch = AsyncMock(return_value=2)
 
             mock_article_repo = MagicMock()
@@ -138,7 +139,7 @@ class TestNeo4jWriterWrite:
             mock_article_repo_cls.return_value = mock_article_repo
 
             writer = Neo4jWriter(pool=MagicMock())
-            return writer, mock_entity_repo, mock_article_repo
+            yield writer, mock_entity_repo, mock_article_repo
 
     @pytest.mark.asyncio
     async def test_write_without_article_id_raises(self, writer_with_mocks):
@@ -223,6 +224,7 @@ class TestNeo4jWriterWriteWithRelations:
             mock_entity_repo.find_entity = AsyncMock(
                 return_value={"neo4j_id": "entity-id", "canonical_name": "Entity 1"}
             )
+            mock_entity_repo.find_entities_by_keys = AsyncMock(return_value=[])
             mock_entity_repo.merge_mentions_batch = AsyncMock(return_value=2)
             mock_entity_repo.merge_relation = AsyncMock()
 
@@ -234,7 +236,7 @@ class TestNeo4jWriterWriteWithRelations:
             mock_article_repo_cls.return_value = mock_article_repo
 
             writer = Neo4jWriter(pool=MagicMock())
-            return writer, mock_entity_repo, mock_article_repo
+            yield writer, mock_entity_repo, mock_article_repo
 
     @pytest.mark.asyncio
     async def test_write_with_relations_handled(self, writer_with_mocks, mock_state_with_relations):
@@ -267,6 +269,7 @@ class TestNeo4jWriterWriteWithRelations:
             mock_entity_repo.find_entity = AsyncMock(
                 return_value={"neo4j_id": "entity-id", "canonical_name": "Entity 1"}
             )
+            mock_entity_repo.find_entities_by_keys = AsyncMock(return_value=[])
             mock_entity_repo.merge_mentions_batch = AsyncMock(return_value=2)
             mock_entity_repo.merge_relation = AsyncMock()
 
@@ -330,7 +333,7 @@ class TestNeo4jWriterMergeSources:
             mock_article_repo_cls.return_value = mock_article_repo
 
             writer = Neo4jWriter(pool=MagicMock())
-            return writer, mock_entity_repo, mock_article_repo
+            yield writer, mock_entity_repo, mock_article_repo
 
     @pytest.mark.asyncio
     async def test_write_creates_followed_by(self, writer_with_mocks, mock_state_with_merges):
@@ -365,7 +368,7 @@ class TestNeo4jWriterCleanup:
             mock_article_repo_cls.return_value = mock_article_repo
 
             writer = Neo4jWriter(pool=MagicMock())
-            return writer, mock_entity_repo, mock_article_repo
+            yield writer, mock_entity_repo, mock_article_repo
 
     @pytest.mark.asyncio
     async def test_cleanup_orphan_entities(self, writer_with_mocks):
@@ -409,6 +412,7 @@ class TestNeo4jWriterEdgeCases:
             )
             mock_entity_repo.merge_mentions_batch = AsyncMock(return_value=1)
             mock_entity_repo.merge_relation = AsyncMock()
+            mock_entity_repo.find_entities_by_keys = AsyncMock(return_value=[])
 
             mock_article_repo = MagicMock()
             mock_article_repo.create_article = AsyncMock(return_value="article-id")
@@ -417,7 +421,7 @@ class TestNeo4jWriterEdgeCases:
             mock_article_repo_cls.return_value = mock_article_repo
 
             writer = Neo4jWriter(pool=MagicMock())
-            return writer, mock_entity_repo, mock_article_repo
+            yield writer, mock_entity_repo, mock_article_repo
 
     @pytest.mark.asyncio
     async def test_write_entities_batch_failure(self, writer_with_mocks):
@@ -444,6 +448,10 @@ class TestNeo4jWriterEdgeCases:
                 {"neo4j_id": "id1", "canonical_name": "Canonical E1"},  # resolve canonical
                 {"neo4j_id": "id1", "canonical_name": "Canonical E1"},  # find after batch
             ]
+        )
+        # find_entities_by_keys returns the entity so entity_ids is populated
+        mock_entity_repo.find_entities_by_keys = AsyncMock(
+            return_value=[{"canonical_name": "Canonical E1", "type": "PERSON", "neo4j_id": "id1"}]
         )
 
         state = {

@@ -23,9 +23,7 @@ from core.prompt.loader import PromptLoader  # noqa: E402
 from modules.ingestion.domain.models import ArticleRaw  # noqa: E402
 from modules.knowledge.graph.neo4j_writer import Neo4jWriter  # noqa: E402
 from modules.processing.nlp.spacy_extractor import SpacyExtractor  # noqa: E402
-from modules.storage.article_repo import ArticleRepo  # noqa: E402
-from modules.storage.source_authority_repo import SourceAuthorityRepo  # noqa: E402
-from modules.storage.vector_repo import VectorRepo  # noqa: E402
+from modules.storage import ArticleRepo, SourceAuthorityRepo, VectorRepo
 
 
 async def main():

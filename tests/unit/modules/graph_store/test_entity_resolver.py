@@ -11,7 +11,7 @@ class TestEntityResolverInit:
 
     def test_init_with_required_params(self):
         """Test EntityResolver initializes with required params."""
-        from modules.graph_store.entity_resolver import EntityResolver
+        from modules.knowledge.graph.entity_resolver import EntityResolver
 
         mock_vector_repo = MagicMock()
         mock_entity_repo = MagicMock()
@@ -27,9 +27,9 @@ class TestEntityResolverInit:
 
     def test_init_with_optional_params(self):
         """Test EntityResolver initializes with optional params."""
-        from modules.graph_store.entity_resolver import EntityResolver
-        from modules.graph_store.name_normalizer import NameNormalizer
-        from modules.graph_store.resolution_rules import EntityResolutionRules
+        from modules.knowledge.graph.entity_resolver import EntityResolver
+        from modules.knowledge.graph.name_normalizer import NameNormalizer
+        from modules.knowledge.graph.resolution_rules import EntityResolutionRules
 
         mock_vector_repo = MagicMock()
         mock_entity_repo = MagicMock()
@@ -71,7 +71,7 @@ class TestEntityResolverResolveEntity:
 
     @pytest.fixture
     def resolver(self, mock_entity_repo, mock_vector_repo):
-        from modules.graph_store.entity_resolver import EntityResolver
+        from modules.knowledge.graph.entity_resolver import EntityResolver
 
         return EntityResolver(
             entity_repo=mock_entity_repo,
@@ -163,7 +163,7 @@ class TestEntityResolverLooksLikeMetricString:
 
     @pytest.fixture
     def resolver(self):
-        from modules.graph_store.entity_resolver import EntityResolver
+        from modules.knowledge.graph.entity_resolver import EntityResolver
 
         return EntityResolver(
             entity_repo=MagicMock(),
@@ -199,7 +199,7 @@ class TestEntityResolverBatch:
 
     @pytest.fixture
     def resolver(self):
-        from modules.graph_store.entity_resolver import EntityResolver
+        from modules.knowledge.graph.entity_resolver import EntityResolver
 
         resolver = EntityResolver(
             entity_repo=MagicMock(),
@@ -235,7 +235,7 @@ class TestEntityResolverPreResolveCheck:
 
     @pytest.fixture
     def resolver(self, mock_entity_repo):
-        from modules.graph_store.entity_resolver import EntityResolver
+        from modules.knowledge.graph.entity_resolver import EntityResolver
 
         return EntityResolver(
             entity_repo=mock_entity_repo,
@@ -269,7 +269,7 @@ class TestEntityResolverGetResolutionStats:
 
     @pytest.fixture
     def resolver(self):
-        from modules.graph_store.entity_resolver import EntityResolver
+        from modules.knowledge.graph.entity_resolver import EntityResolver
 
         return EntityResolver(
             entity_repo=MagicMock(),

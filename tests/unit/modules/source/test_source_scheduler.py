@@ -20,8 +20,8 @@ class TestSourceSchedulerBasic:
     @pytest.mark.asyncio
     async def test_scheduler_initializes_with_registry(self, mock_fetcher):
         """Test that scheduler initializes with registry."""
-        from modules.source.registry import SourceRegistry
-        from modules.source.scheduler import SourceScheduler
+        from modules.ingestion.parsing.registry import SourceRegistry
+        from modules.ingestion.scheduling.scheduler import SourceScheduler
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -38,8 +38,8 @@ class TestSourceSchedulerBasic:
     @pytest.mark.asyncio
     async def test_scheduler_start_stop(self, mock_fetcher):
         """Test that scheduler can start and stop."""
-        from modules.source.registry import SourceRegistry
-        from modules.source.scheduler import SourceScheduler
+        from modules.ingestion.parsing.registry import SourceRegistry
+        from modules.ingestion.scheduling.scheduler import SourceScheduler
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -63,9 +63,9 @@ class TestSourceSchedulerEdgeCases:
     @pytest.mark.asyncio
     async def test_scheduler_with_disabled_sources(self, mock_fetcher):
         """Test scheduler behavior with disabled sources."""
-        from modules.source.models import SourceConfig
-        from modules.source.registry import SourceRegistry
-        from modules.source.scheduler import SourceScheduler
+        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.parsing.registry import SourceRegistry
+        from modules.ingestion.scheduling.scheduler import SourceScheduler
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -94,9 +94,9 @@ class TestSourceSchedulerEdgeCases:
     @pytest.mark.asyncio
     async def test_scheduler_can_start_with_sources(self, mock_fetcher):
         """Test scheduler can start with registered sources."""
-        from modules.source.models import SourceConfig
-        from modules.source.registry import SourceRegistry
-        from modules.source.scheduler import SourceScheduler
+        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.parsing.registry import SourceRegistry
+        from modules.ingestion.scheduling.scheduler import SourceScheduler
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -128,8 +128,8 @@ class TestSourceSchedulerErrorHandling:
     @pytest.mark.asyncio
     async def test_scheduler_handles_invalid_callback(self, mock_fetcher):
         """Test scheduler handles invalid callback gracefully."""
-        from modules.source.registry import SourceRegistry
-        from modules.source.scheduler import SourceScheduler
+        from modules.ingestion.parsing.registry import SourceRegistry
+        from modules.ingestion.scheduling.scheduler import SourceScheduler
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -154,9 +154,9 @@ class TestSourceSchedulerCrawlSource:
         """Test crawl_source when no parser is found."""
         from unittest.mock import MagicMock
 
-        from modules.source.models import SourceConfig
-        from modules.source.registry import SourceRegistry
-        from modules.source.scheduler import SourceScheduler
+        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.parsing.registry import SourceRegistry
+        from modules.ingestion.scheduling.scheduler import SourceScheduler
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -184,9 +184,9 @@ class TestSourceSchedulerCrawlSource:
     @pytest.mark.asyncio
     async def test_crawl_source_with_disabled_source(self, mock_fetcher):
         """Test crawl_source when source is disabled."""
-        from modules.source.models import SourceConfig
-        from modules.source.registry import SourceRegistry
-        from modules.source.scheduler import SourceScheduler
+        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.parsing.registry import SourceRegistry
+        from modules.ingestion.scheduling.scheduler import SourceScheduler
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -214,8 +214,8 @@ class TestSourceSchedulerCrawlSource:
     @pytest.mark.asyncio
     async def test_crawl_source_with_unknown_id(self, mock_fetcher):
         """Test crawl_source with non-existent source ID."""
-        from modules.source.registry import SourceRegistry
-        from modules.source.scheduler import SourceScheduler
+        from modules.ingestion.parsing.registry import SourceRegistry
+        from modules.ingestion.scheduling.scheduler import SourceScheduler
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -235,10 +235,10 @@ class TestSourceSchedulerCrawlSource:
         """Test crawl_source when parser returns items."""
         from datetime import UTC, datetime
 
-        from modules.source.models import NewsItem, SourceConfig
-        from modules.source.registry import SourceRegistry
-        from modules.source.rss_parser import RSSParser
-        from modules.source.scheduler import SourceScheduler
+        from modules.ingestion.parsing.models import NewsItem, SourceConfig
+        from modules.ingestion.parsing.registry import SourceRegistry
+        from modules.ingestion.parsing.rss_parser import RSSParser
+        from modules.ingestion.scheduling.scheduler import SourceScheduler
 
         # Mock parser to return items
         mock_parser = AsyncMock()
@@ -287,9 +287,9 @@ class TestSourceSchedulerCrawlSource:
         """Test that crawl_source updates last_crawl_time when items found."""
         from datetime import UTC, datetime
 
-        from modules.source.models import NewsItem, SourceConfig
-        from modules.source.registry import SourceRegistry
-        from modules.source.scheduler import SourceScheduler
+        from modules.ingestion.parsing.models import NewsItem, SourceConfig
+        from modules.ingestion.parsing.registry import SourceRegistry
+        from modules.ingestion.scheduling.scheduler import SourceScheduler
 
         mock_parser = AsyncMock()
         mock_parser.parse = AsyncMock(
@@ -334,9 +334,9 @@ class TestSourceSchedulerCrawlSource:
     @pytest.mark.asyncio
     async def test_crawl_source_handles_parser_error(self, mock_fetcher):
         """Test crawl_source handles parser exceptions."""
-        from modules.source.models import SourceConfig
-        from modules.source.registry import SourceRegistry
-        from modules.source.scheduler import SourceScheduler
+        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.parsing.registry import SourceRegistry
+        from modules.ingestion.scheduling.scheduler import SourceScheduler
 
         mock_parser = AsyncMock()
         mock_parser.parse = AsyncMock(side_effect=Exception("Parse error"))
@@ -374,9 +374,9 @@ class TestSourceSchedulerTriggerNow:
         """Test that trigger_now delegates to _crawl_source."""
         from unittest.mock import patch
 
-        from modules.source.models import SourceConfig
-        from modules.source.registry import SourceRegistry
-        from modules.source.scheduler import SourceScheduler
+        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.parsing.registry import SourceRegistry
+        from modules.ingestion.scheduling.scheduler import SourceScheduler
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -405,9 +405,9 @@ class TestSourceSchedulerTriggerNow:
         """Test trigger_now with task_id parameter."""
         import uuid
 
-        from modules.source.models import SourceConfig
-        from modules.source.registry import SourceRegistry
-        from modules.source.scheduler import SourceScheduler
+        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.parsing.registry import SourceRegistry
+        from modules.ingestion.scheduling.scheduler import SourceScheduler
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 

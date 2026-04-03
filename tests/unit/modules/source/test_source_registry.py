@@ -19,7 +19,7 @@ class TestSourceRegistryBasic:
 
     def test_registry_initializes(self, mock_fetcher):
         """Test that registry initializes correctly."""
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -28,7 +28,7 @@ class TestSourceRegistryBasic:
 
     def test_registry_has_default_parsers(self, mock_fetcher):
         """Test that registry has default parsers."""
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -38,8 +38,8 @@ class TestSourceRegistryBasic:
 
     def test_registry_add_source(self, mock_fetcher):
         """Test adding a source to registry."""
-        from modules.source.models import SourceConfig
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -62,7 +62,7 @@ class TestSourceRegistryEdgeCases:
 
     def test_registry_with_empty_list(self, mock_fetcher):
         """Test registry behavior with no sources."""
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -71,8 +71,8 @@ class TestSourceRegistryEdgeCases:
 
     def test_registry_list_enabled_only(self, mock_fetcher):
         """Test listing only enabled sources."""
-        from modules.source.models import SourceConfig
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -103,8 +103,8 @@ class TestSourceRegistryEdgeCases:
 
     def test_registry_update_source(self, mock_fetcher):
         """Test updating an existing source."""
-        from modules.source.models import SourceConfig
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -138,7 +138,7 @@ class TestSourceRegistryErrorHandling:
 
     def test_registry_get_unknown_source(self, mock_fetcher):
         """Test getting an unknown source."""
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -147,8 +147,8 @@ class TestSourceRegistryErrorHandling:
 
     def test_registry_remove_source(self, mock_fetcher):
         """Test removing a source."""
-        from modules.source.models import SourceConfig
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -174,7 +174,7 @@ class TestSourceRegistryParserMethods:
 
     def test_get_parser(self, mock_fetcher):
         """Test getting a parser by source type."""
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -183,7 +183,7 @@ class TestSourceRegistryParserMethods:
 
     def test_get_parser_unknown_type(self, mock_fetcher):
         """Test getting a parser for unknown type."""
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -192,7 +192,7 @@ class TestSourceRegistryParserMethods:
 
     def test_get_parser_metadata(self, mock_fetcher):
         """Test getting parser metadata."""
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -202,7 +202,7 @@ class TestSourceRegistryParserMethods:
 
     def test_get_parser_metadata_unknown(self, mock_fetcher):
         """Test getting metadata for unknown parser."""
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -211,7 +211,7 @@ class TestSourceRegistryParserMethods:
 
     def test_list_registered_types(self, mock_fetcher):
         """Test listing all registered types."""
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -221,7 +221,7 @@ class TestSourceRegistryParserMethods:
 
     def test_list_parser_info(self, mock_fetcher):
         """Test listing parser information."""
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -238,8 +238,8 @@ class TestSourceRegistryCustomParser:
 
     def test_register_parser(self, mock_fetcher):
         """Test registering a custom parser."""
-        from modules.source.base import BaseSourceParser
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.base import BaseSourceParser
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         class CustomParser(BaseSourceParser):
             async def parse(self, config):
@@ -255,9 +255,9 @@ class TestSourceRegistryCustomParser:
 
     def test_register_parser_with_metadata(self, mock_fetcher):
         """Test registering a parser with metadata."""
-        from modules.source.base import BaseSourceParser
-        from modules.source.plugin import PluginMetadata
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.base import BaseSourceParser
+        from modules.ingestion.parsing.plugin import PluginMetadata
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         class CustomParser(BaseSourceParser):
             async def parse(self, config):
@@ -281,8 +281,8 @@ class TestSourceRegistryCustomParser:
 
     def test_register_parser_class(self, mock_fetcher):
         """Test registering a parser class."""
-        from modules.source.base import BaseSourceParser
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.base import BaseSourceParser
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         class CustomParser(BaseSourceParser):
             def __init__(self, fetcher):
@@ -301,9 +301,9 @@ class TestSourceRegistryCustomParser:
 
     def test_register_parser_class_with_metadata(self, mock_fetcher):
         """Test registering a parser class with metadata."""
-        from modules.source.base import BaseSourceParser
-        from modules.source.plugin import PluginMetadata
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.base import BaseSourceParser
+        from modules.ingestion.parsing.plugin import PluginMetadata
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         class CustomParser(BaseSourceParser):
             def __init__(self, fetcher):
@@ -332,7 +332,7 @@ class TestSourceRegistryPlugins:
 
     def test_load_plugins_returns_list(self, mock_fetcher):
         """Test that load_plugins returns a list."""
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -348,8 +348,8 @@ class TestSourceRegistryAsyncMethods:
         """Test that close calls close on parsers that have it."""
         from unittest.mock import AsyncMock
 
-        from modules.source.base import BaseSourceParser
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.base import BaseSourceParser
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         class CloseableParser(BaseSourceParser):
             def __init__(self, fetcher=None):
@@ -369,7 +369,7 @@ class TestSourceRegistryAsyncMethods:
     @pytest.mark.asyncio
     async def test_close_handles_parser_without_close(self, mock_fetcher):
         """Test that close handles parsers without close method."""
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -382,8 +382,8 @@ class TestSourceRegistryListSources:
 
     def test_list_sources_returns_all_by_default(self, mock_fetcher):
         """Test that list_sources returns only enabled sources by default."""
-        from modules.source.models import SourceConfig
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 
@@ -419,8 +419,8 @@ class TestSourceRegistryListSources:
 
     def test_list_sources_all(self, mock_fetcher):
         """Test listing all sources including disabled."""
-        from modules.source.models import SourceConfig
-        from modules.source.registry import SourceRegistry
+        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
 

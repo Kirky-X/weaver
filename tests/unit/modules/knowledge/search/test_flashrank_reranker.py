@@ -14,7 +14,9 @@ from modules.knowledge.search.rerankers.flashrank_reranker import FlashrankReran
 class TestFlashrankRerankerInit:
     """Tests for FlashrankReranker initialization."""
 
-    @patch("modules.search.rerankers.flashrank_reranker.FlashrankReranker._initialize_ranker")
+    @patch(
+        "modules.knowledge.search.rerankers.flashrank_reranker.FlashrankReranker._initialize_ranker"
+    )
     def test_init_default_params(self, mock_init: MagicMock) -> None:
         """Test initialization with default parameters."""
         reranker = FlashrankReranker()
@@ -48,7 +50,9 @@ class TestFlashrankRerankerInit:
 class TestFlashrankRerankerRerank:
     """Tests for FlashrankReranker rerank method."""
 
-    @patch("modules.search.rerankers.flashrank_reranker.FlashrankReranker._initialize_ranker")
+    @patch(
+        "modules.knowledge.search.rerankers.flashrank_reranker.FlashrankReranker._initialize_ranker"
+    )
     def test_rerank_empty_candidates(self, mock_init: MagicMock) -> None:
         """Test reranking empty candidate list."""
         reranker = FlashrankReranker()
@@ -168,7 +172,9 @@ class TestFlashrankRerankerWithMetadata:
 class TestFlashrankRerankerHelpers:
     """Tests for FlashrankReranker helper methods."""
 
-    @patch("modules.search.rerankers.flashrank_reranker.FlashrankReranker._initialize_ranker")
+    @patch(
+        "modules.knowledge.search.rerankers.flashrank_reranker.FlashrankReranker._initialize_ranker"
+    )
     def test_is_available(self, mock_init: MagicMock) -> None:
         """Test is_available method."""
         reranker_enabled = FlashrankReranker(enabled=True)
@@ -177,7 +183,9 @@ class TestFlashrankRerankerHelpers:
         # Enabled may or may not be available depending on installation
         assert reranker_disabled.is_available() is False
 
-    @patch("modules.search.rerankers.flashrank_reranker.FlashrankReranker._initialize_ranker")
+    @patch(
+        "modules.knowledge.search.rerankers.flashrank_reranker.FlashrankReranker._initialize_ranker"
+    )
     def test_get_model_info(self, mock_init: MagicMock) -> None:
         """Test get_model_info method."""
         reranker = FlashrankReranker(model_name="small", enabled=True)

@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from modules.ingestion.domain.models import ArticleRaw
-from modules.pipeline.nodes.checkpoint_cleanup import CheckpointCleanupNode
-from modules.pipeline.state import PipelineState
+from modules.processing.nodes.checkpoint_cleanup import CheckpointCleanupNode
+from modules.processing.pipeline.state import PipelineState
 
 
 @pytest.fixture

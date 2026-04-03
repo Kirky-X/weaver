@@ -10,7 +10,7 @@ from fastapi import HTTPException
 
 from api.endpoints._deps import Endpoints
 from modules.knowledge.search.engines.local_search import SearchResult
-from modules.storage.vector_repo import SimilarArticle
+from modules.storage.postgres.vector_repo import SimilarArticle
 
 # ── Mock Factories ───────────────────────────────────────────────
 
@@ -261,7 +261,7 @@ class TestSearchUnifiedEndpoint:
         result = await search_unified(
             request=_make_mock_request(),
             q="腾讯",
-            mode="local",  # Default is now local
+            mode=None,  # Test default behavior without explicit mode
             entity_names=None,
             max_tokens=None,
             community_level=0,
@@ -278,7 +278,7 @@ class TestSearchUnifiedEndpoint:
         )
 
         assert isinstance(result.data, SearchResponse)
-        assert result.data.search_type == "local"
+        assert result.data.search_type == "auto"
 
     @pytest.mark.asyncio
     async def test_search_local_with_entity_names_param(self):

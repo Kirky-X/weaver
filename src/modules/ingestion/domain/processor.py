@@ -11,7 +11,7 @@ from modules.ingestion.crawling import Crawler
 from modules.ingestion.deduplication import Deduplicator, SimHashDeduplicator, TitleItem
 from modules.ingestion.fetching.exceptions import FetchError
 from modules.processing.pipeline.graph import Pipeline
-from modules.storage.article_repo import ArticleRepo
+from modules.storage import ArticleRepo
 
 log = get_logger("discovery_processor")
 

@@ -100,8 +100,8 @@ class TestLLMClientInit:
 
 
 @pytest.mark.skipif(
-    not os.environ.get("WEAVER_LLM__PROVIDERS__AIPING__API_KEY"),
-    reason="WEAVER_LLM__PROVIDERS__AIPING__API_KEY not set",
+    not os.environ.get("AIPING_API_KEY"),
+    reason="AIPING_API_KEY not set - these tests require real API access",
 )
 class TestLLMClientLive:
     """Live tests requiring actual API key."""

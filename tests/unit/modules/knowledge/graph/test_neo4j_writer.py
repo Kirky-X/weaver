@@ -12,7 +12,7 @@ class TestNeo4jWriterInit:
 
     def test_init_with_pool(self):
         """Test Neo4jWriter initializes with pool."""
-        from modules.graph_store.neo4j_writer import Neo4jWriter
+        from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
         mock_pool = MagicMock()
 
@@ -23,7 +23,7 @@ class TestNeo4jWriterInit:
 
     def test_init_with_normalizer(self):
         """Test Neo4jWriter initializes with normalizer."""
-        from modules.graph_store.neo4j_writer import Neo4jWriter
+        from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
         mock_pool = MagicMock()
         mock_normalizer = MagicMock()
@@ -38,7 +38,7 @@ class TestNeo4jWriterProperties:
 
     @pytest.fixture
     def writer(self):
-        from modules.graph_store.neo4j_writer import Neo4jWriter
+        from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
         return Neo4jWriter(pool=MagicMock())
 
@@ -58,7 +58,7 @@ class TestNeo4jWriterEnsureConstraints:
 
     @pytest.fixture
     def writer(self):
-        from modules.graph_store.neo4j_writer import Neo4jWriter
+        from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
         writer = Neo4jWriter(pool=MagicMock())
         writer._entity_repo.ensure_constraints = AsyncMock()
@@ -98,7 +98,7 @@ class TestNeo4jWriterWrite:
 
     @pytest.fixture
     def writer(self):
-        from modules.graph_store.neo4j_writer import Neo4jWriter
+        from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
         writer = Neo4jWriter(pool=MagicMock())
         writer._article_repo.create_article = AsyncMock(return_value="neo4j-article-id")
@@ -170,7 +170,7 @@ class TestNeo4jWriterCleanup:
 
     @pytest.fixture
     def writer(self):
-        from modules.graph_store.neo4j_writer import Neo4jWriter
+        from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
         writer = Neo4jWriter(pool=MagicMock())
         writer._entity_repo.delete_orphan_entities = AsyncMock(return_value=10)
@@ -200,7 +200,7 @@ class TestNeo4jWriterResolveCanonicalName:
 
     @pytest.fixture
     def writer(self):
-        from modules.graph_store.neo4j_writer import Neo4jWriter
+        from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
         writer = Neo4jWriter(pool=MagicMock())
         writer._entity_repo.find_entity = AsyncMock(return_value=None)
@@ -233,7 +233,7 @@ class TestNeo4jWriterWriteEntityRelations:
 
     @pytest.fixture
     def writer(self):
-        from modules.graph_store.neo4j_writer import Neo4jWriter
+        from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
         writer = Neo4jWriter(pool=MagicMock())
         writer._entity_repo.merge_relation = AsyncMock()

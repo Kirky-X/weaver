@@ -197,14 +197,19 @@ class Neo4jWriter:
                 log.warning("neo4j_aliases_batch_failed", error=str(exc))
 
         entity_ids: list[str] = []
+
+        # Batch query to find all entities at once (avoid N+1)
+        entity_keys = [
+            {"canonical_name": e["canonical_name"], "type": e["type"]} for e in entity_data
+        ]
+        existing_entities = await self._entity_repo.find_entities_by_keys(entity_keys)
+        existing_map = {(e["canonical_name"], e["type"]): e["neo4j_id"] for e in existing_entities}
+
         for entity in entity_data:
-            existing = await self._entity_repo.find_entity(
-                entity["canonical_name"],
-                entity["type"],
-            )
-            if existing:
-                entity_ids.append(existing["neo4j_id"])
-                entity_name_to_id[entity["canonical_name"]] = existing["neo4j_id"]
+            key = (entity["canonical_name"], entity["type"])
+            if key in existing_map:
+                entity_ids.append(existing_map[key])
+                entity_name_to_id[entity["canonical_name"]] = existing_map[key]
 
         if mentions_data and entity_name_to_id:
             mentions_with_ids = [

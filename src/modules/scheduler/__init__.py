@@ -7,6 +7,7 @@ Core scheduling functionality:
 """
 
 from modules.scheduler.jobs import RetryManager, SchedulerJobs
+from modules.scheduler.wrapper import scheduled_task
 
 __all__ = [
     "RetryManager",

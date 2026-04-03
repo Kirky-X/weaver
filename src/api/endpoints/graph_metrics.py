@@ -8,10 +8,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from api.dependencies import get_neo4j_pool
+from api.dependencies import get_neo4j_pool, get_redis_client
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
-from core.cache import get_redis_client
 from core.constants import GraphHealthStatus
 from core.db.neo4j import Neo4jPool
 from modules.knowledge.graph.metrics import GraphQualityMetrics

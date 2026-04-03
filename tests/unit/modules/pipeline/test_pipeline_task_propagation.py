@@ -11,7 +11,7 @@ import pytest
 
 from core.db.models import Article
 from modules.ingestion.domain.models import ArticleRaw
-from modules.storage.article_repo import ArticleRepo
+from modules.storage import ArticleRepo
 
 
 class TestArticleRepoTaskIdInsertion:

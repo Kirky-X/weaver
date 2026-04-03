@@ -68,6 +68,12 @@ class TestEventBusSharing:
         container._llm_client = MagicMock()
         container._prompt_loader = MagicMock()
 
+        # Mock strategy to avoid database initialization
+        mock_strategy = MagicMock()
+        mock_strategy.graph_pool = None
+        mock_strategy.relational_pool = MagicMock()
+        container._strategy = mock_strategy
+
         mock_spacy = MagicMock()
         mock_token_budget = MagicMock()
 
@@ -95,6 +101,12 @@ class TestEventBusSharing:
         container._event_bus = None
         container._llm_client = MagicMock()
         container._prompt_loader = MagicMock()
+
+        # Mock strategy to avoid database initialization
+        mock_strategy = MagicMock()
+        mock_strategy.graph_pool = None
+        mock_strategy.relational_pool = MagicMock()
+        container._strategy = mock_strategy
 
         mock_spacy = MagicMock()
         mock_token_budget = MagicMock()

@@ -14,6 +14,8 @@ from core.event import EventBus, LLMFailureEvent, LLMUsageEvent
 from core.llm.client import LLMClient
 from core.observability import get_logger
 from core.prompt import PromptLoader
+from modules.analytics.llm_usage.buffer import LLMUsageBuffer
+from modules.analytics.llm_usage.repo import LLMUsageRepo
 from modules.ingestion import (
     Crawler,
     Deduplicator,
@@ -31,8 +33,6 @@ from modules.knowledge.search.engines.global_search import GlobalSearchEngine
 from modules.knowledge.search.engines.hybrid_search import HybridSearchConfig, HybridSearchEngine
 from modules.knowledge.search.engines.local_search import LocalSearchEngine
 from modules.processing.pipeline.graph import Pipeline
-from modules.storage.llm_usage_buffer import LLMUsageBuffer
-from modules.storage.llm_usage_repo import LLMUsageRepo
 from modules.storage.neo4j import Neo4jArticleRepo, Neo4jEntityRepo
 from modules.storage.postgres import ArticleRepo, PendingSyncRepo, SourceAuthorityRepo, VectorRepo
 

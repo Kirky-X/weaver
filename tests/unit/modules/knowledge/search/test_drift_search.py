@@ -131,7 +131,7 @@ class TestDRIFTSearchEngine:
     @pytest.fixture
     def mock_local_engine(self):
         """Create mock LocalSearchEngine."""
-        from modules.search.engines.local_search import SearchResult
+        from modules.knowledge.search.engines.local_search import SearchResult
 
         engine = MagicMock()
         engine.search = AsyncMock(
@@ -167,20 +167,9 @@ class TestDRIFTSearchEngine:
             neo4j_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
-
-        with (
-            patch(
-                "modules.knowledge.search.engines.drift_search.GlobalContextBuilder"
-            ) as mock_builder,
-            patch("modules.knowledge.search.engines.drift_search.LocalSearchEngine") as mock_local,
-        ):
-            engine = DRIFTSearchEngine(
-                neo4j_pool=mock_pool,
-                llm=mock_llm,
-            )
-            assert engine._pool is mock_pool
-            assert engine._llm is mock_llm
-            assert engine._config.primer_k == 3
+        assert engine._pool is mock_neo4j_pool
+        assert engine._llm is mock_llm
+        assert engine._config.primer_k == 3
 
     def test_init_custom_config(self, mock_neo4j_pool, mock_llm):
         """Test initialization with custom config."""
@@ -191,36 +180,8 @@ class TestDRIFTSearchEngine:
             config=config,
         )
 
-        with (
-            patch("modules.knowledge.search.engines.drift_search.GlobalContextBuilder"),
-            patch("modules.knowledge.search.engines.drift_search.LocalSearchEngine"),
-        ):
-            # Mock LLM responses
-            mock_llm.call_at = AsyncMock(
-                side_effect=[
-                    "初始答案\n\n1. 后续问题一？\n2. 后续问题二？",
-                    "综合答案 [置信度: 0.85]",
-                ]
-            )
-
-            result = await engine_with_mocks.search("测试查询")
-
-        assert result.query == "测试查询"
-        assert result.confidence >= 0
-        assert result.total_llm_calls >= 1
-
-    def setup_engine(self):
-        """Create engine for testing."""
-        mock_pool = MagicMock()
-        mock_llm = MagicMock()
-        with (
-            patch("modules.knowledge.search.engines.drift_search.GlobalContextBuilder"),
-            patch("modules.knowledge.search.engines.drift_search.LocalSearchEngine"),
-        ):
-            result = await engine_with_mocks.search("测试查询")
-
-        assert result.drift_mode == "fallback_local"
-        assert result.primer_communities == 0
+        assert engine._config.primer_k == 5
+        assert engine._config.max_follow_ups == 4
 
     @pytest.mark.asyncio
     async def test_primer_phase_no_communities(self, engine):
@@ -281,7 +242,7 @@ class TestDRIFTSearchEngine:
     @pytest.mark.asyncio
     async def test_follow_up_phase_early_termination(self, mock_neo4j_pool, mock_llm):
         """Test follow-up phase terminates early on high confidence."""
-        from modules.search.engines.local_search import SearchResult
+        from modules.knowledge.search.engines.local_search import SearchResult
 
         config = DriftConfig(confidence_threshold=0.7)
         mock_local = MagicMock()
@@ -623,6 +584,54 @@ class TestDRIFTSearchEngineAggregateResults:
 class TestDRIFTSearchEngineSearch:
     """Tests for the main search method."""
 
+    @pytest.fixture
+    def mock_neo4j_pool(self):
+        """Create mock Neo4j pool."""
+        pool = MagicMock()
+        pool.execute_query = AsyncMock()
+        return pool
+
+    @pytest.fixture
+    def mock_llm(self):
+        """Create mock LLM client."""
+        llm = MagicMock()
+        llm.call = AsyncMock(return_value={"content": "Test answer"})
+        llm.embed = AsyncMock(return_value=[[0.1] * 1024])
+        return llm
+
+    @pytest.fixture
+    def mock_local_engine(self):
+        """Create mock LocalSearchEngine."""
+        from modules.knowledge.search.engines.local_search import SearchResult
+
+        engine = MagicMock()
+        engine.search = AsyncMock(
+            return_value=SearchResult(
+                query="test question",
+                answer="Local answer",
+                context_tokens=100,
+                confidence=0.75,
+            )
+        )
+        return engine
+
+    @pytest.fixture
+    def engine(self, mock_neo4j_pool, mock_llm):
+        """Create DRIFTSearchEngine instance."""
+        return DRIFTSearchEngine(
+            neo4j_pool=mock_neo4j_pool,
+            llm=mock_llm,
+        )
+
+    @pytest.fixture
+    def engine_with_mocks(self, mock_neo4j_pool, mock_llm, mock_local_engine):
+        """Create DRIFTSearchEngine with mocked dependencies."""
+        return DRIFTSearchEngine(
+            neo4j_pool=mock_neo4j_pool,
+            llm=mock_llm,
+            local_engine=mock_local_engine,
+        )
+
     @pytest.mark.asyncio
     async def test_search_fallback_to_local(self):
         """Test search fallback to local when no communities."""
@@ -669,12 +678,7 @@ class TestDRIFTSearchEngineSearch:
                 "最终答案 [置信度: 0.85]",
             ]
         )
-
-        engine = DRIFTSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
-            llm=mock_llm,
-            config=config,
-        )
+        config = DriftConfig(primer_k=3, max_follow_ups=2)
 
         with (
             patch(
@@ -690,7 +694,23 @@ class TestDRIFTSearchEngineSearch:
             mock_context_builder.build = AsyncMock(return_value=mock_context)
             mock_builder.return_value = mock_context_builder
 
-        with patch.object(engine._context_builder, "build", AsyncMock(return_value=mock_context)):
+            # Setup local engine mock with async search
+            mock_local_instance = MagicMock()
+            mock_local_instance.search = AsyncMock(
+                return_value=MagicMock(
+                    answer="local answer",
+                    confidence=0.8,
+                    source_entities=[],
+                )
+            )
+            mock_local.return_value = mock_local_instance
+
+            engine = DRIFTSearchEngine(
+                neo4j_pool=mock_pool,
+                llm=mock_llm,
+                config=config,
+            )
+
             result = await engine.search("测试查询")
 
         assert result is not None

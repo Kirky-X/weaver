@@ -19,8 +19,8 @@ from modules.knowledge.search.engines.global_search import GlobalSearchEngine
 from modules.knowledge.search.engines.hybrid_search import HybridSearchEngine
 from modules.knowledge.search.engines.local_search import LocalSearchEngine, SearchResult
 from modules.knowledge.search.intent.router import IntentRouter, RoutingConfig
-from modules.memory.core.graph_types import IntentType
-from modules.storage.vector_repo import VectorRepo
+from modules.memory.core.graph_types import IntentType, OutputMode
+from modules.storage import VectorRepo
 
 router = APIRouter(prefix="/search", tags=["search"])
 
@@ -256,6 +256,14 @@ async def search_unified(
     category: str | None = Query(None, description="Category filter (articles mode)"),
     use_hybrid: bool = Query(True, description="Use hybrid search (articles mode)"),
     global_mode: str = Query("map_reduce", description="Global search mode: map_reduce or simple"),
+    output_mode: str | None = Query(
+        None,
+        description="Output format: 'context' for raw snippets, 'narrative' for LLM-synthesized answer",
+    ),
+    enrich_entities: bool | None = Query(
+        None,
+        description="Enable entity aggregation to enrich results with entity neighborhoods",
+    ),
     _: str = Depends(verify_api_key),
     local_engine: LocalSearchEngine = Depends(deps.Endpoints.get_local_engine),
     global_engine: GlobalSearchEngine = Depends(deps.Endpoints.get_global_engine),
@@ -284,7 +292,52 @@ async def search_unified(
     **Backward Compatibility:** The `mode` parameter is **deprecated** but still supported
     for explicit override. Users who prefer manual mode selection can still use `?mode=local`.
     """
-    # Initialize intent router
+    # Validate output_mode (default to CONTEXT)
+    out_mode_value = output_mode if isinstance(output_mode, str) else "context"
+    try:
+        out_mode = OutputMode(out_mode_value.upper())
+    except ValueError:
+        out_mode = OutputMode.CONTEXT
+
+    # Validate enrich_entities (default to False)
+    enrich = enrich_entities if isinstance(enrich_entities, bool) else False
+
+    # Handle explicit mode override - bypass intent routing
+    if mode:
+        get_logger(__name__).info(
+            "explicit_mode_override",
+            mode=mode,
+            output_mode=out_mode.value,
+            enrich_entities=enrich,
+        )
+
+        if mode == "local":
+            return await _search_local_impl(
+                query=q,
+                entity_names=entity_names,
+                max_tokens=max_tokens,
+                engine=local_engine,
+            )
+        elif mode == "global":
+            return await _search_global_impl(
+                query=q,
+                community_level=community_level,
+                mode=global_mode,
+                engine=global_engine,
+            )
+        elif mode == "articles":
+            return await _search_articles_impl(
+                query=q,
+                threshold=threshold,
+                limit=limit,
+                category=category,
+                use_hybrid=use_hybrid,
+                vector_repo=vector_repo,
+                llm=llm,
+                hybrid_engine=hybrid_engine,
+            )
+
+    # Initialize intent router for automatic routing
     intent_router = IntentRouter(
         local_engine=local_engine,
         global_engine=global_engine,
@@ -293,7 +346,7 @@ async def search_unified(
         llm=llm,
         config=RoutingConfig(
             enable_intent_routing=True,
-            fallback_mode=mode or "local",
+            fallback_mode="local",
         ),
     )
 
@@ -302,9 +355,10 @@ async def search_unified(
 
     # Route to appropriate engine
     get_logger(__name__).info(
-        "explicit_mode_override" if mode else "intent_routing",
-        mode=mode,
+        "intent_routing",
         intent=classification.intent.value,
+        output_mode=out_mode.value,
+        enrich_entities=enrich,
     )
     engine_result = await intent_router.route(q, classification)
 
@@ -324,8 +378,16 @@ async def search_unified(
         result_sources = engine_result.sources if isinstance(engine_result.sources, list) else []
         result_metadata = engine_result.metadata
 
-    if mode:
-        result_metadata["explicit_mode"] = mode
+    result_metadata["output_mode"] = out_mode.value
+    result_metadata["enrich_entities"] = enrich
+    result_metadata["intent"] = classification.intent.value
+    result_metadata["intent_confidence"] = classification.confidence
+
+    # Note: Narrative synthesis and entity aggregation are planned features.
+    # When EntityAggregator and NarrativeSynthesizer are implemented:
+    # - If enrich_entities=True: aggregate entity neighborhoods
+    # - If output_mode=NARRATIVE: synthesize narrative via LLM
+    # Currently returns context mode behavior for both.
 
     return success_response(
         SearchResponse(

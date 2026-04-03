@@ -7,22 +7,20 @@ Consolidates LLM usage tracking and metrics:
 - Prometheus metrics
 """
 
-from modules.analytics.llm_failure_cleanup import LLMFailureCleanupThread
-from modules.analytics.llm_failure_repo import LLMFailureRepo
-from modules.analytics.llm_usage_aggregator import (
+from modules.analytics.llm_failure.cleanup import LLMFailureCleanupThread
+from modules.analytics.llm_failure.repo import LLMFailureRepo
+from modules.analytics.llm_usage.aggregator import (
     LLMUsageAggregatorThread,
     LLMUsageRawCleanupThread,
 )
-from modules.analytics.llm_usage_buffer import LLMUsageBuffer
-from modules.analytics.llm_usage_repo import LLMUsageRepo
+from modules.analytics.llm_usage.buffer import LLMUsageBuffer
+from modules.analytics.llm_usage.repo import LLMUsageRepo
 
 __all__ = [
-    # LLM usage
-    "LLMUsageRepo",
-    "LLMUsageBuffer",
-    "LLMUsageAggregatorThread",
-    "LLMUsageRawCleanupThread",
-    # LLM failure
-    "LLMFailureRepo",
     "LLMFailureCleanupThread",
+    "LLMFailureRepo",
+    "LLMUsageAggregatorThread",
+    "LLMUsageBuffer",
+    "LLMUsageRawCleanupThread",
+    "LLMUsageRepo",
 ]

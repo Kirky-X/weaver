@@ -885,6 +885,200 @@ class Neo4jEntityRepo:
 
         return total_deleted
 
+    async def get_entity_neighborhood(
+        self,
+        entity_name: str,
+        entity_type: str | None = None,
+        hops: int = 2,
+        limit: int = 50,
+    ) -> dict[str, Any] | None:
+        """Get the neighborhood of an entity in the graph.
+
+        Retrieves the entity, its associated events, related entities,
+        and the relations connecting them.
+
+        Args:
+            entity_name: Canonical name of the entity.
+            entity_type: Optional entity type for disambiguation.
+            hops: Number of hops for neighborhood expansion (1 or 2).
+            limit: Maximum number of related items to return.
+
+        Returns:
+            Dictionary with center, events, related_entities, relations, hops.
+            Returns None if entity not found.
+        """
+        # Find the entity first
+        entity = await self.find_entity(entity_name, entity_type or "")
+        if not entity:
+            return None
+
+        center_id = entity.get("neo4j_id") or entity.get("id")
+
+        # Get events that mention this entity
+        events_query = """
+        MATCH (e:Entity {canonical_name: $name})
+        MATCH (e)-[m:MENTIONS]-(event:Event)
+        RETURN event.id as id, event.content as content,
+               event.timestamp as timestamp, event.source_url as source
+        LIMIT $limit
+        """
+        events_result = await self._pool.execute_query(
+            events_query,
+            {"name": entity_name, "limit": limit},
+        )
+        events = [dict(r) for r in events_result]
+
+        # Get related entities (within hop distance)
+        if hops == 1:
+            related_query = """
+            MATCH (center:Entity {canonical_name: $name})
+            MATCH (center)-[r]-(related:Entity)
+            WHERE type(r) IN ['RELATES_TO', 'PART_OF', 'LOCATED_IN', 'WORKS_FOR']
+            RETURN DISTINCT related.canonical_name as name,
+                   related.type as type,
+                   type(r) as relation_type
+            LIMIT $limit
+            """
+        else:
+            related_query = """
+            MATCH (center:Entity {canonical_name: $name})
+            MATCH (center)-[r1*1..2]-(related:Entity)
+            WHERE ALL(rel in r1 WHERE type(rel) IN ['RELATES_TO', 'PART_OF', 'LOCATED_IN', 'WORKS_FOR'])
+            RETURN DISTINCT related.canonical_name as name,
+                   related.type as type
+            LIMIT $limit
+            """
+        related_result = await self._pool.execute_query(
+            related_query,
+            {"name": entity_name, "limit": limit},
+        )
+        related_entities = [dict(r) for r in related_result]
+
+        # Get relations involving this entity
+        relations_query = """
+        MATCH (e:Entity {canonical_name: $name})
+        MATCH (e)-[r]-(other)
+        WHERE type(r) IN ['RELATES_TO', 'PART_OF', 'LOCATED_IN', 'WORKS_FOR', 'MENTIONS']
+        RETURN type(r) as type,
+               e.canonical_name as source,
+               other.canonical_name as target,
+               r.confidence as confidence
+        LIMIT $limit
+        """
+        relations_result = await self._pool.execute_query(
+            relations_query,
+            {"name": entity_name, "limit": limit},
+        )
+        relations = [dict(r) for r in relations_result]
+
+        return {
+            "center": entity_name,
+            "events": events,
+            "related_entities": related_entities,
+            "relations": relations,
+            "hops": hops,
+        }
+
+    async def get_entity_events(
+        self,
+        entity_name: str,
+        entity_type: str | None = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Get events that mention a specific entity.
+
+        Args:
+            entity_name: Canonical name of the entity.
+            entity_type: Optional entity type for disambiguation.
+            limit: Maximum number of events to return.
+
+        Returns:
+            List of event dictionaries with id, content, timestamp.
+        """
+        query = """
+        MATCH (e:Entity {canonical_name: $name})
+        MATCH (e)-[:MENTIONS]-(event:Event)
+        RETURN event.id as id, event.content as content,
+               event.timestamp as timestamp
+        ORDER BY event.timestamp DESC
+        LIMIT $limit
+        """
+        params = {"name": entity_name, "limit": limit}
+        result = await self._pool.execute_query(query, params)
+        return [dict(r) for r in result]
+
+    async def get_entities_by_relation(
+        self,
+        entity_name: str,
+        relation_type: str,
+        direction: str = "both",
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Get entities related to a specific entity via a relation type.
+
+        Args:
+            entity_name: Canonical name of the source entity.
+            relation_type: Type of relation to traverse.
+            direction: Direction of traversal ('outgoing', 'incoming', 'both').
+            limit: Maximum number of entities to return.
+
+        Returns:
+            List of entity dictionaries with name, type, confidence.
+        """
+        if direction == "outgoing":
+            pattern = "(e:Entity)-[r]->(related:Entity)"
+        elif direction == "incoming":
+            pattern = "(e:Entity)<-[r]-(related:Entity)"
+        else:
+            pattern = "(e:Entity)-[r]-(related:Entity)"
+
+        query = f"""
+        MATCH {pattern}
+        WHERE e.canonical_name = $name AND type(r) = $rel_type
+        RETURN DISTINCT related.canonical_name as name,
+               related.type as type,
+               r.confidence as confidence
+        LIMIT $limit
+        """
+        params = {
+            "name": entity_name,
+            "rel_type": relation_type,
+            "limit": limit,
+        }
+        result = await self._pool.execute_query(query, params)
+        return [dict(r) for r in result]
+
+    async def count_related_entities(
+        self,
+        entity_name: str,
+        relation_type: str | None = None,
+    ) -> int:
+        """Count entities related to a specific entity.
+
+        Args:
+            entity_name: Canonical name of the entity.
+            relation_type: Optional relation type to filter by.
+
+        Returns:
+            Count of related entities.
+        """
+        if relation_type:
+            query = """
+            MATCH (e:Entity {canonical_name: $name})-[r]-(related:Entity)
+            WHERE type(r) = $rel_type
+            RETURN count(DISTINCT related) as count
+            """
+            params = {"name": entity_name, "rel_type": relation_type}
+        else:
+            query = """
+            MATCH (e:Entity {canonical_name: $name})-[]-(related:Entity)
+            RETURN count(DISTINCT related) as count
+            """
+            params = {"name": entity_name}
+
+        result = await self._pool.execute_query(query, params)
+        return result[0].get("count", 0) if result else 0
+
     @staticmethod
     def _chunk(items: list[Any], size: int) -> Iterator[list[Any]]:
         """Split items into chunks of specified size."""

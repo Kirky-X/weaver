@@ -3,6 +3,9 @@
 
 This module provides unified data structures that flow through
 the entire ingestion pipeline.
+
+Note: DiscoveryProcessor is intentionally NOT exported here to avoid
+circular imports. Import it directly from modules.ingestion.domain.processor
 """
 
 from modules.ingestion.domain.models import (
@@ -11,11 +14,9 @@ from modules.ingestion.domain.models import (
     RawArticle,
     SourceConfig,
 )
-from modules.ingestion.domain.processor import DiscoveryProcessor
 
 __all__ = [
     "ArticleRaw",
-    "DiscoveryProcessor",
     "NewsItem",
     "RawArticle",
     "SourceConfig",

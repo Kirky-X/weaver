@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.search.context.local_context import LocalContextBuilder
+from modules.knowledge.search.context.local_context import LocalContextBuilder
 
 
 def _make_pool() -> AsyncMock:

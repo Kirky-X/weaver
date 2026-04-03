@@ -111,7 +111,14 @@ class StructuralConsolidationWorker:
 
             # 4. Entity Link Discovery (simplified)
             entity_links_added = 0
-            # TODO: Implement entity link discovery when entity graph is ready
+            # Skip condition: Entity link discovery requires integration with the
+            # entity extraction pipeline and resolution logic.
+            # This is intentionally deferred until the entity graph is fully integrated
+            # with the memory module. Current implementation focuses on causal inference.
+            # Future implementation should:
+            # 1. Extract entities from event content using existing entity extractor
+            # 2. Resolve entity mentions against the knowledge graph
+            # 3. Create MENTIONS relationships between EventNode and Entity nodes
 
             avg_confidence = total_confidence / edges_added if edges_added > 0 else 0.0
 

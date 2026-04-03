@@ -7,6 +7,7 @@ broad, exploratory queries that span multiple communities.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -183,31 +184,45 @@ class GlobalSearchEngine:
             total_tokens = 0
             community_weights = []
 
-            for i, community in enumerate(sorted_communities):
-                map_prompt = self._build_map_prompt(query, community)
+            # Parallel LLM calls with semaphore for rate limiting
+            semaphore = asyncio.Semaphore(5)  # Limit concurrent LLM calls
 
-                response = await self._llm.call(
-                    call_point=CallPoint.SEARCH_GLOBAL,
-                    payload={
-                        "query": query,
-                        "context": map_prompt,
-                        "phase": "map",
-                        "community_index": i,
-                        "community_title": community.title,
-                        "community_weight": community.similarity_score,
-                    },
-                )
-
-                answer = response if isinstance(response, str) else str(response)
-                intermediate_answers.append(answer)
-                community_weights.append(
-                    {
+            async def process_community(
+                idx: int, community: CommunityContext
+            ) -> tuple[int, str, dict[str, Any], int]:
+                """Process a single community with semaphore."""
+                async with semaphore:
+                    map_prompt = self._build_map_prompt(query, community)
+                    response = await self._llm.call(
+                        call_point=CallPoint.SEARCH_GLOBAL,
+                        payload={
+                            "query": query,
+                            "context": map_prompt,
+                            "phase": "map",
+                            "community_index": idx,
+                            "community_title": community.title,
+                            "community_weight": community.similarity_score,
+                        },
+                    )
+                    answer = response if isinstance(response, str) else str(response)
+                    weight_info = {
                         "community_id": community.id,
                         "title": community.title,
                         "weight": community.similarity_score,
                     }
-                )
-                total_tokens += len(map_prompt) // 4
+                    tokens = len(map_prompt) // 4
+                    return idx, answer, weight_info, tokens
+
+            # Execute all LLM calls in parallel
+            results = await asyncio.gather(
+                *[process_community(i, c) for i, c in enumerate(sorted_communities)]
+            )
+
+            # Sort results by original index and extract data
+            for idx, answer, weight_info, tokens in sorted(results, key=lambda r: r[0]):
+                intermediate_answers.append(answer)
+                community_weights.append(weight_info)
+                total_tokens += tokens
 
             reduce_prompt = self._build_reduce_prompt(
                 query, intermediate_answers, community_weights
@@ -275,9 +290,11 @@ class GlobalSearchEngine:
         Returns:
             List of CommunityContext with report content.
         """
-        communities, used_fallback, search_method = (
-            await self._context_builder._find_relevant_communities(query, level)
-        )
+        (
+            communities,
+            used_fallback,
+            search_method,
+        ) = await self._context_builder._find_relevant_communities(query, level)
 
         if not communities:
             return []
@@ -325,7 +342,7 @@ class GlobalSearchEngine:
 {community.full_content}
 
 ### Key Entities
-{', '.join(community.key_entities) if community.key_entities else 'N/A'}
+{", ".join(community.key_entities) if community.key_entities else "N/A"}
 
 ### Statistics
 - Entity Count: {community.entity_count}
@@ -376,9 +393,9 @@ Answer:"""
         weighted_answers = []
         for i, (answer, weight_info) in enumerate(zip(intermediate_answers, community_weights)):
             weight = weight_info.get("weight", 1.0)
-            title = weight_info.get("title", f"Community {i+1}")
+            title = weight_info.get("title", f"Community {i + 1}")
             weighted_answers.append(
-                f"### Perspective {i+1}: {title}\n(Relevance: {weight:.2f})\n\n{answer}"
+                f"### Perspective {i + 1}: {title}\n(Relevance: {weight:.2f})\n\n{answer}"
             )
 
         answers_text = "\n\n---\n\n".join(weighted_answers)

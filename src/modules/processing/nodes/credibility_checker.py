@@ -17,7 +17,7 @@ from modules.processing.pipeline.state import PipelineState
 
 if TYPE_CHECKING:
     from modules.ingestion.scheduling.source_config_repo import SourceConfigRepo
-    from modules.storage.source_authority_repo import SourceAuthorityRepo
+    from modules.storage import SourceAuthorityRepo
 
 log = get_logger("node.credibility_checker")
 
