@@ -33,6 +33,7 @@ from modules.knowledge.search.engines.global_search import GlobalSearchEngine
 from modules.knowledge.search.engines.hybrid_search import HybridSearchConfig, HybridSearchEngine
 from modules.knowledge.search.engines.local_search import LocalSearchEngine
 from modules.processing.pipeline.graph import Pipeline
+from modules.storage.duckdb.llm_usage_repo import DuckDBLLMUsageRepo
 from modules.storage.neo4j import Neo4jArticleRepo, Neo4jEntityRepo
 from modules.storage.postgres import ArticleRepo, PendingSyncRepo, SourceAuthorityRepo, VectorRepo
 
@@ -112,6 +113,7 @@ class Container:
         self._local_search_engine: LocalSearchEngine | None = None
         self._global_search_engine: GlobalSearchEngine | None = None
         self._hybrid_engine: HybridSearchEngine | None = None
+        self._bm25_index_service: Any = None  # BM25IndexService
         self._memory_service: Any = None  # MemoryIntegrationService
         self._shutdown: bool = False  # Idempotency protection
 
@@ -683,12 +685,70 @@ class Container:
             from modules.knowledge.search.retrievers.bm25_retriever import BM25Retriever
 
             bm25_retriever = BM25Retriever(self.relational_pool())
+
+            # Initialize Flashrank reranker
+            reranker = None
+            if self._settings.search.rerank_enabled:
+                try:
+                    from modules.knowledge.search.rerankers.flashrank_reranker import (
+                        FlashrankReranker,
+                    )
+
+                    reranker = FlashrankReranker(
+                        model_name=self._settings.search.rerank_model,
+                        enabled=True,
+                    )
+                except Exception:
+                    log.warning("flashrank_reranker_init_failed")
+
+            # Initialize MMR reranker
+            mmr_reranker = None
+            if self._settings.search.mmr_enabled:
+                try:
+                    from modules.knowledge.search.rerankers.mmr_reranker import MMRReranker
+
+                    mmr_reranker = MMRReranker(
+                        lambda_param=self._settings.search.mmr_lambda,
+                    )
+                except Exception:
+                    log.warning("mmr_reranker_init_failed")
+
             self._hybrid_engine = HybridSearchEngine(
                 vector_repo=self._vector_repo,
                 bm25_retriever=bm25_retriever,
+                reranker=reranker,
+                mmr_reranker=mmr_reranker,
                 config=HybridSearchConfig(),
             )
         return self._hybrid_engine
+
+    async def _init_bm25_index(self) -> None:
+        """Initialize BM25 index service and build index if needed."""
+        if self._bm25_index_service is not None:
+            return
+
+        try:
+            from modules.knowledge.search.retrievers.bm25_index_service import BM25IndexService
+
+            bm25_retriever = None
+            if self._hybrid_engine is not None:
+                bm25_retriever = self._hybrid_engine._bm25_retriever
+
+            if bm25_retriever is not None:
+                self._bm25_index_service = BM25IndexService(
+                    postgres_pool=self.relational_pool(),
+                    bm25_retriever=bm25_retriever,
+                )
+
+                # Build index on startup if empty
+                if not bm25_retriever._bm25:
+                    count = await self._bm25_index_service.build_full_index()
+                    if count > 0:
+                        log.info("bm25_index_built_on_startup", documents=count)
+                    else:
+                        log.info("bm25_index_build_skipped_no_articles")
+        except Exception:
+            log.warning("bm25_index_init_failed", exc_info=True)
 
     # ── Memory Service ───────────────────────────────────────────
 
@@ -872,6 +932,7 @@ class Container:
         """Initialize the processing pipeline."""
         if self._pipeline is None:
             from core.llm.token_budget import TokenBudgetManager
+            from modules.knowledge.core.relation_types import RelationTypeNormalizer
             from modules.processing.nlp.spacy_extractor import SpacyExtractor
 
             if self._event_bus is None:
@@ -881,6 +942,7 @@ class Container:
                 log.info("event_bus_reused_in_pipeline", event_bus_id=id(self._event_bus))
             budget = TokenBudgetManager()
             spacy_extractor = SpacyExtractor()
+            rt_normalizer = RelationTypeNormalizer(self._strategy.relational_pool)
 
             self._pipeline = Pipeline(
                 llm=self._llm_client,
@@ -895,6 +957,7 @@ class Container:
                 entity_resolver=self.entity_resolver(),
                 redis_client=self._redis_client,
                 community_updater=self.community_updater(),
+                relation_type_normalizer=rt_normalizer,
             )
             log.info("pipeline_initialized")
         return self._pipeline
@@ -931,6 +994,7 @@ class Container:
         await self.init_redis()
         await self.init_llm()
         self.init_search_engines()
+        await self._init_bm25_index()
         await self.init_playwright_pool()
         await self.init_smart_fetcher()
 
@@ -976,7 +1040,14 @@ class Container:
 
         # Handler: insert raw record to database
         async def _handle_llm_usage_raw(event: LLMUsageEvent) -> None:
-            repo = LLMUsageRepo(self.relational_pool())
+            # Use appropriate repo based on pool type
+            pool = self.relational_pool()
+            from core.db.duckdb_pool import DuckDBPool
+
+            if isinstance(pool, DuckDBPool):
+                repo = DuckDBLLMUsageRepo(pool)
+            else:
+                repo = LLMUsageRepo(pool)
             await repo.insert_raw(event)
 
         self._event_bus.subscribe(LLMUsageEvent, _handle_llm_usage_buffer)

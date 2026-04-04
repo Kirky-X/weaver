@@ -4,7 +4,6 @@
 from core.event.bus import (
     BaseEvent,
     CredibilityComputedEvent,
-    EmbeddingModelMismatchEvent,
     EventBus,
     FallbackEvent,
     LLMFailureEvent,
@@ -14,7 +13,6 @@ from core.event.bus import (
 __all__ = [
     "BaseEvent",
     "CredibilityComputedEvent",
-    "EmbeddingModelMismatchEvent",
     "EventBus",
     "FallbackEvent",
     "LLMFailureEvent",

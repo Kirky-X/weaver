@@ -98,14 +98,6 @@ class PersistStatus(str, enum.Enum):
         return to_status in allowed
 
 
-class SyncStatus(str, enum.Enum):
-    """Status for pending Neo4j sync records."""
-
-    PENDING = "pending"
-    SYNCED = "synced"
-    FAILED = "failed"
-
-
 class EmotionType(str, enum.Enum):
     OPTIMISTIC = "乐观"
     INSPIRED = "振奋"
