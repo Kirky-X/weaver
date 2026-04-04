@@ -67,6 +67,15 @@ wheels = [
 ]
 
 [[package]]
+name = "aiolimiter"
+version = "1.2.1"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/f1/23/b52debf471f7a1e42e362d959a3982bdcb4fe13a5d46e63d28868807a79c/aiolimiter-1.2.1.tar.gz", hash = "sha256:e02a37ea1a855d9e832252a105420ad4d15011505512a1a1d814647451b5cca9", size = 7185, upload-time = "2024-12-08T15:31:51.496Z" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/f3/ba/df6e8e1045aebc4778d19b8a3a9bc1808adb1619ba94ca354d9ba17d86c3/aiolimiter-1.2.1-py3-none-any.whl", hash = "sha256:d3f249e9059a20badcb56b61601a83556133655c11d1eb3dd3e04ff069e5f3c7", size = 6711, upload-time = "2024-12-08T15:31:49.874Z" },
+]
+
+[[package]]
 name = "aiosignal"
 version = "1.4.0"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
@@ -258,6 +267,15 @@ wheels = [
 ]
 
 [[package]]
+name = "blinker"
+version = "1.9.0"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/21/28/9b3f50ce0e048515135495f198351908d99540d69bfdc8c1d15b73dc55ce/blinker-1.9.0.tar.gz", hash = "sha256:b4ce2265a7abece45e7cc896e98dbebe6cead56bcf805a3d23136d145f5445bf", size = 22460, upload-time = "2024-11-08T17:25:47.436Z" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/10/cb/f2ad4230dc2eb1a74edf38f1a38b9b52277f75bef262d8908e60d957e13c/blinker-1.9.0-py3-none-any.whl", hash = "sha256:ba0efaa9080b619ff2f3459d1d500c57bddea4a6b424b60a91141db6fd2f08bc", size = 8458, upload-time = "2024-11-08T17:25:46.184Z" },
+]
+
+[[package]]
 name = "blis"
 version = "1.3.3"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
@@ -292,6 +310,15 @@ dependencies = [
 sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/3b/95/cac19492f8bcf1ea0f4c98ff20fcb939d46166a1ea25fbf63d9e1c2f1101/bm25s-0.3.3.tar.gz", hash = "sha256:c2567435da193ea8bf8801c471ae972cfc8f4415002f2e024f4c55d0fbc0f12f", size = 74949, upload-time = "2026-03-27T02:53:37.043Z" }
 wheels = [
     { url = "https://pypi.tuna.tsinghua.edu.cn/packages/d2/53/24a9092eb41d68010159303ddf6e6796b47da1a6feb1bf3934eab27f6947/bm25s-0.3.3-py3-none-any.whl", hash = "sha256:03941f4e2a3610cbbaefa614c22d0e164a53c1e3201a4330cba45081260fd934", size = 70065, upload-time = "2026-03-27T02:53:35.397Z" },
+]
+
+[[package]]
+name = "cashews"
+version = "7.5.0"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/44/73/31598b352165cd0f0b777df1eb67e33f334e29fcd7eb4f4bb48a41b9affe/cashews-7.5.0.tar.gz", hash = "sha256:3f88b8c5ced0ea4826915a1ff67055b647252dd65ef25f4813316a6341f00b37", size = 97699, upload-time = "2026-03-02T22:28:52.462Z" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/0d/14/06cca741567a2ec458fb1db9d053e72477d9da2be387c1d705cb1060b2c6/cashews-7.5.0-py3-none-any.whl", hash = "sha256:e79cb4e5cc164d8f2d2856b166d45dcc2dd8d53b95874d2c6d07dfdb1c9ac3c4", size = 82413, upload-time = "2026-03-02T22:28:50.98Z" },
 ]
 
 [[package]]
@@ -2423,6 +2450,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pybreaker"
+version = "1.4.1"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/f2/89/fbf98e383f1ec6d117af2cd983efdb3eb7018b63834c427025764194cac2/pybreaker-1.4.1.tar.gz", hash = "sha256:8df2d245c73ba40c8242c56ffb4f12138fbadc23e296224740c2028ea9dc1178", size = 15555, upload-time = "2025-09-21T15:12:04.499Z" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/44/75/e64d3d40a741e2be21d69154f4e5c43a66f0c603c5ef11f49e01429a5932/pybreaker-1.4.1-py3-none-any.whl", hash = "sha256:b4dab4a05195b7f2a64a6c1a6c4ba7a96534ef56ea7210e6bcb59f28897160e0", size = 12915, upload-time = "2025-09-21T15:12:02.284Z" },
+]
+
+[[package]]
 name = "pycparser"
 version = "3.0"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
@@ -3706,10 +3742,13 @@ name = "weaver"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "aiolimiter" },
     { name = "alembic" },
     { name = "apscheduler" },
     { name = "asyncpg" },
+    { name = "blinker" },
     { name = "bm25s" },
+    { name = "cashews" },
     { name = "dependency-injector" },
     { name = "duckdb" },
     { name = "duckdb-engine" },
@@ -3737,6 +3776,7 @@ dependencies = [
     { name = "playwright" },
     { name = "playwright-stealth" },
     { name = "prometheus-client" },
+    { name = "pybreaker" },
     { name = "pydantic-settings" },
     { name = "python-igraph" },
     { name = "real-ladybug" },
@@ -3778,10 +3818,13 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiolimiter", specifier = ">=1.2.1" },
     { name = "alembic", specifier = ">=1.18.4" },
     { name = "apscheduler", specifier = ">=3.11.2" },
     { name = "asyncpg", specifier = ">=0.31.0" },
+    { name = "blinker", specifier = ">=1.9.0" },
     { name = "bm25s", specifier = ">=0.3.3" },
+    { name = "cashews", specifier = ">=7.5.0" },
     { name = "dependency-injector", specifier = ">=4.49.0" },
     { name = "duckdb", specifier = ">=1.5.1" },
     { name = "duckdb-engine", specifier = ">=0.17.0" },
@@ -3809,6 +3852,7 @@ requires-dist = [
     { name = "playwright", specifier = ">=1.58.0" },
     { name = "playwright-stealth", specifier = ">=2.0.2" },
     { name = "prometheus-client", specifier = ">=0.24.1" },
+    { name = "pybreaker", specifier = ">=1.4.1" },
     { name = "pydantic-settings", specifier = ">=2.13.1" },
     { name = "python-igraph", specifier = ">=0.11.0" },
     { name = "real-ladybug", specifier = ">=0.15.3" },

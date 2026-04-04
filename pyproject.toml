@@ -51,6 +51,10 @@ dependencies = [
     "duckdb>=1.5.1",
     "duckdb-engine>=0.17.0",
     "real-ladybug>=0.15.3",
+    "pybreaker>=1.4.1",
+    "blinker>=1.9.0",
+    "aiolimiter>=1.2.1",
+    "cashews>=7.5.0",
 ]
 
 [build-system]
