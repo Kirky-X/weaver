@@ -81,6 +81,7 @@ class Pipeline:
         community_updater: IncrementalCommunityUpdater | None = None,
         phase1_concurrency: int | None = None,
         phase3_concurrency: int | None = None,
+        relation_type_normalizer: Any = None,
     ) -> None:
         self._accepting = True
 
@@ -109,7 +110,12 @@ class Pipeline:
         self._quality_scorer = QualityScorerNode(llm, budget, prompt_loader)
         self._credibility = CredibilityCheckerNode(llm, budget, event_bus, source_auth_repo)
         self._entity_extractor = EntityExtractorNode(
-            llm, budget, prompt_loader, spacy or SpacyExtractor(), vector_repo
+            llm,
+            budget,
+            prompt_loader,
+            spacy or SpacyExtractor(),
+            vector_repo,
+            relation_type_normalizer=relation_type_normalizer,
         )
         self._entity_resolver = entity_resolver
         self._checkpoint_cleanup = CheckpointCleanupNode(redis_client)
@@ -500,6 +506,16 @@ class Pipeline:
                     for state in valid_states:
                         if "vectors" in state:
                             vectors = state["vectors"]
+                            log.debug(
+                                "persist_vectors_check",
+                                article_id=state.get("article_id"),
+                                has_title=(
+                                    "title" in vectors if isinstance(vectors, dict) else False
+                                ),
+                                has_content=(
+                                    "content" in vectors if isinstance(vectors, dict) else False
+                                ),
+                            )
                             if (
                                 isinstance(vectors, dict)
                                 and "title" in vectors
@@ -515,6 +531,8 @@ class Pipeline:
                                         vectors.get("model_id", "unknown"),
                                     )
                                 )
+                        else:
+                            log.debug("persist_vectors_missing", article_id=state.get("article_id"))
                     if vector_data:
                         log.info(
                             "persist_vectors_about_to_insert",

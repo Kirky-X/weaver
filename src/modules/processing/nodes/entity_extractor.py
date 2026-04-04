@@ -82,7 +82,7 @@ class EntityExtractorNode:
             try:
                 entity_texts = [f"{e.name}（{e.type}）" for e in spacy_entities]
                 entity_embeds = await self._llm.embed(
-                    "embedding.aiping_embedding.Qwen3-Embedding-0.6B", entity_texts
+                    "embedding.aiping.Qwen3-Embedding-0.6B", entity_texts
                 )
 
                 for i, e in enumerate(spacy_entities):
@@ -147,10 +147,47 @@ class EntityExtractorNode:
             state["relations"] = result.relations
             entity_count = len(result.entities)
 
+            # Attach embeddings from spaCy phase
             for entity in state["entities"]:
                 name = entity.get("name", "")
                 if name in entity_name_to_embedding:
                     entity["embedding"] = entity_name_to_embedding[name]
+
+            # Phase 4: Embed and persist LLM-extracted entities that don't have embeddings yet
+            # This handles the case where spaCy failed but LLM still extracted entities
+            if self._vector_repo and state["entities"]:
+                entities_need_embedding = [
+                    e for e in state["entities"] if not e.get("embedding") and e.get("name")
+                ]
+                if entities_need_embedding:
+                    try:
+                        entity_texts = [
+                            f"{e['name']}（{e.get('type', '未知')}）"
+                            for e in entities_need_embedding
+                        ]
+                        entity_embeds = await self._llm.embed(
+                            "embedding.aiping.Qwen3-Embedding-0.6B", entity_texts
+                        )
+
+                        # Update entities with embeddings
+                        entity_vectors_to_upsert = []
+                        for i, entity in enumerate(entities_need_embedding):
+                            if i < len(entity_embeds) and entity_embeds[i]:
+                                entity["embedding"] = entity_embeds[i]
+                                # Use canonical_name if available, otherwise name
+                                key = entity.get("canonical_name") or entity.get("name")
+                                if key:
+                                    entity_vectors_to_upsert.append((key, entity_embeds[i]))
+
+                        # Persist to database
+                        if entity_vectors_to_upsert:
+                            await self._vector_repo.upsert_entity_vectors(entity_vectors_to_upsert)
+                            log.debug(
+                                "entity_vectors_persisted",
+                                count=len(entity_vectors_to_upsert),
+                            )
+                    except Exception as exc:
+                        log.warning("llm_entity_embedding_failed", error=str(exc))
 
         except Exception as e:
             log.warning("entity_llm_failed_using_empty", error=str(e), url=state["raw"].url)
