@@ -6,6 +6,7 @@ LadybugDB provides native async support via AsyncConnection.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -13,11 +14,18 @@ from typing import Any
 
 import real_ladybug as ladybug
 
+# Global write lock for LadybugDB (only one write transaction at a time)
+# LadybugDB enforces single-writer at the database level
+_write_lock = asyncio.Lock()
+
 
 class LadybugPool:
     """LadybugDB connection pool implementing GraphPool protocol.
 
     Uses real_ladybug's AsyncConnection for native async operations.
+
+    Note: LadybugDB only supports one write transaction at a time.
+    All write operations are serialized via a global lock.
     """
 
     def __init__(self, db_path: str = "data/weaver_graph.ladybug"):
@@ -48,6 +56,9 @@ class LadybugPool:
     ) -> list[dict[str, Any]]:
         """Execute a query and return results as list of dicts.
 
+        Serializes write operations via a global lock because LadybugDB
+        only supports one write transaction at a time.
+
         Args:
             query: Query string.
             parameters: Optional query parameters.
@@ -61,7 +72,24 @@ class LadybugPool:
         if self._conn is None:
             raise RuntimeError("LadybugPool not started")
 
-        result = await self._conn.execute(query, parameters or {})
+        # Detect if this is a write query
+        is_write = any(
+            kw in query.upper() for kw in ["CREATE", "MERGE", "SET", "DELETE", "INSERT", "UPDATE"]
+        )
+
+        if is_write:
+            # Serialize write operations
+            async with _write_lock:
+                return await self._execute_query_internal(query, parameters or {})
+        else:
+            # Read queries can run in parallel
+            return await self._execute_query_internal(query, parameters or {})
+
+    async def _execute_query_internal(
+        self, query: str, parameters: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """Internal query execution without lock."""
+        result = await self._conn.execute(query, parameters)
         rows: list[dict[str, Any]] = []
 
         while result.has_next():
