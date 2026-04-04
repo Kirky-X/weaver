@@ -83,15 +83,19 @@ class LadybugEntityRepo:
             else:
                 return existing["id"]
         else:
-            # Create new entity
+            # Create new entity — use CREATE since find_entity already confirmed
+            # the entity doesn't exist. LadybugDB (Kuzu) requires the PRIMARY KEY
+            # `id` to be provided at creation time.
             query = """
-            MERGE (e:Entity {canonical_name: $canonical_name, type: $type})
-            ON CREATE SET
-                e.id = $id,
-                e.description = $description,
-                e.tier = $tier,
-                e.created_at = $created_at,
-                e.updated_at = $updated_at
+            CREATE (e:Entity {
+                id: $id,
+                canonical_name: $canonical_name,
+                type: $type,
+                description: $description,
+                tier: $tier,
+                created_at: $created_at,
+                updated_at: $updated_at
+            })
             RETURN e.id AS id
             """
             params = {
@@ -117,7 +121,8 @@ class LadybugEntityRepo:
         """Find an entity by canonical name and type."""
         query = """
         MATCH (e:Entity {canonical_name: $canonical_name, type: $type})
-        RETURN e.id AS id,
+        RETURN e.id AS neo4j_id,
+               e.id AS id,
                e.canonical_name AS canonical_name,
                e.type AS type,
                e.description AS description,
@@ -136,7 +141,8 @@ class LadybugEntityRepo:
         """Find an entity by its ID."""
         query = """
         MATCH (e:Entity {id: $id})
-        RETURN e.id AS id,
+        RETURN e.id AS neo4j_id,
+               e.id AS id,
                e.canonical_name AS canonical_name,
                e.type AS type,
                e.description AS description,
@@ -222,9 +228,11 @@ class LadybugEntityRepo:
         query = """
         MATCH (e:Entity {canonical_name: $canonical_name, type: $type})-[r:RELATED_TO]->(related)
         RETURN e.id AS from_id,
+               e.id AS from_neo4j_id,
                r.edge_type AS relation_type,
                r.properties AS relation_props,
                related.id AS to_id,
+               related.id AS to_neo4j_id,
                related.canonical_name AS to_name,
                related.type AS to_type
         LIMIT $limit
@@ -281,9 +289,13 @@ class LadybugEntityRepo:
         entity_id: str,
         role: str | None = None,
     ) -> None:
-        """Create a MENTIONS relationship between article and entity."""
+        """Create a MENTIONS relationship between article and entity.
+
+        Note: article_id is the pg_id (DuckDB article ID), not LadybugDB's
+        internal UUID id field.
+        """
         query = """
-        MATCH (a:Article {id: $article_id})
+        MATCH (a:Article {pg_id: $article_id})
         MATCH (e:Entity {id: $entity_id})
         MERGE (a)-[r:MENTIONS]->(e)
         SET r.role = $role
@@ -322,7 +334,8 @@ class LadybugEntityRepo:
                 query = """
                 MATCH (e:Entity {canonical_name: $canonical_name, type: $type})
                       -[r:RELATED_TO {edge_type: $edge_type}]->(related)
-                RETURN related.id AS id,
+                RETURN related.id AS neo4j_id,
+                       related.id AS id,
                        related.canonical_name AS canonical_name,
                        related.type AS type,
                        r.edge_type AS relation_type
@@ -344,7 +357,8 @@ class LadybugEntityRepo:
             query = """
             MATCH (e:Entity {canonical_name: $canonical_name, type: $type})
                   -[r:RELATED_TO]->(related)
-            RETURN related.id AS id,
+            RETURN related.id AS neo4j_id,
+                   related.id AS id,
                    related.canonical_name AS canonical_name,
                    related.type AS type,
                    r.edge_type AS relation_type

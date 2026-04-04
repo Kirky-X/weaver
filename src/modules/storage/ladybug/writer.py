@@ -6,6 +6,7 @@ Coordinates entity and article repositories for graph write operations.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from core.observability.logging import get_logger
@@ -14,12 +15,18 @@ from modules.storage.ladybug.entity_repo import LadybugEntityRepo
 
 log = get_logger("ladybug_writer")
 
+# Global write lock for LadybugDB (only one write transaction at a time)
+_write_lock = asyncio.Lock()
+
 
 class LadybugWriter:
     """LadybugDB graph writer.
 
     Coordinates entity and article operations for the knowledge graph.
     Similar to Neo4jWriter but adapted for LadybugDB.
+
+    Note: LadybugDB only supports one write transaction at a time.
+    All write operations are serialized via a global lock.
 
     Args:
         pool: LadybugPool instance.
@@ -58,33 +65,51 @@ class LadybugWriter:
 
         Creates articles, entities, and their relationships.
 
+        Note: Uses global write lock because LadybugDB only supports
+        one write transaction at a time.
+
         Args:
             state: PipelineState containing article and entity data.
 
         Returns:
             List of created entity IDs.
         """
+        # LadybugDB requires serialized write transactions
+        async with _write_lock:
+            return await self._write_locked(state)
+
+    async def _write_locked(self, state: Any) -> list[str]:
+        """Internal write implementation (must be called with lock held)."""
         entity_ids = []
 
-        # Get article info
-        article_id = str(state.id)
-        title = state.title or ""
-        category = state.category or "未分类"
-        publish_time = int(state.publish_time.timestamp()) if state.publish_time else None
-        score = state.score
+        # Get article info - use dict access like Neo4jWriter
+        article_id = state.get("article_id")
+        if not article_id:
+            log.warning("ladybug_write_missing_article_id")
+            return entity_ids
+
+        article_id = str(article_id)
+        raw = state.get("raw")
+        title = state.get("cleaned", {}).get("title", getattr(raw, "title", "") if raw else "")
+        category = state.get("category", "未分类")
+        category_str = category.value if hasattr(category, "value") else str(category)
+        raw_publish_time = getattr(raw, "publish_time", None) if raw else None
+        publish_time = int(raw_publish_time.timestamp()) if raw_publish_time else None
+        score = state.get("score")
 
         # Create article node
         await self.article_repo.create_article(
             pg_id=article_id,
             title=title,
-            category=category,
+            category=category_str,
             publish_time=publish_time,
             score=score,
         )
 
         # Create entities and MENTIONS relationships
-        if state.entities:
-            for entity in state.entities:
+        entities = state.get("entities", [])
+        if entities:
+            for entity in entities:
                 entity_name = entity.get("canonical_name") or entity.get("name", "")
                 entity_type = entity.get("type", "未知")
                 description = entity.get("description")
@@ -111,8 +136,9 @@ class LadybugWriter:
                 )
 
         # Create FOLLOWED_BY relationships for article sequence
-        if state.related_articles:
-            for related in state.related_articles:
+        related_articles = state.get("related_articles", [])
+        if related_articles:
+            for related in related_articles:
                 related_pg_id = str(related.get("id", ""))
                 time_gap = related.get("time_gap_hours")
                 if related_pg_id:
@@ -123,8 +149,9 @@ class LadybugWriter:
                     )
 
         # Create entity relationships
-        if state.relations:
-            for rel in state.relations:
+        relations = state.get("relations", [])
+        if relations:
+            for rel in relations:
                 from_entity = rel.get("from_entity", {})
                 to_entity = rel.get("to_entity", {})
                 edge_type = rel.get("relation_type", "RELATED_TO")

@@ -51,26 +51,51 @@ class LadybugArticleRepo:
 
         article_id = str(uuid.uuid4())
 
+        # Check if article already exists
+        existing = await self.find_article_by_pg_id(pg_id)
+        if existing:
+            # Update existing article
+            query = """
+            MATCH (a:Article {pg_id: $pg_id})
+            SET a.title = $title,
+                a.category = $category,
+                a.publish_time = $publish_time,
+                a.score = $score
+            RETURN a.id AS id
+            """
+            result = await self._pool.execute_query(
+                query,
+                {
+                    "pg_id": pg_id,
+                    "title": title,
+                    "category": category,
+                    "publish_time": publish_time or 0,
+                    "score": score or 0.0,
+                },
+            )
+            if result:
+                return result[0]["id"]
+            return existing["id"]
+
+        # Create new article — use CREATE since find_article_by_pg_id already
+        # confirmed it doesn't exist. LadybugDB (Kuzu) requires the PRIMARY KEY
+        # `id` to be provided at creation time.
         query = """
-        MERGE (a:Article {pg_id: $pg_id})
-        ON CREATE SET
-            a.id = $id,
-            a.title = $title,
-            a.category = $category,
-            a.publish_time = $publish_time,
-            a.score = $score
-        ON MATCH SET
-            a.title = $title,
-            a.category = $category,
-            a.publish_time = $publish_time,
-            a.score = $score
+        CREATE (a:Article {
+            id: $id,
+            pg_id: $pg_id,
+            title: $title,
+            category: $category,
+            publish_time: $publish_time,
+            score: $score
+        })
         RETURN a.id AS id
         """
         result = await self._pool.execute_query(
             query,
             {
-                "pg_id": pg_id,
                 "id": article_id,
+                "pg_id": pg_id,
                 "title": title,
                 "category": category,
                 "publish_time": publish_time or 0,
