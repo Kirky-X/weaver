@@ -19,12 +19,14 @@ from core.llm.types import (
     Label,
     LLMType,
     ProviderConfig,
+    TokenUsage,
 )
 from core.llm.utils.json_parser import parse_llm_json
 from core.observability.logging import get_logger
 from core.utils.time_utils import get_current_time_with_timezone
 
 if TYPE_CHECKING:
+    from core.event.bus import EventBus
     from core.prompt.loader import PromptLoader
 
 log = get_logger("llm_client")
@@ -48,6 +50,7 @@ class LLMClient:
         global_config: GlobalConfig,
         redis_client: Any = None,
         prompt_loader: PromptLoader | None = None,
+        event_bus: EventBus | None = None,
     ) -> None:
         """初始化LLM客户端.
 
@@ -56,11 +59,13 @@ class LLMClient:
             global_config: 全局配置
             redis_client: 可选的Redis客户端（用于embedding缓存）
             prompt_loader: 可选的Prompt加载器（用于call_at方法）
+            event_bus: 可选的EventBus，用于发射LLMUsageEvent
         """
         self._global_config = global_config
         self._router = LabelRouter(global_config)
         self._redis = redis_client
         self._prompts = prompt_loader
+        self._event_bus = event_bus
 
         # 创建provider池映射
         self._pools: dict[str, ProviderPool] = {}
@@ -69,6 +74,7 @@ class LLMClient:
                 config=provider_cfg,
                 circuit_breaker_threshold=global_config.circuit_breaker_threshold,
                 circuit_breaker_timeout=global_config.circuit_breaker_timeout,
+                event_bus=event_bus,
             )
             self._pools[provider_cfg.name] = pool
 
@@ -77,6 +83,51 @@ class LLMClient:
             providers=list(self._pools.keys()),
         )
 
+    async def _emit_usage_event(
+        self,
+        label: Label,
+        call_point: CallPoint,
+        latency_ms: float,
+        token_usage: TokenUsage | None,
+        success: bool,
+        error_type: str | None = None,
+    ) -> None:
+        """发射LLMUsageEvent到EventBus.
+
+        Args:
+            label: 调用标签
+            call_point: 调用点标识
+            latency_ms: 调用延迟
+            token_usage: Token使用量
+            success: 是否成功
+            error_type: 错误类型
+        """
+        if not self._event_bus:
+            return
+
+        try:
+            from core.event.bus import LLMUsageEvent
+
+            event = LLMUsageEvent(
+                label=str(label),
+                call_point=call_point.value,
+                llm_type=label.llm_type.value,
+                provider=label.provider,
+                model=label.model,
+                tokens=token_usage or TokenUsage(),
+                latency_ms=latency_ms,
+                success=success,
+                error_type=error_type,
+                timestamp=get_current_time_with_timezone(),
+            )
+            await self._event_bus.publish(event)
+        except Exception as exc:
+            log.warning(
+                "llm_usage_event_publish_failed",
+                error=str(exc),
+                error_type=type(exc).__name__,
+            )
+
     async def call(
         self,
         label: str | Label,
@@ -84,6 +135,7 @@ class LLMClient:
         fallback_labels: list[str | Label] | None = None,
         output_model: type[T] | None = None,
         timeout: float | None = None,
+        call_point: CallPoint | str | None = None,
     ) -> T | str:
         """通用LLM调用.
 
@@ -121,6 +173,23 @@ class LLMClient:
             label=str(parsed_label),
             latency_ms=response.latency_ms,
         )
+
+        # 发射使用事件(如果有 call_point)
+        if call_point:
+            if isinstance(call_point, str):
+                try:
+                    cp = CallPoint(call_point)
+                except ValueError:
+                    cp = CallPoint.CLASSIFIER  # fallback
+            else:
+                cp = call_point
+            await self._emit_usage_event(
+                label=response.label,
+                call_point=cp,
+                latency_ms=response.latency_ms,
+                token_usage=response.token_usage,
+                success=True,
+            )
 
         # 解析输出
         if output_model:
@@ -173,7 +242,14 @@ class LLMClient:
                 "user_content": user_content,
             }
 
-        return await self.call(labels[0], request_payload, labels[1:], output_model, timeout)
+        return await self.call(
+            labels[0],
+            request_payload,
+            labels[1:],
+            output_model,
+            timeout,
+            call_point=call_point,
+        )
 
     async def embed(
         self,
@@ -228,6 +304,7 @@ class LLMClient:
                 response = await self.call(
                     parsed_label,
                     {"texts": batch},
+                    call_point=CallPoint.EMBEDDING,
                 )
                 new_embeddings.extend(response)
 
@@ -305,6 +382,7 @@ class LLMClient:
                 "documents": documents,
                 "top_n": top_n or len(documents),
             },
+            call_point=CallPoint.RERANK,
         )
 
         log.debug(
@@ -357,6 +435,7 @@ class LLMClient:
         config_path: str,
         redis_client: Any = None,
         prompt_loader: PromptLoader | None = None,
+        event_bus: EventBus | None = None,
     ) -> LLMClient:
         """从配置文件创建客户端.
 
@@ -364,9 +443,10 @@ class LLMClient:
             config_path: 配置文件路径
             redis_client: 可选的Redis客户端
             prompt_loader: 可选的Prompt加载器
+            event_bus: 可选的EventBus，用于发射LLMUsageEvent
 
         Returns:
             配置好的LLMClient实例
         """
         providers, global_config = LLMConfigLoader.load(config_path)
-        return cls(providers, global_config, redis_client, prompt_loader)
+        return cls(providers, global_config, redis_client, prompt_loader, event_bus)

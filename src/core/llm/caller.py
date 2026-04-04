@@ -1,4 +1,4 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved.
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """LiteLLM unified caller for all LLM operations."""
 
 from __future__ import annotations
@@ -24,6 +24,9 @@ class LiteLLMCaller:
 
     提供统一的chat、embedding、rerank调用接口.
     """
+
+    def __init__(self) -> None:
+        """初始化caller."""
 
     @staticmethod
     def _build_model_name(provider_type: str, model_id: str) -> str:
@@ -88,34 +91,47 @@ class LiteLLMCaller:
         if max_tokens:
             kwargs["max_tokens"] = max_tokens
 
-        response = await acompletion(**kwargs)
+        try:
+            response = await acompletion(**kwargs)
 
-        latency_ms = (time.monotonic() - start_time) * 1000
+            latency_ms = (time.monotonic() - start_time) * 1000
 
-        content = response.choices[0].message.content or ""
+            content = response.choices[0].message.content or ""
 
-        usage = response.usage
-        token_usage = TokenUsage(
-            input_tokens=usage.prompt_tokens if usage else 0,
-            output_tokens=usage.completion_tokens if usage else 0,
-            total_tokens=usage.total_tokens if usage else 0,
-        )
+            if not content:
+                log.warning(
+                    "chat_empty_response",
+                    model=model,
+                    finish_reason=getattr(response.choices[0], "finish_reason", None),
+                )
 
-        log.debug(
-            "chat_call_complete",
-            model=model,
-            latency_ms=latency_ms,
-            input_tokens=token_usage.input_tokens,
-            output_tokens=token_usage.output_tokens,
-        )
+            usage = response.usage
+            token_usage = TokenUsage(
+                input_tokens=usage.prompt_tokens if usage else 0,
+                output_tokens=usage.completion_tokens if usage else 0,
+                total_tokens=usage.total_tokens if usage else 0,
+            )
 
-        return LLMResponse(
-            content=content,
-            label=label,
-            latency_ms=latency_ms,
-            token_usage=token_usage,
-            model=label.model,
-        )
+            log.debug(
+                "chat_call_complete",
+                model=model,
+                latency_ms=latency_ms,
+                input_tokens=token_usage.input_tokens,
+                output_tokens=token_usage.output_tokens,
+            )
+
+            return LLMResponse(
+                content=content,
+                label=label,
+                latency_ms=latency_ms,
+                token_usage=token_usage,
+                model=label.model,
+            )
+
+        except Exception as exc:
+            latency_ms = (time.monotonic() - start_time) * 1000
+            log.error("chat_call_failed", model=model, error=str(exc))
+            raise
 
     async def embed(
         self,
@@ -153,36 +169,42 @@ class LiteLLMCaller:
         if api_base:
             kwargs["api_base"] = api_base
 
-        response = await aembedding(**kwargs)
+        try:
+            response = await aembedding(**kwargs)
 
-        latency_ms = (time.monotonic() - start_time) * 1000
+            latency_ms = (time.monotonic() - start_time) * 1000
 
-        # Handle both OpenAI SDK objects (has .embedding) and LiteLLM dicts (has ['embedding'])
-        embeddings = [
-            item.embedding if hasattr(item, "embedding") else item["embedding"]
-            for item in response.data
-        ]
+            # Handle both OpenAI SDK objects (has .embedding) and LiteLLM dicts (has ['embedding'])
+            embeddings = [
+                item.embedding if hasattr(item, "embedding") else item["embedding"]
+                for item in response.data
+            ]
 
-        usage = response.usage
-        token_usage = TokenUsage(
-            input_tokens=usage.prompt_tokens if usage else 0,
-            total_tokens=usage.total_tokens if usage else 0,
-        )
+            usage = response.usage
+            token_usage = TokenUsage(
+                input_tokens=usage.prompt_tokens if usage else 0,
+                total_tokens=usage.total_tokens if usage else 0,
+            )
 
-        log.debug(
-            "embed_call_complete",
-            model=model,
-            latency_ms=latency_ms,
-            num_texts=len(texts),
-        )
+            log.debug(
+                "embed_call_complete",
+                model=model,
+                latency_ms=latency_ms,
+                num_texts=len(texts),
+            )
 
-        return LLMResponse(
-            content=embeddings,
-            label=label,
-            latency_ms=latency_ms,
-            token_usage=token_usage,
-            model=label.model,
-        )
+            return LLMResponse(
+                content=embeddings,
+                label=label,
+                latency_ms=latency_ms,
+                token_usage=token_usage,
+                model=label.model,
+            )
+
+        except Exception as exc:
+            latency_ms = (time.monotonic() - start_time) * 1000
+            log.error("embed_call_failed", model=model, error=str(exc))
+            raise
 
     async def rerank(
         self,
@@ -216,52 +238,58 @@ class LiteLLMCaller:
         top_n = top_n or len(documents)
         start_time = time.monotonic()
 
-        # LiteLLM支持的provider使用原生arerank
-        if provider_type in LITELLM_RERANK_PROVIDERS:
-            model = f"{provider_type}/{label.model}"
-            kwargs: dict[str, Any] = {
-                "model": model,
-                "query": query,
-                "documents": documents,
-                "top_n": top_n,
-                "api_key": api_key,
-                "timeout": timeout,
-            }
-            if api_base:
-                kwargs["api_base"] = api_base
+        try:
+            # LiteLLM支持的provider使用原生arerank
+            if provider_type in LITELLM_RERANK_PROVIDERS:
+                model = f"{provider_type}/{label.model}"
+                kwargs: dict[str, Any] = {
+                    "model": model,
+                    "query": query,
+                    "documents": documents,
+                    "top_n": top_n,
+                    "api_key": api_key,
+                    "timeout": timeout,
+                }
+                if api_base:
+                    kwargs["api_base"] = api_base
 
-            response = await arerank(**kwargs)
-            results = [{"index": r.index, "score": r.relevance_score} for r in response.results]
-        else:
-            # OpenAI兼容的rerank API使用自定义HTTP调用
-            results = await self._rerank_openai_compatible(
-                api_base=api_base,
-                api_key=api_key,
+                response = await arerank(**kwargs)
+                results = [{"index": r.index, "score": r.relevance_score} for r in response.results]
+            else:
+                # OpenAI兼容的rerank API使用自定义HTTP调用
+                results = await self._rerank_openai_compatible(
+                    api_base=api_base,
+                    api_key=api_key,
+                    model=label.model,
+                    query=query,
+                    documents=documents,
+                    top_n=top_n,
+                    timeout=timeout,
+                )
+
+            latency_ms = (time.monotonic() - start_time) * 1000
+
+            log.debug(
+                "rerank_call_complete",
+                provider_type=provider_type,
                 model=label.model,
-                query=query,
-                documents=documents,
+                latency_ms=latency_ms,
+                num_documents=len(documents),
                 top_n=top_n,
-                timeout=timeout,
             )
 
-        latency_ms = (time.monotonic() - start_time) * 1000
+            return LLMResponse(
+                content=results,
+                label=label,
+                latency_ms=latency_ms,
+                token_usage=None,
+                model=label.model,
+            )
 
-        log.debug(
-            "rerank_call_complete",
-            provider_type=provider_type,
-            model=label.model,
-            latency_ms=latency_ms,
-            num_documents=len(documents),
-            top_n=top_n,
-        )
-
-        return LLMResponse(
-            content=results,
-            label=label,
-            latency_ms=latency_ms,
-            token_usage=None,
-            model=label.model,
-        )
+        except Exception as exc:
+            latency_ms = (time.monotonic() - start_time) * 1000
+            log.error("rerank_call_failed", provider_type=provider_type, error=str(exc))
+            raise
 
     async def _rerank_openai_compatible(
         self,
