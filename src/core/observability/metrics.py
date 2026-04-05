@@ -172,7 +172,7 @@ class MetricsCollector:
     pipeline_retry_success_total = Counter(
         "pipeline_retry_success_total",
         "Pipeline 重试成功数量",
-        ["type"],  # type: pending, stuck, failed
+        ["type"],  # kind: pending, stuck, failed
     )
 
     # Scheduler job metrics
