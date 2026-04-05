@@ -17,11 +17,10 @@ from modules.ingestion.domain import ArticleRaw, NewsItem, SourceConfig
 from modules.ingestion.fetching import (
     BaseFetcher,
     CircuitOpenError,
+    Crawl4AIFetcher,
     FetchError,
     HostRateLimiter,
     HttpxFetcher,
-    PlaywrightContextPool,
-    PlaywrightFetcher,
     SmartFetcher,
 )
 from modules.ingestion.parsing import (
@@ -38,31 +37,24 @@ from modules.ingestion.parsing import (
 from modules.ingestion.scheduling import SourceConfigRepo, SourceScheduler
 
 __all__ = [
-    # Domain models
     "ArticleRaw",
-    # Fetching
     "BaseFetcher",
-    # Parsing
     "BaseSourceParser",
     "CircuitOpenError",
-    # Crawling
+    "Crawl4AIFetcher",
     "Crawler",
-    # Deduplication
     "Deduplicator",
     "FetchError",
     "HostRateLimiter",
     "HttpxFetcher",
     "NewsItem",
     "NewsNowParser",
-    "PlaywrightContextPool",
-    "PlaywrightFetcher",
     "PluginMetadata",
     "RSSParser",
     "RetryQueue",
     "SimHashDeduplicator",
     "SmartFetcher",
     "SourceConfig",
-    # Scheduling
     "SourceConfigRepo",
     "SourceRegistry",
     "SourceScheduler",
