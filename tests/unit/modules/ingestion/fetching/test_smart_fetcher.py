@@ -9,10 +9,54 @@ import pytest
 from core.resilience.circuit_breaker import CBState
 from modules.ingestion.fetching.exceptions import CircuitOpenError
 from modules.ingestion.fetching.smart_fetcher import (
-    JS_REQUIRED_HOSTS,
     MIN_CONTENT_LENGTH,
     SmartFetcher,
+    _appears_to_be_spa,
 )
+
+
+class TestSPADetection:
+    """Test SPA detection function."""
+
+    def test_empty_root_element_app(self):
+        """Test detection of empty root element with id='app'."""
+        html = '<html><body><div id="app"></div></body></html>'
+        assert _appears_to_be_spa(html) is True
+
+    def test_empty_root_element_root(self):
+        """Test detection of empty root element with id='root'."""
+        html = '<html><body><div id="root"></div></body></html>'
+        assert _appears_to_be_spa(html) is True
+
+    def test_framework_signature_next(self):
+        """Test detection of Next.js signature."""
+        html = "<html><body><script>__NEXT_DATA__ = {}</script></body></html>"
+        assert _appears_to_be_spa(html) is True
+
+    def test_framework_signature_nuxt(self):
+        """Test detection of Nuxt.js signature."""
+        html = "<html><body><script>__NUXT__ = {}</script></body></html>"
+        assert _appears_to_be_spa(html) is True
+
+    def test_framework_signature_angular(self):
+        """Test detection of Angular signature."""
+        html = '<html><body ng-version="15.0.0"></body></html>'
+        assert _appears_to_be_spa(html) is True
+
+    def test_framework_signature_react(self):
+        """Test detection of React signature."""
+        html = '<html><body><div data-reactroot=""></div></body></html>'
+        assert _appears_to_be_spa(html) is True
+
+    def test_script_heavy_low_content(self):
+        """Test detection of script-heavy low-content pages."""
+        html = "<html><body>" + '<script src="a.js"></script>' * 10 + "</body></html>"
+        assert _appears_to_be_spa(html) is True
+
+    def test_normal_page_not_spa(self):
+        """Test normal page is not detected as SPA."""
+        html = "<html><body><article><p>This is a long article content with enough text to not be considered SPA.</p></article></body></html>"
+        assert _appears_to_be_spa(html) is False
 
 
 class TestSmartFetcherInit:
@@ -21,26 +65,26 @@ class TestSmartFetcherInit:
     def test_init_basic(self):
         """Test basic initialization."""
         mock_httpx = MagicMock()
-        mock_playwright = MagicMock()
+        mock_crawl4ai = MagicMock()
 
         fetcher = SmartFetcher(
             httpx_fetcher=mock_httpx,
-            playwright_fetcher=mock_playwright,
+            crawl4ai_fetcher=mock_crawl4ai,
         )
 
         assert fetcher._httpx == mock_httpx
-        assert fetcher._playwright == mock_playwright
+        assert fetcher._crawl4ai == mock_crawl4ai
         assert fetcher._circuit_breaker_enabled is True
         assert fetcher._breakers == {}
 
     def test_init_with_circuit_breaker_params(self):
         """Test initialization with circuit breaker params."""
         mock_httpx = MagicMock()
-        mock_playwright = MagicMock()
+        mock_crawl4ai = MagicMock()
 
         fetcher = SmartFetcher(
             httpx_fetcher=mock_httpx,
-            playwright_fetcher=mock_playwright,
+            crawl4ai_fetcher=mock_crawl4ai,
             circuit_breaker_threshold=5,
             circuit_breaker_timeout=30.0,
             circuit_breaker_enabled=False,
@@ -53,23 +97,16 @@ class TestSmartFetcherInit:
     def test_init_with_rate_limiter(self):
         """Test initialization with rate limiter."""
         mock_httpx = MagicMock()
-        mock_playwright = MagicMock()
+        mock_crawl4ai = MagicMock()
         mock_rate_limiter = MagicMock()
 
         fetcher = SmartFetcher(
             httpx_fetcher=mock_httpx,
-            playwright_fetcher=mock_playwright,
+            crawl4ai_fetcher=mock_crawl4ai,
             rate_limiter=mock_rate_limiter,
         )
 
         assert fetcher._rate_limiter == mock_rate_limiter
-
-    def test_js_required_hosts_constant(self):
-        """Test JS_REQUIRED_HOSTS constant contains expected hosts."""
-        assert "weibo.com" in JS_REQUIRED_HOSTS
-        assert "m.weibo.cn" in JS_REQUIRED_HOSTS
-        assert "mp.weixin.qq.com" in JS_REQUIRED_HOSTS
-        assert "toutiao.com" in JS_REQUIRED_HOSTS
 
     def test_min_content_length_constant(self):
         """Test MIN_CONTENT_LENGTH constant."""
@@ -83,10 +120,10 @@ class TestSmartFetcherGetBreaker:
     def smart_fetcher(self):
         """Create SmartFetcher instance."""
         mock_httpx = MagicMock()
-        mock_playwright = MagicMock()
+        mock_crawl4ai = MagicMock()
         return SmartFetcher(
             httpx_fetcher=mock_httpx,
-            playwright_fetcher=mock_playwright,
+            crawl4ai_fetcher=mock_crawl4ai,
         )
 
     def test_get_breaker_creates_new(self, smart_fetcher):
@@ -129,19 +166,19 @@ class TestSmartFetcherFetch:
         return fetcher
 
     @pytest.fixture
-    def mock_playwright_fetcher(self):
-        """Create mock PlaywrightFetcher."""
+    def mock_crawl4ai_fetcher(self):
+        """Create mock Crawl4AIFetcher."""
         fetcher = MagicMock()
         fetcher.fetch = AsyncMock(return_value=(200, "<html><body>Content</body></html>", {}))
         fetcher.close = AsyncMock()
         return fetcher
 
     @pytest.fixture
-    def smart_fetcher(self, mock_httpx_fetcher, mock_playwright_fetcher):
+    def smart_fetcher(self, mock_httpx_fetcher, mock_crawl4ai_fetcher):
         """Create SmartFetcher with circuit breaker enabled."""
         return SmartFetcher(
             httpx_fetcher=mock_httpx_fetcher,
-            playwright_fetcher=mock_playwright_fetcher,
+            crawl4ai_fetcher=mock_crawl4ai_fetcher,
             circuit_breaker_threshold=3,
             circuit_breaker_timeout=60.0,
         )
@@ -166,11 +203,11 @@ class TestSmartFetcherFetch:
 
     @pytest.mark.asyncio
     async def test_fetch_failure_records_failure(
-        self, smart_fetcher, mock_httpx_fetcher, mock_playwright_fetcher
+        self, smart_fetcher, mock_httpx_fetcher, mock_crawl4ai_fetcher
     ):
         """Test failed fetch records failure to circuit breaker."""
         mock_httpx_fetcher.fetch.side_effect = ConnectionError("Network error")
-        mock_playwright_fetcher.fetch.side_effect = ConnectionError("Network error")
+        mock_crawl4ai_fetcher.fetch.side_effect = ConnectionError("Network error")
 
         with pytest.raises(ConnectionError):
             await smart_fetcher.fetch("https://example.com/article")
@@ -179,54 +216,70 @@ class TestSmartFetcherFetch:
         assert breaker._fail_count == 1
 
     @pytest.mark.asyncio
-    async def test_fetch_js_host_uses_playwright_directly(
-        self, smart_fetcher, mock_httpx_fetcher, mock_playwright_fetcher
+    async def test_fetch_force_browser_skips_httpx(
+        self, smart_fetcher, mock_httpx_fetcher, mock_crawl4ai_fetcher
     ):
-        """Test JS-required hosts use Playwright directly."""
-        await smart_fetcher.fetch("https://weibo.com/article")
+        """Test force_browser=True skips httpx and uses crawl4ai directly."""
+        await smart_fetcher.fetch("https://example.com/article", force_browser=True)
 
-        mock_playwright_fetcher.fetch.assert_called_once()
+        mock_crawl4ai_fetcher.fetch.assert_called_once()
         mock_httpx_fetcher.fetch.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_fetch_short_content_fallback_to_playwright(
-        self, smart_fetcher, mock_httpx_fetcher, mock_playwright_fetcher
+    async def test_fetch_spa_fallback_to_crawl4ai(
+        self, smart_fetcher, mock_httpx_fetcher, mock_crawl4ai_fetcher
     ):
-        """Test short content triggers Playwright fallback."""
+        """Test SPA page triggers crawl4ai fallback."""
+        mock_httpx_fetcher.fetch.return_value = (
+            200,
+            '<html><body><div id="app"></div></body></html>',
+            {},
+        )
+
+        status, content, headers = await smart_fetcher.fetch("https://example.com/article")
+
+        mock_httpx_fetcher.fetch.assert_called_once()
+        mock_crawl4ai_fetcher.fetch.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_fetch_short_content_fallback_to_crawl4ai(
+        self, smart_fetcher, mock_httpx_fetcher, mock_crawl4ai_fetcher
+    ):
+        """Test short content triggers crawl4ai fallback."""
         mock_httpx_fetcher.fetch.return_value = (200, "short", {})
 
         status, content, headers = await smart_fetcher.fetch("https://example.com/article")
 
         mock_httpx_fetcher.fetch.assert_called_once()
-        mock_playwright_fetcher.fetch.assert_called_once()
+        mock_crawl4ai_fetcher.fetch.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_fetch_httpx_error_fallback_to_playwright(
-        self, smart_fetcher, mock_httpx_fetcher, mock_playwright_fetcher
+    async def test_fetch_httpx_error_fallback_to_crawl4ai(
+        self, smart_fetcher, mock_httpx_fetcher, mock_crawl4ai_fetcher
     ):
-        """Test httpx error triggers Playwright fallback."""
+        """Test httpx error triggers crawl4ai fallback."""
         mock_httpx_fetcher.fetch.side_effect = Exception("httpx error")
 
         status, content, headers = await smart_fetcher.fetch("https://example.com/article")
 
         mock_httpx_fetcher.fetch.assert_called_once()
-        mock_playwright_fetcher.fetch.assert_called_once()
+        mock_crawl4ai_fetcher.fetch.assert_called_once()
         assert status == 200
 
     @pytest.mark.asyncio
     async def test_circuit_open_raises_circuit_open_error(
-        self, mock_httpx_fetcher, mock_playwright_fetcher
+        self, mock_httpx_fetcher, mock_crawl4ai_fetcher
     ):
         """Test open circuit raises CircuitOpenError."""
         fetcher = SmartFetcher(
             httpx_fetcher=mock_httpx_fetcher,
-            playwright_fetcher=mock_playwright_fetcher,
+            crawl4ai_fetcher=mock_crawl4ai_fetcher,
             circuit_breaker_threshold=1,
             circuit_breaker_timeout=60.0,
         )
 
         mock_httpx_fetcher.fetch.side_effect = ConnectionError("Network error")
-        mock_playwright_fetcher.fetch.side_effect = ConnectionError("Network error")
+        mock_crawl4ai_fetcher.fetch.side_effect = ConnectionError("Network error")
 
         # Trigger circuit open
         with pytest.raises(ConnectionError):
@@ -261,19 +314,17 @@ class TestSmartFetcherFetch:
         assert status == 200
 
     @pytest.mark.asyncio
-    async def test_circuit_recovers_after_success(
-        self, mock_httpx_fetcher, mock_playwright_fetcher
-    ):
+    async def test_circuit_recovers_after_success(self, mock_httpx_fetcher, mock_crawl4ai_fetcher):
         """Test circuit recovers after successful request."""
         fetcher = SmartFetcher(
             httpx_fetcher=mock_httpx_fetcher,
-            playwright_fetcher=mock_playwright_fetcher,
+            crawl4ai_fetcher=mock_crawl4ai_fetcher,
             circuit_breaker_threshold=1,
             circuit_breaker_timeout=0.1,  # Short timeout for testing
         )
 
         mock_httpx_fetcher.fetch.side_effect = ConnectionError("Network error")
-        mock_playwright_fetcher.fetch.side_effect = ConnectionError("Network error")
+        mock_crawl4ai_fetcher.fetch.side_effect = ConnectionError("Network error")
 
         # Trigger circuit open
         with pytest.raises(ConnectionError):
@@ -289,8 +340,8 @@ class TestSmartFetcherFetch:
             "<html>content long enough to pass minimum length requirement</html>",
             {},
         )
-        mock_playwright_fetcher.fetch.side_effect = None
-        mock_playwright_fetcher.fetch.return_value = (200, "<html>content</html>", {})
+        mock_crawl4ai_fetcher.fetch.side_effect = None
+        mock_crawl4ai_fetcher.fetch.return_value = (200, "<html>content</html>", {})
 
         await fetcher.fetch("https://example.com/article2")
 
@@ -298,14 +349,14 @@ class TestSmartFetcherFetch:
         assert breaker.state == CBState.CLOSED
 
     @pytest.mark.asyncio
-    async def test_fetch_with_rate_limiter(self, mock_httpx_fetcher, mock_playwright_fetcher):
+    async def test_fetch_with_rate_limiter(self, mock_httpx_fetcher, mock_crawl4ai_fetcher):
         """Test fetch with rate limiter."""
         mock_rate_limiter = MagicMock()
         mock_rate_limiter.acquire = AsyncMock()
 
         fetcher = SmartFetcher(
             httpx_fetcher=mock_httpx_fetcher,
-            playwright_fetcher=mock_playwright_fetcher,
+            crawl4ai_fetcher=mock_crawl4ai_fetcher,
             rate_limiter=mock_rate_limiter,
         )
 
@@ -326,19 +377,19 @@ class TestSmartFetcherCircuitBreakerDisabled:
         return fetcher
 
     @pytest.fixture
-    def mock_playwright_fetcher(self):
-        """Create mock PlaywrightFetcher."""
+    def mock_crawl4ai_fetcher(self):
+        """Create mock Crawl4AIFetcher."""
         fetcher = MagicMock()
         fetcher.fetch = AsyncMock(return_value=(200, "<html>content</html>", {}))
         fetcher.close = AsyncMock()
         return fetcher
 
     @pytest.fixture
-    def smart_fetcher_no_cb(self, mock_httpx_fetcher, mock_playwright_fetcher):
+    def smart_fetcher_no_cb(self, mock_httpx_fetcher, mock_crawl4ai_fetcher):
         """Create SmartFetcher with circuit breaker disabled."""
         return SmartFetcher(
             httpx_fetcher=mock_httpx_fetcher,
-            playwright_fetcher=mock_playwright_fetcher,
+            crawl4ai_fetcher=mock_crawl4ai_fetcher,
             circuit_breaker_enabled=False,
         )
 
@@ -355,11 +406,11 @@ class TestSmartFetcherCircuitBreakerDisabled:
 
     @pytest.mark.asyncio
     async def test_no_failure_recording(
-        self, smart_fetcher_no_cb, mock_httpx_fetcher, mock_playwright_fetcher
+        self, smart_fetcher_no_cb, mock_httpx_fetcher, mock_crawl4ai_fetcher
     ):
         """Test no failure recording when circuit breaker disabled."""
         mock_httpx_fetcher.fetch.side_effect = RuntimeError("error")
-        mock_playwright_fetcher.fetch.side_effect = RuntimeError("error")
+        mock_crawl4ai_fetcher.fetch.side_effect = RuntimeError("error")
 
         with pytest.raises(RuntimeError):
             await smart_fetcher_no_cb.fetch("https://example.com/article")
@@ -381,27 +432,27 @@ class TestSmartFetcherClose:
         return fetcher
 
     @pytest.fixture
-    def mock_playwright_fetcher(self):
-        """Create mock PlaywrightFetcher."""
+    def mock_crawl4ai_fetcher(self):
+        """Create mock Crawl4AIFetcher."""
         fetcher = MagicMock()
         fetcher.fetch = AsyncMock()
         fetcher.close = AsyncMock()
         return fetcher
 
     @pytest.fixture
-    def smart_fetcher(self, mock_httpx_fetcher, mock_playwright_fetcher):
+    def smart_fetcher(self, mock_httpx_fetcher, mock_crawl4ai_fetcher):
         """Create SmartFetcher instance."""
         return SmartFetcher(
             httpx_fetcher=mock_httpx_fetcher,
-            playwright_fetcher=mock_playwright_fetcher,
+            crawl4ai_fetcher=mock_crawl4ai_fetcher,
         )
 
     @pytest.mark.asyncio
     async def test_close_calls_underlying_fetchers(
-        self, smart_fetcher, mock_httpx_fetcher, mock_playwright_fetcher
+        self, smart_fetcher, mock_httpx_fetcher, mock_crawl4ai_fetcher
     ):
         """Test close() calls close on underlying fetchers."""
         await smart_fetcher.close()
 
         mock_httpx_fetcher.close.assert_called_once()
-        mock_playwright_fetcher.close.assert_called_once()
+        mock_crawl4ai_fetcher.close.assert_called_once()
