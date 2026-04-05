@@ -498,6 +498,29 @@ class MemorySettings(BaseModel):
     """Decay factor for cumulative traversal scores."""
 
 
+class SpacySettings(BaseModel):
+    """spaCy model detection and installation settings.
+
+    Controls model availability checking and auto-installation behavior
+    at application startup.
+    """
+
+    force_install: bool = False
+    """Automatically install missing models at startup."""
+
+    strict_mode: bool = True
+    """Raise error on installation failure. Only applies when force_install=true."""
+
+    models: list[str] = Field(default_factory=lambda: ["zh_core_web_lg", "en_core_web_sm"])
+    """List of spaCy models to check/install, in priority order."""
+
+    local_paths: dict[str, str] = Field(default_factory=dict)
+    """Mapping of model name to local wheel file path for offline installation.
+
+    Example: {"zh_core_web_lg": "/path/to/zh_core_web_lg-3.7.0-py3-none-any.whl"}
+    """
+
+
 def settings_customise_sources(
     settings: type[BaseSettings],
     init_settings: PydanticBaseSettingsSource,
@@ -583,6 +606,7 @@ class Settings(BaseSettings):
     intent_routing: IntentRoutingSettings = Field(default_factory=IntentRoutingSettings)
     temporal_inference: TemporalInferenceSettings = Field(default_factory=TemporalInferenceSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
+    spacy: SpacySettings = Field(default_factory=SpacySettings)
 
     def __init__(self, **kwargs: Any) -> None:
         """Initialize settings, loading TOML config first."""

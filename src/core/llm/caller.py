@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 from litellm import acompletion, aembedding, arerank
+from litellm.utils import token_counter
 from openai import AsyncOpenAI
 
 from core.llm.types import Label, LLMResponse, LLMType, TokenUsage
@@ -113,11 +114,13 @@ class LiteLLMCaller:
             )
 
             log.debug(
-                "chat_call_complete",
+                "llm_token_usage",
+                type="chat",
                 model=model,
-                latency_ms=latency_ms,
                 input_tokens=token_usage.input_tokens,
                 output_tokens=token_usage.output_tokens,
+                total_tokens=token_usage.total_tokens,
+                latency_ms=latency_ms,
             )
 
             return LLMResponse(
@@ -187,8 +190,12 @@ class LiteLLMCaller:
             )
 
             log.debug(
-                "embed_call_complete",
+                "llm_token_usage",
+                type="embedding",
                 model=model,
+                input_tokens=token_usage.input_tokens,
+                output_tokens=0,
+                total_tokens=token_usage.total_tokens,
                 latency_ms=latency_ms,
                 num_texts=len(texts),
             )
@@ -269,13 +276,23 @@ class LiteLLMCaller:
 
             latency_ms = (time.monotonic() - start_time) * 1000
 
+            # Rerank API 不返回 token usage, 使用 token_counter 估算
+            all_text = query + " " + " ".join(documents)
+            try:
+                estimated_tokens = token_counter(text=all_text)
+            except Exception:
+                # token_counter 可能因模型不支持而失败, 使用简单估算
+                estimated_tokens = len(all_text.split())
+
             log.debug(
-                "rerank_call_complete",
-                provider_type=provider_type,
+                "llm_token_usage",
+                type="rerank",
                 model=label.model,
+                input_tokens=estimated_tokens,
+                output_tokens=0,
+                total_tokens=estimated_tokens,
                 latency_ms=latency_ms,
                 num_documents=len(documents),
-                top_n=top_n,
             )
 
             return LLMResponse(

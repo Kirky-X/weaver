@@ -131,3 +131,18 @@ simhash_hamming_threshold = 3           # Max Hamming distance for duplicate det
 # Telemetry and monitoring settings
 # OTLP collector endpoint for OpenTelemetry tracing
 otlp_endpoint = "http://localhost:4317" # OpenTelemetry collector URL (empty to disable)
+
+# ============================================================
+# spaCy Configuration
+# ============================================================
+
+[spacy]
+# spaCy model detection and installation settings
+force_install = false                  # Auto-install missing models at startup
+strict_mode = true                     # Fail startup if installation fails (when force_install=true)
+models = ["zh_core_web_lg", "en_core_web_sm"]  # Models to check/install
+
+# Local wheel file paths for offline installation (optional)
+# [spacy.local_paths]
+# zh_core_web_lg = "/path/to/zh_core_web_lg-3.7.0-py3-none-any.whl"
+# en_core_web_sm = "/path/to/en_core_web_sm-3.7.0-py3-none-any.whl"
