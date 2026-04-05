@@ -111,14 +111,25 @@ class StructuralConsolidationWorker:
 
             # 4. Entity Link Discovery (simplified)
             entity_links_added = 0
-            # Skip condition: Entity link discovery requires integration with the
-            # entity extraction pipeline and resolution logic.
-            # This is intentionally deferred until the entity graph is fully integrated
-            # with the memory module. Current implementation focuses on causal inference.
-            # Future implementation should:
-            # 1. Extract entities from event content using existing entity extractor
-            # 2. Resolve entity mentions against the knowledge graph
-            # 3. Create MENTIONS relationships between EventNode and Entity nodes
+
+            # TODO(entity-links): Entity link discovery is intentionally deferred.
+            #
+            # Rationale: Entity link discovery requires deep integration with:
+            # - Entity extraction pipeline (modules/knowledge/entity/)
+            # - Entity resolution logic (core NLP/NER models)
+            # - Knowledge graph entity management (Neo4j/LadybugDB)
+            #
+            # Current status: The infrastructure exists (entity_repo protocol),
+            # but the actual entity extraction and resolution pipeline is not
+            # integrated with the memory module's fast/slow paths.
+            #
+            # Future implementation steps:
+            # 1. Integrate entity extractor from knowledge module
+            # 2. Implement entity resolution against existing entities
+            # 3. Create MENTIONS relationships (EventNode)-[:MENTIONS]->(Entity)
+            # 4. Update entity_repo.link_entities() to handle memory events
+            #
+            # See: modules/memory/evolution/fast_path.py:EntityGraphRepoProtocol
 
             avg_confidence = total_confidence / edges_added if edges_added > 0 else 0.0
 

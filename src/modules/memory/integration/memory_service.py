@@ -132,6 +132,8 @@ class MemoryIntegrationService:
         embedding_service: EmbeddingServiceProtocol,
         intent_classifier: IntentClassifier,
         config: MemoryServiceConfig | None = None,
+        vector_repo: Any = None,
+        entity_repo: Any = None,
     ) -> None:
         """Initialize the memory integration service.
 
@@ -142,6 +144,8 @@ class MemoryIntegrationService:
             embedding_service: Service for computing embeddings.
             intent_classifier: Classifier for query intent.
             config: Service configuration.
+            vector_repo: Optional vector repository for embedding indexing.
+            entity_repo: Optional entity graph repository for entity linking.
         """
         self._config = config or MemoryServiceConfig()
 
@@ -152,11 +156,11 @@ class MemoryIntegrationService:
         # Initialize consolidation queue
         self._consolidation_queue = ConsolidationQueue(redis=redis_client)
 
-        # Initialize fast path
+        # Initialize fast path with optional repos
         self._fast_path = SynapticIngestionService(
             temporal_repo=self._temporal_repo,
-            vector_repo=None,  # Will use existing VectorRepo separately
-            entity_repo=None,  # Will use existing EntityGraphRepo separately
+            vector_repo=vector_repo,
+            entity_repo=entity_repo,
             consolidation_queue=self._consolidation_queue,
         )
 
@@ -180,6 +184,34 @@ class MemoryIntegrationService:
             beam_width=self._config.beam_width,
             token_budget=self._config.token_budget,
         )
+
+        # Store for retrieval components
+        self._llm_client = llm_client
+        self._entity_repo = entity_repo
+
+        # Initialize retrieval components (optional)
+        self._entity_aggregator: Any = None
+        self._narrative_synthesizer: Any = None
+        self._response_builder: Any = None
+
+        if entity_repo is not None:
+            from modules.memory.retrieval.entity_aggregator import EntityAggregator
+            from modules.memory.retrieval.narrative_synthesizer import NarrativeSynthesizer
+            from modules.memory.retrieval.response_builder import SearchResponseBuilder
+
+            self._entity_aggregator = EntityAggregator(
+                entity_repo=entity_repo,
+                llm=llm_client,
+            )
+            self._narrative_synthesizer = NarrativeSynthesizer(
+                llm=llm_client,
+            )
+            self._response_builder = SearchResponseBuilder(
+                search_engine=self._search_engine,
+                entity_aggregator=self._entity_aggregator,
+                synthesizer=self._narrative_synthesizer,
+                llm=llm_client,
+            )
 
         log.info(
             "memory_service_initialized",
@@ -268,6 +300,52 @@ class MemoryIntegrationService:
             List of relevant events with scores.
         """
         return await self._search_engine.search(query, anchors, intent)
+
+    async def search_with_context(
+        self,
+        query: str,
+        anchors: list[str] | None = None,
+        intent: IntentType | None = None,
+        output_mode: str = "context",
+        enrich_entities: bool = False,
+    ) -> dict[str, Any]:
+        """Search memory with enriched context and narrative synthesis.
+
+        This method extends the basic search with:
+        - Entity aggregation (if enrich_entities=True)
+        - Narrative synthesis for coherent response
+
+        Args:
+            query: The search query.
+            anchors: Optional list of anchor event IDs.
+            intent: Optional pre-classified intent.
+            output_mode: "context" for raw snippets, "narrative" for LLM synthesis.
+            enrich_entities: Whether to enrich results with entity information.
+
+        Returns:
+            Dictionary containing:
+            - results: List of relevant events
+            - synthesis: Synthesized narrative (if output_mode="narrative")
+            - entities: Aggregated entity info (if enrich_entities=True)
+
+        Raises:
+            RuntimeError: If retrieval components are not initialized.
+        """
+        if self._response_builder is None:
+            raise RuntimeError(
+                "search_with_context() requires entity_repo to be injected. "
+                "Initialize MemoryIntegrationService with entity_repo parameter."
+            )
+
+        from modules.memory.core.graph_types import OutputMode
+
+        mode = OutputMode.NARRATIVE if output_mode == "narrative" else OutputMode.CONTEXT
+
+        return await self._response_builder.build(
+            query=query,
+            output_mode=mode,
+            enrich_entities=enrich_entities,
+        )
 
     async def get_queue_depth(self) -> int:
         """Get the number of pending consolidation events.
