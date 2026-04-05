@@ -147,6 +147,66 @@ async def flush_usage_buffer(
     return (processed, errors)
 
 
+def _parse_field(field: str) -> tuple[str, str, str] | None:
+    """Parse a Redis hash field into label, call_point, metric.
+
+    Args:
+        field: Field string in format "{label}::{call_point}::{metric}".
+
+    Returns:
+        Tuple of (label, call_point, metric) or None if invalid.
+    """
+    parts = field.rsplit("::", 2)
+    if len(parts) != 3:
+        log.warning("llm_usage_aggregator_invalid_field", field=field)
+        return None
+    return tuple(parts)  # type: ignore[return-value]
+
+
+def _parse_label(label: str) -> tuple[str, str, str]:
+    """Parse a label into llm_type, provider, model.
+
+    Label format: "{llm_type}::{provider}::{model}" or "{provider}::{model}"
+
+    Args:
+        label: Label string to parse.
+
+    Returns:
+        Tuple of (llm_type, provider, model).
+    """
+    label_parts = label.split("::")
+    if len(label_parts) == 3:
+        return tuple(label_parts)  # type: ignore[return-value]
+    elif len(label_parts) == 2:
+        return ("chat", label_parts[0], label_parts[1])
+    else:
+        return ("chat", "unknown", label)
+
+
+def _aggregate_metric(agg: dict[str, Any], metric: str, value: int) -> None:
+    """Aggregate a single metric value into the aggregation dict.
+
+    Args:
+        agg: Aggregation dictionary to update.
+        metric: Metric name (count, input_tok, etc.).
+        value: Integer value to add.
+    """
+    if metric == "count":
+        agg["count"] += value
+    elif metric == "input_tok":
+        agg["input_tok"] += value
+    elif metric == "output_tok":
+        agg["output_tok"] += value
+    elif metric == "total_tok":
+        agg["total_tok"] += value
+    elif metric == "latency_ms":
+        agg["latency_ms"] += float(value)
+    elif metric == "success":
+        agg["success"] += value
+    elif metric == "failure":
+        agg["failure"] += value
+
+
 def aggregate_usage_data(data: dict[str, str]) -> dict[tuple[str, str], dict[str, Any]]:
     """Aggregate Redis hash data by (label, call_point).
 
@@ -159,9 +219,6 @@ def aggregate_usage_data(data: dict[str, str]) -> dict[tuple[str, str], dict[str
     Returns:
         Dict mapping (label, call_point) to aggregated metrics.
     """
-    # Group data by (label, call_point)
-    # We need to also extract llm_type, provider, model from the label
-    # Label format: "{llm_type}::{provider}::{model}"
     result: dict[tuple[str, str], dict[str, Any]] = defaultdict(
         lambda: {
             "count": 0,
@@ -178,58 +235,30 @@ def aggregate_usage_data(data: dict[str, str]) -> dict[tuple[str, str], dict[str
     )
 
     for field, value in data.items():
+        # Parse field using helper
+        parsed = _parse_field(field)
+        if parsed is None:
+            continue
+
+        label, call_point, metric = parsed
+        key = (label, call_point)
+
+        # Parse label using helper
+        llm_type, provider, model = _parse_label(label)
+        result[key]["llm_type"] = llm_type
+        result[key]["provider"] = provider
+        result[key]["model"] = model
+
+        # Aggregate metric using helper
         try:
-            # Parse field: {label}::{call_point}::{metric}
-            parts = field.rsplit("::", 2)
-            if len(parts) != 3:
-                log.warning("llm_usage_aggregator_invalid_field", field=field)
-                continue
-
-            label, call_point, metric = parts
-            key = (label, call_point)
-
-            # Parse label to extract llm_type, provider, model
-            # Label format: "{llm_type}::{provider}::{model}" or just "{provider}::{model}"
-            label_parts = label.split("::")
-            if len(label_parts) == 3:
-                llm_type, provider, model = label_parts
-            elif len(label_parts) == 2:
-                llm_type = "chat"  # Default
-                provider, model = label_parts
-            else:
-                llm_type = "chat"
-                provider = "unknown"
-                model = label
-
-            result[key]["llm_type"] = llm_type
-            result[key]["provider"] = provider
-            result[key]["model"] = model
-
-            # Parse value and aggregate
             int_value = int(value)
-
-            if metric == "count":
-                result[key]["count"] += int_value
-            elif metric == "input_tok":
-                result[key]["input_tok"] += int_value
-            elif metric == "output_tok":
-                result[key]["output_tok"] += int_value
-            elif metric == "total_tok":
-                result[key]["total_tok"] += int_value
-            elif metric == "latency_ms":
-                result[key]["latency_ms"] += float(int_value)
-            elif metric == "success":
-                result[key]["success"] += int_value
-            elif metric == "failure":
-                result[key]["failure"] += int_value
-
-        except (ValueError, IndexError) as e:
+            _aggregate_metric(result[key], metric, int_value)
+        except ValueError:
             log.warning(
                 "llm_usage_aggregator_parse_failed",
                 field=field,
                 value=value,
-                error=str(e),
+                error="invalid integer value",
             )
-            continue
 
     return dict(result)

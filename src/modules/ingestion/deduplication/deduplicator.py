@@ -20,6 +20,9 @@ class Deduplicator:
     Level 1: Redis Hash for fast in-memory filtering.
     Level 2: Database UNIQUE constraint for precise dedup.
 
+    Includes health tracking for Redis with automatic fallback to DB
+    when Redis is unavailable.
+
     Args:
         redis: Redis client instance.
         article_repo: Article repository for DB-level checking.
@@ -28,6 +31,7 @@ class Deduplicator:
 
     DEDUP_KEY = "crawl:dedup"
     DEFAULT_TTL = 7 * 24 * 60 * 60
+    HEALTH_CHECK_INTERVAL = 60  # seconds
 
     def __init__(
         self,
@@ -38,6 +42,32 @@ class Deduplicator:
         self._redis = redis
         self._repo = article_repo
         self._ttl = ttl_seconds or self.DEFAULT_TTL
+        self._redis_healthy = True
+        self._last_health_check: float = 0.0
+        self._fallback_count = 0
+
+    async def _check_redis_health(self) -> bool:
+        """Check Redis health with periodic probing.
+
+        Returns:
+            True if Redis is healthy, False otherwise.
+        """
+        now = time.monotonic()
+        if now - self._last_health_check < self.HEALTH_CHECK_INTERVAL:
+            return self._redis_healthy
+
+        self._last_health_check = now
+        try:
+            await self._redis.ping()
+            if not self._redis_healthy:
+                log.info("redis_health_restored")
+            self._redis_healthy = True
+        except Exception as e:
+            if self._redis_healthy:
+                log.warning("redis_health_degraded", error=str(e))
+            self._redis_healthy = False
+
+        return self._redis_healthy
 
     async def dedup(self, items: list) -> list:
         """Deduplicate a list of items by URL.
@@ -54,23 +84,43 @@ class Deduplicator:
         start_time = time.perf_counter()
         original_count = len(items)
 
-        pipe = self._redis.pipeline()
-        url_hashes = [self._hash(item.url) for item in items]
-        for h in url_hashes:
-            pipe.hexists(self.DEDUP_KEY, h)
-        exists = await pipe.execute()
+        # Check Redis health
+        redis_available = await self._check_redis_health()
 
-        candidates = [item for item, ex in zip(items, exists) if not ex]
-        redis_filtered = original_count - len(candidates)
+        candidates = items
+        redis_filtered = 0
 
-        if not candidates:
-            log.debug("dedup_all_filtered_by_redis", original=len(items))
-            elapsed = time.perf_counter() - start_time
-            metrics.dedup_total.labels(stage="url").inc(redis_filtered)
-            metrics.dedup_processing_time.labels(stage="url").observe(elapsed)
-            metrics.articles_processed_total.inc(original_count)
-            metrics.articles_deduped_total.inc(redis_filtered)
-            return []
+        if redis_available:
+            try:
+                pipe = self._redis.pipeline()
+                url_hashes = [self._hash(item.url) for item in items]
+                for h in url_hashes:
+                    pipe.hexists(self.DEDUP_KEY, h)
+                exists = await pipe.execute()
+
+                candidates = [item for item, ex in zip(items, exists) if not ex]
+                redis_filtered = original_count - len(candidates)
+
+                if not candidates:
+                    log.debug("dedup_all_filtered_by_redis", original=len(items))
+                    elapsed = time.perf_counter() - start_time
+                    metrics.dedup_total.labels(stage="url").inc(redis_filtered)
+                    metrics.dedup_processing_time.labels(stage="url").observe(elapsed)
+                    metrics.articles_processed_total.inc(original_count)
+                    metrics.articles_deduped_total.inc(redis_filtered)
+                    return []
+
+            except Exception as e:
+                log.warning("dedup_redis_failed_using_db_fallback", error=str(e))
+                self._redis_healthy = False
+                self._fallback_count += 1
+                metrics.dedup_redis_fallback_total.inc()
+                candidates = items
+                redis_filtered = 0
+        else:
+            # Redis is unhealthy, use DB-only dedup
+            self._fallback_count += 1
+            metrics.dedup_redis_fallback_total.inc()
 
         urls = [item.url for item in candidates]
         if hasattr(self._repo, "get_existing_urls"):
@@ -82,12 +132,17 @@ class Deduplicator:
         db_filtered = len(candidates) - len(new_items)
         total_filtered = redis_filtered + db_filtered
 
-        if new_items:
-            pipe = self._redis.pipeline()
-            now = str(int(time.time()))
-            for item in new_items:
-                pipe.hset(self.DEDUP_KEY, self._hash(item.url), now)
-            await pipe.execute()
+        # Write new URLs to Redis if healthy
+        if new_items and self._redis_healthy:
+            try:
+                pipe = self._redis.pipeline()
+                now_str = str(int(time.time()))
+                for item in new_items:
+                    pipe.hset(self.DEDUP_KEY, self._hash(item.url), now_str)
+                await pipe.execute()
+            except Exception as e:
+                log.warning("dedup_redis_write_failed", error=str(e))
+                self._redis_healthy = False
 
         elapsed = time.perf_counter() - start_time
         metrics.dedup_total.labels(stage="url").inc(total_filtered)
@@ -104,6 +159,7 @@ class Deduplicator:
             original=len(items),
             after_redis=len(candidates),
             after_db=len(new_items),
+            redis_healthy=self._redis_healthy,
         )
         return new_items
 
