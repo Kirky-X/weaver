@@ -200,3 +200,37 @@ class PipelineTaskStatus(str, enum.Enum):
     COMPLETED = "completed"
     CANCELLED = "cancelled"
     FAILED = "failed"
+
+
+# ── Default Values Constants ───────────────────────────────────────
+
+
+class Defaults:
+    """Default values for common operations.
+
+    Use these constants instead of magic numbers to improve
+    code readability and maintainability.
+    """
+
+    # Batch and pagination defaults
+    BATCH_SIZE = 100
+    LIMIT = 1000
+    PAGE_SIZE = 50
+
+    # Timeout defaults (in seconds)
+    TIMEOUT_SECONDS = 30.0
+    CONNECT_TIMEOUT = 10.0
+    READ_TIMEOUT = 60.0
+
+    # Buffer and chunk sizes
+    BUFFER_SIZE = 1024
+    CHUNK_SIZE = 8192
+
+    # Retry defaults
+    MAX_RETRIES = 3
+    RETRY_DELAY = 1.0
+    RETRY_BACKOFF = 2.0
+
+    # Cache defaults
+    CACHE_TTL = 3600  # 1 hour
+    CACHE_MAX_SIZE = 1000

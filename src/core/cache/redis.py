@@ -76,6 +76,19 @@ class RedisClient:
         """Get a value by key."""
         return await self.client.get(key)
 
+    async def mget(self, keys: list[str]) -> list[str | None]:
+        """Get multiple values by keys.
+
+        Args:
+            keys: List of keys to retrieve.
+
+        Returns:
+            List of values (None for missing keys).
+        """
+        if not keys:
+            return []
+        return await self.client.mget(keys)
+
     async def set(
         self,
         key: str,
@@ -84,6 +97,16 @@ class RedisClient:
     ) -> None:
         """Set a key-value pair with optional expiration."""
         await self.client.set(key, value, ex=ex)
+
+    async def setex(self, key: str, ttl: int, value: str) -> None:
+        """Set a key with expiration.
+
+        Args:
+            key: Key to set.
+            ttl: Time to live in seconds.
+            value: Value to store.
+        """
+        await self.client.setex(key, ttl, value)
 
     async def hget(self, name: str, key: str) -> str | None:
         """Get a hash field value."""
@@ -328,10 +351,18 @@ class CashewsRedisFallback:
         self._check_expiry(key)
         return self._store.get(key)
 
+    async def mget(self, keys: list[str]) -> list[str | None]:
+        """Get multiple values by keys."""
+        return [await self.get(key) for key in keys]
+
     async def set(self, key: str, value: str, ex: int | None = None) -> None:
         self._store[key] = value
         if ex is not None:
             self._expiry[key] = time.monotonic() + ex
+
+    async def setex(self, key: str, ttl: int, value: str) -> None:
+        """Set a key with expiration."""
+        await self.set(key, value, ex=ttl)
 
     async def delete(self, *keys: str) -> int:
         if not keys:

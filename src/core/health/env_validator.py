@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from config.settings import Settings
 
-from core.constants import LLMProvider
+from core.constants import Defaults, LLMProvider
 from core.observability import get_logger
 
 log = get_logger("env_validator")
@@ -478,7 +478,7 @@ class EnvironmentValidator:
                         result.suggestions.append("Set API key for embedding provider")
                         return result
 
-                    async with httpx.AsyncClient(timeout=30.0) as client:
+                    async with httpx.AsyncClient(timeout=Defaults.TIMEOUT_SECONDS) as client:
                         response = await client.post(
                             f"{base_url}/embeddings",
                             headers={
@@ -498,7 +498,7 @@ class EnvironmentValidator:
                         result.suggestions.append("Check embedding model name")
 
                 elif provider_type == LLMProvider.OLLAMA.value:
-                    async with httpx.AsyncClient(timeout=30.0) as client:
+                    async with httpx.AsyncClient(timeout=Defaults.TIMEOUT_SECONDS) as client:
                         response = await client.post(
                             f"{base_url}/api/embeddings",
                             json={"model": embedding_model, "prompt": "test"},
