@@ -77,6 +77,8 @@ class EntityResolver:
         self._rules = resolution_rules or EntityResolutionRules()
         self._normalizer = name_normalizer or NameNormalizer()
 
+    # ── Public API ─────────────────────────────────────────────
+
     async def resolve_entity(
         self,
         name: str,
@@ -101,22 +103,65 @@ class EntityResolver:
             - match_type: Type of match (exact, alias, fuzzy, etc.)
             - confidence: Resolution confidence score
         """
-        # Filter out metric strings classified as entities.
-        # "本土市场游戏收入1642亿元" has no stable identity — it's a data point,
-        # not an entity that should live as a node in the knowledge graph.
+        # Filter metric strings early
         if entity_type == "数据指标" and self._looks_like_metric_string(name):
-            return {
-                "neo4j_id": "",
-                "canonical_name": name,
-                "is_new": False,
-                "merged": False,
-                "match_type": "filtered_metric",
-                "confidence": 0.0,
-            }
+            return self._filtered_metric_result(name)
 
+        # Step 1: Normalize name
         norm_result = self._normalizer.normalize(name, entity_type)
         normalized_name = norm_result.normalized
 
+        # Step 2: Try exact match
+        exact_match = await self._try_exact_match(name, normalized_name, entity_type)
+        if exact_match:
+            return exact_match
+
+        # Step 3: Handle no embedding case
+        if not embedding:
+            return await self._create_without_embedding(name, entity_type, description)
+
+        # Step 4: Try vector similarity search
+        candidates = await self._find_similar_candidates(embedding)
+        if not candidates:
+            return await self._create_without_embedding(name, entity_type, description)
+
+        # Step 5: Try rule-based resolution
+        rule_result = self._rules.resolve(name, entity_type, candidates)
+        if rule_result.match_type != MatchType.NONE:
+            merge_result = await self._try_rule_merge(
+                name, entity_type, candidates, rule_result, embedding
+            )
+            if merge_result:
+                return merge_result
+
+        # Step 6: Try LLM deduplication
+        if self._llm:
+            llm_result = await self._try_llm_merge(name, entity_type, candidates, embedding)
+            if llm_result:
+                return llm_result
+
+        # Step 7: Resolve canonical name and create/alias
+        return await self._resolve_and_create(name, entity_type, candidates, embedding, description)
+
+    # ── Resolution Steps ───────────────────────────────────────
+
+    async def _try_exact_match(
+        self,
+        name: str,
+        normalized_name: str,
+        entity_type: str,
+    ) -> dict[str, Any] | None:
+        """Try exact match with normalized and original name.
+
+        Args:
+            name: Original entity name.
+            normalized_name: Normalized entity name.
+            entity_type: Entity type.
+
+        Returns:
+            Match result if found, None otherwise.
+        """
+        # Try normalized name first
         existing = await self._entity_repo.find_entity(normalized_name, entity_type)
         if existing:
             return {
@@ -128,6 +173,7 @@ class EntityResolver:
                 "confidence": 1.0,
             }
 
+        # Try original name if different
         if normalized_name != name:
             existing = await self._entity_repo.find_entity(name, entity_type)
             if existing:
@@ -140,18 +186,20 @@ class EntityResolver:
                     "confidence": 0.95,
                 }
 
-        if not embedding:
-            canonical = self._rules.get_canonical_suggestion(name, entity_type)
-            return await self._create_entity(
-                name=canonical,
-                entity_type=entity_type,
-                embedding=embedding,
-                description=description,
-                is_new=True,
-                match_type="new",
-                confidence=1.0,
-            )
+        return None
 
+    async def _find_similar_candidates(
+        self,
+        embedding: list[float],
+    ) -> list[dict[str, Any]]:
+        """Find similar entities using vector search.
+
+        Args:
+            embedding: Query embedding vector.
+
+        Returns:
+            List of candidate entities with similarity scores.
+        """
         similar = await self._vector_repo.find_similar_entities(
             embedding=embedding,
             threshold=self.SIMILARITY_THRESHOLD,
@@ -159,18 +207,9 @@ class EntityResolver:
         )
 
         if not similar:
-            canonical = self._rules.get_canonical_suggestion(name, entity_type)
-            return await self._create_entity(
-                name=canonical,
-                entity_type=entity_type,
-                embedding=embedding,
-                description=description,
-                is_new=True,
-                match_type="new",
-                confidence=1.0,
-            )
+            return []
 
-        # Batch lookup entities by ID to avoid N+1 queries
+        # Batch lookup to avoid N+1 queries
         neo4j_ids = [sim.neo4j_id for sim in similar]
         entities_by_id = await self._entity_repo.find_entities_by_ids(neo4j_ids)
         entities_map = {e["neo4j_id"]: e for e in entities_by_id}
@@ -182,58 +221,108 @@ class EntityResolver:
                 entity["similarity"] = sim.similarity
                 candidates.append(entity)
 
-        if not candidates:
-            canonical = self._rules.get_canonical_suggestion(name, entity_type)
-            return await self._create_entity(
-                name=canonical,
-                entity_type=entity_type,
-                embedding=embedding,
-                description=description,
-                is_new=True,
-                match_type="new",
-                confidence=1.0,
-            )
+        return candidates
 
-        rule_result = self._rules.resolve(name, entity_type, candidates)
-        if rule_result.match_type != MatchType.NONE:
-            if rule_result.confidence >= self.HIGH_CONFIDENCE_THRESHOLD:
-                target = next(
-                    (
-                        c
-                        for c in candidates
-                        if c.get("canonical_name") == rule_result.canonical_name
-                    ),
-                    None,
-                )
-                if target:
-                    return await self._merge_with_existing(
-                        new_name=name,
-                        entity_type=entity_type,
-                        target=target,
-                        embedding=embedding,
-                        match_type=rule_result.match_type.value,
-                        confidence=rule_result.confidence,
-                    )
+    async def _try_rule_merge(
+        self,
+        name: str,
+        entity_type: str,
+        candidates: list[dict[str, Any]],
+        rule_result: Any,
+        embedding: list[float],
+    ) -> dict[str, Any] | None:
+        """Try to merge based on rule resolution.
 
-        if self._llm:
-            decision = await self._llm_deduplicate(
-                query_name=name,
-                entity_type=entity_type,
-                candidates=candidates,
-            )
+        Args:
+            name: Entity name.
+            entity_type: Entity type.
+            candidates: Similar candidates.
+            rule_result: Rule resolution result.
+            embedding: Entity embedding.
 
-            if decision.get("should_merge"):
-                target = decision.get("target_entity")
-                if target:
-                    return await self._merge_with_existing(
-                        new_name=name,
-                        entity_type=entity_type,
-                        target=target,
-                        embedding=embedding,
-                        match_type="llm_dedup",
-                        confidence=decision.get("confidence", 0.8),
-                    )
+        Returns:
+            Merge result if high confidence, None otherwise.
+        """
+        if rule_result.confidence < self.HIGH_CONFIDENCE_THRESHOLD:
+            return None
 
+        target = next(
+            (c for c in candidates if c.get("canonical_name") == rule_result.canonical_name),
+            None,
+        )
+
+        if not target:
+            return None
+
+        return await self._merge_with_existing(
+            new_name=name,
+            entity_type=entity_type,
+            target=target,
+            embedding=embedding,
+            match_type=rule_result.match_type.value,
+            confidence=rule_result.confidence,
+        )
+
+    async def _try_llm_merge(
+        self,
+        name: str,
+        entity_type: str,
+        candidates: list[dict[str, Any]],
+        embedding: list[float],
+    ) -> dict[str, Any] | None:
+        """Try LLM-based deduplication.
+
+        Args:
+            name: Entity name.
+            entity_type: Entity type.
+            candidates: Similar candidates.
+            embedding: Entity embedding.
+
+        Returns:
+            Merge result if LLM decides to merge, None otherwise.
+        """
+        decision = await self._llm_deduplicate(
+            query_name=name,
+            entity_type=entity_type,
+            candidates=candidates,
+        )
+
+        if not decision.get("should_merge"):
+            return None
+
+        target = decision.get("target_entity")
+        if not target:
+            return None
+
+        return await self._merge_with_existing(
+            new_name=name,
+            entity_type=entity_type,
+            target=target,
+            embedding=embedding,
+            match_type="llm_dedup",
+            confidence=decision.get("confidence", 0.8),
+        )
+
+    async def _resolve_and_create(
+        self,
+        name: str,
+        entity_type: str,
+        candidates: list[dict[str, Any]],
+        embedding: list[float],
+        description: str | None,
+    ) -> dict[str, Any]:
+        """Resolve canonical name and create entity or add alias.
+
+        Args:
+            name: Entity name.
+            entity_type: Entity type.
+            candidates: Similar candidates.
+            embedding: Entity embedding.
+            description: Entity description.
+
+        Returns:
+            Resolution result.
+        """
         canonical_name = self._resolve_canonical_name(
             query_name=name,
             entity_type=entity_type,
@@ -261,6 +350,53 @@ class EntityResolver:
             match_type="new_canonical",
             confidence=0.9,
         )
+
+    async def _create_without_embedding(
+        self,
+        name: str,
+        entity_type: str,
+        description: str | None,
+    ) -> dict[str, Any]:
+        """Create entity without embedding.
+
+        Args:
+            name: Entity name.
+            entity_type: Entity type.
+            description: Entity description.
+
+        Returns:
+            Creation result.
+        """
+        canonical = self._rules.get_canonical_suggestion(name, entity_type)
+        return await self._create_entity(
+            name=canonical,
+            entity_type=entity_type,
+            embedding=[],
+            description=description,
+            is_new=True,
+            match_type="new",
+            confidence=1.0,
+        )
+
+    def _filtered_metric_result(self, name: str) -> dict[str, Any]:
+        """Return result for filtered metric strings.
+
+        Args:
+            name: Metric string name.
+
+        Returns:
+            Filtered result with zero confidence.
+        """
+        return {
+            "neo4j_id": "",
+            "canonical_name": name,
+            "is_new": False,
+            "merged": False,
+            "match_type": "filtered_metric",
+            "confidence": 0.0,
+        }
+
+    # ── Entity Operations ──────────────────────────────────────
 
     async def _create_entity(
         self,
