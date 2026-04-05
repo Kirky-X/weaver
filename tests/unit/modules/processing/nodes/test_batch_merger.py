@@ -670,3 +670,471 @@ class TestBatchMergerNodeIntraBatchSimilarity:
         # Should not be grouped due to different categories
         groups = uf.get_groups()
         assert len(groups) == 2  # Each in separate group
+
+
+class TestBatchMergerConflictResolution:
+    """Tests for conflict resolution during merge."""
+
+    @pytest.fixture
+    def mock_llm(self):
+        return AsyncMock()
+
+    @pytest.fixture
+    def mock_prompt_loader(self):
+        loader = MagicMock()
+        loader.get_version = MagicMock(return_value="1.0.0")
+        return loader
+
+    @pytest.mark.asyncio
+    async def test_merge_resolves_conflicting_titles(self, mock_llm, mock_prompt_loader):
+        """Test that LLM merge resolves conflicting titles."""
+        from datetime import timedelta
+
+        now = datetime.now(UTC)
+
+        # Create two articles with different titles
+        raw1 = ArticleRaw(
+            url="https://example.com/article-1",
+            title="Breaking: Major AI Breakthrough",
+            body="Content 1",
+            source="source1",
+            source_host="example.com",
+            publish_time=now,
+        )
+        state1 = PipelineState(raw=raw1)
+        state1["cleaned"] = {"title": "Breaking: Major AI Breakthrough", "body": "Content 1"}
+        state1["vectors"] = {"content": [0.5] * 1024, "title": [0.5] * 1024}
+        state1["category"] = "科技"
+
+        raw2 = ArticleRaw(
+            url="https://example.com/article-2",
+            title="AI Discovery Announced",
+            body="Content 2",
+            source="source2",
+            source_host="example.com",
+            publish_time=now + timedelta(hours=1),  # Newer
+        )
+        state2 = PipelineState(raw=raw2)
+        state2["cleaned"] = {"title": "AI Discovery Announced", "body": "Content 2"}
+        state2["vectors"] = {"content": [0.5] * 1024, "title": [0.5] * 1024}
+        state2["category"] = "科技"
+
+        mock_llm.call_at = AsyncMock(
+            return_value=MergerOutput(
+                merged_title="Major AI Breakthrough Announced",
+                merged_body="Merged content from multiple sources",
+            )
+        )
+
+        node = BatchMergerNode(mock_llm, mock_prompt_loader)
+        result = await node.execute_batch([state1, state2])
+
+        # Should have called LLM merge
+        mock_llm.call_at.assert_called_once()
+
+        # Check merge result applied
+        primary = next(s for s in result if not s.get("is_merged"))
+        assert "merged_source_ids" in primary
+
+    @pytest.mark.asyncio
+    async def test_merge_selects_primary_by_publish_time(self, mock_llm, mock_prompt_loader):
+        """Test that newer article is selected as primary during merge."""
+        from datetime import timedelta
+
+        now = datetime.now(UTC)
+
+        # Older article
+        raw1 = ArticleRaw(
+            url="https://example.com/old",
+            title="Old Article",
+            body="Old content",
+            source="source1",
+            source_host="example.com",
+            publish_time=now - timedelta(hours=2),
+        )
+        state1 = PipelineState(raw=raw1)
+        state1["cleaned"] = {"title": "Old Article", "body": "Old content"}
+        state1["vectors"] = {"content": [0.5] * 1024, "title": [0.5] * 1024}
+        state1["category"] = "科技"
+
+        # Newer article
+        raw2 = ArticleRaw(
+            url="https://example.com/new",
+            title="New Article",
+            body="New content",
+            source="source2",
+            source_host="example.com",
+            publish_time=now,
+        )
+        state2 = PipelineState(raw=raw2)
+        state2["cleaned"] = {"title": "New Article", "body": "New content"}
+        state2["vectors"] = {"content": [0.5] * 1024, "title": [0.5] * 1024}
+        state2["category"] = "科技"
+
+        mock_llm.call_at = AsyncMock(
+            return_value=MergerOutput(merged_title="Merged", merged_body="Merged body")
+        )
+
+        node = BatchMergerNode(mock_llm, mock_prompt_loader)
+        result = await node.execute_batch([state1, state2])
+
+        # Newer article should be primary
+        primary = next(s for s in result if not s.get("is_merged"))
+        assert primary["raw"].url == "https://example.com/new"
+
+        # Older should be marked merged
+        merged = next(s for s in result if s.get("is_merged"))
+        assert merged["raw"].url == "https://example.com/old"
+
+    @pytest.mark.asyncio
+    async def test_merge_combines_different_sources(self, mock_llm, mock_prompt_loader):
+        """Test that merge tracks all source URLs."""
+        now = datetime.now(UTC)
+
+        states = []
+        for i in range(3):
+            raw = ArticleRaw(
+                url=f"https://example.com/article-{i}",
+                title=f"Article {i}",
+                body=f"Content {i}",
+                source=f"source{i}",
+                source_host="example.com",
+                publish_time=now,
+            )
+            state = PipelineState(raw=raw)
+            state["cleaned"] = {"title": f"Article {i}", "body": f"Content {i}"}
+            state["vectors"] = {"content": [0.5] * 1024, "title": [0.5] * 1024}
+            state["category"] = "科技"
+            states.append(state)
+
+        mock_llm.call_at = AsyncMock(
+            return_value=MergerOutput(merged_title="Merged", merged_body="Merged")
+        )
+
+        node = BatchMergerNode(mock_llm, mock_prompt_loader)
+        result = await node.execute_batch(states)
+
+        primary = next(s for s in result if not s.get("is_merged"))
+        # Should track all merged sources
+        assert len(primary.get("merged_source_ids", [])) == 2
+
+
+class TestBatchMergerPerformance:
+    """Tests for batch merger performance scenarios."""
+
+    @pytest.fixture
+    def mock_llm(self):
+        return AsyncMock()
+
+    @pytest.fixture
+    def mock_prompt_loader(self):
+        loader = MagicMock()
+        loader.get_version = MagicMock(return_value="1.0.0")
+        return loader
+
+    @pytest.mark.asyncio
+    async def test_large_batch_processes_correctly(self, mock_llm, mock_prompt_loader):
+        """Test that large batches are processed without error."""
+        now = datetime.now(UTC)
+
+        # Create 100 articles
+        states = []
+        for i in range(100):
+            raw = ArticleRaw(
+                url=f"https://example.com/article-{i}",
+                title=f"Article {i}",
+                body=f"Body content {i}" * 10,
+                source="test",
+                source_host="example.com",
+                publish_time=now,
+            )
+            state = PipelineState(raw=raw)
+            state["cleaned"] = {"title": f"Article {i}", "body": f"Body content {i}"}
+            # Use orthogonal vectors to avoid merging
+            vec = [0.0] * 1024
+            vec[i % 1024] = 1.0
+            state["vectors"] = {"content": vec, "title": vec}
+            state["category"] = "科技"
+            states.append(state)
+
+        node = BatchMergerNode(mock_llm, mock_prompt_loader)
+        result = await node.execute_batch(states)
+
+        # All states should be returned
+        assert len(result) == 100
+        # No merges should occur with orthogonal vectors
+        mock_llm.call_at.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_batch_with_many_similar_groups(self, mock_llm, mock_prompt_loader):
+        """Test batch with many similar article groups."""
+        now = datetime.now(UTC)
+
+        # Create 10 groups of 5 similar articles each
+        states = []
+        for group in range(10):
+            # Create base vector for this group
+            base_vec = [0.0] * 1024
+            base_vec[group * 100] = 0.9
+
+            for i in range(5):
+                raw = ArticleRaw(
+                    url=f"https://example.com/group-{group}-article-{i}",
+                    title=f"Group {group} Article {i}",
+                    body=f"Content for group {group}",
+                    source="test",
+                    source_host="example.com",
+                    publish_time=now,
+                )
+                state = PipelineState(raw=raw)
+                state["cleaned"] = {
+                    "title": f"Group {group} Article {i}",
+                    "body": f"Content for group {group}",
+                }
+                state["vectors"] = {"content": base_vec.copy(), "title": base_vec.copy()}
+                state["category"] = "科技"
+                states.append(state)
+
+        mock_llm.call_at = AsyncMock(
+            return_value=MergerOutput(merged_title="Merged", merged_body="Merged")
+        )
+
+        node = BatchMergerNode(mock_llm, mock_prompt_loader)
+        result = await node.execute_batch(states)
+
+        # Should have 10 merge calls (one per group)
+        assert mock_llm.call_at.call_count == 10
+
+        # 50 articles - 10 primaries = 40 merged
+        merged_count = sum(1 for s in result if s.get("is_merged"))
+        assert merged_count == 40
+
+    @pytest.mark.asyncio
+    async def test_batch_similarity_limit_respected(self, mock_llm, mock_prompt_loader):
+        """Test that batch similarity limit is used correctly."""
+        now = datetime.now(UTC)
+
+        states = []
+        for i in range(10):
+            raw = ArticleRaw(
+                url=f"https://example.com/article-{i}",
+                title=f"Article {i}",
+                body=f"Body {i}",
+                source="test",
+                source_host="example.com",
+                publish_time=now,
+            )
+            state = PipelineState(raw=raw)
+            state["cleaned"] = {"title": f"Article {i}", "body": f"Body {i}"}
+            state["vectors"] = {"content": [0.5] * 1024, "title": [0.5] * 1024}
+            state["category"] = "科技"
+            states.append(state)
+
+        # Mock vector repo with batch_find_similar
+        mock_vector_repo = MagicMock()
+        mock_vector_repo.batch_find_similar = AsyncMock(return_value={})
+        mock_vector_repo.find_similar = AsyncMock(return_value=[])
+
+        node = BatchMergerNode(mock_llm, mock_prompt_loader, vector_repo=mock_vector_repo)
+        result = await node.execute_batch(states)
+
+        # batch_find_similar should be called with limit
+        if mock_vector_repo.batch_find_similar.called:
+            call_kwargs = mock_vector_repo.batch_find_similar.call_args[1]
+            assert call_kwargs.get("limit") == node.BATCH_SIMILARITY_LIMIT
+
+    @pytest.mark.asyncio
+    async def test_empty_batch_returns_immediately(self, mock_llm, mock_prompt_loader):
+        """Test empty batch returns immediately."""
+        node = BatchMergerNode(mock_llm, mock_prompt_loader)
+        result = await node.execute_batch([])
+
+        assert result == []
+        mock_llm.call_at.assert_not_called()
+
+
+class TestBatchMergerCrossQuery:
+    """Tests for cross-query functionality."""
+
+    @pytest.fixture
+    def mock_llm(self):
+        return AsyncMock()
+
+    @pytest.fixture
+    def mock_prompt_loader(self):
+        loader = MagicMock()
+        loader.get_version = MagicMock(return_value="1.0.0")
+        return loader
+
+    @pytest.mark.asyncio
+    async def test_cross_query_finds_historical_similar(self, mock_llm, mock_prompt_loader):
+        """Test cross-query finds similar historical articles."""
+        now = datetime.now(UTC)
+
+        raw = ArticleRaw(
+            url="https://example.com/new-article",
+            title="New Article",
+            body="New content",
+            source="test",
+            source_host="example.com",
+            publish_time=now,
+        )
+        state = PipelineState(raw=raw)
+        state["cleaned"] = {"title": "New Article", "body": "New content"}
+        state["vectors"] = {"content": [0.5] * 1024, "title": [0.5] * 1024}
+        state["category"] = "科技"
+
+        # Mock hit from historical articles
+        mock_hit = MagicMock()
+        mock_hit.article_id = "https://example.com/historical-article"
+        mock_hit.similarity = 0.95
+        mock_hit.category = "科技"
+
+        mock_vector_repo = MagicMock()
+        mock_vector_repo.find_similar = AsyncMock(return_value=[mock_hit])
+        mock_vector_repo.batch_find_similar = AsyncMock(return_value={})
+
+        node = BatchMergerNode(mock_llm, mock_prompt_loader, vector_repo=mock_vector_repo)
+        result = await node.execute_batch([state])
+
+        # Should have queried for similar
+        mock_vector_repo.find_similar.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_cross_query_handles_error_gracefully(self, mock_llm, mock_prompt_loader):
+        """Test cross-query error doesn't crash the batch."""
+        now = datetime.now(UTC)
+
+        raw = ArticleRaw(
+            url="https://example.com/article",
+            title="Article",
+            body="Content",
+            source="test",
+            source_host="example.com",
+            publish_time=now,
+        )
+        state = PipelineState(raw=raw)
+        state["cleaned"] = {"title": "Article", "body": "Content"}
+        state["vectors"] = {"content": [0.5] * 1024, "title": [0.5] * 1024}
+        state["category"] = "科技"
+
+        mock_vector_repo = MagicMock()
+        mock_vector_repo.find_similar = AsyncMock(side_effect=Exception("Query failed"))
+        mock_vector_repo.batch_find_similar = AsyncMock(return_value={})
+
+        node = BatchMergerNode(mock_llm, mock_prompt_loader, vector_repo=mock_vector_repo)
+
+        # Should not raise
+        result = await node.execute_batch([state])
+        assert len(result) == 1
+
+
+class TestBatchMergerSagaCompensation:
+    """Tests for Saga pattern compensation scenarios."""
+
+    @pytest.fixture
+    def mock_llm(self):
+        return AsyncMock()
+
+    @pytest.fixture
+    def mock_prompt_loader(self):
+        loader = MagicMock()
+        loader.get_version = MagicMock(return_value="1.0.0")
+        return loader
+
+    @pytest.mark.asyncio
+    async def test_saga_compensation_on_neo4j_failure(self, mock_llm, mock_prompt_loader):
+        """Test compensation is triggered when Neo4j write fails."""
+        import uuid
+
+        now = datetime.now(UTC)
+
+        raw = ArticleRaw(
+            url="https://example.com/article",
+            title="Article",
+            body="Content",
+            source="test",
+            source_host="example.com",
+            publish_time=now,
+        )
+        state = PipelineState(raw=raw)
+        state["cleaned"] = {"title": "Article", "body": "Content"}
+        state["vectors"] = {"content": [0.1] * 1024, "title": [0.2] * 1024}
+        state["category"] = "科技"
+
+        article_id = uuid.uuid4()
+
+        mock_article_repo = MagicMock()
+        mock_article_repo.get_existing_urls = AsyncMock(return_value=[])
+        mock_article_repo.bulk_upsert = AsyncMock(return_value=[article_id])
+        mock_article_repo.update_persist_status = AsyncMock()
+        mock_article_repo.delete = AsyncMock()
+
+        mock_neo4j_writer = MagicMock()
+        mock_neo4j_writer.write = AsyncMock(side_effect=Exception("Neo4j connection failed"))
+
+        node = BatchMergerNode(
+            mock_llm,
+            mock_prompt_loader,
+            article_repo=mock_article_repo,
+            neo4j_writer=mock_neo4j_writer,
+        )
+
+        result = await node.persist_batch_saga([state])
+
+        assert result["success"] is False
+        assert result["compensation_executed"] is True
+        mock_article_repo.delete.assert_called_once_with(article_id)
+
+    @pytest.mark.asyncio
+    async def test_saga_partial_neo4j_failure(self, mock_llm, mock_prompt_loader):
+        """Test saga handles partial Neo4j failures."""
+        import uuid
+
+        now = datetime.now(UTC)
+
+        states = []
+        for i in range(3):
+            raw = ArticleRaw(
+                url=f"https://example.com/article-{i}",
+                title=f"Article {i}",
+                body=f"Content {i}",
+                source="test",
+                source_host="example.com",
+                publish_time=now,
+            )
+            state = PipelineState(raw=raw)
+            state["cleaned"] = {"title": f"Article {i}", "body": f"Content {i}"}
+            state["vectors"] = {"content": [0.1] * 1024, "title": [0.2] * 1024}
+            states.append(state)
+
+        article_ids = [uuid.uuid4() for _ in range(3)]
+
+        mock_article_repo = MagicMock()
+        mock_article_repo.get_existing_urls = AsyncMock(return_value=[])
+        mock_article_repo.bulk_upsert = AsyncMock(return_value=article_ids)
+        mock_article_repo.update_persist_status = AsyncMock()
+        mock_article_repo.delete = AsyncMock()
+
+        # First succeeds, second fails, third succeeds
+        mock_neo4j_writer = MagicMock()
+        mock_neo4j_writer.write = AsyncMock(
+            side_effect=[
+                ["node1"],  # Success
+                Exception("Failed"),  # Failure
+                ["node3"],  # Success
+            ]
+        )
+
+        node = BatchMergerNode(
+            mock_llm,
+            mock_prompt_loader,
+            article_repo=mock_article_repo,
+            neo4j_writer=mock_neo4j_writer,
+        )
+
+        result = await node.persist_batch_saga(states)
+
+        # Should mark as failed due to partial failure
+        assert result["success"] is False
+        assert result["compensation_executed"] is True

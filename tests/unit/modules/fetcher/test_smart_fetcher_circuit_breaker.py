@@ -23,28 +23,28 @@ class TestSmartFetcherCircuitBreaker:
         return fetcher
 
     @pytest.fixture
-    def mock_playwright_fetcher(self):
-        """Create mock PlaywrightFetcher."""
+    def mock_crawl4ai_fetcher(self):
+        """Create mock Crawl4AIFetcher."""
         fetcher = MagicMock()
         fetcher.fetch = AsyncMock(return_value=(200, "<html><body>Content</body></html>", {}))
         fetcher.close = AsyncMock()
         return fetcher
 
     @pytest.fixture
-    def smart_fetcher(self, mock_httpx_fetcher, mock_playwright_fetcher):
+    def smart_fetcher(self, mock_httpx_fetcher, mock_crawl4ai_fetcher):
         """Create SmartFetcher with circuit breaker enabled."""
         return SmartFetcher(
             httpx_fetcher=mock_httpx_fetcher,
-            playwright_fetcher=mock_playwright_fetcher,
+            crawl4ai_fetcher=mock_crawl4ai_fetcher,
             circuit_breaker_threshold=3,
             circuit_breaker_timeout=60.0,
         )
 
-    def test_init_circuit_breaker_params(self, mock_httpx_fetcher, mock_playwright_fetcher):
+    def test_init_circuit_breaker_params(self, mock_httpx_fetcher, mock_crawl4ai_fetcher):
         """Test SmartFetcher initializes with circuit breaker params."""
         fetcher = SmartFetcher(
             httpx_fetcher=mock_httpx_fetcher,
-            playwright_fetcher=mock_playwright_fetcher,
+            crawl4ai_fetcher=mock_crawl4ai_fetcher,
             circuit_breaker_threshold=5,
             circuit_breaker_timeout=30.0,
         )
@@ -85,11 +85,11 @@ class TestSmartFetcherCircuitBreaker:
 
     @pytest.mark.asyncio
     async def test_fetch_failure_records_failure(
-        self, smart_fetcher, mock_httpx_fetcher, mock_playwright_fetcher
+        self, smart_fetcher, mock_httpx_fetcher, mock_crawl4ai_fetcher
     ):
         """Test failed fetch records failure to circuit breaker."""
         mock_httpx_fetcher.fetch.side_effect = ConnectionError("Network error")
-        mock_playwright_fetcher.fetch.side_effect = ConnectionError("Network error")
+        mock_crawl4ai_fetcher.fetch.side_effect = ConnectionError("Network error")
 
         with pytest.raises(ConnectionError):
             await smart_fetcher.fetch("https://example.com/article")
@@ -98,17 +98,17 @@ class TestSmartFetcherCircuitBreaker:
         assert breaker._fail_count == 1
 
     @pytest.mark.asyncio
-    async def test_circuit_opens_after_threshold(self, mock_httpx_fetcher, mock_playwright_fetcher):
+    async def test_circuit_opens_after_threshold(self, mock_httpx_fetcher, mock_crawl4ai_fetcher):
         """Test circuit opens after reaching failure threshold."""
         fetcher = SmartFetcher(
             httpx_fetcher=mock_httpx_fetcher,
-            playwright_fetcher=mock_playwright_fetcher,
+            crawl4ai_fetcher=mock_crawl4ai_fetcher,
             circuit_breaker_threshold=2,
             circuit_breaker_timeout=60.0,
         )
 
         mock_httpx_fetcher.fetch.side_effect = ConnectionError("Network error")
-        mock_playwright_fetcher.fetch.side_effect = ConnectionError("Network error")
+        mock_crawl4ai_fetcher.fetch.side_effect = ConnectionError("Network error")
 
         # First failure
         with pytest.raises(ConnectionError):
@@ -123,18 +123,18 @@ class TestSmartFetcherCircuitBreaker:
 
     @pytest.mark.asyncio
     async def test_circuit_open_raises_circuit_open_error(
-        self, mock_httpx_fetcher, mock_playwright_fetcher
+        self, mock_httpx_fetcher, mock_crawl4ai_fetcher
     ):
         """Test open circuit raises CircuitOpenError."""
         fetcher = SmartFetcher(
             httpx_fetcher=mock_httpx_fetcher,
-            playwright_fetcher=mock_playwright_fetcher,
+            crawl4ai_fetcher=mock_crawl4ai_fetcher,
             circuit_breaker_threshold=1,
             circuit_breaker_timeout=60.0,
         )
 
         mock_httpx_fetcher.fetch.side_effect = ConnectionError("Network error")
-        mock_playwright_fetcher.fetch.side_effect = ConnectionError("Network error")
+        mock_crawl4ai_fetcher.fetch.side_effect = ConnectionError("Network error")
 
         # Trigger circuit open
         with pytest.raises(ConnectionError):
@@ -169,19 +169,17 @@ class TestSmartFetcherCircuitBreaker:
         assert status == 200
 
     @pytest.mark.asyncio
-    async def test_circuit_recovers_after_success(
-        self, mock_httpx_fetcher, mock_playwright_fetcher
-    ):
+    async def test_circuit_recovers_after_success(self, mock_httpx_fetcher, mock_crawl4ai_fetcher):
         """Test circuit recovers after successful request in half-open state."""
         fetcher = SmartFetcher(
             httpx_fetcher=mock_httpx_fetcher,
-            playwright_fetcher=mock_playwright_fetcher,
+            crawl4ai_fetcher=mock_crawl4ai_fetcher,
             circuit_breaker_threshold=1,
             circuit_breaker_timeout=0.1,  # Short timeout for testing
         )
 
         mock_httpx_fetcher.fetch.side_effect = ConnectionError("Network error")
-        mock_playwright_fetcher.fetch.side_effect = ConnectionError("Network error")
+        mock_crawl4ai_fetcher.fetch.side_effect = ConnectionError("Network error")
 
         # Trigger circuit open
         with pytest.raises(ConnectionError):
@@ -197,8 +195,8 @@ class TestSmartFetcherCircuitBreaker:
             "<html>content long enough to pass</html>",
             {},
         )
-        mock_playwright_fetcher.fetch.side_effect = None
-        mock_playwright_fetcher.fetch.return_value = (200, "<html>content</html>", {})
+        mock_crawl4ai_fetcher.fetch.side_effect = None
+        mock_crawl4ai_fetcher.fetch.return_value = (200, "<html>content</html>", {})
 
         await fetcher.fetch("https://example.com/article2")
 
@@ -207,10 +205,10 @@ class TestSmartFetcherCircuitBreaker:
 
     @pytest.mark.asyncio
     async def test_close_calls_underlying_fetchers(
-        self, smart_fetcher, mock_httpx_fetcher, mock_playwright_fetcher
+        self, smart_fetcher, mock_httpx_fetcher, mock_crawl4ai_fetcher
     ):
         """Test close() calls close on underlying fetchers."""
         await smart_fetcher.close()
 
         mock_httpx_fetcher.close.assert_called_once()
-        mock_playwright_fetcher.close.assert_called_once()
+        mock_crawl4ai_fetcher.close.assert_called_once()

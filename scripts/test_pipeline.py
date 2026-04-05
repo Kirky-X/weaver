@@ -282,9 +282,8 @@ async def fetch_newsnow_data(max_items: int, source_id: str = "36kr") -> list:
     """
     from modules.ingestion.crawling.crawler import Crawler
     from modules.ingestion.domain.models import SourceConfig
+    from modules.ingestion.fetching.crawl4ai_fetcher import Crawl4AIFetcher
     from modules.ingestion.fetching.httpx_fetcher import HttpxFetcher
-    from modules.ingestion.fetching.playwright_fetcher import PlaywrightFetcher
-    from modules.ingestion.fetching.playwright_pool import PlaywrightContextPool
     from modules.ingestion.fetching.smart_fetcher import SmartFetcher
     from modules.ingestion.parsing.newsnow_parser import NewsNowParser
 
@@ -292,12 +291,10 @@ async def fetch_newsnow_data(max_items: int, source_id: str = "36kr") -> list:
 
     # Create fetchers for body crawling
     httpx_fetcher = HttpxFetcher(timeout=15.0)
-    playwright_pool = PlaywrightContextPool(pool_size=1, stealth_enabled=True)
-    await playwright_pool.startup()
-    playwright_fetcher = PlaywrightFetcher(pool=playwright_pool)
+    crawl4ai_fetcher = Crawl4AIFetcher(headless=True, stealth_enabled=True)
     smart_fetcher = SmartFetcher(
         httpx_fetcher=httpx_fetcher,
-        playwright_fetcher=playwright_fetcher,
+        crawl4ai_fetcher=crawl4ai_fetcher,
     )
     crawler = Crawler(smart_fetcher=smart_fetcher)
 
@@ -322,7 +319,6 @@ async def fetch_newsnow_data(max_items: int, source_id: str = "36kr") -> list:
     if not news_items:
         await parser.close()
         await smart_fetcher.close()
-        await playwright_pool.shutdown()
         return []
 
     # Limit items
@@ -347,7 +343,6 @@ async def fetch_newsnow_data(max_items: int, source_id: str = "36kr") -> list:
     step(f"Crawled {len(raw_articles)} articles with bodies", len(raw_articles) > 0)
 
     await smart_fetcher.close()
-    await playwright_pool.shutdown()
     return raw_articles
 
 

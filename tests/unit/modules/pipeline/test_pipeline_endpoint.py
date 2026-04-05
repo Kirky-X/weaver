@@ -330,3 +330,249 @@ class TestTriggerPipelineEdgeCases:
 
         # hset should be called at least once (initial status)
         assert mock_redis.client.hset.call_count >= 1
+
+
+class TestProcessSingleUrlEndpoint:
+    """Tests for POST /pipeline/url endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_process_url_returns_task_id(self):
+        """Test that processing a URL returns a task ID."""
+        from api.endpoints.pipeline import ProcessUrlRequest, process_single_url
+
+        task_uuid = uuid.uuid4()
+
+        mock_redis = MagicMock()
+        mock_redis.client = MagicMock()
+        mock_redis.client.hset = AsyncMock()
+
+        mock_settings = MagicMock()
+        mock_settings.pipeline_url_endpoint.whitelist_enabled = False
+        mock_settings.pipeline_url_endpoint.allowed_domains = []
+
+        request = ProcessUrlRequest(url="https://example.com/article/123")
+
+        with patch("api.endpoints.pipeline.uuid.uuid4", return_value=task_uuid):
+            with patch("api.endpoints.pipeline.asyncio.create_task"):
+                result = await process_single_url(
+                    request=request,
+                    _="test-key",
+                    redis=mock_redis,
+                    settings=mock_settings,
+                )
+
+        assert result.data.task_id == str(task_uuid)
+        assert result.data.status == "queued"
+
+    @pytest.mark.asyncio
+    async def test_process_url_blocks_ssrf_localhost(self):
+        """Test that SSRF URLs are blocked."""
+        from fastapi import HTTPException
+
+        from api.endpoints.pipeline import ProcessUrlRequest, process_single_url
+
+        mock_redis = MagicMock()
+        mock_settings = MagicMock()
+
+        request = ProcessUrlRequest(url="http://127.0.0.1/admin")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await process_single_url(
+                request=request,
+                _="test-key",
+                redis=mock_redis,
+                settings=mock_settings,
+            )
+
+        assert exc_info.value.status_code == 403
+        assert "SSRF" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_process_url_blocks_ssrf_private_ip(self):
+        """Test that private IP addresses are blocked."""
+        from fastapi import HTTPException
+
+        from api.endpoints.pipeline import ProcessUrlRequest, process_single_url
+
+        mock_redis = MagicMock()
+        mock_settings = MagicMock()
+
+        request = ProcessUrlRequest(url="http://192.168.1.1/")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await process_single_url(
+                request=request,
+                _="test-key",
+                redis=mock_redis,
+                settings=mock_settings,
+            )
+
+        assert exc_info.value.status_code == 403
+        assert "SSRF" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_process_url_blocks_ssrf_aws_metadata(self):
+        """Test that AWS metadata endpoint is blocked."""
+        from fastapi import HTTPException
+
+        from api.endpoints.pipeline import ProcessUrlRequest, process_single_url
+
+        mock_redis = MagicMock()
+        mock_settings = MagicMock()
+
+        request = ProcessUrlRequest(url="http://169.254.169.254/latest/meta-data/")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await process_single_url(
+                request=request,
+                _="test-key",
+                redis=mock_redis,
+                settings=mock_settings,
+            )
+
+        assert exc_info.value.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_process_url_whitelist_mode_blocks_non_allowed_domain(self):
+        """Test that whitelist mode blocks non-allowed domains."""
+        from fastapi import HTTPException
+
+        from api.endpoints.pipeline import ProcessUrlRequest, process_single_url
+
+        mock_redis = MagicMock()
+        mock_settings = MagicMock()
+        mock_settings.pipeline_url_endpoint.whitelist_enabled = True
+        mock_settings.pipeline_url_endpoint.allowed_domains = ["trusted.com", "news.example.org"]
+
+        request = ProcessUrlRequest(url="https://untrusted.com/article", whitelist_mode=True)
+
+        with pytest.raises(HTTPException) as exc_info:
+            await process_single_url(
+                request=request,
+                _="test-key",
+                redis=mock_redis,
+                settings=mock_settings,
+            )
+
+        assert exc_info.value.status_code == 403
+        assert "not in the allowed list" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_process_url_whitelist_mode_allows_subdomain(self):
+        """Test that whitelist mode allows subdomains of allowed domains."""
+        from api.endpoints.pipeline import ProcessUrlRequest, process_single_url
+
+        task_uuid = uuid.uuid4()
+
+        mock_redis = MagicMock()
+        mock_redis.client = MagicMock()
+        mock_redis.client.hset = AsyncMock()
+
+        mock_settings = MagicMock()
+        mock_settings.pipeline_url_endpoint.whitelist_enabled = True
+        mock_settings.pipeline_url_endpoint.allowed_domains = ["example.com"]
+
+        # subdomain.example.com should be allowed
+        request = ProcessUrlRequest(url="https://blog.example.com/article", whitelist_mode=True)
+
+        with patch("api.endpoints.pipeline.uuid.uuid4", return_value=task_uuid):
+            with patch("api.endpoints.pipeline.asyncio.create_task"):
+                result = await process_single_url(
+                    request=request,
+                    _="test-key",
+                    redis=mock_redis,
+                    settings=mock_settings,
+                )
+
+        assert result.data.task_id == str(task_uuid)
+
+    @pytest.mark.asyncio
+    async def test_process_url_invalid_url_format(self):
+        """Test that invalid URL format is rejected."""
+        from pydantic import ValidationError
+
+        from api.endpoints.pipeline import ProcessUrlRequest, process_single_url
+
+        # Missing scheme
+        with pytest.raises(ValidationError) as exc_info:
+            ProcessUrlRequest(url="example.com/article")
+
+        assert "http or https" in str(exc_info.value).lower()
+
+    @pytest.mark.asyncio
+    async def test_process_url_file_scheme_rejected(self):
+        """Test that file:// scheme is rejected."""
+        from pydantic import ValidationError
+
+        from api.endpoints.pipeline import ProcessUrlRequest, process_single_url
+
+        with pytest.raises(ValidationError) as exc_info:
+            ProcessUrlRequest(url="file:///etc/passwd")
+
+        assert "http or https" in str(exc_info.value).lower()
+
+
+class TestProcessSingleUrlBackground:
+    """Tests for the background URL processing function."""
+
+    @pytest.mark.asyncio
+    async def test_background_process_updates_status_to_running(self):
+        """Test that background processing updates status to running."""
+        from api.endpoints.pipeline import _process_single_url
+
+        mock_redis = MagicMock()
+        mock_redis.client = MagicMock()
+        mock_redis.client.hget = AsyncMock(return_value=b'{"task_id": "test-id"}')
+        mock_redis.client.hset = AsyncMock()
+
+        mock_crawler = MagicMock()
+        mock_crawler.crawl_batch = AsyncMock(return_value=[MagicMock()])
+
+        mock_pipeline = MagicMock()
+        mock_pipeline.process_batch = AsyncMock(return_value=[{"article_id": "123"}])
+
+        mock_container = MagicMock()
+        mock_container.crawler.return_value = mock_crawler
+        mock_container.pipeline.return_value = mock_pipeline
+
+        with patch("container.get_container", return_value=mock_container):
+            await _process_single_url(
+                url="https://example.com/article",
+                task_id="test-id",
+                redis=mock_redis,
+            )
+
+        # Verify status was updated to running and then completed
+        assert mock_redis.client.hset.call_count >= 2
+
+    @pytest.mark.asyncio
+    async def test_background_process_handles_fetch_error(self):
+        """Test that FetchError is handled and status set to failed."""
+        from api.endpoints.pipeline import _process_single_url
+        from modules.ingestion.fetching.exceptions import FetchError
+
+        mock_redis = MagicMock()
+        mock_redis.client = MagicMock()
+        mock_redis.client.hget = AsyncMock(return_value=b'{"task_id": "test-id"}')
+        mock_redis.client.hset = AsyncMock()
+
+        mock_crawler = MagicMock()
+        mock_crawler.crawl_batch = AsyncMock(
+            return_value=[FetchError(url="https://example.com", message="Connection failed")]
+        )
+
+        mock_container = MagicMock()
+        mock_container.crawler.return_value = mock_crawler
+
+        with patch("container.get_container", return_value=mock_container):
+            await _process_single_url(
+                url="https://example.com/article",
+                task_id="test-id",
+                redis=mock_redis,
+            )
+
+        # Status should be updated to failed
+        calls = [call.args for call in mock_redis.client.hset.call_args_list]
+        last_call_data = json.loads(calls[-1][2])
+        assert last_call_data["status"] == "failed"
+        assert "Connection failed" in last_call_data.get("error", "")

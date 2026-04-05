@@ -694,3 +694,299 @@ class TestIncrementalUpdateResult:
         assert result.modularity_before == 0.5
         assert result.modularity_after == 0.6
         assert result.duration_seconds == 1.5
+
+
+class TestRollbackBehavior:
+    """Tests for rollback behavior during failures."""
+
+    @pytest.fixture
+    def updater(self, mock_neo4j_pool):
+        """Create IncrementalCommunityUpdater instance."""
+        return IncrementalCommunityUpdater(
+            mock_neo4j_pool,
+            update_threshold=50,
+            interval_minutes=30,
+        )
+
+    @pytest.mark.asyncio
+    async def test_partial_update_handles_query_error(self, updater, mock_neo4j_pool):
+        """Test that query errors during update are handled gracefully."""
+        # First call succeeds, second fails
+        mock_neo4j_pool.execute_query = AsyncMock(
+            side_effect=[
+                [],  # modularity before
+                Exception("Connection lost"),  # identify fails
+            ]
+        )
+
+        result = await updater.execute(["EntityA"])
+
+        # Should return result without crashing
+        assert isinstance(result, IncrementalUpdateResult)
+        assert result.affected_communities == 0
+
+    @pytest.mark.asyncio
+    async def test_extract_subgraph_failure_returns_empty(self, updater, mock_neo4j_pool):
+        """Test that subgraph extraction failure returns empty result."""
+        mock_neo4j_pool.execute_query = AsyncMock(
+            side_effect=[
+                [],  # modularity before
+                [{"community_id": "c1"}],  # identify succeeds
+                Exception("Query timeout"),  # extract fails
+            ]
+        )
+
+        result = await updater.execute(["EntityA"])
+
+        assert result.affected_communities == 1  # Still counted
+        assert result.entities_reassigned == 0
+
+    @pytest.mark.asyncio
+    async def test_write_diff_failure_continues(self, updater, mock_neo4j_pool):
+        """Test that write diff failure doesn't crash the process."""
+        mock_neo4j_pool.execute_query = AsyncMock(
+            side_effect=[
+                [],  # modularity before
+                [{"community_id": "c1"}],  # identify
+                [{"id1": "e1", "id2": "e2", "weight": 1.0}],  # extract
+                [{"node_id": "e1", "community_id": "c1"}],  # current assignments
+                Exception("Write failed"),  # write diff fails
+            ]
+        )
+
+        # Should not raise exception
+        result = await updater.execute(["EntityA"])
+
+        assert isinstance(result, IncrementalUpdateResult)
+
+    @pytest.mark.asyncio
+    async def test_mark_stale_failure_ignored(self, updater, mock_neo4j_pool):
+        """Test that stale marking failure doesn't affect main result."""
+        mock_neo4j_pool.execute_query = AsyncMock(
+            side_effect=[
+                [],  # modularity before
+                [{"community_id": "c1"}],  # identify
+                [{"id1": "e1", "id2": "e2", "weight": 1.0}],  # extract
+                [{"node_id": "e1", "community_id": "c1"}],  # assignments
+                [],  # write diff delete
+                [],  # write diff create
+                [],  # write diff update
+                [],  # write diff check
+                Exception("Stale check failed"),  # mark stale fails
+                [],  # modularity after
+            ]
+        )
+
+        result = await updater.execute(["EntityA"])
+
+        # Main result should still be valid
+        assert result.affected_communities == 1
+
+    @pytest.mark.asyncio
+    async def test_consistency_preserved_on_subgraph_empty(self, updater, mock_neo4j_pool):
+        """Test that consistency is preserved when subgraph is empty."""
+        mock_neo4j_pool.execute_query = AsyncMock(
+            side_effect=[
+                [],  # modularity before
+                [{"community_id": "c1"}],  # identify
+                [],  # extract returns empty
+            ]
+        )
+
+        result = await updater.execute(["EntityA"])
+
+        # Should return early without making changes
+        assert result.entities_reassigned == 0
+        assert result.communities_created == 0
+
+
+class TestBatchUpdates:
+    """Tests for batch update scenarios."""
+
+    @pytest.fixture
+    def updater(self, mock_neo4j_pool):
+        """Create IncrementalCommunityUpdater instance."""
+        return IncrementalCommunityUpdater(
+            mock_neo4j_pool,
+            update_threshold=50,
+            max_subgraph_size=100,
+        )
+
+    @pytest.mark.asyncio
+    async def test_batch_update_single_entity(self, updater, mock_neo4j_pool):
+        """Test incremental update with single new entity."""
+        mock_neo4j_pool.execute_query = AsyncMock(
+            side_effect=[
+                [],  # modularity before
+                [{"community_id": "c1"}],  # identify
+                [{"id1": "e1", "id2": "e2", "weight": 1.0}],  # extract
+                [{"node_id": "e1", "community_id": "c1"}],  # assignments
+                [],  # write operations
+                [],  # write operations
+                [],  # write operations
+                [],  # write operations
+                [],  # mark stale
+                [],  # modularity after
+            ]
+        )
+
+        result = await updater.execute(["NewEntity"])
+
+        assert isinstance(result, IncrementalUpdateResult)
+        assert result.affected_communities == 1
+
+    @pytest.mark.asyncio
+    async def test_batch_update_multiple_entities(self, updater, mock_neo4j_pool):
+        """Test incremental update with multiple entities."""
+        mock_neo4j_pool.execute_query = AsyncMock(
+            side_effect=[
+                [],  # modularity before
+                [{"community_id": "c1"}, {"community_id": "c2"}],  # identify 2 communities
+                [
+                    {"id1": "e1", "id2": "e2", "weight": 1.0},
+                    {"id1": "e2", "id2": "e3", "weight": 1.0},
+                ],  # extract
+                [
+                    {"node_id": "e1", "community_id": "c1"},
+                    {"node_id": "e2", "community_id": "c1"},
+                ],  # assignments
+                [],  # write operations
+                [],  # write operations
+                [],  # write operations
+                [],  # write operations
+                [],  # mark stale
+                [],  # modularity after
+            ]
+        )
+
+        result = await updater.execute(["EntityA", "EntityB", "EntityC"])
+
+        assert result.affected_communities == 2
+
+    @pytest.mark.asyncio
+    async def test_large_batch_respects_max_subgraph(self, updater, mock_neo4j_pool):
+        """Test that large batches respect max_subgraph_size."""
+        # Generate many edges
+        edges = [{"id1": f"e{i}", "id2": f"e{i + 1}", "weight": 1.0} for i in range(200)]
+
+        mock_neo4j_pool.execute_query = AsyncMock(
+            side_effect=[
+                [],  # modularity before
+                [{"community_id": "c1"}],  # identify
+                edges,  # extract - many edges
+                [{"node_id": f"e{i}", "community_id": "c1"} for i in range(100)],  # assignments
+                [],  # write operations
+                [],  # write operations
+                [],  # write operations
+                [],  # write operations
+                [],  # mark stale
+                [],  # modularity after
+            ]
+        )
+
+        result = await updater.execute([f"Entity{i}" for i in range(100)])
+
+        assert isinstance(result, IncrementalUpdateResult)
+
+    @pytest.mark.asyncio
+    async def test_empty_entity_list_returns_early(self, updater):
+        """Test that empty entity list returns without processing."""
+        result = await updater.execute([])
+
+        assert result.affected_communities == 0
+        assert result.entities_reassigned == 0
+
+
+class TestIncrementPendingCount:
+    """Tests for increment_pending_count method."""
+
+    @pytest.mark.asyncio
+    async def test_increment_pending_count(self, updater, mock_neo4j_pool):
+        """Test incrementing pending count."""
+        mock_neo4j_pool.execute_query = AsyncMock(return_value=[])
+
+        await updater.increment_pending_count(5)
+
+        mock_neo4j_pool.execute_query.assert_called_once()
+        call_args = mock_neo4j_pool.execute_query.call_args
+        assert call_args[0][1]["count"] == 5
+
+    @pytest.mark.asyncio
+    async def test_increment_pending_count_default(self, updater, mock_neo4j_pool):
+        """Test incrementing pending count with default value."""
+        mock_neo4j_pool.execute_query = AsyncMock(return_value=[])
+
+        await updater.increment_pending_count()
+
+        call_args = mock_neo4j_pool.execute_query.call_args
+        assert call_args[0][1]["count"] == 1
+
+
+class TestCheckAndRun:
+    """Tests for check_and_run method."""
+
+    @pytest.mark.asyncio
+    async def test_no_communities_triggers_rebuild(self, updater, mock_neo4j_pool):
+        """Test that no communities triggers full rebuild."""
+        mock_neo4j_pool.execute_query = AsyncMock(
+            side_effect=[
+                [{"total": 0}],  # community count is 0
+                [],  # rebuild operations
+                [],  # rebuild operations
+                [],  # rebuild operations
+                [],  # rebuild operations
+                [],  # rebuild operations
+            ]
+        )
+
+        result = await updater.check_and_run()
+
+        assert result["triggered"] is True
+        assert result["reason"] == "no_communities_exist"
+
+    @pytest.mark.asyncio
+    async def test_no_conditions_met(self, updater, mock_neo4j_pool):
+        """Test that no conditions met returns triggered=False."""
+        recent_timestamp = datetime.now(timezone.utc) - timedelta(days=1)
+        mock_neo4j_pool.execute_query = AsyncMock(
+            side_effect=[
+                [{"total": 5}],  # community count
+                [{"total": 100}],  # current entity count
+                [{"previous_count": 100}],  # previous entity count (no change)
+                [
+                    {
+                        "last_full_rebuild": recent_timestamp,
+                        "last_incremental": None,
+                        "pending_count": 0,
+                    }
+                ],  # stats
+            ]
+        )
+
+        result = await updater.check_and_run()
+
+        assert result["triggered"] is False
+
+
+class TestForceRebuild:
+    """Tests for force_rebuild method."""
+
+    @pytest.mark.asyncio
+    async def test_force_rebuild_always_runs(self, updater, mock_neo4j_pool):
+        """Test that force_rebuild always triggers rebuild."""
+        mock_neo4j_pool.execute_query = AsyncMock(
+            side_effect=[
+                [],  # modularity before
+                [],  # rebuild operations
+                [],  # rebuild operations
+                [],  # rebuild operations
+                [],  # rebuild operations
+                [],  # rebuild operations
+                [],  # rebuild operations
+            ]
+        )
+
+        result = await updater.force_rebuild()
+
+        assert result["triggered"] is True
+        assert result["reason"] == "forced"
