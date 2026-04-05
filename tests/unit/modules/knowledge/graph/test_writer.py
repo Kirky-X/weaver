@@ -13,10 +13,10 @@ class TestNeo4jWriterInit:
     def test_init_with_pool(self):
         """Test Neo4jWriter initializes with pool."""
         with (
-            patch("modules.knowledge.graph.writer.Neo4jEntityRepo"),
-            patch("modules.knowledge.graph.writer.Neo4jArticleRepo"),
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jEntityRepo"),
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jArticleRepo"),
         ):
-            from modules.knowledge.graph.writer import Neo4jWriter
+            from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
             mock_pool = MagicMock()
 
@@ -28,10 +28,10 @@ class TestNeo4jWriterInit:
     def test_init_with_normalizer(self):
         """Test Neo4jWriter initializes with normalizer."""
         with (
-            patch("modules.knowledge.graph.writer.Neo4jEntityRepo"),
-            patch("modules.knowledge.graph.writer.Neo4jArticleRepo"),
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jEntityRepo"),
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jArticleRepo"),
         ):
-            from modules.knowledge.graph.writer import Neo4jWriter
+            from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
             mock_pool = MagicMock()
             mock_normalizer = MagicMock()
@@ -47,10 +47,10 @@ class TestNeo4jWriterProperties:
     @pytest.fixture
     def writer(self):
         with (
-            patch("modules.knowledge.graph.writer.Neo4jEntityRepo") as mock_entity_repo,
-            patch("modules.knowledge.graph.writer.Neo4jArticleRepo") as mock_article_repo,
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jEntityRepo") as mock_entity_repo,
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jArticleRepo") as mock_article_repo,
         ):
-            from modules.knowledge.graph.writer import Neo4jWriter
+            from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
             return Neo4jWriter(pool=MagicMock())
 
@@ -71,10 +71,10 @@ class TestNeo4jWriterEnsureConstraints:
     @pytest.fixture
     def writer(self):
         with (
-            patch("modules.knowledge.graph.writer.Neo4jEntityRepo") as mock_entity_repo,
-            patch("modules.knowledge.graph.writer.Neo4jArticleRepo"),
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jEntityRepo") as mock_entity_repo,
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jArticleRepo"),
         ):
-            from modules.knowledge.graph.writer import Neo4jWriter
+            from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
             writer = Neo4jWriter(pool=MagicMock())
             mock_entity_repo.return_value.ensure_constraints = AsyncMock()
@@ -116,10 +116,10 @@ class TestNeo4jWriterWrite:
     def writer_with_mocks(self):
         """Create writer with mocked repos."""
         with (
-            patch("modules.knowledge.graph.writer.Neo4jEntityRepo") as mock_entity_repo_cls,
-            patch("modules.knowledge.graph.writer.Neo4jArticleRepo") as mock_article_repo_cls,
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jEntityRepo") as mock_entity_repo_cls,
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jArticleRepo") as mock_article_repo_cls,
         ):
-            from modules.knowledge.graph.writer import Neo4jWriter
+            from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
             mock_entity_repo = MagicMock()
             mock_entity_repo.merge_entities_batch = AsyncMock(return_value={"created": 2})
@@ -213,10 +213,10 @@ class TestNeo4jWriterWriteWithRelations:
     def writer_with_mocks(self):
         """Create writer with mocked repos."""
         with (
-            patch("modules.knowledge.graph.writer.Neo4jEntityRepo") as mock_entity_repo_cls,
-            patch("modules.knowledge.graph.writer.Neo4jArticleRepo") as mock_article_repo_cls,
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jEntityRepo") as mock_entity_repo_cls,
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jArticleRepo") as mock_article_repo_cls,
         ):
-            from modules.knowledge.graph.writer import Neo4jWriter
+            from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
             mock_entity_repo = MagicMock()
             mock_entity_repo.merge_entities_batch = AsyncMock(return_value={"created": 2})
@@ -252,10 +252,10 @@ class TestNeo4jWriterWriteWithRelations:
     async def test_write_with_normalizer(self, mock_state_with_relations):
         """Test write with relation type normalizer."""
         with (
-            patch("modules.knowledge.graph.writer.Neo4jEntityRepo") as mock_entity_repo_cls,
-            patch("modules.knowledge.graph.writer.Neo4jArticleRepo") as mock_article_repo_cls,
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jEntityRepo") as mock_entity_repo_cls,
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jArticleRepo") as mock_article_repo_cls,
         ):
-            from modules.knowledge.graph.writer import Neo4jWriter
+            from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
             mock_normalizer = MagicMock()
             mock_normalized = MagicMock()
@@ -316,10 +316,10 @@ class TestNeo4jWriterMergeSources:
     def writer_with_mocks(self):
         """Create writer with mocked repos."""
         with (
-            patch("modules.knowledge.graph.writer.Neo4jEntityRepo") as mock_entity_repo_cls,
-            patch("modules.knowledge.graph.writer.Neo4jArticleRepo") as mock_article_repo_cls,
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jEntityRepo") as mock_entity_repo_cls,
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jArticleRepo") as mock_article_repo_cls,
         ):
-            from modules.knowledge.graph.writer import Neo4jWriter
+            from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
             mock_entity_repo = MagicMock()
             mock_entity_repo.merge_entities_batch = AsyncMock(return_value={"created": 0})
@@ -353,10 +353,10 @@ class TestNeo4jWriterCleanup:
     def writer_with_mocks(self):
         """Create writer with mocked repos."""
         with (
-            patch("modules.knowledge.graph.writer.Neo4jEntityRepo") as mock_entity_repo_cls,
-            patch("modules.knowledge.graph.writer.Neo4jArticleRepo") as mock_article_repo_cls,
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jEntityRepo") as mock_entity_repo_cls,
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jArticleRepo") as mock_article_repo_cls,
         ):
-            from modules.knowledge.graph.writer import Neo4jWriter
+            from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
             mock_entity_repo = MagicMock()
             mock_entity_repo.delete_orphan_entities = AsyncMock(return_value=5)
@@ -399,10 +399,10 @@ class TestNeo4jWriterEdgeCases:
     def writer_with_mocks(self):
         """Create writer with mocked repos."""
         with (
-            patch("modules.knowledge.graph.writer.Neo4jEntityRepo") as mock_entity_repo_cls,
-            patch("modules.knowledge.graph.writer.Neo4jArticleRepo") as mock_article_repo_cls,
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jEntityRepo") as mock_entity_repo_cls,
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jArticleRepo") as mock_article_repo_cls,
         ):
-            from modules.knowledge.graph.writer import Neo4jWriter
+            from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
             mock_entity_repo = MagicMock()
             mock_entity_repo.merge_entities_batch = AsyncMock(return_value={"created": 2})
@@ -586,10 +586,10 @@ class TestNeo4jWriterFollowedBy:
     @pytest.fixture
     def writer_with_mocks(self):
         with (
-            patch("modules.knowledge.graph.writer.Neo4jEntityRepo") as mock_entity_repo_cls,
-            patch("modules.knowledge.graph.writer.Neo4jArticleRepo") as mock_article_repo_cls,
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jEntityRepo") as mock_entity_repo_cls,
+            patch("modules.knowledge.graph.neo4j_writer.Neo4jArticleRepo") as mock_article_repo_cls,
         ):
-            from modules.knowledge.graph.writer import Neo4jWriter
+            from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
             mock_article_repo = MagicMock()
             mock_article_repo.create_followed_by_relation = AsyncMock()

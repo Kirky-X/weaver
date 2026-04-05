@@ -64,7 +64,7 @@ class TestDiscoveryProcessorInit:
 
     def test_processor_initializes(self, mock_crawler, mock_article_repo):
         """Test that processor initializes correctly."""
-        from modules.ingestion.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
@@ -77,7 +77,7 @@ class TestDiscoveryProcessorInit:
 
     def test_processor_with_pipeline(self, mock_crawler, mock_article_repo, mock_pipeline):
         """Test processor with optional pipeline."""
-        from modules.ingestion.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
@@ -89,7 +89,7 @@ class TestDiscoveryProcessorInit:
 
     def test_processor_with_deduplicator(self, mock_crawler, mock_article_repo, mock_deduplicator):
         """Test processor with deduplicator."""
-        from modules.ingestion.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
@@ -101,7 +101,7 @@ class TestDiscoveryProcessorInit:
 
     def test_processor_with_simhash(self, mock_crawler, mock_article_repo, mock_simhash_dedup):
         """Test processor with SimHash deduplicator."""
-        from modules.ingestion.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
@@ -113,7 +113,7 @@ class TestDiscoveryProcessorInit:
 
     def test_processor_enable_simhash_flag(self, mock_crawler, mock_article_repo):
         """Test processor enable_simhash flag."""
-        from modules.ingestion.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
@@ -129,7 +129,7 @@ class TestDiscoveryProcessorSetters:
 
     def test_set_deduplicator(self, mock_crawler, mock_article_repo, mock_deduplicator):
         """Test setting deduplicator on processor."""
-        from modules.ingestion.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
@@ -142,7 +142,7 @@ class TestDiscoveryProcessorSetters:
 
     def test_set_simhash_dedup(self, mock_crawler, mock_article_repo, mock_simhash_dedup):
         """Test setting SimHash deduplicator on processor."""
-        from modules.ingestion.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
@@ -155,7 +155,7 @@ class TestDiscoveryProcessorSetters:
 
     def test_set_enable_simhash(self, mock_crawler, mock_article_repo):
         """Test enabling/disabling SimHash."""
-        from modules.ingestion.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
@@ -169,7 +169,7 @@ class TestDiscoveryProcessorSetters:
 
     def test_set_pipeline(self, mock_crawler, mock_article_repo, mock_pipeline):
         """Test setting pipeline on processor."""
-        from modules.ingestion.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
@@ -187,7 +187,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
     @pytest.fixture
     def processor(self, mock_crawler, mock_article_repo):
         """Create DiscoveryProcessor instance."""
-        from modules.ingestion.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         return DiscoveryProcessor(
             crawler=mock_crawler,
@@ -225,7 +225,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         self, mock_crawler, mock_article_repo, mock_source, mock_items
     ):
         """Test on_items_discovered with URL deduplication."""
-        from modules.ingestion.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         mock_dedup = AsyncMock()
         mock_dedup.dedup = AsyncMock(return_value=mock_items)
@@ -256,7 +256,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         self, mock_crawler, mock_article_repo, mock_source, mock_items
     ):
         """Test on_items_discovered when all items are filtered by URL dedup."""
-        from modules.ingestion.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         mock_dedup = AsyncMock()
         mock_dedup.dedup = AsyncMock(return_value=[])  # All filtered
@@ -277,7 +277,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         self, mock_crawler, mock_article_repo, mock_source
     ):
         """Test on_items_discovered with max_items limit."""
-        from modules.ingestion.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         items = [
             MagicMock(
@@ -313,7 +313,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         self, mock_crawler, mock_article_repo, mock_source, mock_items
     ):
         """Test on_items_discovered with task_id."""
-        from modules.ingestion.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
@@ -344,7 +344,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         self, mock_crawler, mock_article_repo, mock_source
     ):
         """Test on_items_discovered with SimHash deduplication."""
-        from modules.ingestion.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         item = MagicMock()
         item.url = "https://example.com/article1"
@@ -385,7 +385,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         self, mock_crawler, mock_article_repo, mock_source, mock_items
     ):
         """Test on_items_discovered with SimHash disabled."""
-        from modules.ingestion.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         mock_simhash = AsyncMock()
 
@@ -419,7 +419,7 @@ class TestDiscoveryProcessorErrorHandling:
     @pytest.fixture
     def processor(self, mock_crawler, mock_article_repo):
         """Create DiscoveryProcessor instance."""
-        from modules.ingestion.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         return DiscoveryProcessor(
             crawler=mock_crawler,
@@ -448,7 +448,7 @@ class TestDiscoveryProcessorErrorHandling:
         self, mock_crawler, mock_article_repo, mock_source, mock_items
     ):
         """Test processor handles crawler errors."""
-        from modules.ingestion.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         mock_crawler.crawl_batch = AsyncMock(side_effect=Exception("Crawler error"))
 
@@ -465,7 +465,7 @@ class TestDiscoveryProcessorErrorHandling:
         self, mock_crawler, mock_article_repo, mock_source, mock_items
     ):
         """Test processor handles repository insert errors gracefully."""
-        from modules.ingestion.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         mock_article = ArticleRaw(
             url="https://example.com/article1",
@@ -491,7 +491,7 @@ class TestDiscoveryProcessorErrorHandling:
         self, mock_crawler, mock_article_repo, mock_source, mock_items
     ):
         """Test processor handles pipeline errors gracefully."""
-        from modules.ingestion.processor import DiscoveryProcessor
+        from modules.ingestion.domain.processor import DiscoveryProcessor
 
         mock_pipeline = AsyncMock()
         mock_pipeline.process_batch = AsyncMock(side_effect=Exception("Pipeline error"))
@@ -521,8 +521,8 @@ class TestDiscoveryProcessorErrorHandling:
         self, mock_crawler, mock_article_repo, mock_source, mock_items
     ):
         """Test processor handles FetchError in batch results."""
+        from modules.ingestion.domain.processor import DiscoveryProcessor
         from modules.ingestion.fetching.exceptions import FetchError
-        from modules.ingestion.processor import DiscoveryProcessor
 
         fetch_error = FetchError(
             url="https://example.com/failed",
