@@ -43,7 +43,6 @@ doc/
 REVIEW_REPORT.md
 CLAUDE.md
 llm.md
-AGENTS.md
 coverage.json
 
 # IDE/Tool directories
