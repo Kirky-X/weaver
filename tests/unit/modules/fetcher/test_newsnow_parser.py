@@ -20,7 +20,7 @@ class TestNewsNowParserInit:
         parser = NewsNowParser(mock_fetcher)
 
         assert parser._fetcher == mock_fetcher
-        assert parser.API_BASE_URL == "https://www.newsnow.net.cn/api/s"
+        assert parser.API_BASE_URL == "https://www.newsnow.world/api/s?id="
 
 
 class TestNewsNowParserParse:
@@ -44,7 +44,7 @@ class TestNewsNowParserParse:
         return SourceConfig(
             id="newsnow-36kr",
             name="36氪",
-            url="https://www.newsnow.net.cn/api/s?id=36kr",
+            url="https://www.newsnow.world/api/s?id=36kr",
             source_type="newsnow",
         )
 
@@ -91,7 +91,7 @@ class TestNewsNowParserParse:
         config = SourceConfig(
             id="newsnow-baidu",
             name="百度热搜",
-            url="https://www.newsnow.net.cn/api/s?id=baidu",
+            url="https://www.newsnow.world/api/s?id=baidu",
             source_type="newsnow",
         )
         api_response = {

@@ -222,8 +222,13 @@ class TestFlashrankRerankAvailable:
             {"id": "2", "content": "goodbye world"},
         ]
 
-        with patch(
-            "modules.knowledge.search.rerankers.flashrank_reranker.FlashrankReranker._initialize_ranker"
+        # Mock flashrank module to avoid ImportError inside rerank()
+        mock_flashrank = MagicMock()
+        with (
+            patch.dict("sys.modules", {"flashrank": mock_flashrank}),
+            patch(
+                "modules.knowledge.search.rerankers.flashrank_reranker.FlashrankReranker._initialize_ranker"
+            ),
         ):
             results = reranker.rerank("test query", candidates)
 
@@ -378,7 +383,15 @@ class TestFlashrankRerankWithMetadataAvailable:
 
         candidates = [{"id": "1", "content": "hello", "title": "Title1"}]
 
-        results = reranker.rerank_with_metadata("test query", candidates)
+        # Mock flashrank module to avoid ImportError inside rerank()
+        mock_flashrank = MagicMock()
+        with (
+            patch.dict("sys.modules", {"flashrank": mock_flashrank}),
+            patch(
+                "modules.knowledge.search.rerankers.flashrank_reranker.FlashrankReranker._initialize_ranker"
+            ),
+        ):
+            results = reranker.rerank_with_metadata("test query", candidates)
 
         assert len(results) == 1
         assert isinstance(results[0], RerankResult)
@@ -405,7 +418,15 @@ class TestFlashrankRerankWithMetadataAvailable:
             {"id": "2", "content": "world"},
         ]
 
-        results = reranker.rerank_with_metadata("test query", candidates, top_k=1)
+        # Mock flashrank module to avoid ImportError inside rerank()
+        mock_flashrank = MagicMock()
+        with (
+            patch.dict("sys.modules", {"flashrank": mock_flashrank}),
+            patch(
+                "modules.knowledge.search.rerankers.flashrank_reranker.FlashrankReranker._initialize_ranker"
+            ),
+        ):
+            results = reranker.rerank_with_metadata("test query", candidates, top_k=1)
 
         assert len(results) == 1
 
