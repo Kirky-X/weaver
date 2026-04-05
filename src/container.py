@@ -815,7 +815,7 @@ class Container:
 
             embedding_service = EmbeddingServiceWrapper(self._llm_client)
 
-            # Create the memory service
+            # Create the memory service with optional repos
             self._memory_service = MemoryIntegrationService(
                 neo4j_pool=self.graph_pool(),
                 llm_client=self._llm_client,
@@ -823,6 +823,8 @@ class Container:
                 embedding_service=embedding_service,
                 intent_classifier=intent_classifier,
                 config=config,
+                vector_repo=self.vector_repo(),
+                entity_repo=self.graph_entity_repo(),
             )
 
             # Initialize constraints
