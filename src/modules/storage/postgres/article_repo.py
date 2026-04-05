@@ -148,6 +148,7 @@ class ArticleRepo:
             return []
 
         # Collect all URLs for batch existence check
+        # Use normalized URLs to match insert_raw behavior
         urls_to_check = []
         state_by_url: dict[str, PipelineState] = {}
         for state in valid_states:
@@ -158,8 +159,9 @@ class ArticleRepo:
                 url = raw.get("url", "")
             else:
                 continue
-            urls_to_check.append(url)
-            state_by_url[url] = state
+            normalized_url = Deduplicator.normalize_url(url)
+            urls_to_check.append(normalized_url)
+            state_by_url[normalized_url] = state
 
         async with self._pool.session() as session:
             # Batch check existing URLs

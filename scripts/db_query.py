@@ -5,6 +5,7 @@ Subcommands:
   stats    Show table record counts (PostgreSQL + Neo4j + DuckDB + LadybugDB)
   article  Query complete info for an article by ID
   random   Query random articles with entities and relationships
+  rows     Query rows from a specified table with pagination and sorting
 
 Usage:
   uv run scripts/db_query.py stats
@@ -13,6 +14,8 @@ Usage:
   uv run scripts/db_query.py article --id <article-uuid> --db duckdb
   uv run scripts/db_query.py random --limit 3
   uv run scripts/db_query.py random --limit 3 --db ladybug
+  uv run scripts/db_query.py rows articles --limit 20 --page 1
+  uv run scripts/db_query.py rows Article --db neo4j --columns name,type
 """
 
 from __future__ import annotations
@@ -20,8 +23,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import re
 import sys
 from pathlib import Path
+
+from rich.console import Console
+from rich.table import Table
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -838,8 +845,363 @@ async def _random_ladybug(limit: int, settings) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Sub-command: article
+# Table name validation
 # ---------------------------------------------------------------------------
+
+
+def _validate_table_name(table: str) -> str:
+    """Validate table name to prevent SQL injection.
+
+    Args:
+        table: Table name to validate.
+
+    Returns:
+        Validated table name.
+
+    Raises:
+        ValueError: If table name is invalid.
+    """
+    if not table:
+        raise ValueError("Table name cannot be empty")
+    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", table):
+        raise ValueError(
+            f"Invalid table name '{table}'. "
+            "Must start with letter or underscore, contain only letters, digits, underscore."
+        )
+    return table
+
+
+# ---------------------------------------------------------------------------
+# Output formatting utilities
+# ---------------------------------------------------------------------------
+
+
+def _truncate_value(value: str, max_len: int = 50) -> str:
+    """Truncate long string for display.
+
+    Args:
+        value: String value to truncate.
+        max_len: Maximum length before truncation.
+
+    Returns:
+        Truncated string with ellipsis if needed.
+    """
+    if value is None:
+        return "NULL"
+    s = str(value)
+    if len(s) > max_len:
+        return s[: max_len - 3] + "..."
+    return s
+
+
+def _format_output_table(
+    rows: list[dict],
+    columns: list[str] | None = None,
+    title: str = "",
+) -> None:
+    """Format rows as a rich table.
+
+    Args:
+        rows: List of row dictionaries.
+        columns: Column names to display (default: all from first row).
+        title: Table title.
+    """
+    console = Console()
+
+    if not rows:
+        console.print("[yellow]No rows found[/yellow]")
+        return
+
+    # Determine columns from first row if not specified
+    if columns is None:
+        columns = list(rows[0].keys())
+
+    table = Table(title=title, show_header=True, header_style="bold cyan")
+
+    for col in columns:
+        table.add_column(col, overflow="fold", max_width=50)
+
+    for row in rows:
+        table.add_row(*[_truncate_value(row.get(col)) for col in columns])
+
+    console.print(table)
+
+
+def _format_output_json(rows: list[dict]) -> None:
+    """Format rows as JSON output.
+
+    Args:
+        rows: List of row dictionaries.
+    """
+    print(json.dumps(rows, ensure_ascii=False, indent=2, default=str))
+
+
+# ---------------------------------------------------------------------------
+# Database-specific rows query functions
+# ---------------------------------------------------------------------------
+
+
+async def _rows_postgres(
+    table: str,
+    columns: list[str] | None,
+    limit: int,
+    offset: int,
+    order_by: list[tuple[str, str]] | None,
+    settings,
+) -> list[dict]:
+    """Query rows from PostgreSQL table."""
+    dsn = _pg_dsn(settings)
+    rows = []
+
+    try:
+        import asyncpg
+
+        conn = await asyncpg.connect(dsn)
+
+        # Build column list
+        col_str = ", ".join(columns) if columns else "*"
+
+        # Build ORDER BY clause
+        order_clause = ""
+        if order_by:
+            order_parts = [f"{col} {direction.upper()}" for col, direction in order_by]
+            order_clause = f" ORDER BY {', '.join(order_parts)}"
+
+        # Build and execute query
+        query = f"SELECT {col_str} FROM public.{table}{order_clause} LIMIT $1 OFFSET $2"
+        result = await conn.fetch(query, limit, offset)
+
+        rows = [dict(r) for r in result]
+        await conn.close()
+    except Exception as exc:
+        print(f"PostgreSQL 查询失败：{exc}")
+
+    return rows
+
+
+async def _rows_duckdb(
+    table: str,
+    columns: list[str] | None,
+    limit: int,
+    offset: int,
+    order_by: list[tuple[str, str]] | None,
+    settings,
+) -> list[dict]:
+    """Query rows from DuckDB table."""
+    rows = []
+
+    if not settings.duckdb.enabled:
+        print("DuckDB 已禁用")
+        return rows
+
+    try:
+        from sqlalchemy import text
+
+        from core.db.duckdb_pool import DuckDBPool
+
+        pool = DuckDBPool(db_path=settings.duckdb.db_path)
+        await pool.startup()
+
+        async with pool.session_context() as session:
+            # Build column list
+            col_str = ", ".join(columns) if columns else "*"
+
+            # Build ORDER BY clause
+            order_clause = ""
+            if order_by:
+                order_parts = [f"{col} {direction.upper()}" for col, direction in order_by]
+                order_clause = f" ORDER BY {', '.join(order_parts)}"
+
+            # Build and execute query
+            query = text(f"SELECT {col_str} FROM {table}{order_clause} LIMIT :limit OFFSET :offset")
+            result = await session.execute(query, {"limit": limit, "offset": offset})
+
+            # Get column names
+            col_names = result.keys()
+            rows = [dict(zip(col_names, row, strict=True)) for row in result.fetchall()]
+
+        await pool.shutdown()
+    except Exception as exc:
+        print(f"DuckDB 查询失败：{exc}")
+
+    return rows
+
+
+async def _rows_neo4j(
+    label: str,
+    properties: list[str] | None,
+    limit: int,
+    offset: int,
+    order_by: list[tuple[str, str]] | None,
+    settings,
+) -> list[dict]:
+    """Query nodes from Neo4j graph database."""
+    neo4j_uri, neo4j_auth = _neo4j_auth(settings)
+    rows = []
+
+    if not settings.neo4j.enabled:
+        print("Neo4j 已禁用")
+        return rows
+
+    try:
+        from neo4j import GraphDatabase
+
+        driver = GraphDatabase.driver(neo4j_uri, auth=neo4j_auth)
+
+        with driver.session() as session:
+            # Build RETURN clause
+            if properties:
+                return_clause = ", ".join(f"n.{p} AS {p}" for p in properties)
+            else:
+                return_clause = "n"
+
+            # Build ORDER BY clause
+            order_clause = ""
+            if order_by:
+                order_parts = [f"n.{col} {direction.upper()}" for col, direction in order_by]
+                order_clause = f" ORDER BY {', '.join(order_parts)}"
+
+            # Build and execute query
+            query = (
+                f"MATCH (n:{label}) RETURN {return_clause}{order_clause} SKIP $skip LIMIT $limit"
+            )
+            result = session.run(query, {"skip": offset, "limit": limit})
+
+            for record in result:
+                if properties:
+                    rows.append({p: record.get(p) for p in properties})
+                else:
+                    # Return all properties from node
+                    node = record.get("n")
+                    if node:
+                        rows.append(dict(node))
+
+        driver.close()
+    except Exception as exc:
+        print(f"Neo4j 查询失败：{exc}")
+
+    return rows
+
+
+async def _rows_ladybug(
+    label: str,
+    properties: list[str] | None,
+    limit: int,
+    offset: int,
+    order_by: list[tuple[str, str]] | None,
+    settings,
+) -> list[dict]:
+    """Query nodes from LadybugDB graph database."""
+    rows = []
+
+    if not settings.ladybug.enabled:
+        print("LadybugDB 已禁用")
+        return rows
+
+    try:
+        from core.db.ladybug_pool import LadybugPool
+
+        pool = LadybugPool(db_path=settings.ladybug.db_path)
+        await pool.startup()
+
+        # Build RETURN clause
+        if properties:
+            return_clause = ", ".join(f"n.{p} AS {p}" for p in properties)
+        else:
+            return_clause = "n"
+
+        # Build ORDER BY clause
+        order_clause = ""
+        if order_by:
+            order_parts = [f"n.{col} {direction.upper()}" for col, direction in order_by]
+            order_clause = f" ORDER BY {', '.join(order_parts)}"
+
+        # Build and execute query
+        query = f"MATCH (n:{label}) RETURN {return_clause}{order_clause} SKIP $skip LIMIT $limit"
+        result = await pool.execute_query(query, {"skip": offset, "limit": limit})
+
+        for record in result:
+            if properties:
+                rows.append({p: record.get(p) for p in properties})
+            else:
+                # Return all properties from node
+                node_data = record.get("n")
+                if node_data:
+                    rows.append(node_data if isinstance(node_data, dict) else {"value": node_data})
+
+        await pool.shutdown()
+    except Exception as exc:
+        print(f"LadybugDB 查询失败：{exc}")
+
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Sub-command: rows
+# ---------------------------------------------------------------------------
+
+
+async def cmd_rows(args: argparse.Namespace) -> None:
+    """Query rows from a specified table with pagination and sorting."""
+    table = args.table
+    db = args.db
+    columns_str = args.columns
+    limit = args.limit
+    page = args.page
+    order_by_args = args.order_by
+    output_format = args.format
+
+    # Validate table name
+    try:
+        _validate_table_name(table)
+    except ValueError as e:
+        print(f"错误：{e}")
+        return
+
+    # Parse columns
+    columns = columns_str.split(",") if columns_str else None
+
+    # Parse order_by
+    order_by = None
+    if order_by_args:
+        order_by = []
+        for item in order_by_args:
+            if ":" in item:
+                col, direction = item.split(":", 1)
+                direction = direction.lower()
+                if direction not in ("asc", "desc"):
+                    print(f"警告：无效的排序方向 '{direction}'，使用 'asc'")
+                    direction = "asc"
+            else:
+                col = item
+                direction = "asc"
+            order_by.append((col.strip(), direction))
+
+    # Calculate offset
+    offset = (page - 1) * limit
+
+    # Get settings
+    settings = _get_settings()
+
+    # Query based on database type
+    if db == "postgres":
+        rows = await _rows_postgres(table, columns, limit, offset, order_by, settings)
+    elif db == "duckdb":
+        rows = await _rows_duckdb(table, columns, limit, offset, order_by, settings)
+    elif db == "neo4j":
+        rows = await _rows_neo4j(table, columns, limit, offset, order_by, settings)
+    elif db == "ladybug":
+        rows = await _rows_ladybug(table, columns, limit, offset, order_by, settings)
+    else:
+        print(f"不支持的数据库：{db}")
+        return
+
+    # Output results
+    if output_format == "json":
+        _format_output_json(rows)
+    else:
+        title = f"{db.upper()}: {table} (page {page}, {len(rows)} rows)"
+        _format_output_table(rows, columns, title)
 
 
 async def cmd_article(args: argparse.Namespace) -> None:
@@ -1001,6 +1363,43 @@ def main() -> None:
         help="Database to query (default: neo4j)",
     )
 
+    # rows subcommand
+    p_rows = sub.add_parser("rows", help="Query rows from a table with pagination")
+    p_rows.add_argument("table", help="Table name (or node label for graph DBs)")
+    p_rows.add_argument(
+        "--db",
+        choices=VALID_DBS,
+        default="postgres",
+        help="Database to query (default: postgres)",
+    )
+    p_rows.add_argument(
+        "--columns",
+        help="Columns to return (comma-separated, default: all)",
+    )
+    p_rows.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Rows per page (default: 20)",
+    )
+    p_rows.add_argument(
+        "--page",
+        type=int,
+        default=1,
+        help="Page number (default: 1)",
+    )
+    p_rows.add_argument(
+        "--order-by",
+        action="append",
+        help="Order by column[:asc|desc] (can specify multiple times)",
+    )
+    p_rows.add_argument(
+        "--format",
+        choices=["table", "json"],
+        default="table",
+        help="Output format (default: table)",
+    )
+
     args = parser.parse_args()
 
     # Validate db arguments for stats
@@ -1010,7 +1409,7 @@ def main() -> None:
         except ValueError as e:
             parser.error(str(e))
 
-    dispatch = {"stats": cmd_stats, "article": cmd_article, "random": cmd_random}
+    dispatch = {"stats": cmd_stats, "article": cmd_article, "random": cmd_random, "rows": cmd_rows}
     asyncio.run(dispatch[args.command](args))
 
 

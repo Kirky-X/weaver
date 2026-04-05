@@ -274,20 +274,36 @@ async def clear_databases(duck_pool, ladybug_pool) -> None:
 
 
 async def fetch_newsnow_data(max_items: int, source_id: str = "36kr") -> list:
-    """Fetch articles from NewsNow API.
+    """Fetch articles from NewsNow API and crawl article bodies.
 
     Args:
         max_items: Maximum number of articles to fetch.
         source_id: NewsNow source ID (e.g., 36kr, hupu, baidu).
     """
-    from modules.ingestion.domain.models import ArticleRaw, SourceConfig
+    from modules.ingestion.crawling.crawler import Crawler
+    from modules.ingestion.domain.models import SourceConfig
     from modules.ingestion.fetching.httpx_fetcher import HttpxFetcher
+    from modules.ingestion.fetching.playwright_fetcher import PlaywrightFetcher
+    from modules.ingestion.fetching.playwright_pool import PlaywrightContextPool
+    from modules.ingestion.fetching.smart_fetcher import SmartFetcher
     from modules.ingestion.parsing.newsnow_parser import NewsNowParser
 
     phase_header("PHASE: NewsNow Fetch & Parse")
 
-    fetcher = HttpxFetcher(timeout=15.0)
-    parser = NewsNowParser(fetcher)
+    # Create fetchers for body crawling
+    httpx_fetcher = HttpxFetcher(timeout=15.0)
+    playwright_pool = PlaywrightContextPool(pool_size=1, stealth_enabled=True)
+    await playwright_pool.startup()
+    playwright_fetcher = PlaywrightFetcher(pool=playwright_pool)
+    smart_fetcher = SmartFetcher(
+        httpx_fetcher=httpx_fetcher,
+        playwright_fetcher=playwright_fetcher,
+    )
+    crawler = Crawler(smart_fetcher=smart_fetcher)
+
+    # Use separate fetcher for API calls
+    api_fetcher = HttpxFetcher(timeout=15.0)
+    parser = NewsNowParser(api_fetcher)
 
     source_config = SourceConfig(
         id=f"test-newsnow-{source_id}",
@@ -301,39 +317,37 @@ async def fetch_newsnow_data(max_items: int, source_id: str = "36kr") -> list:
     news_items = await parser.parse(source_config)
     step(f"Fetched {len(news_items)} items", len(news_items) > 0)
 
+    await api_fetcher.close()
+
     if not news_items:
         await parser.close()
+        await smart_fetcher.close()
+        await playwright_pool.shutdown()
         return []
 
     # Limit items
     news_items = news_items[:max_items]
     step(f"Limited to {max_items} articles", True)
 
-    # Convert to ArticleRaw
-    raw_articles = []
-    for item in news_items:
-        if isinstance(item, dict):
-            raw = ArticleRaw(
-                url=item.get("url", f"https://test/{__import__('uuid').uuid4()}"),
-                title=item.get("title", "Untitled"),
-                body=item.get("body", item.get("description", "")),
-                source=item.get("source", ""),
-                source_host=item.get("source_host", ""),
-                tier=2,
-            )
-        else:
-            raw = ArticleRaw(
-                url=item.url,
-                title=item.title,
-                body=item.body or item.description,
-                source=item.source,
-                source_host=item.source_host,
-                tier=2,
-            )
-        raw_articles.append(raw)
+    # Crawl article bodies using Crawler with SmartFetcher
+    step(f"Crawling article bodies...", True)
+    results = await crawler.crawl_batch(news_items)
 
-    await parser.close()
-    step(f"Converted to ArticleRaw", True, f"{len(raw_articles)} articles")
+    # Filter successful crawls
+    from modules.ingestion.domain.models import ArticleRaw
+    from modules.ingestion.fetching.exceptions import FetchError
+
+    raw_articles = []
+    for result in results:
+        if isinstance(result, ArticleRaw):
+            raw_articles.append(result)
+        elif isinstance(result, FetchError):
+            print(f"  ⚠ Failed to crawl: {result.url} - {result.message}")
+
+    step(f"Crawled {len(raw_articles)} articles with bodies", len(raw_articles) > 0)
+
+    await smart_fetcher.close()
+    await playwright_pool.shutdown()
     return raw_articles
 
 
