@@ -13,7 +13,10 @@ from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from core.constants import GraphHealthStatus
 from core.db.neo4j import Neo4jPool
+from core.observability.logging import get_logger
 from modules.knowledge.graph.metrics import GraphQualityMetrics
+
+log = get_logger("graph_metrics")
 
 router = APIRouter(prefix="/graph/metrics", tags=["graph-metrics"])
 
@@ -186,8 +189,8 @@ async def _get_full_view(
 
                 cached_data = json.loads(cached)
                 return success_response(GraphMetricsResponse(**cached_data))
-        except Exception:
-            pass  # Fall through to compute
+        except Exception as exc:
+            log.warning("cache_lookup_failed", error=str(exc))  # Fall through to compute
 
     # Compute metrics — pass include_set to skip expensive calculations
     metrics = GraphQualityMetrics(neo4j)
@@ -228,8 +231,8 @@ async def _get_full_view(
                 json.dumps(response_data.model_dump()),
                 ex=GRAPH_METRICS_CACHE_TTL,
             )
-        except Exception:
-            pass  # Cache failure is not critical
+        except Exception as exc:
+            log.warning("cache_write_failed", error=str(exc))  # Cache failure is not critical
 
     return success_response(response_data)
 

@@ -106,8 +106,8 @@ class PlaywrightFetcher(BaseFetcher):
         """
         try:
             await page.wait_for_load_state("networkidle", timeout=5000)
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("page_load_timeout", error=str(exc))
 
         await self._pool.random_delay()
 
@@ -116,8 +116,8 @@ class PlaywrightFetcher(BaseFetcher):
             await page.evaluate(f"window.scrollBy(0, {scroll_amount})")
             await asyncio.sleep(random.uniform(0.1, 0.3))
             await page.evaluate(f"window.scrollBy(0, -{scroll_amount})")
-        except Exception:
-            pass
+        except Exception as exc:
+            log.warning("scroll_failed", error=str(exc))
 
     async def close(self) -> None:
         """Close resources held by this fetcher.

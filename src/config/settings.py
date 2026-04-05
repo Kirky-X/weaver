@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import secrets
 from pathlib import Path
 from typing import Any
@@ -206,7 +207,7 @@ class APISettings(BaseModel):
 
     api_key: str = ""  # Empty default - get_api_key() will generate if not set
     rate_limit: str = "100/minute"
-    host: str = "0.0.0.0"
+    host: str = os.getenv("HOST", "127.0.0.1")  # Default to localhost for security
     port: int = 8000
 
     def get_api_key(self) -> str:
