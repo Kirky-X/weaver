@@ -53,6 +53,7 @@ coverage.json
 
 # Documentation files
 AGENTS.md
+docs/analysis/
 
 # Coverage files
 .coverage

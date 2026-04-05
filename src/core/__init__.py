@@ -32,7 +32,7 @@ from core.db import (
     SourceAuthority,
     VectorType,
 )
-from core.event import BaseEvent, EventBus, FallbackEvent
+from core.event import BaseEvent, EventBus
 from core.health import PreStartupHealthChecker, ServiceCheckResult, run_pre_startup_health_check
 from core.llm import CallPoint, LLMTask, LLMType
 from core.observability import MetricsCollector, configure_tracing, get_logger, get_tracer
@@ -51,7 +51,6 @@ __all__ = [
     "EmotionType",
     "EntityVector",
     "EventBus",
-    "FallbackEvent",
     "LLMTask",
     "LLMType",
     "MetricsCollector",

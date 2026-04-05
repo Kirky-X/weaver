@@ -31,32 +31,12 @@ class BaseEvent:
 
 
 @dataclass
-class FallbackEvent(BaseEvent):
-    """Emitted when an LLM call falls back to another provider."""
-
-    call_point: str = ""
-    from_provider: str = ""
-    to_provider: str = ""
-    reason: str = ""
-    attempt: int = 0
-
-
-@dataclass
 class CredibilityComputedEvent(BaseEvent):
     """Emitted after credibility score is computed for an article."""
 
     url: str = ""
     score: float = 0.0
     cross_count: int = 0
-
-
-@dataclass
-class PipelineStageCompletedEvent(BaseEvent):
-    """Emitted when a pipeline stage completes."""
-
-    stage: str = ""
-    article_url: str = ""
-    latency_ms: float = 0.0
 
 
 @dataclass

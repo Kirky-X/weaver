@@ -5,16 +5,16 @@ from core.event.bus import (
     BaseEvent,
     CredibilityComputedEvent,
     EventBus,
-    FallbackEvent,
     LLMFailureEvent,
     LLMUsageEvent,
+    MemoryIngestEvent,
 )
 
 __all__ = [
     "BaseEvent",
     "CredibilityComputedEvent",
     "EventBus",
-    "FallbackEvent",
     "LLMFailureEvent",
     "LLMUsageEvent",
+    "MemoryIngestEvent",
 ]
