@@ -589,12 +589,15 @@ class Container:
         if self._strategy is None:
             return None
         if self._neo4j_writer is None:
+            from modules.knowledge.core.relation_types import RelationTypeNormalizer
+
+            rt_normalizer = RelationTypeNormalizer(self._strategy.relational_pool)
             if self._strategy.graph_type == "ladybug":
                 from modules.storage.ladybug import LadybugWriter
 
-                self._neo4j_writer = LadybugWriter(graph_pool)
+                self._neo4j_writer = LadybugWriter(graph_pool, rt_normalizer)
             else:
-                self._neo4j_writer = Neo4jWriter(graph_pool)
+                self._neo4j_writer = Neo4jWriter(graph_pool, rt_normalizer)
         return self._neo4j_writer
 
     # Legacy accessors for backward compatibility
@@ -764,7 +767,7 @@ class Container:
         if self._memory_service is not None:
             return self._memory_service
 
-        if self._neo4j_pool is None or self._llm_client is None or self._redis_client is None:
+        if self.graph_pool() is None or self._llm_client is None or self._redis_client is None:
             log.info("memory_service_skipped_missing_deps")
             return None
 
@@ -800,16 +803,14 @@ class Container:
 
                 async def embed(self, text: str) -> list[float]:
                     """Embed text using LLM client."""
-                    # Use the vector repo's embedding functionality
-                    # For now, return a placeholder - real implementation
-                    # would use an embedding model
-                    return [0.0] * 384
+                    embeddings = await self._llm.embed_default([text])
+                    return embeddings[0]
 
             embedding_service = EmbeddingServiceWrapper(self._llm_client)
 
             # Create the memory service
             self._memory_service = MemoryIntegrationService(
-                neo4j_pool=self._neo4j_pool,
+                neo4j_pool=self.graph_pool(),
                 llm_client=self._llm_client,
                 redis_client=self._redis_client,
                 embedding_service=embedding_service,
@@ -820,12 +821,41 @@ class Container:
             # Initialize constraints
             await self._memory_service.initialize()
 
+            # Subscribe to memory ingest events
+            self._setup_memory_event_handler()
+
             log.info("memory_service_initialized")
             return self._memory_service
 
         except Exception as exc:
             log.error("memory_service_init_failed", error=str(exc))
             return None
+
+    def _setup_memory_event_handler(self) -> None:
+        """Set up event handler for memory ingestion from pipeline."""
+        from core.event.bus import MemoryIngestEvent
+
+        async def handle_memory_ingest(event: MemoryIngestEvent) -> None:
+            """Handle memory ingest event from pipeline."""
+            if self._memory_service is None:
+                log.debug("memory_service_unavailable_skipping_ingest")
+                return
+
+            try:
+                await self._memory_service.ingest(event.state)
+                log.info(
+                    "memory_ingest_complete",
+                    article_id=event.article_id,
+                )
+            except Exception as e:
+                log.warning(
+                    "memory_ingest_failed",
+                    article_id=event.article_id,
+                    error=str(e),
+                )
+
+        self._event_bus.subscribe(MemoryIngestEvent, handle_memory_ingest)
+        log.info("memory_event_handler_registered")
 
     # ── Fetcher & Crawler ────────────────────────────────────────
 
