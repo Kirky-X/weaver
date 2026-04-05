@@ -105,6 +105,18 @@ class LLMUsageEvent(BaseEvent):
     task_id: str | None = None
 
 
+@dataclass
+class MemoryIngestEvent(BaseEvent):
+    """Emitted when pipeline completes processing an article for memory ingestion.
+
+    This event triggers the MAGMA memory system to ingest the processed state
+    into the multi-graph memory structure.
+    """
+
+    article_id: str = ""
+    state: dict = field(default_factory=dict)
+
+
 # ── Event Bus (Blinker-backed) ────────────────────────────────────────
 
 EventHandler = Callable[[Any], Coroutine[Any, Any, None]]

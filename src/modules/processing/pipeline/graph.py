@@ -165,6 +165,33 @@ class Pipeline:
         except Exception as e:
             log.warning("failed_to_mark_processing", article_id=article_id, error=str(e))
 
+    async def _publish_memory_events(self, states: list[PipelineState]) -> None:
+        """Publish memory ingest events for successfully processed articles.
+
+        Args:
+            states: List of completed pipeline states.
+        """
+        from core.event.bus import MemoryIngestEvent
+
+        for state in states:
+            # Skip terminal states (failed processing)
+            if state.get("terminal"):
+                continue
+
+            article_id = state.get("article_id")
+            if not article_id:
+                continue
+
+            try:
+                event = MemoryIngestEvent(
+                    article_id=article_id,
+                    state=dict(state),
+                )
+                await self._event_bus.publish(event)
+                log.debug("memory_ingest_event_published", article_id=article_id)
+            except Exception as e:
+                log.warning("failed_to_publish_memory_event", article_id=article_id, error=str(e))
+
     async def process_batch(
         self,
         articles: list[ArticleRaw],
@@ -223,6 +250,9 @@ class Pipeline:
             # Phase 5: Checkpoint cleanup
             cleanup_tasks = [self._checkpoint_cleanup.execute(state) for state in states]
             await asyncio.gather(*cleanup_tasks)
+
+            # Phase 6: Publish memory ingest events for successful states
+            await self._publish_memory_events(states)
 
             log.info(
                 "pipeline_batch_complete",
