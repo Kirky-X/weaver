@@ -110,6 +110,7 @@ class Container:
         self._scheduler_jobs: Any = None
         self._scheduler: Any = None  # AsyncIOScheduler instance
         self._community_updater: IncrementalCommunityUpdater | None = None
+        self._relation_type_normalizer: Any = None  # Cached RelationTypeNormalizer
         self._local_search_engine: LocalSearchEngine | None = None
         self._global_search_engine: GlobalSearchEngine | None = None
         self._hybrid_engine: HybridSearchEngine | None = None
@@ -589,9 +590,7 @@ class Container:
         if self._strategy is None:
             return None
         if self._neo4j_writer is None:
-            from modules.knowledge.core.relation_types import RelationTypeNormalizer
-
-            rt_normalizer = RelationTypeNormalizer(self._strategy.relational_pool)
+            rt_normalizer = self.relation_type_normalizer()
             if self._strategy.graph_type == "ladybug":
                 from modules.storage.ladybug import LadybugWriter
 
@@ -599,6 +598,14 @@ class Container:
             else:
                 self._neo4j_writer = Neo4jWriter(graph_pool, rt_normalizer)
         return self._neo4j_writer
+
+    def relation_type_normalizer(self) -> Any | None:
+        """Get cached RelationTypeNormalizer instance."""
+        if self._relation_type_normalizer is None and self._strategy is not None:
+            from modules.knowledge.core.relation_types import RelationTypeNormalizer
+
+            self._relation_type_normalizer = RelationTypeNormalizer(self._strategy.relational_pool)
+        return self._relation_type_normalizer
 
     # Legacy accessors for backward compatibility
     def neo4j_entity_repo(self) -> Any | None:
@@ -962,7 +969,6 @@ class Container:
         """Initialize the processing pipeline."""
         if self._pipeline is None:
             from core.llm.token_budget import TokenBudgetManager
-            from modules.knowledge.core.relation_types import RelationTypeNormalizer
             from modules.processing.nlp.spacy_extractor import SpacyExtractor
 
             if self._event_bus is None:
@@ -972,7 +978,6 @@ class Container:
                 log.info("event_bus_reused_in_pipeline", event_bus_id=id(self._event_bus))
             budget = TokenBudgetManager()
             spacy_extractor = SpacyExtractor()
-            rt_normalizer = RelationTypeNormalizer(self._strategy.relational_pool)
 
             self._pipeline = Pipeline(
                 llm=self._llm_client,
@@ -987,7 +992,7 @@ class Container:
                 entity_resolver=self.entity_resolver(),
                 redis_client=self._redis_client,
                 community_updater=self.community_updater(),
-                relation_type_normalizer=rt_normalizer,
+                relation_type_normalizer=self.relation_type_normalizer(),
             )
             log.info("pipeline_initialized")
         return self._pipeline

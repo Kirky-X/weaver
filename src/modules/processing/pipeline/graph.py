@@ -84,6 +84,7 @@ class Pipeline:
         relation_type_normalizer: Any = None,
     ) -> None:
         self._accepting = True
+        self._event_bus = event_bus
 
         # Concurrency limits - default to 1 for Ollama compatibility
         self._phase1_concurrency = phase1_concurrency or self.DEFAULT_PHASE1_CONCURRENCY
@@ -173,6 +174,7 @@ class Pipeline:
         """
         from core.event.bus import MemoryIngestEvent
 
+        events: list[MemoryIngestEvent] = []
         for state in states:
             # Skip terminal states (failed processing)
             if state.get("terminal"):
@@ -182,15 +184,31 @@ class Pipeline:
             if not article_id:
                 continue
 
-            try:
-                event = MemoryIngestEvent(
+            events.append(
+                MemoryIngestEvent(
                     article_id=article_id,
                     state=dict(state),
                 )
-                await self._event_bus.publish(event)
-                log.debug("memory_ingest_event_published", article_id=article_id)
-            except Exception as e:
-                log.warning("failed_to_publish_memory_event", article_id=article_id, error=str(e))
+            )
+
+        if not events:
+            return
+
+        # Publish all events concurrently
+        results = await asyncio.gather(
+            *[self._event_bus.publish(e) for e in events],
+            return_exceptions=True,
+        )
+
+        for event, result in zip(events, results, strict=False):
+            if isinstance(result, Exception):
+                log.warning(
+                    "failed_to_publish_memory_event",
+                    article_id=event.article_id,
+                    error=str(result),
+                )
+            else:
+                log.debug("memory_ingest_event_published", article_id=event.article_id)
 
     async def process_batch(
         self,
