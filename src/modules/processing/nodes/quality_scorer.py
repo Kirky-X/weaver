@@ -59,7 +59,15 @@ class QualityScorerNode:
             state["quality_score"] = result.score
             log.debug("quality_scored", score=result.score, url=state["raw"].url)
         except Exception as e:
-            log.warning("quality_scorer_failed_using_default", error=str(e), url=state["raw"].url)
+            import traceback
+
+            log.warning(
+                "quality_scorer_failed_using_default",
+                error=str(e),
+                error_type=type(e).__name__,
+                traceback=traceback.format_exc(),
+                url=state["raw"].url,
+            )
             state["quality_score"] = 0.5
 
         state.setdefault("prompt_versions", {})["quality_scorer"] = self._prompt_loader.get_version(

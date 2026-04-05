@@ -136,7 +136,7 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
                 for article in articles:
                     title_preview = (article.title or "(no title)")[:60]
                     print(f"\nRepairing: {title_preview}...")
-                    print(f"  id={article.id} | is_news={article.is_news}")
+                    log.info("repairing_article", article_id=str(article.id), title=title_preview)
 
                     # Build minimal pipeline state for enrichment
                     # _phase3_per_article needs:
@@ -189,11 +189,18 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
                                 f"score={enriched_score} | cred={enriched_cred_score} | "
                                 f"quality={enriched_quality}"
                             )
+                            log.info(
+                                "article_repaired",
+                                article_id=str(article.id),
+                                category=enriched_category,
+                                score=enriched_score,
+                            )
                         else:
                             print("  No fields updated (all already set or no enrichment produced)")
 
                     except Exception as e:
                         print(f"  FAILED: {type(e).__name__}: {e}")
+                        log.error("article_repair_failed", article_id=str(article.id), error=str(e))
 
             # Exit loop if not forcing (only process one batch per run by default)
             if not force:
@@ -202,6 +209,7 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
         print("\n=== Summary ===")
         print(f"Total articles checked: {total_checked}")
         print(f"Total articles repaired: {repaired}")
+        log.info("repair_summary", total_checked=total_checked, repaired=repaired)
         return repaired
 
     finally:
