@@ -83,3 +83,30 @@ class PipelineState(TypedDict, total=False):
     # Records fields that were set to fallback/default values due to LLM failures
     degraded_fields: list[str]  # Field names that used fallback values
     degradation_reasons: dict[str, str]  # Field name -> reason for degradation
+
+
+def has_degraded_data(state: PipelineState) -> bool:
+    """Check if the state contains any degraded fields.
+
+    Args:
+        state: Pipeline state to check.
+
+    Returns:
+        True if any fields are marked as degraded.
+    """
+    return bool(state.get("degraded_fields"))
+
+
+def get_degradation_summary(state: PipelineState) -> dict[str, str]:
+    """Get a summary of all degraded fields and their reasons.
+
+    Args:
+        state: Pipeline state to check.
+
+    Returns:
+        Dict mapping field names to degradation reasons.
+        Empty dict if no degraded fields.
+    """
+    degraded_fields = state.get("degraded_fields", [])
+    reasons = state.get("degradation_reasons", {})
+    return {field: reasons.get(field, "Unknown reason") for field in degraded_fields}

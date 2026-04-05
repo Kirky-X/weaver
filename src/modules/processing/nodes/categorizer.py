@@ -112,6 +112,15 @@ class CategorizerNode:
             state["category"] = "社会"
             state["language"] = "en"
             state["region"] = "国际"
+            # Mark degraded fields
+            state.setdefault("degraded_fields", []).extend(["category", "language", "region"])
+            state.setdefault("degradation_reasons", {}).update(
+                {
+                    "category": f"LLM categorizer failed: {e!s}",
+                    "language": f"LLM categorizer failed: {e!s}",
+                    "region": f"LLM categorizer failed: {e!s}",
+                }
+            )
 
         state.setdefault("prompt_versions", {})["categorizer"] = self._prompt_loader.get_version(
             "categorizer"

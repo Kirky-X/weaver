@@ -78,6 +78,18 @@ class CleanerNode:
             }
             state["tags"] = []
             state["cleaner_entities"] = []
+            # Mark degraded fields
+            state.setdefault("degraded_fields", []).extend(
+                ["cleaned.title", "cleaned.body", "tags", "cleaner_entities"]
+            )
+            state.setdefault("degradation_reasons", {}).update(
+                {
+                    "cleaned.title": f"LLM cleaner failed: {e!s}",
+                    "cleaned.body": f"LLM cleaner failed: {e!s}",
+                    "tags": f"LLM cleaner failed: {e!s}",
+                    "cleaner_entities": f"LLM cleaner failed: {e!s}",
+                }
+            )
 
         state.setdefault("prompt_versions", {})["cleaner"] = self._prompt_loader.get_version(
             "cleaner"

@@ -194,6 +194,14 @@ class EntityExtractorNode:
             state["entities"] = []
             state["relations"] = []
             entity_count = 0
+            # Mark degraded fields
+            state.setdefault("degraded_fields", []).extend(["entities", "relations"])
+            state.setdefault("degradation_reasons", {}).update(
+                {
+                    "entities": f"LLM entity extraction failed: {e!s}",
+                    "relations": f"LLM entity extraction failed: {e!s}",
+                }
+            )
 
         state.setdefault("prompt_versions", {})["entity_extractor"] = (
             self._prompt_loader.get_version("entity_extractor")
