@@ -273,8 +273,13 @@ async def clear_databases(duck_pool, ladybug_pool) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-async def fetch_newsnow_data(max_items: int) -> list:
-    """Fetch articles from NewsNow API."""
+async def fetch_newsnow_data(max_items: int, source_id: str = "36kr") -> list:
+    """Fetch articles from NewsNow API.
+
+    Args:
+        max_items: Maximum number of articles to fetch.
+        source_id: NewsNow source ID (e.g., 36kr, hupu, baidu).
+    """
     from modules.ingestion.domain.models import ArticleRaw, SourceConfig
     from modules.ingestion.fetching.httpx_fetcher import HttpxFetcher
     from modules.ingestion.parsing.newsnow_parser import NewsNowParser
@@ -285,9 +290,9 @@ async def fetch_newsnow_data(max_items: int) -> list:
     parser = NewsNowParser(fetcher)
 
     source_config = SourceConfig(
-        id="test-newsnow-hupu",
-        name="NewsNow Hupu",
-        url="https://www.newsnow.world/api/s?id=hupu",
+        id=f"test-newsnow-{source_id}",
+        name=f"NewsNow {source_id}",
+        url=f"https://www.newsnow.world/api/s?id={source_id}",
         source_type="newsnow",
         credibility=0.50,
         tier=2,
@@ -584,12 +589,12 @@ async def main(args: argparse.Namespace) -> int:
 
         # Fetch data based on mode
         if args.mode == "newsnow":
-            raw_articles = await fetch_newsnow_data(args.max_items)
+            raw_articles = await fetch_newsnow_data(args.max_items, args.source_id)
         elif args.mode == "rss":
             raw_articles = await fetch_rss_data(args.source, args.max_items)
         elif args.mode == "strategy":
             # Use NewsNow for strategy mode
-            raw_articles = await fetch_newsnow_data(args.max_items)
+            raw_articles = await fetch_newsnow_data(args.max_items, args.source_id)
         else:
             print(f"Unknown mode: {args.mode}")
             return 1
@@ -639,6 +644,9 @@ Examples:
     # NewsNow mode (default)
     uv run scripts/test_pipeline.py --mode newsnow --max-items 5
 
+    # NewsNow with custom source
+    uv run scripts/test_pipeline.py --mode newsnow --source-id hupu --max-items 5
+
     # RSS mode
     uv run scripts/test_pipeline.py --mode rss --source solidot --max-items 2
 
@@ -659,6 +667,11 @@ Examples:
         "--source",
         default="solidot",
         help="RSS source name (default: solidot). Available: solidot, cnbeta, huxiu",
+    )
+    parser.add_argument(
+        "--source-id",
+        default="36kr",
+        help="NewsNow source ID (default: 36kr). Examples: 36kr, hupu, baidu",
     )
     parser.add_argument(
         "--max-items",
