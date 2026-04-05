@@ -11,9 +11,9 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import select, text
+from sqlalchemy import text
 
-from core.db.models import EntityVector, VectorType
+from core.db.models import VectorType
 from core.observability.logging import get_logger
 
 log = get_logger("duckdb_vector_repo")
@@ -146,18 +146,19 @@ class DuckDBVectorRepo:
     ) -> list[SimilarArticle]:
         """Find similar articles using DuckDB array_cosine_similarity."""
         async with self._pool.session() as session:
+            # Cast embedding to FLOAT[1024] to match column type
             query = text("""
                 SELECT
                     a.id::VARCHAR as article_id,
                     a.category,
-                    array_cosine_similarity(av.embedding, :embedding) as similarity,
+                    array_cosine_similarity(av.embedding, CAST(:embedding AS FLOAT[1024])) as similarity,
                     a.publish_time,
                     a.created_at
                 FROM article_vectors av
                 JOIN articles a ON a.id = av.article_id
                 WHERE av.vector_type = 'content'
                   AND a.is_merged = FALSE
-                  AND array_cosine_similarity(av.embedding, :embedding) > :threshold
+                  AND array_cosine_similarity(av.embedding, CAST(:embedding AS FLOAT[1024])) > :threshold
                   AND (:category IS NULL OR a.category = :category)
                   AND (:model_id IS NULL OR av.model_id = :model_id)
                 ORDER BY similarity DESC
@@ -260,16 +261,17 @@ class DuckDBVectorRepo:
 
         async with self._pool.session() as session:
             for query_id, embedding in queries:
+                # Cast embedding to FLOAT[1024] to match column type
                 query = text("""
                     SELECT
                         a.id::VARCHAR as article_id,
                         a.category,
-                        array_cosine_similarity(av.embedding, :embedding) as similarity
+                        array_cosine_similarity(av.embedding, CAST(:embedding AS FLOAT[1024])) as similarity
                     FROM article_vectors av
                     JOIN articles a ON a.id = av.article_id
                     WHERE av.vector_type = 'content'
                       AND a.is_merged = FALSE
-                      AND array_cosine_similarity(av.embedding, :embedding) > :threshold
+                      AND array_cosine_similarity(av.embedding, CAST(:embedding AS FLOAT[1024])) > :threshold
                       AND (:category IS NULL OR a.category = :category)
                       AND (:model_id IS NULL OR av.model_id = :model_id)
                     ORDER BY similarity DESC
@@ -303,24 +305,25 @@ class DuckDBVectorRepo:
         entities: list[tuple[str, list[float]]],
         use_temp_key: bool = False,
     ) -> None:
-        """Upsert entity vectors by name."""
+        """Upsert entity vectors by name using raw SQL (avoids pgvector type issues)."""
         async with self._pool.session() as session:
             for name, embedding in entities:
                 key = f"temp:{name}" if use_temp_key else name
-                result = await session.execute(
-                    select(EntityVector).where(EntityVector.neo4j_id == key)
+                # Convert embedding to list if it's a tuple (DuckDB returns tuples)
+                emb_list = list(embedding) if not isinstance(embedding, list) else embedding
+                # Use raw SQL to avoid pgvector Vector type processing issues
+                # DuckDB doesn't support :: cast, use CAST() instead
+                query = text("""
+                    INSERT INTO entity_vectors (neo4j_id, embedding, model_id, updated_at)
+                    VALUES (:neo4j_id, CAST(:embedding AS FLOAT[1024]), 'text-embedding-3-large', NOW())
+                    ON CONFLICT (neo4j_id) DO UPDATE SET
+                        embedding = excluded.embedding,
+                        updated_at = NOW()
+                """)
+                await session.execute(
+                    query,
+                    {"neo4j_id": key, "embedding": emb_list},
                 )
-                existing = result.scalar_one_or_none()
-
-                if existing:
-                    existing.embedding = embedding
-                else:
-                    ev = EntityVector(
-                        neo4j_id=key,
-                        embedding=embedding,
-                    )
-                    session.add(ev)
-
             await session.commit()
 
     async def upsert_entity_vector(self, neo4j_id: str, embedding: list[float]) -> None:
@@ -335,12 +338,13 @@ class DuckDBVectorRepo:
     ) -> list[SimilarEntity]:
         """Find similar entities using DuckDB array_cosine_similarity."""
         async with self._pool.session() as session:
+            # Cast embedding to FLOAT[1024] to match column type
             query = text("""
                 SELECT
                     neo4j_id,
-                    array_cosine_similarity(embedding, :embedding) as similarity
+                    array_cosine_similarity(embedding, CAST(:embedding AS FLOAT[1024])) as similarity
                 FROM entity_vectors
-                WHERE array_cosine_similarity(embedding, :embedding) > :threshold
+                WHERE array_cosine_similarity(embedding, CAST(:embedding AS FLOAT[1024])) > :threshold
                 ORDER BY similarity DESC
                 LIMIT :limit
             """)

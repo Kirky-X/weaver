@@ -24,10 +24,25 @@ class _DuckDBAsyncSession:
 
     DuckDB doesn't support async operations, so this wrapper uses
     asyncio.to_thread to execute sync operations in a background thread.
+
+    Implements async context manager protocol for compatibility with
+    code that uses `async with session() as session:`.
     """
 
     def __init__(self, sync_session: Session):
         self._sync_session = sync_session
+
+    async def __aenter__(self) -> _DuckDBAsyncSession:
+        """Enter async context manager."""
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Exit async context manager with automatic commit/rollback."""
+        if exc_type is not None:
+            await self.rollback()
+        else:
+            await self.commit()
+        await self.close()
 
     async def execute(self, statement: Any, params: dict[str, Any] | None = None) -> Any:
         """Execute a statement asynchronously."""

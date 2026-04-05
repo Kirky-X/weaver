@@ -44,7 +44,7 @@ class URLValidator:
         try:
             safe_url = await validator.validate("https://example.com/path")
         except URLValidationError as e:
-            print(f"Blocked: {e.message}")
+            log.warning("url_blocked", url=e.url, reason=e.message)
     """
 
     # Allowed URL schemes

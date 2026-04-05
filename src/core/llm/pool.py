@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from aiolimiter import AsyncLimiter
 
@@ -13,6 +13,9 @@ from core.llm.circuit_breaker import CircuitOpenError, ProviderCircuitBreaker
 from core.llm.metrics import ProviderMetrics
 from core.llm.types import Label, LLMResponse, ProviderConfig
 from core.observability.logging import get_logger
+
+if TYPE_CHECKING:
+    from core.event.bus import EventBus
 
 log = get_logger("provider_pool")
 
@@ -47,6 +50,7 @@ class ProviderPool:
         config: ProviderConfig,
         circuit_breaker_threshold: int = 5,
         circuit_breaker_timeout: float = 60.0,
+        event_bus: EventBus | None = None,
     ) -> None:
         """初始化Provider池.
 
@@ -54,6 +58,7 @@ class ProviderPool:
             config: Provider配置
             circuit_breaker_threshold: 熔断器失败阈值
             circuit_breaker_timeout: 熔断器冷却时间
+            event_bus: 可选的EventBus，用于发射LLMUsageEvent
         """
         self.config = config
         self.name = config.name

@@ -379,8 +379,11 @@ class PreStartupHealthChecker:
         print("=" * 50)
         if summary["required_services_healthy"]:
             print(f"{GREEN}All required services healthy{RESET}")
+            log.info("pre_startup_all_healthy", services=len(results))
         else:
-            print(f"{RED}Failed services: {', '.join(summary['failed_required_services'])}{RESET}")
+            failed = summary["failed_required_services"]
+            print(f"{RED}Failed services: {', '.join(failed)}{RESET}")
+            log.error("pre_startup_failed", failed_services=failed)
 
 
 async def run_pre_startup_health_check(

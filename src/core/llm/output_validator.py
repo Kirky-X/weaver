@@ -13,7 +13,7 @@ from core.constants import SentimentType
 class ClassifierOutput(BaseModel):
     """Output model for the classifier node."""
 
-    is_news: bool
+    is_news: bool | None = None
     confidence: float = Field(ge=0, le=1)
 
 

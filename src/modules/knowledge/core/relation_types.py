@@ -15,7 +15,6 @@ from uuid import UUID
 from sqlalchemy import select, update
 
 from core.db.models import RelationType, UnknownRelationType
-from core.db.postgres import PostgresPool
 from core.observability.logging import get_logger
 
 log = get_logger("relation_type_normalizer")
@@ -52,14 +51,14 @@ class RelationTypeNormalizer:
     支持别名匹配、后缀清洗、未知类型记录等功能。
 
     Args:
-        pool: PostgreSQL 连接池。
+        pool: 关系数据库连接池 (PostgresPool / DuckDBPool)。
     """
 
-    def __init__(self, pool: PostgresPool) -> None:
+    def __init__(self, pool) -> None:
         """Initialize the relation type normalizer.
 
         Args:
-            pool: PostgreSQL connection pool.
+            pool: RelationalPool-compatible connection pool.
         """
         self._pool = pool
         self._alias_cache: dict[str, NormalizedRelation] = {}

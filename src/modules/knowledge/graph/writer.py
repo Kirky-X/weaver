@@ -231,6 +231,12 @@ class Neo4jWriter:
 
         relations = state.get("relations", [])
         if relations and entity_name_to_id:
+            # Debug: log what we have
+            log.info(
+                "writer_relations_debug",
+                relations_count=len(relations),
+                entity_name_to_id_keys=list(entity_name_to_id.keys())[:10],
+            )
             await self._write_entity_relations(relations, entity_name_to_id)
 
         return entity_ids
@@ -284,10 +290,13 @@ class Neo4jWriter:
             target_id = entity_name_to_id.get(target_name)
 
             if not source_id or not target_id:
-                log.debug(
+                log.warning(
                     "entity_relation_entity_not_found",
                     source=source_name,
                     target=target_name,
+                    source_id=source_id,
+                    target_id=target_id,
+                    available_keys=list(entity_name_to_id.keys())[:5],
                 )
                 continue
 

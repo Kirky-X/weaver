@@ -42,8 +42,8 @@ class ClassifierNode:
         result: ClassifierOutput = await self._llm.call_at(
             CallPoint.CLASSIFIER, payload, output_model=ClassifierOutput
         )
-        state["is_news"] = result.is_news
-        state["terminal"] = not result.is_news
+        state["is_news"] = result.is_news if result.is_news is not None else False
+        state["terminal"] = not state["is_news"]
 
         state.setdefault("prompt_versions", {})["classifier"] = self._prompt_loader.get_version(
             "classifier"

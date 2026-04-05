@@ -20,58 +20,6 @@ from modules.processing.pipeline.state import PipelineState
 log = get_logger("article_repo")
 
 
-# Required enrichment fields for a complete article
-REQUIRED_ENRICHMENT_FIELDS = frozenset(
-    {
-        "category",
-        "score",
-        "credibility_score",
-        "summary",
-        "quality_score",
-    }
-)
-
-
-def is_enrichment_complete(state: PipelineState) -> tuple[bool, list[str]]:
-    """Check if pipeline state has all required enrichment fields populated.
-
-    This function validates that an article has completed enrichment
-    before marking it as NEO4J_DONE. Articles with missing enrichment
-    fields should NOT be marked as complete.
-
-    Args:
-        state: Pipeline state to validate.
-
-    Returns:
-        Tuple of (is_complete, missing_fields).
-        - is_complete: True if all required fields are present and non-null.
-        - missing_fields: List of field names that are missing or null.
-    """
-    missing_fields: list[str] = []
-
-    # Check simple fields
-    if state.get("category") is None:
-        missing_fields.append("category")
-    if state.get("score") is None:
-        missing_fields.append("score")
-
-    # Check credibility fields
-    credibility = state.get("credibility")
-    if credibility is None or credibility.get("score") is None:
-        missing_fields.append("credibility_score")
-
-    # Check summary_info
-    summary_info = state.get("summary_info")
-    if summary_info is None or summary_info.get("summary") is None:
-        missing_fields.append("summary")
-
-    # Check quality_score
-    if state.get("quality_score") is None:
-        missing_fields.append("quality_score")
-
-    return len(missing_fields) == 0, missing_fields
-
-
 # Field mapping: state key -> (article_attr, extractor function)
 # This centralizes all field mappings for consistency
 STATE_TO_ARTICLE_FIELDS: dict[str, tuple[str, callable]] = {
@@ -240,13 +188,17 @@ class ArticleRepo:
                     try:
                         article = self._create_article_from_state(state)
                         new_articles.append(article)
-                        article_ids.append(article.id)
                     except Exception as exc:
                         log.error("bulk_upsert_create_prepare_failed", url=url, error=str(exc))
 
             # Batch insert new articles
             if new_articles:
                 session.add_all(new_articles)
+                # Flush to populate auto-generated IDs
+                await session.flush()
+                # Collect IDs after flush
+                for article in new_articles:
+                    article_ids.append(article.id)
 
             # Single commit for the entire chunk
             await session.commit()
@@ -266,7 +218,7 @@ class ArticleRepo:
         from datetime import UTC, datetime
 
         raw = state["raw"]
-        return Article(
+        article = Article(
             source_url=raw.url if hasattr(raw, "url") else raw.get("url", ""),
             source_host=getattr(raw, "source_host", None)
             or (raw.get("source_host") if isinstance(raw, dict) else None),
@@ -277,6 +229,9 @@ class ArticleRepo:
             persist_status=PersistStatus.PG_DONE,
             updated_at=datetime.now(UTC),
         )
+        # Apply additional fields (category, language, region, etc.)
+        _apply_state_to_article(article, state)
+        return article
 
     async def _update_single_fields(
         self, session: AsyncSession, article_id: uuid.UUID, state: PipelineState

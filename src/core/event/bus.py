@@ -51,15 +51,6 @@ class CredibilityComputedEvent(BaseEvent):
 
 
 @dataclass
-class EmbeddingModelMismatchEvent(BaseEvent):
-    """Emitted when embedding fallback uses a different model."""
-
-    article_id: str = ""
-    expected_model: str = ""
-    actual_model: str = ""
-
-
-@dataclass
 class PipelineStageCompletedEvent(BaseEvent):
     """Emitted when a pipeline stage completes."""
 

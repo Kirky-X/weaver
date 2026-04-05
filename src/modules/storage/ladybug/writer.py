@@ -6,6 +6,7 @@ Coordinates entity and article repositories for graph write operations.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from core.observability.logging import get_logger
@@ -14,12 +15,18 @@ from modules.storage.ladybug.entity_repo import LadybugEntityRepo
 
 log = get_logger("ladybug_writer")
 
+# Global write lock for LadybugDB (only one write transaction at a time)
+_write_lock = asyncio.Lock()
+
 
 class LadybugWriter:
     """LadybugDB graph writer.
 
     Coordinates entity and article operations for the knowledge graph.
     Similar to Neo4jWriter but adapted for LadybugDB.
+
+    Note: LadybugDB only supports one write transaction at a time.
+    All write operations are serialized via a global lock.
 
     Args:
         pool: LadybugPool instance.
@@ -58,33 +65,52 @@ class LadybugWriter:
 
         Creates articles, entities, and their relationships.
 
+        Note: Uses global write lock because LadybugDB only supports
+        one write transaction at a time.
+
         Args:
             state: PipelineState containing article and entity data.
 
         Returns:
             List of created entity IDs.
         """
+        # LadybugDB requires serialized write transactions
+        async with _write_lock:
+            return await self._write_locked(state)
+
+    async def _write_locked(self, state: Any) -> list[str]:
+        """Internal write implementation (must be called with lock held)."""
         entity_ids = []
 
-        # Get article info
-        article_id = str(state.id)
-        title = state.title or ""
-        category = state.category or "未分类"
-        publish_time = int(state.publish_time.timestamp()) if state.publish_time else None
-        score = state.score
+        # Get article info - use dict access like Neo4jWriter
+        article_id = state.get("article_id")
+        if not article_id:
+            log.warning("ladybug_write_missing_article_id")
+            return entity_ids
+
+        article_id = str(article_id)
+        raw = state.get("raw")
+        title = state.get("cleaned", {}).get("title", getattr(raw, "title", "") if raw else "")
+        category = state.get("category", "未分类")
+        category_str = category.value if hasattr(category, "value") else str(category)
+        raw_publish_time = getattr(raw, "publish_time", None) if raw else None
+        publish_time = int(raw_publish_time.timestamp()) if raw_publish_time else None
+        score = state.get("score")
 
         # Create article node
         await self.article_repo.create_article(
             pg_id=article_id,
             title=title,
-            category=category,
+            category=category_str,
             publish_time=publish_time,
             score=score,
         )
 
         # Create entities and MENTIONS relationships
-        if state.entities:
-            for entity in state.entities:
+        entities = state.get("entities", [])
+        entity_name_to_id: dict[str, str] = {}  # Build mapping during entity creation
+        if entities:
+            for entity in entities:
                 entity_name = entity.get("canonical_name") or entity.get("name", "")
                 entity_type = entity.get("type", "未知")
                 description = entity.get("description")
@@ -102,6 +128,7 @@ class LadybugWriter:
                     tier=tier,
                 )
                 entity_ids.append(entity_id)
+                entity_name_to_id[entity_name] = entity_id  # Store for later relation lookup
 
                 # Create MENTIONS relationship
                 await self.entity_repo.merge_mentions_relation(
@@ -111,8 +138,9 @@ class LadybugWriter:
                 )
 
         # Create FOLLOWED_BY relationships for article sequence
-        if state.related_articles:
-            for related in state.related_articles:
+        related_articles = state.get("related_articles", [])
+        if related_articles:
+            for related in related_articles:
                 related_pg_id = str(related.get("id", ""))
                 time_gap = related.get("time_gap_hours")
                 if related_pg_id:
@@ -123,35 +151,75 @@ class LadybugWriter:
                     )
 
         # Create entity relationships
-        if state.relations:
-            for rel in state.relations:
-                from_entity = rel.get("from_entity", {})
-                to_entity = rel.get("to_entity", {})
-                edge_type = rel.get("relation_type", "RELATED_TO")
-                properties = rel.get("properties", {})
+        # Support both formats:
+        # - Neo4jWriter format: {"source": "name", "target": "name", "relation_type": "..."}
+        # - Legacy format: {"from_entity": {...}, "to_entity": {...}}
+        relations = state.get("relations", [])
+        if relations:
+            for rel in relations:
+                try:
+                    # Try Neo4jWriter format first (source/target)
+                    source_name = rel.get("source")
+                    target_name = rel.get("target")
+                    edge_type = rel.get("relation_type", "RELATED_TO")
+                    description = rel.get("description")
 
-                from_name = from_entity.get("canonical_name") or from_entity.get("name", "")
-                from_type = from_entity.get("type", "未知")
-                to_name = to_entity.get("canonical_name") or to_entity.get("name", "")
-                to_type = to_entity.get("type", "未知")
+                    # Fall back to legacy format (from_entity/to_entity)
+                    if not source_name:
+                        from_entity = rel.get("from_entity", {})
+                        source_name = from_entity.get("canonical_name") or from_entity.get(
+                            "name", ""
+                        )
+                    if not target_name:
+                        to_entity = rel.get("to_entity", {})
+                        target_name = to_entity.get("canonical_name") or to_entity.get("name", "")
 
-                if not from_name or not to_name:
-                    continue
+                    if not source_name or not target_name:
+                        continue
 
-                # Find entities
-                from_ent = await self.entity_repo.find_entity(from_name, from_type)
-                to_ent = await self.entity_repo.find_entity(to_name, to_type)
+                    # Find entity IDs
+                    source_id = entity_name_to_id.get(source_name)
+                    target_id = entity_name_to_id.get(target_name)
 
-                if from_ent and to_ent:
+                    # If not in cache, look up in database
+                    if not source_id:
+                        source_ent = await self.entity_repo.find_entity_by_name(source_name)
+                        if source_ent:
+                            source_id = source_ent["id"]
+                            entity_name_to_id[source_name] = source_id
+
+                    if not target_id:
+                        target_ent = await self.entity_repo.find_entity_by_name(target_name)
+                        if target_ent:
+                            target_id = target_ent["id"]
+                            entity_name_to_id[target_name] = target_id
+
+                    if not source_id or not target_id:
+                        log.warning(
+                            "ladybug_relation_entity_not_found",
+                            source=source_name,
+                            target=target_name,
+                        )
+                        continue
+
                     # Normalize edge type
                     if self._relation_type_normalizer:
-                        edge_type = self._relation_type_normalizer.normalize(edge_type)
+                        try:
+                            normalized = await self._relation_type_normalizer.normalize(edge_type)
+                            edge_type = normalized.name_en or edge_type
+                        except Exception as exc:
+                            log.warning("relation_normalization_failed", error=str(exc))
 
                     await self.entity_repo.merge_relation(
-                        from_entity_id=from_ent["id"],
-                        to_entity_id=to_ent["id"],
+                        from_entity_id=source_id,
+                        to_entity_id=target_id,
                         edge_type=edge_type,
-                        properties=properties,
+                        properties={"description": description} if description else {},
+                    )
+                except Exception as exc:
+                    log.error(
+                        "ladybug_relation_loop_error",
+                        error=str(exc),
                     )
 
         return entity_ids

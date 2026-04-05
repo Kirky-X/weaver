@@ -104,6 +104,12 @@ class TestCreateStrategy:
         mock_duckdb_pool.startup = AsyncMock()
         monkeypatch.setattr("core.db.duckdb_pool.DuckDBPool", lambda **kwargs: mock_duckdb_pool)
 
+        # Mock initialize_duckdb_schema to avoid actual DB operations
+        mock_init_duckdb = AsyncMock()
+        monkeypatch.setattr(
+            "modules.storage.duckdb.schema.initialize_duckdb_schema", mock_init_duckdb
+        )
+
         from core.db.strategy import create_strategy
 
         pg_settings = PostgresSettings(host="localhost", password="test")
@@ -118,6 +124,7 @@ class TestCreateStrategy:
 
         assert strategy.relational_type == "duckdb"
         mock_duckdb_pool.startup.assert_called_once()
+        mock_init_duckdb.assert_called_once_with(mock_duckdb_pool)
 
     @pytest.mark.asyncio
     async def test_raises_when_both_postgres_and_duckdb_unavailable(self, monkeypatch) -> None:
