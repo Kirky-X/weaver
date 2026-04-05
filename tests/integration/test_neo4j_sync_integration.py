@@ -219,9 +219,12 @@ class TestContainerStartupSync:
         from container import Container
 
         source = inspect.getsource(Container.startup)
-        assert "sync_pending_to_neo4j" in source
-        assert "AsyncIOScheduler" in source
-        assert "asyncio.create_task" in source
+        # Sync is now handled via _setup_scheduler
+        assert "_setup_scheduler" in source
+
+        # Verify _setup_scheduler contains the sync job
+        scheduler_source = inspect.getsource(Container._setup_scheduler)
+        assert "sync_pending_to_neo4j" in scheduler_source
 
 
 class TestSyncPendingToNeo4j:

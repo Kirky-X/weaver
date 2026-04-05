@@ -1087,12 +1087,10 @@ class TestAggregateLLMUsage:
 
     @pytest.mark.asyncio
     async def test_aggregate_llm_usage(self, scheduler_jobs):
-        with patch("modules.analytics.llm_usage.aggregator.LLMUsageAggregatorThread") as MockAgg:
-            mock_agg = MagicMock()
-            mock_agg._flush = AsyncMock()
-            MockAgg.return_value = mock_agg
+        with patch("modules.analytics.llm_usage.aggregator.flush_usage_buffer") as mock_flush:
+            mock_flush.return_value = (5, 0)  # 5 processed, 0 errors
 
             result = await scheduler_jobs.aggregate_llm_usage()
 
-            assert result == 1
-            mock_agg._flush.assert_awaited_once()
+            assert result == 5
+            mock_flush.assert_awaited_once()

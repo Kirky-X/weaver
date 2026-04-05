@@ -238,18 +238,22 @@ class TestLLMFailureEventChain:
         assert "_llm_failure_repo" in source
         assert "_event_bus.subscribe" in source
         assert "LLMFailureEvent" in source
-        assert "_llm_failure_cleanup_thread" in source
-        assert ".start()" in source
+        # Cleanup is now handled by scheduler, not dedicated thread
+        assert "_setup_scheduler" in source
 
     @pytest.mark.asyncio
-    async def test_container_startup_starts_cleanup_thread(self):
-        """Test Container.startup() starts the cleanup thread on startup."""
+    async def test_container_startup_uses_scheduler_for_cleanup(self):
+        """Test Container.startup() uses scheduler for cleanup tasks."""
         import inspect
 
         from container import Container
 
         source = inspect.getsource(Container.startup)
 
-        # Verify the cleanup thread is started immediately in startup
-        assert "LLMFailureCleanupThread" in source
-        assert ".start()" in source
+        # Verify the scheduler is set up (cleanup is scheduled, not thread-based)
+        assert "_setup_scheduler" in source
+        # Verify _setup_scheduler method exists and contains LLM failure job
+        scheduler_source = inspect.getsource(Container._setup_scheduler)
+        assert (
+            "aggregate_llm_usage" in scheduler_source or "cleanup_llm_failures" in scheduler_source
+        )
