@@ -196,7 +196,7 @@ class TestSearchModeRoutingE2E:
         client: TestClient,  # type: ignore[name-defined]
         auth_headers: dict[str, str],
     ) -> None:
-        """Test that default search mode is local."""
+        """Test that default search mode is auto (intent-based routing)."""
         response = client.get(
             "/api/v1/search",
             params={"q": "test"},  # no mode specified
@@ -205,7 +205,8 @@ class TestSearchModeRoutingE2E:
 
         assert response.status_code == 200
         data = response.json()
-        assert data["data"]["search_type"] == "local"
+        # Default mode is 'auto' which uses intent-based routing
+        assert data["data"]["search_type"] == "auto"
 
     def test_entity_names_parameter_in_local_mode(
         self,

@@ -139,12 +139,15 @@ class TestWorkflows:
         assert response.status_code in (200, 503)
         data = response.json()
 
+        # Health response wraps status inside data field
+        assert "data" in data
+        health_data = data["data"]
         # Health response should have status field
-        assert "status" in data
+        assert "status" in health_data
         # Should have checks dict with service details
-        assert "checks" in data
+        assert "checks" in health_data
         # Verify checks structure contains expected services
-        checks = data["checks"]
+        checks = health_data["checks"]
         assert isinstance(checks, dict)
 
     def test_graph_entity_not_found(
