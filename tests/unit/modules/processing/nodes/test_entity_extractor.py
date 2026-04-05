@@ -560,3 +560,138 @@ class TestEntityExtractorNodeArticleTaskId:
         input_data = call_args[0][1]
         assert input_data["article_id"] == "test-article-123"
         assert input_data["task_id"] == "test-task-456"
+
+
+class TestEntityExtractorNodeVectorCleanup:
+    """Tests for entity vector cleanup after LLM filtering."""
+
+    @pytest.mark.asyncio
+    async def test_filtered_entities_cleaned_from_vector_repo(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, sample_raw
+    ):
+        """Test that entities filtered by LLM are removed from vector repo."""
+        # spaCy extracts 3 entities
+        mock_entity1 = MagicMock()
+        mock_entity1.name = "湖南日报"
+        mock_entity1.type = "组织机构"
+        mock_entity1.label = "ORG"
+        mock_entity2 = MagicMock()
+        mock_entity2.name = "湖南"
+        mock_entity2.type = "地点"
+        mock_entity2.label = "GPE"
+        mock_entity3 = MagicMock()
+        mock_entity3.name = "福田汽车"
+        mock_entity3.type = "组织机构"
+        mock_entity3.label = "ORG"
+        mock_spacy.extract = MagicMock(return_value=[mock_entity1, mock_entity2, mock_entity3])
+
+        # LLM only keeps 1 entity (filters 湖南日报 and 湖南)
+        mock_llm.call_at = AsyncMock(
+            return_value=EntityExtractorOutput(
+                entities=[{"name": "福田汽车", "type": "组织机构"}],
+                relations=[],
+            )
+        )
+
+        # Mock vector repo
+        mock_vector_repo = AsyncMock()
+        mock_vector_repo.delete_entity_vectors_by_neo4j_ids = AsyncMock(return_value=2)
+
+        node = EntityExtractorNode(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            spacy=mock_spacy,
+            vector_repo=mock_vector_repo,
+        )
+        state = PipelineState(raw=sample_raw)
+        state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
+
+        result = await node.execute(state)
+
+        # Verify entities were filtered
+        assert len(result["entities"]) == 1
+        assert result["entities"][0]["name"] == "福田汽车"
+
+        # Verify cleanup was called with filtered entities
+        mock_vector_repo.delete_entity_vectors_by_neo4j_ids.assert_called_once()
+        call_args = mock_vector_repo.delete_entity_vectors_by_neo4j_ids.call_args
+        deleted_names = call_args[0][0]
+        assert set(deleted_names) == {"湖南日报", "湖南"}
+
+    @pytest.mark.asyncio
+    async def test_no_cleanup_when_all_entities_kept(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, sample_raw
+    ):
+        """Test that no cleanup happens when LLM keeps all spaCy entities."""
+        mock_entity = MagicMock()
+        mock_entity.name = "福田汽车"
+        mock_entity.type = "组织机构"
+        mock_entity.label = "ORG"
+        mock_spacy.extract = MagicMock(return_value=[mock_entity])
+
+        mock_llm.call_at = AsyncMock(
+            return_value=EntityExtractorOutput(
+                entities=[{"name": "福田汽车", "type": "组织机构"}],
+                relations=[],
+            )
+        )
+
+        mock_vector_repo = AsyncMock()
+
+        node = EntityExtractorNode(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            spacy=mock_spacy,
+            vector_repo=mock_vector_repo,
+        )
+        state = PipelineState(raw=sample_raw)
+        state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
+
+        await node.execute(state)
+
+        # No cleanup should be called since no entities were filtered
+        mock_vector_repo.delete_entity_vectors_by_neo4j_ids.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_cleanup_handles_error_gracefully(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, sample_raw
+    ):
+        """Test that cleanup errors don't fail the extraction."""
+        mock_entity1 = MagicMock()
+        mock_entity1.name = "湖南日报"
+        mock_entity1.type = "组织机构"
+        mock_entity1.label = "ORG"
+        mock_entity2 = MagicMock()
+        mock_entity2.name = "福田汽车"
+        mock_entity2.type = "组织机构"
+        mock_entity2.label = "ORG"
+        mock_spacy.extract = MagicMock(return_value=[mock_entity1, mock_entity2])
+
+        mock_llm.call_at = AsyncMock(
+            return_value=EntityExtractorOutput(
+                entities=[{"name": "福田汽车", "type": "组织机构"}],
+                relations=[],
+            )
+        )
+
+        # Mock vector repo that fails on delete
+        mock_vector_repo = AsyncMock()
+        mock_vector_repo.delete_entity_vectors_by_neo4j_ids = AsyncMock(
+            side_effect=Exception("DB error")
+        )
+
+        node = EntityExtractorNode(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            spacy=mock_spacy,
+            vector_repo=mock_vector_repo,
+        )
+        state = PipelineState(raw=sample_raw)
+        state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
+
+        # Should not raise exception
+        result = await node.execute(state)
+        assert len(result["entities"]) == 1

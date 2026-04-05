@@ -189,6 +189,30 @@ class EntityExtractorNode:
                     except Exception as exc:
                         log.warning("llm_entity_embedding_failed", error=str(exc))
 
+            # Phase 5: Clean up filtered entities from entity_vectors
+            # Remove entities that were extracted by spaCy but filtered out by LLM
+            if self._vector_repo and spacy_entities:
+                spacy_names = {e.name for e in spacy_entities}
+                llm_names = {
+                    e.get("canonical_name") or e.get("name")
+                    for e in state["entities"]
+                    if e.get("name")
+                }
+                filtered_names = list(spacy_names - llm_names)
+                if filtered_names:
+                    try:
+                        deleted = await self._vector_repo.delete_entity_vectors_by_neo4j_ids(
+                            filtered_names
+                        )
+                        if deleted > 0:
+                            log.debug(
+                                "entity_vectors_cleaned",
+                                deleted=deleted,
+                                filtered_entities=filtered_names[:10],  # Log first 10
+                            )
+                    except Exception as exc:
+                        log.warning("entity_vectors_cleanup_failed", error=str(exc))
+
         except Exception as e:
             log.warning("entity_llm_failed_using_empty", error=str(e), url=state["raw"].url)
             state["entities"] = []
