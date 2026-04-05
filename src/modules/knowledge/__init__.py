@@ -11,7 +11,6 @@ Consolidates graph_store and search modules:
 from modules.knowledge.graph import (
     EntityResolver,
     GraphMetrics,
-    GraphPruner,
     IncrementalCommunityUpdater,
     NameNormalizer,
     Neo4jWriter,
@@ -31,23 +30,22 @@ from modules.knowledge.search import (
 from modules.knowledge.search.engines.hybrid_search import HybridSearchEngine
 
 __all__ = [
-    # Graph operations
-    "Neo4jWriter",
-    "EntityResolver",
-    "NameNormalizer",
-    "RelationTypeNormalizer",
-    "GraphPruner",
     # Community
     "CommunityDetector",
     "CommunityReportGenerator",
-    "IncrementalCommunityUpdater",
-    # Search
-    "LocalSearchEngine",
-    "GlobalSearchEngine",
-    "HybridSearchEngine",
     "ContextBuilder",
-    "LocalContextBuilder",
+    "EntityResolver",
     "GlobalContextBuilder",
+    "GlobalSearchEngine",
     # Metrics
     "GraphMetrics",
+    "HybridSearchEngine",
+    "IncrementalCommunityUpdater",
+    "LocalContextBuilder",
+    # Search
+    "LocalSearchEngine",
+    "NameNormalizer",
+    # Graph operations
+    "Neo4jWriter",
+    "RelationTypeNormalizer",
 ]

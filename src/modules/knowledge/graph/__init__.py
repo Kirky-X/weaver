@@ -2,7 +2,6 @@
 """Knowledge graph module - Neo4j graph database operations."""
 
 from modules.knowledge.graph.entity_resolver import EntityResolver
-from modules.knowledge.graph.graph_pruner import GraphPruner, PruneResult
 from modules.knowledge.graph.incremental_community_updater import (
     IncrementalCommunityUpdater,
     IncrementalUpdateResult,
@@ -27,14 +26,12 @@ __all__ = [
     "EntityResolver",
     "EntityType",
     "GraphMetrics",
-    "GraphPruner",
     "IncrementalCommunityUpdater",
     "IncrementalUpdateResult",
     "MatchType",
     "NameNormalizer",
     "Neo4jWriter",
     "NormalizedRelation",
-    "PruneResult",
     "RelationTypeNormalizer",
     "ResolutionResult",
     "ResolutionRule",
