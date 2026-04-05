@@ -104,7 +104,7 @@ primary = "chat.aiping.GLM-Z1-9B-0414"
 fallbacks = ["chat.dmx.glm-4.7-free"]
 
 [call-points.cleaner]
-primary = "chat.aiping.GLM-4-9B-0414"
+primary = "chat.aiping.GLM-Z1-9B-0414"
 fallbacks = ["chat.dmx.glm-4.7-free"]
 
 [call-points.categorizer]
@@ -124,11 +124,11 @@ primary = "chat.aiping.GLM-Z1-9B-0414"
 fallbacks = ["chat.dmx.glm-4.7-free"]
 
 [call-points.quality_scorer]
-primary = "chat.aiping.GLM-4-9B-0414"
+primary = "chat.aiping.GLM-Z1-9B-0414"
 fallbacks = ["chat.dmx.glm-4.7-free"]
 
 [call-points.merger]
-primary = "chat.aiping.GLM-4-9B-0414"
+primary = "chat.aiping.GLM-Z1-9B-0414"
 fallbacks = ["chat.dmx.glm-4.7-free"]
 
 [call-points.embedding]
@@ -140,25 +140,25 @@ primary = "rerank.aiping.Qwen3-Reranker-0.6B"
 fallbacks = ["rerank.dmx.bge-reranker-v2-m3-free"]
 
 [call-points.causal_inference]
-primary = "chat.aiping.GLM-4-9B-0414"
+primary = "chat.aiping.GLM-Z1-9B-0414"
 fallbacks = ["chat.dmx.glm-4.7-free"]
 
 [call-points.search_local]
-primary = "chat.aiping.GLM-4-9B-0414"
+primary = "chat.aiping.GLM-Z1-9B-0414"
 fallbacks = ["chat.dmx.glm-4.7-free"]
 
 [call-points.search_global]
-primary = "chat.aiping.GLM-4-9B-0414"
+primary = "chat.aiping.GLM-Z1-9B-0414"
 fallbacks = ["chat.dmx.glm-4.7-free"]
 
 [call-points.community_report]
-primary = "chat.aiping.GLM-4-9B-0414"
+primary = "chat.aiping.GLM-Z1-9B-0414"
 fallbacks = ["chat.dmx.glm-4.7-free"]
 
 [call-points.entity_facts]
-primary = "chat.aiping.GLM-4-9B-0414"
+primary = "chat.aiping.GLM-Z1-9B-0414"
 fallbacks = ["chat.dmx.glm-4.7-free"]
 
 [call-points.narrative_synthesis]
-primary = "chat.aiping.GLM-4-9B-0414"
+primary = "chat.aiping.GLM-Z1-9B-0414"
 fallbacks = ["chat.dmx.glm-4.7-free"]
