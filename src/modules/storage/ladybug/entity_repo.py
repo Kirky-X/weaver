@@ -155,6 +155,25 @@ class LadybugEntityRepo:
             return dict(result[0])
         return None
 
+    async def find_entity_by_name(self, canonical_name: str) -> dict[str, Any] | None:
+        """Find an entity by canonical name only (type not required)."""
+        query = """
+        MATCH (e:Entity {canonical_name: $canonical_name})
+        RETURN e.id AS neo4j_id,
+               e.id AS id,
+               e.canonical_name AS canonical_name,
+               e.type AS type,
+               e.description AS description,
+               e.tier AS tier,
+               e.created_at AS created_at,
+               e.updated_at AS updated_at
+        LIMIT 1
+        """
+        result = await self._pool.execute_query(query, {"canonical_name": canonical_name})
+        if result:
+            return dict(result[0])
+        return None
+
     async def find_entities_by_ids(
         self,
         entity_ids: list[str],
@@ -194,20 +213,35 @@ class LadybugEntityRepo:
         """Create a relationship between two entities.
 
         Uses RELATED_TO table with edge_type property for all relationships.
+        Note: LadybugDB doesn't support MERGE with ON CREATE/ON MATCH for relationships.
         """
         import json
 
         now = int(time.time())
 
-        query = """
-        MATCH (from:Entity {id: $from_id})
-        MATCH (to:Entity {id: $to_id})
-        MERGE (from)-[r:RELATED_TO {edge_type: $edge_type}]->(to)
-        ON CREATE SET r.created_at = $created_at, r.updated_at = $updated_at
-        ON MATCH SET r.updated_at = $updated_at
-        SET r.properties = $properties
+        # LadybugDB: Check if relation exists, create if not
+        # Using a simpler approach that works with LadybugDB's limited Cypher support
+        check_query = """
+        MATCH (from:Entity {id: $from_id})-[r:RELATED_TO {edge_type: $edge_type}]->(to:Entity {id: $to_id})
+        RETURN r
         """
         params = {
+            "from_id": from_entity_id,
+            "to_id": to_entity_id,
+            "edge_type": edge_type,
+        }
+
+        result = await self._pool.execute_query(check_query, params)
+        if result:
+            return  # Relation already exists
+
+        # Create new relation with all properties in one statement
+        create_query = """
+        MATCH (from:Entity {id: $from_id})
+        MATCH (to:Entity {id: $to_id})
+        CREATE (from)-[r:RELATED_TO {edge_type: $edge_type, created_at: $created_at, updated_at: $updated_at, properties: $properties}]->(to)
+        """
+        create_params = {
             "from_id": from_entity_id,
             "to_id": to_entity_id,
             "edge_type": edge_type,
@@ -216,7 +250,7 @@ class LadybugEntityRepo:
             "updated_at": now,
         }
 
-        await self._pool.execute_query(query, params)
+        await self._pool.execute_query(create_query, create_params)
 
     async def get_entity_relations(
         self,

@@ -108,6 +108,7 @@ class LadybugWriter:
 
         # Create entities and MENTIONS relationships
         entities = state.get("entities", [])
+        entity_name_to_id: dict[str, str] = {}  # Build mapping during entity creation
         if entities:
             for entity in entities:
                 entity_name = entity.get("canonical_name") or entity.get("name", "")
@@ -127,6 +128,7 @@ class LadybugWriter:
                     tier=tier,
                 )
                 entity_ids.append(entity_id)
+                entity_name_to_id[entity_name] = entity_id  # Store for later relation lookup
 
                 # Create MENTIONS relationship
                 await self.entity_repo.merge_mentions_relation(
@@ -149,36 +151,75 @@ class LadybugWriter:
                     )
 
         # Create entity relationships
+        # Support both formats:
+        # - Neo4jWriter format: {"source": "name", "target": "name", "relation_type": "..."}
+        # - Legacy format: {"from_entity": {...}, "to_entity": {...}}
         relations = state.get("relations", [])
         if relations:
             for rel in relations:
-                from_entity = rel.get("from_entity", {})
-                to_entity = rel.get("to_entity", {})
-                edge_type = rel.get("relation_type", "RELATED_TO")
-                properties = rel.get("properties", {})
+                try:
+                    # Try Neo4jWriter format first (source/target)
+                    source_name = rel.get("source")
+                    target_name = rel.get("target")
+                    edge_type = rel.get("relation_type", "RELATED_TO")
+                    description = rel.get("description")
 
-                from_name = from_entity.get("canonical_name") or from_entity.get("name", "")
-                from_type = from_entity.get("type", "未知")
-                to_name = to_entity.get("canonical_name") or to_entity.get("name", "")
-                to_type = to_entity.get("type", "未知")
+                    # Fall back to legacy format (from_entity/to_entity)
+                    if not source_name:
+                        from_entity = rel.get("from_entity", {})
+                        source_name = from_entity.get("canonical_name") or from_entity.get(
+                            "name", ""
+                        )
+                    if not target_name:
+                        to_entity = rel.get("to_entity", {})
+                        target_name = to_entity.get("canonical_name") or to_entity.get("name", "")
 
-                if not from_name or not to_name:
-                    continue
+                    if not source_name or not target_name:
+                        continue
 
-                # Find entities
-                from_ent = await self.entity_repo.find_entity(from_name, from_type)
-                to_ent = await self.entity_repo.find_entity(to_name, to_type)
+                    # Find entity IDs
+                    source_id = entity_name_to_id.get(source_name)
+                    target_id = entity_name_to_id.get(target_name)
 
-                if from_ent and to_ent:
+                    # If not in cache, look up in database
+                    if not source_id:
+                        source_ent = await self.entity_repo.find_entity_by_name(source_name)
+                        if source_ent:
+                            source_id = source_ent["id"]
+                            entity_name_to_id[source_name] = source_id
+
+                    if not target_id:
+                        target_ent = await self.entity_repo.find_entity_by_name(target_name)
+                        if target_ent:
+                            target_id = target_ent["id"]
+                            entity_name_to_id[target_name] = target_id
+
+                    if not source_id or not target_id:
+                        log.warning(
+                            "ladybug_relation_entity_not_found",
+                            source=source_name,
+                            target=target_name,
+                        )
+                        continue
+
                     # Normalize edge type
                     if self._relation_type_normalizer:
-                        edge_type = self._relation_type_normalizer.normalize(edge_type)
+                        try:
+                            normalized = await self._relation_type_normalizer.normalize(edge_type)
+                            edge_type = normalized.name_en or edge_type
+                        except Exception as exc:
+                            log.warning("relation_normalization_failed", error=str(exc))
 
                     await self.entity_repo.merge_relation(
-                        from_entity_id=from_ent["id"],
-                        to_entity_id=to_ent["id"],
+                        from_entity_id=source_id,
+                        to_entity_id=target_id,
                         edge_type=edge_type,
-                        properties=properties,
+                        properties={"description": description} if description else {},
+                    )
+                except Exception as exc:
+                    log.error(
+                        "ladybug_relation_loop_error",
+                        error=str(exc),
                     )
 
         return entity_ids

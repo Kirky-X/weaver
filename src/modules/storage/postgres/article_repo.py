@@ -218,7 +218,7 @@ class ArticleRepo:
         from datetime import UTC, datetime
 
         raw = state["raw"]
-        return Article(
+        article = Article(
             source_url=raw.url if hasattr(raw, "url") else raw.get("url", ""),
             source_host=getattr(raw, "source_host", None)
             or (raw.get("source_host") if isinstance(raw, dict) else None),
@@ -229,6 +229,9 @@ class ArticleRepo:
             persist_status=PersistStatus.PG_DONE,
             updated_at=datetime.now(UTC),
         )
+        # Apply additional fields (category, language, region, etc.)
+        _apply_state_to_article(article, state)
+        return article
 
     async def _update_single_fields(
         self, session: AsyncSession, article_id: uuid.UUID, state: PipelineState

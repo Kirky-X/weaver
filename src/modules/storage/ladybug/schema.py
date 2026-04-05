@@ -53,7 +53,9 @@ SCHEMA_QUERIES = [
     CREATE REL TABLE IF NOT EXISTS RELATED_TO (
         FROM Entity TO Entity,
         edge_type STRING,
-        properties STRING
+        properties STRING,
+        created_at INT64,
+        updated_at INT64
     )
     """,
 ]
