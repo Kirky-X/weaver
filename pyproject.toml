@@ -93,6 +93,7 @@ dev = [
     "commitizen>=4.13.9",
     # ── Secret detection (baseline generation) ─────────────
     "detect-secrets>=1.5.0",
+    "pytest-env>=1.2.0",
 ]
 
 # ────────────────────────────────────────────────────────────
