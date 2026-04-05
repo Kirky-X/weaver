@@ -70,35 +70,35 @@ from modules.ingestion.scheduling import SourceConfigRepo, SourceScheduler
 __all__ = [
     # Domain models
     "ArticleRaw",
-    "NewsItem",
-    "RawArticle",
-    "SourceConfig",
     # Fetching
     "BaseFetcher",
+    # Parsing
+    "BaseSourceParser",
     "CircuitOpenError",
+    # Crawling
+    "Crawler",
+    # Deduplication
+    "Deduplicator",
     "FetchError",
     "HostRateLimiter",
     "HttpxFetcher",
+    "NewsItem",
     "PlaywrightContextPool",
     "PlaywrightFetcher",
-    "SmartFetcher",
-    # Parsing
-    "BaseSourceParser",
-    "RSSParser",
-    "SourceRegistry",
-    "source_parser_plugin",
     "PluginMetadata",
+    "RSSParser",
+    "RawArticle",
+    "RetryQueue",
+    "SimHashDeduplicator",
+    "SmartFetcher",
+    "SourceConfig",
+    "SourceConfigRepo",
+    "SourceRegistry",
+    # Scheduling
+    "SourceScheduler",
+    "TitleItem",
     "get_plugin",
     "get_registered_plugins",
     "load_plugins",
-    # Scheduling
-    "SourceScheduler",
-    "SourceConfigRepo",
-    # Deduplication
-    "Deduplicator",
-    "RetryQueue",
-    "SimHashDeduplicator",
-    "TitleItem",
-    # Crawling
-    "Crawler",
+    "source_parser_plugin",
 ]

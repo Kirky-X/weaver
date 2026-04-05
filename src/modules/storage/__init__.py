@@ -17,10 +17,10 @@ from modules.storage.postgres.vector_repo import VectorRepo
 __all__ = [
     # PostgreSQL
     "ArticleRepo",
-    "PendingSyncRepo",
-    "SourceAuthorityRepo",
-    "VectorRepo",
     # Neo4j
     "Neo4jArticleRepo",
     "Neo4jEntityRepo",
+    "PendingSyncRepo",
+    "SourceAuthorityRepo",
+    "VectorRepo",
 ]
