@@ -10,16 +10,29 @@
 ## [Unreleased]
 
 ### Added
+
 - 新增 DRIFT 搜索功能，支持迭代式探索性搜索
 - 新增社区检测自动调度器
 - 新增关系类型种子数据脚本
+- 新增 `src/core/constants.py` 统一管理默认常量
+- 新增 `mget()`, `setex()` 方法到 RedisClient
+- 新增 `has_degraded_data()`, `get_degradation_summary()` 辅助函数
+- 新增 `dedup_redis_fallback_total` Prometheus 指标
 
 ### Changed
+
 - 优化 GraphRAG 合并后的测试兼容性
 - 改进 LLM 配置管理器和队列管理器
+- 重构 `entity_resolver.py` — 184行方法拆分为7个清晰方法
+- 重构 `aggregator.py` — 提取辅助方法降低嵌套
+- 优化 embedding 缓存 — 使用 `mget()` 批量获取替代 N+1 查询
+- 改进 `Deduplicator` — 添加 Redis 健康检查与 DB fallback
 
 ### Fixed
+
 - 修复存储层无效的 BaseRepository 导入
+- 修复 LLM 失败时降级数据标记缺失问题
+- 修复 Redis 缓存 N+1 查询性能问题
 
 ---
 
@@ -28,6 +41,7 @@
 ### Added
 
 #### 核心功能
+
 - **RSS 源管理**：支持订阅、调度、解析 RSS/Atom 源
 - **智能爬取**：自动选择 HTTPX 或 Playwright，支持动态页面渲染
 - **LLM 处理流水线**：分类、清洗、摘要、情感分析、实体提取
@@ -37,6 +51,7 @@
 - **REST API**：FastAPI 提供完整 API 接口
 
 #### 搜索功能
+
 - **统一搜索端点**：自动路由到合适的搜索引擎
 - **本地搜索**：实体聚焦的图谱问答搜索
 - **全局搜索**：社区级聚合搜索（Map-Reduce 模式）
@@ -44,30 +59,35 @@
 - **DRIFT 搜索**：迭代式探索性搜索（实验性）
 
 #### 社区检测
+
 - **Hierarchical Leiden 算法**：发现知识图谱中的社区结构
 - **社区报告生成**：LLM 驱动的社区语义摘要
 - **社区指标**：模块度、层次结构、孤立实体统计
 - **自动触发机制**：基于实体变化阈值自动重建
 
 #### 数据一致性
+
 - **Saga 模式**：跨数据库（PostgreSQL + Neo4j）原子性批量持久化
 - **PersistStatus 状态机**：追踪文章持久化状态
 - **定期对账任务**：异步检查和修复数据不一致
 - **补偿事务**：Neo4j 失败时回滚 PostgreSQL
 
 #### 可观测性
+
 - **健康检查端点**：Kubernetes 探针支持
 - **Prometheus 指标**：HTTP、Circuit Breaker、数据库、Pipeline 指标
 - **OpenTelemetry 集成**：分布式追踪支持
 - **结构化日志**：Loguru 日志记录
 
 #### 安全特性
+
 - **SSRF 防护**：多层 URL 验证（协议、IP、主机名、重定向）
 - **API Key 认证**：请求头认证机制
 - **速率限制**：基于 Redis 的滑动窗口限流
 - **依赖注入**：FastAPI Depends 模式管理服务和生命周期
 
 #### 开发工具
+
 - **分层测试**：单元测试、集成测试、E2E 测试
 - **性能测试**：HNSW 向量索引性能基准
 - **代码质量工具**：Ruff、Black、isort、mypy、bandit
@@ -76,6 +96,7 @@
 ### Technical Details
 
 #### 技术栈
+
 - Python 3.12+
 - FastAPI 0.135+
 - PostgreSQL 15+ with pgvector
@@ -86,6 +107,7 @@
 - Playwright
 
 #### 架构亮点
+
 - **依赖注入架构**：松耦合、高可测试性
 - **Circuit Breaker 线程安全设计**：asyncio.Lock 保护
 - **向量索引**：HNSW 索引优化相似性搜索
@@ -129,21 +151,27 @@
 ## [X.Y.Z] - YYYY-MM-DD
 
 ### Added
+
 - 新增功能描述
 
 ### Changed
+
 - 功能变更描述
 
 ### Deprecated
+
 - 即将移除的功能
 
 ### Removed
+
 - 已移除的功能
 
 ### Fixed
+
 - Bug 修复描述
 
 ### Security
+
 - 安全修复描述
 ```
 
