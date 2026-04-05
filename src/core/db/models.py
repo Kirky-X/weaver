@@ -27,13 +27,32 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.types import JSON, TypeDecorator
+
+
+class JSONCompatible(TypeDecorator):
+    """TypeDecorator that uses JSONB for PostgreSQL and JSON for other dialects.
+
+    DuckDB and SQLite don't support JSONB, only JSON. This decorator
+    automatically selects the appropriate type based on the database dialect.
+    """
+
+    impl = JSON
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == "postgresql":
+            # Use JSONB for PostgreSQL
+            return JSONB().dialect_impl(dialect)
+        # Use plain JSON for DuckDB, SQLite, etc.
+        return JSON().dialect_impl(dialect)
 
 
 class Base(DeclarativeBase):
     """Declarative base for all ORM models."""
 
     type_annotation_map = {
-        dict[str, Any]: JSONB,
+        dict[str, Any]: JSONCompatible,
         list[str]: ARRAY(Text),
         list[uuid.UUID]: ARRAY(UUID(as_uuid=True)),
     }
@@ -209,7 +228,7 @@ class Article(Base):
     retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     # Prompt version tracing
-    prompt_versions: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    prompt_versions: Mapped[dict[str, Any] | None] = mapped_column(JSONCompatible)
 
     # Timestamps
     publish_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -391,7 +410,7 @@ class PendingSync(Base):
         nullable=False,
     )
     sync_type: Mapped[str] = mapped_column(String(20), nullable=False)
-    payload: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    payload: Mapped[dict[str, Any]] = mapped_column(JSONCompatible, nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="pending")
     retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error: Mapped[str | None] = mapped_column(Text)

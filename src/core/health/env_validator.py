@@ -600,6 +600,16 @@ class EnvironmentValidator:
         else:
             print(f"{Colors.YELLOW}{healthy_count}/{total_count} services healthy{Colors.RESET}")
 
+        # Log summary for structured logging
+        unhealthy = [r for r in results.values() if not r.healthy]
+        if unhealthy:
+            log.error(
+                "env_validation_failed",
+                failed_services=[r.service for r in unhealthy],
+            )
+        else:
+            log.info("env_validation_passed", services=len(results))
+
     def get_exit_code(self, results: dict[str, ValidationResult]) -> int:
         """Get exit code based on validation results.
 
