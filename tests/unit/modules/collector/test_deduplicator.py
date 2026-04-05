@@ -46,6 +46,7 @@ class TestDeduplicatorDedup:
         """Create mock Redis client."""
         redis = MagicMock()
         redis.pipeline = MagicMock()
+        redis.ping = AsyncMock(return_value=True)
         return redis
 
     @pytest.fixture

@@ -48,6 +48,7 @@ class TestDeduplicatorDedup:
     def mock_redis(self):
         """Mock Redis client."""
         redis = MagicMock()
+        redis.ping = AsyncMock(return_value=True)
         pipeline_mock = MagicMock()
         pipeline_mock.hexists = MagicMock()
         pipeline_mock.execute = AsyncMock(return_value=[False, False])

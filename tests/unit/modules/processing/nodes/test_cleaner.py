@@ -237,6 +237,46 @@ class TestCleanerNodeErrorHandling:
         assert result["cleaned"]["body"] == sample_raw.body
 
 
+class TestCleanerNodeDegradation:
+    @pytest.mark.asyncio
+    async def test_marks_degraded_fields_on_error(
+        self, mock_llm, mock_budget, mock_prompt_loader, sample_raw
+    ):
+        mock_llm.call_at = AsyncMock(side_effect=Exception("LLM unavailable"))
+
+        node = CleanerNode(mock_llm, mock_budget, mock_prompt_loader)
+        state = PipelineState(raw=sample_raw)
+
+        result = await node.execute(state)
+
+        # Check degraded fields are marked
+        assert "degraded_fields" in result
+        assert "cleaned.title" in result["degraded_fields"]
+        assert "cleaned.body" in result["degraded_fields"]
+        assert "tags" in result["degraded_fields"]
+        assert "cleaner_entities" in result["degraded_fields"]
+
+        # Check degradation reasons
+        assert "degradation_reasons" in result
+        assert "cleaned.title" in result["degradation_reasons"]
+        assert "LLM cleaner failed" in result["degradation_reasons"]["cleaned.title"]
+
+    @pytest.mark.asyncio
+    async def test_no_degraded_fields_on_success(
+        self, mock_llm, mock_budget, mock_prompt_loader, sample_raw
+    ):
+        mock_llm.call_at = AsyncMock(return_value=_make_cleaner_output())
+
+        node = CleanerNode(mock_llm, mock_budget, mock_prompt_loader)
+        state = PipelineState(raw=sample_raw)
+
+        result = await node.execute(state)
+
+        # No degraded fields when successful
+        assert not result.get("degraded_fields")
+        assert not result.get("degradation_reasons")
+
+
 class TestCleanerNodePreservesState:
     @pytest.mark.asyncio
     async def test_preserves_existing_fields(
