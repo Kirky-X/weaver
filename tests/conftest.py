@@ -318,29 +318,6 @@ def mock_embedder():
     return embedder
 
 
-@pytest.fixture
-def mock_playwright_context():
-    """Mock Playwright context for testing."""
-    context = MagicMock()
-    context.new_page = AsyncMock()
-    context.close = AsyncMock()
-    return context
-
-
-@pytest.fixture
-def mock_playwright_page():
-    """Mock Playwright page for testing."""
-    page = MagicMock()
-    page.goto = AsyncMock()
-    page.content = AsyncMock(return_value="<html><body>Test</body></html>")
-    page.title = AsyncMock(return_value="Test Page")
-    page.close = AsyncMock()
-    page.wait_for_selector = AsyncMock()
-    page.query_selector = AsyncMock(return_value=None)
-    page.query_selector_all = AsyncMock(return_value=[])
-    return page
-
-
 def pytest_configure(config):
     """Configure pytest markers."""
     config.addinivalue_line("markers", "asyncio: mark test as async")

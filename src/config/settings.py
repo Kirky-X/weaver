@@ -517,6 +517,16 @@ class SpacySettings(BaseModel):
     """
 
 
+class PipelineUrlEndpointSettings(BaseModel):
+    """Single URL pipeline processing endpoint configuration."""
+
+    whitelist_enabled: bool = False
+    """Enable domain whitelist mode."""
+
+    allowed_domains: list[str] = Field(default_factory=list)
+    """Allowed domains when whitelist mode is enabled."""
+
+
 def settings_customise_sources(
     settings: type[BaseSettings],
     init_settings: PydanticBaseSettingsSource,
@@ -603,6 +613,9 @@ class Settings(BaseSettings):
     temporal_inference: TemporalInferenceSettings = Field(default_factory=TemporalInferenceSettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
     spacy: SpacySettings = Field(default_factory=SpacySettings)
+    pipeline_url_endpoint: PipelineUrlEndpointSettings = Field(
+        default_factory=PipelineUrlEndpointSettings
+    )
 
     def __init__(self, **kwargs: Any) -> None:
         """Initialize settings, loading TOML config first."""

@@ -7,10 +7,11 @@ import asyncio
 import json
 import uuid
 from datetime import UTC, datetime
+from urllib.parse import urlparse
 
 import json_repair
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from api.dependencies import (
     get_postgres_pool,
@@ -19,10 +20,13 @@ from api.dependencies import (
 )
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
+from config.settings import Settings
+from container import get_settings
 from core.cache.redis import RedisClient
 from core.constants import PipelineTaskStatus
 from core.db.postgres import PostgresPool
 from core.observability.metrics import metrics
+from core.security import URLValidationError, URLValidator
 from modules.ingestion.scheduling.scheduler import SourceScheduler
 from modules.storage import ArticleRepo
 
@@ -75,6 +79,33 @@ class TaskStatusResponse(BaseModel):
     completed_count: int = 0
     failed_count: int = 0
     pending_count: int = 0
+
+
+class ProcessUrlRequest(BaseModel):
+    """Request model for single URL processing."""
+
+    url: str = Field(..., description="要处理的资讯网页URL")
+    whitelist_mode: bool = Field(default=False, description="是否启用白名单模式")
+
+    @field_validator("url")
+    @classmethod
+    def validate_url_format(cls, v: str) -> str:
+        """Validate URL has http/https scheme."""
+        v = v.strip()
+        parsed = urlparse(v)
+        if parsed.scheme.lower() not in ("http", "https"):
+            raise ValueError("URL must use http or https protocol")
+        if not parsed.hostname:
+            raise ValueError("URL must include a hostname")
+        return v
+
+
+class ProcessUrlResponse(BaseModel):
+    """Response model for single URL processing."""
+
+    task_id: str
+    status: str = PipelineTaskStatus.QUEUED.value
+    queued_at: str
 
 
 # ── Constants ───────────────────────────────────────────────────
@@ -324,3 +355,224 @@ async def get_queue_stats(
             },
         }
     )
+
+
+# ── Single URL Processing ─────────────────────────────────────
+
+
+# URL validator instance (reused across requests)
+_url_validator: URLValidator | None = None
+
+
+def _get_url_validator() -> URLValidator:
+    """Get or create URL validator instance."""
+    global _url_validator
+    if _url_validator is None:
+        _url_validator = URLValidator()
+    return _url_validator
+
+
+async def _validate_url_for_processing(
+    url: str,
+    whitelist_mode: bool,
+    settings: Settings,
+) -> str:
+    """Validate URL for SSRF and whitelist.
+
+    Args:
+        url: URL to validate.
+        whitelist_mode: Whether to check whitelist.
+        settings: Application settings.
+
+    Returns:
+        Validated URL.
+
+    Raises:
+        HTTPException: If URL is invalid or blocked.
+
+    """
+    validator = _get_url_validator()
+
+    # SSRF validation
+    try:
+        await validator.validate(url)
+    except URLValidationError as e:
+        raise HTTPException(
+            status_code=403,
+            detail=f"SSRF risk: {e.message}",
+        ) from e
+
+    # Whitelist validation
+    if whitelist_mode:
+        allowed_domains = settings.pipeline_url_endpoint.allowed_domains
+        parsed = urlparse(url)
+        hostname = parsed.hostname or ""
+
+        if not allowed_domains:
+            raise HTTPException(
+                status_code=403,
+                detail="Whitelist mode enabled but no allowed domains configured",
+            )
+
+        # Check if hostname matches any allowed domain (supports subdomains)
+        is_allowed = any(
+            hostname == domain or hostname.endswith(f".{domain}") for domain in allowed_domains
+        )
+
+        if not is_allowed:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Domain '{hostname}' is not in the allowed list",
+            )
+
+    return url
+
+
+async def _update_task_status(
+    redis: RedisClient,
+    task_id: str,
+    status: str,
+    **extra: str,
+) -> None:
+    """Update task status in Redis.
+
+    Args:
+        redis: Redis client.
+        task_id: Task ID.
+        status: New status.
+        **extra: Additional fields to store.
+
+    """
+    existing = await redis.client.hget(TASK_STATUS_KEY, task_id)
+    data = json.loads(existing) if existing else {"task_id": task_id}
+    data["status"] = status
+    data.update(extra)
+    await redis.client.hset(TASK_STATUS_KEY, task_id, json.dumps(data))
+
+
+async def _process_single_url(
+    url: str,
+    task_id: str,
+    redis: RedisClient,
+) -> None:
+    """Background task to process a single URL through the pipeline.
+
+    Args:
+        url: URL to process.
+        task_id: Task ID for tracking.
+        redis: Redis client for status updates.
+
+    """
+    from container import get_container
+    from modules.ingestion.domain.models import NewsItem
+    from modules.ingestion.fetching.exceptions import FetchError
+
+    container = get_container()
+    crawler = container.crawler()
+    pipeline = container.pipeline()
+
+    try:
+        # Update status to running
+        await _update_task_status(
+            redis,
+            task_id,
+            PipelineTaskStatus.RUNNING.value,
+            started_at=datetime.now(UTC).isoformat(),
+        )
+
+        # Create NewsItem and crawl
+        item = NewsItem(
+            url=url,
+            title="",
+            source="url_endpoint",
+            source_host=urlparse(url).netloc,
+        )
+        results = await crawler.crawl_batch([item])
+
+        # Check for fetch error
+        if results and isinstance(results[0], FetchError):
+            raise results[0]
+
+        if not results:
+            raise RuntimeError("Crawler returned no results")
+
+        article = results[0]
+
+        # Run through pipeline
+        states = await pipeline.process_batch(
+            [article],
+            task_id=uuid.UUID(task_id),
+        )
+
+        # Update status to completed
+        state = states[0] if states else {}
+        await _update_task_status(
+            redis,
+            task_id,
+            PipelineTaskStatus.COMPLETED.value,
+            completed_at=datetime.now(UTC).isoformat(),
+            article_id=state.get("article_id", ""),
+        )
+
+    except Exception as exc:
+        # Update status to failed
+        await _update_task_status(
+            redis,
+            task_id,
+            PipelineTaskStatus.FAILED.value,
+            error=str(exc),
+            completed_at=datetime.now(UTC).isoformat(),
+        )
+
+
+@router.post("/url", response_model=APIResponse[ProcessUrlResponse])
+async def process_single_url(
+    request: ProcessUrlRequest,
+    _: str = Depends(verify_api_key),
+    redis: RedisClient = Depends(get_redis_client),
+    settings: Settings = Depends(get_settings),
+) -> APIResponse[ProcessUrlResponse]:
+    """Process a single URL through the full pipeline.
+
+    Args:
+        request: URL processing request.
+        _: Verified API key.
+        redis: Redis client for task status.
+        settings: Application settings.
+
+    Returns:
+        Task ID and initial status.
+
+    Raises:
+        HTTPException: If URL is invalid or blocked.
+
+    """
+    # Validate URL
+    await _validate_url_for_processing(
+        request.url,
+        request.whitelist_mode,
+        settings,
+    )
+
+    # Create task
+    task_id = str(uuid.uuid4())
+    now = datetime.now(UTC).isoformat()
+
+    # Store initial task status
+    await redis.client.hset(
+        TASK_STATUS_KEY,
+        task_id,
+        json.dumps(
+            {
+                "task_id": task_id,
+                "status": PipelineTaskStatus.QUEUED.value,
+                "url": request.url,
+                "queued_at": now,
+            }
+        ),
+    )
+
+    # Launch background processing
+    _ = asyncio.create_task(_process_single_url(request.url, task_id, redis))  # noqa: RUF006
+
+    return success_response(ProcessUrlResponse(task_id=task_id, queued_at=now))

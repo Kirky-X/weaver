@@ -5,7 +5,7 @@
 合并了原 collector、fetcher、source 模块，提供完整的内容摄入流程：
 - 数据源发现和解析（RSS/API）
 - URL 和标题去重
-- 网页抓取（HTTPX/Playwright）
+- 网页抓取（HTTPX/Crawl4AI）
 - 源调度管理
 
 公开 API:
