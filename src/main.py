@@ -29,11 +29,34 @@ from api.router import api_router
 from api.schemas.response import APIResponse, success_response
 from config.settings import Settings
 from container import Container, set_container, set_settings
+from core.nlp.spacy_manager import SpacyModelConfig, SpacyModelManager
 from core.observability.logging import configure_logging, get_logger
 from core.observability.tracing import configure_tracing, instrument_fastapi
 
 log = get_logger("main")
 configure_logging(debug=os.environ.get("DEBUG", "").lower() in ("true", "1", "yes"))
+
+
+def _ensure_spacy_models(settings: Settings) -> None:
+    """Ensure spaCy models are available.
+
+    Checks for missing models and installs them if configured.
+    This runs before container initialization for early failure detection.
+
+    Args:
+        settings: Application settings containing spacy configuration.
+
+    Raises:
+        RuntimeError: If model installation fails in strict mode.
+    """
+    config = SpacyModelConfig(
+        force_install=settings.spacy.force_install,
+        strict_mode=settings.spacy.strict_mode,
+        models=settings.spacy.models,
+        local_paths=settings.spacy.local_paths,
+    )
+    manager = SpacyModelManager(config)
+    manager.check_and_install()
 
 
 @asynccontextmanager
@@ -300,6 +323,9 @@ def create_app(container: Container | None = None) -> FastAPI:
     """
     settings = container.settings if container else Settings()
 
+    # Ensure spaCy models are available (early check before container init)
+    _ensure_spacy_models(settings)
+
     security_warnings = settings.validate_security()
     for warning in security_warnings:
         log.warning("security_check", warning=warning)
@@ -369,6 +395,10 @@ async def main() -> None:
     import uvicorn
 
     settings = Settings()
+
+    # Ensure spaCy models are available (before container initialization)
+    _ensure_spacy_models(settings)
+
     container = Container().configure(settings)
     app = create_app(container)
 

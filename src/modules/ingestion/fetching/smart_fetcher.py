@@ -25,6 +25,7 @@ JS_REQUIRED_HOSTS: set[str] = {
     "m.weibo.cn",
     "mp.weixin.qq.com",
     "toutiao.com",
+    "36kr.com",  # SPA-based tech news site
 }
 
 # Minimum content length to consider a page valid
