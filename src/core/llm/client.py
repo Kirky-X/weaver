@@ -278,19 +278,21 @@ class LLMClient:
         uncached_indices: list[int] = []
         uncached_texts: list[str] = []
 
-        # 检查缓存
+        # 检查缓存 (batch MGET)
         if use_cache and self._redis:
-            for i, text in enumerate(texts):
-                cache_key = self._make_cache_key(text)
-                try:
-                    cached = await self._redis.get(cache_key)
+            cache_keys = [self._make_cache_key(text) for text in texts]
+            try:
+                cached_values = await self._redis.mget(cache_keys)
+                for i, cached in enumerate(cached_values):
                     if cached:
                         all_embeddings[i] = json.loads(cached)
-                        continue
-                except Exception as exc:
-                    log.debug("embedding_cache_read_failed", error=str(exc))
-                uncached_indices.append(i)
-                uncached_texts.append(text)
+                    else:
+                        uncached_indices.append(i)
+                        uncached_texts.append(texts[i])
+            except Exception as exc:
+                log.debug("embedding_cache_batch_read_failed", error=str(exc))
+                uncached_indices = list(range(len(texts)))
+                uncached_texts = texts
         else:
             uncached_indices = list(range(len(texts)))
             uncached_texts = texts
