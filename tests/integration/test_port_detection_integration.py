@@ -31,15 +31,25 @@ class TestPortDetectionIntegration:
 
     def test_settings_port_detection_finds_available_port(self) -> None:
         """Settings should find an available port when configured port is in use."""
-        # Bind port 8000 to make it unavailable
+        # Use a less common port to avoid conflicts with running services
+        test_port = 18999
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("127.0.0.1", 8000))
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(("127.0.0.1", test_port))
             s.listen(1)
 
-            # Create settings with port 8000 - should find another port
-            settings = Settings()
-            assert settings.api.port != 8000
-            assert settings.api.port > 1024
+            # Use environment variable to set the port
+            with patch.dict(
+                "os.environ",
+                {
+                    "WEAVER_API__PORT": str(test_port),
+                    "WEAVER_API__PORT_AUTO_DETECT": "true",
+                },
+            ):
+                settings = Settings()
+                # Port should be different since test_port is bound
+                assert settings.api.port > 1024
+                assert settings.api.port != test_port
 
     def test_settings_creates_env_file_when_port_changes(self, tmp_path, monkeypatch) -> None:
         """Settings should create .env.weaver when port changes."""
@@ -48,18 +58,28 @@ class TestPortDetectionIntegration:
         # Change to temp directory
         monkeypatch.chdir(tmp_path)
 
-        # Bind port 8000 to force port change
+        # Use a less common port to avoid conflicts
+        test_port = 18998
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.bind(("127.0.0.1", 8000))
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind(("127.0.0.1", test_port))
             s.listen(1)
 
-            settings = Settings()
+            # Use environment variable to set the port
+            with patch.dict(
+                "os.environ",
+                {
+                    "WEAVER_API__PORT": str(test_port),
+                    "WEAVER_API__PORT_AUTO_DETECT": "true",
+                },
+            ):
+                settings = Settings()
 
-            # Check that env file was created
-            env_file = tmp_path / ".env.weaver"
-            if env_file.exists():
-                content = env_file.read_text()
-                assert f"WEAVER_ACTUAL_PORT={settings.api.port}" in content
+                # Check that env file was created
+                env_file = tmp_path / ".env.weaver"
+                if env_file.exists():
+                    content = env_file.read_text()
+                    assert f"WEAVER_ACTUAL_PORT={settings.api.port}" in content
 
     def test_multiple_settings_instances_use_same_port(self) -> None:
         """Multiple Settings instances should resolve to the same available port."""

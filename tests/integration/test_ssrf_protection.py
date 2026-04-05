@@ -128,13 +128,13 @@ class TestSSRFProtection:
         mock_httpx.fetch = AsyncMock(return_value=(200, "<html>content</html>", {}))
         mock_httpx.close = AsyncMock()
 
-        mock_playwright = MagicMock()
-        mock_playwright.fetch = AsyncMock(return_value=(200, "<html>content</html>", {}))
-        mock_playwright.close = AsyncMock()
+        mock_crawl4ai = MagicMock()
+        mock_crawl4ai.fetch = AsyncMock(return_value=(200, "<html>content</html>", {}))
+        mock_crawl4ai.close = AsyncMock()
 
         fetcher = SmartFetcher(
             httpx_fetcher=mock_httpx,
-            playwright_fetcher=mock_playwright,
+            crawl4ai_fetcher=mock_crawl4ai,
             url_validation_enabled=True,
         )
 
@@ -151,12 +151,12 @@ class TestSSRFProtection:
         mock_httpx.fetch = AsyncMock(return_value=(200, "<html>content</html>", {}))
         mock_httpx.close = AsyncMock()
 
-        mock_playwright = MagicMock()
-        mock_playwright.close = AsyncMock()
+        mock_crawl4ai = MagicMock()
+        mock_crawl4ai.close = AsyncMock()
 
         fetcher = SmartFetcher(
             httpx_fetcher=mock_httpx,
-            playwright_fetcher=mock_playwright,
+            crawl4ai_fetcher=mock_crawl4ai,
             url_validation_enabled=True,
         )
 
