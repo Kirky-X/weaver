@@ -33,7 +33,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 
 
 @dataclass
-class TestMetrics:
+class Metrics:
     """Test execution metrics."""
 
     total_tests: int = 0
@@ -59,7 +59,7 @@ class CoverageMetrics:
     low_coverage_modules: list[dict[str, Any]] = field(default_factory=list)
 
 
-def run_pytest_with_timing(output_dir: Path) -> tuple[TestMetrics, str]:
+def run_pytest_with_timing(output_dir: Path) -> tuple[Metrics, str]:
     """Run pytest and capture timing information.
 
     Returns:
@@ -93,7 +93,7 @@ def run_pytest_with_timing(output_dir: Path) -> tuple[TestMetrics, str]:
     )
 
     # Parse output
-    metrics = TestMetrics()
+    metrics = Metrics()
     output = result.stdout + result.stderr
 
     # Parse pytest summary
@@ -231,7 +231,7 @@ def parse_coverage_report(output_dir: Path) -> CoverageMetrics:
 
 
 def generate_report(
-    test_metrics: TestMetrics,
+    test_metrics: Metrics,
     coverage_metrics: CoverageMetrics,
     output_dir: Path,
 ) -> dict[str, Any]:
