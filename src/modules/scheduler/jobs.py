@@ -809,15 +809,13 @@ class SchedulerJobs:
     @scheduled_task("llm_usage_aggregate", timeout_seconds=300)
     async def aggregate_llm_usage(self) -> int:
         """Aggregate LLM usage data from Redis buffer to PostgreSQL."""
-        from modules.analytics.llm_usage.aggregator import LLMUsageAggregatorThread
+        from modules.analytics.llm_usage.aggregator import flush_usage_buffer
 
-        aggregator = LLMUsageAggregatorThread(
+        processed, errors = await flush_usage_buffer(
             redis_client=self._redis,
             postgres_pool=self._postgres,
-            interval_minutes=1,
         )
-        await aggregator._flush()
-        return 1
+        return processed
 
 
 class RetryManager:
