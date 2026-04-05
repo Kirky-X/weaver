@@ -22,7 +22,7 @@ from fastapi import Depends, HTTPException
 
 if TYPE_CHECKING:
     from container import Container
-    from core.cache.redis import RedisClient
+    from core.cache.redis import CashewsRedisFallback, RedisClient
     from core.db.neo4j import Neo4jPool
     from core.db.postgres import PostgresPool
     from core.llm.client import LLMClient
@@ -70,14 +70,14 @@ def get_postgres_pool() -> PostgresPool:
     return Endpoints.get_postgres_pool()
 
 
-def get_redis_client() -> RedisClient:
+def get_redis_client() -> RedisClient | CashewsRedisFallback:
     """FastAPI dependency for Redis client.
 
     Raises:
         HTTPException: If client is not initialized.
 
     Returns:
-        RedisClient instance.
+        RedisClient or CashewsRedisFallback instance.
 
     """
     return Endpoints.get_redis()
@@ -243,7 +243,7 @@ def get_llm_usage_repo() -> LLMUsageRepo:
 
 # Type aliases for cleaner endpoint signatures
 PostgresPoolDep = Annotated["PostgresPool", Depends(get_postgres_pool)]
-RedisClientDep = Annotated["RedisClient", Depends(get_redis_client)]
+RedisClientDep = Annotated["RedisClient | CashewsRedisFallback", Depends(get_redis_client)]
 Neo4jPoolDep = Annotated["Neo4jPool", Depends(get_neo4j_pool)]
 LLMClientDep = Annotated["LLMClient", Depends(get_llm_client)]
 VectorRepoDep = Annotated["VectorRepo", Depends(get_vector_repo)]

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from config.settings import Settings
-from core.cache import RedisClient
+from core.cache import CashewsRedisFallback, RedisClient
 from core.db.pool_protocols import GraphPool, RelationalPool
 from core.db.strategy import DatabaseStrategy, create_strategy
 from core.event import EventBus, LLMFailureEvent, LLMUsageEvent
@@ -85,7 +85,7 @@ class Container:
     def __init__(self) -> None:
         self._settings: Settings | None = None
         self._strategy: DatabaseStrategy | None = None
-        self._redis_client: RedisClient | None = None
+        self._redis_client: RedisClient | CashewsRedisFallback | None = None
         self._llm_client: LLMClient | None = None
         self._prompt_loader: PromptLoader | None = None
         self._source_registry: SourceRegistry | None = None
@@ -182,15 +182,28 @@ class Container:
         """
         return self.graph_pool()
 
-    async def init_redis(self) -> RedisClient:
-        """Initialize Redis client."""
+    async def init_redis(self) -> RedisClient | CashewsRedisFallback:
+        """Initialize Redis client with fallback support.
+
+        Tries to connect to real Redis first. Falls back to CashewsRedisFallback
+        (in-memory) if Redis is unavailable.
+
+        Returns:
+            RedisClient or CashewsRedisFallback instance.
+        """
         if self._redis_client is None:
-            self._redis_client = RedisClient(self._settings.redis.url)
-            await self._redis_client.startup()
-            log.info("redis_initialized")
+            try:
+                self._redis_client = RedisClient(self._settings.redis.url)
+                await self._redis_client.startup()
+                log.info("redis_initialized")
+            except Exception as exc:
+                log.warning("redis_unavailable_fallback_to_cashews", error=str(exc))
+                self._redis_client = CashewsRedisFallback()
+                await self._redis_client.startup()
+                log.info("cashews_redis_fallback_initialized")
         return self._redis_client
 
-    def redis_client(self) -> RedisClient:
+    def redis_client(self) -> RedisClient | CashewsRedisFallback:
         """Get Redis client."""
         if self._redis_client is None:
             raise RuntimeError("Redis client not initialized. Call init_redis() first.")

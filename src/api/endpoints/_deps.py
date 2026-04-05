@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING
 from fastapi import HTTPException
 
 if TYPE_CHECKING:
-    from core.cache.redis import RedisClient
+    from core.cache.redis import CashewsRedisFallback, RedisClient
     from core.db.neo4j import Neo4jPool
     from core.db.postgres import PostgresPool
     from core.llm.client import LLMClient
@@ -52,7 +52,7 @@ class Endpoints:
 
     _postgres: PostgresPool | None = None
     _neo4j: Neo4jPool | None = None
-    _redis: RedisClient | None = None
+    _redis: RedisClient | CashewsRedisFallback | None = None
     _llm: LLMClient | None = None
     _local_engine: LocalSearchEngine | None = None
     _global_engine: GlobalSearchEngine | None = None
@@ -89,7 +89,7 @@ class Endpoints:
     # ── Redis ──────────────────────────────────────────────────
 
     @staticmethod
-    def get_redis() -> RedisClient:
+    def get_redis() -> RedisClient | CashewsRedisFallback:
         if Endpoints._redis is None:
             raise HTTPException(503, detail="Redis client not initialized")
         return Endpoints._redis
