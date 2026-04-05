@@ -1,7 +1,11 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Test configuration settings."""
 
-from config.settings import SchedulerSettings
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from config.settings import APISettings, SchedulerSettings
 
 
 def test_scheduler_settings_has_pipeline_retry_interval() -> None:
@@ -55,3 +59,99 @@ def test_scheduler_settings_extended_fields():
     assert settings.source_auto_score_cron_hour == 3
     # Knowledge Graph
     assert settings.community_check_interval_minutes == 30
+
+
+class TestAPISettingsPortDetection:
+    """Tests for APISettings port auto-detection functionality."""
+
+    def test_api_settings_has_port_auto_detect_field(self) -> None:
+        """APISettings should have port_auto_detect field with default True."""
+        with patch("core.net.port_finder.PortFinder") as mock_finder:
+            mock_finder.is_port_available.return_value = True
+            settings = APISettings()
+            assert hasattr(settings, "port_auto_detect")
+            assert settings.port_auto_detect is True
+
+    def test_api_settings_has_port_max_attempts_field(self) -> None:
+        """APISettings should have port_max_attempts field with default 100."""
+        with patch("core.net.port_finder.PortFinder") as mock_finder:
+            mock_finder.is_port_available.return_value = True
+            settings = APISettings()
+            assert hasattr(settings, "port_max_attempts")
+            assert settings.port_max_attempts == 100
+
+    def test_resolve_port_does_not_change_when_available(self) -> None:
+        """Port should remain unchanged when the configured port is available."""
+        with (
+            patch("core.net.port_finder.PortFinder") as mock_finder,
+            patch("core.net.port_announcer.PortAnnouncer") as mock_announcer,
+        ):
+            mock_finder.is_port_available.return_value = True
+            mock_announcer.return_value.announce = MagicMock()
+
+            settings = APISettings(port=8000)
+
+            assert settings.port == 8000
+            mock_finder.is_port_available.assert_called_once_with("127.0.0.1", 8000)
+
+    def test_resolve_port_searches_when_unavailable(self) -> None:
+        """Port should be updated when the configured port is unavailable."""
+        with (
+            patch("core.net.port_finder.PortFinder") as mock_finder,
+            patch("core.net.port_announcer.PortAnnouncer") as mock_announcer,
+        ):
+            mock_finder.is_port_available.return_value = False
+            mock_finder.find_available_port.return_value = 8005
+            mock_announcer.return_value.announce = MagicMock()
+
+            settings = APISettings(port=8000)
+
+            assert settings.port == 8005
+            mock_finder.find_available_port.assert_called_once_with(
+                host="127.0.0.1",
+                start_port=8000,
+                max_attempts=100,
+            )
+
+    def test_resolve_port_disabled_when_auto_detect_false(self) -> None:
+        """Port detection should be skipped when port_auto_detect is False."""
+        with patch("core.net.port_finder.PortFinder") as mock_finder:
+            # Even if we set up the mock, it should not be called
+            settings = APISettings(port=8000, port_auto_detect=False)
+
+            assert settings.port == 8000
+            mock_finder.is_port_available.assert_not_called()
+
+    def test_resolve_port_uses_custom_max_attempts(self) -> None:
+        """Port search should respect custom port_max_attempts."""
+        with (
+            patch("core.net.port_finder.PortFinder") as mock_finder,
+            patch("core.net.port_announcer.PortAnnouncer") as mock_announcer,
+        ):
+            mock_finder.is_port_available.return_value = False
+            mock_finder.find_available_port.return_value = 8005
+            mock_announcer.return_value.announce = MagicMock()
+
+            settings = APISettings(port=8000, port_max_attempts=50)
+
+            mock_finder.find_available_port.assert_called_once_with(
+                host="127.0.0.1",
+                start_port=8000,
+                max_attempts=50,
+            )
+
+    def test_resolve_port_raises_on_failure(self) -> None:
+        """Should raise exception when port resolution fails."""
+        from core.net.errors import PortExhaustionError
+
+        with (
+            patch("core.net.port_finder.PortFinder") as mock_finder,
+            patch("core.net.port_announcer.PortAnnouncer"),
+        ):
+            mock_finder.is_port_available.return_value = False
+            mock_finder.find_available_port.side_effect = PortExhaustionError(
+                "127.0.0.1", 8000, 100
+            )
+
+            with pytest.raises(PortExhaustionError):
+                APISettings(port=8000)

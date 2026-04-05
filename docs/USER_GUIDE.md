@@ -19,12 +19,39 @@
 
 ### 1. 启动服务
 
+Weaver 支持端口自动检测，当配置的端口被占用时会自动寻找可用端口：
+
 ```bash
-# 开发模式
+# 开发模式（端口自动检测默认启用）
 uv run uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 
 # 生产模式
 uv run python -m src.main
+```
+
+**端口自动检测特性**：
+
+- 启动时自动检查配置端口是否可用
+- 端口被占用时自动寻找可用端口（双向搜索）
+- 实际端口信息输出到日志和 `.env.weaver` 文件
+- Docker 健康检查自动适配动态端口
+
+**配置端口检测**：
+
+```toml
+# config/settings.toml
+[api]
+port = 8000              # 默认端口
+port_auto_detect = true  # 启用自动检测（默认）
+port_max_attempts = 100  # 最大搜索次数
+```
+
+如果需要禁用自动检测（例如在固定端口环境）：
+
+```toml
+[api]
+port = 8000
+port_auto_detect = false
 ```
 
 服务启动后，访问 `http://localhost:8000/health` 验证健康状态。
@@ -89,14 +116,14 @@ curl -X GET "http://localhost:8000/api/v1/articles?page=1&page_size=10" \
 
 ### 核心概念
 
-| 概念 | 说明 |
-|------|------|
-| **Source** | 新闻源，可以是 RSS/Atom 订阅或网页 |
-| **Article** | 文章，经过处理的新闻内容 |
-| **Entity** | 实体，从文章中提取的人、组织、地点等 |
-| **Relationship** | 关系，实体之间的关联 |
-| **Pipeline** | 处理流水线，将原始内容转换为结构化数据 |
-| **Community** | 社区，知识图谱中的实体群组 |
+| 概念             | 说明                                   |
+| ---------------- | -------------------------------------- |
+| **Source**       | 新闻源，可以是 RSS/Atom 订阅或网页     |
+| **Article**      | 文章，经过处理的新闻内容               |
+| **Entity**       | 实体，从文章中提取的人、组织、地点等   |
+| **Relationship** | 关系，实体之间的关联                   |
+| **Pipeline**     | 处理流水线，将原始内容转换为结构化数据 |
+| **Community**    | 社区，知识图谱中的实体群组             |
 
 ---
 
@@ -156,16 +183,16 @@ curl -X DELETE "http://localhost:8000/api/v1/sources/bbc-news" \
 
 ### 源配置字段说明
 
-| 字段 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `id` | string | 是 | 唯一标识符，建议使用小写和连字符 |
-| `name` | string | 是 | 显示名称 |
-| `url` | string | 是 | RSS/Atom 订阅地址 |
-| `source_type` | string | 否 | 源类型，默认 `rss` |
-| `enabled` | boolean | 否 | 是否启用，默认 `true` |
-| `interval_minutes` | integer | 否 | 抓取间隔（分钟），默认 30 |
-| `credibility` | float | 否 | 预设可信度（0.0-1.0） |
-| `tier` | integer | 否 | 层级：1=权威，2=可信，3=普通 |
+| 字段               | 类型    | 必填 | 说明                             |
+| ------------------ | ------- | ---- | -------------------------------- |
+| `id`               | string  | 是   | 唯一标识符，建议使用小写和连字符 |
+| `name`             | string  | 是   | 显示名称                         |
+| `url`              | string  | 是   | RSS/Atom 订阅地址                |
+| `source_type`      | string  | 否   | 源类型，默认 `rss`               |
+| `enabled`          | boolean | 否   | 是否启用，默认 `true`            |
+| `interval_minutes` | integer | 否   | 抓取间隔（分钟），默认 30        |
+| `credibility`      | float   | 否   | 预设可信度（0.0-1.0）            |
+| `tier`             | integer | 否   | 层级：1=权威，2=可信，3=普通     |
 
 ---
 
@@ -292,11 +319,11 @@ curl -X GET "http://localhost:8000/api/v1/search?q=人工智能&mode=articles&th
 
 **mode 参数说明：**
 
-| 模式 | 默认 | 说明 |
-|------|------|------|
-| `local` | ✅ | 实体聚焦的图谱问答，适合"X 是谁？"、"X 和 Y 的关系？" |
-| `global` | | 社区级聚合搜索，适合跨多个话题的探索性查询 |
-| `articles` | | 混合向量+关键词相似文章搜索 |
+| 模式       | 默认 | 说明                                                  |
+| ---------- | ---- | ----------------------------------------------------- |
+| `local`    | ✅   | 实体聚焦的图谱问答，适合"X 是谁？"、"X 和 Y 的关系？" |
+| `global`   |      | 社区级聚合搜索，适合跨多个话题的探索性查询            |
+| `articles` |      | 混合向量+关键词相似文章搜索                           |
 
 ### DRIFT 迭代式搜索（实验性）
 
@@ -444,10 +471,10 @@ curl -X GET "http://localhost:8000/metrics"
 
 ```yaml
 scrape_configs:
-  - job_name: 'weaver'
+  - job_name: "weaver"
     scrape_interval: 15s
     static_configs:
-      - targets: ['localhost:8000']
+      - targets: ["localhost:8000"]
     metrics_path: /metrics
 ```
 
@@ -478,11 +505,13 @@ db_connection_pool_size{database="postgres"}
 ### Q: Pipeline 运行后没有看到文章？
 
 **可能原因：**
+
 1. 源配置错误（URL 不正确）
 2. 网络连接问题
 3. 文章被分类器过滤（非新闻内容）
 
 **排查步骤：**
+
 ```bash
 # 1. 检查源配置
 curl "http://localhost:8000/api/v1/sources/xinhua-news" \
@@ -499,11 +528,13 @@ curl "http://localhost:8000/api/v1/pipeline/tasks/{task_id}" \
 ### Q: 搜索返回空结果？
 
 **可能原因：**
+
 1. 向量索引未创建
 2. 查询与文章内容不匹配
 3. 阈值设置过高
 
 **解决方案：**
+
 ```bash
 # 检查向量表
 # 在 PostgreSQL 中运行：
@@ -517,6 +548,7 @@ curl "http://localhost:8000/api/v1/search/articles?q=test&threshold=0.5" \
 ### Q: Neo4j 连接失败？
 
 **排查步骤：**
+
 1. 检查 Neo4j 服务是否运行
 2. 验证配置中的连接信息
 3. 检查防火墙设置
@@ -530,10 +562,12 @@ curl "http://localhost:8000/health"
 ### Q: 如何处理重复文章？
 
 Weaver 自动处理重复文章：
+
 1. **URL 去重**：相同 URL 的文章不会重复处理
 2. **内容相似度合并**：相似度超过 0.80 的文章会被合并
 
 如果需要手动触发重新处理：
+
 ```bash
 curl -X POST "http://localhost:8000/api/v1/pipeline/trigger" \
   -H "X-API-Key: your-api-key" \

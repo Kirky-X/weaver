@@ -155,6 +155,10 @@ class MetricsCollector:
         "weaver_articles_deduped_total",
         "被去重的文章总数",
     )
+    dedup_redis_fallback_total = Counter(
+        "weaver_dedup_redis_fallback_total",
+        "Redis不可用时回退到数据库去重的次数",
+    )
 
     # Persistence status gauge (updated by scheduled job)
     persist_status_count = Gauge(
@@ -214,6 +218,13 @@ class MetricsCollector:
     memory_queue_depth = Gauge(
         "memory_queue_depth",
         "Current consolidation queue depth",
+    )
+
+    # Server port metric (for dynamic port detection)
+    server_port = Gauge(
+        "weaver_server_port",
+        "The port the server is listening on",
+        ["host"],
     )
 
 

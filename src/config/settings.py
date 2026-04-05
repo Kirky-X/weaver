@@ -209,6 +209,8 @@ class APISettings(BaseModel):
     rate_limit: str = "100/minute"
     host: str = os.getenv("HOST", "127.0.0.1")  # Default to localhost for security
     port: int = 8000
+    port_auto_detect: bool = True  # Enable automatic port detection
+    port_max_attempts: int = 100  # Maximum port search attempts
 
     def get_api_key(self) -> str:
         """Get API key, generating one if not set.
@@ -261,6 +263,55 @@ class APISettings(BaseModel):
             )
 
         return warnings
+
+    def model_post_init(self, __context: Any) -> None:
+        """Post-initialization hook to resolve port if auto-detect is enabled."""
+        if self.port_auto_detect:
+            self._resolve_port()
+
+    def _resolve_port(self) -> None:
+        """Resolve and update to an available port if needed.
+
+        Uses PortFinder to detect port availability and PortAnnouncer
+        to communicate the actual port being used.
+        """
+        from core.net.port_announcer import PortAnnouncer
+        from core.net.port_finder import PortFinder
+
+        original_port = self.port
+
+        # Check if the current port is available
+        if PortFinder.is_port_available(self.host, self.port):
+            # Port is available, just log it
+            announcer = PortAnnouncer()
+            announcer.announce(self.host, self.port, original_port)
+            return
+
+        # Port is in use, find an available one
+        try:
+            available_port = PortFinder.find_available_port(
+                host=self.host,
+                start_port=self.port,
+                max_attempts=self.port_max_attempts,
+            )
+            # Update the port field
+            self.port = available_port
+
+            # Announce the new port
+            announcer = PortAnnouncer()
+            announcer.announce(self.host, available_port, original_port)
+
+        except Exception as e:
+            from core.observability.logging import get_logger
+
+            log = get_logger("config.settings")
+            log.error(
+                "port_resolution_failed",
+                host=self.host,
+                port=self.port,
+                error=str(e),
+            )
+            raise
 
 
 class SchedulerSettings(BaseModel):

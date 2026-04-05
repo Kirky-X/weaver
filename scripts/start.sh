@@ -76,5 +76,14 @@ asyncio.run(setup_neo4j())
 
 echo "Setup complete!"
 
+# Output port information hint
+echo ""
+echo "=========================================="
+echo "  Weaver is starting..."
+echo "  Check logs for actual port (port_resolved event)"
+echo "  Port will be written to .env.weaver"
+echo "=========================================="
+echo ""
+
 # Start the application
 exec "$@"
