@@ -1,5 +1,5 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""NewsNow API parser for fetching news from newsnow.net.cn."""
+"""NewsNow API parser for fetching news from newsnow.world."""
 
 from __future__ import annotations
 
@@ -20,13 +20,13 @@ class NewsNowParser(BaseSourceParser):
     """Parses NewsNow API responses.
 
     Supports multiple news sources like 36kr, baidu, etc.
-    API format: https://www.newsnow.net.cn/api/s?id={source_id}
+    API format: https://www.newsnow.world/api/s?id={source_id}
 
     Args:
         fetcher: BaseFetcher instance for API fetching.
     """
 
-    API_BASE_URL = "https://www.newsnow.net.cn/api/s"
+    API_BASE_URL = "https://www.newsnow.world/api/s?id="
 
     def __init__(self, fetcher: BaseFetcher) -> None:
         self._fetcher = fetcher

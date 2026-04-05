@@ -125,6 +125,11 @@ class Pipeline:
         self._vector_repo = vector_repo
         self._community_updater = community_updater
 
+        # Batch progress tracking
+        self._batch_total: int = 0
+        self._batch_completed: int = 0
+        self._batch_failed: int = 0
+
     async def _update_processing_stage(self, state: PipelineState, stage: str) -> None:
         """Update the processing stage in the database.
 
@@ -230,6 +235,11 @@ class Pipeline:
             raise RuntimeError("Pipeline is not accepting new tasks")
 
         log.info("pipeline_batch_start", batch_size=len(articles))
+
+        # Reset batch progress counters
+        self._batch_total = len(articles)
+        self._batch_completed = 0
+        self._batch_failed = 0
 
         # Initialize states with optional article_id and task_id
         states: list[PipelineState] = []
@@ -600,6 +610,10 @@ class Pipeline:
                     exc_type=type(exc).__name__,
                     traceback=tb.format_exc(),
                 )
+                # All articles in batch failed due to PG error
+                for state in valid_states:
+                    self._batch_failed += 1
+                    self._log_progress(state["raw"].url)
                 # Log article IDs for debugging
                 for state in valid_states:
                     if state.get("article_id"):
@@ -630,6 +644,9 @@ class Pipeline:
                         await self._article_repo.update_persist_status(
                             uuid.UUID(state["article_id"]), PersistStatus.NEO4J_DONE
                         )
+                    # Success: increment completed and log progress
+                    self._batch_completed += 1
+                    self._log_progress(state["raw"].url)
                 except Exception as exc:
                     log.error(
                         "persist_neo4j_failed",
@@ -645,11 +662,31 @@ class Pipeline:
                             )
                         except Exception:
                             pass
+                    # Failure: increment failed and log progress
+                    self._batch_failed += 1
+                    self._log_progress(state["raw"].url)
+        else:
+            # No Neo4j writer: PG success counts as complete
+            for state in valid_states:
+                self._batch_completed += 1
+                self._log_progress(state["raw"].url)
 
     async def stop_accepting(self) -> None:
         """Stop accepting new pipeline tasks."""
         self._accepting = False
         log.info("pipeline_stop_accepting")
+
+    def _log_progress(self, url: str) -> None:
+        """Log batch progress after each article completes.
+
+        Args:
+            url: URL of the processed article.
+        """
+        total = self._batch_total
+        completed = self._batch_completed
+        failed = self._batch_failed
+        rate = (completed / total * 100) if total > 0 else 0.0
+        log.info(f"[{completed}/{total}] {rate:.1f}% success ({failed} failed) | {url}")
 
     async def drain(self) -> None:
         """Wait for all in-progress tasks to complete."""
