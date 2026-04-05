@@ -52,21 +52,16 @@ rerank_model = "your_rerank_model"              # Reranking model name
 
 [fetcher]
 # HTTP fetcher and crawler settings
-playwright_pool_size = 5               # Number of browser instances in pool
 default_per_host_concurrency = 2         # Max concurrent requests per host
 global_max_concurrency = 32             # Max total concurrent requests
 httpx_timeout = 15.0                  # HTTP request timeout (seconds)
 user_agent = "Mozilla/5.0 (compatible; NewsBot/1.0)"  # Default HTTP User-Agent
 
-# Stealth mode settings (for browser automation to evade detection)
-stealth_enabled = true                  # Enable stealth browser mode
-stealth_user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"  # Browser User-Agent
-stealth_viewport_width = 1920          # Browser viewport width (pixels)
-stealth_viewport_height = 1080         # Browser viewport height (pixels)
-stealth_locale = "zh-CN"               # Browser locale (language-country code)
-stealth_timezone = "Asia/Shanghai"     # Browser timezone
-stealth_random_delay_min = 0.5         # Min random delay between requests (seconds)
-stealth_random_delay_max = 2.0         # Max random delay between requests (seconds)
+# crawl4ai browser settings (for JS-rendered pages)
+crawl4ai_headless = true                 # Run browser in headless mode
+crawl4ai_stealth_enabled = true          # Enable stealth mode to avoid bot detection
+crawl4ai_user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+crawl4ai_timeout = 30.0                  # Browser page load timeout (seconds)
 
 # Rate limiting
 rate_limit_enabled = true               # Enable per-host rate limiting

@@ -142,22 +142,18 @@ class LLMSettings(BaseModel):
 class FetcherSettings(BaseModel):
     """Fetcher settings."""
 
-    playwright_pool_size: int = 5
     default_per_host_concurrency: int = 2
     global_max_concurrency: int = 32
     httpx_timeout: float = 15.0
     user_agent: str = "Mozilla/5.0 (compatible; NewsBot/1.0)"
 
-    stealth_enabled: bool = True
-    stealth_user_agent: str = (
+    # crawl4ai browser settings
+    crawl4ai_headless: bool = True
+    crawl4ai_stealth_enabled: bool = True
+    crawl4ai_user_agent: str = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     )
-    stealth_viewport_width: int = 1920
-    stealth_viewport_height: int = 1080
-    stealth_locale: str = "zh-CN"
-    stealth_timezone: str = "Asia/Shanghai"
-    stealth_random_delay_min: float = 0.5
-    stealth_random_delay_max: float = 2.0
+    crawl4ai_timeout: float = 30.0
 
     rate_limit_enabled: bool = True
     rate_limit_delay_min: float = 1.0
