@@ -30,9 +30,9 @@
 
 ### 🎯 智能新闻处理流水线
 
-| ✨ RSS 管理  |        🕷️ 智能爬取        |     🤖 LLM 处理      |    📊 知识图谱     |
-| :----------: | :-----------------------: | :------------------: | :----------------: |
-| 订阅调度解析 | HTTPX/Playwright 自动选择 | 分类清洗摘要情感分析 | Neo4j 实体关系存储 |
+| ✨ RSS 管理  |       🕷️ 智能爬取       |     🤖 LLM 处理      |    📊 知识图谱     |
+| :----------: | :---------------------: | :------------------: | :----------------: |
+| 订阅调度解析 | HTTPX/Crawl4AI 自动选择 | 分类清洗摘要情感分析 | Neo4j 实体关系存储 |
 
 </div>
 
@@ -73,33 +73,33 @@
 
 ### 🎯 核心功能
 
-| 状态 | 功能               | 描述                                           |
-| :--: | ------------------ | ---------------------------------------------- |
-|  ✅  | **RSS 源管理**     | 订阅、调度、解析 RSS/Atom 源，支持增量抓取     |
-|  ✅  | **智能爬取**       | 自动选择 HTTPX 或 Playwright，支持动态页面渲染 |
-|  ✅  | **LLM 处理流水线** | 分类、清洗、摘要、情感分析、实体提取           |
-|  ✅  | **知识图谱**       | Neo4j 存储实体关系，支持图谱查询               |
-|  ✅  | **向量检索**       | pgvector 支持语义相似度搜索                    |
-|  ✅  | **可信度评估**     | 多维度信号聚合计算新闻可信度                   |
-|  ✅  | **REST API**       | FastAPI 提供完整 API 接口                      |
+| 状态 | 功能               | 描述                                         |
+| :--: | ------------------ | -------------------------------------------- |
+|  ✅  | **RSS 源管理**     | 订阅、调度、解析 RSS/Atom 源，支持增量抓取   |
+|  ✅  | **智能爬取**       | 自动选择 HTTPX 或 Crawl4AI，支持动态页面渲染 |
+|  ✅  | **LLM 处理流水线** | 分类、清洗、摘要、情感分析、实体提取         |
+|  ✅  | **知识图谱**       | Neo4j 存储实体关系，支持图谱查询             |
+|  ✅  | **向量检索**       | pgvector 支持语义相似度搜索                  |
+|  ✅  | **可信度评估**     | 多维度信号聚合计算新闻可信度                 |
+|  ✅  | **REST API**       | FastAPI 提供完整 API 接口                    |
 
 </td>
 <td width="50%" style="vertical-align:top; padding: 16px">
 
 ### ⚡ 技术栈
 
-|      类别       | 技术                       |
-| :-------------: | -------------------------- |
-|     🐍 语言     | Python 3.12+               |
-|   🌐 Web 框架   | FastAPI + Uvicorn          |
-|  🐘 关系数据库  | PostgreSQL + pgvector      |
-|   🔵 图数据库   | Neo4j 5+                   |
-|     🔴 缓存     | Redis 7+                   |
-| 🎭 浏览器自动化 | Playwright                 |
-|   🤖 LLM 框架   | LangChain / LangGraph      |
-|     📝 NLP      | spaCy                      |
-|   ⏰ 任务调度   | APScheduler                |
-|   📈 可观测性   | Prometheus + OpenTelemetry |
+|     类别      | 技术                       |
+| :-----------: | -------------------------- |
+|    🐍 语言    | Python 3.12+               |
+|  🌐 Web 框架  | FastAPI + Uvicorn          |
+| 🐘 关系数据库 | PostgreSQL + pgvector      |
+|  🔵 图数据库  | Neo4j 5+                   |
+|    🔴 缓存    | Redis 7+                   |
+|  🕷️ 动态页面  | Crawl4AI                   |
+|  🤖 LLM 框架  | LangChain / LangGraph      |
+|    📝 NLP     | spaCy                      |
+|  ⏰ 任务调度  | APScheduler                |
+|  📈 可观测性  | Prometheus + OpenTelemetry |
 
 </td>
 </tr>
@@ -127,9 +127,6 @@ cd weaver
 
 # 安装依赖 (使用 uv)
 uv sync
-
-# 安装 Playwright 浏览器
-uv run playwright install chromium
 
 # 安装 spaCy 中文模型及依赖
 # 注意：zh_core_web_sm 需要 spacy-pkuseg 分词器依赖
@@ -261,7 +258,9 @@ fallbacks = []
 | **API**                                 |        |                         |                           |
 | `WEAVER_API__API_KEY`                   | string | -                       | API 认证密钥              |
 | **Fetcher**                             |        |                         |                           |
-| `playwright_pool_size`                  | int    | 5                       | Playwright 浏览器池大小   |
+| `crawl4ai_headless`                     | bool   | `true`                  | Crawl4AI 无头模式         |
+| `crawl4ai_stealth_enabled`              | bool   | `true`                  | Crawl4AI 隐身模式         |
+| `crawl4ai_timeout`                      | float  | `30.0`                  | Crawl4AI 超时时间（秒）   |
 | `default_per_host_concurrency`          | int    | 2                       | 每主机默认并发数          |
 | `global_max_concurrency`                | int    | 32                      | 全局最大并发数            |
 | `httpx_timeout`                         | float  | 15.0                    | HTTPX 超时时间（秒）      |
@@ -326,7 +325,7 @@ graph TB
         C[SourceScheduler]
         D[Deduplicator]
         E[Interleaver]
-        F[SmartFetcher<br/>HTTPX / Playwright]
+        F[SmartFetcher<br/>HTTPX / Crawl4AI]
     end
 
     subgraph Pipeline ["⚙️ 处理流水线"]
@@ -361,7 +360,7 @@ graph TB
 
 | 组件                    | 描述                        | 状态    |
 | ----------------------- | --------------------------- | ------- |
-| **SmartFetcher**        | HTTPX/Playwright 自动选择   | ✅ 稳定 |
+| **SmartFetcher**        | HTTPX/Crawl4AI 自动选择     | ✅ 稳定 |
 | **Deduplicator**        | 两级 URL 去重               | ✅ 稳定 |
 | **Pipeline**            | LangGraph 流水线编排        | ✅ 稳定 |
 | **LLM Client**          | 多 Provider 支持 + Fallback | ✅ 稳定 |

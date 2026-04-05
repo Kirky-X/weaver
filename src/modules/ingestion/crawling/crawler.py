@@ -18,6 +18,9 @@ log = get_logger("crawler")
 
 GLOBAL_MAX_CONCURRENCY = 32
 
+# Minimum article length for valid content
+MIN_ARTICLE_LENGTH = 100
+
 
 class Crawler:
     """Concurrent web crawler with per-host rate limiting.
@@ -66,14 +69,43 @@ class Crawler:
 
         async def crawl_one(item: NewsItem) -> ArticleRaw:
             host = urlparse(item.url).netloc
+            body = ""
+
             if item.body:
                 # Body already extracted from content:encoded in the RSS feed.
-                # No need to re-fetch and re-parse the page.
-                body = item.body
+                # Validate the pre-filled body using trafilatura.
+                extracted = trafilatura.extract(item.body, include_comments=False)
+                if extracted and len(extracted) >= MIN_ARTICLE_LENGTH:
+                    body = extracted
+                else:
+                    log.debug(
+                        "prefilled_body_insufficient",
+                        url=item.url,
+                        original_len=len(item.body),
+                        extracted_len=len(extracted) if extracted else 0,
+                    )
+                    # Re-fetch with browser rendering
+                    async with global_sem, host_sems[host]:
+                        _, html, _ = await self._fetcher.fetch(item.url, force_browser=True)
+                        body = trafilatura.extract(html, include_comments=False) or ""
             else:
+                # No pre-filled body, fetch the page
                 async with global_sem, host_sems[host]:
                     _, html, _ = await self._fetcher.fetch(item.url)
                     body = trafilatura.extract(html, include_comments=False) or ""
+
+                # Validate extracted content
+                if len(body) < MIN_ARTICLE_LENGTH:
+                    log.debug(
+                        "first_fetch_insufficient",
+                        url=item.url,
+                        content_len=len(body),
+                    )
+                    # Re-fetch with browser rendering
+                    async with global_sem, host_sems[host]:
+                        _, html, _ = await self._fetcher.fetch(item.url, force_browser=True)
+                        body = trafilatura.extract(html, include_comments=False) or ""
+
             return ArticleRaw(
                 url=item.url,
                 title=item.title,

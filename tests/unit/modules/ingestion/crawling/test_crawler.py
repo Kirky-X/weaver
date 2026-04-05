@@ -38,6 +38,10 @@ def sample_news_items():
     return [item1, item2]
 
 
+# Long enough content to pass validation (> 100 chars)
+LONG_CONTENT = "This is extracted content that is long enough to pass the minimum article length validation threshold of 100 characters in the crawler module."
+
+
 class TestCrawlerInit:
     """Tests for Crawler initialization."""
 
@@ -81,7 +85,7 @@ class TestCrawlerCrawlBatch:
 
         with patch(
             "modules.ingestion.crawling.crawler.trafilatura.extract",
-            return_value="Extracted content",
+            return_value=LONG_CONTENT,
         ):
             crawler = Crawler(smart_fetcher=mock_fetcher)
             results = await crawler.crawl_batch(sample_news_items)
@@ -94,22 +98,56 @@ class TestCrawlerCrawlBatch:
         """Test crawl with pre-extracted body."""
         from modules.ingestion.crawling.crawler import Crawler
 
-        # Item with body already set
+        # Item with body already set - long enough to pass validation
         item = NewsItem(
             url="https://example.com/article",
             title="Test",
             source="test",
             pubDate=datetime.now(UTC),
-            body="Pre-extracted body",
+            body=LONG_CONTENT,
         )
 
-        crawler = Crawler(smart_fetcher=mock_fetcher)
-        results = await crawler.crawl_batch([item])
+        with patch(
+            "modules.ingestion.crawling.crawler.trafilatura.extract",
+            return_value=LONG_CONTENT,
+        ):
+            crawler = Crawler(smart_fetcher=mock_fetcher)
+            results = await crawler.crawl_batch([item])
 
-        # Should not call fetch when body is provided
+        # Should not call fetch when body passes validation
         mock_fetcher.fetch.assert_not_called()
         assert len(results) == 1
-        assert results[0].body == "Pre-extracted body"
+        assert results[0].body == LONG_CONTENT
+
+    @pytest.mark.asyncio
+    async def test_crawl_batch_with_short_body_refetches(self, mock_fetcher):
+        """Test crawl with short pre-extracted body triggers re-fetch."""
+        from modules.ingestion.crawling.crawler import Crawler
+
+        # Item with short body that fails validation
+        item = NewsItem(
+            url="https://example.com/article",
+            title="Test",
+            source="test",
+            pubDate=datetime.now(UTC),
+            body="short",
+        )
+
+        mock_fetcher.fetch = AsyncMock(return_value=(200, "<html><body>Content</body></html>", {}))
+
+        # First call returns None (plain text not extractable), second returns long content
+        extract_results = [None, LONG_CONTENT]
+        with patch(
+            "modules.ingestion.crawling.crawler.trafilatura.extract",
+            side_effect=extract_results,
+        ):
+            crawler = Crawler(smart_fetcher=mock_fetcher)
+            results = await crawler.crawl_batch([item])
+
+        # Should call fetch with force_browser=True when body fails validation
+        mock_fetcher.fetch.assert_called_once()
+        assert len(results) == 1
+        assert results[0].body == LONG_CONTENT
 
     @pytest.mark.asyncio
     async def test_crawl_batch_fetch_error(self, mock_fetcher):
@@ -163,7 +201,7 @@ class TestCrawlerCrawlBatch:
         mock_fetcher.fetch = AsyncMock(return_value=(200, "<html><body>Content</body></html>", {}))
 
         with patch(
-            "modules.ingestion.crawling.crawler.trafilatura.extract", return_value="Content"
+            "modules.ingestion.crawling.crawler.trafilatura.extract", return_value=LONG_CONTENT
         ):
             crawler = Crawler(smart_fetcher=mock_fetcher)
             await crawler.crawl_batch(
@@ -204,7 +242,7 @@ class TestCrawlerCrawlBatch:
         mock_fetcher.fetch = AsyncMock(return_value=(200, "<html><body>Content</body></html>", {}))
 
         with patch(
-            "modules.ingestion.crawling.crawler.trafilatura.extract", return_value="Body content"
+            "modules.ingestion.crawling.crawler.trafilatura.extract", return_value=LONG_CONTENT
         ):
             crawler = Crawler(smart_fetcher=mock_fetcher)
 
@@ -245,7 +283,7 @@ class TestCrawlerCrawlBatch:
 
         call_count = 0
 
-        async def mock_fetch(url):
+        async def mock_fetch(url, headers=None, force_browser=False):
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -255,7 +293,7 @@ class TestCrawlerCrawlBatch:
         mock_fetcher.fetch = mock_fetch
 
         with patch(
-            "modules.ingestion.crawling.crawler.trafilatura.extract", return_value="Content"
+            "modules.ingestion.crawling.crawler.trafilatura.extract", return_value=LONG_CONTENT
         ):
             crawler = Crawler(smart_fetcher=mock_fetcher)
             results = await crawler.crawl_batch([item1, item2])
@@ -290,7 +328,7 @@ class TestCrawlerConcurrency:
         mock_fetcher.fetch = AsyncMock(return_value=(200, "<html>Content</html>", {}))
 
         with patch(
-            "modules.ingestion.crawling.crawler.trafilatura.extract", return_value="Content"
+            "modules.ingestion.crawling.crawler.trafilatura.extract", return_value=LONG_CONTENT
         ):
             crawler = Crawler(smart_fetcher=mock_fetcher)
             results = await crawler.crawl_batch(items)
@@ -316,7 +354,7 @@ class TestCrawlerConcurrency:
         mock_fetcher.fetch = AsyncMock(return_value=(200, "<html>Content</html>", {}))
 
         with patch(
-            "modules.ingestion.crawling.crawler.trafilatura.extract", return_value="Content"
+            "modules.ingestion.crawling.crawler.trafilatura.extract", return_value=LONG_CONTENT
         ):
             crawler = Crawler(smart_fetcher=mock_fetcher, default_per_host=2)
             results = await crawler.crawl_batch(items)

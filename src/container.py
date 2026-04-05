@@ -19,7 +19,6 @@ from modules.analytics.llm_usage.repo import LLMUsageRepo
 from modules.ingestion import (
     Crawler,
     Deduplicator,
-    PlaywrightContextPool,
     SmartFetcher,
     SourceConfigRepo,
     SourceRegistry,
@@ -99,7 +98,7 @@ class Container:
         self._neo4j_writer: Neo4jWriter | None = None
         self._entity_resolver: EntityResolver | None = None
         self._smart_fetcher: SmartFetcher | None = None
-        self._playwright_pool: PlaywrightContextPool | None = None
+        self._crawl4ai_fetcher: Any = None  # Crawl4AIFetcher
         self._crawler: Crawler | None = None
         self._pipeline: Pipeline | None = None
         self._deduplicator: Deduplicator | None = None
@@ -881,43 +880,30 @@ class Container:
 
     # ── Fetcher & Crawler ────────────────────────────────────────
 
-    async def init_playwright_pool(self) -> PlaywrightContextPool:
-        """Initialize Playwright browser pool with stealth configuration."""
-        if self._playwright_pool is None:
-            settings = self._settings.fetcher
-            self._playwright_pool = PlaywrightContextPool(
-                pool_size=settings.playwright_pool_size,
-                stealth_enabled=settings.stealth_enabled,
-                user_agent=settings.stealth_user_agent,
-                viewport_width=settings.stealth_viewport_width,
-                viewport_height=settings.stealth_viewport_height,
-                locale=settings.stealth_locale,
-                timezone=settings.stealth_timezone,
-                random_delay_min=settings.stealth_random_delay_min,
-                random_delay_max=settings.stealth_random_delay_max,
-            )
-            await self._playwright_pool.startup()
-            log.info(
-                "playwright_pool_initialized",
-                pool_size=settings.playwright_pool_size,
-                stealth_enabled=settings.stealth_enabled,
-            )
-        return self._playwright_pool
+    async def init_crawl4ai_fetcher(self) -> Any:
+        """Initialize Crawl4AIFetcher for JS-rendered pages."""
+        from modules.ingestion.fetching.crawl4ai_fetcher import Crawl4AIFetcher
 
-    def playwright_pool(self) -> PlaywrightContextPool:
-        """Get Playwright pool."""
-        if self._playwright_pool is None:
-            raise RuntimeError(
-                "Playwright pool not initialized. Call init_playwright_pool() first."
+        if self._crawl4ai_fetcher is None:
+            settings = self._settings.fetcher
+            self._crawl4ai_fetcher = Crawl4AIFetcher(
+                headless=settings.crawl4ai_headless,
+                stealth_enabled=settings.crawl4ai_stealth_enabled,
+                user_agent=settings.crawl4ai_user_agent,
+                timeout=settings.crawl4ai_timeout,
             )
-        return self._playwright_pool
+            log.info(
+                "crawl4ai_fetcher_initialized",
+                headless=settings.crawl4ai_headless,
+                stealth=settings.crawl4ai_stealth_enabled,
+            )
+        return self._crawl4ai_fetcher
 
     async def init_smart_fetcher(self) -> SmartFetcher:
         """Initialize smart fetcher."""
         if self._smart_fetcher is None:
-            from modules.ingestion.fetching.httpx_fetcher import HttpxFetcher
-            from modules.ingestion.fetching.playwright_fetcher import PlaywrightFetcher
-            from modules.ingestion.fetching.rate_limiter import HostRateLimiter
+            from modules.ingestion.fetching import HostRateLimiter, HttpxFetcher
+            from modules.ingestion.fetching.crawl4ai_fetcher import Crawl4AIFetcher
 
             settings = self._settings.fetcher
 
@@ -937,12 +923,15 @@ class Container:
                 timeout=settings.httpx_timeout,
                 user_agent=settings.user_agent,
             )
-            playwright_fetcher = PlaywrightFetcher(
-                pool=self._playwright_pool,
+            crawl4ai_fetcher = Crawl4AIFetcher(
+                headless=settings.crawl4ai_headless,
+                stealth_enabled=settings.crawl4ai_stealth_enabled,
+                user_agent=settings.crawl4ai_user_agent,
+                timeout=settings.crawl4ai_timeout,
             )
             self._smart_fetcher = SmartFetcher(
                 httpx_fetcher=httpx_fetcher,
-                playwright_fetcher=playwright_fetcher,
+                crawl4ai_fetcher=crawl4ai_fetcher,
                 rate_limiter=rate_limiter,
                 circuit_breaker_enabled=settings.circuit_breaker_enabled,
                 circuit_breaker_threshold=settings.circuit_breaker_threshold,
@@ -1045,7 +1034,6 @@ class Container:
         await self.init_llm()
         self.init_search_engines()
         await self._init_bm25_index()
-        await self.init_playwright_pool()
         await self.init_smart_fetcher()
 
         from modules.ingestion.domain.processor import DiscoveryProcessor
@@ -1147,9 +1135,9 @@ class Container:
                 log.warning("llm_queue_manager_shutdown_error", error=str(e))
 
         # Shutdown pools
-        if self._playwright_pool:
-            await self._playwright_pool.shutdown()
-            log.info("playwright_pool_shutdown")
+        if self._smart_fetcher:
+            await self._smart_fetcher.close()
+            log.info("smart_fetcher_shutdown")
 
         if self._redis_client:
             await self._redis_client.shutdown()
