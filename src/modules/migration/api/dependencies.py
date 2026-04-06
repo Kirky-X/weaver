@@ -3,7 +3,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from datetime import datetime
+from typing import TYPE_CHECKING, Any
 
 from fastapi import Depends
 
@@ -50,6 +51,8 @@ class MigrationService:
             "config": config,
             "status": "pending",
             "engine": None,
+            "created_at": datetime.utcnow(),
+            "started_at": None,
         }
         return task_id
 
@@ -67,6 +70,7 @@ class MigrationService:
             return
 
         task["status"] = "running"
+        task["started_at"] = datetime.utcnow()
 
         try:
             config = task["config"]
@@ -131,6 +135,8 @@ class MigrationService:
         status = {
             "status": task["status"],
             "config": task["config"],
+            "created_at": task.get("created_at"),
+            "started_at": task.get("started_at"),
         }
 
         # Add progress if engine is running

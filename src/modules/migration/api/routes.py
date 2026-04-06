@@ -170,6 +170,12 @@ async def get_migration_progress(
         total_migrated = result.get("total_migrated", total_migrated)
         total_expected = result.get("total_expected", total_expected)
 
+    # Calculate elapsed time
+    started_at = status.get("started_at") or datetime.utcnow()
+    elapsed_seconds = 0.0
+    if started_at and status["status"] in ("running", "completed", "failed", "cancelled"):
+        elapsed_seconds = (datetime.utcnow() - started_at).total_seconds()
+
     return MigrationProgressResponse(
         task_id=task_id,
         source_db=config.source_db,
@@ -177,8 +183,8 @@ async def get_migration_progress(
         items=items,
         total_migrated=total_migrated,
         total_expected=total_expected,
-        started_at=datetime.utcnow(),  # TODO: track actual start time
-        elapsed_seconds=0.0,  # TODO: calculate actual elapsed time
+        started_at=started_at,
+        elapsed_seconds=elapsed_seconds,
         status=status["status"],
         error=status.get("error"),
     )
