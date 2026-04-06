@@ -34,6 +34,40 @@ SCHEMA_QUERIES = [
         score DOUBLE
     )
     """,
+    # Community node table
+    """
+    CREATE NODE TABLE IF NOT EXISTS Community (
+        id STRING PRIMARY KEY,
+        title STRING,
+        summary STRING,
+        level INT64,
+        rank DOUBLE,
+        created_at INT64
+    )
+    """,
+    # CommunityReport node table
+    """
+    CREATE NODE TABLE IF NOT EXISTS CommunityReport (
+        id STRING PRIMARY KEY,
+        community_id STRING,
+        title STRING,
+        summary STRING,
+        full_content STRING,
+        full_content_embedding FLOAT[1024],
+        created_at INT64
+    )
+    """,
+    # EventNode node table
+    """
+    CREATE NODE TABLE IF NOT EXISTS EventNode (
+        id STRING PRIMARY KEY,
+        event_type STRING,
+        name STRING,
+        description STRING,
+        event_time INT64,
+        created_at INT64
+    )
+    """,
     # MENTIONS relationship - Article mentions Entity
     """
     CREATE REL TABLE IF NOT EXISTS MENTIONS (
@@ -56,6 +90,18 @@ SCHEMA_QUERIES = [
         properties STRING,
         created_at INT64,
         updated_at INT64
+    )
+    """,
+    # HAS_ENTITY relationship - Community has Entity member
+    """
+    CREATE REL TABLE IF NOT EXISTS HAS_ENTITY (
+        FROM Community TO Entity
+    )
+    """,
+    # REPORTS_ON relationship - CommunityReport reports on Community
+    """
+    CREATE REL TABLE IF NOT EXISTS REPORTS_ON (
+        FROM CommunityReport TO Community
     )
     """,
 ]

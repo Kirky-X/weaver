@@ -15,11 +15,6 @@ dependencies = [
     "httpx[http2]>=0.28.1",
     "json_repair>=0.58.7",
     # Removed: langchain/langgraph unused (replaced by litellm)
-    # "langchain>=1.2.13",
-    # "langchain-anthropic>=1.4.0",
-    # "langchain-core>=1.2.12",
-    # "langchain-openai>=1.1.12",
-    # "langgraph>=1.1.3",
     "neo4j>=6.1.0",
     "numpy>=1.26.4,<2.0.0",
     "openai>=1.0.0",
@@ -45,7 +40,6 @@ dependencies = [
     "ntplib>=0.4.0",
     # ── Search Enhancement ─────────────────────────────────
     "bm25s>=0.3.3",
-    # "flashrank>=0.2.10",  # Removed: FlashrankReranker never instantiated (dead code audit 2026-04-04)
     # ── Advanced Community Detection ─────────────────────────
     "python-igraph>=0.11.0",
     "leidenalg>=0.11.0",
@@ -63,6 +57,11 @@ dependencies = [
     "cashews>=7.5.0",
     "rich>=14.3.3",
     "typer>=0.24.1",
+]
+
+[project.optional-dependencies]
+search-enhancement = [
+    "flashrank>=0.2.10",  # Optional: cross-encoder reranking for search results
 ]
 
 [build-system]
@@ -102,6 +101,9 @@ dev = [
     # ── Secret detection (baseline generation) ─────────────
     "detect-secrets>=1.5.0",
     "pytest-env>=1.2.0",
+]
+test = [
+    "freezegun>=1.5.5",
 ]
 
 # ────────────────────────────────────────────────────────────
@@ -208,6 +210,8 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401", "F403"]          # __init__ 允许未使用导入
+"src/core/db/query_builders.py" = ["S608"]  # SQL查询构建器使用参数化查询
+"src/modules/migration/adapters/*.py" = ["S608"]  # 迁移适配器需要动态构建SQL
 "tests/e2e/*.py" = [
     "S603",   # E2E tests需要subprocess调用Docker
     "S607",   # E2E tests需要subprocess调用Docker
@@ -301,8 +305,9 @@ known-first-party = ["src"]
 known-third-party = [
     "alembic",
     "fastapi",
-    "langchain",
-    "langgraph",
+    # Removed: langchain/langgraph unused
+    # "langchain",
+    # "langgraph",
     "pydantic",
     "pydantic_settings",
     "redis",
@@ -377,8 +382,9 @@ known_third_party = [
     "alembic",
     "fastapi",
     "httpx",
-    "langchain",
-    "langgraph",
+    # Removed: langchain/langgraph unused
+    # "langchain",
+    # "langgraph",
     "pydantic",
     "pydantic_settings",
     "redis",

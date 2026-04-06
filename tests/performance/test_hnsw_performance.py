@@ -11,6 +11,7 @@ import pytest
 from sqlalchemy import text
 
 from core.db.postgres import PostgresPool
+from core.db.query_builders import create_vector_query_builder
 from modules.storage.postgres.vector_repo import VectorRepo
 
 
@@ -67,7 +68,8 @@ class TestHNSWPerformance:
     @pytest.fixture
     async def vector_repo(self, postgres_pool):
         """Create VectorRepo instance with real pool."""
-        return VectorRepo(postgres_pool)
+        query_builder = create_vector_query_builder("postgres")
+        return VectorRepo(postgres_pool, query_builder)
 
     @pytest.fixture
     async def hnsw_index_exists(self, postgres_pool):
@@ -676,7 +678,8 @@ class TestVectorRepoPerformance:
     @pytest.fixture
     async def vector_repo(self, postgres_pool):
         """Create VectorRepo instance."""
-        return VectorRepo(postgres_pool)
+        query_builder = create_vector_query_builder("postgres")
+        return VectorRepo(postgres_pool, query_builder)
 
     @pytest.mark.asyncio
     async def test_batch_find_similar_performance(self, vector_repo, postgres_pool):

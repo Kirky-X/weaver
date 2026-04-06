@@ -1,5 +1,5 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""LangGraph main pipeline flow definition."""
+"""Main pipeline flow definition."""
 
 from __future__ import annotations
 
@@ -482,8 +482,8 @@ class Pipeline:
                         await self._article_repo.mark_failed(
                             uuid.UUID(state["article_id"]), f"PG error: {exc!s}"
                         )
-                    except Exception:
-                        pass
+                    except Exception as inner_exc:
+                        log.debug("mark_failed_cleanup_error", error=str(inner_exc))
                 return
 
         if self._neo4j_writer:

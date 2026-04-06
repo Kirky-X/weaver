@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import os
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -312,24 +311,6 @@ class Neo4jWriter:
                     relation=edge_type,
                     raw_type=raw_type,
                 )
-
-                # TODO(temporary): Dual-write legacy RELATED_TO edges for backward
-                # compatibility during migration.  Remove once all consumers have
-                # been updated to read semantic edge types.  Controlled by
-                # WEAVER_DUAL_WRITE=true environment variable.
-                if os.environ.get("WEAVER_DUAL_WRITE", "").lower() == "true":
-                    try:
-                        await self._entity_repo.merge_relation(
-                            from_neo4j_id=source_id,
-                            to_neo4j_id=target_id,
-                            edge_type="RELATED_TO",
-                            properties={
-                                "relation_type": raw_type,
-                                "description": relation.get("description"),
-                            },
-                        )
-                    except Exception as dual_exc:
-                        log.debug("dual_write_failed", error=str(dual_exc))
             except Exception as exc:
                 error_msg = f"{type(exc).__name__}: {exc}"
                 log.error(

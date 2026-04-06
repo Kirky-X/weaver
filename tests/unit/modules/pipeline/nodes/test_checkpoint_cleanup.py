@@ -71,7 +71,7 @@ class TestCheckpointCleanupNodeBasic:
         mock_redis.client.delete.assert_called_once()
         # Verify key format
         call_args = mock_redis.client.delete.call_args[0][0]
-        assert call_args.startswith("langgraph:checkpoint:")
+        assert call_args.startswith("pipeline:checkpoint:")
 
     @pytest.mark.asyncio
     async def test_returns_unchanged_state(self, sample_raw, mock_redis):

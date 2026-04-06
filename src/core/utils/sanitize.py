@@ -85,7 +85,7 @@ def sanitize_dict(data: dict[str, Any], sensitive_keys: set[str] | None = None) 
             "auth",
         }
 
-    result = {}
+    result: dict[str, Any] = {}
     for key, value in data.items():
         key_lower = key.lower().replace("-", "_")
 

@@ -352,14 +352,19 @@ class TestProcessSingleUrlEndpoint:
 
         request = ProcessUrlRequest(url="https://example.com/article/123")
 
-        with patch("api.endpoints.pipeline.uuid.uuid4", return_value=task_uuid):
-            with patch("api.endpoints.pipeline.asyncio.create_task"):
-                result = await process_single_url(
-                    request=request,
-                    _="test-key",
-                    redis=mock_redis,
-                    settings=mock_settings,
-                )
+        # Mock URL validator
+        mock_validator = MagicMock()
+        mock_validator.validate = AsyncMock(return_value=MagicMock(is_safe=True))
+
+        with patch("api.endpoints.pipeline._get_url_validator", return_value=mock_validator):
+            with patch("api.endpoints.pipeline.uuid.uuid4", return_value=task_uuid):
+                with patch("api.endpoints.pipeline.asyncio.create_task"):
+                    result = await process_single_url(
+                        request=request,
+                        _="test-key",
+                        redis=mock_redis,
+                        settings=mock_settings,
+                    )
 
         assert result.data.task_id == str(task_uuid)
         assert result.data.status == "queued"
@@ -367,22 +372,28 @@ class TestProcessSingleUrlEndpoint:
     @pytest.mark.asyncio
     async def test_process_url_blocks_ssrf_localhost(self):
         """Test that SSRF URLs are blocked."""
-        from fastapi import HTTPException
-
         from api.endpoints.pipeline import ProcessUrlRequest, process_single_url
+        from core.security import URLValidationError
 
         mock_redis = MagicMock()
         mock_settings = MagicMock()
 
         request = ProcessUrlRequest(url="http://127.0.0.1/admin")
 
-        with pytest.raises(HTTPException) as exc_info:
-            await process_single_url(
-                request=request,
-                _="test-key",
-                redis=mock_redis,
-                settings=mock_settings,
-            )
+        # Mock URL validator to raise SSRF error
+        mock_validator = MagicMock()
+        mock_validator.validate = AsyncMock(
+            side_effect=URLValidationError("SSRF detected: localhost", "SSRF")
+        )
+
+        with patch("api.endpoints.pipeline._get_url_validator", return_value=mock_validator):
+            with pytest.raises(HTTPException) as exc_info:
+                await process_single_url(
+                    request=request,
+                    _="test-key",
+                    redis=mock_redis,
+                    settings=mock_settings,
+                )
 
         assert exc_info.value.status_code == 403
         assert "SSRF" in exc_info.value.detail
@@ -390,22 +401,28 @@ class TestProcessSingleUrlEndpoint:
     @pytest.mark.asyncio
     async def test_process_url_blocks_ssrf_private_ip(self):
         """Test that private IP addresses are blocked."""
-        from fastapi import HTTPException
-
         from api.endpoints.pipeline import ProcessUrlRequest, process_single_url
+        from core.security import URLValidationError
 
         mock_redis = MagicMock()
         mock_settings = MagicMock()
 
         request = ProcessUrlRequest(url="http://192.168.1.1/")
 
-        with pytest.raises(HTTPException) as exc_info:
-            await process_single_url(
-                request=request,
-                _="test-key",
-                redis=mock_redis,
-                settings=mock_settings,
-            )
+        # Mock URL validator to raise SSRF error
+        mock_validator = MagicMock()
+        mock_validator.validate = AsyncMock(
+            side_effect=URLValidationError("SSRF detected: private IP", "SSRF")
+        )
+
+        with patch("api.endpoints.pipeline._get_url_validator", return_value=mock_validator):
+            with pytest.raises(HTTPException) as exc_info:
+                await process_single_url(
+                    request=request,
+                    _="test-key",
+                    redis=mock_redis,
+                    settings=mock_settings,
+                )
 
         assert exc_info.value.status_code == 403
         assert "SSRF" in exc_info.value.detail
@@ -413,30 +430,34 @@ class TestProcessSingleUrlEndpoint:
     @pytest.mark.asyncio
     async def test_process_url_blocks_ssrf_aws_metadata(self):
         """Test that AWS metadata endpoint is blocked."""
-        from fastapi import HTTPException
-
         from api.endpoints.pipeline import ProcessUrlRequest, process_single_url
+        from core.security import URLValidationError
 
         mock_redis = MagicMock()
         mock_settings = MagicMock()
 
         request = ProcessUrlRequest(url="http://169.254.169.254/latest/meta-data/")
 
-        with pytest.raises(HTTPException) as exc_info:
-            await process_single_url(
-                request=request,
-                _="test-key",
-                redis=mock_redis,
-                settings=mock_settings,
-            )
+        # Mock URL validator to raise SSRF error
+        mock_validator = MagicMock()
+        mock_validator.validate = AsyncMock(
+            side_effect=URLValidationError("SSRF detected: metadata endpoint", "SSRF")
+        )
+
+        with patch("api.endpoints.pipeline._get_url_validator", return_value=mock_validator):
+            with pytest.raises(HTTPException) as exc_info:
+                await process_single_url(
+                    request=request,
+                    _="test-key",
+                    redis=mock_redis,
+                    settings=mock_settings,
+                )
 
         assert exc_info.value.status_code == 403
 
     @pytest.mark.asyncio
     async def test_process_url_whitelist_mode_blocks_non_allowed_domain(self):
         """Test that whitelist mode blocks non-allowed domains."""
-        from fastapi import HTTPException
-
         from api.endpoints.pipeline import ProcessUrlRequest, process_single_url
 
         mock_redis = MagicMock()
@@ -446,13 +467,18 @@ class TestProcessSingleUrlEndpoint:
 
         request = ProcessUrlRequest(url="https://untrusted.com/article", whitelist_mode=True)
 
-        with pytest.raises(HTTPException) as exc_info:
-            await process_single_url(
-                request=request,
-                _="test-key",
-                redis=mock_redis,
-                settings=mock_settings,
-            )
+        # Mock URL validator to pass (whitelist check happens after SSRF check)
+        mock_validator = MagicMock()
+        mock_validator.validate = AsyncMock(return_value=MagicMock(is_safe=True))
+
+        with patch("api.endpoints.pipeline._get_url_validator", return_value=mock_validator):
+            with pytest.raises(HTTPException) as exc_info:
+                await process_single_url(
+                    request=request,
+                    _="test-key",
+                    redis=mock_redis,
+                    settings=mock_settings,
+                )
 
         assert exc_info.value.status_code == 403
         assert "not in the allowed list" in exc_info.value.detail
@@ -475,14 +501,19 @@ class TestProcessSingleUrlEndpoint:
         # subdomain.example.com should be allowed
         request = ProcessUrlRequest(url="https://blog.example.com/article", whitelist_mode=True)
 
-        with patch("api.endpoints.pipeline.uuid.uuid4", return_value=task_uuid):
-            with patch("api.endpoints.pipeline.asyncio.create_task"):
-                result = await process_single_url(
-                    request=request,
-                    _="test-key",
-                    redis=mock_redis,
-                    settings=mock_settings,
-                )
+        # Mock URL validator to pass
+        mock_validator = MagicMock()
+        mock_validator.validate = AsyncMock(return_value=MagicMock(is_safe=True))
+
+        with patch("api.endpoints.pipeline._get_url_validator", return_value=mock_validator):
+            with patch("api.endpoints.pipeline.uuid.uuid4", return_value=task_uuid):
+                with patch("api.endpoints.pipeline.asyncio.create_task"):
+                    result = await process_single_url(
+                        request=request,
+                        _="test-key",
+                        redis=mock_redis,
+                        settings=mock_settings,
+                    )
 
         assert result.data.task_id == str(task_uuid)
 

@@ -113,7 +113,7 @@ class SpacyModelManager:
             self._install_from_network(model)
 
     def _install_from_local(self, model: str, local_path: str) -> None:
-        """Install model from local wheel file using uv.
+        """Install model from local wheel file using pip.
 
         Args:
             model: Model name for logging.
@@ -122,12 +122,20 @@ class SpacyModelManager:
         Raises:
             RuntimeError: If installation fails and strict_mode=True.
         """
-        import uv
+        import shutil
 
         log.info("spacy_installing_from_local", model=model, path=local_path)
 
+        # Try uv first, fall back to pip
+        uv_bin = shutil.which("uv")
+        if uv_bin:
+            cmd = [uv_bin, "pip", "install", local_path]
+        else:
+            pip_bin = shutil.which("pip") or "pip"
+            cmd = [pip_bin, "install", local_path]
+
         result = subprocess.run(  # noqa: S603
-            [uv.find_uv_bin(), "pip", "install", local_path],
+            cmd,
             capture_output=True,
             text=True,
             check=False,

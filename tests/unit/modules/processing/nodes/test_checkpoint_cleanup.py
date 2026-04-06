@@ -126,7 +126,7 @@ class TestCheckpointCleanupNodeKeyFormat:
 
     def test_checkpoint_key_prefix(self):
         """Test checkpoint key prefix constant."""
-        assert CheckpointCleanupNode.CHECKPOINT_KEY_PREFIX == "langgraph:checkpoint"
+        assert CheckpointCleanupNode.CHECKPOINT_KEY_PREFIX == "pipeline:checkpoint"
 
     @pytest.mark.asyncio
     async def test_different_urls_generate_different_keys(self, mock_redis):

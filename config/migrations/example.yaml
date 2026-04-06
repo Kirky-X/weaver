@@ -1,0 +1,39 @@
+# Migration Mapping Rules Example
+# This file defines custom transformations for database migration
+
+nodes:
+  - source_label: "Person"
+    target_label: "Entity"
+    key_mapping:
+      source_key: "name"
+      target_key: "canonical_name"
+    property_mapping:
+      - name: canonical_name
+      - person_type: type
+      - bio: description
+    default_values:
+      tier: 3
+
+  - source_label: "Organization"
+    target_label: "Entity"
+    property_mapping:
+      - org_name: canonical_name
+      - industry: category
+    default_values:
+      tier: 2
+      type: "organization"
+
+relations:
+  - source_type: "KNOWS"
+    target_type: "RELATED_TO"
+    property_mapping:
+      - since: properties
+    default_values:
+      edge_type: "social"
+
+  - source_type: "WORKS_AT"
+    target_type: "AFFILIATED_WITH"
+    property_mapping:
+      - role: position
+    default_values:
+      edge_type: "professional"

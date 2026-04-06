@@ -9,6 +9,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from core.db.query_builders import PgVectorQueryBuilder
+
+
+def _make_vector_repo(mock_pool: MagicMock):
+    """Create a VectorRepo with PostgreSQL query builder."""
+    from modules.storage.postgres.vector_repo import VectorRepo
+
+    return VectorRepo(pool=mock_pool, query_builder=PgVectorQueryBuilder())
+
 
 class MockRow:
     """Mimics a SQLAlchemy Row with _mapping attribute."""
@@ -33,10 +42,8 @@ class TestVectorRepoBatchOperations:
     @pytest.mark.asyncio
     async def test_bulk_upsert_empty_list_returns_zero(self):
         """Bulk upsert with empty list should return 0."""
-        from modules.storage.postgres.vector_repo import VectorRepo
-
         mock_pool = MagicMock()
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
 
         result = await repo.bulk_upsert_article_vectors([])
 
@@ -47,8 +54,6 @@ class TestVectorRepoBatchOperations:
     @pytest.mark.asyncio
     async def test_bulk_upsert_single_article_with_both_embeddings(self):
         """Bulk upsert should handle single article with title and content embeddings."""
-        from modules.storage.postgres.vector_repo import VectorRepo
-
         mock_session = MagicMock()
         mock_result = MagicMock()
         mock_result.rowcount = 2
@@ -62,7 +67,7 @@ class TestVectorRepoBatchOperations:
         mock_pool = MagicMock()
         mock_pool.session.return_value.__aenter__.return_value = mock_session
 
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
 
         article_id = uuid.uuid4()
         articles = [
@@ -92,7 +97,7 @@ class TestVectorRepoBatchOperations:
         mock_pool = MagicMock()
         mock_pool.session.return_value.__aenter__.return_value = mock_session
 
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
 
         article_id = uuid.uuid4()
         articles = [
@@ -119,7 +124,7 @@ class TestVectorRepoBatchOperations:
         mock_pool = MagicMock()
         mock_pool.session.return_value.__aenter__.return_value = mock_session
 
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
 
         articles = [
             (uuid.uuid4(), [0.1] * 1024, [0.2] * 1024, "model-id"),
@@ -146,7 +151,7 @@ class TestBatchFindSimilar:
         from modules.storage.postgres.vector_repo import VectorRepo
 
         mock_pool = MagicMock()
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
 
         result = await repo.batch_find_similar([])
 
@@ -168,7 +173,7 @@ class TestBatchFindSimilar:
         mock_pool = MagicMock()
         mock_pool.session.return_value.__aenter__.return_value = mock_session
 
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
 
         queries = [
             (uuid.uuid4(), [0.1] * 1024),
@@ -378,7 +383,7 @@ class TestPerformanceComparison:
         mock_pool = MagicMock()
         mock_pool.session.return_value.__aenter__.return_value = mock_session
 
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
 
         # Bulk upsert 10 articles with both embeddings = 20 vectors
         articles = [(uuid.uuid4(), [0.1] * 1024, [0.2] * 1024, "model") for _ in range(10)]
@@ -407,7 +412,7 @@ class TestPerformanceComparison:
         mock_pool = MagicMock()
         mock_pool.session.return_value.__aenter__.return_value = mock_session
 
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
 
         queries = [(uuid.uuid4(), [0.1] * 1024) for _ in range(10)]
 

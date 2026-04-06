@@ -1,5 +1,5 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Checkpoint cleanup pipeline node — clean up LangGraph checkpoints after completion."""
+"""Checkpoint cleanup pipeline node — clean up pipeline checkpoints after completion."""
 
 from __future__ import annotations
 
@@ -13,13 +13,13 @@ log = get_logger("node.checkpoint_cleanup")
 
 
 class CheckpointCleanupNode:
-    """Pipeline node: clean up LangGraph checkpoints after completion.
+    """Pipeline node: clean up pipeline checkpoints after completion.
 
     Removes checkpoint data from Redis to free up storage after
     the pipeline has successfully processed an article.
     """
 
-    CHECKPOINT_KEY_PREFIX = "langgraph:checkpoint"
+    CHECKPOINT_KEY_PREFIX = "pipeline:checkpoint"
 
     def __init__(self, redis_client: Any = None) -> None:
         self._redis = redis_client

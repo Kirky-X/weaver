@@ -39,6 +39,21 @@ class LLMClientProtocol(Protocol):
     ) -> dict[str, Any] | str: ...
 
 
+class EntityGraphRepoProtocol(Protocol):
+    """Protocol for entity graph repository."""
+
+    async def link_event_to_entities(
+        self,
+        event_id: str,
+        entities: list[dict[str, Any]],
+    ) -> int: ...
+
+    async def extract_entities_from_text(
+        self,
+        text: str,
+    ) -> list[dict[str, Any]]: ...
+
+
 class StructuralConsolidationWorker:
     """Background worker for slow path structural consolidation.
 
@@ -53,6 +68,7 @@ class StructuralConsolidationWorker:
         causal_repo: CausalGraphRepo,
         consolidation_queue: ConsolidationQueue,
         llm_client: LLMClientProtocol,
+        entity_repo: EntityGraphRepoProtocol | None = None,
         confidence_threshold: float = 0.7,
     ) -> None:
         """Initialize the consolidation worker.
@@ -62,12 +78,14 @@ class StructuralConsolidationWorker:
             causal_repo: Repository for causal graph operations.
             consolidation_queue: Queue for pending events.
             llm_client: LLM client for causal inference.
+            entity_repo: Repository for entity graph operations (optional).
             confidence_threshold: Minimum confidence for storing edges.
         """
         self._temporal_repo = temporal_repo
         self._causal_repo = causal_repo
         self._queue = consolidation_queue
         self._llm = llm_client
+        self._entity_repo = entity_repo
         self._confidence_threshold = confidence_threshold
 
     async def process_event(self, event_id: str) -> ConsolidationResult:
@@ -109,27 +127,10 @@ class StructuralConsolidationWorker:
                         edges_added += 1
                         total_confidence += edge["confidence"]
 
-            # 4. Entity Link Discovery (simplified)
+            # 4. Entity Link Discovery
             entity_links_added = 0
-
-            # TODO(entity-links): Entity link discovery is intentionally deferred.
-            #
-            # Rationale: Entity link discovery requires deep integration with:
-            # - Entity extraction pipeline (modules/knowledge/entity/)
-            # - Entity resolution logic (core NLP/NER models)
-            # - Knowledge graph entity management (Neo4j/LadybugDB)
-            #
-            # Current status: The infrastructure exists (entity_repo protocol),
-            # but the actual entity extraction and resolution pipeline is not
-            # integrated with the memory module's fast/slow paths.
-            #
-            # Future implementation steps:
-            # 1. Integrate entity extractor from knowledge module
-            # 2. Implement entity resolution against existing entities
-            # 3. Create MENTIONS relationships (EventNode)-[:MENTIONS]->(Entity)
-            # 4. Update entity_repo.link_entities() to handle memory events
-            #
-            # See: modules/memory/evolution/fast_path.py:EntityGraphRepoProtocol
+            if self._entity_repo:
+                entity_links_added = await self._discover_entity_links(event_id, neighborhood)
 
             avg_confidence = total_confidence / edges_added if edges_added > 0 else 0.0
 
@@ -217,3 +218,61 @@ class StructuralConsolidationWorker:
             results.append(result)
 
         return results
+
+    async def _discover_entity_links(
+        self,
+        event_id: str,
+        neighborhood: list[dict[str, Any]],
+    ) -> int:
+        """Discover and create entity links for an event.
+
+        Extracts entities from the event's neighborhood content and creates
+        MENTIONS relationships between the event and discovered entities.
+
+        Args:
+            event_id: ID of the event to process.
+            neighborhood: List of neighbor events with content.
+
+        Returns:
+            Number of entity links created.
+        """
+        if not self._entity_repo:
+            return 0
+
+        try:
+            # Combine content from neighborhood for entity extraction
+            combined_text = " ".join(
+                event.get("content", "") for event in neighborhood[:5] if event.get("content")
+            )
+
+            if not combined_text:
+                return 0
+
+            # Extract entities from text
+            entities = await self._entity_repo.extract_entities_from_text(combined_text)
+
+            if not entities:
+                return 0
+
+            # Create MENTIONS relationships
+            links_created = await self._entity_repo.link_event_to_entities(
+                event_id=event_id,
+                entities=entities,
+            )
+
+            if links_created > 0:
+                log.debug(
+                    "entity_links_discovered",
+                    event_id=event_id,
+                    links_count=links_created,
+                )
+
+            return links_created
+
+        except Exception as exc:
+            log.warning(
+                "entity_link_discovery_failed",
+                event_id=event_id,
+                error=str(exc),
+            )
+            return 0

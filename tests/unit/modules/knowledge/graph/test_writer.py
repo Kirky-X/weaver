@@ -545,17 +545,16 @@ class TestNeo4jWriterEdgeCases:
 
     @pytest.mark.asyncio
     async def test_write_entity_relations_dual_write(self, writer_with_mocks):
-        """Test _write_entity_relations with dual-write env var."""
+        """Test _write_entity_relations writes normalized relation."""
         writer, mock_entity_repo, _ = writer_with_mocks
 
         relations = [{"source": "E1", "target": "E2", "relation_type": "X"}]
         name_to_id = {"E1": "id1", "E2": "id2"}
 
-        with patch.dict("os.environ", {"WEAVER_DUAL_WRITE": "true"}):
-            count = await writer._write_entity_relations(relations, name_to_id)
+        count = await writer._write_entity_relations(relations, name_to_id)
 
         assert count == 1
-        assert mock_entity_repo.merge_relation.call_count == 2  # typed + RELATED_TO
+        assert mock_entity_repo.merge_relation.call_count == 1
 
     @pytest.mark.asyncio
     async def test_write_entity_relations_empty(self, writer_with_mocks):

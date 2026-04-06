@@ -78,7 +78,7 @@ class Neo4jSettings(BaseSettings):
 
     uri: str = "bolt://localhost:7687"
     user: str = "neo4j"
-    password: str = "neo4j_password"
+    password: str = ""  # Must be set via NEO4J_PASSWORD environment variable
     enabled: bool = True
 
 
