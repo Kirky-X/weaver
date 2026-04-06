@@ -109,8 +109,8 @@ class MappingRegistry:
 
         # Parse relationship mappings
         for rel_data in data.get("relations", []):
-            mapping = self._parse_rel_mapping(rel_data)
-            self._rel_mappings[mapping.source_type] = mapping
+            rel_mapping = self._parse_rel_mapping(rel_data)
+            self._rel_mappings[rel_mapping.source_type] = rel_mapping
 
     def _parse_node_mapping(self, data: dict[str, Any]) -> NodeMapping:
         """Parse a node mapping from YAML data."""

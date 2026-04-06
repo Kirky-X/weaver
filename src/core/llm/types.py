@@ -132,7 +132,7 @@ class RoutingConfig:
     """路由配置."""
 
     primary: str
-    fallbacks: list[str] = None
+    fallbacks: list[str] | None = None
 
     def __post_init__(self):
         if self.fallbacks is None:
@@ -171,7 +171,7 @@ class ProviderConfig:
     timeout: float = 120.0
     priority: int = 100
     weight: int = 100
-    models: dict[str, ModelConfig] = None
+    models: dict[str, ModelConfig] | None = None
 
     def __post_init__(self):
         if self.models is None:
@@ -179,6 +179,8 @@ class ProviderConfig:
 
     def get_model(self, model_name: str) -> ModelConfig | None:
         """获取模型配置."""
+        if self.models is None:
+            return None
         return self.models.get(model_name)
 
 
@@ -189,8 +191,8 @@ class GlobalConfig:
     circuit_breaker_threshold: int = 5
     circuit_breaker_timeout: float = 60.0
     default_timeout: float = 120.0
-    defaults: dict[LLMType, RoutingConfig] = None
-    call_points: dict[str, RoutingConfig] = None
+    defaults: dict[LLMType, RoutingConfig] | None = None
+    call_points: dict[str, RoutingConfig] | None = None
 
     def __post_init__(self):
         if self.defaults is None:
