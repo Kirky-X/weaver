@@ -66,7 +66,7 @@ async def _init_minimal_container():
     )
     log.info("llm_client_initialized")
 
-    return postgres_pool, redis_client, llm_client, prompt_loader
+    return postgres_pool, redis_client, llm_client, prompt_loader, settings
 
 
 async def _shutdown_minimal_container(postgres_pool, redis_client, llm_client):
@@ -89,7 +89,13 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
         Number of articles repaired.
     """
     # Initialize minimal services
-    postgres_pool, redis_client, llm_client, prompt_loader = await _init_minimal_container()
+    (
+        postgres_pool,
+        redis_client,
+        llm_client,
+        prompt_loader,
+        settings,
+    ) = await _init_minimal_container()
 
     try:
         from modules.storage.postgres.article_repo import ArticleRepo

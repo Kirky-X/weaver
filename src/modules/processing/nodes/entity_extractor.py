@@ -51,7 +51,7 @@ class EntityExtractorNode:
         budget: TokenBudgetManager,
         prompt_loader: PromptLoader,
         spacy: SpacyExtractor,
-        settings: Settings,
+        settings: Settings | None = None,
         vector_repo: Any = None,
         relation_type_normalizer: RelationTypeNormalizer | None = None,
     ) -> None:
@@ -72,7 +72,9 @@ class EntityExtractorNode:
         language = state.get("language", "zh")
 
         # Phase 1: spaCy NER (sync, run in executor)
-        disable_data_metrics = self._settings.entity.disable_data_metrics_nodes
+        disable_data_metrics = (
+            self._settings.entity.disable_data_metrics_nodes if self._settings else False
+        )
         try:
             loop = asyncio.get_running_loop()
             spacy_entities = await loop.run_in_executor(
