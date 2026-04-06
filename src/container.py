@@ -663,7 +663,7 @@ class Container:
     # ── Vector Repository ─────────────────────────────────────────
 
     def vector_repo(self) -> VectorRepository:
-        """Get vector repository (PostgreSQL pgvector or DuckDB implementation).
+        """Get vector repository with database-specific query builder.
 
         Returns:
             VectorRepository implementation for vector similarity operations.
@@ -671,12 +671,13 @@ class Container:
         if self._vector_repo is None:
             if self._strategy is None:
                 raise RuntimeError("Database strategy not initialized. Call init_strategy() first.")
-            if self._strategy.relational_type == "duckdb":
-                from modules.storage.duckdb import DuckDBVectorRepo
+            from core.db.query_builders import create_vector_query_builder
 
-                self._vector_repo = DuckDBVectorRepo(self._strategy.relational_pool)
-            else:
-                self._vector_repo = VectorRepo(self._strategy.relational_pool)
+            query_builder = create_vector_query_builder(self._strategy.relational_type)
+            self._vector_repo = VectorRepo(
+                pool=self._strategy.relational_pool,
+                query_builder=query_builder,
+            )
         return self._vector_repo
 
     # ── Search Engines ───────────────────────────────────────────────
@@ -686,18 +687,51 @@ class Container:
         graph_pool = self.graph_pool()
         if graph_pool is None or self._llm_client is None:
             return None
-        if self._strategy is None or self._strategy.graph_type == "ladybug":
-            # LadybugDB doesn't support search engines yet
+        if self._strategy is None:
             return None
+
+        # Build context builders based on graph type
+        if self._strategy.graph_type == "ladybug":
+            from modules.knowledge.search.context.ladybug_global_context import (
+                LadybugGlobalContextBuilder,
+            )
+            from modules.knowledge.search.context.ladybug_local_context import (
+                LadybugLocalContextBuilder,
+            )
+
+            local_builder = LadybugLocalContextBuilder(
+                graph_pool=graph_pool,
+                default_max_tokens=8000,
+            )
+            global_builder = LadybugGlobalContextBuilder(
+                graph_pool=graph_pool,
+                default_max_tokens=12000,
+                llm_client=self._llm_client,
+            )
+        else:
+            # Neo4j (default)
+            from modules.knowledge.search.context.global_context import GlobalContextBuilder
+            from modules.knowledge.search.context.local_context import LocalContextBuilder
+
+            local_builder = LocalContextBuilder(
+                neo4j_pool=graph_pool,
+                default_max_tokens=8000,
+            )
+            global_builder = GlobalContextBuilder(
+                neo4j_pool=graph_pool,
+                default_max_tokens=12000,
+                llm_client=self._llm_client,
+            )
+
         if self._local_search_engine is None:
             self._local_search_engine = LocalSearchEngine(
-                neo4j_pool=graph_pool,
                 llm=self._llm_client,
+                context_builder=local_builder,
             )
         if self._global_search_engine is None:
             self._global_search_engine = GlobalSearchEngine(
-                neo4j_pool=graph_pool,
                 llm=self._llm_client,
+                context_builder=global_builder,
             )
         return (self._local_search_engine, self._global_search_engine)
 
