@@ -7,6 +7,7 @@ import uuid
 import pytest
 from sqlalchemy import text
 
+from core.db.query_builders import create_vector_query_builder
 from modules.storage.postgres.vector_repo import SimilarArticle, SimilarEntity, VectorRepo
 
 
@@ -70,13 +71,15 @@ class TestVectorRepoIntegration:
     @pytest.mark.asyncio
     async def test_vector_repo_initialization(self, pool):
         """Test VectorRepo initializes correctly with real pool."""
-        repo = VectorRepo(pool)
+        query_builder = create_vector_query_builder("postgres")
+        repo = VectorRepo(pool, query_builder)
         assert repo._pool is pool
 
     @pytest.mark.asyncio
     async def test_upsert_article_vectors(self, pool):
         """Test upsert_article_vectors creates vectors."""
-        vector_repo = VectorRepo(pool)
+        query_builder = create_vector_query_builder("postgres")
+        vector_repo = VectorRepo(pool, query_builder)
         article_id = uuid.uuid4()
 
         # Create test article
@@ -118,7 +121,8 @@ class TestVectorRepoIntegration:
     @pytest.mark.asyncio
     async def test_find_similar(self, pool):
         """Test find_similar returns similar articles."""
-        vector_repo = VectorRepo(pool)
+        query_builder = create_vector_query_builder("postgres")
+        vector_repo = VectorRepo(pool, query_builder)
         article_id = uuid.uuid4()
 
         # Create test article

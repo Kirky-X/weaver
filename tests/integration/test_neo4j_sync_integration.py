@@ -6,6 +6,7 @@ import uuid
 import pytest
 from sqlalchemy import text
 
+from core.db.query_builders import create_vector_query_builder
 from modules.storage.postgres.pending_sync_repo import PendingSyncRepo
 
 
@@ -242,7 +243,7 @@ class TestSyncPendingToNeo4j:
 
         pending_sync_repo = PendingSyncRepo(postgres_pool)
         article_repo = ArticleRepo(postgres_pool)
-        vector_repo = VectorRepo(postgres_pool)
+        vector_repo = VectorRepo(postgres_pool, create_vector_query_builder("postgres"))
         neo4j_writer = Neo4jWriter(neo4j_pool)
 
         jobs = SchedulerJobs(
@@ -272,7 +273,7 @@ class TestConsistencyCheck:
 
         pending_sync_repo = PendingSyncRepo(postgres_pool)
         article_repo = ArticleRepo(postgres_pool)
-        vector_repo = VectorRepo(postgres_pool)
+        vector_repo = VectorRepo(postgres_pool, create_vector_query_builder("postgres"))
         neo4j_writer = Neo4jWriter(neo4j_pool)
 
         jobs = SchedulerJobs(
