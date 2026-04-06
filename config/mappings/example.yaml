@@ -1,0 +1,62 @@
+# Example mapping file for graph migration
+# This demonstrates how to transform node labels and relationship types
+# during migration from Neo4j to LadybugDB (or vice versa)
+
+nodes:
+  # Map Person nodes to Entity nodes
+  - source_label: "Person"
+    target_label: "Entity"
+    key_mapping:
+      source_key: "name"
+      target_key: "canonical_name"
+    property_mapping:
+      name: canonical_name
+      person_type: type
+      bio: description
+    default_values:
+      tier: 3
+
+  # Map Organization nodes to Entity
+  - source_label: "Organization"
+    target_label: "Entity"
+    key_mapping:
+      source_key: "org_name"
+      target_key: "canonical_name"
+    property_mapping:
+      org_name: canonical_name
+      org_type: type
+    default_values:
+      tier: 2
+
+  # Map Location nodes (keep same name, just add defaults)
+  - source_label: "Location"
+    target_label: "Entity"
+    property_mapping:
+      location_name: canonical_name
+    default_values:
+      type: "Location"
+      tier: 4
+
+relations:
+  # Map KNOWS relationships to RELATED_TO
+  - source_type: "KNOWS"
+    target_type: "RELATED_TO"
+    property_mapping:
+      since: properties
+    default_values:
+      edge_type: "social"
+
+  # Map WORKS_FOR relationships
+  - source_type: "WORKS_FOR"
+    target_type: "RELATED_TO"
+    property_mapping:
+      role: properties
+      start_date: properties
+    default_values:
+      edge_type: "employment"
+
+  # Map LOCATED_AT relationships
+  - source_type: "LOCATED_AT"
+    target_type: "RELATED_TO"
+    default_values:
+      edge_type: "location"

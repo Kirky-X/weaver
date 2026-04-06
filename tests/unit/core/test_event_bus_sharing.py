@@ -72,6 +72,7 @@ class TestEventBusSharing:
         mock_strategy = MagicMock()
         mock_strategy.graph_pool = None
         mock_strategy.relational_pool = MagicMock()
+        mock_strategy.relational_type = "postgres"  # Needed for VectorRepo QueryBuilder
         container._strategy = mock_strategy
 
         mock_spacy = MagicMock()
@@ -106,6 +107,7 @@ class TestEventBusSharing:
         mock_strategy = MagicMock()
         mock_strategy.graph_pool = None
         mock_strategy.relational_pool = MagicMock()
+        mock_strategy.relational_type = "postgres"  # Needed for VectorRepo QueryBuilder
         container._strategy = mock_strategy
 
         mock_spacy = MagicMock()

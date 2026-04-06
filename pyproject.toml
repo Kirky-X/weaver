@@ -14,11 +14,6 @@ dependencies = [
     "feedparser>=6.0.12",
     "httpx[http2]>=0.28.1",
     "json_repair>=0.58.7",
-    "langchain>=1.2.13",
-    "langchain-anthropic>=1.4.0",
-    "langchain-core>=1.2.12",
-    "langchain-openai>=1.1.12",
-    "langgraph>=1.1.3",
     "neo4j>=6.1.0",
     "numpy>=1.26.4,<2.0.0",
     "openai>=1.0.0",
@@ -44,7 +39,6 @@ dependencies = [
     "ntplib>=0.4.0",
     # ── Search Enhancement ─────────────────────────────────
     "bm25s>=0.3.3",
-    # "flashrank>=0.2.10",  # Removed: FlashrankReranker never instantiated (dead code audit 2026-04-04)
     # ── Advanced Community Detection ─────────────────────────
     "python-igraph>=0.11.0",
     "leidenalg>=0.11.0",
@@ -62,6 +56,11 @@ dependencies = [
     "cashews>=7.5.0",
     "rich>=14.3.3",
     "typer>=0.24.1",
+]
+
+[project.optional-dependencies]
+search-enhancement = [
+    "flashrank>=0.2.10",  # Optional: cross-encoder reranking for search results
 ]
 
 [build-system]

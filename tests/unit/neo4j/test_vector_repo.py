@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from core.db.query_builders import PgVectorQueryBuilder
 from modules.storage.postgres.vector_repo import SimilarArticle, SimilarEntity, VectorRepo
 
 
@@ -41,7 +42,8 @@ def _make_mock_pool(
         sql = str(query)
         result = MagicMock()
         if (
-            "av.embedding <=>" in sql
+            "<=>" in sql
+            or "array_cosine_similarity" in sql
             or "similarity" in sql.lower()
             or ("article_vectors" in sql.lower() and "delete" not in sql.lower())
         ):
@@ -62,6 +64,11 @@ def _make_mock_pool(
     mock_pool.session.return_value.__aenter__.return_value = mock_session
     mock_pool._execute_tracker = _execute_tracker
     return mock_pool
+
+
+def _make_vector_repo(mock_pool: MagicMock) -> VectorRepo:
+    """Create a VectorRepo with PostgreSQL query builder."""
+    return VectorRepo(pool=mock_pool, query_builder=PgVectorQueryBuilder())
 
 
 class TestFindSimilarHybrid:
@@ -90,7 +97,7 @@ class TestFindSimilarHybrid:
         ]
         mock_pool = _make_mock_pool(sim_rows, text_rows)
 
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
         result = await repo.find_similar_hybrid(
             embedding=[0.1] * 1024,
             query_tokens=["AI"],
@@ -144,7 +151,7 @@ class TestFindSimilarHybrid:
         ]
         mock_pool = _make_mock_pool(sim_rows, text_rows)
 
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
         result = await repo.find_similar_hybrid(
             embedding=[0.1] * 1024,
             query_tokens=["小米", "投资", "科技"],
@@ -195,7 +202,7 @@ class TestFindSimilarHybrid:
         ]
         mock_pool = _make_mock_pool(sim_rows, text_rows)
 
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
         result = await repo.find_similar_hybrid(
             embedding=[0.1] * 1024,
             query_tokens=["AI"],
@@ -212,7 +219,7 @@ class TestFindSimilarHybrid:
         """Returns empty list when the database query returns zero rows."""
         mock_pool = _make_mock_pool([])
 
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
         result = await repo.find_similar_hybrid(
             embedding=[0.1] * 1024,
             query_tokens=["AI"],
@@ -246,7 +253,7 @@ class TestFindSimilarHybrid:
         ]
         mock_pool = _make_mock_pool(sim_rows, text_rows)
 
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
         result = await repo.find_similar_hybrid(
             embedding=[0.1] * 1024,
             query_tokens=["stock"],
@@ -268,7 +275,7 @@ class TestUpsertArticleVectors:
     async def test_upsert_article_vectors_title_only(self):
         """Test upsert with only title embedding."""
         mock_pool = _make_mock_pool()
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
 
         article_id = uuid.uuid4()
         await repo.upsert_article_vectors(
@@ -283,7 +290,7 @@ class TestUpsertArticleVectors:
     async def test_upsert_article_vectors_both_embeddings(self):
         """Test upsert with both embeddings."""
         mock_pool = _make_mock_pool()
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
 
         article_id = uuid.uuid4()
         await repo.upsert_article_vectors(
@@ -303,7 +310,7 @@ class TestBulkUpsertArticleVectors:
     async def test_bulk_upsert_empty_list(self):
         """Test bulk upsert with empty list."""
         mock_pool = _make_mock_pool()
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
 
         result = await repo.bulk_upsert_article_vectors([])
 
@@ -313,7 +320,7 @@ class TestBulkUpsertArticleVectors:
     async def test_bulk_upsert_single_article(self):
         """Test bulk upsert with single article."""
         mock_pool = _make_mock_pool()
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
 
         article_id = uuid.uuid4()
         articles = [
@@ -328,7 +335,7 @@ class TestBulkUpsertArticleVectors:
     async def test_bulk_upsert_multiple_articles(self):
         """Test bulk upsert with multiple articles."""
         mock_pool = _make_mock_pool()
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
 
         articles = [
             (uuid.uuid4(), [0.1] * 1024, [0.2] * 1024, "model-1"),
@@ -358,7 +365,7 @@ class TestFindSimilar:
         ]
         mock_pool = _make_mock_pool(sim_rows)
 
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
         result = await repo.find_similar(
             embedding=[0.1] * 1024,
             category=None,
@@ -375,7 +382,7 @@ class TestFindSimilar:
         """Test find_similar returns empty list when no matches."""
         mock_pool = _make_mock_pool([])
 
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
         result = await repo.find_similar(
             embedding=[0.1] * 1024,
             category=None,
@@ -393,7 +400,7 @@ class TestBatchFindSimilar:
     async def test_batch_find_similar_empty_queries(self):
         """Test batch find with empty queries list."""
         mock_pool = _make_mock_pool()
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
 
         result = await repo.batch_find_similar([])
 
@@ -412,7 +419,7 @@ class TestBatchFindSimilar:
             ),
         ]
         mock_pool = _make_mock_pool(sim_rows)
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
 
         query_id1 = uuid.uuid4()
         query_id2 = uuid.uuid4()
@@ -442,7 +449,7 @@ class TestFindSimilarEntities:
             ),
         ]
         mock_pool = _make_mock_pool(sim_rows)
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
 
         result = await repo.find_similar_entities(
             embedding=[0.1] * 1024,
@@ -462,7 +469,7 @@ class TestDeleteArticleVectors:
     async def test_delete_empty_list(self):
         """Test delete with empty list."""
         mock_pool = _make_mock_pool()
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
 
         result = await repo.delete_article_vectors_by_article_ids([])
 
@@ -472,7 +479,7 @@ class TestDeleteArticleVectors:
     async def test_delete_multiple_articles(self):
         """Test delete with multiple article IDs."""
         mock_pool = _make_mock_pool()
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
 
         article_ids = [uuid.uuid4(), uuid.uuid4()]
         await repo.delete_article_vectors_by_article_ids(article_ids)
@@ -487,7 +494,7 @@ class TestDeleteEntityVectors:
     async def test_delete_empty_list(self):
         """Test delete with empty list."""
         mock_pool = _make_mock_pool()
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
 
         result = await repo.delete_entity_vectors_by_neo4j_ids([])
 
@@ -497,7 +504,7 @@ class TestDeleteEntityVectors:
     async def test_delete_multiple_entities(self):
         """Test delete with multiple neo4j IDs."""
         mock_pool = _make_mock_pool()
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
 
         neo4j_ids = ["entity-1", "entity-2"]
         await repo.delete_entity_vectors_by_neo4j_ids(neo4j_ids)
@@ -512,7 +519,7 @@ class TestUpdateEntityVectorsByTempKeys:
     async def test_update_empty_dict(self):
         """Test update with empty dict."""
         mock_pool = _make_mock_pool()
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
 
         result = await repo.update_entity_vectors_by_temp_keys({})
 
@@ -522,7 +529,7 @@ class TestUpdateEntityVectorsByTempKeys:
     async def test_update_multiple_keys(self):
         """Test update with multiple temp keys."""
         mock_pool = _make_mock_pool()
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
 
         temp_key_to_neo4j = {
             "temp-1": "neo4j-1",
@@ -547,7 +554,7 @@ class TestCountEntitiesWithValidNeo4jIds:
         mock_result.scalar = MagicMock(return_value=10)
         mock_session.execute.return_value = mock_result
 
-        repo = VectorRepo(pool=mock_pool)
+        repo = _make_vector_repo(mock_pool)
         result = await repo.count_entities_with_valid_neo4j_ids()
 
         assert result == 10
