@@ -65,12 +65,27 @@ def mock_vector_repo():
     return AsyncMock()
 
 
+@pytest.fixture
+def mock_settings():
+    """Mock settings with default entity configuration."""
+    settings = MagicMock()
+    settings.entity.disable_data_metrics_nodes = False
+    return settings
+
+
 class TestEntityExtractorNodeBasic:
     """Basic functionality tests for EntityExtractorNode."""
 
     @pytest.mark.asyncio
     async def test_extract_entities_successful(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_vector_repo, sample_raw
+        self,
+        mock_llm,
+        mock_budget,
+        mock_prompt_loader,
+        mock_spacy,
+        mock_vector_repo,
+        mock_settings,
+        sample_raw,
     ):
         """Test successful entity extraction with all phases."""
         # Mock spaCy extraction
@@ -96,6 +111,7 @@ class TestEntityExtractorNodeBasic:
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
             spacy=mock_spacy,
+            settings=mock_settings,
             vector_repo=mock_vector_repo,
         )
         state = PipelineState(raw=sample_raw)
@@ -111,7 +127,7 @@ class TestEntityExtractorNodeBasic:
 
     @pytest.mark.asyncio
     async def test_extract_sets_prompt_version(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, sample_raw
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_settings, sample_raw
     ):
         """Test that entity extractor records prompt version."""
         mock_spacy.extract = MagicMock(return_value=[])
@@ -122,6 +138,7 @@ class TestEntityExtractorNodeBasic:
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
             spacy=mock_spacy,
+            settings=mock_settings,
         )
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
@@ -133,7 +150,7 @@ class TestEntityExtractorNodeBasic:
 
     @pytest.mark.asyncio
     async def test_extract_calls_llm_with_correct_params(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, sample_raw
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_settings, sample_raw
     ):
         """Test that entity extractor calls LLM with correct parameters."""
         mock_entity = MagicMock()
@@ -150,6 +167,7 @@ class TestEntityExtractorNodeBasic:
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
             spacy=mock_spacy,
+            settings=mock_settings,
         )
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
@@ -173,7 +191,7 @@ class TestEntityExtractorNodeEdgeCases:
 
     @pytest.mark.asyncio
     async def test_extract_skips_terminal_state(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, sample_raw
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_settings, sample_raw
     ):
         """Test that entity extractor skips terminal articles."""
         node = EntityExtractorNode(
@@ -181,6 +199,7 @@ class TestEntityExtractorNodeEdgeCases:
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
             spacy=mock_spacy,
+            settings=mock_settings,
         )
         state = PipelineState(raw=sample_raw)
         state["terminal"] = True
@@ -195,7 +214,7 @@ class TestEntityExtractorNodeEdgeCases:
 
     @pytest.mark.asyncio
     async def test_extract_skips_merged_articles(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, sample_raw
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_settings, sample_raw
     ):
         """Test that entity extractor skips merged articles."""
         node = EntityExtractorNode(
@@ -203,6 +222,7 @@ class TestEntityExtractorNodeEdgeCases:
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
             spacy=mock_spacy,
+            settings=mock_settings,
         )
         state = PipelineState(raw=sample_raw)
         state["is_merged"] = True
@@ -215,7 +235,7 @@ class TestEntityExtractorNodeEdgeCases:
 
     @pytest.mark.asyncio
     async def test_extract_with_no_spacy_entities(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, sample_raw
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_settings, sample_raw
     ):
         """Test entity extraction with no spaCy entities found."""
         mock_spacy.extract = MagicMock(return_value=[])
@@ -231,6 +251,7 @@ class TestEntityExtractorNodeEdgeCases:
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
             spacy=mock_spacy,
+            settings=mock_settings,
         )
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
@@ -248,7 +269,7 @@ class TestEntityExtractorNodeErrorHandling:
 
     @pytest.mark.asyncio
     async def test_extract_handles_spacy_error(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, sample_raw
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_settings, sample_raw
     ):
         """Test that entity extractor handles spaCy errors gracefully."""
         mock_spacy.extract = MagicMock(side_effect=Exception("spaCy model not found"))
@@ -259,6 +280,7 @@ class TestEntityExtractorNodeErrorHandling:
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
             spacy=mock_spacy,
+            settings=mock_settings,
         )
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
@@ -271,7 +293,7 @@ class TestEntityExtractorNodeErrorHandling:
 
     @pytest.mark.asyncio
     async def test_extract_handles_llm_error(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, sample_raw
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_settings, sample_raw
     ):
         """Test that entity extractor handles LLM errors gracefully."""
         mock_spacy.extract = MagicMock(return_value=[])
@@ -282,6 +304,7 @@ class TestEntityExtractorNodeErrorHandling:
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
             spacy=mock_spacy,
+            settings=mock_settings,
         )
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
@@ -294,7 +317,7 @@ class TestEntityExtractorNodeErrorHandling:
 
     @pytest.mark.asyncio
     async def test_extract_handles_embedding_error(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, sample_raw
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_settings, sample_raw
     ):
         """Test that entity extractor handles embedding errors."""
         mock_entity = MagicMock()
@@ -316,6 +339,7 @@ class TestEntityExtractorNodeErrorHandling:
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
             spacy=mock_spacy,
+            settings=mock_settings,
         )
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
@@ -328,7 +352,14 @@ class TestEntityExtractorNodeErrorHandling:
 
     @pytest.mark.asyncio
     async def test_extract_handles_vector_repo_error(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_vector_repo, sample_raw
+        self,
+        mock_llm,
+        mock_budget,
+        mock_prompt_loader,
+        mock_spacy,
+        mock_settings,
+        mock_vector_repo,
+        sample_raw,
     ):
         """Test that entity extractor handles vector repository errors."""
         mock_entity = MagicMock()
@@ -353,6 +384,7 @@ class TestEntityExtractorNodeErrorHandling:
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
             spacy=mock_spacy,
+            settings=mock_settings,
             vector_repo=mock_vector_repo,
         )
         state = PipelineState(raw=sample_raw)
@@ -369,7 +401,7 @@ class TestEntityExtractorNodeIntegration:
 
     @pytest.mark.asyncio
     async def test_extract_with_embeddings_attached(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, sample_raw
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_settings, sample_raw
     ):
         """Test that embeddings are attached to entities."""
         mock_entity = MagicMock()
@@ -391,6 +423,7 @@ class TestEntityExtractorNodeIntegration:
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
             spacy=mock_spacy,
+            settings=mock_settings,
         )
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
@@ -403,7 +436,7 @@ class TestEntityExtractorNodeIntegration:
 
     @pytest.mark.asyncio
     async def test_extract_with_multiple_entities(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, sample_raw
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_settings, sample_raw
     ):
         """Test extraction with multiple entities."""
         mock_entity1 = MagicMock()
@@ -434,6 +467,7 @@ class TestEntityExtractorNodeIntegration:
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
             spacy=mock_spacy,
+            settings=mock_settings,
         )
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
@@ -446,7 +480,7 @@ class TestEntityExtractorNodeIntegration:
 
     @pytest.mark.asyncio
     async def test_extract_runs_spacy_in_executor(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, sample_raw
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_settings, sample_raw
     ):
         """Test that spaCy extraction runs in executor (non-blocking)."""
         mock_spacy.extract = MagicMock(return_value=[])
@@ -457,6 +491,7 @@ class TestEntityExtractorNodeIntegration:
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
             spacy=mock_spacy,
+            settings=mock_settings,
         )
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
@@ -475,7 +510,7 @@ class TestEntityExtractorNodeWithRelationTypeNormalizer:
 
     @pytest.mark.asyncio
     async def test_with_relation_type_normalizer_success(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, sample_raw
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_settings, sample_raw
     ):
         """Test entity extraction with relation type normalizer."""
         mock_spacy.extract = MagicMock(return_value=[])
@@ -493,6 +528,7 @@ class TestEntityExtractorNodeWithRelationTypeNormalizer:
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
             spacy=mock_spacy,
+            settings=mock_settings,
             relation_type_normalizer=mock_normalizer,
         )
         state = PipelineState(raw=sample_raw)
@@ -506,7 +542,7 @@ class TestEntityExtractorNodeWithRelationTypeNormalizer:
 
     @pytest.mark.asyncio
     async def test_relation_type_normalizer_error_fallback(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, sample_raw
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_settings, sample_raw
     ):
         """Test fallback when relation type normalizer fails."""
         mock_spacy.extract = MagicMock(return_value=[])
@@ -521,6 +557,7 @@ class TestEntityExtractorNodeWithRelationTypeNormalizer:
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
             spacy=mock_spacy,
+            settings=mock_settings,
             relation_type_normalizer=mock_normalizer,
         )
         state = PipelineState(raw=sample_raw)
@@ -537,7 +574,7 @@ class TestEntityExtractorNodeArticleTaskId:
 
     @pytest.mark.asyncio
     async def test_article_id_propagated_to_llm(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, sample_raw
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_settings, sample_raw
     ):
         """Test that article_id is passed to LLM call."""
         mock_spacy.extract = MagicMock(return_value=[])
@@ -548,6 +585,7 @@ class TestEntityExtractorNodeArticleTaskId:
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
             spacy=mock_spacy,
+            settings=mock_settings,
         )
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
@@ -567,7 +605,7 @@ class TestEntityExtractorNodeVectorCleanup:
 
     @pytest.mark.asyncio
     async def test_filtered_entities_cleaned_from_vector_repo(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, sample_raw
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_settings, sample_raw
     ):
         """Test that entities filtered by LLM are removed from vector repo."""
         # spaCy extracts 3 entities
@@ -602,6 +640,7 @@ class TestEntityExtractorNodeVectorCleanup:
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
             spacy=mock_spacy,
+            settings=mock_settings,
             vector_repo=mock_vector_repo,
         )
         state = PipelineState(raw=sample_raw)
@@ -621,7 +660,7 @@ class TestEntityExtractorNodeVectorCleanup:
 
     @pytest.mark.asyncio
     async def test_no_cleanup_when_all_entities_kept(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, sample_raw
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_settings, sample_raw
     ):
         """Test that no cleanup happens when LLM keeps all spaCy entities."""
         mock_entity = MagicMock()
@@ -644,6 +683,7 @@ class TestEntityExtractorNodeVectorCleanup:
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
             spacy=mock_spacy,
+            settings=mock_settings,
             vector_repo=mock_vector_repo,
         )
         state = PipelineState(raw=sample_raw)
@@ -656,7 +696,7 @@ class TestEntityExtractorNodeVectorCleanup:
 
     @pytest.mark.asyncio
     async def test_cleanup_handles_error_gracefully(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, sample_raw
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_settings, sample_raw
     ):
         """Test that cleanup errors don't fail the extraction."""
         mock_entity1 = MagicMock()
@@ -687,6 +727,7 @@ class TestEntityExtractorNodeVectorCleanup:
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
             spacy=mock_spacy,
+            settings=mock_settings,
             vector_repo=mock_vector_repo,
         )
         state = PipelineState(raw=sample_raw)

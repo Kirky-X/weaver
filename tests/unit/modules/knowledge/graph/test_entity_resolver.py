@@ -870,3 +870,133 @@ class TestEntityResolverMetricFilteringExtended:
     def test_filters_share_expression(self, resolver):
         """Test filters share expressions like '6亿股'."""
         assert resolver._looks_like_metric_string("6亿股") is True
+
+
+class TestEntityResolverDisableDataMetricsConfig:
+    """Tests for disable_data_metrics configuration in EntityResolver."""
+
+    @pytest.fixture
+    def mock_entity_repo(self):
+        repo = MagicMock()
+        repo.find_entity = AsyncMock(return_value=None)
+        repo.merge_entity = AsyncMock(return_value="neo4j-id-123")
+        repo.find_entities_by_ids = AsyncMock(return_value=[])
+        return repo
+
+    @pytest.fixture
+    def mock_vector_repo(self):
+        repo = MagicMock()
+        repo.find_similar_entities = AsyncMock(return_value=[])
+        repo.upsert_entity_vector = AsyncMock()
+        return repo
+
+    @pytest.mark.asyncio
+    async def test_disable_data_metrics_blocks_data_metric_type(
+        self, mock_entity_repo, mock_vector_repo
+    ):
+        """Test that disable_data_metrics=True blocks 数据指标 entities."""
+        from modules.knowledge.graph.entity_resolver import EntityResolver
+
+        resolver = EntityResolver(
+            entity_repo=mock_entity_repo,
+            vector_repo=mock_vector_repo,
+            disable_data_metrics=True,
+        )
+
+        result = await resolver.resolve_entity(
+            name="某个指标",
+            entity_type="数据指标",
+            embedding=[0.1] * 1536,
+        )
+
+        assert result["match_type"] == "filtered_metric"
+        assert result["is_new"] is False
+        # Should not call merge_entity
+        mock_entity_repo.merge_entity.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_disable_data_metrics_allows_other_types(
+        self, mock_entity_repo, mock_vector_repo
+    ):
+        """Test that disable_data_metrics=True allows non-数据指标 types."""
+        from modules.knowledge.graph.entity_resolver import EntityResolver
+
+        resolver = EntityResolver(
+            entity_repo=mock_entity_repo,
+            vector_repo=mock_vector_repo,
+            disable_data_metrics=True,
+        )
+
+        result = await resolver.resolve_entity(
+            name="腾讯公司",
+            entity_type="组织机构",
+            embedding=[0.1] * 1536,
+        )
+
+        assert result["is_new"] is True
+        assert result["match_type"] == "new"
+        mock_entity_repo.merge_entity.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_disable_data_metrics_false_allows_data_metrics(
+        self, mock_entity_repo, mock_vector_repo
+    ):
+        """Test that disable_data_metrics=False allows 数据指标 entities (unless metric string)."""
+        from modules.knowledge.graph.entity_resolver import EntityResolver
+
+        resolver = EntityResolver(
+            entity_repo=mock_entity_repo,
+            vector_repo=mock_vector_repo,
+            disable_data_metrics=False,
+        )
+
+        result = await resolver.resolve_entity(
+            name="GDP增长率",
+            entity_type="数据指标",
+            embedding=[0.1] * 1536,
+        )
+
+        # Should create new entity since it doesn't look like metric string
+        assert result["is_new"] is True
+        mock_entity_repo.merge_entity.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_metric_string_filtering_still_works_with_config_disabled(
+        self, mock_entity_repo, mock_vector_repo
+    ):
+        """Test that metric string filtering still works when disable_data_metrics=False."""
+        from modules.knowledge.graph.entity_resolver import EntityResolver
+
+        resolver = EntityResolver(
+            entity_repo=mock_entity_repo,
+            vector_repo=mock_vector_repo,
+            disable_data_metrics=False,
+        )
+
+        # This should still be filtered because it looks like a metric string
+        result = await resolver.resolve_entity(
+            name="12.73%",
+            entity_type="数据指标",
+            embedding=[0.1] * 1536,
+        )
+
+        assert result["match_type"] == "filtered_metric"
+
+    @pytest.mark.asyncio
+    async def test_disable_data_metrics_default_false(self, mock_entity_repo, mock_vector_repo):
+        """Test that disable_data_metrics defaults to False."""
+        from modules.knowledge.graph.entity_resolver import EntityResolver
+
+        resolver = EntityResolver(
+            entity_repo=mock_entity_repo,
+            vector_repo=mock_vector_repo,
+        )
+
+        # By default, data metrics should be allowed
+        result = await resolver.resolve_entity(
+            name="某个指标",
+            entity_type="数据指标",
+            embedding=[0.1] * 1536,
+        )
+
+        assert result["is_new"] is True

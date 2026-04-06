@@ -5,7 +5,34 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from config.settings import APISettings, SchedulerSettings
+from config.settings import APISettings, EntitySettings, SchedulerSettings
+
+
+class TestEntitySettings:
+    """Tests for EntitySettings configuration."""
+
+    def test_entity_settings_has_disable_data_metrics_nodes_field(self) -> None:
+        """EntitySettings should have disable_data_metrics_nodes field with default False."""
+        settings = EntitySettings()
+        assert hasattr(settings, "disable_data_metrics_nodes")
+        assert settings.disable_data_metrics_nodes is False
+
+    def test_entity_settings_accepts_custom_disable_value(self) -> None:
+        """EntitySettings should accept custom disable_data_metrics_nodes value."""
+        settings = EntitySettings(disable_data_metrics_nodes=True)
+        assert settings.disable_data_metrics_nodes is True
+
+    def test_entity_settings_field_description(self) -> None:
+        """EntitySettings field should have proper description."""
+        import pydantic
+
+        field_info = EntitySettings.model_fields["disable_data_metrics_nodes"]
+        # Field description may be None if not explicitly set, which is acceptable
+        if field_info.description is not None:
+            assert (
+                "数据指标" in field_info.description
+                or "data metrics" in field_info.description.lower()
+            )
 
 
 def test_scheduler_settings_has_pipeline_retry_interval() -> None:

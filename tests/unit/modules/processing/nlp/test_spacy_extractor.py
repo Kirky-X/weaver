@@ -454,3 +454,114 @@ class TestEntityTypeMapping:
     def test_law_mapping(self) -> None:
         """Test law entity type mapping."""
         assert SPACY_TO_ENTITY_TYPE["LAW"] == "法规与政策"
+
+
+class TestDisableDataMetricsFiltering:
+    """Tests for disable_data_metrics filtering functionality."""
+
+    @pytest.fixture
+    def extractor(self) -> SpacyExtractor:
+        """Create a SpacyExtractor instance."""
+        return SpacyExtractor()
+
+    @patch("modules.processing.nlp.spacy_extractor.SpacyExtractor._load")
+    def test_disable_data_metrics_filters_cardinal(
+        self, mock_load: MagicMock, extractor: SpacyExtractor
+    ) -> None:
+        """Test that CARDINAL entities are filtered when disable_data_metrics=True."""
+        mock_nlp = MockNLP(
+            entities=[
+                MockSpan(text="张三", label_="PERSON", start_char=0, end_char=2),
+                MockSpan(text="100万", label_="CARDINAL", start_char=3, end_char=6),
+                MockSpan(text="阿里巴巴", label_="ORG", start_char=7, end_char=11),
+            ]
+        )
+        mock_load.return_value = mock_nlp
+
+        # Without filtering
+        result_all = extractor.extract(
+            "张三100万阿里巴巴", language="zh", disable_data_metrics=False
+        )
+        assert len(result_all) == 3
+        types_all = [e.type for e in result_all]
+        assert "数据指标" in types_all
+
+        # With filtering
+        result_filtered = extractor.extract(
+            "张三100万阿里巴巴", language="zh", disable_data_metrics=True
+        )
+        assert len(result_filtered) == 2
+        types_filtered = [e.type for e in result_filtered]
+        assert "数据指标" not in types_filtered
+
+    @patch("modules.processing.nlp.spacy_extractor.SpacyExtractor._load")
+    def test_disable_data_metrics_filters_percent(
+        self, mock_load: MagicMock, extractor: SpacyExtractor
+    ) -> None:
+        """Test that PERCENT entities are filtered when disable_data_metrics=True."""
+        mock_nlp = MockNLP(
+            entities=[
+                MockSpan(text="12.5%", label_="PERCENT", start_char=0, end_char=4),
+                MockSpan(text="腾讯", label_="ORG", start_char=5, end_char=7),
+            ]
+        )
+        mock_load.return_value = mock_nlp
+
+        result = extractor.extract("12.5%腾讯", language="zh", disable_data_metrics=True)
+
+        assert len(result) == 1
+        assert result[0].type == "组织机构"
+
+    @patch("modules.processing.nlp.spacy_extractor.SpacyExtractor._load")
+    def test_disable_data_metrics_filters_money(
+        self, mock_load: MagicMock, extractor: SpacyExtractor
+    ) -> None:
+        """Test that MONEY entities are filtered when disable_data_metrics=True."""
+        mock_nlp = MockNLP(
+            entities=[
+                MockSpan(text="100万元", label_="MONEY", start_char=0, end_char=4),
+            ]
+        )
+        mock_load.return_value = mock_nlp
+
+        result = extractor.extract("100万元投资", language="zh", disable_data_metrics=True)
+
+        assert len(result) == 0
+
+    @patch("modules.processing.nlp.spacy_extractor.SpacyExtractor._load")
+    def test_disable_data_metrics_default_false(
+        self, mock_load: MagicMock, extractor: SpacyExtractor
+    ) -> None:
+        """Test that disable_data_metrics defaults to False (no filtering)."""
+        mock_nlp = MockNLP(
+            entities=[
+                MockSpan(text="100", label_="CARDINAL", start_char=0, end_char=3),
+            ]
+        )
+        mock_load.return_value = mock_nlp
+
+        # Default behavior should include data metrics
+        result = extractor.extract("100", language="zh")
+        assert len(result) == 1
+        assert result[0].type == "数据指标"
+
+    @patch("modules.processing.nlp.spacy_extractor.SpacyExtractor._load")
+    def test_batch_extraction_disable_data_metrics(self, mock_load: MagicMock) -> None:
+        """Test that disable_data_metrics works with batch extraction."""
+        mock_nlp = MockNLP(
+            entities=[
+                MockSpan(text="100万", label_="CARDINAL", start_char=0, end_char=3),
+                MockSpan(text="腾讯", label_="ORG", start_char=4, end_char=6),
+            ]
+        )
+        mock_load.return_value = mock_nlp
+        extractor = SpacyExtractor(batch_size=8)
+
+        texts = ["100万腾讯", "200万阿里"]
+        results = extractor.extract_batch(texts, language="zh", disable_data_metrics=True)
+
+        assert len(results) == 2
+        for result in results:
+            # Each should only have the ORG entity, CARDINAL filtered
+            assert len(result) == 1
+            assert result[0].type == "组织机构"
