@@ -353,7 +353,7 @@ def create_vector_query_builder(db_type: str | DatabaseType) -> VectorQueryBuild
     """Create appropriate query builder for database type.
 
     Args:
-        db_type: Database type string or enum value ('postgres' or 'duckdb').
+        db_type: Database type string or enum value ('postgres', 'postgresql', or 'duckdb').
 
     Returns:
         Database-specific VectorQueryBuilder implementation.
@@ -362,8 +362,12 @@ def create_vector_query_builder(db_type: str | DatabaseType) -> VectorQueryBuild
         ValueError: If database type is not supported.
     """
     if isinstance(db_type, str):
+        # Normalize aliases: "postgresql" -> "postgres"
+        db_type_lower = db_type.lower()
+        if db_type_lower == "postgresql":
+            db_type_lower = "postgres"
         try:
-            db_type = DatabaseType(db_type.lower())
+            db_type = DatabaseType(db_type_lower)
         except ValueError:
             raise ValueError(f"Unsupported database type: {db_type}") from None
 
