@@ -13,9 +13,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select, text
+from sqlalchemy import String, delete, func, select, text, update
 
-from core.db.models import EntityVector, VectorType
+from core.db.models import Article, ArticleVector, EntityVector, VectorType
 from core.db.query_builders import VectorQueryBuilder
 from core.observability.logging import get_logger
 from core.protocols import RelationalPool
@@ -308,22 +308,18 @@ class VectorRepo:
         if not vector_results:
             return []
 
-        # Fetch article bodies for keyword overlap scoring
-        article_ids = [r.article_id for r in vector_results]
+        # Fetch article bodies for keyword overlap scoring using ORM
+        # Use string comparison for article_ids to handle both UUID and non-UUID formats
+        article_id_strings = [r.article_id for r in vector_results]
         async with self._pool.session() as session:
-            array_expr = self._query_builder.build_array_contains_expression(
-                "a.id::text", ":article_ids"
+            result = await session.execute(
+                select(Article.id, Article.title, Article.body).where(
+                    func.cast(Article.id, String).in_(article_id_strings)
+                )
             )
-            query = text(f"""
-                SELECT a.id::text AS article_id,
-                       COALESCE(a.title, '') AS title,
-                       COALESCE(a.body, '') AS body
-                FROM articles a
-                WHERE {array_expr}
-            """)  # noqa: S608
-            result = await session.execute(query, {"article_ids": article_ids})
+            rows = result.all()
 
-        article_texts = {row.article_id: f"{row.title} {row.body}".lower() for row in result}
+        article_texts = {str(row.id): f"{row.title or ''} {row.body or ''}".lower() for row in rows}
 
         # Calculate hybrid scores
         scored = []
@@ -506,11 +502,11 @@ class VectorRepo:
             return 0
 
         async with self._pool.session() as session:
-            array_expr = self._query_builder.build_array_contains_expression("article_id", ":ids")
-            query = text(f"DELETE FROM article_vectors WHERE {array_expr}")  # noqa: S608
-            result = await session.execute(query, {"ids": [str(aid) for aid in article_ids]})
+            result = await session.execute(
+                delete(ArticleVector).where(ArticleVector.article_id.in_(article_ids))
+            )
             await session.commit()
-            return getattr(result, "rowcount", 0)
+            return result.rowcount
 
     async def delete_entity_vectors_by_neo4j_ids(self, neo4j_ids: list[str]) -> int:
         """Delete entity vectors by Neo4j IDs.
@@ -527,11 +523,11 @@ class VectorRepo:
             return 0
 
         async with self._pool.session() as session:
-            array_expr = self._query_builder.build_array_contains_expression("neo4j_id", ":ids")
-            query = text(f"DELETE FROM entity_vectors WHERE {array_expr}")  # noqa: S608
-            result = await session.execute(query, {"ids": neo4j_ids})
+            result = await session.execute(
+                delete(EntityVector).where(EntityVector.neo4j_id.in_(neo4j_ids))
+            )
             await session.commit()
-            return getattr(result, "rowcount", 0)
+            return result.rowcount
 
     async def update_entity_vectors_by_temp_keys(self, temp_key_to_neo4j: dict[str, str]) -> int:
         """Update entity vectors by replacing temp keys with real Neo4j IDs.
@@ -548,19 +544,17 @@ class VectorRepo:
         if not temp_key_to_neo4j:
             return 0
 
+        from datetime import UTC, datetime
+
         async with self._pool.session() as session:
             updated = 0
             for temp_key, neo4j_id in temp_key_to_neo4j.items():
-                query = text("""
-                    UPDATE entity_vectors
-                    SET neo4j_id = :neo4j_id, updated_at = NOW()
-                    WHERE neo4j_id = :temp_key
-                """)
                 result = await session.execute(
-                    query,
-                    {"temp_key": temp_key, "neo4j_id": neo4j_id},
+                    update(EntityVector)
+                    .where(EntityVector.neo4j_id == temp_key)
+                    .values(neo4j_id=neo4j_id, updated_at=datetime.now(UTC))
                 )
-                updated += getattr(result, "rowcount", 0)
+                updated += result.rowcount
             await session.commit()
             return updated
 
@@ -571,13 +565,12 @@ class VectorRepo:
             List of (neo4j_id, embedding) tuples for vectors with temp keys.
         """
         async with self._pool.session() as session:
-            query = text("""
-                SELECT neo4j_id, embedding
-                FROM entity_vectors
-                WHERE neo4j_id LIKE 'temp_%'
-            """)
-            result = await session.execute(query)
-            return [(row[0], row[1]) for row in result]
+            result = await session.execute(
+                select(EntityVector.neo4j_id, EntityVector.embedding).where(
+                    EntityVector.neo4j_id.like("temp_%")
+                )
+            )
+            return [(row.neo4j_id, row.embedding) for row in result]
 
     async def count_entities_with_valid_neo4j_ids(self) -> int:
         """Count entity vectors that have valid (non-temp) Neo4j IDs.
@@ -586,10 +579,9 @@ class VectorRepo:
             Number of entity vectors with real Neo4j IDs.
         """
         async with self._pool.session() as session:
-            query = text("""
-                SELECT COUNT(*)
-                FROM entity_vectors
-                WHERE neo4j_id NOT LIKE 'temp_%'
-            """)
-            result = await session.execute(query)
+            result = await session.execute(
+                select(func.count())
+                .select_from(EntityVector)
+                .where(EntityVector.neo4j_id.not_like("temp_%"))
+            )
             return result.scalar() or 0

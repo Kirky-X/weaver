@@ -41,19 +41,30 @@ def _make_mock_pool(
     async def mock_execute(query, params=None):
         sql = str(query)
         result = MagicMock()
-        if (
+        if "delete" in sql.lower() or "update" in sql.lower():
+            # Handle DELETE and UPDATE statements
+            result.rowcount = len(_sim_rows) if _sim_rows else 0
+        elif sql.strip().upper().startswith("SET "):
+            # Handle session init statements (e.g., SET hnsw.ef_search)
+            result.rowcount = 0
+        elif (
             "<=>" in sql
             or "array_cosine_similarity" in sql
             or "similarity" in sql.lower()
             or ("article_vectors" in sql.lower() and "delete" not in sql.lower())
         ):
             result.__iter__ = lambda self: iter(_sim_rows)
-        elif "articles a" in sql.lower():
+            result.rowcount = len(_sim_rows)
+        elif "articles" in sql.lower() and "article_vectors" not in sql.lower():
+            # Handle article queries (both raw SQL with "articles a" and ORM queries)
             result.__iter__ = lambda self: iter(_text_rows)
+            result.rowcount = len(_text_rows)
+            # Support ORM .all() method
+            result.all = MagicMock(return_value=_text_rows)
         else:
             result.__iter__ = lambda self: iter([])
+            result.rowcount = 0
         _execute_tracker(query, params)
-        result.rowcount = len(_sim_rows)
         result.scalar = MagicMock(return_value=_sim_rows[0] if _sim_rows else None)
         result.scalar_one_or_none = MagicMock(return_value=_sim_rows[0] if _sim_rows else None)
         return result
@@ -86,10 +97,11 @@ class TestFindSimilarHybrid:
                 }
             ),
         ]
+        # ORM query returns (id, title, body) - use 'id' not 'article_id'
         text_rows = [
             MockRow(
                 {
-                    "article_id": "article-001",
+                    "id": "article-001",
                     "title": "AI is transforming the industry",
                     "body": "",
                 }
@@ -136,14 +148,14 @@ class TestFindSimilarHybrid:
         text_rows = [
             MockRow(
                 {
-                    "article_id": "article-A",
+                    "id": "article-A",
                     "title": "小米投资新兴公司",
                     "body": "",
                 }
             ),
             MockRow(
                 {
-                    "article_id": "article-B",
+                    "id": "article-B",
                     "title": "小米投资科技领域",
                     "body": "",
                 }
@@ -187,14 +199,14 @@ class TestFindSimilarHybrid:
         text_rows = [
             MockRow(
                 {
-                    "article_id": "article-low",
+                    "id": "article-low",
                     "title": "unrelated content",
                     "body": "",
                 }
             ),
             MockRow(
                 {
-                    "article_id": "article-high",
+                    "id": "article-high",
                     "title": "AI and machine learning",
                     "body": "",
                 }
@@ -245,7 +257,7 @@ class TestFindSimilarHybrid:
         text_rows = [
             MockRow(
                 {
-                    "article_id": "article-cat",
+                    "id": "article-cat",
                     "title": "stock market report",
                     "body": "",
                 }
