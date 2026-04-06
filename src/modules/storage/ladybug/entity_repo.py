@@ -15,6 +15,7 @@ import uuid
 from typing import Any
 
 from core.observability.logging import get_logger
+from core.protocols import GraphPool
 
 log = get_logger("ladybug_entity_repo")
 
@@ -28,11 +29,14 @@ class LadybugEntityRepo:
     Handles entity CRUD operations in LadybugDB graph database.
     Uses id property instead of elementId(), and timestamp integers instead of datetime().
 
+    Implements:
+        - EntityRepository: Entity graph operations and relationship management
+
     Args:
-        pool: LadybugPool instance.
+        pool: Graph database connection pool.
     """
 
-    def __init__(self, pool) -> None:
+    def __init__(self, pool: GraphPool) -> None:
         self._pool = pool
 
     async def ensure_constraints(self) -> None:

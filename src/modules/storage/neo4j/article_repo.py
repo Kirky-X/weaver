@@ -6,8 +6,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from core.db.pool_protocols import GraphPool
 from core.observability.logging import get_logger
+from core.protocols import GraphPool
 
 log = get_logger("neo4j_article_repo")
 
