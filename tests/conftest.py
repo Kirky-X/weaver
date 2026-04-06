@@ -20,10 +20,15 @@ if _env_file.exists():
 # Ensure spaCy models are available for tests
 from core.nlp.spacy_manager import SpacyModelConfig, SpacyModelManager
 
+_local_paths = {
+    "zh_core_web_lg": "/home/dev/projects/weaver/temp/zh_core_web_lg-3.8.0-py3-none-any.whl",
+    "en_core_web_lg": "/home/dev/projects/weaver/temp/en_core_web_lg-3.8.0-py3-none-any.whl",
+}
 _spacy_config = SpacyModelConfig(
-    force_install=True,  # Auto-install missing models
-    strict_mode=False,  # Don't fail if installation fails (graceful degradation)
-    models=["zh_core_web_lg", "en_core_web_sm"],
+    force_install=True,
+    strict_mode=False,
+    models=["zh_core_web_lg", "en_core_web_lg"],
+    local_paths=_local_paths,
 )
 _spacy_manager = SpacyModelManager(_spacy_config)
 _spacy_manager.check_and_install()

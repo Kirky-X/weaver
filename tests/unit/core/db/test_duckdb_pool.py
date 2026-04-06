@@ -11,6 +11,8 @@ pytest.importorskip("duckdb_engine")
 from core.db.duckdb_pool import DuckDBPool, _DuckDBAsyncSession
 
 
+# Use xdist_group to ensure these tests run serially (they share :memory: database)
+@pytest.mark.xdist_group("duckdb")
 class TestDuckDBPoolConnection:
     """Tests for DuckDB connection lifecycle management."""
 
@@ -64,6 +66,7 @@ class TestDuckDBPoolConnection:
             pool.session()
 
 
+@pytest.mark.xdist_group("duckdb")
 class TestDuckDBQueryExecution:
     """Tests for DuckDB query execution."""
 
@@ -117,25 +120,31 @@ class TestDuckDBQueryExecution:
                 await session.execute(text("SELECT * FROM nonexistent_table_xyz"))
 
     @pytest.mark.asyncio
-    async def test_parameterized_query_works(self, pool: DuckDBPool) -> None:
+    async def test_parameterized_query_works(self) -> None:
         """Test that parameterized queries work correctly."""
         from sqlalchemy import text
 
-        async with pool.session_context() as session:
-            await session.execute(text("CREATE TABLE users (id INTEGER, name VARCHAR)"))
-            await session.execute(text("INSERT INTO users VALUES (1, 'Alice'), (2, 'Bob')"))
-            await session.commit()
+        pool = DuckDBPool(":memory:")
+        await pool.startup()
+        try:
+            async with pool.session_context() as session:
+                await session.execute(text("CREATE TABLE users (id INTEGER, name VARCHAR)"))
+                await session.execute(text("INSERT INTO users VALUES (1, 'Alice'), (2, 'Bob')"))
+                await session.commit()
 
-            result = await session.execute(
-                text("SELECT name FROM users WHERE id = :id"),
-                {"id": 1},
-            )
-            row = result.fetchone()
+                result = await session.execute(
+                    text("SELECT name FROM users WHERE id = :id"),
+                    {"id": 1},
+                )
+                row = result.fetchone()
 
-            assert row is not None
-            assert row[0] == "Alice"
+                assert row is not None
+                assert row[0] == "Alice"
+        finally:
+            await pool.shutdown()
 
 
+@pytest.mark.xdist_group("duckdb")
 class TestDuckDBTransactionSupport:
     """Tests for DuckDB transaction handling."""
 
@@ -210,6 +219,7 @@ class TestDuckDBTransactionSupport:
             assert count == 0
 
 
+@pytest.mark.xdist_group("duckdb")
 class TestDuckDBAsyncSession:
     """Tests for _DuckDBAsyncSession wrapper."""
 
