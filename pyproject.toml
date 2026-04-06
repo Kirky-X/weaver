@@ -206,6 +206,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401", "F403"]          # __init__ 允许未使用导入
+"src/core/db/query_builders.py" = ["S608"]  # SQL查询构建器使用参数化查询
 "tests/e2e/*.py" = [
     "S603",   # E2E tests需要subprocess调用Docker
     "S607",   # E2E tests需要subprocess调用Docker
