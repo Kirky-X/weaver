@@ -33,7 +33,8 @@ uv run python -m src.main
 
 - 启动时自动检查配置端口是否可用
 - 端口被占用时自动寻找可用端口（双向搜索）
-- 实际端口信息输出到日志和 `.env.weaver` 文件
+- 实际端口信息输出到日志
+- 当 `WEAVER_WRITE_PORT_ENV=true` 时，端口信息会写入 `.env.weaver` 文件
 - Docker 健康检查自动适配动态端口
 
 **配置端口检测**：

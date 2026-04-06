@@ -48,6 +48,10 @@ export WEAVER_API__API_KEY=<your-secure-api-key>  # 最少 32 字符
 export WEAVER_API__HOST=0.0.0.0
 export WEAVER_API__PORT=8000
 export WEAVER_API__RATE_LIMIT=100/minute
+
+# 端口自动检测配置
+export WEAVER_API__PORT_AUTO_DETECT=true  # 启用端口自动检测
+export WEAVER_WRITE_PORT_ENV=false        # 是否写入 .env.weaver 文件 (默认 false)
 ```
 
 #### 数据库连接

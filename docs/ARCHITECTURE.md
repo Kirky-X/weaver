@@ -149,15 +149,18 @@ port = PortFinder.find_available_port("127.0.0.1", 8000, max_attempts=100)
 
 ```python
 from core.net.port_announcer import PortAnnouncer
+import os
 
-announcer = PortAnnouncer()
+# 通过环境变量控制是否写入 .env.weaver 文件
+write_env = os.getenv("WEAVER_WRITE_PORT_ENV", "false").lower() in ("true", "1", "yes")
+announcer = PortAnnouncer(write_env_file=write_env)
 announcer.announce("127.0.0.1", 8005, original_port=8000)
 ```
 
 **公告渠道**：
 
 1. **控制台日志**：通过结构化日志输出端口信息
-2. **环境文件**：写入 `.env.weaver` 文件（`WEAVER_ACTUAL_PORT=8005`）
+2. **环境文件**（可选）：当 `WEAVER_WRITE_PORT_ENV=true` 时写入 `.env.weaver` 文件
 3. **Prometheus 指标**：设置 `weaver_server_port` Gauge
 
 ### 配置选项
@@ -178,14 +181,29 @@ port_auto_detect = true
 port_max_attempts = 100
 ```
 
+### 环境变量控制
+
+| 环境变量                | 默认值  | 说明                                  |
+| ----------------------- | ------- | ------------------------------------- |
+| `WEAVER_WRITE_PORT_ENV` | `false` | 是否写入 `.env.weaver` 文件 (true/false) |
+
+**配置示例**：
+
+```bash
+# 启用写入 .env.weaver 文件
+export WEAVER_WRITE_PORT_ENV=true
+
+# 禁用写入（默认）
+export WEAVER_WRITE_PORT_ENV=false
+```
+
 ### Docker 集成
 
-Docker 容器的健康检查自动读取动态端口：
+Docker 容器的健康检查使用环境变量读取动态端口：
 
 ```dockerfile
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD PORT=$(grep -E '^WEAVER_ACTUAL_PORT=' /app/.env.weaver 2>/dev/null | cut -d'=' -f2 || echo 8000) && \
-    python -c "import requests; requests.get(f'http://localhost:${PORT}/health')" || exit 1
+    CMD python -c "import requests, os; port=os.getenv('WEAVER_API__PORT', '8000'); requests.get(f'http://localhost:{port}/health')" || exit 1
 ```
 
 ### 使用场景

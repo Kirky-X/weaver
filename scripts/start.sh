@@ -81,7 +81,9 @@ echo ""
 echo "=========================================="
 echo "  Weaver is starting..."
 echo "  Check logs for actual port (port_resolved event)"
-echo "  Port will be written to .env.weaver"
+if [ "$WEAVER_WRITE_PORT_ENV" = "true" ] || [ "$WEAVER_WRITE_PORT_ENV" = "1" ]; then
+    echo "  Port will be written to .env.weaver"
+fi
 echo "=========================================="
 echo ""
 
