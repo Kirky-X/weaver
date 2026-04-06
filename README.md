@@ -238,37 +238,42 @@ fallbacks = []
 <details style="padding:16px; margin: 16px 0">
 <summary style="cursor:pointer; font-weight:600; color:#1E293B">🔧 完整配置选项</summary>
 
-| 配置项                                  | 类型   | 默认值                  | 描述                      |
-| --------------------------------------- | ------ | ----------------------- | ------------------------- |
-| **PostgreSQL**                          |        |                         |                           |
-| `POSTGRES_HOST`                         | string | `localhost`             | 数据库主机                |
-| `POSTGRES_PORT`                         | int    | `5432`                  | 数据库端口                |
-| `POSTGRES_DATABASE`                     | string | `weaver`                | 数据库名称                |
-| `POSTGRES_USER`                         | string | `postgres`              | 用户名                    |
-| `POSTGRES_PASSWORD`                     | string | -                       | 密码（必须设置）          |
-| **Neo4j**                               |        |                         |                           |
-| `NEO4J_URI`                             | string | `bolt://localhost:7687` | 连接地址                  |
-| `NEO4J_USER`                            | string | `neo4j`                 | 用户名                    |
-| `NEO4J_PASSWORD`                        | string | -                       | 密码（必须设置）          |
-| `NEO4J_ENABLED`                         | bool   | `true`                  | 是否启用                  |
-| **Redis**                               |        |                         |                           |
-| `REDIS_HOST`                            | string | `localhost`             | Redis 主机                |
-| `REDIS_PORT`                            | int    | `6379`                  | Redis 端口                |
-| `REDIS_DB`                              | int    | `0`                     | 数据库编号                |
-| **API**                                 |        |                         |                           |
-| `WEAVER_API__API_KEY`                   | string | -                       | API 认证密钥              |
-| **Fetcher**                             |        |                         |                           |
-| `crawl4ai_headless`                     | bool   | `true`                  | Crawl4AI 无头模式         |
-| `crawl4ai_stealth_enabled`              | bool   | `true`                  | Crawl4AI 隐身模式         |
-| `crawl4ai_timeout`                      | float  | `30.0`                  | Crawl4AI 超时时间（秒）   |
-| `default_per_host_concurrency`          | int    | 2                       | 每主机默认并发数          |
-| `global_max_concurrency`                | int    | 32                      | 全局最大并发数            |
-| `httpx_timeout`                         | float  | 15.0                    | HTTPX 超时时间（秒）      |
-| **Scheduler**                           |        |                         |                           |
-| `pipeline_retry_interval_minutes`       | int    | 15                      | Pipeline 重试间隔（分钟） |
-| `pipeline_retry_batch_size`             | int    | 20                      | Pipeline 重试批次大小     |
-| `pipeline_retry_dynamic_batch`          | bool   | false                   | 是否启用动态批次调整      |
-| `pipeline_retry_success_rate_threshold` | float  | 0.8                     | 动态批次成功率阈值        |
+| 配置项                                     | 类型   | 默认值                  | 描述                      |
+| ------------------------------------------ | ------ | ----------------------- | ------------------------- |
+| **PostgreSQL**                             |        |                         |                           |
+| `POSTGRES_HOST`                            | string | `localhost`             | 数据库主机                |
+| `POSTGRES_PORT`                            | int    | `5432`                  | 数据库端口                |
+| `POSTGRES_DATABASE`                        | string | `weaver`                | 数据库名称                |
+| `POSTGRES_USER`                            | string | `postgres`              | 用户名                    |
+| `POSTGRES_PASSWORD`                        | string | -                       | 密码（必须设置）          |
+| **Neo4j**                                  |        |                         |                           |
+| `NEO4J_URI`                                | string | `bolt://localhost:7687` | 连接地址                  |
+| `NEO4J_USER`                               | string | `neo4j`                 | 用户名                    |
+| `NEO4J_PASSWORD`                           | string | -                       | 密码（必须设置）          |
+| `NEO4J_ENABLED`                            | bool   | `true`                  | 是否启用                  |
+| **Redis**                                  |        |                         |                           |
+| `REDIS_HOST`                               | string | `localhost`             | Redis 主机                |
+| `REDIS_PORT`                               | int    | `6379`                  | Redis 端口                |
+| `REDIS_DB`                                 | int    | `0`                     | 数据库编号                |
+| **API**                                    |        |                         |                           |
+| `WEAVER_API__API_KEY`                      | string | -                       | API 认证密钥              |
+| **Fetcher**                                |        |                         |                           |
+| `crawl4ai_headless`                        | bool   | `true`                  | Crawl4AI 无头模式         |
+| `crawl4ai_stealth_enabled`                 | bool   | `true`                  | Crawl4AI 隐身模式         |
+| `crawl4ai_timeout`                         | float  | `30.0`                  | Crawl4AI 超时时间（秒）   |
+| `default_per_host_concurrency`             | int    | 2                       | 每主机默认并发数          |
+| `global_max_concurrency`                   | int    | 32                      | 全局最大并发数            |
+| `httpx_timeout`                            | float  | 15.0                    | HTTPX 超时时间（秒）      |
+| **Scheduler**                              |        |                         |                           |
+| `pipeline_retry_interval_minutes`          | int    | 15                      | Pipeline 重试间隔（分钟） |
+| `pipeline_retry_batch_size`                | int    | 20                      | Pipeline 重试批次大小     |
+| `pipeline_retry_dynamic_batch`             | bool   | false                   | 是否启用动态批次调整      |
+| `pipeline_retry_success_rate_threshold`    | float  | 0.8                     | 动态批次成功率阈值        |
+| **URL Security**                           |        |                         |                           |
+| `WEAVER_URL_SECURITY__ENABLED`             | bool   | `true`                  | 启用 URL 安全检查         |
+| `WEAVER_URL_SECURITY__URLHAUS_API_KEY`     | string | `""`                    | URLhaus API 密钥          |
+| `WEAVER_URL_SECURITY__CACHE_SAFE_TTL`      | int    | `21600`                 | 安全缓存 TTL（秒）        |
+| `WEAVER_URL_SECURITY__CACHE_MALICIOUS_TTL` | int    | `900`                   | 恶意缓存 TTL（秒）        |
 
 </details>
 
@@ -288,6 +293,69 @@ Pipeline 处理失败后支持智能重试机制：
 - 启用后，系统监控上批次处理成功率
 - 成功率 ≥ 阈值：批次大小不变或增加
 - 成功率 < 阈值：批次大小减半，避免大量任务连续失败
+
+#### <span id="entity-config">🏷️ 实体提取配置</span>
+
+控制实体提取阶段的行为：
+
+| 参数                         | 类型 | 默认值 | 说明                                   |
+| ---------------------------- | ---- | ------ | -------------------------------------- |
+| `disable_data_metrics_nodes` | bool | false  | 是否禁用"数据指标"类型实体的提取和存储 |
+
+**配置方式**：
+
+```bash
+# 环境变量
+WEAVER_ENTITY__DISABLE_DATA_METRICS_NODES=true
+
+# 或在 settings.toml 中
+[entity]
+disable_data_metrics_nodes = true
+```
+
+**影响范围**：
+
+- **spaCy 阶段**：跳过 `CARDINAL`、`PERCENT`、`MONEY` 标签的实体识别
+- **LLM 阶段**：过滤 LLM 返回的"数据指标"类型实体
+- **Resolver 阶段**：阻止"数据指标"实体的创建和合并
+
+#### <span id="url-security-config">🔒 URL 安全配置</span>
+
+多层 URL 安全检查，保护爬虫免受恶意 URL 攻击：
+
+| 参数                            | 类型   | 默认值  | 说明                                    |
+| ------------------------------- | ------ | ------- | --------------------------------------- |
+| `enabled`                       | bool   | `true`  | 是否启用 URL 安全检查                   |
+| `urlhaus_api_key`               | string | `""`    | URLhaus API 密钥（为空则跳过 API 检查） |
+| `urlhaus_api_timeout`           | float  | `5.0`   | URLhaus API 超时（秒）                  |
+| `phishtank_enabled`             | bool   | `true`  | 启用 PhishTank 钓鱼数据库检查           |
+| `phishtank_sync_interval_hours` | int    | `6`     | PhishTank 数据同步间隔（小时）          |
+| `heuristic_enabled`             | bool   | `true`  | 启用启发式 URL 分析                     |
+| `ssl_verify_enabled`            | bool   | `true`  | 启用 SSL 证书验证                       |
+| `cache_safe_ttl_seconds`        | int    | `21600` | 安全结果缓存 TTL（6 小时）              |
+| `cache_malicious_ttl_seconds`   | int    | `900`   | 恶意结果缓存 TTL（15 分钟）             |
+
+**安全检查层级**：
+
+1. **SSRF 防护**：拦截内网 IP、云元数据地址、危险协议
+2. **URLhaus API**：实时查询恶意 URL 数据库
+3. **PhishTank**：离线钓鱼 URL 黑名单匹配
+4. **启发式分析**：编码混淆检测、可疑关键词、域名异常
+5. **SSL 验证**：证书有效性、信任链、EV 证书检测
+
+**配置方式**：
+
+```bash
+# 环境变量
+WEAVER_URL_SECURITY__ENABLED=true
+WEAVER_URL_SECURITY__URLHAUS_API_KEY=your-api-key
+
+# 或在 settings.toml 中
+[url_security]
+enabled = true
+urlhaus_api_key = "your-api-key"
+cache_safe_ttl_seconds = 21600
+```
 
 ---
 
@@ -367,6 +435,7 @@ graph TB
 | **Neo4j Writer**        | 实体关系写入                | ✅ 稳定 |
 | **Vector Repo**         | pgvector 向量存储           | ✅ 稳定 |
 | **Credibility Checker** | 多信号可信度评估            | ✅ 稳定 |
+| **URL Security**        | 多层 URL 安全检查           | ✅ 稳定 |
 | **APScheduler**         | 定时任务调度                | ✅ 稳定 |
 
 ---
@@ -571,6 +640,7 @@ flowchart LR
 | cleanup_orphan_entity_vectors | 每周六3点 | 清理孤立向量                                 |
 | retry_pipeline_processing     | 15分钟    | 重试失败的 Pipeline 处理                     |
 | sync_neo4j_with_postgres      | 1小时     | 同步 Neo4j 与 PostgreSQL 数据一致性          |
+| sync_phishtank_data           | 6小时     | 同步 PhishTank 钓鱼 URL 数据库               |
 | update_persist_status_metrics | 5分钟     | 更新持久化状态 Prometheus 指标（支撑告警）   |
 | community_auto_check          | 30分钟    | 社区检测自动检查（基于实体变化阈值触发重建） |
 
