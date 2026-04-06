@@ -8,7 +8,6 @@ from core.llm.client import LLMClient
 from core.observability.logging import get_logger
 from modules.knowledge.search.engines.global_search import GlobalSearchEngine
 from modules.knowledge.search.engines.local_search import LocalSearchEngine
-from modules.knowledge.search.temporal.parser import TemporalParser
 
 from .classifier import IntentClassifier
 from .schemas import IntentClassification, QueryIntent
@@ -40,7 +39,6 @@ class IntentRouter:
         vector_repo: Optional["VectorRepo"] = None,
         hybrid_engine: object | None = None,
         llm: LLMClient | None = None,
-        temporal_parser: TemporalParser | None = None,
         config: RoutingConfig | None = None,
     ) -> None:
         """Initialize intent router with search engines.
@@ -51,7 +49,6 @@ class IntentRouter:
             vector_repo: Optional vector repository for direct article search.
             hybrid_engine: Optional hybrid search engine.
             llm: LLM client for intent classification.
-            temporal_parser: Optional temporal parser for time window resolution.
             config: Optional routing configuration.
         """
         self._local = local_engine
@@ -59,7 +56,6 @@ class IntentRouter:
         self._vector = vector_repo
         self._hybrid = hybrid_engine
         self._llm = llm
-        self._temporal = temporal_parser or TemporalParser()
         self._config = config or RoutingConfig()
 
         # MAGMA-inspired intent-to-engine mapping

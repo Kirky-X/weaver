@@ -52,30 +52,39 @@ class LocalSearchEngine:
 
     def __init__(
         self,
-        neo4j_pool: Neo4jPool,
-        llm: LLMClient,
+        neo4j_pool: Neo4jPool | None = None,
+        llm: LLMClient | None = None,
         default_max_tokens: int = 8000,
         max_context_tokens: int = 6000,
         hybrid_engine: HybridSearchEngine | None = None,
+        context_builder: Any | None = None,
     ) -> None:
         """Initialize local search engine.
 
         Args:
-            neo4j_pool: Neo4j connection pool.
+            neo4j_pool: Neo4j connection pool (deprecated, use context_builder).
             llm: LLM client for answer generation.
             default_max_tokens: Default max tokens for context.
             max_context_tokens: Maximum tokens for context window.
             hybrid_engine: Optional hybrid search engine for enhanced retrieval.
+            context_builder: Optional ContextBuilder instance (preferred over neo4j_pool).
         """
-        self._pool = neo4j_pool
         self._llm = llm
         self._default_max_tokens = default_max_tokens
         self._max_context_tokens = max_context_tokens
         self._hybrid_engine = hybrid_engine
-        self._context_builder = LocalContextBuilder(
-            neo4j_pool=neo4j_pool,
-            default_max_tokens=default_max_tokens,
-        )
+
+        # Support both old and new initialization patterns
+        if context_builder is not None:
+            self._context_builder = context_builder
+        elif neo4j_pool is not None:
+            self._pool = neo4j_pool
+            self._context_builder = LocalContextBuilder(
+                neo4j_pool=neo4j_pool,
+                default_max_tokens=default_max_tokens,
+            )
+        else:
+            raise ValueError("Either neo4j_pool or context_builder must be provided")
 
     async def search(
         self,
