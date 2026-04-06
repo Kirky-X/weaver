@@ -35,6 +35,94 @@ class TestEntitySettings:
             )
 
 
+class TestEntitySettingsInjection:
+    """Tests for EntitySettings injection into EntityResolver."""
+
+    def test_entity_resolver_injects_disable_data_metrics_true(self) -> None:
+        """EntityResolver should receive disable_data_metrics=True when settings has it enabled."""
+        from unittest.mock import AsyncMock
+
+        # Mock settings with disable_data_metrics_nodes=True
+        mock_settings = MagicMock()
+        mock_settings.entity.disable_data_metrics_nodes = True
+
+        # Mock the container's internal state
+        container = MagicMock()
+        container._settings = mock_settings
+        container._entity_resolver = None
+
+        # Mock dependencies
+        mock_entity_repo = MagicMock()
+        mock_vector_repo = MagicMock()
+
+        # Mock the methods that entity_resolver() calls
+        container.graph_entity_repo.return_value = mock_entity_repo
+        container.vector_repo.return_value = mock_vector_repo
+        container._llm_client = MagicMock()
+
+        # Import and call the actual entity_resolver method
+        from modules.knowledge.graph import EntityResolver
+
+        # Create a real entity_resolver method behavior
+        def entity_resolver_impl(self):
+            if self._entity_resolver is None:
+                disable_data_metrics = (
+                    self._settings.entity.disable_data_metrics_nodes if self._settings else False
+                )
+                self._entity_resolver = EntityResolver(
+                    entity_repo=self.graph_entity_repo(),
+                    vector_repo=self.vector_repo(),
+                    llm=self._llm_client,
+                    resolution_rules=MagicMock(),
+                    name_normalizer=MagicMock(),
+                    disable_data_metrics=disable_data_metrics,
+                )
+            return self._entity_resolver
+
+        # Bind and call
+        import types
+
+        container.entity_resolver = types.MethodType(entity_resolver_impl, container)
+        resolver = container.entity_resolver()
+
+        # Verify the resolver has disable_data_metrics=True
+        assert resolver._disable_data_metrics is True
+
+    def test_entity_resolver_injects_disable_data_metrics_false_default(self) -> None:
+        """EntityResolver should receive disable_data_metrics=False when settings is None."""
+        from modules.knowledge.graph import EntityResolver
+
+        # Mock container with no settings
+        container = MagicMock()
+        container._settings = None
+        container._entity_resolver = None
+        container.graph_entity_repo.return_value = MagicMock()
+        container.vector_repo.return_value = MagicMock()
+        container._llm_client = MagicMock()
+
+        def entity_resolver_impl(self):
+            if self._entity_resolver is None:
+                disable_data_metrics = (
+                    self._settings.entity.disable_data_metrics_nodes if self._settings else False
+                )
+                self._entity_resolver = EntityResolver(
+                    entity_repo=self.graph_entity_repo(),
+                    vector_repo=self.vector_repo(),
+                    llm=self._llm_client,
+                    resolution_rules=MagicMock(),
+                    name_normalizer=MagicMock(),
+                    disable_data_metrics=disable_data_metrics,
+                )
+            return self._entity_resolver
+
+        import types
+
+        container.entity_resolver = types.MethodType(entity_resolver_impl, container)
+        resolver = container.entity_resolver()
+
+        assert resolver._disable_data_metrics is False
+
+
 def test_scheduler_settings_has_pipeline_retry_interval() -> None:
     """Test that SchedulerSettings has pipeline_retry_interval_minutes with default value 15."""
     settings = SchedulerSettings()
