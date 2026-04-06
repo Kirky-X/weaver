@@ -300,8 +300,9 @@ known-first-party = ["src"]
 known-third-party = [
     "alembic",
     "fastapi",
-    "langchain",
-    "langgraph",
+    # Removed: langchain/langgraph unused
+    # "langchain",
+    # "langgraph",
     "pydantic",
     "pydantic_settings",
     "redis",
@@ -376,8 +377,9 @@ known_third_party = [
     "alembic",
     "fastapi",
     "httpx",
-    "langchain",
-    "langgraph",
+    # Removed: langchain/langgraph unused
+    # "langchain",
+    # "langgraph",
     "pydantic",
     "pydantic_settings",
     "redis",

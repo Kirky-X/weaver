@@ -1,5 +1,5 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""LangGraph main pipeline flow definition."""
+"""Main pipeline flow definition."""
 
 from __future__ import annotations
 

@@ -96,7 +96,7 @@
 |  🔵 图数据库  | Neo4j 5+                   |
 |    🔴 缓存    | Redis 7+                   |
 |  🕷️ 动态页面  | Crawl4AI                   |
-|  🤖 LLM 框架  | LangChain / LangGraph      |
+|  🤖 LLM 框架  | LiteLLM (统一 LLM 接口)    |
 |    📝 NLP     | spaCy                      |
 |  ⏰ 任务调度  | APScheduler                |
 |  📈 可观测性  | Prometheus + OpenTelemetry |
