@@ -26,6 +26,9 @@ class PostgresPool:
     Provides connection pool management with monitoring and dynamic
     adjustment capabilities.
 
+    Implements:
+        - RelationalPool: Async SQL database pool with session management
+
     Args:
         dsn: Database connection string.
         pool_size: Initial pool size (default 20).

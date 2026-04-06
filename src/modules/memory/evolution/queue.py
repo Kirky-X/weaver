@@ -7,21 +7,10 @@ from Slow Path consolidation.
 
 from __future__ import annotations
 
-from typing import Protocol
-
 from core.observability.logging import get_logger
+from core.protocols import CachePool
 
 log = get_logger("consolidation_queue")
-
-
-class RedisClientProtocol(Protocol):
-    """Protocol for Redis client interface."""
-
-    async def lpush(self, key: str, value: str) -> int: ...
-
-    async def rpop(self, key: str) -> str | None: ...
-
-    async def llen(self, key: str) -> int: ...
 
 
 class ConsolidationQueue:
@@ -33,13 +22,13 @@ class ConsolidationQueue:
 
     def __init__(
         self,
-        redis: RedisClientProtocol,
+        redis: CachePool,
         key_prefix: str = "weaver:memory:consolidation",
     ) -> None:
         """Initialize consolidation queue.
 
         Args:
-            redis: Redis client instance.
+            redis: Cache pool instance.
             key_prefix: Redis key prefix for queue storage.
         """
         self._redis = redis

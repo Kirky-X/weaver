@@ -11,8 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from core.db.pool_protocols import GraphPool, RelationalPool
 from core.observability.logging import get_logger
+from core.protocols import GraphPool, RelationalPool
 
 if TYPE_CHECKING:
     from config.settings import DuckDBSettings, LadybugSettings, Neo4jSettings, PostgresSettings

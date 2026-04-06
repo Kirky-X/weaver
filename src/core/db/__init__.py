@@ -27,9 +27,9 @@ from core.db.models import (
     VectorType,
 )
 from core.db.neo4j import Neo4jPool
-from core.db.pool_protocols import GraphPool, RelationalPool
 from core.db.postgres import PostgresPool
 from core.db.strategy import DatabaseStrategy, create_strategy
+from core.protocols import GraphPool, RelationalPool
 
 __all__ = [
     "REQUIRED_NEO4J_CONSTRAINTS",

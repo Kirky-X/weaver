@@ -11,9 +11,9 @@ from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.db.models import Article, PersistStatus
-from core.db.postgres import PostgresPool
 from core.exceptions import InvalidStateTransitionError
 from core.observability.logging import get_logger
+from core.protocols import RelationalPool
 from modules.ingestion.deduplication.deduplicator import Deduplicator
 from modules.processing.pipeline.state import PipelineState
 
@@ -100,11 +100,14 @@ class ArticleRepo:
     Handles article CRUD, persist status management,
     and URL dedup queries.
 
+    Implements:
+        - ArticleRepository: Article persistence and retrieval operations
+
     Args:
-        pool: PostgreSQL connection pool.
+        pool: Relational database connection pool (PostgreSQL or DuckDB).
     """
 
-    def __init__(self, pool: PostgresPool) -> None:
+    def __init__(self, pool: RelationalPool) -> None:
         self._pool = pool
 
     async def bulk_upsert(self, states: list[PipelineState]) -> list[uuid.UUID]:

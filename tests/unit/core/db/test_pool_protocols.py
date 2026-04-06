@@ -5,7 +5,7 @@ from typing import Protocol, runtime_checkable
 
 import pytest
 
-from core.db.pool_protocols import GraphPool, RelationalPool
+from core.protocols import GraphPool, RelationalPool
 
 
 class MockRelationalPool:

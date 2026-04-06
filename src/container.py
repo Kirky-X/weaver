@@ -8,12 +8,12 @@ from typing import Any
 
 from config.settings import Settings
 from core.cache import CashewsRedisFallback, RedisClient
-from core.db.pool_protocols import GraphPool, RelationalPool
 from core.db.strategy import DatabaseStrategy, create_strategy
 from core.event import EventBus, LLMFailureEvent, LLMUsageEvent
 from core.llm.client import LLMClient
 from core.observability import get_logger
 from core.prompt import PromptLoader
+from core.protocols import CachePool, EntityRepository, GraphPool, RelationalPool, VectorRepository
 from modules.analytics.llm_usage.buffer import LLMUsageBuffer
 from modules.analytics.llm_usage.repo import LLMUsageRepo
 from modules.ingestion import (
@@ -202,8 +202,12 @@ class Container:
                 log.info("cashews_redis_fallback_initialized")
         return self._redis_client
 
-    def redis_client(self) -> RedisClient | CashewsRedisFallback:
-        """Get Redis client."""
+    def redis_client(self) -> CachePool:
+        """Get Redis/cache client.
+
+        Returns:
+            CachePool implementation (RedisClient or CashewsRedisFallback).
+        """
         if self._redis_client is None:
             raise RuntimeError("Redis client not initialized. Call init_redis() first.")
         return self._redis_client
@@ -562,8 +566,12 @@ class Container:
 
     # ── Graph Repositories ─────────────────────────────────────────
 
-    def graph_entity_repo(self) -> Any | None:
-        """Get graph entity repository (Neo4j or LadybugDB implementation)."""
+    def graph_entity_repo(self) -> EntityRepository | None:
+        """Get graph entity repository (Neo4j or LadybugDB implementation).
+
+        Returns:
+            EntityRepository implementation or None if graph database unavailable.
+        """
         graph_pool = self.graph_pool()
         if graph_pool is None:
             return None
@@ -654,8 +662,12 @@ class Container:
 
     # ── Vector Repository ─────────────────────────────────────────
 
-    def vector_repo(self) -> Any:
-        """Get vector repository (PostgreSQL pgvector or DuckDB implementation)."""
+    def vector_repo(self) -> VectorRepository:
+        """Get vector repository (PostgreSQL pgvector or DuckDB implementation).
+
+        Returns:
+            VectorRepository implementation for vector similarity operations.
+        """
         if self._vector_repo is None:
             if self._strategy is None:
                 raise RuntimeError("Database strategy not initialized. Call init_strategy() first.")

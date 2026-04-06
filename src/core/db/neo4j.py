@@ -14,7 +14,11 @@ log = get_logger("neo4j")
 
 
 class Neo4jPool:
-    """Wraps official Neo4j async driver for connection management."""
+    """Wraps official Neo4j async driver for connection management.
+
+    Implements:
+        - GraphPool: Async graph database pool with query execution
+    """
 
     def __init__(self, uri: str, auth: tuple[str, str]) -> None:
         self._uri = uri
