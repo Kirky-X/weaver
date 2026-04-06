@@ -224,5 +224,7 @@ class SmartFetcher(BaseFetcher):
 
     async def close(self) -> None:
         """Close underlying fetchers."""
-        await self._httpx.close()
-        await self._crawl4ai.close()
+        if self._httpx is not None:
+            await self._httpx.close()
+        if self._crawl4ai is not None:
+            await self._crawl4ai.close()

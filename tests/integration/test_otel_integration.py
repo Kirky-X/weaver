@@ -1,13 +1,11 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Integration tests for OpenTelemetry tracing."""
-
-from unittest.mock import MagicMock
+"""Integration tests for OpenTelemetry tracing with real SDK components."""
 
 import pytest
 from opentelemetry import trace
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import SpanKind
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
@@ -331,33 +329,30 @@ class TestTraceContextPropagation:
 
 
 class TestOTLPExporterIntegration:
-    """Test OTLP exporter integration."""
+    """Test OTLP exporter integration with real SDK components."""
 
     def test_otlp_exporter_configuration(self):
-        """Test OTLP exporter can be configured."""
+        """Test OTLP exporter can be configured with real endpoint."""
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 
-        # Mock OTLP endpoint
-        mock_endpoint = "http://localhost:4317"
+        # Real OTLP endpoint configuration
+        endpoint = "http://localhost:4317"
 
         # Create OTLP exporter
-        exporter = OTLPSpanExporter(endpoint=mock_endpoint)
+        exporter = OTLPSpanExporter(endpoint=endpoint)
 
         # Verify exporter is created
         assert exporter is not None
 
-    def test_batch_span_processor_with_mock_exporter(self):
-        """Test batch span processor with mock exporter."""
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor
-
-        # Create mock exporter
-        mock_exporter = MagicMock()
-        mock_exporter.export = MagicMock(return_value=0)
+    def test_batch_span_processor_with_real_exporter(self):
+        """Test batch span processor with real InMemorySpanExporter."""
+        # Create real in-memory exporter
+        memory_exporter = InMemorySpanExporter()
 
         # Setup tracer provider with batch processor
         resource = Resource.create({"service.name": "test"})
         provider = TracerProvider(resource=resource)
-        processor = BatchSpanProcessor(mock_exporter)
+        processor = BatchSpanProcessor(memory_exporter)
         provider.add_span_processor(processor)
 
         # Create some spans
@@ -369,34 +364,33 @@ class TestOTLPExporterIntegration:
         # Force flush to trigger export
         provider.force_flush(timeout_millis=5000)
 
-        # Verify exporter was called
-        assert mock_exporter.export.called
+        # Verify spans were exported to memory exporter
+        spans = memory_exporter.get_finished_spans()
+        assert len(spans) == 5
 
         # Cleanup
         provider.shutdown()
 
-    def test_span_export_error_handling(self):
-        """Test that span export errors are handled gracefully."""
-        from opentelemetry.sdk.trace.export import SpanExportResult
+    def test_simple_span_processor_with_real_exporter(self):
+        """Test simple span processor exports immediately."""
+        # Create real in-memory exporter
+        memory_exporter = InMemorySpanExporter()
 
-        # Create failing exporter
-        failing_exporter = MagicMock()
-        failing_exporter.export = MagicMock(return_value=SpanExportResult.FAILURE)
-
-        # Setup tracer provider
+        # Setup tracer provider with simple processor
         resource = Resource.create({"service.name": "test"})
         provider = TracerProvider(resource=resource)
-        provider.add_span_processor(SimpleSpanProcessor(failing_exporter))
+        processor = SimpleSpanProcessor(memory_exporter)
+        provider.add_span_processor(processor)
 
-        # Create span - should not raise exception
+        # Create spans - should be immediately available
         tracer = provider.get_tracer("test")
-        try:
-            with tracer.start_as_current_span("test-span"):
-                pass
-            # If we get here, error handling is working
-            assert True
-        except Exception as e:
-            pytest.fail(f"Span creation should not raise exception: {e}")
+        with tracer.start_as_current_span("immediate-span"):
+            pass
+
+        # No flush needed - simple processor exports immediately
+        spans = memory_exporter.get_finished_spans()
+        assert len(spans) == 1
+        assert spans[0].name == "immediate-span"
 
         # Cleanup
         provider.shutdown()

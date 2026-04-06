@@ -199,3 +199,51 @@ async def optional_redis_client():
     client = aioredis.from_url(url)
     yield client
     await client.aclose()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Mock Detection: Integration tests MUST use real services
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def pytest_collection_modifyitems(config, items):
+    """Detect mock usage in integration tests and raise error.
+
+    Integration tests MUST use real services (PostgreSQL, Neo4j, Redis).
+    If a test needs mock, move it to tests/unit/ directory.
+    """
+    import inspect
+
+    forbidden_patterns = [
+        "MagicMock",
+        "AsyncMock",
+        "patch(",
+        "@patch",
+        "unittest.mock",
+    ]
+
+    for item in items:
+        # Only check test functions, not fixtures
+        if not hasattr(item, "function"):
+            continue
+
+        try:
+            source = inspect.getsource(item.function)
+        except (TypeError, OSError):
+            continue
+
+        for pattern in forbidden_patterns:
+            if pattern in source:
+                raise AssertionError(
+                    f"\n"
+                    f"╔════════════════════════════════════════════════════════════╗\n"
+                    f"║  ❌ 集成测试禁止使用 mock!                                  ║\n"
+                    f"╠════════════════════════════════════════════════════════════╣\n"
+                    f"║  测试: {item.name:<50} ║\n"
+                    f"║  文件: {item.fspath!s:<50} ║\n"
+                    f"║  检测到: {pattern:<48} ║\n"
+                    f"╠════════════════════════════════════════════════════════════╣\n"
+                    f"║  集成测试必须使用真实服务。                                 ║\n"
+                    f"║  如需 mock，请将测试移至 tests/unit/ 目录。                 ║\n"
+                    f"╚════════════════════════════════════════════════════════════╝\n"
+                )

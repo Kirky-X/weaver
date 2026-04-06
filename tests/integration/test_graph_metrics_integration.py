@@ -9,9 +9,28 @@ import os
 import pytest
 
 
+async def _check_neo4j_available() -> bool:
+    """Check if Neo4j is available."""
+    try:
+        from core.db.neo4j import Neo4jPool
+
+        uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+        user = os.getenv("NEO4J_USER", "neo4j")
+        password = os.getenv("NEO4J_PASSWORD", "weavertest")
+        pool = Neo4jPool(uri, (user, password))
+        await pool.startup()
+        await pool.shutdown()
+        return True
+    except Exception:
+        return False
+
+
 @pytest.fixture
 async def neo4j_pool():
     """Get real Neo4j pool."""
+    if not await _check_neo4j_available():
+        pytest.skip("Neo4j not available")
+
     from core.db.neo4j import Neo4jPool
 
     # Use port 7687 (Docker weaver stack) and password from .env
@@ -21,6 +40,7 @@ async def neo4j_pool():
     pool = Neo4jPool(uri, (user, password))
     await pool.startup()
     yield pool
+    await pool.shutdown()
 
 
 @pytest.fixture

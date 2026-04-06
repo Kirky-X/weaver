@@ -11,6 +11,26 @@ from core.db.query_builders import create_vector_query_builder
 from modules.storage.postgres.vector_repo import SimilarArticle, SimilarEntity, VectorRepo
 
 
+async def _check_postgres_available() -> bool:
+    """Check if PostgreSQL is available."""
+    try:
+        from core.db.postgres import PostgresPool
+
+        dsn = os.getenv(
+            "WEAVER_POSTGRES__DSN",
+            os.getenv(
+                "POSTGRES_DSN",
+                f"postgresql+asyncpg://{os.getenv('POSTGRES_USER', 'postgres')}:{os.getenv('POSTGRES_PASSWORD', 'invalid')}@{os.getenv('POSTGRES_HOST', 'localhost')}:{os.getenv('POSTGRES_PORT', '5432')}/{os.getenv('POSTGRES_DATABASE', 'weaver')}",
+            ),
+        )
+        pool = PostgresPool(dsn)
+        await pool.startup()
+        await pool.shutdown()
+        return True
+    except Exception:
+        return False
+
+
 class TestSimilarArticle:
     """Tests for SimilarArticle dataclass."""
 
@@ -54,6 +74,9 @@ class TestVectorRepoIntegration:
     @pytest.fixture
     async def pool(self):
         """Create a fresh PostgreSQL pool for each test."""
+        if not await _check_postgres_available():
+            pytest.skip("PostgreSQL not available")
+
         from core.db.postgres import PostgresPool
 
         dsn = os.getenv(
