@@ -70,12 +70,14 @@ class EntityResolver:
         llm: LLMClient | None = None,
         resolution_rules: EntityResolutionRules | None = None,
         name_normalizer: NameNormalizer | None = None,
+        disable_data_metrics: bool = False,
     ) -> None:
         self._entity_repo = entity_repo
         self._vector_repo = vector_repo
         self._llm = llm
         self._rules = resolution_rules or EntityResolutionRules()
         self._normalizer = name_normalizer or NameNormalizer()
+        self._disable_data_metrics = disable_data_metrics
 
     # ── Public API ─────────────────────────────────────────────
 
@@ -103,9 +105,13 @@ class EntityResolver:
             - match_type: Type of match (exact, alias, fuzzy, etc.)
             - confidence: Resolution confidence score
         """
-        # Filter metric strings early
-        if entity_type == "数据指标" and self._looks_like_metric_string(name):
-            return self._filtered_metric_result(name)
+        # Filter data metrics entities when configured
+        if entity_type == "数据指标":
+            if self._disable_data_metrics:
+                return self._filtered_metric_result(name)
+            # Fallback to existing string check
+            if self._looks_like_metric_string(name):
+                return self._filtered_metric_result(name)
 
         # Step 1: Normalize name
         norm_result = self._normalizer.normalize(name, entity_type)

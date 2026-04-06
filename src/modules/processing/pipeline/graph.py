@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import traceback
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.db.models import PersistStatus
 from core.event.bus import EventBus
@@ -32,6 +32,9 @@ from modules.processing.nodes.quality_scorer import QualityScorerNode
 from modules.processing.nodes.re_vectorize import ReVectorizeNode
 from modules.processing.nodes.vectorize import VectorizeNode
 from modules.processing.pipeline.state import PipelineState
+
+if TYPE_CHECKING:
+    from config.settings import Settings
 
 log = get_logger("pipeline")
 
@@ -71,6 +74,7 @@ class Pipeline:
         budget: TokenBudgetManager,
         prompt_loader: PromptLoader,
         event_bus: EventBus,
+        settings: Settings | None = None,
         spacy: SpacyExtractor | None = None,
         vector_repo: Any = None,
         article_repo: Any = None,
@@ -115,6 +119,7 @@ class Pipeline:
             budget,
             prompt_loader,
             spacy or SpacyExtractor(),
+            settings,
             vector_repo,
             relation_type_normalizer=relation_type_normalizer,
         )

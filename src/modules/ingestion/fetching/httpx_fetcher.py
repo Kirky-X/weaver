@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -183,6 +183,73 @@ class HttpxFetcher(BaseFetcher):
             MetricsCollector.fetch_total.labels(method="httpx", status="error").inc()
             MetricsCollector.fetch_latency.labels(method="httpx").observe(latency)
             log.warning("httpx_fetch_error", url=url, error=str(exc))
+            raise
+
+    async def post(
+        self,
+        url: str,
+        data: dict[str, str] | None = None,
+        json_data: dict[str, Any] | None = None,
+        headers: dict[str, str] | None = None,
+    ) -> tuple[int, str, dict[str, str]]:
+        """Send POST request via httpx.
+
+        Args:
+            url: The URL to post to.
+            data: Form data to send in request body.
+            json_data: JSON data to send in request body.
+            headers: Optional HTTP headers to include in the request.
+
+        Returns:
+            Tuple of (status_code, response_text, response_headers).
+
+        Raises:
+            URLValidationError: If URL is blocked for SSRF protection.
+            httpx.HTTPStatusError: On HTTP error status.
+            httpx.TransportError: On transport error.
+        """
+        import time
+
+        start = time.monotonic()
+        try:
+            # Validate URL before making request (SSRF protection)
+            if self._url_validator:
+                await self._url_validator.validate(url)
+
+            response = await self._client.post(
+                url,
+                data=data,
+                json=json_data,
+                headers=headers or {},
+            )
+
+            latency = time.monotonic() - start
+            MetricsCollector.fetch_total.labels(method="httpx", status="success").inc()
+            MetricsCollector.fetch_latency.labels(method="httpx").observe(latency)
+            log.debug(
+                "httpx_post_ok",
+                url=url,
+                status=response.status_code,
+            )
+            return response.status_code, response.text, dict(response.headers)
+
+        except httpx.HTTPStatusError as exc:
+            latency = time.monotonic() - start
+            MetricsCollector.fetch_total.labels(method="httpx", status="error").inc()
+            MetricsCollector.fetch_latency.labels(method="httpx").observe(latency)
+            log.warning("httpx_status_error", url=url, status=exc.response.status_code)
+            raise
+        except httpx.TransportError as exc:
+            latency = time.monotonic() - start
+            MetricsCollector.fetch_total.labels(method="httpx", status="transport_error").inc()
+            MetricsCollector.fetch_latency.labels(method="httpx").observe(latency)
+            log.warning("httpx_transport_error", url=url, error=str(exc))
+            raise
+        except Exception as exc:
+            latency = time.monotonic() - start
+            MetricsCollector.fetch_total.labels(method="httpx", status="error").inc()
+            MetricsCollector.fetch_latency.labels(method="httpx").observe(latency)
+            log.warning("httpx_post_error", url=url, error=str(exc))
             raise
 
     async def _validate_redirect_chain(

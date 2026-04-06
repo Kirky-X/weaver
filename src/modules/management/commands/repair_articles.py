@@ -103,6 +103,7 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
             budget=TokenBudgetManager(),
             prompt_loader=prompt_loader,
             event_bus=EventBus(),
+            settings=settings,
             spacy=spacy_extractor,
             vector_repo=None,  # Not needed for repair (terminal articles skip vector ops)
             article_repo=article_repo,

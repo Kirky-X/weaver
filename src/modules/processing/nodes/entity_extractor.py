@@ -16,6 +16,7 @@ from modules.processing.nlp.spacy_extractor import SpacyExtractor
 from modules.processing.pipeline.state import PipelineState
 
 if TYPE_CHECKING:
+    from config.settings import Settings
     from modules.knowledge.graph.relation_type_normalizer import RelationTypeNormalizer
 
 log = get_logger("node.entity_extractor")
@@ -50,6 +51,7 @@ class EntityExtractorNode:
         budget: TokenBudgetManager,
         prompt_loader: PromptLoader,
         spacy: SpacyExtractor,
+        settings: Settings,
         vector_repo: Any = None,
         relation_type_normalizer: RelationTypeNormalizer | None = None,
     ) -> None:
@@ -57,6 +59,7 @@ class EntityExtractorNode:
         self._budget = budget
         self._prompt_loader = prompt_loader
         self._spacy = spacy
+        self._settings = settings
         self._vector_repo = vector_repo
         self._relation_type_normalizer = relation_type_normalizer
 
@@ -69,9 +72,13 @@ class EntityExtractorNode:
         language = state.get("language", "zh")
 
         # Phase 1: spaCy NER (sync, run in executor)
+        disable_data_metrics = self._settings.entity.disable_data_metrics_nodes
         try:
             loop = asyncio.get_running_loop()
-            spacy_entities = await loop.run_in_executor(None, self._spacy.extract, body, language)
+            spacy_entities = await loop.run_in_executor(
+                None,
+                lambda: self._spacy.extract(body, language, disable_data_metrics),
+            )
         except Exception as e:
             log.warning("spacy_extraction_failed_using_empty", error=str(e), url=state["raw"].url)
             spacy_entities = []
@@ -146,6 +153,11 @@ class EntityExtractorNode:
             state["entities"] = result.entities
             state["relations"] = result.relations
             entity_count = len(result.entities)
+
+            # Filter data metrics entities when configured
+            if disable_data_metrics:
+                state["entities"] = [e for e in state["entities"] if e.get("type") != "数据指标"]
+                entity_count = len(state["entities"])
 
             # Attach embeddings from spaCy phase
             for entity in state["entities"]:

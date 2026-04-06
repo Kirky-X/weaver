@@ -35,6 +35,7 @@ class SchedulerJobs:
     - update_source_auto_scores: Auto-update source authority scores
     - archive_old_neo4j_nodes: Clean up old article nodes
     - retry_pipeline_processing: Retry failed/stuck pipeline processing
+    - sync_phishtank_data: Sync PhishTank phishing URL data
     """
 
     def __init__(
@@ -49,6 +50,7 @@ class SchedulerJobs:
         pipeline: Any = None,
         settings: SchedulerSettings | None = None,
         llm_failure_repo: Any = None,
+        url_validator: Any = None,
     ) -> None:
         self._postgres = postgres_pool
         self._redis = redis_client
@@ -61,6 +63,7 @@ class SchedulerJobs:
         self._pipeline = pipeline
         self._settings = settings or SchedulerSettings()
         self._llm_failure_repo = llm_failure_repo
+        self._url_validator = url_validator
 
     @scheduled_task("retry_neo4j_writes", timeout_seconds=300)
     async def retry_neo4j_writes(self) -> int:
@@ -816,6 +819,30 @@ class SchedulerJobs:
             postgres_pool=self._postgres,
         )
         return processed
+
+    @scheduled_task("sync_phishtank_data", timeout_seconds=600)
+    async def sync_phishtank_data(self) -> bool:
+        """Sync PhishTank phishing URL database.
+
+        Downloads the latest PhishTank data and updates the local blacklist.
+        This job only runs if URL validator is configured with PhishTank enabled.
+
+        Returns:
+            True if sync was successful or skipped, False on error.
+        """
+        log.info("sync_phishtank_data_start")
+
+        if not self._url_validator:
+            log.info("sync_phishtank_data_skipped_no_validator")
+            return True
+
+        try:
+            await self._url_validator.sync_phishtank()
+            log.info("sync_phishtank_data_complete")
+            return True
+        except Exception as exc:
+            log.error("sync_phishtank_data_failed", error=str(exc))
+            return False
 
 
 class RetryManager:

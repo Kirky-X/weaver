@@ -129,24 +129,28 @@ class SpacyExtractor:
             f"No spaCy model available for language '{language}'. Tried: {model_candidates}"
         )
 
-    def extract(self, text: str, language: str = "zh") -> list[SpacyEntity]:
+    def extract(
+        self, text: str, language: str = "zh", disable_data_metrics: bool = False
+    ) -> list[SpacyEntity]:
         """Extract named entities from text.
 
         Args:
             text: Input text to analyze.
             language: Language code (zh, en, etc.).
+            disable_data_metrics: Skip '数据指标' type entities when True.
 
         Returns:
             List of deduplicated SpacyEntity objects.
         """
         nlp = self._get_nlp(language)
         doc = nlp(text)
-        return self._extract_from_doc(doc)
+        return self._extract_from_doc(doc, disable_data_metrics)
 
     def extract_batch(
         self,
         texts: list[str],
         language: str = "zh",
+        disable_data_metrics: bool = False,
     ) -> list[list[SpacyEntity]]:
         """Extract named entities from multiple texts using batch processing.
 
@@ -156,6 +160,7 @@ class SpacyExtractor:
         Args:
             texts: List of input texts to analyze.
             language: Language code (zh, en, etc.).
+            disable_data_metrics: Skip '数据指标' type entities when True.
 
         Returns:
             List of entity lists, one per input text.
@@ -173,7 +178,7 @@ class SpacyExtractor:
         )
 
         for doc in docs:
-            results.append(self._extract_from_doc(doc))
+            results.append(self._extract_from_doc(doc, disable_data_metrics))
 
         log.debug(
             "spacy_batch_extracted",
@@ -183,11 +188,14 @@ class SpacyExtractor:
         )
         return results
 
-    def _extract_from_doc(self, doc: object) -> list[SpacyEntity]:
+    def _extract_from_doc(
+        self, doc: object, disable_data_metrics: bool = False
+    ) -> list[SpacyEntity]:
         """Extract entities from a spaCy Doc object.
 
         Args:
             doc: spaCy Doc object.
+            disable_data_metrics: Skip '数据指标' type entities when True.
 
         Returns:
             List of deduplicated SpacyEntity objects.
@@ -202,6 +210,10 @@ class SpacyExtractor:
 
             entity_type = SPACY_TO_ENTITY_TYPE.get(ent.label_)
             if not entity_type:
+                continue
+
+            # Skip data metrics entities when configured
+            if disable_data_metrics and entity_type == "数据指标":
                 continue
 
             results.append(

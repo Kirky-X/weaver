@@ -9,13 +9,13 @@ from urllib.parse import urlparse
 
 from core.observability.logging import get_logger
 from core.resilience.circuit_breaker import CircuitBreaker
-from core.security import URLValidator
 from modules.ingestion.fetching.base import BaseFetcher
 from modules.ingestion.fetching.crawl4ai_fetcher import Crawl4AIFetcher
 from modules.ingestion.fetching.exceptions import CircuitOpenError
 from modules.ingestion.fetching.httpx_fetcher import HttpxFetcher
 
 if TYPE_CHECKING:
+    from core.security import URLValidator
     from modules.ingestion.fetching.rate_limiter import HostRateLimiter
 
 log = get_logger("smart_fetcher")
@@ -85,6 +85,7 @@ class SmartFetcher(BaseFetcher):
         circuit_breaker_enabled: Whether to enable circuit breaker protection.
         circuit_breaker_threshold: Consecutive failures before opening circuit.
         circuit_breaker_timeout: Cooldown period in seconds before retry.
+        url_validator: Optional URL validator for security checks.
     """
 
     def __init__(
@@ -95,7 +96,7 @@ class SmartFetcher(BaseFetcher):
         circuit_breaker_enabled: bool = True,
         circuit_breaker_threshold: int = 5,
         circuit_breaker_timeout: float = 60.0,
-        url_validation_enabled: bool = True,
+        url_validator: URLValidator | None = None,
     ) -> None:
         self._httpx = httpx_fetcher
         self._crawl4ai = crawl4ai_fetcher
@@ -103,8 +104,7 @@ class SmartFetcher(BaseFetcher):
         self._circuit_breaker_enabled = circuit_breaker_enabled
         self._circuit_breaker_threshold = circuit_breaker_threshold
         self._circuit_breaker_timeout = circuit_breaker_timeout
-        self._url_validation_enabled = url_validation_enabled
-        self._url_validator = URLValidator() if url_validation_enabled else None
+        self._url_validator = url_validator
         self._breakers: dict[str, CircuitBreaker] = {}
 
     def _get_breaker(self, host: str) -> CircuitBreaker:
