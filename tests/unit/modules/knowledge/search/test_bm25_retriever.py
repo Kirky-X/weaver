@@ -23,7 +23,8 @@ def _has_zh_spacy() -> bool:
 
         spacy.load("zh_core_web_lg")
         return True
-    except (ImportError, ModuleNotFoundError):
+    except OSError:
+        # OSError E050: model not found
         return False
 
 

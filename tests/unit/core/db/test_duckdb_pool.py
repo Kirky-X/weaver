@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip("duckdb_engine")
+
 from core.db.duckdb_pool import DuckDBPool, _DuckDBAsyncSession
 
 

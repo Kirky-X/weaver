@@ -17,6 +17,17 @@ _env_file = Path(__file__).parent.parent / ".env"
 if _env_file.exists():
     load_dotenv(_env_file, override=True)
 
+# Ensure spaCy models are available for tests
+from core.nlp.spacy_manager import SpacyModelConfig, SpacyModelManager
+
+_spacy_config = SpacyModelConfig(
+    force_install=True,  # Auto-install missing models
+    strict_mode=False,  # Don't fail if installation fails (graceful degradation)
+    models=["zh_core_web_lg", "en_core_web_sm"],
+)
+_spacy_manager = SpacyModelManager(_spacy_config)
+_spacy_manager.check_and_install()
+
 from core.observability.logging import get_logger
 
 log = get_logger(__name__)

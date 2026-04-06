@@ -316,6 +316,7 @@ class TestPipelinePhase1:
 
         llm.call_at = AsyncMock(side_effect=mock_call)
         llm.embed = AsyncMock(return_value=[[0.1] * 1024])
+        llm.embed_default = AsyncMock(return_value=[[0.1] * 1024])
         return llm
 
     @pytest.fixture
@@ -408,6 +409,7 @@ class TestPipelinePhase3:
 
         llm.call_at = AsyncMock(side_effect=mock_call)
         llm.embed = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
+        llm.embed_default = AsyncMock(return_value=[[0.1] * 1024])
         return llm
 
     @pytest.fixture

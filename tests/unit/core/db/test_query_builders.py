@@ -258,8 +258,8 @@ class TestQueryOutputComparison:
         pg = PgVectorQueryBuilder()
         duck = DuckDBVectorQueryBuilder()
 
-        pg_sim = pg.build_similarity_expression()
-        duck_sim = duck.build_similarity_expression()
+        pg_sim = pg.build_similarity_expression("embedding")
+        duck_sim = duck.build_similarity_expression("embedding")
 
         # Both should calculate similarity but with different syntax
         assert "<=>" in pg_sim
@@ -269,8 +269,8 @@ class TestQueryOutputComparison:
         pg = PgVectorQueryBuilder()
         duck = DuckDBVectorQueryBuilder()
 
-        pg_cast = pg.build_vector_cast()
-        duck_cast = duck.build_vector_cast()
+        pg_cast = pg.build_vector_cast(":emb")
+        duck_cast = duck.build_vector_cast(":emb")
 
         assert "vector" in pg_cast
         assert "FLOAT[1024]" in duck_cast

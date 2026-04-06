@@ -66,7 +66,13 @@ class TestRepairArticlesDryRun:
             with patch(
                 "modules.management.commands.repair_articles._shutdown_minimal_container"
             ) as mock_shutdown:
-                mock_init.return_value = (AsyncMock(), AsyncMock(), AsyncMock(), MagicMock())
+                mock_init.return_value = (
+                    AsyncMock(),
+                    AsyncMock(),
+                    AsyncMock(),
+                    MagicMock(),
+                    MagicMock(),
+                )
 
                 # Mock ArticleRepo where it's imported (in repair_articles function)
                 with patch("modules.storage.postgres.article_repo.ArticleRepo") as mock_repo_class:
@@ -102,7 +108,13 @@ class TestRepairArticlesDryRun:
             with patch(
                 "modules.management.commands.repair_articles._shutdown_minimal_container"
             ) as mock_shutdown:
-                mock_init.return_value = (AsyncMock(), AsyncMock(), AsyncMock(), MagicMock())
+                mock_init.return_value = (
+                    AsyncMock(),
+                    AsyncMock(),
+                    AsyncMock(),
+                    MagicMock(),
+                    MagicMock(),
+                )
 
                 with patch("modules.storage.postgres.article_repo.ArticleRepo") as mock_repo_class:
                     mock_repo = AsyncMock()
@@ -141,7 +153,13 @@ class TestRepairArticlesForceMode:
             with patch(
                 "modules.management.commands.repair_articles._shutdown_minimal_container"
             ) as mock_shutdown:
-                mock_init.return_value = (AsyncMock(), AsyncMock(), AsyncMock(), MagicMock())
+                mock_init.return_value = (
+                    AsyncMock(),
+                    AsyncMock(),
+                    AsyncMock(),
+                    MagicMock(),
+                    MagicMock(),
+                )
 
                 with patch("modules.storage.postgres.article_repo.ArticleRepo") as mock_repo_class:
                     mock_repo = AsyncMock()
@@ -167,7 +185,13 @@ class TestRepairArticlesLimit:
             with patch(
                 "modules.management.commands.repair_articles._shutdown_minimal_container"
             ) as mock_shutdown:
-                mock_init.return_value = (AsyncMock(), AsyncMock(), AsyncMock(), MagicMock())
+                mock_init.return_value = (
+                    AsyncMock(),
+                    AsyncMock(),
+                    AsyncMock(),
+                    MagicMock(),
+                    MagicMock(),
+                )
 
                 with patch("modules.storage.postgres.article_repo.ArticleRepo") as mock_repo_class:
                     mock_repo = AsyncMock()
@@ -202,7 +226,7 @@ class TestInitMinimalContainer:
 
                             result = await _init_minimal_container()
 
-                            assert len(result) == 4
+                            assert len(result) == 5
 
 
 class TestShutdownMinimalContainer:
