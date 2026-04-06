@@ -6,8 +6,10 @@ Implements GraphMigrationSource protocol for reading data from LadybugDB.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
+from core.db.safe_query import validate_sql_identifier
 from modules.migration.models import ColumnDef, NodeSchema, RelSchema
 
 
@@ -47,12 +49,21 @@ class LadybugSource:
             if not label:
                 continue
 
-            # Get properties for this label by sampling a node
-            sample_result = await self._pool.execute_query(f"""
+            # Validate label before use
+            try:
+                validate_sql_identifier(label, "label")
+            except ValueError:
+                continue
+
+            # Get properties for this label by sampling a node (parameterized)
+            sample_result = await self._pool.execute_query(
+                """
                 SELECT properties FROM nodes
-                WHERE label = '{label}'
+                WHERE label = $1
                 LIMIT 1
-            """)
+                """,
+                {"1": label},  # DuckDB uses positional params as keys
+            )
 
             properties = []
             primary_key = "id"
@@ -60,8 +71,6 @@ class LadybugSource:
             if sample_result:
                 props = sample_result[0].get("properties", {})
                 if isinstance(props, str):
-                    import json
-
                     try:
                         props = json.loads(props)
                     except json.JSONDecodeError:
@@ -112,12 +121,21 @@ class LadybugSource:
             if not rel_type:
                 continue
 
-            # Sample a relationship to get source/target labels
-            sample_result = await self._pool.execute_query(f"""
+            # Validate rel_type before use
+            try:
+                validate_sql_identifier(rel_type, "rel_type")
+            except ValueError:
+                continue
+
+            # Sample a relationship to get source/target labels (parameterized)
+            sample_result = await self._pool.execute_query(
+                """
                 SELECT source_label, target_label, properties FROM edges
-                WHERE type = '{rel_type}'
+                WHERE type = $1
                 LIMIT 1
-            """)
+                """,
+                {"1": rel_type},
+            )
 
             if sample_result:
                 sample = sample_result[0]
@@ -126,8 +144,6 @@ class LadybugSource:
                 props = sample.get("properties", {})
 
                 if isinstance(props, str):
-                    import json
-
                     try:
                         props = json.loads(props)
                     except json.JSONDecodeError:
@@ -164,20 +180,28 @@ class LadybugSource:
         Returns:
             List of node property dictionaries.
         """
-        result = await self._pool.execute_query(f"""
+        # Validate inputs
+        validate_sql_identifier(label, "label")
+        if offset < 0:
+            raise ValueError(f"offset must be non-negative, got {offset}")
+        if limit <= 0:
+            raise ValueError(f"limit must be positive, got {limit}")
+
+        result = await self._pool.execute_query(
+            """
             SELECT node_id, properties FROM nodes
-            WHERE label = '{label}'
+            WHERE label = $1
             ORDER BY node_id
-            OFFSET {offset}
-            LIMIT {limit}
-        """)
+            OFFSET $2
+            LIMIT $3
+            """,
+            {"1": label, "2": offset, "3": limit},
+        )
 
         nodes = []
         for row in result:
             props = row.get("properties", {})
             if isinstance(props, str):
-                import json
-
                 try:
                     props = json.loads(props)
                 except json.JSONDecodeError:
@@ -204,21 +228,29 @@ class LadybugSource:
         Returns:
             List of relationship dictionaries including source/target info.
         """
-        result = await self._pool.execute_query(f"""
+        # Validate inputs
+        validate_sql_identifier(rel_type, "rel_type")
+        if offset < 0:
+            raise ValueError(f"offset must be non-negative, got {offset}")
+        if limit <= 0:
+            raise ValueError(f"limit must be positive, got {limit}")
+
+        result = await self._pool.execute_query(
+            """
             SELECT edge_id, source_id, target_id, source_label, target_label, properties
             FROM edges
-            WHERE type = '{rel_type}'
+            WHERE type = $1
             ORDER BY edge_id
-            OFFSET {offset}
-            LIMIT {limit}
-        """)
+            OFFSET $2
+            LIMIT $3
+            """,
+            {"1": rel_type, "2": offset, "3": limit},
+        )
 
         rels = []
         for row in result:
             props = row.get("properties", {})
             if isinstance(props, str):
-                import json
-
                 try:
                     props = json.loads(props)
                 except json.JSONDecodeError:
@@ -241,9 +273,14 @@ class LadybugSource:
         Returns:
             Total number of nodes.
         """
-        result = await self._pool.execute_query(f"""
-            SELECT COUNT(*) AS count FROM nodes WHERE label = '{label}'
-        """)
+        validate_sql_identifier(label, "label")
+
+        result = await self._pool.execute_query(
+            """
+            SELECT COUNT(*) AS count FROM nodes WHERE label = $1
+            """,
+            {"1": label},
+        )
 
         return result[0].get("count", 0) if result else 0
 
@@ -256,9 +293,14 @@ class LadybugSource:
         Returns:
             Total number of relationships.
         """
-        result = await self._pool.execute_query(f"""
-            SELECT COUNT(*) AS count FROM edges WHERE type = '{rel_type}'
-        """)
+        validate_sql_identifier(rel_type, "rel_type")
+
+        result = await self._pool.execute_query(
+            """
+            SELECT COUNT(*) AS count FROM edges WHERE type = $1
+            """,
+            {"1": rel_type},
+        )
 
         return result[0].get("count", 0) if result else 0
 

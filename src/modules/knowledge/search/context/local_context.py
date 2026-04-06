@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from core.db.neo4j import Neo4jPool
+from core.db.safe_query import validate_edge_type
 from core.observability.logging import get_logger
 from modules.knowledge.graph.relation_type_normalizer import RelationTypeNormalizer
 from modules.knowledge.search.context.builder import ContextBuilder, SearchContext
@@ -237,6 +238,10 @@ class LocalContextBuilder(ContextBuilder):
             return []
 
         if relation_types:
+            # Validate all relation types to prevent Cypher injection
+            for rt in relation_types:
+                validate_edge_type(rt)
+
             # Build UNION of queries for each relation type to handle direction
             queries = []
             for rt_name_en in relation_types:
@@ -372,9 +377,16 @@ class LocalContextBuilder(ContextBuilder):
 
         Returns:
             Cypher relationship match clause string.
+
+        Raises:
+            ValueError: If any relation type is invalid.
         """
         if not relation_types:
             return f"-[:RELATED_TO*1..{self._max_hops}]-"
+
+        # Validate all relation types to prevent Cypher injection
+        for rt in relation_types:
+            validate_edge_type(rt)
 
         # For multiple typed relations, use alternation with proper directions
         # Since Cypher alternation requires same directionality, we fall back

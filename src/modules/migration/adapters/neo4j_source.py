@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.db.safe_query import validate_edge_type, validate_neo4j_label
 from modules.migration.models import ColumnDef, NodeSchema, RelSchema
 
 
@@ -46,15 +47,25 @@ class Neo4jSource:
         for label_row in labels_result:
             label = label_row["label"]
 
-            # Get properties for this label
-            props_result = await self._pool.execute_query(f"""
-                MATCH (n:`{label}`)
+            # Validate label before use
+            try:
+                validate_neo4j_label(label)
+            except ValueError:
+                continue
+
+            # Get properties for this label using parameterized query
+            props_result = await self._pool.execute_query(
+                """
+                MATCH (n)
+                WHERE $label IN labels(n)
                 WITH n, keys(n) AS props
                 UNWIND props AS prop
                 WITH DISTINCT prop
                 RETURN prop
                 ORDER BY prop
-            """)
+                """,
+                {"label": label},
+            )
 
             properties = []
             for prop_row in props_result:
@@ -107,16 +118,26 @@ class Neo4jSource:
         for type_row in types_result:
             rel_type = type_row["relationshipType"]
 
-            # Get source/target labels and properties for this relationship type
-            sample_result = await self._pool.execute_query(f"""
-                MATCH (source)-[r:`{rel_type}`]->(target)
+            # Validate rel_type before use
+            try:
+                validate_edge_type(rel_type)
+            except ValueError:
+                continue
+
+            # Get source/target labels and properties for this relationship type (parameterized)
+            sample_result = await self._pool.execute_query(
+                """
+                MATCH (source)-[r]->(target)
+                WHERE type(r) = $relType
                 WITH source, target, keys(r) AS props
                 LIMIT 1
                 RETURN
                     labels(source)[0] AS source_label,
                     labels(target)[0] AS target_label,
                     props
-            """)
+                """,
+                {"relType": rel_type},
+            )
 
             if sample_result:
                 sample = sample_result[0]
@@ -155,12 +176,23 @@ class Neo4jSource:
         Returns:
             List of node property dictionaries.
         """
-        result = await self._pool.execute_query(f"""
-            MATCH (n:`{label}`)
+        # Validate inputs
+        validate_neo4j_label(label)
+        if offset < 0:
+            raise ValueError(f"offset must be non-negative, got {offset}")
+        if limit <= 0:
+            raise ValueError(f"limit must be positive, got {limit}")
+
+        result = await self._pool.execute_query(
+            """
+            MATCH (n)
+            WHERE $label IN labels(n)
             RETURN n
-            SKIP {offset}
-            LIMIT {limit}
-        """)
+            SKIP $offset
+            LIMIT $limit
+            """,
+            {"label": label, "offset": offset, "limit": limit},
+        )
 
         nodes = []
         for row in result:
@@ -185,17 +217,28 @@ class Neo4jSource:
         Returns:
             List of relationship dictionaries including source/target info.
         """
-        result = await self._pool.execute_query(f"""
-            MATCH (source)-[r:`{rel_type}`]->(target)
+        # Validate inputs
+        validate_edge_type(rel_type)
+        if offset < 0:
+            raise ValueError(f"offset must be non-negative, got {offset}")
+        if limit <= 0:
+            raise ValueError(f"limit must be positive, got {limit}")
+
+        result = await self._pool.execute_query(
+            """
+            MATCH (source)-[r]->(target)
+            WHERE type(r) = $relType
             RETURN
                 elementId(source) AS source_id,
                 elementId(target) AS target_id,
                 labels(source)[0] AS source_label,
                 labels(target)[0] AS target_label,
                 r
-            SKIP {offset}
-            LIMIT {limit}
-        """)
+            SKIP $offset
+            LIMIT $limit
+            """,
+            {"relType": rel_type, "offset": offset, "limit": limit},
+        )
 
         rels = []
         for row in result:
@@ -217,10 +260,16 @@ class Neo4jSource:
         Returns:
             Total number of nodes.
         """
-        result = await self._pool.execute_query(f"""
-            MATCH (n:`{label}`)
+        validate_neo4j_label(label)
+
+        result = await self._pool.execute_query(
+            """
+            MATCH (n)
+            WHERE $label IN labels(n)
             RETURN COUNT(n) AS count
-        """)
+            """,
+            {"label": label},
+        )
 
         return result[0].get("count", 0) if result else 0
 
@@ -233,10 +282,16 @@ class Neo4jSource:
         Returns:
             Total number of relationships.
         """
-        result = await self._pool.execute_query(f"""
-            MATCH ()-[r:`{rel_type}`]->()
+        validate_edge_type(rel_type)
+
+        result = await self._pool.execute_query(
+            """
+            MATCH ()-[r]->()
+            WHERE type(r) = $relType
             RETURN COUNT(r) AS count
-        """)
+            """,
+            {"relType": rel_type},
+        )
 
         return result[0].get("count", 0) if result else 0
 
