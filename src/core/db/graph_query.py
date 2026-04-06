@@ -5,6 +5,10 @@ This module provides a QueryBuilder pattern to abstract database-specific
 syntax differences between Neo4j Cypher and LadybugDB SQL variant for
 graph traversal operations.
 
+IMPORTANT: All queries use parameterized syntax ($param) to prevent injection.
+For cases where parameters cannot be used (e.g., dynamic relation types),
+input validation is performed via safe_query module.
+
 Usage:
     from core.db.graph_query import create_graph_query_builder
 
@@ -17,6 +21,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import Enum
+
+from core.db.safe_query import (
+    validate_edge_type,
+    validate_uuid,
+)
 
 
 class GraphDatabaseType(str, Enum):
@@ -81,6 +90,8 @@ class GraphQueryBuilder(ABC):
     - Relationship traversal
     - Community queries
     - Temporal event queries
+
+    All implementations MUST use parameterized queries where possible.
     """
 
     @property
@@ -225,7 +236,10 @@ class GraphQueryBuilder(ABC):
 
 
 class Neo4jQueryBuilder(GraphQueryBuilder):
-    """Query builder for Neo4j using Cypher syntax."""
+    """Query builder for Neo4j using Cypher syntax.
+
+    All queries use parameterized syntax ($param) for safe query construction.
+    """
 
     @property
     def database_type(self) -> GraphDatabaseType:
@@ -259,8 +273,16 @@ class Neo4jQueryBuilder(GraphQueryBuilder):
         """
 
     def build_related_entities_query(self, config: RelatedEntitiesConfig) -> str:
+        # Validate max_hops to prevent resource exhaustion
+        if config.max_hops < 1 or config.max_hops > 5:
+            raise ValueError(f"max_hops must be between 1 and 5, got {config.max_hops}")
+
+        # Build safe relation pattern - validate relation types if provided
         if config.relation_types:
-            rel_pattern = f"-[:{'|'.join(config.relation_types)}*1..{config.max_hops}]-"
+            for rt in config.relation_types:
+                validate_edge_type(rt)
+            rel_types_str = "|".join(config.relation_types)
+            rel_pattern = f"-[:{rel_types_str}*1..{config.max_hops}]-"
         else:
             rel_pattern = f"-[:RELATED_TO*1..{config.max_hops}]-"
 
@@ -281,7 +303,11 @@ class Neo4jQueryBuilder(GraphQueryBuilder):
         limit: int,
     ) -> str:
         if relation_types:
-            # For typed relations, use UNION approach
+            # Validate relation types
+            for rt in relation_types:
+                validate_edge_type(rt)
+
+            # Use UNION with typed relations
             queries = []
             for rt in relation_types:
                 queries.append(f"""
@@ -355,12 +381,17 @@ class Neo4jQueryBuilder(GraphQueryBuilder):
         community_id: str,
         limit: int,
     ) -> str:
-        return f"""
-        MATCH (c:Community {{id: '{community_id}'}})-[:HAS_ENTITY]->(e:Entity)
+        # Validate community_id format
+        validate_uuid(community_id, "community_id")
+        if limit < 1:
+            raise ValueError(f"limit must be positive, got {limit}")
+
+        return """
+        MATCH (c:Community {id: $community_id})-[:HAS_ENTITY]->(e:Entity)
         RETURN e.canonical_name AS canonical_name,
                e.type AS type,
                e.description AS description
-        LIMIT {limit}
+        LIMIT $limit
         """
 
     def build_key_entities_query(
@@ -368,10 +399,15 @@ class Neo4jQueryBuilder(GraphQueryBuilder):
         community_ids: list[str],
         limit: int,
     ) -> str:
-        ids_str = ", ".join(f"'{id}'" for id in community_ids)
-        return f"""
+        # Validate all community IDs
+        for cid in community_ids:
+            validate_uuid(cid, "community_id")
+        if limit < 1:
+            raise ValueError(f"limit must be positive, got {limit}")
+
+        return """
         MATCH (c:Community)-[:HAS_ENTITY]->(e:Entity)
-        WHERE c.id IN [{ids_str}]
+        WHERE c.id IN $community_ids
         WITH e, count(c) AS community_count,
              size((e)-[:RELATED_TO]->()) AS degree
         RETURN e.canonical_name AS canonical_name,
@@ -380,7 +416,7 @@ class Neo4jQueryBuilder(GraphQueryBuilder):
                degree,
                community_count
         ORDER BY community_count DESC, degree DESC
-        LIMIT {limit}
+        LIMIT $limit
         """
 
     def build_communities_exist_query(self, level: int | None) -> str:
@@ -396,6 +432,9 @@ class LadybugQueryBuilder(GraphQueryBuilder):
     - Uses SQL-like syntax for some operations
     - TYPE() function not supported - use edge_type property
     - Limited support for some Cypher functions
+
+    All queries use parameterized syntax where supported.
+    For IN clauses, parameters are used with list values.
     """
 
     @property
@@ -403,15 +442,6 @@ class LadybugQueryBuilder(GraphQueryBuilder):
         return GraphDatabaseType.LADYBUG
 
     def build_entity_search_query(self, config: EntitySearchConfig) -> str:
-        # LadybugDB uses similar MATCH syntax but with case handling
-        if config.use_aliases:
-            # Note: LadybugDB may not support array functions the same way
-            return """
-            MATCH (e:Entity)
-            WHERE LOWER(e.canonical_name) CONTAINS $query
-            RETURN e.canonical_name AS name
-            LIMIT $limit
-            """
         return """
         MATCH (e:Entity)
         WHERE LOWER(e.canonical_name) CONTAINS $query
@@ -420,26 +450,28 @@ class LadybugQueryBuilder(GraphQueryBuilder):
         """
 
     def build_entities_by_names_query(self, names: list[str], limit: int) -> str:
-        # Build IN clause directly for LadybugDB
-        names_str = ", ".join(f"'{n}'" for n in names)
-        return f"""
+        return """
         MATCH (e:Entity)
-        WHERE e.canonical_name IN [{names_str}]
+        WHERE e.canonical_name IN $names
         RETURN e.canonical_name AS canonical_name,
                e.type AS type,
                e.description AS description
-        LIMIT {limit}
+        LIMIT $limit
         """
 
     def build_related_entities_query(self, config: RelatedEntitiesConfig) -> str:
-        # LadybugDB uses similar pattern but different variable-length syntax
+        # Validate max_hops
+        if config.max_hops < 1 or config.max_hops > 5:
+            raise ValueError(f"max_hops must be between 1 and 5, got {config.max_hops}")
+
         if config.relation_types:
-            # For LadybugDB, we need to check edge_type property on RELATED_TO
-            types_str = ", ".join(f"'{t}'" for t in config.relation_types)
+            # Validate relation types
+            for rt in config.relation_types:
+                validate_edge_type(rt)
             return f"""
             MATCH (e:Entity)-[r:RELATED_TO*1..{config.max_hops}]-(related:Entity)
             WHERE e.canonical_name IN $names
-              AND (r.edge_type IN [{types_str}] OR r.edge_type IS NULL)
+              AND r.edge_type IN $relation_types
             RETURN DISTINCT related.canonical_name AS canonical_name,
                    related.type AS type,
                    count(e) AS connection_count
@@ -463,28 +495,28 @@ class LadybugQueryBuilder(GraphQueryBuilder):
         relation_types: list[str] | None,
         limit: int,
     ) -> str:
-        names_str = ", ".join(f"'{n}'" for n in entity_names)
-
         if relation_types:
-            # For LadybugDB, filter by edge_type property
-            types_str = ", ".join(f"'{t}'" for t in relation_types)
-            return f"""
+            # Validate relation types
+            for rt in relation_types:
+                validate_edge_type(rt)
+
+            return """
             MATCH (e1:Entity)-[r:RELATED_TO]->(e2:Entity)
-            WHERE (e1.canonical_name IN [{names_str}] OR e2.canonical_name IN [{names_str}])
-              AND r.edge_type IN [{types_str}]
+            WHERE (e1.canonical_name IN $names OR e2.canonical_name IN $names)
+              AND r.edge_type IN $relation_types
             RETURN e1.canonical_name AS source_name,
                    e2.canonical_name AS target_name,
                    r.edge_type AS relation_type
-            LIMIT {limit}
+            LIMIT $limit
             """
 
-        return f"""
+        return """
         MATCH (e1:Entity)-[r:RELATED_TO]->(e2:Entity)
-        WHERE e1.canonical_name IN [{names_str}] OR e2.canonical_name IN [{names_str}]
+        WHERE e1.canonical_name IN $names OR e2.canonical_name IN $names
         RETURN e1.canonical_name AS source_name,
                e2.canonical_name AS target_name,
                r.edge_type AS relation_type
-        LIMIT {limit}
+        LIMIT $limit
         """
 
     def build_articles_by_entities_query(
@@ -492,16 +524,15 @@ class LadybugQueryBuilder(GraphQueryBuilder):
         entity_names: list[str],
         limit: int,
     ) -> str:
-        names_str = ", ".join(f"'{n}'" for n in entity_names)
-        return f"""
+        return """
         MATCH (a:Article)-[:MENTIONS]->(e:Entity)
-        WHERE e.canonical_name IN [{names_str}]
+        WHERE e.canonical_name IN $names
         RETURN DISTINCT a.pg_id AS id,
                a.title AS title,
                a.summary AS summary,
                a.publish_time AS publish_time
         ORDER BY a.publish_time DESC
-        LIMIT {limit}
+        LIMIT $limit
         """
 
     def build_community_search_query(
@@ -509,28 +540,28 @@ class LadybugQueryBuilder(GraphQueryBuilder):
         config: CommunitySearchConfig,
     ) -> str:
         if config.query:
-            return f"""
+            return """
             MATCH (c:Community)
-            WHERE c.level = {config.level}
-              AND (LOWER(c.title) CONTAINS '{config.query.lower()}'
-                   OR LOWER(c.summary) CONTAINS '{config.query.lower()}')
+            WHERE c.level = $level
+              AND (LOWER(c.title) CONTAINS $query
+                   OR LOWER(c.summary) CONTAINS $query)
             RETURN c.id AS id,
                    c.title AS title,
                    c.summary AS summary,
                    c.rank AS rank
             ORDER BY c.rank DESC
-            LIMIT {config.limit}
+            LIMIT $limit
             """
 
-        return f"""
+        return """
         MATCH (c:Community)
-        WHERE c.level = {config.level}
+        WHERE c.level = $level
         RETURN c.id AS id,
                c.title AS title,
                c.summary AS summary,
                c.rank AS rank
         ORDER BY c.rank DESC
-        LIMIT {config.limit}
+        LIMIT $limit
         """
 
     def build_community_entities_query(
@@ -538,12 +569,17 @@ class LadybugQueryBuilder(GraphQueryBuilder):
         community_id: str,
         limit: int,
     ) -> str:
-        return f"""
-        MATCH (c:Community {{id: '{community_id}'}})-[:HAS_ENTITY]->(e:Entity)
+        # Validate community_id format
+        validate_uuid(community_id, "community_id")
+        if limit < 1:
+            raise ValueError(f"limit must be positive, got {limit}")
+
+        return """
+        MATCH (c:Community {id: $community_id})-[:HAS_ENTITY]->(e:Entity)
         RETURN e.canonical_name AS canonical_name,
                e.type AS type,
                e.description AS description
-        LIMIT {limit}
+        LIMIT $limit
         """
 
     def build_key_entities_query(
@@ -551,22 +587,27 @@ class LadybugQueryBuilder(GraphQueryBuilder):
         community_ids: list[str],
         limit: int,
     ) -> str:
-        ids_str = ", ".join(f"'{id}'" for id in community_ids)
-        return f"""
+        # Validate all community IDs
+        for cid in community_ids:
+            validate_uuid(cid, "community_id")
+        if limit < 1:
+            raise ValueError(f"limit must be positive, got {limit}")
+
+        return """
         MATCH (c:Community)-[:HAS_ENTITY]->(e:Entity)
-        WHERE c.id IN [{ids_str}]
+        WHERE c.id IN $community_ids
         WITH e, count(c) AS community_count
         RETURN e.canonical_name AS canonical_name,
                e.type AS type,
                e.description AS description,
                community_count
         ORDER BY community_count DESC
-        LIMIT {limit}
+        LIMIT $limit
         """
 
     def build_communities_exist_query(self, level: int | None) -> str:
         if level is not None:
-            return f"MATCH (c:Community) WHERE c.level = {level} RETURN count(c) AS count"
+            return "MATCH (c:Community) WHERE c.level = $level RETURN count(c) AS count"
         return "MATCH (c:Community) RETURN count(c) AS count"
 
 
