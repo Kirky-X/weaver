@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from core.db.safe_query import InvalidIdentifierError
 from modules.knowledge.search.context.local_context import LocalContextBuilder
 
 
@@ -231,3 +232,91 @@ class TestFindQueryEntities:
         builder = LocalContextBuilder(neo4j_pool=pool)
         names = await builder._find_query_entities("华为")
         assert names == []
+
+
+class TestLocalContextBuilderSecurity:
+    """Security tests for Cypher injection prevention."""
+
+    @pytest.mark.parametrize(
+        "relation_type",
+        [
+            "PARTNERS_WITH",
+            "COLLABORATES_WITH",
+            "RELATED_TO",
+            "中文关系",
+            "KNOWS",
+        ],
+    )
+    def test_build_rel_match_clause_accepts_valid_types(self, relation_type) -> None:
+        """Valid relation types should be accepted."""
+        pool = _make_pool()
+        builder = LocalContextBuilder(neo4j_pool=pool)
+        clause = builder._build_rel_match_clause(relation_types=[relation_type])
+        assert relation_type in clause
+
+    @pytest.mark.parametrize(
+        "relation_type",
+        [
+            "partners_with",  # Lowercase not allowed
+            "KNOWS']; MATCH (n) DETACH DELETE n //",
+            "123INVALID",
+            "invalid-type",
+            "type with space",
+            "REL`] MATCH (n) DETACH DELETE n //",
+        ],
+    )
+    def test_build_rel_match_clause_rejects_malicious_types(self, relation_type) -> None:
+        """Malicious relation types should be rejected."""
+        pool = _make_pool()
+        builder = LocalContextBuilder(neo4j_pool=pool)
+        with pytest.raises((InvalidIdentifierError, ValueError)):
+            builder._build_rel_match_clause(relation_types=[relation_type])
+
+    @pytest.mark.asyncio
+    async def test_get_relationships_validates_relation_types(self) -> None:
+        """_get_relationships should validate relation types before querying."""
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(return_value=[])
+        builder = LocalContextBuilder(neo4j_pool=pool)
+
+        # Valid types should work
+        result = await builder._get_relationships(
+            entity_names=["华为"],
+            relation_types=["PARTNERS_WITH"],
+        )
+        assert isinstance(result, list)
+
+    @pytest.mark.asyncio
+    async def test_get_relationships_rejects_cypher_injection(self) -> None:
+        """Cypher injection attempts in relation_types should be blocked."""
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(return_value=[])
+        builder = LocalContextBuilder(neo4j_pool=pool)
+
+        malicious_type = "KNOWS']; MATCH (n) DETACH DELETE n //"
+        with pytest.raises((InvalidIdentifierError, ValueError)):
+            await builder._get_relationships(
+                entity_names=["华为"],
+                relation_types=[malicious_type],
+            )
+
+        # Query should not have been called
+        pool.execute_query.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_build_with_malicious_relation_types_raises_error(self) -> None:
+        """build() should raise error for malicious relation types."""
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(
+            return_value=[
+                {"canonical_name": "华为", "type": "组织", "description": "", "aliases": []}
+            ]
+        )
+        builder = LocalContextBuilder(neo4j_pool=pool)
+
+        with pytest.raises((InvalidIdentifierError, ValueError)):
+            await builder.build(
+                "华为",
+                entity_names=["华为"],
+                relation_types=["MALICIOUS`; DROP ALL //"],
+            )

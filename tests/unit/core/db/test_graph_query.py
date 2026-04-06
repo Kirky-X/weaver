@@ -13,6 +13,7 @@ from core.db.graph_query import (
     RelatedEntitiesConfig,
     create_graph_query_builder,
 )
+from core.db.safe_query import InvalidIdentifierError
 
 
 class TestGraphDatabaseTypeEnum:
@@ -251,15 +252,17 @@ class TestNeo4jQueryBuilder:
         assert "ORDER BY c.rank DESC" in result
 
     def test_build_community_entities_query(self, builder: Neo4jQueryBuilder) -> None:
-        result = builder.build_community_entities_query("comm-123", 10)
-        assert "MATCH (c:Community {id: 'comm-123'})" in result
+        result = builder.build_community_entities_query("550e8400-e29b-41d4-a716-446655440000", 10)
+        assert "MATCH (c:Community {id: $community_id})" in result
         assert "-[:HAS_ENTITY]->(e:Entity)" in result
         assert "RETURN e.canonical_name" in result
 
     def test_build_key_entities_query(self, builder: Neo4jQueryBuilder) -> None:
-        result = builder.build_key_entities_query(["c1", "c2"], 20)
+        result = builder.build_key_entities_query(
+            ["550e8400-e29b-41d4-a716-446655440000", "6ba7b810-9dad-11d1-80b4-00c04fd430c8"], 20
+        )
         assert "MATCH (c:Community)-[:HAS_ENTITY]->(e:Entity)" in result
-        assert "c.id IN ['c1', 'c2']" in result
+        assert "c.id IN $community_ids" in result
         assert "ORDER BY community_count DESC, degree DESC" in result
 
     def test_build_communities_exist_query_with_level(self, builder: Neo4jQueryBuilder) -> None:
@@ -302,15 +305,14 @@ class TestLadybugQueryBuilder:
     def test_build_entities_by_names_query(self, builder: LadybugQueryBuilder) -> None:
         result = builder.build_entities_by_names_query(["entity1", "entity2"], 10)
         assert "MATCH (e:Entity)" in result
-        # LadybugDB embeds values directly
-        assert "'entity1'" in result
-        assert "'entity2'" in result
-        assert "LIMIT 10" in result
+        # LadybugDB now uses parameterized queries
+        assert "$names" in result
+        assert "$limit" in result
 
     def test_build_entities_by_names_query_empty_list(self, builder: LadybugQueryBuilder) -> None:
         result = builder.build_entities_by_names_query([], 10)
         assert "MATCH (e:Entity)" in result
-        assert "IN []" in result
+        assert "$names" in result
 
     def test_build_related_entities_query_with_types(self, builder: LadybugQueryBuilder) -> None:
         config = RelatedEntitiesConfig(
@@ -322,7 +324,7 @@ class TestLadybugQueryBuilder:
         result = builder.build_related_entities_query(config)
         assert "MATCH (e:Entity)" in result
         assert "*1..2" in result
-        assert "r.edge_type IN ['MENTIONS', 'RELATED_TO']" in result
+        assert "r.edge_type IN $relation_types" in result
 
     def test_build_related_entities_query_without_types(self, builder: LadybugQueryBuilder) -> None:
         config = RelatedEntitiesConfig(
@@ -342,10 +344,8 @@ class TestLadybugQueryBuilder:
             10,
         )
         assert "MATCH (e1:Entity)-[r:RELATED_TO]->" in result
-        assert "r.edge_type IN ['MENTIONS', 'RELATED_TO']" in result
-        # LadybugDB embeds names directly
-        assert "'e1'" in result
-        assert "'e2'" in result
+        assert "r.edge_type IN $relation_types" in result
+        assert "$names" in result
 
     def test_build_relationships_query_without_types(self, builder: LadybugQueryBuilder) -> None:
         result = builder.build_relationships_query(
@@ -359,38 +359,37 @@ class TestLadybugQueryBuilder:
     def test_build_articles_by_entities_query(self, builder: LadybugQueryBuilder) -> None:
         result = builder.build_articles_by_entities_query(["e1", "e2"], 10)
         assert "MATCH (a:Article)-[:MENTIONS]->(e:Entity)" in result
-        # LadybugDB embeds names directly
-        assert "'e1'" in result
-        assert "'e2'" in result
-        assert "LIMIT 10" in result
+        assert "$names" in result
+        assert "$limit" in result
 
     def test_build_community_search_query_with_text(self, builder: LadybugQueryBuilder) -> None:
         config = CommunitySearchConfig(level=1, query="test", limit=10)
         result = builder.build_community_search_query(config)
         assert "MATCH (c:Community)" in result
-        # LadybugDB embeds level directly
-        assert "c.level = 1" in result
-        assert "LOWER(c.title) CONTAINS 'test'" in result
-        assert "LIMIT 10" in result
+        assert "c.level = $level" in result
+        assert "LOWER(c.title) CONTAINS $query" in result
+        assert "$limit" in result
 
     def test_build_community_search_query_without_text(self, builder: LadybugQueryBuilder) -> None:
         config = CommunitySearchConfig(level=2, query="", limit=15)
         result = builder.build_community_search_query(config)
         assert "MATCH (c:Community)" in result
-        assert "c.level = 2" in result
+        assert "c.level = $level" in result
         assert "CONTAINS" not in result
-        assert "LIMIT 15" in result
+        assert "$limit" in result
 
     def test_build_community_entities_query(self, builder: LadybugQueryBuilder) -> None:
-        result = builder.build_community_entities_query("comm-123", 10)
-        assert "MATCH (c:Community {id: 'comm-123'})" in result
+        result = builder.build_community_entities_query("550e8400-e29b-41d4-a716-446655440000", 10)
+        assert "MATCH (c:Community {id: $community_id})" in result
         assert "-[:HAS_ENTITY]->(e:Entity)" in result
-        assert "LIMIT 10" in result
+        assert "$limit" in result
 
     def test_build_key_entities_query(self, builder: LadybugQueryBuilder) -> None:
-        result = builder.build_key_entities_query(["c1", "c2"], 20)
+        result = builder.build_key_entities_query(
+            ["550e8400-e29b-41d4-a716-446655440000", "6ba7b810-9dad-11d1-80b4-00c04fd430c8"], 20
+        )
         assert "MATCH (c:Community)-[:HAS_ENTITY]->(e:Entity)" in result
-        assert "c.id IN ['c1', 'c2']" in result
+        assert "c.id IN $community_ids" in result
         assert "ORDER BY community_count DESC" in result
         # Note: LadybugDB version doesn't include degree calculation
         assert "degree" not in result
@@ -398,8 +397,7 @@ class TestLadybugQueryBuilder:
     def test_build_communities_exist_query_with_level(self, builder: LadybugQueryBuilder) -> None:
         result = builder.build_communities_exist_query(1)
         assert "MATCH (c:Community)" in result
-        # LadybugDB embeds level directly
-        assert "c.level = 1" in result
+        assert "c.level = $level" in result
         assert "RETURN count(c) AS count" in result
 
     def test_build_communities_exist_query_without_level(
@@ -520,10 +518,9 @@ class TestQueryOutputComparison:
         neo4j_result = neo4j.build_entities_by_names_query(names, 10)
         ladybug_result = ladybug.build_entities_by_names_query(names, 10)
 
-        # Neo4j uses $names parameter
+        # Both use $names parameter
         assert "$names" in neo4j_result
-        # LadybugDB embeds values directly
-        assert "'entity1'" in ladybug_result
+        assert "$names" in ladybug_result
 
     def test_related_entities_relation_handling_differs(self) -> None:
         neo4j = Neo4jQueryBuilder()
@@ -548,8 +545,10 @@ class TestQueryOutputComparison:
         neo4j = Neo4jQueryBuilder()
         ladybug = LadybugQueryBuilder()
 
-        neo4j_result = neo4j.build_key_entities_query(["c1"], 10)
-        ladybug_result = ladybug.build_key_entities_query(["c1"], 10)
+        neo4j_result = neo4j.build_key_entities_query(["550e8400-e29b-41d4-a716-446655440000"], 10)
+        ladybug_result = ladybug.build_key_entities_query(
+            ["550e8400-e29b-41d4-a716-446655440000"], 10
+        )
 
         # Neo4j includes degree calculation
         assert "degree" in neo4j_result
@@ -565,10 +564,9 @@ class TestQueryOutputComparison:
         neo4j_result = neo4j.build_community_search_query(config)
         ladybug_result = ladybug.build_community_search_query(config)
 
-        # Neo4j uses $level parameter
+        # Both use $level parameter
         assert "$level" in neo4j_result
-        # LadybugDB embeds level directly
-        assert "c.level = 2" in ladybug_result
+        assert "$level" in ladybug_result
 
     def test_communities_exist_level_handling_differs(self) -> None:
         neo4j = Neo4jQueryBuilder()
@@ -577,10 +575,9 @@ class TestQueryOutputComparison:
         neo4j_result = neo4j.build_communities_exist_query(3)
         ladybug_result = ladybug.build_communities_exist_query(3)
 
-        # Neo4j uses parameterized level
+        # Both use parameterized level
         assert "$level" in neo4j_result
-        # LadybugDB embeds level directly
-        assert "c.level = 3" in ladybug_result
+        assert "$level" in ladybug_result
 
 
 class TestEdgeCases:
@@ -614,17 +611,19 @@ class TestEdgeCases:
     def test_ladybug_builder_empty_names_list(self) -> None:
         builder = LadybugQueryBuilder()
         result = builder.build_entities_by_names_query([], 10)
-        assert "IN []" in result
+        assert "$names" in result
 
     def test_neo4j_builder_empty_community_ids(self) -> None:
         builder = Neo4jQueryBuilder()
+        # Empty list is valid - no validation on empty lists
         result = builder.build_key_entities_query([], 10)
-        assert "IN []" in result
+        assert "$community_ids" in result
 
     def test_ladybug_builder_empty_community_ids(self) -> None:
         builder = LadybugQueryBuilder()
+        # Empty list is valid - no validation on empty lists
         result = builder.build_key_entities_query([], 10)
-        assert "IN []" in result
+        assert "$community_ids" in result
 
     def test_neo4j_builder_single_relation_type(self) -> None:
         builder = Neo4jQueryBuilder()
@@ -636,10 +635,11 @@ class TestEdgeCases:
         config = EntitySearchConfig(query="test'with'quotes")
         assert config.query == "test'with'quotes"
 
-    def test_community_id_with_special_chars(self) -> None:
+    def test_community_id_invalid_rejected(self) -> None:
         builder = Neo4jQueryBuilder()
-        result = builder.build_community_entities_query("comm-123-abc", 10)
-        assert "'comm-123-abc'" in result
+        # Invalid community IDs should be rejected
+        with pytest.raises((InvalidIdentifierError, ValueError)):
+            builder.build_community_entities_query("comm-123-abc", 10)
 
 
 class TestQueryBuilderReturnTypes:
@@ -664,8 +664,16 @@ class TestQueryBuilderReturnTypes:
         assert isinstance(neo4j_builder.build_relationships_query(["e1"], None, 10), str)
         assert isinstance(neo4j_builder.build_articles_by_entities_query(["e1"], 10), str)
         assert isinstance(neo4j_builder.build_community_search_query(community_config), str)
-        assert isinstance(neo4j_builder.build_community_entities_query("c1", 10), str)
-        assert isinstance(neo4j_builder.build_key_entities_query(["c1"], 10), str)
+        assert isinstance(
+            neo4j_builder.build_community_entities_query(
+                "550e8400-e29b-41d4-a716-446655440000", 10
+            ),
+            str,
+        )
+        assert isinstance(
+            neo4j_builder.build_key_entities_query(["550e8400-e29b-41d4-a716-446655440000"], 10),
+            str,
+        )
         assert isinstance(neo4j_builder.build_communities_exist_query(1), str)
         assert isinstance(neo4j_builder.build_communities_exist_query(None), str)
 
@@ -680,7 +688,287 @@ class TestQueryBuilderReturnTypes:
         assert isinstance(ladybug_builder.build_relationships_query(["e1"], None, 10), str)
         assert isinstance(ladybug_builder.build_articles_by_entities_query(["e1"], 10), str)
         assert isinstance(ladybug_builder.build_community_search_query(community_config), str)
-        assert isinstance(ladybug_builder.build_community_entities_query("c1", 10), str)
-        assert isinstance(ladybug_builder.build_key_entities_query(["c1"], 10), str)
+        assert isinstance(
+            ladybug_builder.build_community_entities_query(
+                "550e8400-e29b-41d4-a716-446655440000", 10
+            ),
+            str,
+        )
+        assert isinstance(
+            ladybug_builder.build_key_entities_query(["550e8400-e29b-41d4-a716-446655440000"], 10),
+            str,
+        )
         assert isinstance(ladybug_builder.build_communities_exist_query(1), str)
         assert isinstance(ladybug_builder.build_communities_exist_query(None), str)
+
+
+class TestNeo4jQueryBuilderSecurity:
+    """Security tests for Neo4j query builder."""
+
+    @pytest.fixture
+    def builder(self) -> Neo4jQueryBuilder:
+        return Neo4jQueryBuilder()
+
+    # ── Parameterized Query Tests ───────────────────────────────────────────
+
+    def test_entity_search_uses_parameterized_query(self, builder: Neo4jQueryBuilder) -> None:
+        """Entity search should use $query and $limit parameters."""
+        config = EntitySearchConfig(query="test", limit=10)
+        result = builder.build_entity_search_query(config)
+        assert "$query" in result
+        assert "$limit" in result
+
+    def test_entities_by_names_uses_parameterized_query(self, builder: Neo4jQueryBuilder) -> None:
+        """Entities by names should use $names parameter."""
+        result = builder.build_entities_by_names_query(["e1", "e2"], 10)
+        assert "$names" in result
+        assert "$limit" in result
+
+    def test_related_entities_uses_parameterized_query(self, builder: Neo4jQueryBuilder) -> None:
+        """Related entities should use $names and $limit parameters."""
+        config = RelatedEntitiesConfig(entity_names=("e1",), max_hops=2, limit=10)
+        result = builder.build_related_entities_query(config)
+        assert "$names" in result
+        assert "$limit" in result
+
+    def test_community_entities_uses_parameterized_query(self, builder: Neo4jQueryBuilder) -> None:
+        """Community entities should use $community_id parameter."""
+        result = builder.build_community_entities_query("550e8400-e29b-41d4-a716-446655440000", 10)
+        assert "$community_id" in result
+        assert "$limit" in result
+
+    def test_key_entities_uses_parameterized_query(self, builder: Neo4jQueryBuilder) -> None:
+        """Key entities should use $community_ids parameter."""
+        result = builder.build_key_entities_query(["550e8400-e29b-41d4-a716-446655440000"], 10)
+        assert "$community_ids" in result
+        assert "$limit" in result
+
+    # ── UUID Validation Tests ────────────────────────────────────────────────
+
+    @pytest.mark.parametrize(
+        "community_id",
+        [
+            "550e8400-e29b-41d4-a716-446655440000",
+            "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+            "00000000-0000-0000-0000-000000000000",
+        ],
+    )
+    def test_community_entities_accepts_valid_uuid(
+        self, builder: Neo4jQueryBuilder, community_id: str
+    ) -> None:
+        """Valid UUIDs should be accepted."""
+        result = builder.build_community_entities_query(community_id, 10)
+        assert "$community_id" in result
+
+    @pytest.mark.parametrize(
+        "community_id",
+        [
+            "not-a-uuid",
+            "12345",
+            "550e8400-e29b-41d4-a716",  # Truncated
+            "'; MATCH (n) DETACH DELETE n //",
+            "../../../etc/passwd",
+        ],
+    )
+    def test_community_entities_rejects_invalid_uuid(
+        self, builder: Neo4jQueryBuilder, community_id: str
+    ) -> None:
+        """Invalid UUIDs should be rejected."""
+        with pytest.raises((InvalidIdentifierError, ValueError)):
+            builder.build_community_entities_query(community_id, 10)
+
+    @pytest.mark.parametrize(
+        "community_id",
+        [
+            "'; MATCH (n) DETACH DELETE n //",
+            "550e8400']; DROP TABLE users; //",
+        ],
+    )
+    def test_key_entities_rejects_malicious_uuid(
+        self, builder: Neo4jQueryBuilder, community_id: str
+    ) -> None:
+        """Malicious UUIDs should be rejected in key_entities_query."""
+        with pytest.raises((InvalidIdentifierError, ValueError)):
+            builder.build_key_entities_query([community_id], 10)
+
+    # ── Edge Type Validation Tests ──────────────────────────────────────────
+
+    @pytest.mark.parametrize(
+        "relation_type",
+        [
+            "KNOWS",
+            "RELATED_TO",
+            "PARTNERS_WITH",
+            "中文关系",
+        ],
+    )
+    def test_related_entities_accepts_valid_relation_types(
+        self, builder: Neo4jQueryBuilder, relation_type: str
+    ) -> None:
+        """Valid relation types should be accepted."""
+        config = RelatedEntitiesConfig(
+            entity_names=("e1",),
+            relation_types=(relation_type,),
+            max_hops=2,
+            limit=10,
+        )
+        result = builder.build_related_entities_query(config)
+        assert relation_type in result
+
+    @pytest.mark.parametrize(
+        "relation_type",
+        [
+            "knows",  # Lowercase not allowed
+            "KNOWS']; MATCH (n) DETACH DELETE n //",
+            "123INVALID",
+            "invalid-type",
+            "REL`] DETACH DELETE n //",
+        ],
+    )
+    def test_related_entities_rejects_malicious_relation_types(
+        self, builder: Neo4jQueryBuilder, relation_type: str
+    ) -> None:
+        """Malicious relation types should be rejected."""
+        config = RelatedEntitiesConfig(
+            entity_names=("e1",),
+            relation_types=(relation_type,),
+            max_hops=2,
+            limit=10,
+        )
+        with pytest.raises((InvalidIdentifierError, ValueError)):
+            builder.build_related_entities_query(config)
+
+    @pytest.mark.parametrize(
+        "relation_type",
+        [
+            "KNOWS']; DETACH DELETE n //",
+            "RELATED_TO`; MATCH (n) DELETE n //",
+        ],
+    )
+    def test_relationships_query_rejects_malicious_types(
+        self, builder: Neo4jQueryBuilder, relation_type: str
+    ) -> None:
+        """Malicious relation types in relationships_query should be rejected."""
+        with pytest.raises((InvalidIdentifierError, ValueError)):
+            builder.build_relationships_query(["e1"], [relation_type], 10)
+
+    # ── Max Hops Validation Tests ───────────────────────────────────────────
+
+    def test_related_entities_validates_max_hops_lower_bound(
+        self, builder: Neo4jQueryBuilder
+    ) -> None:
+        """max_hops < 1 should be rejected."""
+        config = RelatedEntitiesConfig(entity_names=("e1",), max_hops=0, limit=10)
+        with pytest.raises(ValueError, match="max_hops"):
+            builder.build_related_entities_query(config)
+
+    def test_related_entities_validates_max_hops_upper_bound(
+        self, builder: Neo4jQueryBuilder
+    ) -> None:
+        """max_hops > 5 should be rejected."""
+        config = RelatedEntitiesConfig(entity_names=("e1",), max_hops=6, limit=10)
+        with pytest.raises(ValueError, match="max_hops"):
+            builder.build_related_entities_query(config)
+
+    # ── Limit Validation Tests ──────────────────────────────────────────────
+
+    def test_community_entities_validates_limit(self, builder: Neo4jQueryBuilder) -> None:
+        """limit < 1 should be rejected."""
+        with pytest.raises(ValueError, match="limit must be positive"):
+            builder.build_community_entities_query("550e8400-e29b-41d4-a716-446655440000", 0)
+
+    def test_key_entities_validates_limit(self, builder: Neo4jQueryBuilder) -> None:
+        """limit < 1 should be rejected."""
+        with pytest.raises(ValueError, match="limit must be positive"):
+            builder.build_key_entities_query(["550e8400-e29b-41d4-a716-446655440000"], 0)
+
+
+class TestLadybugQueryBuilderSecurity:
+    """Security tests for LadybugDB query builder."""
+
+    @pytest.fixture
+    def builder(self) -> LadybugQueryBuilder:
+        return LadybugQueryBuilder()
+
+    # ── UUID Validation Tests ────────────────────────────────────────────────
+
+    @pytest.mark.parametrize(
+        "community_id",
+        [
+            "550e8400-e29b-41d4-a716-446655440000",
+            "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+        ],
+    )
+    def test_community_entities_accepts_valid_uuid(
+        self, builder: LadybugQueryBuilder, community_id: str
+    ) -> None:
+        """Valid UUIDs should be accepted."""
+        result = builder.build_community_entities_query(community_id, 10)
+        assert "$community_id" in result
+
+    @pytest.mark.parametrize(
+        "community_id",
+        [
+            "not-a-uuid",
+            "'; SELECT * FROM users; --",
+            "../../../etc/passwd",
+        ],
+    )
+    def test_community_entities_rejects_invalid_uuid(
+        self, builder: LadybugQueryBuilder, community_id: str
+    ) -> None:
+        """Invalid UUIDs should be rejected."""
+        with pytest.raises((InvalidIdentifierError, ValueError)):
+            builder.build_community_entities_query(community_id, 10)
+
+    # ── Edge Type Validation Tests ──────────────────────────────────────────
+
+    @pytest.mark.parametrize(
+        "relation_type",
+        [
+            "KNOWS",
+            "RELATED_TO",
+            "PARTNERS_WITH",
+        ],
+    )
+    def test_related_entities_accepts_valid_relation_types(
+        self, builder: LadybugQueryBuilder, relation_type: str
+    ) -> None:
+        """Valid relation types should be accepted."""
+        config = RelatedEntitiesConfig(
+            entity_names=("e1",),
+            relation_types=(relation_type,),
+            max_hops=2,
+            limit=10,
+        )
+        result = builder.build_related_entities_query(config)
+        assert "$relation_types" in result or relation_type in result
+
+    @pytest.mark.parametrize(
+        "relation_type",
+        [
+            "knows",
+            "KNOWS']; SELECT * FROM users; --",
+            "invalid-type",
+        ],
+    )
+    def test_related_entities_rejects_malicious_relation_types(
+        self, builder: LadybugQueryBuilder, relation_type: str
+    ) -> None:
+        """Malicious relation types should be rejected."""
+        config = RelatedEntitiesConfig(
+            entity_names=("e1",),
+            relation_types=(relation_type,),
+            max_hops=2,
+            limit=10,
+        )
+        with pytest.raises((InvalidIdentifierError, ValueError)):
+            builder.build_related_entities_query(config)
+
+    # ── Max Hops Validation Tests ───────────────────────────────────────────
+
+    def test_related_entities_validates_max_hops(self, builder: LadybugQueryBuilder) -> None:
+        """max_hops out of range should be rejected."""
+        config = RelatedEntitiesConfig(entity_names=("e1",), max_hops=0, limit=10)
+        with pytest.raises(ValueError, match="max_hops"):
+            builder.build_related_entities_query(config)
