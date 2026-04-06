@@ -24,6 +24,7 @@ spec/
 temp/
 data/
 llm.md
+.env.weaver
 
 # Docker development files
 docker/docker-compose.dev.yml

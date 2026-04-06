@@ -527,6 +527,68 @@ class PipelineUrlEndpointSettings(BaseModel):
     """Allowed domains when whitelist mode is enabled."""
 
 
+class URLSecuritySettings(BaseModel):
+    """URL security check configuration.
+
+    Controls malicious URL detection, SSRF protection, and SSL verification.
+    """
+
+    enabled: bool = True
+    """Enable URL security checking."""
+
+    urlhaus_api_key: str = ""
+    """URLhaus API key for real-time malicious URL lookup. Leave empty to skip API checks."""
+
+    urlhaus_api_timeout: float = 5.0
+    """URLhaus API request timeout in seconds."""
+
+    phishtank_enabled: bool = True
+    """Enable PhishTank offline blacklist checking."""
+
+    phishtank_data_url: str = "https://data.phishtank.com/data/online-valid.json"
+    """PhishTank data download URL."""
+
+    phishtank_sync_interval_hours: int = 6
+    """PhishTank data sync interval in hours."""
+
+    phishtank_data_path: str = "data/phishtank.json"
+    """Local PhishTank data storage path."""
+
+    heuristic_enabled: bool = True
+    """Enable heuristic URL analysis."""
+
+    heuristic_check_encoded_chars: bool = True
+    """Check for URL encoding obfuscation."""
+
+    heuristic_check_suspicious_keywords: bool = True
+    """Check for suspicious keywords in URLs."""
+
+    heuristic_check_domain_structure: bool = True
+    """Check for domain structure anomalies."""
+
+    ssl_verify_enabled: bool = True
+    """Enable SSL certificate verification."""
+
+    ssl_verify_timeout: float = 10.0
+    """SSL verification timeout in seconds."""
+
+    cache_enabled: bool = True
+    """Enable check result caching."""
+
+    cache_safe_ttl_seconds: int = 21600
+    """Cache TTL for safe results (6 hours)."""
+
+    cache_malicious_ttl_seconds: int = 900
+    """Cache TTL for malicious results (15 minutes)."""
+
+
+class EntitySettings(BaseModel):
+    """Entity extraction configuration."""
+
+    disable_data_metrics_nodes: bool = False
+    """When True, skip extracting '数据指标' (data metrics) type entities."""
+
+
 def settings_customise_sources(
     settings: type[BaseSettings],
     init_settings: PydanticBaseSettingsSource,
@@ -616,6 +678,8 @@ class Settings(BaseSettings):
     pipeline_url_endpoint: PipelineUrlEndpointSettings = Field(
         default_factory=PipelineUrlEndpointSettings
     )
+    url_security: URLSecuritySettings = Field(default_factory=URLSecuritySettings)
+    entity: EntitySettings = Field(default_factory=EntitySettings)
 
     def __init__(self, **kwargs: Any) -> None:
         """Initialize settings, loading TOML config first."""

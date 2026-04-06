@@ -83,6 +83,7 @@ circuit_breaker_timeout = 60.0          # Cooldown period before half-open (seco
 rate_limit = "100/minute"               # Global API rate limit
 host = "0.0.0.0"                       # Bind address (0.0.0.0 for all interfaces)
 port = 8000                             # HTTP port
+port_auto_detect = true                 # Enable automatic port detection (creates .env.weaver)
 
 # ============================================================
 # Scheduler Configuration
@@ -141,3 +142,45 @@ models = ["zh_core_web_lg", "en_core_web_sm"]  # Models to check/install
 # [spacy.local_paths]
 # zh_core_web_lg = "/path/to/zh_core_web_lg-3.7.0-py3-none-any.whl"
 # en_core_web_sm = "/path/to/en_core_web_sm-3.7.0-py3-none-any.whl"
+
+# ============================================================
+# Entity Extraction Configuration
+# ============================================================
+
+[entity]
+# Entity extraction and filtering settings
+disable_data_metrics_nodes = false       # Skip extracting '数据指标' (data metrics) entities
+
+# ============================================================
+# URL Security Configuration
+# ============================================================
+
+[url_security]
+# Multi-layer URL security checking: SSRF protection, URLhaus API,
+# PhishTank blacklist, heuristic analysis, and SSL verification.
+enabled = true                           # Enable URL security checking
+
+# URLhaus API (real-time malicious URL lookup)
+# urlhaus_api_key: Set via WEAVER_URL_SECURITY__URLHAUS_API_KEY environment variable
+urlhaus_api_timeout = 5.0                # URLhaus API request timeout (seconds)
+
+# PhishTank offline blacklist
+phishtank_enabled = true                  # Enable PhishTank phishing URL database
+phishtank_data_url = "https://data.phishtank.com/data/online-valid.json"
+phishtank_sync_interval_hours = 6         # Data sync interval (hours)
+phishtank_data_path = "data/phishtank.json"  # Local data storage path
+
+# Heuristic URL analysis
+heuristic_enabled = true                  # Enable heuristic URL analysis
+heuristic_check_encoded_chars = true      # Detect URL encoding obfuscation
+heuristic_check_suspicious_keywords = true  # Detect suspicious keywords
+heuristic_check_domain_structure = true   # Detect domain structure anomalies
+
+# SSL certificate verification
+ssl_verify_enabled = true                 # Enable SSL certificate checking
+ssl_verify_timeout = 10.0                 # SSL verification timeout (seconds)
+
+# Result caching (differential TTL)
+cache_enabled = true                      # Enable check result caching
+cache_safe_ttl_seconds = 21600            # Cache TTL for safe results (6 hours)
+cache_malicious_ttl_seconds = 900         # Cache TTL for malicious results (15 minutes)
