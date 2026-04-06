@@ -16,7 +16,11 @@ log = get_logger("redis")
 
 
 class RedisClient:
-    """Thin async wrapper around redis-py with connection pooling."""
+    """Thin async wrapper around redis-py with connection pooling.
+
+    Implements:
+        - CachePool: Async cache operations with Redis backend
+    """
 
     def __init__(self, url: str) -> None:
         self._url = url
@@ -315,6 +319,9 @@ class CashewsRedisFallback:
     structures (hashes, sorted sets, lists).
 
     Suitable for testing and standalone operation without a real Redis server.
+
+    Implements:
+        - CachePool: Async cache operations with in-memory backend
     """
 
     def __init__(self) -> None:

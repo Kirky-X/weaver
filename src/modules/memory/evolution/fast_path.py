@@ -18,18 +18,13 @@ import time
 from typing import TYPE_CHECKING, Any, Protocol
 
 from core.observability.logging import get_logger
+from core.protocols import VectorRepository
 from modules.memory.core.event_node import EventNode
 
 if TYPE_CHECKING:
     from modules.memory.graphs.temporal import TemporalGraphRepo
 
 log = get_logger("synaptic_ingestion")
-
-
-class VectorRepoProtocol(Protocol):
-    """Protocol for vector repository."""
-
-    async def upsert_event_embedding(self, event: EventNode) -> bool: ...
 
 
 class ConsolidationQueueProtocol(Protocol):
@@ -55,7 +50,7 @@ class SynapticIngestionService:
     def __init__(
         self,
         temporal_repo: TemporalGraphRepo,
-        vector_repo: VectorRepoProtocol | None = None,
+        vector_repo: VectorRepository | None = None,
         entity_repo: EntityGraphRepoProtocol | None = None,
         consolidation_queue: ConsolidationQueueProtocol | None = None,
     ) -> None:

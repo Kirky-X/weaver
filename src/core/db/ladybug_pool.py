@@ -26,6 +26,9 @@ class LadybugPool:
 
     Note: LadybugDB only supports one write transaction at a time.
     All write operations are serialized via a global lock.
+
+    Implements:
+        - GraphPool: Async graph database pool with query execution
     """
 
     def __init__(self, db_path: str = "data/weaver_graph.ladybug"):

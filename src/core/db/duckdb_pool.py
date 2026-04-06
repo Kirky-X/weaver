@@ -97,6 +97,9 @@ class DuckDBPool:
     """DuckDB connection pool implementing RelationalPool protocol.
 
     Uses sync SQLAlchemy engine with asyncio.to_thread wrapper for async ops.
+
+    Implements:
+        - RelationalPool: Async SQL database pool with session management
     """
 
     def __init__(self, db_path: str = "data/weaver.duckdb"):

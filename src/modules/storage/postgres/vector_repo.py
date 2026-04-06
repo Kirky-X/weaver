@@ -10,8 +10,8 @@ from datetime import datetime
 from sqlalchemy import select, text
 
 from core.db.models import EntityVector, VectorType
-from core.db.postgres import PostgresPool
 from core.observability.logging import get_logger
+from core.protocols import RelationalPool
 
 log = get_logger("vector_repo")
 
@@ -42,11 +42,14 @@ class VectorRepo:
     Handles HNSW-indexed similarity searches for both
     article and entity vectors.
 
+    Implements:
+        - VectorRepository: Vector similarity search and embedding storage
+
     Args:
-        pool: PostgreSQL connection pool.
+        pool: Relational database connection pool (PostgreSQL or DuckDB).
     """
 
-    def __init__(self, pool: PostgresPool) -> None:
+    def __init__(self, pool: RelationalPool) -> None:
         self._pool = pool
 
     async def upsert_article_vectors(

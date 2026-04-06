@@ -10,8 +10,8 @@ from typing import Any
 
 from neo4j.exceptions import ConstraintError
 
-from core.db.pool_protocols import GraphPool
 from core.observability.logging import get_logger
+from core.protocols import GraphPool
 
 log = get_logger("neo4j_entity_repo")
 
@@ -28,6 +28,9 @@ class Neo4jEntityRepo:
     including MERGE with uniqueness constraint and alias management.
 
     Supports both single and batch operations for efficiency.
+
+    Implements:
+        - EntityRepository: Entity graph operations and relationship management
 
     Args:
         pool: Graph database pool (Neo4j or LadybugDB).
