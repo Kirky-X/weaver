@@ -1,7 +1,9 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Tests for DuckDB connection pool."""
 
+import os
 import tempfile
+import uuid
 from pathlib import Path
 
 import pytest
@@ -11,20 +13,25 @@ pytest.importorskip("duckdb_engine")
 from core.db.duckdb_pool import DuckDBPool, _DuckDBAsyncSession
 
 
-# Use xdist_group to ensure these tests run serially (they share :memory: database)
-@pytest.mark.xdist_group("duckdb")
+def _unique_db_path() -> str:
+    """Generate a unique temporary database path for test isolation."""
+    return f"/tmp/duckdb_test_{os.getpid()}_{uuid.uuid4().hex}.duckdb"
+
+
 class TestDuckDBPoolConnection:
     """Tests for DuckDB connection lifecycle management."""
 
     @pytest.mark.asyncio
     async def test_connection_initialization_succeeds(self) -> None:
         """Test that pool initializes successfully with valid configuration."""
-        pool = DuckDBPool(":memory:")
+        db_path = _unique_db_path()
+        pool = DuckDBPool(db_path)
 
         await pool.startup()
         assert pool._engine is not None
 
         await pool.shutdown()
+        Path(db_path).unlink(missing_ok=True)
 
     @pytest.mark.asyncio
     async def test_connection_creates_missing_directory(self) -> None:
@@ -42,17 +49,19 @@ class TestDuckDBPoolConnection:
     @pytest.mark.asyncio
     async def test_connection_cleanup_releases_resources(self) -> None:
         """Test that shutdown properly releases all resources."""
-        pool = DuckDBPool(":memory:")
+        db_path = _unique_db_path()
+        pool = DuckDBPool(db_path)
         await pool.startup()
-        engine = pool._engine
 
         await pool.shutdown()
         assert pool._engine is None
+        Path(db_path).unlink(missing_ok=True)
 
     @pytest.mark.asyncio
     async def test_engine_raises_error_when_not_started(self) -> None:
         """Test that accessing engine before startup raises error."""
-        pool = DuckDBPool(":memory:")
+        db_path = _unique_db_path()
+        pool = DuckDBPool(db_path)
 
         with pytest.raises(RuntimeError, match="not started"):
             _ = pool.engine
@@ -60,23 +69,25 @@ class TestDuckDBPoolConnection:
     @pytest.mark.asyncio
     async def test_session_raises_error_when_not_started(self) -> None:
         """Test that creating session before startup raises error."""
-        pool = DuckDBPool(":memory:")
+        db_path = _unique_db_path()
+        pool = DuckDBPool(db_path)
 
         with pytest.raises(RuntimeError, match="not started"):
             pool.session()
 
 
-@pytest.mark.xdist_group("duckdb")
 class TestDuckDBQueryExecution:
     """Tests for DuckDB query execution."""
 
     @pytest.fixture
     async def pool(self) -> DuckDBPool:
-        """Create and start a DuckDB pool for testing."""
-        pool = DuckDBPool(":memory:")
+        """Create and start a DuckDB pool for testing with unique path."""
+        db_path = _unique_db_path()
+        pool = DuckDBPool(db_path)
         await pool.startup()
         yield pool
         await pool.shutdown()
+        Path(db_path).unlink(missing_ok=True)
 
     @pytest.mark.asyncio
     async def test_query_returns_correct_results(self, pool: DuckDBPool) -> None:
@@ -124,7 +135,8 @@ class TestDuckDBQueryExecution:
         """Test that parameterized queries work correctly."""
         from sqlalchemy import text
 
-        pool = DuckDBPool(":memory:")
+        db_path = _unique_db_path()
+        pool = DuckDBPool(db_path)
         await pool.startup()
         try:
             async with pool.session_context() as session:
@@ -142,19 +154,21 @@ class TestDuckDBQueryExecution:
                 assert row[0] == "Alice"
         finally:
             await pool.shutdown()
+            Path(db_path).unlink(missing_ok=True)
 
 
-@pytest.mark.xdist_group("duckdb")
 class TestDuckDBTransactionSupport:
     """Tests for DuckDB transaction handling."""
 
     @pytest.fixture
     async def pool(self) -> DuckDBPool:
-        """Create and start a DuckDB pool for testing."""
-        pool = DuckDBPool(":memory:")
+        """Create and start a DuckDB pool for testing with unique path."""
+        db_path = _unique_db_path()
+        pool = DuckDBPool(db_path)
         await pool.startup()
         yield pool
         await pool.shutdown()
+        Path(db_path).unlink(missing_ok=True)
 
     @pytest.mark.asyncio
     async def test_transaction_commit_persists_changes(self, pool: DuckDBPool) -> None:
@@ -219,7 +233,6 @@ class TestDuckDBTransactionSupport:
             assert count == 0
 
 
-@pytest.mark.xdist_group("duckdb")
 class TestDuckDBAsyncSession:
     """Tests for _DuckDBAsyncSession wrapper."""
 
@@ -228,7 +241,8 @@ class TestDuckDBAsyncSession:
         """Test that session.execute works asynchronously."""
         from sqlalchemy import text
 
-        pool = DuckDBPool(":memory:")
+        db_path = _unique_db_path()
+        pool = DuckDBPool(db_path)
         await pool.startup()
 
         try:
@@ -239,13 +253,15 @@ class TestDuckDBAsyncSession:
                 assert row[0] == 2
         finally:
             await pool.shutdown()
+            Path(db_path).unlink(missing_ok=True)
 
     @pytest.mark.asyncio
     async def test_session_scalar_async(self) -> None:
         """Test that session.scalar works asynchronously."""
         from sqlalchemy import text
 
-        pool = DuckDBPool(":memory:")
+        db_path = _unique_db_path()
+        pool = DuckDBPool(db_path)
         await pool.startup()
 
         try:
@@ -254,13 +270,15 @@ class TestDuckDBAsyncSession:
                 assert result == 42
         finally:
             await pool.shutdown()
+            Path(db_path).unlink(missing_ok=True)
 
     @pytest.mark.asyncio
     async def test_session_flush_and_refresh(self) -> None:
         """Test that flush and refresh work asynchronously."""
         from sqlalchemy import text
 
-        pool = DuckDBPool(":memory:")
+        db_path = _unique_db_path()
+        pool = DuckDBPool(db_path)
         await pool.startup()
 
         try:
@@ -274,3 +292,4 @@ class TestDuckDBAsyncSession:
                 assert result == "initial"
         finally:
             await pool.shutdown()
+            Path(db_path).unlink(missing_ok=True)
