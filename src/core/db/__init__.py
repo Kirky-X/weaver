@@ -28,6 +28,14 @@ from core.db.models import (
 )
 from core.db.neo4j import Neo4jPool
 from core.db.postgres import PostgresPool
+from core.db.query_builders import (
+    DatabaseType,
+    DuckDBVectorQueryBuilder,
+    PgVectorQueryBuilder,
+    SimilarityQuery,
+    VectorQueryBuilder,
+    create_vector_query_builder,
+)
 from core.db.strategy import DatabaseStrategy, create_strategy
 from core.protocols import GraphPool, RelationalPool
 
@@ -40,20 +48,26 @@ __all__ = [
     "CategoryType",
     "DatabaseInitError",
     "DatabaseStrategy",
+    "DatabaseType",
     "DuckDBPool",
+    "DuckDBVectorQueryBuilder",
     "EmotionType",
     "EntityVector",
     "GraphPool",
     "LadybugPool",
     "Neo4jPool",
     "PersistStatus",
+    "PgVectorQueryBuilder",
     "PostgresPool",
     "RelationalPool",
+    "SimilarityQuery",
     "SourceAuthority",
+    "VectorQueryBuilder",
     "VectorType",
     "check_database_exists",
     "create_database",
     "create_strategy",
+    "create_vector_query_builder",
     "initialize_database",
     "initialize_neo4j",
     "run_migrations",
