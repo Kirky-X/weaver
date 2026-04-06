@@ -506,3 +506,142 @@ class TestHttpxFetcherUserAgent:
         fetcher = HttpxFetcher(user_agent="CustomBot/2.0")
 
         assert fetcher._client is not None
+
+
+class TestHttpxFetcherPost:
+    """Tests for HttpxFetcher.post()."""
+
+    @pytest.fixture
+    def fetcher(self):
+        from modules.ingestion.fetching.httpx_fetcher import HttpxFetcher
+
+        return HttpxFetcher()
+
+    @pytest.mark.asyncio
+    async def test_post_with_json_data(self, fetcher):
+        """Test POST with JSON body."""
+        mock_response = MagicMock()
+        mock_response.status_code = 201
+        mock_response.text = '{"ok": true}'
+        mock_response.headers = {"Content-Type": "application/json"}
+
+        with patch.object(fetcher._client, "post", new_callable=AsyncMock) as mock_post:
+            mock_post.return_value = mock_response
+
+            status, text, headers = await fetcher.post(
+                "https://api.example.com/data",
+                json_data={"key": "value"},
+            )
+
+            assert status == 201
+            assert text == '{"ok": true}'
+            mock_post.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_post_with_form_data(self, fetcher):
+        """Test POST with form data."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = "OK"
+        mock_response.headers = {}
+
+        with patch.object(fetcher._client, "post", new_callable=AsyncMock) as mock_post:
+            mock_post.return_value = mock_response
+
+            status, text, headers = await fetcher.post(
+                "https://api.example.com/form",
+                data={"field": "value"},
+            )
+
+            assert status == 200
+            assert text == "OK"
+
+    @pytest.mark.asyncio
+    async def test_post_with_custom_headers(self, fetcher):
+        """Test POST with custom headers."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = "OK"
+        mock_response.headers = {}
+
+        with patch.object(fetcher._client, "post", new_callable=AsyncMock) as mock_post:
+            mock_post.return_value = mock_response
+
+            await fetcher.post(
+                "https://api.example.com",
+                json_data={"key": "value"},
+                headers={"Authorization": "Bearer token123"},
+            )
+
+            call_kwargs = mock_post.call_args
+            assert call_kwargs[1]["headers"]["Authorization"] == "Bearer token123"
+
+    @pytest.mark.asyncio
+    async def test_post_validates_url_with_validator(self, fetcher):
+        """Test POST validates URL when validator is set."""
+        mock_validator = MagicMock()
+        mock_validator.validate = AsyncMock()
+        fetcher._url_validator = mock_validator
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = "OK"
+        mock_response.headers = {}
+
+        with patch.object(fetcher._client, "post", new_callable=AsyncMock) as mock_post:
+            mock_post.return_value = mock_response
+
+            await fetcher.post("https://api.example.com/data", json_data={"key": "val"})
+
+            mock_validator.validate.assert_called_once_with("https://api.example.com/data")
+
+    @pytest.mark.asyncio
+    async def test_post_skips_validation_without_validator(self, fetcher):
+        """Test POST skips URL validation when no validator set."""
+        fetcher._url_validator = None
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.text = "OK"
+        mock_response.headers = {}
+
+        with patch.object(fetcher._client, "post", new_callable=AsyncMock) as mock_post:
+            mock_post.return_value = mock_response
+
+            status, text, headers = await fetcher.post("https://api.example.com")
+
+            assert status == 200
+
+    @pytest.mark.asyncio
+    async def test_post_raises_on_transport_error(self, fetcher):
+        """Test POST raises TransportError."""
+        with patch.object(fetcher._client, "post", new_callable=AsyncMock) as mock_post:
+            mock_post.side_effect = httpx.TransportError("Connection refused")
+
+            with pytest.raises(httpx.TransportError):
+                await fetcher.post("https://api.example.com")
+
+    @pytest.mark.asyncio
+    async def test_post_raises_on_http_status_error(self, fetcher):
+        """Test POST raises HTTPStatusError."""
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+
+        with patch.object(fetcher._client, "post", new_callable=AsyncMock) as mock_post:
+            mock_post.side_effect = httpx.HTTPStatusError(
+                "Internal Server Error",
+                request=MagicMock(),
+                response=mock_response,
+            )
+
+            with pytest.raises(httpx.HTTPStatusError):
+                await fetcher.post("https://api.example.com/broken")
+
+    @pytest.mark.asyncio
+    async def test_post_raises_on_generic_error(self, fetcher):
+        """Test POST raises generic exceptions."""
+        with patch.object(fetcher._client, "post", new_callable=AsyncMock) as mock_post:
+            mock_post.side_effect = RuntimeError("Unexpected error")
+
+            with pytest.raises(RuntimeError, match="Unexpected error"):
+                await fetcher.post("https://api.example.com")
