@@ -13,19 +13,22 @@ log = get_logger("port_announcer")
 class PortAnnouncer:
     """Utility class for announcing the actual port being used."""
 
-    def __init__(self, env_file: Path | None = None) -> None:
+    def __init__(self, env_file: Path | None = None, write_env_file: bool = False) -> None:
         """Initialize the port announcer.
 
         Args:
             env_file: Path to the env file for port persistence.
                       Defaults to .env.weaver in current working directory.
+            write_env_file: Whether to write port to env file.
+                           Controlled by WEAVER_WRITE_PORT_ENV environment variable.
         """
         self._env_file = env_file or Path.cwd() / ".env.weaver"
+        self._write_env_file_enabled = write_env_file
 
     def announce(self, host: str, port: int, original_port: int) -> None:
         """Announce the actual port being used.
 
-        Logs to console, writes to env file, and updates Prometheus metrics.
+        Logs to console, optionally writes to env file, and updates Prometheus metrics.
 
         Args:
             host: The host address.
@@ -44,8 +47,9 @@ class PortAnnouncer:
                 actual_port=port,
             )
 
-            # Write to env file
-            self._write_env_file(port)
+            # Optionally write to env file (controlled by environment variable)
+            if self._write_env_file_enabled:
+                self._write_env_file(port)
 
             # Update Prometheus metric
             self._update_metric(host, port)

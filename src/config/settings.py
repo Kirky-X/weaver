@@ -275,11 +275,13 @@ class APISettings(BaseModel):
         from core.net.port_finder import PortFinder
 
         original_port = self.port
+        # Check environment variable to control env file writing
+        write_env = os.getenv("WEAVER_WRITE_PORT_ENV", "false").lower() in ("true", "1", "yes")
 
         # Check if the current port is available
         if PortFinder.is_port_available(self.host, self.port):
             # Port is available, just log it
-            announcer = PortAnnouncer()
+            announcer = PortAnnouncer(write_env_file=write_env)
             announcer.announce(self.host, self.port, original_port)
             return
 
@@ -294,7 +296,7 @@ class APISettings(BaseModel):
             self.port = available_port
 
             # Announce the new port
-            announcer = PortAnnouncer()
+            announcer = PortAnnouncer(write_env_file=write_env)
             announcer.announce(self.host, available_port, original_port)
 
         except Exception as e:

@@ -83,7 +83,8 @@ circuit_breaker_timeout = 60.0          # Cooldown period before half-open (seco
 rate_limit = "100/minute"               # Global API rate limit
 host = "0.0.0.0"                       # Bind address (0.0.0.0 for all interfaces)
 port = 8000                             # HTTP port
-port_auto_detect = true                 # Enable automatic port detection (creates .env.weaver)
+port_auto_detect = true                 # Enable automatic port detection
+# port_env_file = ".env.weaver"          # Port env file path (only used when WEAVER_WRITE_PORT_ENV=true)
 
 # ============================================================
 # Scheduler Configuration

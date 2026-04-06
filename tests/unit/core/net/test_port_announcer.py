@@ -17,7 +17,7 @@ class TestPortAnnouncer:
     def test_announce_logs_port_check_when_unchanged(self, tmp_path: Path) -> None:
         """Should log port_check when port is unchanged from original."""
         env_file = tmp_path / ".env.weaver"
-        announcer = PortAnnouncer(env_file=env_file)
+        announcer = PortAnnouncer(env_file=env_file, write_env_file=False)
 
         with patch("core.net.port_announcer.log") as mock_log:
             announcer.announce("127.0.0.1", 8000, 8000)
@@ -32,7 +32,7 @@ class TestPortAnnouncer:
     def test_announce_logs_port_resolved_when_changed(self, tmp_path: Path) -> None:
         """Should log port_resolved when port differs from original."""
         env_file = tmp_path / ".env.weaver"
-        announcer = PortAnnouncer(env_file=env_file)
+        announcer = PortAnnouncer(env_file=env_file, write_env_file=False)
 
         with patch("core.net.port_announcer.log") as mock_log:
             announcer.announce("127.0.0.1", 8005, 8000)
@@ -44,10 +44,10 @@ class TestPortAnnouncer:
                 actual_port=8005,
             )
 
-    def test_announce_writes_env_file(self, tmp_path: Path) -> None:
-        """Should write WEAVER_ACTUAL_PORT to env file."""
+    def test_announce_writes_env_file_when_enabled(self, tmp_path: Path) -> None:
+        """Should write WEAVER_ACTUAL_PORT to env file when write_env_file=True."""
         env_file = tmp_path / ".env.weaver"
-        announcer = PortAnnouncer(env_file=env_file)
+        announcer = PortAnnouncer(env_file=env_file, write_env_file=True)
 
         with patch("core.net.port_announcer.log"):
             announcer.announce("127.0.0.1", 8005, 8000)
@@ -56,10 +56,20 @@ class TestPortAnnouncer:
         content = env_file.read_text()
         assert "WEAVER_ACTUAL_PORT=8005" in content
 
+    def test_announce_does_not_write_env_file_when_disabled(self, tmp_path: Path) -> None:
+        """Should not write env file when write_env_file=False."""
+        env_file = tmp_path / ".env.weaver"
+        announcer = PortAnnouncer(env_file=env_file, write_env_file=False)
+
+        with patch("core.net.port_announcer.log"):
+            announcer.announce("127.0.0.1", 8005, 8000)
+
+        assert not env_file.exists()
+
     def test_announce_creates_parent_directories(self, tmp_path: Path) -> None:
         """Should create parent directories for env file if needed."""
         env_file = tmp_path / "subdir" / ".env.weaver"
-        announcer = PortAnnouncer(env_file=env_file)
+        announcer = PortAnnouncer(env_file=env_file, write_env_file=True)
 
         with patch("core.net.port_announcer.log"):
             announcer.announce("127.0.0.1", 8005, 8000)
@@ -76,7 +86,7 @@ class TestPortAnnouncer:
 
         os.chmod(env_file, 0o444)  # Read-only
 
-        announcer = PortAnnouncer(env_file=env_file)
+        announcer = PortAnnouncer(env_file=env_file, write_env_file=True)
 
         with patch("core.net.port_announcer.log") as mock_log:
             # Should not raise, just log warning
@@ -96,7 +106,7 @@ class TestPortAnnouncer:
     def test_announce_updates_prometheus_metric(self, tmp_path: Path) -> None:
         """Should update weaver_server_port Prometheus metric."""
         env_file = tmp_path / ".env.weaver"
-        announcer = PortAnnouncer(env_file=env_file)
+        announcer = PortAnnouncer(env_file=env_file, write_env_file=False)
 
         mock_metrics = MagicMock()
 
@@ -111,5 +121,6 @@ class TestPortAnnouncer:
 
     def test_announce_uses_default_env_file_path(self) -> None:
         """Should use .env.weaver in cwd by default."""
-        announcer = PortAnnouncer()
+        announcer = PortAnnouncer(write_env_file=False)
         assert announcer._env_file.name == ".env.weaver"
+        assert announcer._write_env_file_enabled is False
