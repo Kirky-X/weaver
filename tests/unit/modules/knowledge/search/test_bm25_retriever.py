@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from core.security.signing import SigningKey
 from modules.knowledge.search.retrievers.bm25_retriever import (
     BM25Document,
     BM25Result,
@@ -239,8 +240,11 @@ class TestBM25RetrieverPersistence:
 
     def test_save_and_load(self) -> None:
         """Test saving and loading index."""
+        # Use a fixed signing key for consistent save/load
+        signing_key = SigningKey.generate()
+
         with tempfile.TemporaryDirectory() as tmpdir:
-            retriever = BM25Retriever(index_dir=tmpdir)
+            retriever = BM25Retriever(index_dir=tmpdir, signing_key=signing_key)
 
             documents = [
                 BM25Document(doc_id="1", title="Test A", content="Content A"),
@@ -250,8 +254,8 @@ class TestBM25RetrieverPersistence:
             retriever.index(documents)
             retriever.save()
 
-            # Create new retriever and load
-            retriever2 = BM25Retriever(index_dir=tmpdir)
+            # Create new retriever with same signing key and load
+            retriever2 = BM25Retriever(index_dir=tmpdir, signing_key=signing_key)
             retriever2.load()
 
             assert retriever2.get_document_count() == 2
