@@ -239,6 +239,8 @@ class VectorRepo:
         config = SimilarityQuery(
             threshold=threshold,
             limit=limit,
+            filter_by_category=category is not None,
+            filter_by_model_id=model_id is not None,
         )
 
         async with self._pool.session() as session:
@@ -250,14 +252,14 @@ class VectorRepo:
 
             formatted_emb = self._query_builder.format_embedding_param(embedding)
 
-            result = await session.execute(
-                query,
-                {
-                    "embedding": formatted_emb,
-                    "category": category,
-                    "model_id": model_id,
-                },
-            )
+            # Build params dict with only non-None values
+            params: dict[str, str | list[float]] = {"embedding": formatted_emb}
+            if category is not None:
+                params["category"] = category
+            if model_id is not None:
+                params["model_id"] = model_id
+
+            result = await session.execute(query, params)
 
             return [
                 SimilarArticle(
@@ -371,7 +373,12 @@ class VectorRepo:
         if not queries:
             return {}
 
-        config = SimilarityQuery(threshold=threshold, limit=limit)
+        config = SimilarityQuery(
+            threshold=threshold,
+            limit=limit,
+            filter_by_category=category is not None,
+            filter_by_model_id=model_id is not None,
+        )
         results: dict[uuid.UUID, list[SimilarArticle]] = {}
 
         async with self._pool.session() as session:
@@ -383,14 +390,14 @@ class VectorRepo:
                 query = text(self._query_builder.build_find_similar_articles_query(config))
                 formatted_emb = self._query_builder.format_embedding_param(embedding)
 
-                rows = await session.execute(
-                    query,
-                    {
-                        "embedding": formatted_emb,
-                        "category": category,
-                        "model_id": model_id,
-                    },
-                )
+                # Build params dict with only non-None values
+                params: dict[str, str | list[float]] = {"embedding": formatted_emb}
+                if category is not None:
+                    params["category"] = category
+                if model_id is not None:
+                    params["model_id"] = model_id
+
+                rows = await session.execute(query, params)
 
                 results[query_id] = [
                     SimilarArticle(

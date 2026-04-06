@@ -33,6 +33,8 @@ class SimilarityQuery:
         category_param: Parameter name for category filter.
         model_id_param: Parameter name for model ID filter.
         vector_type: Type of vector ('content' or 'title').
+        filter_by_category: Whether to filter by category.
+        filter_by_model_id: Whether to filter by model_id.
     """
 
     embedding_param: str = ":embedding"
@@ -41,6 +43,8 @@ class SimilarityQuery:
     category_param: str = ":category"
     model_id_param: str = ":model_id"
     vector_type: str = "content"
+    filter_by_category: bool = False
+    filter_by_model_id: bool = False
 
 
 @dataclass(frozen=True)
@@ -194,27 +198,41 @@ class PgVectorQueryBuilder:
         """Build PostgreSQL upsert with ON CONFLICT."""
         return """
             INSERT INTO article_vectors (article_id, vector_type, embedding, model_id)
-            VALUES (:article_id, :vector_type, :embedding::vector, :model_id)
-            ON CONFLICT (article_id, vector_type, model_id)
-            DO UPDATE SET embedding = EXCLUDED.embedding, updated_at = NOW()
+            VALUES (:article_id, :vector_type, CAST(:embedding AS vector), :model_id)
+            ON CONFLICT (article_id, vector_type)
+            DO UPDATE SET embedding = EXCLUDED.embedding, model_id = EXCLUDED.model_id, updated_at = NOW()
         """
 
     def build_upsert_article_vector_batch_query(self, batch_size: int) -> str:
         """Build PostgreSQL batch upsert with ON CONFLICT."""
         values_placeholders = ", ".join(
-            f"(:article_id_{i}, :vector_type_{i}, :embedding_{i}::vector, :model_id_{i})"
+            f"(:article_id_{i}, :vector_type_{i}, CAST(:embedding_{i} AS vector), :model_id_{i})"
             for i in range(batch_size)
         )
         return f"""
             INSERT INTO article_vectors (article_id, vector_type, embedding, model_id)
             VALUES {values_placeholders}
-            ON CONFLICT (article_id, vector_type, model_id)
-            DO UPDATE SET embedding = EXCLUDED.embedding, updated_at = NOW()
+            ON CONFLICT (article_id, vector_type)
+            DO UPDATE SET embedding = EXCLUDED.embedding, model_id = EXCLUDED.model_id, updated_at = NOW()
         """
 
     def build_find_similar_articles_query(self, config: SimilarityQuery) -> str:
         """Build pgvector cosine similarity search."""
         similarity_expr = self.build_similarity_expression("av.embedding")
+
+        # Build WHERE conditions based on filter flags
+        conditions = [f"av.vector_type = '{config.vector_type}'"]
+
+        if config.filter_by_category:
+            conditions.append(f"a.category = {config.category_param}")
+
+        if config.filter_by_model_id:
+            conditions.append(f"av.model_id = {config.model_id_param}")
+
+        conditions.append(f"{similarity_expr} >= {config.threshold}")
+
+        where_clause = " AND ".join(conditions)
+
         return f"""
             SELECT
                 a.id::text AS article_id,
@@ -224,10 +242,7 @@ class PgVectorQueryBuilder:
                 a.created_at
             FROM article_vectors av
             JOIN articles a ON a.id = av.article_id
-            WHERE av.vector_type = '{config.vector_type}'
-              AND ({config.category_param} IS NULL OR a.category = {config.category_param})
-              AND ({config.model_id_param} IS NULL OR av.model_id = {config.model_id_param})
-              AND {similarity_expr} >= {config.threshold}
+            WHERE {where_clause}
             ORDER BY similarity DESC
             LIMIT {config.limit}
         """
@@ -288,6 +303,20 @@ class DuckDBVectorQueryBuilder:
     def build_find_similar_articles_query(self, config: SimilarityQuery) -> str:
         """Build DuckDB cosine similarity search."""
         similarity_expr = self.build_similarity_expression("av.embedding")
+
+        # Build WHERE conditions based on filter flags
+        conditions = [f"av.vector_type = '{config.vector_type}'"]
+
+        if config.filter_by_category:
+            conditions.append(f"a.category = {config.category_param}")
+
+        if config.filter_by_model_id:
+            conditions.append(f"av.model_id = {config.model_id_param}")
+
+        conditions.append(f"{similarity_expr} >= {config.threshold}")
+
+        where_clause = " AND ".join(conditions)
+
         return f"""
             SELECT
                 a.id::VARCHAR AS article_id,
@@ -297,10 +326,7 @@ class DuckDBVectorQueryBuilder:
                 a.created_at
             FROM article_vectors av
             JOIN articles a ON a.id = av.article_id
-            WHERE av.vector_type = '{config.vector_type}'
-              AND ({config.category_param} IS NULL OR a.category = {config.category_param})
-              AND ({config.model_id_param} IS NULL OR av.model_id = {config.model_id_param})
-              AND {similarity_expr} >= {config.threshold}
+            WHERE {where_clause}
             ORDER BY {similarity_expr} DESC
             LIMIT {config.limit}
         """
