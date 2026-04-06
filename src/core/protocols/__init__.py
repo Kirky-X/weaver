@@ -34,6 +34,12 @@ from core.protocols.repositories import (
     VectorRepository,
 )
 
+# Service protocols
+from core.protocols.services import (
+    PipelineService,
+    TaskRegistryService,
+)
+
 # Validation utilities
 from core.protocols.validation import (
     assert_implements,
@@ -48,8 +54,10 @@ __all__ = [
     "GraphPool",
     "GraphWriter",
     "PendingSyncRepository",
+    "PipelineService",
     "RelationalPool",
     "SourceAuthorityRepository",
+    "TaskRegistryService",
     "VectorRepository",
     "assert_implements",
     "get_protocol_methods",
