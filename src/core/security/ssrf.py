@@ -1,10 +1,12 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""URL Security Validator for SSRF Protection.
+"""SSRF (Server-Side Request Forgery) protection checker.
 
-This module provides a comprehensive URL validation system to prevent
-Server-Side Request Forgery (SSRF) attacks by blocking requests to
-internal network resources, cloud metadata endpoints, and other
-sensitive network locations.
+This module provides SSRF protection by blocking requests to:
+- Private IP address ranges (RFC 1918)
+- Link-local addresses
+- Cloud metadata endpoints (AWS, GCP, Azure)
+- Localhost/loopback addresses
+- Non-HTTP/HTTPS protocols
 """
 
 from __future__ import annotations
@@ -16,11 +18,11 @@ from urllib.parse import urlparse
 
 from core.observability.logging import get_logger
 
-log = get_logger("security.url_validator")
+log = get_logger("security.ssrf")
 
 
-class URLValidationError(Exception):
-    """Raised when URL validation fails."""
+class SSRFError(Exception):
+    """Raised when URL fails SSRF validation."""
 
     def __init__(self, message: str, url: str | None = None):
         self.message = message
@@ -29,28 +31,22 @@ class URLValidationError(Exception):
 
 
 @dataclass
-class URLValidator:
+class SSRFChecker:
     """Validates URLs to prevent SSRF attacks.
 
-    This validator blocks requests to:
-    - Private IP address ranges (RFC 1918)
-    - Link-local addresses
-    - Cloud metadata endpoints (AWS, GCP, Azure)
-    - Localhost/loopback addresses
-    - Non-HTTP/HTTPS protocols
+    This checker blocks requests to internal network resources
+    and cloud metadata endpoints.
 
     Example:
-        validator = URLValidator()
+        checker = SSRFChecker()
         try:
-            safe_url = await validator.validate("https://example.com/path")
-        except URLValidationError as e:
+            await checker.validate("https://example.com/path")
+        except SSRFError as e:
             log.warning("url_blocked", url=e.url, reason=e.message)
     """
 
-    # Allowed URL schemes
     ALLOWED_SCHEMES: set[str] = field(default_factory=lambda: {"http", "https"})
 
-    # Blocked IP ranges (CIDR notation)
     BLOCKED_IP_RANGES: list[str] = field(
         default_factory=lambda: [
             "10.0.0.0/8",  # Private network (Class A)
@@ -69,7 +65,6 @@ class URLValidator:
         ]
     )
 
-    # Cloud metadata hostnames that should always be blocked
     BLOCKED_METADATA_HOSTS: set[str] = field(
         default_factory=lambda: {
             "metadata.google.internal",  # GCP metadata
@@ -79,7 +74,6 @@ class URLValidator:
         }
     )
 
-    # Cached IP network objects for faster lookups
     _blocked_networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = field(
         default_factory=list, init=False, repr=False
     )
@@ -97,24 +91,17 @@ class URLValidator:
             url: The URL to validate.
 
         Returns:
-            The validated URL (sanitized).
+            The validated URL (unchanged).
 
         Raises:
-            URLValidationError: If the URL is potentially dangerous.
+            SSRFError: If the URL is potentially dangerous.
         """
-        # 1. Basic URL parsing
         parsed = self._parse_url(url)
-
-        # 2. Check scheme
         self._validate_scheme(parsed.scheme, url)
-
-        # 3. Check for blocked metadata hosts
         self._validate_metadata_host(parsed.hostname or "", url)
-
-        # 4. Resolve and validate IP address
         await self._validate_ip_address(parsed.hostname or "", url)
 
-        log.debug("url_validated", url=url)
+        log.debug("ssrf_check_passed", url=url)
         return url
 
     def _parse_url(self, url: str) -> urlparse:
@@ -127,26 +114,25 @@ class URLValidator:
             Parsed URL object.
 
         Raises:
-            URLValidationError: If URL is malformed.
+            SSRFError: If URL is malformed.
         """
         try:
             parsed = urlparse(url)
         except Exception as e:
-            raise URLValidationError(f"Malformed URL: {e}", url) from e
+            raise SSRFError(f"Malformed URL: {e}", url) from e
 
-        # Check scheme first (before hostname check)
         scheme_lower = parsed.scheme.lower()
         if scheme_lower and scheme_lower not in self.ALLOWED_SCHEMES:
-            raise URLValidationError(
+            raise SSRFError(
                 f"URL scheme '{parsed.scheme}' is not allowed. Only HTTP and HTTPS are permitted.",
                 url,
             )
 
         if not parsed.scheme:
-            raise URLValidationError("URL must include a scheme (http:// or https://)", url)
+            raise SSRFError("URL must include a scheme (http:// or https://)", url)
 
         if not parsed.hostname:
-            raise URLValidationError("URL must include a hostname", url)
+            raise SSRFError("URL must include a hostname", url)
 
         return parsed
 
@@ -158,12 +144,12 @@ class URLValidator:
             url: Original URL for error message.
 
         Raises:
-            URLValidationError: If scheme is not allowed.
+            SSRFError: If scheme is not allowed.
         """
-        scheme_lower = scheme.lower()
-        if scheme_lower not in self.ALLOWED_SCHEMES:
-            raise URLValidationError(
-                f"URL scheme '{scheme}' is not allowed. Only HTTP and HTTPS are permitted.", url
+        if scheme.lower() not in self.ALLOWED_SCHEMES:
+            raise SSRFError(
+                f"URL scheme '{scheme}' is not allowed. Only HTTP and HTTPS are permitted.",
+                url,
             )
 
     def _validate_metadata_host(self, hostname: str, url: str) -> None:
@@ -174,12 +160,12 @@ class URLValidator:
             url: Original URL for error message.
 
         Raises:
-            URLValidationError: If hostname is a metadata endpoint.
+            SSRFError: If hostname is a metadata endpoint.
         """
-        hostname_lower = hostname.lower()
-        if hostname_lower in self.BLOCKED_METADATA_HOSTS:
-            raise URLValidationError(
-                f"Access to cloud metadata endpoint '{hostname}' is blocked", url
+        if hostname.lower() in self.BLOCKED_METADATA_HOSTS:
+            raise SSRFError(
+                f"Access to cloud metadata endpoint '{hostname}' is blocked",
+                url,
             )
 
     async def _validate_ip_address(self, hostname: str, url: str) -> None:
@@ -190,65 +176,39 @@ class URLValidator:
             url: Original URL for error message.
 
         Raises:
-            URLValidationError: If IP address is in blocked range.
+            SSRFError: If IP address is in blocked range.
         """
-        # Try to parse as IP address directly (before any DNS resolution)
+        # Try to parse as IP address directly
         try:
             ip = ipaddress.ip_address(hostname)
-            # This will raise URLValidationError if blocked
             self._check_blocked_ip(ip, url)
             return
         except ValueError:
             pass  # Not an IP address, continue with DNS resolution
-        except URLValidationError:
-            raise  # Re-raise blocked IP errors
+        except SSRFError:
+            raise
 
         # Perform DNS resolution for hostnames
         try:
-            loop = None
-            try:
-                import asyncio
+            import asyncio
 
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                pass
+            loop = asyncio.get_event_loop()
+            addr_infos = await loop.getaddrinfo(hostname, None)
 
-            resolved_ips = []
-            if loop:
-                # Async DNS resolution
-                addr_infos = await loop.getaddrinfo(hostname, None)
-                for family, _, _, _, sockaddr in addr_infos:
-                    ip_str = sockaddr[0]
-                    resolved_ips.append(ip_str)
-            else:
-                # Fallback to sync resolution
-                addr_infos = socket.getaddrinfo(hostname, None)
-                for family, _, _, _, sockaddr in addr_infos:
-                    ip_str = sockaddr[0]
-                    resolved_ips.append(ip_str)
-
-            # Check all resolved IPs
-            for ip_str in resolved_ips:
+            for family, _, _, _, sockaddr in addr_infos:
+                ip_str = sockaddr[0]
                 try:
                     ip = ipaddress.ip_address(ip_str)
                     self._check_blocked_ip(ip, url)
                 except ValueError:
-                    continue  # Skip invalid IPs
+                    continue
 
         except socket.gaierror as e:
-            # DNS resolution failed - in development, allow it to pass
-            # In production, this should be stricter
             log.debug("dns_resolution_skipped", hostname=hostname, error=str(e))
-        except URLValidationError:
-            raise  # Re-raise blocked IP errors
+        except SSRFError:
+            raise
         except Exception as e:
             log.warning("dns_resolution_error", hostname=hostname, error=str(e))
-            # For security, block on resolution errors in production
-            environment = getattr(self, "_environment", "development")
-            if environment == "production":
-                raise URLValidationError(
-                    f"Could not resolve hostname '{hostname}' - blocked for security", url
-                ) from e
 
     def _check_blocked_ip(
         self, ip: ipaddress.IPv4Address | ipaddress.IPv6Address, url: str
@@ -260,12 +220,13 @@ class URLValidator:
             url: Original URL for error message.
 
         Raises:
-            URLValidationError: If IP is in blocked range.
+            SSRFError: If IP is in blocked range.
         """
         for network in self._blocked_networks:
             if ip in network:
-                raise URLValidationError(
-                    f"Access to private/internal IP address {ip} is blocked", url
+                raise SSRFError(
+                    f"Access to private/internal IP address {ip} is blocked",
+                    url,
                 )
 
     def is_safe_url(self, url: str) -> bool:
@@ -297,22 +258,5 @@ class URLValidator:
                 pass  # Not an IP address
 
             return True
-        except URLValidationError:
+        except SSRFError:
             return False
-
-
-# Convenience function for quick validation
-async def validate_url(url: str) -> str:
-    """Validate a URL for SSRF safety.
-
-    Args:
-        url: The URL to validate.
-
-    Returns:
-        The validated URL.
-
-    Raises:
-        URLValidationError: If the URL is potentially dangerous.
-    """
-    validator = URLValidator()
-    return await validator.validate(url)
