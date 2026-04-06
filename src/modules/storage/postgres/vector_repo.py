@@ -1,15 +1,22 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Vector repository for pgvector operations."""
+"""Unified vector repository using QueryBuilder pattern.
+
+This repository provides database-agnostic vector similarity operations
+through the QueryBuilder abstraction, supporting both PostgreSQL (pgvector)
+and DuckDB backends.
+"""
 
 from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import select, text
 
 from core.db.models import EntityVector, VectorType
+from core.db.query_builders import VectorQueryBuilder
 from core.observability.logging import get_logger
 from core.protocols import RelationalPool
 
@@ -37,20 +44,27 @@ class SimilarEntity:
 
 
 class VectorRepo:
-    """Repository for pgvector embedding operations.
+    """Unified repository for vector embedding operations.
 
-    Handles HNSW-indexed similarity searches for both
-    article and entity vectors.
+    Uses QueryBuilder pattern to provide database-agnostic vector
+    similarity searches and embedding storage. Supports both PostgreSQL
+    (pgvector) and DuckDB backends through dependency injection.
 
     Implements:
         - VectorRepository: Vector similarity search and embedding storage
 
     Args:
         pool: Relational database connection pool (PostgreSQL or DuckDB).
+        query_builder: Database-specific query builder for vector operations.
     """
 
-    def __init__(self, pool: RelationalPool) -> None:
+    def __init__(
+        self,
+        pool: RelationalPool,
+        query_builder: VectorQueryBuilder,
+    ) -> None:
         self._pool = pool
+        self._query_builder = query_builder
 
     async def upsert_article_vectors(
         self,
@@ -70,7 +84,9 @@ class VectorRepo:
                       rather than using the default value.
         """
         async with self._pool.session() as session:
-            await session.execute(text("SET hnsw.ef_search = 200;"))
+            # Initialize session with database-specific settings
+            for stmt in self._query_builder.get_session_init_statements():
+                await session.execute(text(stmt))
 
             for vec_type, embedding in [
                 (VectorType.TITLE.value, title_embedding),
@@ -79,42 +95,19 @@ class VectorRepo:
                 if embedding is None:
                     continue
 
-                existing_id = await session.execute(
-                    text("""
-                        SELECT id FROM article_vectors
-                        WHERE article_id = :article_id AND vector_type = :vector_type
-                        """),
-                    {"article_id": article_id, "vector_type": vec_type},
-                )
-                existing = existing_id.scalar_one_or_none()
+                formatted_emb = self._query_builder.format_embedding_param(embedding)
 
-                if existing:
-                    await session.execute(
-                        text("""
-                            UPDATE article_vectors
-                            SET embedding = :embedding, model_id = :model_id, updated_at = NOW()
-                            WHERE article_id = :article_id AND vector_type = :vector_type
-                            """),
-                        {
-                            "article_id": article_id,
-                            "vector_type": vec_type,
-                            "embedding": f"[{','.join(map(str, embedding))}]",
-                            "model_id": model_id,
-                        },
-                    )
-                else:
-                    await session.execute(
-                        text("""
-                            INSERT INTO article_vectors (article_id, vector_type, embedding, model_id)
-                            VALUES (:article_id, :vector_type, :embedding, :model_id)
-                            """),
-                        {
-                            "article_id": article_id,
-                            "vector_type": vec_type,
-                            "embedding": f"[{','.join(map(str, embedding))}]",
-                            "model_id": model_id,
-                        },
-                    )
+                # Use QueryBuilder's upsert query
+                query = text(self._query_builder.build_upsert_article_vector_query())
+                await session.execute(
+                    query,
+                    {
+                        "article_id": str(article_id),
+                        "vector_type": vec_type,
+                        "embedding": formatted_emb,
+                        "model_id": model_id,
+                    },
+                )
 
             await session.commit()
 
@@ -123,9 +116,10 @@ class VectorRepo:
         articles: list[tuple[uuid.UUID, list[float] | None, list[float] | None, str]],
         batch_size: int = 100,
     ) -> int:
-        """Bulk upsert article vectors using INSERT ON CONFLICT.
+        """Bulk upsert article vectors using database-specific batch strategy.
 
-        Uses PostgreSQL's ON CONFLICT for efficient batch upsert without N+1 queries.
+        For PostgreSQL: Uses ON CONFLICT for efficient batch upsert.
+        For DuckDB: Uses individual INSERT OR REPLACE statements.
 
         Args:
             articles: List of (article_id, title_embedding, content_embedding, model_id) tuples.
@@ -138,7 +132,7 @@ class VectorRepo:
             return 0
 
         # Flatten all vectors into a single list for batch insert
-        all_vectors: list[dict] = []
+        all_vectors: list[dict[str, Any]] = []
         for article_id, title_emb, content_emb, model_id in articles:
             if title_emb is not None:
                 all_vectors.append(
@@ -164,41 +158,57 @@ class VectorRepo:
 
         total_count = 0
         async with self._pool.session() as session:
-            await session.execute(text("SET hnsw.ef_search = 200;"))
+            # Initialize session with database-specific settings
+            for stmt in self._query_builder.get_session_init_statements():
+                await session.execute(text(stmt))
 
-            # Process in batches to avoid large single queries
-            for i in range(0, len(all_vectors), batch_size):
-                batch = all_vectors[i : i + batch_size]
+            # Try batch insert first (works for PostgreSQL)
+            try:
+                # Process in batches to avoid large single queries
+                for i in range(0, len(all_vectors), batch_size):
+                    batch = all_vectors[i : i + batch_size]
 
-                # Build VALUES clause with parameters
-                values_clause = ", ".join(
-                    [
-                        f"(:article_id_{j}, :vector_type_{j}, :embedding_{j}, :model_id_{j})"
-                        for j in range(len(batch))
-                    ]
-                )
+                    # Build VALUES clause with parameters
+                    values_clause = ", ".join(
+                        [
+                            f"(:article_id_{j}, :vector_type_{j}, :embedding_{j}, :model_id_{j})"
+                            for j in range(len(batch))
+                        ]
+                    )
 
-                params = {}
-                for j, vec in enumerate(batch):
-                    params[f"article_id_{j}"] = vec["article_id"]
-                    params[f"vector_type_{j}"] = vec["vector_type"]
-                    params[f"embedding_{j}"] = f"[{','.join(map(str, vec['embedding']))}]"
-                    params[f"model_id_{j}"] = vec["model_id"]
+                    params = {}
+                    for j, vec in enumerate(batch):
+                        params[f"article_id_{j}"] = vec["article_id"]
+                        params[f"vector_type_{j}"] = vec["vector_type"]
+                        params[f"embedding_{j}"] = self._query_builder.format_embedding_param(
+                            vec["embedding"]
+                        )
+                        params[f"model_id_{j}"] = vec["model_id"]
 
-                # S608 false positive: values_clause contains only parameter placeholders
-                # All actual values are passed via params dict to SQLAlchemy's execute()
-                query = text(f"""
-                    INSERT INTO article_vectors (article_id, vector_type, embedding, model_id)
-                    VALUES {values_clause}
-                    ON CONFLICT (article_id, vector_type)
-                    DO UPDATE SET
-                        embedding = EXCLUDED.embedding,
-                        model_id = EXCLUDED.model_id,
-                        updated_at = NOW()
-                """)  # noqa: S608
+                    # Build batch query using QueryBuilder
+                    query = text(
+                        self._query_builder.build_upsert_article_vector_batch_query(len(batch))
+                    )
 
-                result = await session.execute(query, params)
-                total_count += result.rowcount
+                    result = await session.execute(query, params)
+                    total_count += getattr(result, "rowcount", 0)
+
+            except NotImplementedError:
+                # DuckDB doesn't support batch upsert, use individual inserts
+                for vec in all_vectors:
+                    query = text(self._query_builder.build_upsert_article_vector_query())
+                    await session.execute(
+                        query,
+                        {
+                            "article_id": vec["article_id"],
+                            "vector_type": vec["vector_type"],
+                            "embedding": self._query_builder.format_embedding_param(
+                                vec["embedding"]
+                            ),
+                            "model_id": vec["model_id"],
+                        },
+                    )
+                    total_count += 1
 
             await session.commit()
 
@@ -212,7 +222,7 @@ class VectorRepo:
         limit: int = 20,
         model_id: str | None = None,
     ) -> list[SimilarArticle]:
-        """Find similar articles using pgvector cosine similarity.
+        """Find similar articles using vector similarity.
 
         Args:
             embedding: Query embedding vector.
@@ -224,37 +234,28 @@ class VectorRepo:
         Returns:
             List of SimilarArticle results with timestamps for temporal decay.
         """
+        from core.db.query_builders import SimilarityQuery
+
+        config = SimilarityQuery(
+            threshold=threshold,
+            limit=limit,
+        )
+
         async with self._pool.session() as session:
-            await session.execute(text("SET hnsw.ef_search = 200;"))
+            # Initialize session with database-specific settings
+            for stmt in self._query_builder.get_session_init_statements():
+                await session.execute(text(stmt))
 
-            vector_str = "[" + ",".join(str(x) for x in embedding) + "]"
+            query = text(self._query_builder.build_find_similar_articles_query(config))
 
-            query = text("""
-                SELECT
-                    a.id::text as article_id,
-                    a.category,
-                    1 - (av.embedding <=> cast(:embedding as vector)) as similarity,
-                    a.publish_time,
-                    a.created_at
-                FROM article_vectors av
-                JOIN articles a ON a.id = av.article_id
-                WHERE av.vector_type = 'content'
-                  AND a.is_merged = FALSE
-                  AND 1 - (av.embedding <=> cast(:embedding as vector)) > :threshold
-                  AND (cast(:category as category_type) IS NULL OR a.category = cast(:category as category_type))
-                  AND (cast(:model_id as text) IS NULL OR av.model_id = cast(:model_id as text))
-                ORDER BY similarity DESC
-                LIMIT :limit
-            """)
+            formatted_emb = self._query_builder.format_embedding_param(embedding)
 
             result = await session.execute(
                 query,
                 {
-                    "embedding": vector_str,
-                    "threshold": threshold,
+                    "embedding": formatted_emb,
                     "category": category,
                     "model_id": model_id,
-                    "limit": limit,
                 },
             )
 
@@ -305,13 +306,16 @@ class VectorRepo:
         # Fetch article bodies for keyword overlap scoring
         article_ids = [r.article_id for r in vector_results]
         async with self._pool.session() as session:
-            query = text("""
+            array_expr = self._query_builder.build_array_contains_expression(
+                "a.id::text", ":article_ids"
+            )
+            query = text(f"""
                 SELECT a.id::text AS article_id,
                        COALESCE(a.title, '') AS title,
                        COALESCE(a.body, '') AS body
                 FROM articles a
-                WHERE a.id::text = ANY(:article_ids)
-            """)
+                WHERE {array_expr}
+            """)  # noqa: S608
             result = await session.execute(query, {"article_ids": article_ids})
 
         article_texts = {row.article_id: f"{row.title} {row.body}".lower() for row in result}
@@ -362,41 +366,29 @@ class VectorRepo:
         Returns:
             Dict mapping query_id to list of similar articles.
         """
+        from core.db.query_builders import SimilarityQuery
+
         if not queries:
             return {}
 
+        config = SimilarityQuery(threshold=threshold, limit=limit)
         results: dict[uuid.UUID, list[SimilarArticle]] = {}
 
         async with self._pool.session() as session:
-            await session.execute(text("SET hnsw.ef_search = 200;"))
+            # Initialize session with database-specific settings
+            for stmt in self._query_builder.get_session_init_statements():
+                await session.execute(text(stmt))
 
             for query_id, embedding in queries:
-                vector_str = "[" + ",".join(str(x) for x in embedding) + "]"
-
-                query = text("""
-                    SELECT
-                        a.id::text as article_id,
-                        a.category,
-                        1 - (av.embedding <=> cast(:embedding as vector)) as similarity
-                    FROM article_vectors av
-                    JOIN articles a ON a.id = av.article_id
-                    WHERE av.vector_type = 'content'
-                      AND a.is_merged = FALSE
-                      AND 1 - (av.embedding <=> cast(:embedding as vector)) > :threshold
-                      AND (cast(:category as category_type) IS NULL OR a.category = cast(:category as category_type))
-                      AND (cast(:model_id as text) IS NULL OR av.model_id = cast(:model_id as text))
-                    ORDER BY similarity DESC
-                    LIMIT :limit
-                """)
+                query = text(self._query_builder.build_find_similar_articles_query(config))
+                formatted_emb = self._query_builder.format_embedding_param(embedding)
 
                 rows = await session.execute(
                     query,
                     {
-                        "embedding": vector_str,
-                        "threshold": threshold,
+                        "embedding": formatted_emb,
                         "category": category,
                         "model_id": model_id,
-                        "limit": limit,
                     },
                 )
 
@@ -453,7 +445,7 @@ class VectorRepo:
         threshold: float = 0.85,
         limit: int = 5,
     ) -> list[SimilarEntity]:
-        """Find similar entities using pgvector cosine similarity.
+        """Find similar entities using vector similarity.
 
         Args:
             embedding: Query embedding vector.
@@ -463,28 +455,21 @@ class VectorRepo:
         Returns:
             List of SimilarEntity results.
         """
+        from core.db.query_builders import EntitySimilarityQuery
+
+        config = EntitySimilarityQuery(threshold=threshold, limit=limit)
+
         async with self._pool.session() as session:
-            await session.execute(text("SET hnsw.ef_search = 200;"))
+            # Initialize session with database-specific settings
+            for stmt in self._query_builder.get_session_init_statements():
+                await session.execute(text(stmt))
 
-            vector_str = f"[{','.join(map(str, embedding))}]"
-
-            query = text("""
-                SELECT
-                    neo4j_id,
-                    1 - (embedding <=> cast(:embedding as vector)) as similarity
-                FROM entity_vectors
-                WHERE 1 - (embedding <=> cast(:embedding as vector)) > :threshold
-                ORDER BY similarity DESC
-                LIMIT :limit
-            """)
+            query = text(self._query_builder.build_find_similar_entities_query(config))
+            formatted_emb = self._query_builder.format_embedding_param(embedding)
 
             result = await session.execute(
                 query,
-                {
-                    "embedding": vector_str,
-                    "threshold": threshold,
-                    "limit": limit,
-                },
+                {"embedding": formatted_emb},
             )
 
             return [
@@ -511,13 +496,11 @@ class VectorRepo:
             return 0
 
         async with self._pool.session() as session:
-            query = text("""
-                DELETE FROM article_vectors
-                WHERE article_id = ANY(:ids)
-            """)
+            array_expr = self._query_builder.build_array_contains_expression("article_id", ":ids")
+            query = text(f"DELETE FROM article_vectors WHERE {array_expr}")  # noqa: S608
             result = await session.execute(query, {"ids": [str(aid) for aid in article_ids]})
             await session.commit()
-            return result.rowcount
+            return getattr(result, "rowcount", 0)
 
     async def delete_entity_vectors_by_neo4j_ids(self, neo4j_ids: list[str]) -> int:
         """Delete entity vectors by Neo4j IDs.
@@ -534,13 +517,11 @@ class VectorRepo:
             return 0
 
         async with self._pool.session() as session:
-            query = text("""
-                DELETE FROM entity_vectors
-                WHERE neo4j_id = ANY(:ids)
-            """)
+            array_expr = self._query_builder.build_array_contains_expression("neo4j_id", ":ids")
+            query = text(f"DELETE FROM entity_vectors WHERE {array_expr}")  # noqa: S608
             result = await session.execute(query, {"ids": neo4j_ids})
             await session.commit()
-            return result.rowcount
+            return getattr(result, "rowcount", 0)
 
     async def update_entity_vectors_by_temp_keys(self, temp_key_to_neo4j: dict[str, str]) -> int:
         """Update entity vectors by replacing temp keys with real Neo4j IDs.
@@ -569,7 +550,7 @@ class VectorRepo:
                     query,
                     {"temp_key": temp_key, "neo4j_id": neo4j_id},
                 )
-                updated += result.rowcount
+                updated += getattr(result, "rowcount", 0)
             await session.commit()
             return updated
 
