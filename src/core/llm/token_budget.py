@@ -32,6 +32,15 @@ class TokenBudgetManager:
     """
 
     def __init__(self, model: str = "gpt-4o") -> None:
+        """Initialize token budget manager.
+
+        Args:
+            model: Model name for tiktoken encoding. Defaults to "gpt-4o" because
+                it uses the cl100k_base encoding which is the standard for modern
+                OpenAI models (GPT-4, GPT-4o, GPT-3.5-turbo). This encoding provides
+                accurate token counting for Chinese text and is widely supported.
+                Unknown models gracefully fall back to cl100k_base encoding.
+        """
         try:
             self._enc = tiktoken.encoding_for_model(model)
         except KeyError:

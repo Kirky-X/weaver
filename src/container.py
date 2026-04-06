@@ -643,12 +643,16 @@ class Container:
     def entity_resolver(self) -> EntityResolver:
         """Get entity resolver."""
         if self._entity_resolver is None:
+            disable_data_metrics = (
+                self._settings.entity.disable_data_metrics_nodes if self._settings else False
+            )
             self._entity_resolver = EntityResolver(
                 entity_repo=self.graph_entity_repo(),
                 vector_repo=self.vector_repo(),
                 llm=self._llm_client,
                 resolution_rules=resolution_rules,
                 name_normalizer=name_normalizer,
+                disable_data_metrics=disable_data_metrics,
             )
         return self._entity_resolver
 
