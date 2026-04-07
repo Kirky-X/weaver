@@ -26,7 +26,7 @@ class APIResponse(BaseModel, Generic[T]):
     message: str = Field(default="success", description="Response message")
     data: T | None = Field(default=None, description="Response payload")
     timestamp: datetime = Field(
-        default_factory=lambda: datetime.now(),
+        default_factory=datetime.now,
         description="Response timestamp",
     )
 

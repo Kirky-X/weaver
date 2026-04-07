@@ -59,11 +59,13 @@ class CommunityReportGenerator:
         pool: Neo4jPool,
         llm_client: LLMClient,
         max_concurrent: int = 5,
+        embedding_model: str = "embedding.aiping_embedding.Qwen3-Embedding-0.6B",
     ) -> None:
         self._pool = pool
         self._repo = Neo4jCommunityRepo(pool)
         self._llm = llm_client
         self._max_concurrent = max_concurrent
+        self._embedding_model = embedding_model
 
     async def generate_report(self, community_id: str) -> ReportGenerationResult:
         """Generate a report for a single community.
@@ -413,9 +415,7 @@ class CommunityReportGenerator:
             True if successful.
         """
         try:
-            embeddings = await self._llm.embed(
-                "embedding.aiping_embedding.Qwen3-Embedding-0.6B", [content]
-            )
+            embeddings = await self._llm.embed(self._embedding_model, [content])
             if embeddings:
                 await self._repo.update_report_embedding(report_id, embeddings[0])
                 log.debug("report_embedding_stored", report_id=report_id)

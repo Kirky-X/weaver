@@ -26,14 +26,15 @@ def scheduled_task(job_id: str, timeout_seconds: int = 600):
         @functools.wraps(func)
         async def wrapper(*args, **kwargs):
             start = time.monotonic()
-            log.info(f"{job_id}_start")
+            log.info("scheduler_task_start", job_id=job_id)
             metrics.scheduler_job_total.labels(job=job_id, status="started").inc()
 
             try:
                 result = await asyncio.wait_for(func(*args, **kwargs), timeout=timeout_seconds)
                 duration = time.monotonic() - start
                 log.info(
-                    f"{job_id}_complete",
+                    "scheduler_task_complete",
+                    job_id=job_id,
                     duration_seconds=round(duration, 2),
                 )
                 metrics.scheduler_job_duration.labels(job=job_id, status="success").observe(
@@ -45,7 +46,8 @@ def scheduled_task(job_id: str, timeout_seconds: int = 600):
             except TimeoutError:
                 duration = time.monotonic() - start
                 log.error(
-                    f"{job_id}_timeout",
+                    "scheduler_task_timeout",
+                    job_id=job_id,
                     timeout_seconds=timeout_seconds,
                     duration_seconds=round(duration, 2),
                 )
@@ -58,7 +60,8 @@ def scheduled_task(job_id: str, timeout_seconds: int = 600):
             except Exception as exc:
                 duration = time.monotonic() - start
                 log.error(
-                    f"{job_id}_error",
+                    "scheduler_task_error",
+                    job_id=job_id,
                     error=str(exc),
                     duration_seconds=round(duration, 2),
                 )

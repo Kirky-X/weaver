@@ -15,7 +15,7 @@ Components:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
 from core.observability.logging import get_logger
@@ -47,6 +47,13 @@ _QUERY_INTENT_TO_MEMORY_INTENT: dict[str, IntentType] = {
 }
 
 
+@dataclass
+class _ClassificationResult:
+    """Classification result with memory IntentType."""
+
+    intent: IntentType = field(default=IntentType.OPEN)
+
+
 class IntentClassifierAdapter:
     """Adapter to convert QueryIntent to IntentType.
 
@@ -62,7 +69,7 @@ class IntentClassifierAdapter:
         """
         self._classifier = classifier
 
-    async def classify(self, query: str) -> Any:
+    async def classify(self, query: str) -> _ClassificationResult:
         """Classify query and convert to memory IntentType.
 
         Args:
@@ -77,11 +84,7 @@ class IntentClassifierAdapter:
         intent_str = result.intent.value if hasattr(result.intent, "value") else str(result.intent)
         memory_intent = _QUERY_INTENT_TO_MEMORY_INTENT.get(intent_str.lower(), IntentType.OPEN)
 
-        # Create a simple object with the intent attribute
-        class ClassificationResult:
-            intent = memory_intent
-
-        return ClassificationResult()
+        return _ClassificationResult(intent=memory_intent)
 
 
 @dataclass

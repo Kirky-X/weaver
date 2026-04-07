@@ -129,14 +129,15 @@ async def health_check() -> HealthCheckResponse:
         HealthCheckResponse with overall status and individual check results.
 
     """
-    from api.endpoints import _deps as deps
+    from api.endpoints._deps import Endpoints
 
     checks: dict[str, ServiceHealthCheck] = {}
     all_healthy = True
 
     # Check PostgreSQL
-    if deps.Endpoints._postgres:
-        pg_result = await check_postgres_health(deps.Endpoints._postgres)
+    pg_pool = Endpoints.get_postgres_pool_optional()
+    if pg_pool is not None:
+        pg_result = await check_postgres_health(pg_pool)
         checks["postgres"] = ServiceHealthCheck(**pg_result)
         if pg_result["status"] != "ok":
             all_healthy = False
@@ -148,8 +149,9 @@ async def health_check() -> HealthCheckResponse:
         all_healthy = False
 
     # Check Neo4j
-    if deps.Endpoints._neo4j:
-        neo4j_result = await check_neo4j_health(deps.Endpoints._neo4j)
+    neo4j_pool = Endpoints.get_neo4j_pool_optional()
+    if neo4j_pool is not None:
+        neo4j_result = await check_neo4j_health(neo4j_pool)
         checks["neo4j"] = ServiceHealthCheck(**neo4j_result)
         if neo4j_result["status"] != "ok":
             all_healthy = False
@@ -159,8 +161,9 @@ async def health_check() -> HealthCheckResponse:
         all_healthy = False
 
     # Check Redis
-    if deps.Endpoints._redis:
-        redis_result = await check_redis_health(deps.Endpoints._redis)
+    redis_client = Endpoints.get_redis_optional()
+    if redis_client is not None:
+        redis_result = await check_redis_health(redis_client)
         checks["redis"] = ServiceHealthCheck(**redis_result)
         if redis_result["status"] != "ok":
             all_healthy = False

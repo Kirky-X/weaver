@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
-from api.dependencies import get_neo4j_pool
+from api.dependencies import get_neo4j_pool, get_postgres_pool
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from core.db.models import RelationType, RelationTypeAlias
@@ -109,17 +109,6 @@ class RelationTypeInfo(BaseModel):
     is_symmetric: bool
     description: str | None = None
     alias_count: int
-
-
-# ── Dependency for PostgreSQL Pool ──────────────────────────────
-
-_pg_pool: PostgresPool | None = None
-
-
-def set_postgres_pool(pool: PostgresPool) -> None:
-    """Set the global PostgreSQL pool instance."""
-    global _pg_pool
-    _pg_pool = pool
 
 
 # ── Endpoints ───────────────────────────────────────────────────
@@ -479,26 +468,19 @@ async def search_relations(
 @router.get("/relation-types", response_model=APIResponse[list[RelationTypeInfo]])
 async def list_relation_types(
     _: str = Depends(verify_api_key),
+    pg_pool: PostgresPool = Depends(get_postgres_pool),
 ) -> APIResponse[list[RelationTypeInfo]]:
     """List all active relation types with statistics.
 
     Args:
         _: Verified API key.
+        pg_pool: PostgreSQL pool from dependency.
 
     Returns:
         List of relation types ordered by sort_order, wrapped in APIResponse.
 
-    Raises:
-        HTTPException: 503 if PostgreSQL pool not initialized.
-
     """
-    if _pg_pool is None:
-        raise HTTPException(
-            status_code=503,
-            detail="PostgreSQL pool not initialized",
-        )
-
-    async with _pg_pool.session_context() as session:
+    async with pg_pool.session_context() as session:
         stmt = (
             select(
                 RelationType.name,

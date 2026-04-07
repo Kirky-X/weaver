@@ -65,8 +65,17 @@ class SourceAuthorityRepo:
         authority: float,
         tier: int | None = None,
         needs_review: bool = False,
+        description: str | None = None,
     ) -> None:
-        """Update authority score for a host."""
+        """Update authority score for a host.
+
+        Args:
+            host: Source hostname.
+            authority: Authority score (0.0-1.0).
+            tier: Optional tier level (1-5).
+            needs_review: Whether needs manual review.
+            description: Optional description.
+        """
         values: dict = {
             "authority": authority,
             "needs_review": needs_review,
@@ -74,6 +83,8 @@ class SourceAuthorityRepo:
         }
         if tier is not None:
             values["tier"] = tier
+        if description is not None:
+            values["description"] = description
 
         async with self._pool.session() as session:
             await session.execute(
