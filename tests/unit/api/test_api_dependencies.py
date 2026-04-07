@@ -381,6 +381,8 @@ class TestDependencyErrorHandling:
         Endpoints._scheduler = None
         Endpoints._source_config_repo = None
         Endpoints._source_authority_repo = None
+        Endpoints._pipeline_service = None
+        Endpoints._task_registry = None
 
         # All getters should raise HTTPException with 503
         getters = [
@@ -394,6 +396,8 @@ class TestDependencyErrorHandling:
             Endpoints.get_scheduler,
             Endpoints.get_source_config_repo,
             Endpoints.get_source_authority_repo,
+            Endpoints.get_pipeline_service,
+            Endpoints.get_task_registry,
         ]
 
         for getter in getters:
@@ -406,3 +410,81 @@ class TestDependencyErrorHandling:
             with pytest.raises(HTTPException) as exc_info:
                 Endpoints.get_postgres_pool()
             assert exc_info.value.status_code == 503
+
+
+class TestPipelineServiceDependency:
+    """Tests for pipeline_service dependency."""
+
+    def test_get_pipeline_service_returns_when_set(self):
+        """Test get_pipeline_service returns service when set."""
+        from api.endpoints._deps import Endpoints
+
+        mock_service = MagicMock()
+        Endpoints._pipeline_service = mock_service
+        result = Endpoints.get_pipeline_service()
+        assert result == mock_service
+        # Cleanup
+        Endpoints._pipeline_service = None
+
+    def test_get_pipeline_service_raises_when_not_set(self):
+        """Test get_pipeline_service raises HTTPException when not set."""
+        from api.endpoints._deps import Endpoints
+
+        Endpoints._pipeline_service = None
+        with pytest.raises(HTTPException) as exc_info:
+            Endpoints.get_pipeline_service()
+        assert exc_info.value.status_code == 503
+        assert "Pipeline service" in exc_info.value.detail
+
+    def test_get_pipeline_service_delegates_to_endpoints(self):
+        """Test get_pipeline_service dependency delegates to Endpoints."""
+        from api.dependencies import get_pipeline_service
+
+        mock_service = MagicMock()
+        with patch("api.dependencies.Endpoints.get_pipeline_service", return_value=mock_service):
+            result = get_pipeline_service()
+            assert result == mock_service
+
+
+class TestTaskRegistryDependency:
+    """Tests for task_registry dependency."""
+
+    def test_get_task_registry_returns_when_set(self):
+        """Test get_task_registry returns registry when set."""
+        from api.endpoints._deps import Endpoints
+
+        mock_registry = MagicMock()
+        Endpoints._task_registry = mock_registry
+        result = Endpoints.get_task_registry()
+        assert result == mock_registry
+        # Cleanup
+        Endpoints._task_registry = None
+
+    def test_get_task_registry_raises_when_not_set(self):
+        """Test get_task_registry raises HTTPException when not set."""
+        from api.endpoints._deps import Endpoints
+
+        Endpoints._task_registry = None
+        with pytest.raises(HTTPException) as exc_info:
+            Endpoints.get_task_registry()
+        assert exc_info.value.status_code == 503
+        assert "Task registry" in exc_info.value.detail
+
+    def test_get_task_registry_delegates_to_endpoints(self):
+        """Test get_task_registry dependency delegates to Endpoints."""
+        from api.dependencies import get_task_registry
+
+        mock_registry = MagicMock()
+        with patch("api.dependencies.Endpoints.get_task_registry", return_value=mock_registry):
+            result = get_task_registry()
+            assert result == mock_registry
+
+
+class TestNewTypeAliases:
+    """Tests for newly added dependency type aliases."""
+
+    def test_pipeline_service_type_alias_exists(self):
+        """Test PipelineServiceDep type alias exists."""
+        from api.dependencies import TaskRegistryDep
+
+        assert TaskRegistryDep is not None

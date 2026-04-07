@@ -95,6 +95,7 @@ def reset_endpoints_registry():
     deps.Endpoints._local_engine = None
     deps.Endpoints._global_engine = None
     deps.Endpoints._hybrid_engine = None
+    deps.Endpoints._pipeline_service = None
 
     yield
 
@@ -112,6 +113,7 @@ def reset_endpoints_registry():
     deps.Endpoints._local_engine = None
     deps.Endpoints._global_engine = None
     deps.Endpoints._hybrid_engine = None
+    deps.Endpoints._pipeline_service = None
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -177,22 +179,21 @@ class TestLifespan:
             with patch("main.instrument_fastapi") as mock_instrument:
                 with patch("main.set_container") as mock_set_container:
                     with patch("main.set_settings") as mock_set_settings:
-                        with patch("main.set_graph_postgres_pool"):
-                            with patch("main.log"):
-                                from main import lifespan
+                        with patch("main.log"):
+                            from main import lifespan
 
-                                app = FastAPI()
-                                app.state.container = mock_container
+                            app = FastAPI()
+                            app.state.container = mock_container
 
-                                # Enter lifespan context
-                                async with lifespan(app):
-                                    pass
+                            # Enter lifespan context
+                            async with lifespan(app):
+                                pass
 
-                                mock_configure_tracing.assert_called_once_with(
-                                    service_name="weaver",
-                                    endpoint=mock_container.settings.observability.otlp_endpoint,
-                                )
-                                mock_instrument.assert_called_once_with(app)
+                            mock_configure_tracing.assert_called_once_with(
+                                service_name="weaver",
+                                endpoint=mock_container.settings.observability.otlp_endpoint,
+                            )
+                            mock_instrument.assert_called_once_with(app)
 
     @pytest.mark.asyncio
     async def test_startup_calls_container_startup(self, mock_container):
@@ -201,17 +202,16 @@ class TestLifespan:
             with patch("main.instrument_fastapi"):
                 with patch("main.set_container"):
                     with patch("main.set_settings"):
-                        with patch("main.set_graph_postgres_pool"):
-                            with patch("main.log"):
-                                from main import lifespan
+                        with patch("main.log"):
+                            from main import lifespan
 
-                                app = FastAPI()
-                                app.state.container = mock_container
+                            app = FastAPI()
+                            app.state.container = mock_container
 
-                                async with lifespan(app):
-                                    pass
+                            async with lifespan(app):
+                                pass
 
-                                mock_container.startup.assert_called_once()
+                            mock_container.startup.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_startup_populates_endpoints_registry(self, mock_container):
@@ -220,54 +220,47 @@ class TestLifespan:
             with patch("main.instrument_fastapi"):
                 with patch("main.set_container"):
                     with patch("main.set_settings"):
-                        with patch("main.set_graph_postgres_pool"):
-                            with patch("main.log"):
-                                from api.endpoints import _deps as deps
-                                from main import lifespan
+                        with patch("main.log"):
+                            from api.endpoints import _deps as deps
+                            from main import lifespan
 
-                                app = FastAPI()
-                                app.state.container = mock_container
+                            app = FastAPI()
+                            app.state.container = mock_container
 
-                                async with lifespan(app):
-                                    pass
+                            async with lifespan(app):
+                                pass
 
-                                # Verify all endpoints were set
-                                assert deps.Endpoints._postgres is mock_container.postgres_pool()
-                                assert deps.Endpoints._neo4j is mock_container.neo4j_pool()
-                                assert deps.Endpoints._redis is mock_container.redis_client()
-                                assert deps.Endpoints._llm is mock_container.llm_client()
-                                assert (
-                                    deps.Endpoints._scheduler is mock_container.source_scheduler()
-                                )
-                                assert deps.Endpoints._vector_repo is mock_container.vector_repo()
-                                assert (
-                                    deps.Endpoints._source_config_repo
-                                    is mock_container.source_config_repo()
-                                )
-                                assert (
-                                    deps.Endpoints._source_authority_repo
-                                    is mock_container.source_authority_repo()
-                                )
-                                assert (
-                                    deps.Endpoints._llm_failure_repo
-                                    is mock_container.llm_failure_repo()
-                                )
-                                assert (
-                                    deps.Endpoints._llm_usage_repo
-                                    is mock_container.llm_usage_repo()
-                                )
-                                assert (
-                                    deps.Endpoints._local_engine
-                                    is mock_container.local_search_engine()
-                                )
-                                assert (
-                                    deps.Endpoints._global_engine
-                                    is mock_container.global_search_engine()
-                                )
-                                assert (
-                                    deps.Endpoints._hybrid_engine
-                                    is mock_container.hybrid_search_engine()
-                                )
+                            # Verify all endpoints were set
+                            assert deps.Endpoints._postgres is mock_container.postgres_pool()
+                            assert deps.Endpoints._neo4j is mock_container.neo4j_pool()
+                            assert deps.Endpoints._redis is mock_container.redis_client()
+                            assert deps.Endpoints._llm is mock_container.llm_client()
+                            assert deps.Endpoints._scheduler is mock_container.source_scheduler()
+                            assert deps.Endpoints._vector_repo is mock_container.vector_repo()
+                            assert (
+                                deps.Endpoints._source_config_repo
+                                is mock_container.source_config_repo()
+                            )
+                            assert (
+                                deps.Endpoints._source_authority_repo
+                                is mock_container.source_authority_repo()
+                            )
+                            assert (
+                                deps.Endpoints._llm_failure_repo
+                                is mock_container.llm_failure_repo()
+                            )
+                            assert deps.Endpoints._llm_usage_repo is mock_container.llm_usage_repo()
+                            assert (
+                                deps.Endpoints._local_engine is mock_container.local_search_engine()
+                            )
+                            assert (
+                                deps.Endpoints._global_engine
+                                is mock_container.global_search_engine()
+                            )
+                            assert (
+                                deps.Endpoints._hybrid_engine
+                                is mock_container.hybrid_search_engine()
+                            )
 
     @pytest.mark.asyncio
     async def test_shutdown_calls_graceful_shutdown(self, mock_container):
@@ -276,18 +269,17 @@ class TestLifespan:
             with patch("main.instrument_fastapi"):
                 with patch("main.set_container"):
                     with patch("main.set_settings"):
-                        with patch("main.set_graph_postgres_pool"):
-                            with patch("main._graceful_shutdown") as mock_graceful:
-                                with patch("main.log"):
-                                    from main import lifespan
+                        with patch("main._graceful_shutdown") as mock_graceful:
+                            with patch("main.log"):
+                                from main import lifespan
 
-                                    app = FastAPI()
-                                    app.state.container = mock_container
+                                app = FastAPI()
+                                app.state.container = mock_container
 
-                                    async with lifespan(app):
-                                        pass
+                                async with lifespan(app):
+                                    pass
 
-                                    mock_graceful.assert_called_once_with(app)
+                                mock_graceful.assert_called_once_with(app)
 
 
 # ────────────────────────────────────────────────────────────────────────────

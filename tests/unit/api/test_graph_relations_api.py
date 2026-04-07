@@ -340,7 +340,7 @@ class TestGraphEndpoints:
         """Test GET /graph/relation-types returns types."""
         from unittest.mock import AsyncMock
 
-        from api.endpoints.graph import list_relation_types, set_postgres_pool
+        from api.endpoints.graph import list_relation_types
 
         # Set up mock pool
         mock_pool = MagicMock()
@@ -366,9 +366,8 @@ class TestGraphEndpoints:
         async_context.__aexit__ = AsyncMock(return_value=None)
         mock_pool.session_context = MagicMock(return_value=async_context)
 
-        set_postgres_pool(mock_pool)
-
-        result = await list_relation_types(_="test-key")
+        # Pass pool as dependency injection parameter
+        result = await list_relation_types(_="test-key", pg_pool=mock_pool)
 
         assert len(result.data) == 1
         assert result.data[0].name == "位于"
