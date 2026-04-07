@@ -57,7 +57,6 @@ dependencies = [
     "cashews>=7.5.0",
     "rich>=14.3.3",
     "typer>=0.24.1",
-    "structlog>=25.5.0",
 ]
 
 [project.optional-dependencies]
@@ -657,7 +656,6 @@ omit = [
     "*/core/llm/pool.py",
     "*/core/llm/circuit_breaker.py",
     "*/core/llm/router.py",
-    "*/core/llm/rate_limiter.py",
     "*/core/llm/token_budget.py",
     "*/core/llm/utils/json_parser.py",
     # Memory evolution - experimental MAGMA components

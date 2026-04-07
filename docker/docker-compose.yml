@@ -2,21 +2,28 @@
 # Usage: docker compose up -d
 # Stop:  docker compose down
 # Clean: docker compose down -v
+#
+# Environment Variable Format:
+# - Prefix: WEAVER_ (single underscore)
+# - Nested delimiter: __ (double underscore)
+# - Example: WEAVER_POSTGRES__PASSWORD=secret
+#
+# Set these in .env file or export them before running docker compose.
 
 services:
   postgres:
     image: pgvector/pgvector:pg16
     container_name: weaver_postgres
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-invalid}
-      POSTGRES_DB: ${POSTGRES_DATABASE:-weaver}
+      POSTGRES_USER: ${WEAVER_POSTGRES__USER:-postgres}
+      POSTGRES_PASSWORD: ${WEAVER_POSTGRES__PASSWORD:-invalid}
+      POSTGRES_DB: ${WEAVER_POSTGRES__DATABASE:-weaver}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${WEAVER_POSTGRES__PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      test: ["CMD-SHELL", "pg_isready -U ${WEAVER_POSTGRES__USER:-postgres}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -27,7 +34,7 @@ services:
     image: neo4j:5.25
     container_name: weaver_neo4j
     environment:
-      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-weavertest}
+      NEO4J_AUTH: ${WEAVER_NEO4J__USER:-neo4j}/${WEAVER_NEO4J__PASSWORD:-weavertest}
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_dbms_memory_heap_initial__size: 512m
       NEO4J_dbms_memory_heap_max__size: 1g
@@ -53,7 +60,7 @@ services:
     image: redis:7.2-alpine
     container_name: weaver_redis
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "${WEAVER_REDIS__PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
