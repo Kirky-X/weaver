@@ -582,31 +582,7 @@ class APITester:
             )
 
         # Relation types - uses Neo4j Cypher
-        code, data, ms = await self._request(
-            "GET", "/api/v1/graph/relation-types", expected_status=[200, 500]
-        )
-        if code == 200:
-            self._record("/api/v1/graph/relation-types", "GET", "PASS", code, "", ms, data)
-        elif code == 500:
-            self._record(
-                "/api/v1/graph/relation-types",
-                "GET",
-                "PASS",
-                code,
-                "(LadybugDB limitation)",
-                ms,
-                data,
-            )
-        else:
-            self._record(
-                "/api/v1/graph/relation-types",
-                "GET",
-                "FAIL",
-                code,
-                str(data) if data else "",
-                ms,
-                data,
-            )
+        # Note: relation-types endpoint has been removed
 
     # ─────────────────────────────────────────────────────────────────────────
     # Graph metrics endpoints
