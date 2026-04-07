@@ -161,7 +161,7 @@ async def health_check() -> HealthCheckResponse:
         all_healthy = False
 
     # Check Redis
-    redis_client = Endpoints.get_redis_optional()
+    redis_client = Endpoints.get_cache_optional()
     if redis_client is not None:
         redis_result = await check_redis_health(redis_client)
         checks["redis"] = ServiceHealthCheck(**redis_result)

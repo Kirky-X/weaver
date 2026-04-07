@@ -28,7 +28,7 @@ main.py (lifespan)
        ↓
 Container.startup() / shutdown()
        ↓
-Endpoints._postgres = container.postgres_pool()
+Endpoints._postgres = container.relational_pool()
 Endpoints._redis = container.redis_client()
 Endpoints._llm = container.llm_client()
        ↓
@@ -60,7 +60,7 @@ await container.startup()
 
 # 获取全局容器实例
 container = get_container()
-postgres_pool = container.postgres_pool()
+postgres_pool = container.relational_pool()
 ```
 
 **主要职责**：

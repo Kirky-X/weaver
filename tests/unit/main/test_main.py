@@ -231,9 +231,11 @@ class TestLifespan:
                                 pass
 
                             # Verify all endpoints were set
-                            assert deps.Endpoints._postgres is mock_container.postgres_pool()
-                            assert deps.Endpoints._neo4j is mock_container.neo4j_pool()
-                            assert deps.Endpoints._redis is mock_container.redis_client()
+                            assert (
+                                deps.Endpoints._relational_pool is mock_container.relational_pool()
+                            )
+                            assert deps.Endpoints._graph_pool is mock_container.graph_pool()
+                            assert deps.Endpoints._cache is mock_container.redis_client()
                             assert deps.Endpoints._llm is mock_container.llm_client()
                             assert deps.Endpoints._scheduler is mock_container.source_scheduler()
                             assert deps.Endpoints._vector_repo is mock_container.vector_repo()

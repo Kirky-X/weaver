@@ -63,7 +63,7 @@ class CommunityReportGenerator:
         pool: GraphPool,
         llm_client: LLMClient,
         max_concurrent: int = 5,
-        embedding_model: str = "embedding.aiping_embedding.Qwen3-Embedding-0.6B",
+        embedding_model: str = "embedding.aiping.Qwen3-Embedding-0.6B",
     ) -> None:
         self._pool = pool
         self._repo = Neo4jCommunityRepo(pool)

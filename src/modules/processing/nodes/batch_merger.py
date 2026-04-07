@@ -95,13 +95,13 @@ class BatchMergerNode:
         prompt_loader: PromptLoader,
         vector_repo: VectorRepository | None = None,
         article_repo: ArticleRepository | None = None,
-        neo4j_writer: Neo4jWriter | None = None,
+        graph_writer: Neo4jWriter | None = None,
     ) -> None:
         self._llm = llm
         self._prompt_loader = prompt_loader
         self._vector_repo = vector_repo
         self._article_repo = article_repo
-        self._neo4j_writer = neo4j_writer
+        self._graph_writer = neo4j_writer
 
     async def execute_batch(self, states: list[PipelineState]) -> list[PipelineState]:
         """Execute batch merging on a list of pipeline states.
@@ -411,11 +411,11 @@ class BatchMergerNode:
         successful_neo4j_ids = []
 
         for state in new_states:
-            if not self._neo4j_writer:
+            if not self._graph_writer:
                 continue
 
             try:
-                neo4j_ids = await self._neo4j_writer.write(state)
+                neo4j_ids = await self._graph_writer.write(state)
                 state["neo4j_ids"] = neo4j_ids
                 successful_neo4j_ids.extend(neo4j_ids)
 
