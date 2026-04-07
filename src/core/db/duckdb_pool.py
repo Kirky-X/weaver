@@ -156,7 +156,7 @@ class DuckDBPool:
         """
         if self._engine is None:
             raise RuntimeError("DuckDBPool not started")
-        sync_session = Session(self._engine)
+        sync_session = Session(self._engine, expire_on_commit=False)
         return _DuckDBAsyncSession(sync_session)
 
     @asynccontextmanager

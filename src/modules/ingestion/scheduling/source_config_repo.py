@@ -163,7 +163,7 @@ class SourceConfigRepo:
             source = result.scalar_one_or_none()
             if source is None:
                 return False
-            await session.delete(source)
+            session.delete(source)
             await session.commit()
             return True
 

@@ -493,7 +493,15 @@ async def list_relation_types(
             .select_from(RelationType)
             .outerjoin(RelationTypeAlias, RelationTypeAlias.relation_type_id == RelationType.id)
             .where(RelationType.is_active == True)  # noqa: E712
-            .group_by(RelationType.id)
+            .group_by(
+                RelationType.id,
+                RelationType.name,
+                RelationType.name_en,
+                RelationType.category,
+                RelationType.is_symmetric,
+                RelationType.description,
+                RelationType.sort_order,
+            )
             .order_by(RelationType.sort_order)
         )
         result = await session.execute(stmt)
