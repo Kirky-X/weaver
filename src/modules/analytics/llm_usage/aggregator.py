@@ -16,8 +16,7 @@ from core.constants import RedisKeys
 from core.observability.logging import get_logger
 
 if TYPE_CHECKING:
-    from core.cache.redis import RedisClient
-    from core.db.postgres import PostgresPool
+    from core.protocols import CachePool, RelationalPool
 
 log = get_logger("llm_usage_aggregator")
 
@@ -26,8 +25,8 @@ REDIS_KEY_PREFIX = RedisKeys.LLM_USAGE_PREFIX.rstrip(":")
 
 
 async def flush_usage_buffer(
-    redis_client: RedisClient,
-    postgres_pool: PostgresPool,
+    cache: CachePool,
+    relational_pool: RelationalPool,
 ) -> tuple[int, int]:
     """Execute aggregation flush from Redis to PostgreSQL.
 
@@ -40,8 +39,8 @@ async def flush_usage_buffer(
     6. DEL the processed Redis key
 
     Args:
-        redis_client: Redis client for reading buffer data.
-        postgres_pool: PostgreSQL connection pool for writing aggregated data.
+        cache: Cache pool for reading buffer data.
+        relational_pool: Relational database pool for writing aggregated data.
 
     Returns:
         Tuple of (processed_count, error_count).
@@ -58,7 +57,7 @@ async def flush_usage_buffer(
     keys_to_process: list[str] = []
 
     while True:
-        cursor, keys = await redis_client.scan(
+        cursor, keys = await cache.scan(
             cursor=cursor,
             match=f"{REDIS_KEY_PREFIX}:*",
             count=100,
@@ -75,7 +74,7 @@ async def flush_usage_buffer(
 
     log.info("llm_usage_aggregator_flush_start", keys=len(keys_to_process))
 
-    repo = LLMUsageRepo(postgres_pool)
+    repo = LLMUsageRepo(relational_pool)
     processed = 0
     errors = 0
 
@@ -86,10 +85,10 @@ async def flush_usage_buffer(
             time_bucket = datetime.strptime(bucket_str, "%Y%m%d%H").replace(tzinfo=UTC)
 
             # Get all data from the hash
-            data = await redis_client.client.hgetall(key)
+            data = await cache.hgetall(key)
             if not data:
                 # Empty hash, just delete it
-                await redis_client.delete(key)
+                await cache.delete(key)
                 continue
 
             # Group by (label, call_point)
@@ -121,7 +120,7 @@ async def flush_usage_buffer(
                 )
 
             # Delete the processed Redis key
-            await redis_client.delete(key)
+            await cache.delete(key)
             processed += 1
 
             log.debug(

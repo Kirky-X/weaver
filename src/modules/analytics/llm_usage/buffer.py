@@ -19,7 +19,7 @@ from core.event.bus import LLMUsageEvent
 from core.observability.logging import get_logger
 
 if TYPE_CHECKING:
-    from core.cache.redis import RedisClient
+    from core.protocols import CachePool
 
 log = get_logger("llm_usage_buffer")
 
@@ -32,28 +32,30 @@ METRICS = ("count", "input_tok", "output_tok", "total_tok", "latency_ms", "succe
 
 
 class LLMUsageBuffer:
-    """LLM 用量事件 Redis 缓冲层。
+    """LLM 用量事件缓存缓冲层。
 
-    将 LLMUsageEvent 累加到 Redis HASH 中,按小时分桶。
+    将 LLMUsageEvent 累加到缓存 HASH 中,按小时分桶。
     支持自动 TTL 管理和故障容错。
 
+    Implements: EventBuffer
+
     Attributes:
-        _redis: Redis 客户端实例
+        _cache: 缓存池实例
         _ttl: Key 过期时间(秒)
     """
 
     def __init__(
         self,
-        redis_client: RedisClient,
+        cache: CachePool,
         ttl_seconds: int = DEFAULT_TTL_SECONDS,
     ) -> None:
         """初始化缓冲层。
 
         Args:
-            redis_client: Redis 客户端实例
+            cache: 缓存池实例
             ttl_seconds: Key 过期时间(秒),默认 7200s (2h)
         """
-        self._redis = redis_client
+        self._cache = cache
         self._ttl = ttl_seconds
 
     def _make_bucket_key(self, dt: datetime) -> str:
@@ -81,9 +83,9 @@ class LLMUsageBuffer:
         return f"{label}::{call_point}::{metric}"
 
     async def accumulate(self, event: LLMUsageEvent) -> None:
-        """累加 LLMUsageEvent 到 Redis HASH。
+        """累加 LLMUsageEvent 到缓存 HASH。
 
-        使用 Redis pipeline 批量执行 HINCRBY 操作。
+        使用 pipeline 批量执行 HINCRBY 操作。
         首次写入时设置 TTL。
         所有异常被捕获并记录日志,不阻塞主链路。
 
@@ -97,62 +99,54 @@ class LLMUsageBuffer:
             # 构建 field 前缀
             field_prefix = f"{event.label}::{event.call_point}"
 
-            # 获取 Redis client(用于创建 pipeline)
-            client = self._redis.client
+            # 批量执行 HINCRBY 操作
+            # count: +1
+            await self._cache.hincrby(bucket_key, f"{field_prefix}::count", 1)
 
-            # 构建 pipeline 批量操作
-            async with client.pipeline(transaction=False) as pipe:
-                # HINCRBY 各指标
-                # count: +1
-                pipe.hincrby(bucket_key, f"{field_prefix}::count", 1)
+            # input_tok: +event.tokens.input_tokens
+            await self._cache.hincrby(
+                bucket_key,
+                f"{field_prefix}::input_tok",
+                event.tokens.input_tokens,
+            )
 
-                # input_tok: +event.tokens.input_tokens
-                pipe.hincrby(
-                    bucket_key,
-                    f"{field_prefix}::input_tok",
-                    event.tokens.input_tokens,
-                )
+            # output_tok: +event.tokens.output_tokens
+            await self._cache.hincrby(
+                bucket_key,
+                f"{field_prefix}::output_tok",
+                event.tokens.output_tokens,
+            )
 
-                # output_tok: +event.tokens.output_tokens
-                pipe.hincrby(
-                    bucket_key,
-                    f"{field_prefix}::output_tok",
-                    event.tokens.output_tokens,
-                )
+            # total_tok: +event.tokens.total_tokens
+            await self._cache.hincrby(
+                bucket_key,
+                f"{field_prefix}::total_tok",
+                event.tokens.total_tokens,
+            )
 
-                # total_tok: +event.tokens.total_tokens
-                pipe.hincrby(
-                    bucket_key,
-                    f"{field_prefix}::total_tok",
-                    event.tokens.total_tokens,
-                )
+            # latency_ms: +event.latency_ms(取整)
+            await self._cache.hincrby(
+                bucket_key,
+                f"{field_prefix}::latency_ms",
+                int(event.latency_ms),
+            )
 
-                # latency_ms: +event.latency_ms(取整)
-                pipe.hincrby(
-                    bucket_key,
-                    f"{field_prefix}::latency_ms",
-                    int(event.latency_ms),
-                )
+            # success: +1 if event.success else 0
+            await self._cache.hincrby(
+                bucket_key,
+                f"{field_prefix}::success",
+                1 if event.success else 0,
+            )
 
-                # success: +1 if event.success else 0
-                pipe.hincrby(
-                    bucket_key,
-                    f"{field_prefix}::success",
-                    1 if event.success else 0,
-                )
+            # failure: +0 if event.success else 1
+            await self._cache.hincrby(
+                bucket_key,
+                f"{field_prefix}::failure",
+                0 if event.success else 1,
+            )
 
-                # failure: +0 if event.success else 1
-                pipe.hincrby(
-                    bucket_key,
-                    f"{field_prefix}::failure",
-                    0 if event.success else 1,
-                )
-
-                # 设置 TTL(使用 EXPIRE,如果 key 已存在则刷新过期时间)
-                pipe.expire(bucket_key, self._ttl)
-
-                # 执行 pipeline
-                await pipe.execute()
+            # 设置 TTL
+            await self._cache.expire(bucket_key, self._ttl)
 
             log.debug(
                 "llm_usage_buffered",
@@ -178,13 +172,13 @@ class LLMUsageBuffer:
         用于测试和调试目的。
 
         Args:
-            bucket_key: 桶的 Redis key
+            bucket_key: 桶的缓存 key
 
         Returns:
             HASH 中的所有 field-value 对
         """
         try:
-            return await self._redis.client.hgetall(bucket_key)
+            return await self._cache.hgetall(bucket_key)
         except Exception as exc:
             log.error(
                 "llm_usage_buffer_get_failed",

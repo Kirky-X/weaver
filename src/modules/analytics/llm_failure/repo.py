@@ -5,13 +5,14 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import delete
 
 from core.db.models import LLMFailure
-from core.db.postgres import PostgresPool
 from core.event.bus import LLMFailureEvent
 from core.observability.logging import get_logger
+from core.protocols import RelationalPool
 
 log = get_logger("llm_failure_repo")
 
@@ -19,11 +20,13 @@ log = get_logger("llm_failure_repo")
 class LLMFailureRepo:
     """Repository for LLM failure records.
 
+    Implements: EntityRepository (partial)
+
     Args:
-        pool: PostgreSQL connection pool.
+        pool: Relational database connection pool.
     """
 
-    def __init__(self, pool: PostgresPool) -> None:
+    def __init__(self, pool: RelationalPool) -> None:
         self._pool = pool
 
     async def record(self, event: LLMFailureEvent) -> None:

@@ -15,7 +15,7 @@ from core.event.bus import LLMUsageEvent
 from core.observability.logging import get_logger
 
 if TYPE_CHECKING:
-    from core.db.postgres import PostgresPool
+    from core.protocols import RelationalPool
 
 log = get_logger("llm_usage_repo")
 
@@ -30,11 +30,13 @@ class LLMUsageRepo:
     - Querying aggregated statistics
     - Cleaning up old raw records
 
+    Implements: EntityRepository (partial)
+
     Args:
-        pool: PostgreSQL connection pool.
+        pool: Relational database connection pool.
     """
 
-    def __init__(self, pool: PostgresPool) -> None:
+    def __init__(self, pool: RelationalPool) -> None:
         self._pool = pool
 
     # ── Raw Record Operations ─────────────────────────────────────
