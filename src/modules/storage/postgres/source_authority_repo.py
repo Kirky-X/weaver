@@ -8,8 +8,8 @@ from datetime import UTC, datetime
 from sqlalchemy import select, update
 
 from core.db.models import SourceAuthority
-from core.db.postgres import PostgresPool
 from core.observability.logging import get_logger
+from core.protocols import RelationalPool
 
 log = get_logger("source_authority_repo")
 
@@ -17,11 +17,13 @@ log = get_logger("source_authority_repo")
 class SourceAuthorityRepo:
     """Repository for source authority scores.
 
+    Implements: EntityRepository (partial)
+
     Args:
-        pool: PostgreSQL connection pool.
+        pool: Relational database connection pool.
     """
 
-    def __init__(self, pool: PostgresPool) -> None:
+    def __init__(self, pool: RelationalPool) -> None:
         self._pool = pool
 
     async def get_or_create(
