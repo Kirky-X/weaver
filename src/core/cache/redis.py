@@ -124,6 +124,14 @@ class RedisClient:
         """Check if a hash field exists."""
         return await self.client.hexists(name, key)
 
+    async def hexists_many(self, name: str, keys: list[str]) -> list[bool]:
+        """Check if multiple hash fields exist using pipeline."""
+        pipe = self.client.pipeline()
+        for key in keys:
+            pipe.hexists(name, key)
+        results = await pipe.execute()
+        return list(results)
+
     async def lpush(self, name: str, *values: str) -> int:
         """Prepend values to a list."""
         return await self.client.lpush(name, *values)
@@ -400,6 +408,11 @@ class CashewsRedisFallback:
     async def hexists(self, name: str, key: str) -> bool:
         self._check_expiry(name)
         return key in self._hashes.get(name, {})
+
+    async def hexists_many(self, name: str, keys: list[str]) -> list[bool]:
+        self._check_expiry(name)
+        h = self._hashes.get(name, {})
+        return [key in h for key in keys]
 
     async def hgetall(self, name: str) -> dict[str, str]:
         self._check_expiry(name)

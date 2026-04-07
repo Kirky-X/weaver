@@ -220,6 +220,18 @@ class CachePool(Protocol):
         """
         ...
 
+    async def hexists_many(self, name: str, keys: list[str]) -> list[bool]:
+        """Check if multiple hash fields exist.
+
+        Args:
+            name: Hash name.
+            keys: List of field keys.
+
+        Returns:
+            List of booleans indicating existence for each key.
+        """
+        ...
+
     async def hgetall(self, name: str) -> dict[str, str]:
         """Get all fields in a hash.
 

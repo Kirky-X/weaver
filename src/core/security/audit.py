@@ -13,12 +13,12 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import TYPE_CHECKING
 
-import structlog
+from core.observability.logging import get_logger
 
 if TYPE_CHECKING:
     pass
 
-logger = structlog.get_logger(__name__)
+logger = get_logger("security_audit")
 
 
 class SecurityCheckSeverity(str, Enum):

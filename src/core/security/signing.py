@@ -15,9 +15,9 @@ import secrets
 from dataclasses import dataclass
 from typing import Any
 
-import structlog
+from core.observability.logging import get_logger
 
-logger = structlog.get_logger(__name__)
+logger = get_logger("security_signing")
 
 
 # ── Constants ──────────────────────────────────────────────────────────────

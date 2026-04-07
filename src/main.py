@@ -88,12 +88,14 @@ async def lifespan(app: FastAPI) -> None:
     log.debug("redis_client_set", client_id=id(redis_client))
 
     # Register all pools/clients with the centralized Endpoints registry
-    deps.Endpoints._postgres = container.postgres_pool()
-    deps.Endpoints._neo4j = container.neo4j_pool()
-    deps.Endpoints._redis = redis_client
+    # Use Protocol-compatible attribute names
+    deps.Endpoints._relational_pool = container.relational_pool()
+    deps.Endpoints._graph_pool = container.graph_pool()
+    deps.Endpoints._cache = redis_client
     deps.Endpoints._llm = container.llm_client()
     deps.Endpoints._scheduler = container.source_scheduler()
     deps.Endpoints._vector_repo = container.vector_repo()
+    deps.Endpoints._graph_repo = container.graph_repo()
     deps.Endpoints._source_config_repo = container.source_config_repo()
     deps.Endpoints._source_authority_repo = container.source_authority_repo()
     deps.Endpoints._llm_failure_repo = container.llm_failure_repo()
