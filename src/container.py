@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from config.settings import Settings
@@ -98,6 +97,7 @@ class Container:
         self._neo4j_entity_repo: Neo4jEntityRepo | None = None
         self._neo4j_article_repo: Neo4jArticleRepo | None = None
         self._neo4j_writer: Neo4jWriter | None = None
+        self._graph_repo: Any = None  # GraphRepository with QueryBuilder
         self._entity_resolver: EntityResolver | None = None
         self._smart_fetcher: SmartFetcher | None = None
         self._crawl4ai_fetcher: Any = None  # Crawl4AIFetcher
@@ -243,15 +243,13 @@ class Container:
     async def init_llm(self) -> LLMClient:
         """Initialize LLM client."""
         if self._llm_client is None:
-            # Load LLM config from llm.toml
-            project_root = Path(__file__).parent.parent
-            config_path = project_root / "config" / "llm.toml"
-            self._llm_client = await LLMClient.create_from_config(
-                config_path=str(config_path),
+            # Use LLM settings from Settings.llm (loaded from llm.toml)
+            self._llm_client = await LLMClient.create_from_settings(
+                llm_settings=self._settings.llm,
                 prompt_loader=self.prompt_loader(),
                 redis_client=self._redis_client,  # Pass RedisClient wrapper, it will be unwrapped in rate_limiter
             )
-            log.info("llm_client_initialized_from_config")
+            log.info("llm_client_initialized_from_settings")
 
         return self._llm_client
 
@@ -644,6 +642,27 @@ class Container:
             else:
                 self._neo4j_writer = Neo4jWriter(graph_pool, rt_normalizer)
         return self._neo4j_writer
+
+    def graph_repo(self) -> Any:
+        """Get database-agnostic graph repository.
+
+        Returns GraphRepository with the appropriate QueryBuilder for
+        the current graph database (Neo4j or LadybugDB).
+
+        Raises:
+            RuntimeError: If graph database is not available.
+        """
+        if self._graph_repo is None:
+            graph_pool = self.graph_pool()
+            if graph_pool is None or self._strategy is None:
+                raise RuntimeError("Graph database not available")
+
+            from core.db.graph_query_builders import create_graph_query_builder
+            from modules.storage.graph_repo import GraphRepository
+
+            query_builder = create_graph_query_builder(self._strategy.graph_type)
+            self._graph_repo = GraphRepository(graph_pool, query_builder)
+        return self._graph_repo
 
     def relation_type_normalizer(self) -> Any | None:
         """Get cached RelationTypeNormalizer instance."""

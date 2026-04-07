@@ -13,10 +13,10 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from api.dependencies import get_neo4j_pool
+from api.dependencies import get_graph_pool
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
-from core.db.neo4j import Neo4jPool
+from core.protocols import GraphPool
 
 router = APIRouter(prefix="/graph/visualization", tags=["graph-visualization"])
 
@@ -76,7 +76,7 @@ class SubgraphRequest(BaseModel):
 async def get_graph_visualization(
     limit: int = Query(100, ge=10, le=1000, description="Max nodes to return"),
     _: str = Depends(verify_api_key),
-    neo4j: Neo4jPool = Depends(get_neo4j_pool),
+    graph_pool: GraphPool = Depends(get_graph_pool),
 ) -> APIResponse[GraphSnapshotResponse]:
     """Get a snapshot of the knowledge graph for visualization.
 
@@ -99,7 +99,7 @@ async def get_graph_visualization(
     """
 
     try:
-        results = await neo4j.execute_query(node_query, {"limit": limit})
+        results = await graph_pool.execute_query(node_query, {"limit": limit})
     except Exception as exc:
         return success_response(
             GraphSnapshotResponse(
@@ -143,7 +143,7 @@ async def get_graph_visualization(
 
     edge_limit = limit * 3
     try:
-        edge_results = await neo4j.execute_query(
+        edge_results = await graph_pool.execute_query(
             edge_query,
             {
                 "node_ids": list(node_ids),
@@ -186,7 +186,7 @@ async def get_graph_visualization(
 async def get_subgraph(
     request: SubgraphRequest,
     _: str = Depends(verify_api_key),
-    neo4j: Neo4jPool = Depends(get_neo4j_pool),
+    graph_pool: GraphPool = Depends(get_graph_pool),
 ) -> APIResponse[GraphSnapshotResponse]:
     """Extract a subgraph around a center entity.
 
@@ -233,7 +233,7 @@ async def get_subgraph(
     LIMIT 200
     """
 
-    results = await neo4j.execute_query(cypher, params)
+    results = await graph_pool.execute_query(cypher, params)
 
     nodes = []
     node_ids = set()
@@ -264,7 +264,7 @@ async def get_subgraph(
     LIMIT 500
     """
 
-    edge_results = await neo4j.execute_query(edge_query, {"node_ids": list(node_ids)})
+    edge_results = await graph_pool.execute_query(edge_query, {"node_ids": list(node_ids)})
 
     edges = [
         EdgeResponse(

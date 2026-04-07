@@ -8,12 +8,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from api.dependencies import get_llm_client, get_neo4j_pool
+from api.dependencies import get_graph_pool, get_llm_client
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from core.constants import ProcessingStatus
-from core.db.neo4j import Neo4jPool
 from core.observability.logging import get_logger
+from core.protocols import GraphPool
 from modules.knowledge.graph.community_detector import CommunityDetector
 from modules.knowledge.graph.community_repo import Neo4jCommunityRepo
 from modules.knowledge.graph.community_report_generator import (
@@ -101,7 +101,7 @@ class CommunityListResponse(BaseModel):
 async def rebuild_communities(
     request: RebuildRequest = RebuildRequest(),
     _: str = Depends(verify_api_key),
-    pool: Neo4jPool = Depends(get_neo4j_pool),
+    pool: GraphPool = Depends(get_graph_pool),
 ) -> APIResponse[RebuildResponse]:
     """Rebuild all communities from scratch.
 
@@ -113,7 +113,7 @@ async def rebuild_communities(
     Args:
         request: Rebuild parameters.
         _: Verified API key.
-        pool: Neo4j connection pool.
+        pool: GraphPool connection pool.
 
     Returns:
         Rebuild statistics.
@@ -162,7 +162,7 @@ async def generate_all_reports(
     level: int | None = Query(None, description="Community level filter"),
     regenerate_stale: bool = Query(True, description="Regenerate stale reports"),
     _: str = Depends(verify_api_key),
-    pool: Neo4jPool = Depends(get_neo4j_pool),
+    pool: GraphPool = Depends(get_graph_pool),
     llm: Any = Depends(get_llm_client),
 ) -> APIResponse[ReportGenerateResponse]:
     """Generate reports for all communities.
@@ -171,7 +171,7 @@ async def generate_all_reports(
         level: Optional community level filter.
         regenerate_stale: Whether to regenerate stale reports.
         _: Verified API key.
-        pool: Neo4j connection pool.
+        pool: GraphPool connection pool.
         llm: LLM client.
 
     Returns:
@@ -216,7 +216,7 @@ async def generate_all_reports(
 async def regenerate_report(
     community_id: str,
     _: str = Depends(verify_api_key),
-    pool: Neo4jPool = Depends(get_neo4j_pool),
+    pool: GraphPool = Depends(get_graph_pool),
     llm: Any = Depends(get_llm_client),
 ) -> APIResponse[dict[str, Any]]:
     """Regenerate report for a specific community.
@@ -224,7 +224,7 @@ async def regenerate_report(
     Args:
         community_id: Community UUID.
         _: Verified API key.
-        pool: Neo4j connection pool.
+        pool: GraphPool connection pool.
         llm: LLM client.
 
     Returns:
@@ -275,7 +275,7 @@ async def list_communities(
     limit: int = Query(20, ge=1, le=100, description="Maximum results"),
     offset: int = Query(0, ge=0, description="Result offset"),
     _: str = Depends(verify_api_key),
-    pool: Neo4jPool = Depends(get_neo4j_pool),
+    pool: GraphPool = Depends(get_graph_pool),
 ) -> APIResponse[CommunityListResponse]:
     """List communities, optionally filtered by level.
 
@@ -284,7 +284,7 @@ async def list_communities(
         limit: Maximum number of results.
         offset: Result offset for pagination.
         _: Verified API key.
-        pool: Neo4j connection pool.
+        pool: GraphPool connection pool.
 
     Returns:
         List of communities.
@@ -330,14 +330,14 @@ async def list_communities(
 async def get_community(
     community_id: str,
     _: str = Depends(verify_api_key),
-    pool: Neo4jPool = Depends(get_neo4j_pool),
+    pool: GraphPool = Depends(get_graph_pool),
 ) -> APIResponse[CommunityDetailResponse]:
     """Get detailed information about a specific community.
 
     Args:
         community_id: Community UUID.
         _: Verified API key.
-        pool: Neo4j connection pool.
+        pool: GraphPool connection pool.
 
     Returns:
         Community details with entities and report.

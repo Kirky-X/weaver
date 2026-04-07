@@ -14,18 +14,17 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from api.dependencies import (
-    get_postgres_pool,
-    get_redis_client,
+    get_cache_client,
+    get_relational_pool,
     get_source_scheduler,
 )
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from config.settings import Settings
 from container import get_settings
-from core.cache.redis import RedisClient
 from core.constants import PipelineTaskStatus
-from core.db.postgres import PostgresPool
 from core.observability.metrics import metrics
+from core.protocols import CachePool, RelationalPool
 from core.security import URLValidationError, URLValidator
 from modules.ingestion.scheduling.scheduler import SourceScheduler
 from modules.storage import ArticleRepo
@@ -122,7 +121,7 @@ QUEUE_DEPTH_GAUGE = metrics.pipeline_queue_depth
 async def trigger_pipeline(
     request: TriggerRequest,
     _: str = Depends(verify_api_key),
-    redis: RedisClient = Depends(get_redis_client),
+    cache: CachePool = Depends(get_cache_client),
     scheduler: SourceScheduler = Depends(get_source_scheduler),
 ) -> APIResponse[TriggerResponse]:
     """Trigger a pipeline run to crawl news sources.
@@ -130,7 +129,7 @@ async def trigger_pipeline(
     Args:
         request: Pipeline trigger configuration.
         _: Verified API key.
-        redis: Redis client for task queue.
+        cache: Cache client for task queue.
         scheduler: Source scheduler for triggering crawls.
 
     Returns:
@@ -141,7 +140,7 @@ async def trigger_pipeline(
     now = datetime.now(UTC).isoformat()
 
     # Update task status to running
-    await redis.client.hset(
+    await cache.hset(
         TASK_STATUS_KEY,
         task_id,
         json.dumps(
@@ -172,7 +171,7 @@ async def trigger_pipeline(
             await asyncio.gather(*tasks, return_exceptions=True)
 
         # Update task status to completed
-        await redis.client.hset(
+        await cache.hset(
             TASK_STATUS_KEY,
             task_id,
             json.dumps(
@@ -189,7 +188,7 @@ async def trigger_pipeline(
 
     except Exception as exc:
         # Update task status to failed
-        await redis.client.hset(
+        await cache.hset(
             TASK_STATUS_KEY,
             task_id,
             json.dumps(
@@ -215,16 +214,16 @@ async def trigger_pipeline(
 async def get_task_status(
     task_id: str,
     _: str = Depends(verify_api_key),
-    redis: RedisClient = Depends(get_redis_client),
-    postgres_pool: PostgresPool = Depends(get_postgres_pool),
+    cache: CachePool = Depends(get_cache_client),
+    relational_pool: RelationalPool = Depends(get_relational_pool),
 ) -> APIResponse[TaskStatusResponse]:
     """Query the status of a pipeline task.
 
     Args:
         task_id: The task ID to query.
         _: Verified API key.
-        redis: Redis client for task status.
-        postgres_pool: PostgreSQL pool for article stats.
+        cache: Cache client for task status.
+        relational_pool: Relational database pool for article stats.
 
     Returns:
         Task status information.
@@ -233,7 +232,7 @@ async def get_task_status(
         HTTPException: If task not found.
 
     """
-    status_data = await redis.client.hget(TASK_STATUS_KEY, task_id)
+    status_data = await cache.hget(TASK_STATUS_KEY, task_id)
 
     if status_data is None:
         raise HTTPException(
@@ -244,7 +243,7 @@ async def get_task_status(
     data = json_repair.loads(status_data)
 
     # Get article progress statistics for this task
-    article_repo = ArticleRepo(postgres_pool)
+    article_repo = ArticleRepo(relational_pool)
     try:
         task_uuid = uuid.UUID(task_id)
         stats = await article_repo.get_task_progress_stats(task_uuid)
@@ -281,15 +280,15 @@ async def get_task_status(
 @router.get("/queue/stats", response_model=APIResponse[dict])
 async def get_queue_stats(
     _: str = Depends(verify_api_key),
-    redis: RedisClient = Depends(get_redis_client),
-    postgres_pool: PostgresPool = Depends(get_postgres_pool),
+    cache: CachePool = Depends(get_cache_client),
+    relational_pool: RelationalPool = Depends(get_relational_pool),
 ) -> APIResponse[dict]:
     """Get pipeline queue statistics.
 
     Args:
         _: Verified API key.
-        redis: Redis client.
-        postgres_pool: PostgreSQL pool for article stats.
+        cache: Cache client.
+        relational_pool: Relational database pool for article stats.
 
     Returns:
         Queue statistics including article-level stats.
@@ -297,10 +296,10 @@ async def get_queue_stats(
     """
     from sqlalchemy import case, func, select
 
-    queue_depth = await redis.client.llen(TASK_QUEUE_KEY)
+    queue_depth = await cache.llen(TASK_QUEUE_KEY)
 
     # Count tasks by status
-    all_tasks = await redis.client.hgetall(TASK_STATUS_KEY)
+    all_tasks = await cache.hgetall(TASK_STATUS_KEY)
     status_counts: dict[str, int] = {}
     for task_data in all_tasks.values():
         try:
@@ -310,10 +309,10 @@ async def get_queue_stats(
         except (json.JSONDecodeError, TypeError):
             continue
 
-    # Get article-level statistics from PostgreSQL
+    # Get article-level statistics from relational database
     from core.db.models import Article, PersistStatus
 
-    async with postgres_pool.session() as session:
+    async with relational_pool.session() as session:
         result = await session.execute(
             select(
                 func.count(Article.id).label("total_articles"),
@@ -429,38 +428,38 @@ async def _validate_url_for_processing(
 
 
 async def _update_task_status(
-    redis: RedisClient,
+    cache: CachePool,
     task_id: str,
     status: str,
     **extra: str,
 ) -> None:
-    """Update task status in Redis.
+    """Update task status in cache.
 
     Args:
-        redis: Redis client.
+        cache: Cache client.
         task_id: Task ID.
         status: New status.
         **extra: Additional fields to store.
 
     """
-    existing = await redis.client.hget(TASK_STATUS_KEY, task_id)
+    existing = await cache.hget(TASK_STATUS_KEY, task_id)
     data = json.loads(existing) if existing else {"task_id": task_id}
     data["status"] = status
     data.update(extra)
-    await redis.client.hset(TASK_STATUS_KEY, task_id, json.dumps(data))
+    await cache.hset(TASK_STATUS_KEY, task_id, json.dumps(data))
 
 
 async def _process_single_url(
     url: str,
     task_id: str,
-    redis: RedisClient,
+    cache: CachePool,
 ) -> None:
     """Background task to process a single URL through the pipeline.
 
     Args:
         url: URL to process.
         task_id: Task ID for tracking.
-        redis: Redis client for status updates.
+        cache: Cache client for status updates.
 
     """
     from container import get_container
@@ -474,7 +473,7 @@ async def _process_single_url(
     try:
         # Update status to running
         await _update_task_status(
-            redis,
+            cache,
             task_id,
             PipelineTaskStatus.RUNNING.value,
             started_at=datetime.now(UTC).isoformat(),
@@ -507,7 +506,7 @@ async def _process_single_url(
         # Update status to completed
         state = states[0] if states else {}
         await _update_task_status(
-            redis,
+            cache,
             task_id,
             PipelineTaskStatus.COMPLETED.value,
             completed_at=datetime.now(UTC).isoformat(),
@@ -517,7 +516,7 @@ async def _process_single_url(
     except Exception as exc:
         # Update status to failed
         await _update_task_status(
-            redis,
+            cache,
             task_id,
             PipelineTaskStatus.FAILED.value,
             error=str(exc),
@@ -529,7 +528,7 @@ async def _process_single_url(
 async def process_single_url(
     request: ProcessUrlRequest,
     _: str = Depends(verify_api_key),
-    redis: RedisClient = Depends(get_redis_client),
+    cache: CachePool = Depends(get_cache_client),
     settings: Settings = Depends(get_settings),
 ) -> APIResponse[ProcessUrlResponse]:
     """Process a single URL through the full pipeline.
@@ -537,7 +536,7 @@ async def process_single_url(
     Args:
         request: URL processing request.
         _: Verified API key.
-        redis: Redis client for task status.
+        cache: Cache client for task status.
         settings: Application settings.
 
     Returns:
@@ -559,7 +558,7 @@ async def process_single_url(
     now = datetime.now(UTC).isoformat()
 
     # Store initial task status
-    await redis.client.hset(
+    await cache.hset(
         TASK_STATUS_KEY,
         task_id,
         json.dumps(
@@ -573,6 +572,6 @@ async def process_single_url(
     )
 
     # Launch background processing
-    _ = asyncio.create_task(_process_single_url(request.url, task_id, redis))  # noqa: RUF006
+    _ = asyncio.create_task(_process_single_url(request.url, task_id, cache))  # noqa: RUF006
 
     return success_response(ProcessUrlResponse(task_id=task_id, queued_at=now))

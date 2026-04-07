@@ -8,12 +8,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from api.dependencies import get_neo4j_pool, get_redis_client
+from api.dependencies import get_cache_client, get_graph_pool
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from core.constants import GraphHealthStatus
-from core.db.neo4j import Neo4jPool
 from core.observability.logging import get_logger
+from core.protocols import GraphPool
 from modules.knowledge.graph.metrics import GraphQualityMetrics
 
 log = get_logger("graph_metrics")
@@ -108,7 +108,7 @@ async def get_graph_metrics(
         description="Comma-separated list for full view: components,orphans,high_degree,modularity,distributions",
     ),
     _: str = Depends(verify_api_key),
-    neo4j: Neo4jPool = Depends(get_neo4j_pool),
+    graph_pool: GraphPool = Depends(get_graph_pool),
 ) -> APIResponse[Any]:
     """Get graph metrics with view-based routing.
 
@@ -141,11 +141,11 @@ async def get_graph_metrics(
     - `/graph/metrics/community/health` → `/graph/metrics?view=community`
     """
     if view == "health":
-        return await _get_health_view(neo4j)
+        return await _get_health_view(graph_pool)
     elif view == "full":
-        return await _get_full_view(neo4j, include)
+        return await _get_full_view(graph_pool, include)
     elif view == "community":
-        return await _get_community_view(neo4j)
+        return await _get_community_view(graph_pool)
     else:
         raise HTTPException(
             status_code=400,
@@ -153,9 +153,9 @@ async def get_graph_metrics(
         )
 
 
-async def _get_health_view(neo4j: Neo4jPool) -> APIResponse[HealthSummaryResponse]:
+async def _get_health_view(graph_pool: GraphPool) -> APIResponse[HealthSummaryResponse]:
     """Get health summary view."""
-    metrics = GraphQualityMetrics(neo4j)
+    metrics = GraphQualityMetrics(graph_pool)
     summary = await metrics.get_health_summary()
 
     return success_response(
@@ -173,17 +173,17 @@ async def _get_health_view(neo4j: Neo4jPool) -> APIResponse[HealthSummaryRespons
 
 
 async def _get_full_view(
-    neo4j: Neo4jPool, include: str | None
+    graph_pool: GraphPool, include: str | None
 ) -> APIResponse[GraphMetricsResponse]:
     """Get full metrics view with optional caching and include filtering."""
     # Parse include parameter
     include_set = _parse_include_param(include)
 
     # Try to get from cache if no specific include filter
-    redis = get_redis_client()
-    if redis and include_set is None:
+    cache = get_cache_client()
+    if cache and include_set is None:
         try:
-            cached = await redis.get(GRAPH_METRICS_FULL_CACHE_KEY)
+            cached = await cache.get(GRAPH_METRICS_FULL_CACHE_KEY)
             if cached:
                 import json
 
@@ -193,7 +193,7 @@ async def _get_full_view(
             log.warning("cache_lookup_failed", error=str(exc))  # Fall through to compute
 
     # Compute metrics — pass include_set to skip expensive calculations
-    metrics = GraphQualityMetrics(neo4j)
+    metrics = GraphQualityMetrics(graph_pool)
     result = await metrics.calculate_all_metrics(include=include_set)
 
     # Build response
@@ -221,12 +221,12 @@ async def _get_full_view(
         computed_at=result.computed_at.isoformat(),
     )
 
-    # Cache if no include filter and Redis available
-    if redis and include_set is None:
+    # Cache if no include filter and cache available
+    if cache and include_set is None:
         try:
             import json
 
-            await redis.set(
+            await cache.set(
                 GRAPH_METRICS_FULL_CACHE_KEY,
                 json.dumps(response_data.model_dump()),
                 ex=GRAPH_METRICS_CACHE_TTL,
@@ -266,11 +266,11 @@ def _should_include(item: str, include_set: set[str] | None) -> bool:
     return item.lower() in include_set
 
 
-async def _get_community_view(neo4j: Neo4jPool) -> APIResponse[CommunityMetricsResponse]:
+async def _get_community_view(graph_pool: GraphPool) -> APIResponse[CommunityMetricsResponse]:
     """Get community metrics view."""
     from modules.knowledge.graph.community_repo import Neo4jCommunityRepo
 
-    repo = Neo4jCommunityRepo(neo4j)
+    repo = Neo4jCommunityRepo(graph_pool)
     total_communities = await repo.count_communities()
 
     if total_communities == 0:

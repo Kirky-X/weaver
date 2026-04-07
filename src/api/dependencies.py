@@ -2,14 +2,14 @@
 """FastAPI dependency injection module.
 
 This module provides FastAPI-compatible dependency functions for all services.
-These can be used with FastAPI's Depends() pattern for cleaner endpoint signatures.
+All dependencies return Protocol types, not concrete implementations.
 
 Example:
     from fastapi import Depends
-    from api.dependencies import get_postgres_pool, get_redis_client
+    from api.dependencies import get_relational_pool, get_graph_pool
 
     @router.get("/items")
-    async def list_items(pool = Depends(get_postgres_pool)):
+    async def list_items(pool = Depends(get_relational_pool)):
         ...
 
 """
@@ -22,20 +22,19 @@ from fastapi import Depends, HTTPException
 
 if TYPE_CHECKING:
     from container import Container
-    from core.cache.redis import CashewsRedisFallback, RedisClient
-    from core.db.neo4j import Neo4jPool
-    from core.db.postgres import PostgresPool
     from core.llm.client import LLMClient
+    from core.protocols import CachePool, GraphPool, RelationalPool
     from core.services.pipeline_service import PipelineServiceImpl
     from core.services.task_registry import InMemoryTaskRegistry
     from modules.ingestion.scheduling.scheduler import SourceScheduler
     from modules.knowledge.search.engines.global_search import GlobalSearchEngine
     from modules.knowledge.search.engines.hybrid_search import HybridSearchEngine
     from modules.knowledge.search.engines.local_search import LocalSearchEngine
-    from modules.storage import ArticleRepo, SourceAuthorityRepo, VectorRepo
+    from modules.storage import SourceAuthorityRepo, VectorRepo
     from modules.ingestion.scheduling.source_config_repo import SourceConfigRepo
     from modules.analytics.llm_failure.repo import LLMFailureRepo
     from modules.analytics.llm_usage.repo import LLMUsageRepo
+    from modules.storage.graph_repo import GraphRepository
 
 from api.endpoints._deps import Endpoints
 
@@ -60,43 +59,53 @@ def get_container() -> Container:
     return container_module._container
 
 
-def get_postgres_pool() -> PostgresPool:
-    """FastAPI dependency for PostgreSQL connection pool.
+# ── Pool Dependencies (Protocol Types) ─────────────────────────────────
+
+
+def get_relational_pool() -> RelationalPool:
+    """FastAPI dependency for relational database pool.
+
+    Returns either PostgreSQL or DuckDB pool based on configuration.
 
     Raises:
         HTTPException: If pool is not initialized.
 
     Returns:
-        PostgresPool instance.
+        RelationalPool instance (PostgresPool or DuckDBPool).
 
     """
-    return Endpoints.get_postgres_pool()
+    return Endpoints.get_relational_pool()
 
 
-def get_redis_client() -> RedisClient | CashewsRedisFallback:
-    """FastAPI dependency for Redis client.
+def get_graph_pool() -> GraphPool:
+    """FastAPI dependency for graph database pool.
+
+    Returns either Neo4j or LadybugDB pool based on configuration.
+
+    Raises:
+        HTTPException: If pool is not initialized.
+
+    Returns:
+        GraphPool instance (Neo4jPool or LadybugPool).
+
+    """
+    return Endpoints.get_graph_pool()
+
+
+def get_cache_client() -> CachePool:
+    """FastAPI dependency for cache client.
 
     Raises:
         HTTPException: If client is not initialized.
 
     Returns:
-        RedisClient or CashewsRedisFallback instance.
+        CachePool instance (RedisClient or CashewsRedisFallback).
 
     """
-    return Endpoints.get_redis()
+    return Endpoints.get_cache()
 
 
-def get_neo4j_pool() -> Neo4jPool:
-    """FastAPI dependency for Neo4j connection pool.
-
-    Raises:
-        HTTPException: If pool is not initialized.
-
-    Returns:
-        Neo4jPool instance.
-
-    """
-    return Endpoints.get_neo4j_pool()
+# ── Service Dependencies ──────────────────────────────────────────────
 
 
 def get_llm_client() -> LLMClient:
@@ -125,19 +134,17 @@ def get_vector_repo() -> VectorRepo:
     return Endpoints.get_vector_repo()
 
 
-def get_article_repo(pool: Annotated[PostgresPool, Depends(get_postgres_pool)]) -> ArticleRepo:
-    """FastAPI dependency for article repository.
+def get_graph_repo() -> GraphRepository:
+    """FastAPI dependency for graph repository.
 
-    Args:
-        pool: PostgreSQL pool from dependency.
+    Raises:
+        HTTPException: If repo is not initialized.
 
     Returns:
-        ArticleRepo instance.
+        GraphRepository instance with database-agnostic query builder.
 
     """
-    from modules.storage.postgres.article_repo import ArticleRepo
-
-    return ArticleRepo(pool)
+    return Endpoints.get_graph_repo()
 
 
 def get_local_search_engine() -> LocalSearchEngine:
@@ -270,13 +277,14 @@ def get_task_registry() -> InMemoryTaskRegistry:
     return Endpoints.get_task_registry()
 
 
-# Type aliases for cleaner endpoint signatures
-PostgresPoolDep = Annotated["PostgresPool", Depends(get_postgres_pool)]
-RedisClientDep = Annotated["RedisClient | CashewsRedisFallback", Depends(get_redis_client)]
-Neo4jPoolDep = Annotated["Neo4jPool", Depends(get_neo4j_pool)]
+# ── Type Aliases for Cleaner Signatures ────────────────────────────────
+
+RelationalPoolDep = Annotated["RelationalPool", Depends(get_relational_pool)]
+GraphPoolDep = Annotated["GraphPool", Depends(get_graph_pool)]
+CachePoolDep = Annotated["CachePool", Depends(get_cache_client)]
 LLMClientDep = Annotated["LLMClient", Depends(get_llm_client)]
 VectorRepoDep = Annotated["VectorRepo", Depends(get_vector_repo)]
-ArticleRepoDep = Annotated["ArticleRepo", Depends(get_article_repo)]
+GraphRepoDep = Annotated["GraphRepository", Depends(get_graph_repo)]
 LocalSearchEngineDep = Annotated["LocalSearchEngine", Depends(get_local_search_engine)]
 GlobalSearchEngineDep = Annotated["GlobalSearchEngine", Depends(get_global_search_engine)]
 HybridSearchEngineDep = Annotated["HybridSearchEngine", Depends(get_hybrid_search_engine)]
