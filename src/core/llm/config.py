@@ -1,17 +1,21 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved.
-"""配置加载器，支持两层嵌套配置格式."""
+# Copyright (c) 2026 KirkyX. All Rights Reserved
+"""LLM configuration using pydantic-settings for TOML loading."""
 
 from __future__ import annotations
 
-import os
-import tomllib
 from pathlib import Path
 from typing import Any
 
+from pydantic import field_validator
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    TomlConfigSettingsSource,
+)
+
 from core.llm.types import (
-    Capability,
     GlobalConfig,
-    LLMType,
     ModelConfig,
     ProviderConfig,
     RoutingConfig,
@@ -20,167 +24,156 @@ from core.observability.logging import get_logger
 
 log = get_logger("llm_config")
 
-
-class ConfigLoadError(Exception):
-    """配置加载错误."""
-
-    pass
+# Project root for config file paths
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
 
-class LLMConfigLoader:
-    """LLM配置加载器.
+class LLMSettings(BaseSettings):
+    """LLM configuration loaded from config/llm.toml.
 
-    支持两层嵌套配置格式:
-    - 第一层: Provider厂商配置
-    - 第二层: 模型配置（嵌套在provider下）
+    Supports two-layer nested configuration:
+    - Layer 1: Provider configuration (aiping, dmx, ollama, etc.)
+    - Layer 2: Model configuration (nested under each provider)
+
+    Environment variables can override any setting using WEAVER_LLM__ prefix.
+    For provider-specific settings: WEAVER_LLM__PROVIDERS__<NAME>__API_KEY
     """
 
+    model_config = SettingsConfigDict(
+        toml_file=str(_PROJECT_ROOT / "config" / "llm.toml"),
+        env_prefix="WEAVER_LLM__",
+        env_nested_delimiter="__",
+        extra="ignore",
+    )
+
+    # Global settings
+    circuit_breaker_threshold: int = 5
+    circuit_breaker_timeout: float = 60.0
+    default_timeout: float = 120.0
+
+    # Provider configurations (dynamic keys)
+    providers: dict[str, ProviderConfig] = {}
+
+    # Default routing
+    defaults: dict[str, RoutingConfig] = {}
+
+    # Call-point routing (maps from TOML "call-points" key)
+    call_points: dict[str, RoutingConfig] = {}
+
+    @field_validator("providers", mode="before")
     @classmethod
-    def load(cls, config_path: str) -> tuple[list[ProviderConfig], GlobalConfig]:
-        """加载配置文件.
+    def parse_providers(cls, v: Any) -> dict[str, ProviderConfig]:
+        """Parse providers from TOML nested structure."""
+        if v is None:
+            return {}
+        if isinstance(v, dict):
+            result: dict[str, ProviderConfig] = {}
+            for name, cfg in v.items():
+                if isinstance(cfg, ProviderConfig):
+                    result[name] = cfg
+                elif isinstance(cfg, dict):
+                    # Parse nested models
+                    models_data = cfg.get("models", {})
+                    models: dict[str, ModelConfig] = {}
+                    for model_name, model_cfg in models_data.items():
+                        if isinstance(model_cfg, ModelConfig):
+                            models[model_name] = model_cfg
+                        elif isinstance(model_cfg, dict):
+                            models[model_name] = ModelConfig(**model_cfg)
 
-        Args:
-            config_path: 配置文件路径
+                    result[name] = ProviderConfig(
+                        name=name,
+                        type=cfg.get("type", "openai"),
+                        api_key=cfg.get("api_key", ""),
+                        base_url=cfg.get("base_url", ""),
+                        rpm_limit=cfg.get("rpm_limit", 60),
+                        concurrency=cfg.get("concurrency", 5),
+                        timeout=cfg.get("timeout", 120.0),
+                        priority=cfg.get("priority", 100),
+                        weight=cfg.get("weight", 100),
+                        models=models,
+                    )
+            return result
+        return {}
 
-        Returns:
-            (providers列表, 全局配置)
+    @field_validator("defaults", "call_points", mode="before")
+    @classmethod
+    def parse_routing_dict(cls, v: Any) -> dict[str, RoutingConfig]:
+        """Parse routing config dict."""
+        if v is None:
+            return {}
+        if isinstance(v, dict):
+            result: dict[str, RoutingConfig] = {}
+            for key, val in v.items():
+                if isinstance(val, RoutingConfig):
+                    result[key] = val
+                elif isinstance(val, dict):
+                    result[key] = RoutingConfig(**val)
+            return result
+        return {}
 
-        Raises:
-            ConfigLoadError: 配置加载失败
-        """
-        path = Path(config_path)
-        if not path.exists():
-            raise ConfigLoadError(f"Config file not found: {config_path}")
-
-        with open(path, "rb") as f:
-            config = tomllib.load(f)
-
-        # 解析全局配置
-        global_config = cls._parse_global_config(config)
-
-        # 解析provider配置
-        providers = cls._parse_providers(config)
-
-        log.info(
-            "config_loaded",
-            path=config_path,
-            providers=len(providers),
-            defaults=len(global_config.defaults),
-            call_points=len(global_config.call_points),
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        """Configure source priority: env > init > TOML."""
+        return (
+            env_settings,  # Highest priority: environment variables
+            init_settings,  # Programmatic overrides
+            TomlConfigSettingsSource(settings_cls),  # TOML file
         )
 
-        return providers, global_config
+    def __init__(self, **data: Any) -> None:
+        """Initialize with TOML data, handling hyphenated keys."""
+        # Load TOML manually to handle hyphenated keys
+        import tomllib
 
-    @classmethod
-    def _parse_global_config(cls, config: dict[str, Any]) -> GlobalConfig:
-        """解析全局配置."""
-        global_section = config.get("global", {})
+        toml_path = _PROJECT_ROOT / "config" / "llm.toml"
+        if toml_path.exists():
+            with open(toml_path, "rb") as f:
+                toml_data = tomllib.load(f)
 
-        # 解析defaults
-        defaults: dict[LLMType, RoutingConfig] = {}
-        defaults_section = config.get("defaults", {})
-        for type_name, routing_cfg in defaults_section.items():
-            try:
-                llm_type = LLMType(type_name)
-                defaults[llm_type] = RoutingConfig(
-                    primary=routing_cfg.get("label", ""),
-                    fallbacks=routing_cfg.get("fallbacks", []),
-                )
-            except ValueError:
-                log.warning("unknown_default_type", type=type_name)
+            # Map hyphenated keys to underscored keys
+            if "call-points" in toml_data and "call_points" not in data:
+                data["call_points"] = toml_data["call-points"]
 
-        # 解析call-points
-        call_points: dict[str, RoutingConfig] = {}
-        call_points_section = config.get("call-points", {})
-        for cp_name, routing_cfg in call_points_section.items():
-            call_points[cp_name] = RoutingConfig(
-                primary=routing_cfg.get("primary", ""),
-                fallbacks=routing_cfg.get("fallbacks", []),
-            )
+        super().__init__(**data)
 
+    def get_global_config(self) -> GlobalConfig:
+        """Get GlobalConfig for backward compatibility with LLMClient."""
         return GlobalConfig(
-            circuit_breaker_threshold=global_section.get("circuit_breaker_threshold", 5),
-            circuit_breaker_timeout=global_section.get("circuit_breaker_timeout", 60.0),
-            default_timeout=global_section.get("default_timeout", 120.0),
-            defaults=defaults,
-            call_points=call_points,
+            circuit_breaker_threshold=self.circuit_breaker_threshold,
+            circuit_breaker_timeout=self.circuit_breaker_timeout,
+            default_timeout=self.default_timeout,
+            defaults=self.defaults,
+            call_points=self.call_points,
         )
 
-    @classmethod
-    def _parse_providers(cls, config: dict[str, Any]) -> list[ProviderConfig]:
-        """解析provider配置."""
-        providers_section = config.get("providers", {})
-        providers: list[ProviderConfig] = []
+    def get_providers(self) -> list[ProviderConfig]:
+        """Get list of ProviderConfig for backward compatibility with LLMClient."""
+        return list(self.providers.values())
 
-        for provider_name, provider_cfg in providers_section.items():
-            try:
-                provider = cls._parse_provider(provider_name, provider_cfg)
-                providers.append(provider)
-            except Exception as e:
-                log.error(
-                    "provider_parse_failed",
-                    provider=provider_name,
-                    error=str(e),
-                )
-                raise ConfigLoadError(f"Failed to parse provider '{provider_name}': {e}") from e
 
-        return providers
+# Convenience function for backward compatibility
+def load_llm_config(config_path: str | None = None) -> tuple[list[ProviderConfig], GlobalConfig]:
+    """Load LLM configuration from TOML file.
 
-    @classmethod
-    def _parse_provider(cls, name: str, cfg: dict[str, Any]) -> ProviderConfig:
-        """解析单个provider配置."""
-        # 解析API Key(支持环境变量引用)
-        api_key = cfg.get("api_key", "")
-        api_key = cls._resolve_env_var(api_key)
+    Args:
+        config_path: Optional path to config file (ignored, uses pydantic-settings).
 
-        # 解析模型配置(嵌套)
-        models: dict[str, ModelConfig] = {}
-        models_section = cfg.get("models", {})
-        for model_name, model_cfg in models_section.items():
-            models[model_name] = cls._parse_model(model_cfg)
-
-        return ProviderConfig(
-            name=name,
-            type=cfg.get("type", "openai"),
-            api_key=api_key,
-            base_url=cfg.get("base_url", ""),
-            rpm_limit=cfg.get("rpm_limit", 60),
-            concurrency=cfg.get("concurrency", 5),
-            timeout=cfg.get("timeout", 120.0),
-            priority=cfg.get("priority", 100),
-            weight=cfg.get("weight", 100),
-            models=models,
-        )
-
-    @classmethod
-    def _parse_model(cls, cfg: dict[str, Any]) -> ModelConfig:
-        """解析模型配置."""
-        # 解析capabilities
-        capabilities_list = cfg.get("capabilities", [])
-        capabilities = frozenset(Capability(c.strip()) for c in capabilities_list if c.strip())
-
-        return ModelConfig(
-            model_id=cfg.get("model_id", ""),
-            temperature=cfg.get("temperature", 0.0),
-            max_tokens=cfg.get("max_tokens"),
-            capabilities=capabilities,
-        )
-
-    @classmethod
-    def _resolve_env_var(cls, value: str) -> str:
-        """解析环境变量引用.
-
-        支持格式: ${ENV_VAR} 或 ${ENV_VAR:-default}
-        """
-        if not value.startswith("${"):
-            return value
-
-        # 提取环境变量名
-        inner = value[2:-1]  # 移除 ${ 和 }
-
-        # 支持默认值语法: ${VAR:-default}
-        if ":-" in inner:
-            var_name, default = inner.split(":-", 1)
-            return os.environ.get(var_name, default)
-
-        return os.environ.get(inner, "")
+    Returns:
+        Tuple of (providers list, global config) for backward compatibility.
+    """
+    settings = LLMSettings()
+    log.info(
+        "llm_config_loaded",
+        providers=len(settings.providers),
+        defaults=len(settings.defaults),
+        call_points=len(settings.call_points),
+    )
+    return settings.get_providers(), settings.get_global_config()

@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from pydantic import BaseModel
 
 from core.constants import RedisKeys
-from core.llm.config import LLMConfigLoader
 from core.llm.pool import ProviderPool
 from core.llm.router import LabelRouter
 from core.llm.types import (
@@ -432,17 +431,17 @@ class LLMClient:
         return list(self._pools.keys())
 
     @classmethod
-    async def create_from_config(
+    async def create_from_settings(
         cls,
-        config_path: str,
+        llm_settings: Any,  # LLMSettings
         redis_client: Any = None,
         prompt_loader: PromptLoader | None = None,
         event_bus: EventBus | None = None,
     ) -> LLMClient:
-        """从配置文件创建客户端.
+        """从LLMSettings创建客户端.
 
         Args:
-            config_path: 配置文件路径
+            llm_settings: LLMSettings实例
             redis_client: 可选的Redis客户端
             prompt_loader: 可选的Prompt加载器
             event_bus: 可选的EventBus，用于发射LLMUsageEvent
@@ -450,5 +449,6 @@ class LLMClient:
         Returns:
             配置好的LLMClient实例
         """
-        providers, global_config = LLMConfigLoader.load(config_path)
+        providers = llm_settings.get_providers()
+        global_config = llm_settings.get_global_config()
         return cls(providers, global_config, redis_client, prompt_loader, event_bus)

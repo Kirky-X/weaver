@@ -1,4 +1,4 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved.
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """LLM module type definitions."""
 
 from __future__ import annotations
@@ -7,6 +7,8 @@ import asyncio
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
+
+from pydantic import BaseModel, field_validator
 
 
 class LLMType(str, Enum):
@@ -127,26 +129,35 @@ class LLMResponse:
     model: str
 
 
-@dataclass
-class RoutingConfig:
-    """路由配置."""
+class RoutingConfig(BaseModel):
+    """路由配置 - pydantic BaseModel for TOML loading."""
 
-    primary: str
-    fallbacks: list[str] | None = None
+    primary: str = ""
+    fallbacks: list[str] = []
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
+        """Ensure fallbacks is initialized."""
         if self.fallbacks is None:
             self.fallbacks = []
 
 
-@dataclass
-class ModelConfig:
-    """模型配置（第二层）."""
+class ModelConfig(BaseModel):
+    """模型配置（第二层）- pydantic BaseModel for TOML loading."""
 
-    model_id: str
+    model_id: str = ""
     temperature: float = 0.0
     max_tokens: int | None = None
     capabilities: frozenset[Capability] = frozenset()
+
+    @field_validator("capabilities", mode="before")
+    @classmethod
+    def parse_capabilities(cls, v: Any) -> frozenset[Capability]:
+        """Parse capabilities from list of strings."""
+        if isinstance(v, frozenset):
+            return v
+        if isinstance(v, list):
+            return frozenset(Capability(c.strip()) for c in v if c.strip())
+        return frozenset()
 
     def supports(self, llm_type: LLMType) -> bool:
         """检查是否支持指定的LLM类型."""
@@ -158,47 +169,49 @@ class ModelConfig:
         return type_to_cap.get(llm_type) in self.capabilities
 
 
-@dataclass
-class ProviderConfig:
-    """Provider厂商配置（第一层）."""
+class ProviderConfig(BaseModel):
+    """Provider厂商配置（第一层）- pydantic BaseModel for TOML loading."""
 
-    name: str
-    type: str  # LiteLLM provider type
-    api_key: str
-    base_url: str
+    name: str = ""
+    type: str = "openai"  # LiteLLM provider type
+    api_key: str = ""
+    base_url: str = ""
     rpm_limit: int = 60
     concurrency: int = 5
     timeout: float = 120.0
     priority: int = 100
     weight: int = 100
-    models: dict[str, ModelConfig] | None = None
-
-    def __post_init__(self):
-        if self.models is None:
-            self.models = {}
+    models: dict[str, ModelConfig] = {}
 
     def get_model(self, model_name: str) -> ModelConfig | None:
         """获取模型配置."""
-        if self.models is None:
-            return None
         return self.models.get(model_name)
 
 
-@dataclass
-class GlobalConfig:
-    """全局配置."""
+class GlobalConfig(BaseModel):
+    """全局配置 - pydantic BaseModel for TOML loading."""
 
     circuit_breaker_threshold: int = 5
     circuit_breaker_timeout: float = 60.0
     default_timeout: float = 120.0
-    defaults: dict[LLMType, RoutingConfig] | None = None
-    call_points: dict[str, RoutingConfig] | None = None
+    defaults: dict[str, RoutingConfig] = {}
+    call_points: dict[str, RoutingConfig] = {}
 
-    def __post_init__(self):
-        if self.defaults is None:
-            self.defaults = {}
-        if self.call_points is None:
-            self.call_points = {}
+    @field_validator("defaults", "call_points", mode="before")
+    @classmethod
+    def parse_routing_dict(cls, v: Any) -> dict[str, RoutingConfig]:
+        """Parse routing config dict."""
+        if v is None:
+            return {}
+        if isinstance(v, dict):
+            result: dict[str, RoutingConfig] = {}
+            for key, val in v.items():
+                if isinstance(val, RoutingConfig):
+                    result[key] = val
+                elif isinstance(val, dict):
+                    result[key] = RoutingConfig(**val)
+            return result
+        return {}
 
 
 @dataclass

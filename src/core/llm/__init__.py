@@ -1,4 +1,4 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved.
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """LLM module - Unified LLM client with LiteLLM backend.
 
 This module provides a unified interface for LLM interactions with:
@@ -9,9 +9,11 @@ This module provides a unified interface for LLM interactions with:
 - json_repair for robust JSON parsing
 
 Usage:
+    from config.settings import Settings
     from core.llm import LLMClient
 
-    client = await LLMClient.create_from_config("config/llm.toml")
+    settings = Settings()
+    client = await LLMClient.create_from_settings(settings.llm)
 
     # Chat call with label
     response = await client.call("chat.aiping.GLM-4-9B-0414", payload)
@@ -27,7 +29,6 @@ Usage:
 """
 
 from core.llm.client import LLMClient
-from core.llm.config import LLMConfigLoader
 from core.llm.types import (
     CallPoint,
     Capability,
@@ -49,7 +50,6 @@ __all__ = [
     "CircuitState",
     "GlobalConfig",
     "LLMClient",
-    "LLMConfigLoader",
     "LLMResponse",
     "LLMTask",
     "LLMType",
