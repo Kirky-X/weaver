@@ -15,6 +15,7 @@ from core.observability import get_logger
 from core.prompt import PromptLoader
 from core.protocols import CachePool, EntityRepository, GraphPool, RelationalPool, VectorRepository
 from core.services.pipeline_service import PipelineServiceImpl
+from core.services.task_registry import InMemoryTaskRegistry
 from modules.analytics.llm_usage.buffer import LLMUsageBuffer
 from modules.analytics.llm_usage.repo import LLMUsageRepo
 from modules.ingestion import (
@@ -103,6 +104,7 @@ class Container:
         self._crawler: Crawler | None = None
         self._pipeline: Pipeline | None = None
         self._pipeline_service: PipelineServiceImpl | None = None
+        self._task_registry: InMemoryTaskRegistry | None = None
         self._deduplicator: Deduplicator | None = None
         self._event_bus: EventBus | None = None
         self._llm_failure_repo: Any = None
@@ -167,6 +169,28 @@ class Container:
         if self._strategy is None:
             return None
         return self._strategy.graph_pool
+
+    @property
+    def relational_pool_type(self) -> str:
+        """Get the type of relational database being used.
+
+        Returns:
+            "postgres" or "duckdb".
+        """
+        if self._strategy is None:
+            return "postgres"  # Default
+        return self._strategy.relational_type
+
+    @property
+    def graph_pool_type(self) -> str | None:
+        """Get the type of graph database being used.
+
+        Returns:
+            "neo4j", "ladybug", or None if unavailable.
+        """
+        if self._strategy is None:
+            return None
+        return self._strategy.graph_type
 
     # Legacy accessors for backward compatibility
     def postgres_pool(self) -> RelationalPool:
@@ -1073,6 +1097,16 @@ class Container:
                 raise RuntimeError("Pipeline not initialized. Call init_pipeline() first.")
             self._pipeline_service = PipelineServiceImpl(self._pipeline)
         return self._pipeline_service
+
+    def task_registry(self) -> InMemoryTaskRegistry:
+        """Get the task registry.
+
+        Returns:
+            InMemoryTaskRegistry instance.
+        """
+        if self._task_registry is None:
+            self._task_registry = InMemoryTaskRegistry()
+        return self._task_registry
 
     # ── Lifecycle ─────────────────────────────────────────────────
 
