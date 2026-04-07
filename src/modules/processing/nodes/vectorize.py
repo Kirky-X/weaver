@@ -28,8 +28,8 @@ class VectorizeNode:
         cleaned = state["cleaned"]
         text = f"{cleaned['title']}\n{cleaned['body'][:2000]}"
 
-        # Use call_at for embedding with configured providers
-        embeddings = await self._llm.embed("embedding.aiping.Qwen3-Embedding-0.6B", [text])
+        # Use embed_default for embedding with configured providers
+        embeddings = await self._llm.embed_default([text])
         state["vectors"] = {"content": embeddings[0]}
 
         log.debug("vectorized", url=state["raw"].url)

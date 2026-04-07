@@ -191,9 +191,7 @@ class LadybugGlobalContextBuilder(ContextBuilder):
             return []
 
         try:
-            embeddings = await self._llm_client.embed(
-                "embedding.aiping.Qwen3-Embedding-0.6B", [query]
-            )
+            embeddings = await self._llm_client.embed_default([query])
             if not embeddings or not embeddings[0]:
                 return []
 

@@ -90,9 +90,7 @@ class EntityExtractorNode:
         if spacy_entities:
             try:
                 entity_texts = [f"{e.name}（{e.type}）" for e in spacy_entities]
-                entity_embeds = await self._llm.embed(
-                    "embedding.aiping.Qwen3-Embedding-0.6B", entity_texts
-                )
+                entity_embeds = await self._llm.embed_default(entity_texts)
 
                 for i, e in enumerate(spacy_entities):
                     if i < len(entity_embeds) and entity_embeds[i]:
@@ -179,9 +177,7 @@ class EntityExtractorNode:
                             f"{e['name']}（{e.get('type', '未知')}）"
                             for e in entities_need_embedding
                         ]
-                        entity_embeds = await self._llm.embed(
-                            "embedding.aiping.Qwen3-Embedding-0.6B", entity_texts
-                        )
+                        entity_embeds = await self._llm.embed_default(entity_texts)
 
                         # Update entities with embeddings
                         entity_vectors_to_upsert = []

@@ -63,13 +63,13 @@ class CommunityReportGenerator:
         pool: GraphPool,
         llm_client: LLMClient,
         max_concurrent: int = 5,
-        embedding_model: str = "embedding.aiping.Qwen3-Embedding-0.6B",
+        embedding_model: str | None = None,
     ) -> None:
         self._pool = pool
         self._repo = Neo4jCommunityRepo(pool)
         self._llm = llm_client
         self._max_concurrent = max_concurrent
-        self._embedding_model = embedding_model
+        self._embedding_model = embedding_model  # None 时使用 embed_default()
 
     async def generate_report(self, community_id: str) -> ReportGenerationResult:
         """Generate a report for a single community.
@@ -419,7 +419,10 @@ class CommunityReportGenerator:
             True if successful.
         """
         try:
-            embeddings = await self._llm.embed(self._embedding_model, [content])
+            if self._embedding_model:
+                embeddings = await self._llm.embed(self._embedding_model, [content])
+            else:
+                embeddings = await self._llm.embed_default([content])
             if embeddings:
                 await self._repo.update_report_embedding(report_id, embeddings[0])
                 log.debug("report_embedding_stored", report_id=report_id)
