@@ -270,12 +270,19 @@ class URLValidator:
             checks=checks,
         )
 
-        # Cache result asynchronously
-        asyncio.create_task(
+        # Cache result asynchronously (fire-and-forget with error logging)
+        _cache_task = asyncio.create_task(
             self._cache.set(
                 url=url,
                 result={"risk": max_risk.value, "is_safe": is_safe},
                 risk=max_risk.value,
+            )
+        )
+        _cache_task.add_done_callback(
+            lambda t: (
+                log.warning("url_validation_cache_failed", error=str(t.exception()))
+                if t.exception()
+                else None
             )
         )
 

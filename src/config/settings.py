@@ -143,6 +143,9 @@ class LLMSettings(BaseModel):
     rerank_provider: str = "aiping_rerank"
     rerank_model: str = "Qwen3-Reranker-0.6B"
 
+    # Tokenizer encoding model (optional, for tiktoken-based token counting)
+    tokenizer_model: str | None = None
+
     @field_validator("embedding_provider", "rerank_provider")
     @classmethod
     def validate_provider(cls, v: str) -> str:

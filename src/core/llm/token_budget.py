@@ -31,21 +31,36 @@ class TokenBudgetManager:
         model: The model name for tiktoken encoding lookup.
     """
 
-    def __init__(self, model: str = "gpt-4o") -> None:
+    def __init__(self, model: str | None = None) -> None:
         """Initialize token budget manager.
 
         Args:
-            model: Model name for tiktoken encoding. Defaults to "gpt-4o" because
-                it uses the cl100k_base encoding which is the standard for modern
-                OpenAI models (GPT-4, GPT-4o, GPT-3.5-turbo). This encoding provides
-                accurate token counting for Chinese text and is widely supported.
+            model: Model name for tiktoken encoding. When None, attempts to read
+                from settings.llm.tokenizer_model first. Falls back to "gpt-4o"
+                which uses cl100k_base encoding (standard for modern OpenAI models).
                 Unknown models gracefully fall back to cl100k_base encoding.
         """
+        resolved = model or self._resolve_from_settings() or "gpt-4o"
         try:
-            self._enc = tiktoken.encoding_for_model(model)
+            self._enc = tiktoken.encoding_for_model(resolved)
         except KeyError:
             # Fallback to cl100k_base for unknown models
             self._enc = tiktoken.get_encoding("cl100k_base")
+
+    @staticmethod
+    def _resolve_from_settings() -> str | None:
+        """Try to read tokenizer_model from settings.
+
+        Returns:
+            Configured tokenizer model name, or None if not configured.
+        """
+        try:
+            from config.settings import get_settings
+
+            settings = get_settings()
+            return settings.llm.tokenizer_model
+        except Exception:
+            return None
 
     def truncate(self, text: str, call_point: CallPoint) -> str:
         """Truncate text to fit the token budget for the given call point.

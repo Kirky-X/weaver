@@ -167,7 +167,7 @@ async def create_database(parsed: ParsedDSN) -> None:
     )
     try:
         await conn.execute(
-            f'CREATE DATABASE "{parsed.database}" ' f"OWNER {parsed.user} " f"ENCODING 'UTF8'"
+            f"CREATE DATABASE \"{parsed.database}\" OWNER {parsed.user} ENCODING 'UTF8'"
         )
         log.info("database_created", database=parsed.database)
     except asyncpg.DuplicateDatabaseError:
@@ -194,7 +194,7 @@ async def wait_for_postgres(parsed: ParsedDSN, timeout: float = 30.0) -> None:
         parsed: Parsed DSN components.
         timeout: Maximum wait time in seconds.
     """
-    start_time = asyncio.get_event_loop().time()
+    start_time = asyncio.get_running_loop().time()
     while True:
         try:
             conn = await asyncpg.connect(
@@ -209,7 +209,7 @@ async def wait_for_postgres(parsed: ParsedDSN, timeout: float = 30.0) -> None:
             log.info("postgres_available", host=parsed.host, port=parsed.port)
             return
         except (TimeoutError, asyncpg.PostgresError, OSError) as e:
-            elapsed = asyncio.get_event_loop().time() - start_time
+            elapsed = asyncio.get_running_loop().time() - start_time
             if elapsed >= timeout:
                 raise RuntimeError(
                     f"PostgreSQL not available after {timeout}s at {parsed.host}:{parsed.port}"
@@ -417,11 +417,11 @@ async def _diagnose_missing_tables(dsn: str) -> dict[str, Any]:
             suggestions.append("Check if alembic.ini is correctly configured")
         elif missing:
             suggestions.append(
-                f"Missing tables detected: {', '.join(missing)}. " "Run: alembic upgrade head"
+                f"Missing tables detected: {', '.join(missing)}. Run: alembic upgrade head"
             )
         if not alembic_version:
             suggestions.append(
-                "Alembic version table not found. " "Database may need fresh migration."
+                "Alembic version table not found. Database may need fresh migration."
             )
 
         return {
