@@ -135,7 +135,7 @@ async def health_check() -> HealthCheckResponse:
     all_healthy = True
 
     # Check PostgreSQL
-    pg_pool = Endpoints.get_postgres_pool_optional()
+    pg_pool = Endpoints.get_relational_pool_optional()
     if pg_pool is not None:
         pg_result = await check_postgres_health(pg_pool)
         checks["postgres"] = ServiceHealthCheck(**pg_result)
@@ -149,7 +149,7 @@ async def health_check() -> HealthCheckResponse:
         all_healthy = False
 
     # Check Neo4j
-    neo4j_pool = Endpoints.get_neo4j_pool_optional()
+    neo4j_pool = Endpoints.get_graph_pool_optional()
     if neo4j_pool is not None:
         neo4j_result = await check_neo4j_health(neo4j_pool)
         checks["neo4j"] = ServiceHealthCheck(**neo4j_result)

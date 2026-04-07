@@ -595,7 +595,7 @@ async def deduplicate_articles(
     """
     from modules.storage.postgres.article_repo import ArticleRepo
 
-    pool = Endpoints.get_postgres_pool_optional()
+    pool = Endpoints.get_relational_pool_optional()
     if pool is None:
         raise HTTPException(status_code=503, detail="Database not initialized")
 

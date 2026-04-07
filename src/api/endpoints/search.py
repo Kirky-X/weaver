@@ -591,14 +591,14 @@ async def search_causal(
 
     try:
         # Get dependencies
-        neo4j_pool = deps.Endpoints.get_neo4j_pool()
+        graph_pool = deps.Endpoints.get_graph_pool()
 
         # Create repositories
         from modules.memory.graphs.temporal import TemporalGraphRepo
 
-        temporal_repo = TemporalGraphRepo(pool=neo4j_pool)
+        temporal_repo = TemporalGraphRepo(pool=graph_pool)
         causal_repo = CausalGraphRepo(
-            pool=neo4j_pool,
+            pool=graph_pool,
             confidence_threshold=body.min_confidence,
         )
 
@@ -687,10 +687,10 @@ async def search_temporal(
 
     try:
         # Get dependencies
-        neo4j_pool = deps.Endpoints.get_neo4j_pool()
+        graph_pool = deps.Endpoints.get_graph_pool()
 
         # Create repository
-        temporal_repo = TemporalGraphRepo(pool=neo4j_pool)
+        temporal_repo = TemporalGraphRepo(pool=graph_pool)
 
         # Get temporal chain
         events = await temporal_repo.get_temporal_chain(limit=body.limit)
