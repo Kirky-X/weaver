@@ -8,14 +8,11 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
 
-from api.dependencies import get_neo4j_pool, get_postgres_pool
+from api.dependencies import get_neo4j_pool
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
-from core.db.models import RelationType, RelationTypeAlias
 from core.db.neo4j import Neo4jPool
-from core.db.postgres import PostgresPool
 from modules.storage.neo4j.entity_repo import Neo4jEntityRepo
 
 router = APIRouter(prefix="/graph", tags=["graph"])
@@ -98,17 +95,6 @@ class RelatedEntityResult(BaseModel):
     target_type: str
     target_description: str | None = None
     weight: float = 1.0
-
-
-class RelationTypeInfo(BaseModel):
-    """Relation type with statistics from PostgreSQL."""
-
-    name: str
-    name_en: str
-    category: str
-    is_symmetric: bool
-    description: str | None = None
-    alias_count: int
 
 
 # ── Endpoints ───────────────────────────────────────────────────
@@ -463,58 +449,3 @@ async def search_relations(
             for r in rows
         ]
     )
-
-
-@router.get("/relation-types", response_model=APIResponse[list[RelationTypeInfo]])
-async def list_relation_types(
-    _: str = Depends(verify_api_key),
-    pg_pool: PostgresPool = Depends(get_postgres_pool),
-) -> APIResponse[list[RelationTypeInfo]]:
-    """List all active relation types with statistics.
-
-    Args:
-        _: Verified API key.
-        pg_pool: PostgreSQL pool from dependency.
-
-    Returns:
-        List of relation types ordered by sort_order, wrapped in APIResponse.
-
-    """
-    async with pg_pool.session_context() as session:
-        stmt = (
-            select(
-                RelationType.name,
-                RelationType.name_en,
-                RelationType.category,
-                RelationType.is_symmetric,
-                RelationType.description,
-                func.count(RelationTypeAlias.id).label("alias_count"),
-            )
-            .select_from(RelationType)
-            .outerjoin(RelationTypeAlias, RelationTypeAlias.relation_type_id == RelationType.id)
-            .where(RelationType.is_active == True)  # noqa: E712
-            .group_by(
-                RelationType.id,
-                RelationType.name,
-                RelationType.name_en,
-                RelationType.category,
-                RelationType.is_symmetric,
-                RelationType.description,
-                RelationType.sort_order,
-            )
-            .order_by(RelationType.sort_order)
-        )
-        result = await session.execute(stmt)
-        return success_response(
-            [
-                RelationTypeInfo(
-                    name=row.name,
-                    name_en=row.name_en,
-                    category=row.category,
-                    is_symmetric=row.is_symmetric,
-                    description=row.description,
-                    alias_count=row.alias_count,
-                )
-                for row in result
-            ]
-        )

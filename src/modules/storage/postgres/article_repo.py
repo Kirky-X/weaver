@@ -189,9 +189,9 @@ class ArticleRepo:
                             "bulk_upsert_update_failed", article_id=str(article_id), error=str(exc)
                         )
                 else:
-                    # Prepare new article
+                    # Prepare new article with normalized URL
                     try:
-                        article = self._create_article_from_state(state)
+                        article = self._create_article_from_state(state, normalized_url=url)
                         new_articles.append(article)
                     except Exception as exc:
                         log.error("bulk_upsert_create_prepare_failed", url=url, error=str(exc))
@@ -211,11 +211,14 @@ class ArticleRepo:
             log.debug("bulk_upsert_chunk_complete", count=len(article_ids))
             return article_ids
 
-    def _create_article_from_state(self, state: PipelineState) -> Article:
+    def _create_article_from_state(
+        self, state: PipelineState, normalized_url: str | None = None
+    ) -> Article:
         """Create a new Article object from pipeline state.
 
         Args:
             state: Pipeline state containing article data.
+            normalized_url: Optional normalized URL to use instead of raw URL.
 
         Returns:
             New Article object (not yet committed).
@@ -223,8 +226,10 @@ class ArticleRepo:
         from datetime import UTC, datetime
 
         raw = state["raw"]
+        # Use normalized URL if provided for consistent deduplication
+        source_url = normalized_url or (raw.url if hasattr(raw, "url") else raw.get("url", ""))
         article = Article(
-            source_url=raw.url if hasattr(raw, "url") else raw.get("url", ""),
+            source_url=source_url,
             source_host=getattr(raw, "source_host", None)
             or (raw.get("source_host") if isinstance(raw, dict) else None),
             is_news=state.get("is_news", True),
@@ -553,13 +558,13 @@ class ArticleRepo:
             existing = result.scalar_one_or_none()
 
             if existing:
-                log.debug("article_already_exists", url=raw.url)
+                log.debug("article_already_exists", url=raw.url, normalized=normalized_url)
                 return existing.id
 
             # Create new article with raw data
-            # Use persist_status enum directly
+            # Use normalized URL for consistent deduplication
             article = Article(
-                source_url=raw.url,
+                source_url=normalized_url,
                 source_host=raw.source_host or "",
                 title=raw.title or "",
                 body=effective_body,
@@ -940,3 +945,54 @@ class ArticleRepo:
                 "failed_count": int(row.failed_count or 0),
                 "pending_count": int(row.pending_count or 0),
             }
+
+    async def deduplicate_articles(self) -> dict[str, int]:
+        """Remove duplicate articles, keeping the most recent one per source_url.
+
+        This is a cleanup method for existing data that has duplicates
+        due to DuckDB not enforcing unique constraints.
+
+        Returns:
+            Dict with 'removed' count and 'kept' count.
+        """
+        from sqlalchemy import func
+
+        async with self._pool.session() as session:
+            # Find duplicates: source_urls with more than one article
+            result = await session.execute(
+                select(Article.source_url, func.count(Article.id).label("count"))
+                .group_by(Article.source_url)
+                .having(func.count(Article.id) > 1)
+            )
+            duplicates = result.all()
+
+            removed_count = 0
+            kept_count = 0
+
+            for row in duplicates:
+                source_url = row[0]
+
+                # Get all articles with this URL, ordered by updated_at DESC
+                articles_result = await session.execute(
+                    select(Article)
+                    .where(Article.source_url == source_url)
+                    .order_by(Article.updated_at.desc())
+                )
+                articles = list(articles_result.scalars().all())
+
+                if len(articles) > 1:
+                    # Keep the first (most recent), delete the rest
+                    to_keep = articles[0]
+                    to_remove = articles[1:]
+
+                    for article in to_remove:
+                        session.delete(article)
+                        removed_count += 1
+
+                    kept_count += 1
+
+            if removed_count > 0:
+                await session.commit()
+                log.info("deduplication_complete", removed=removed_count, kept=kept_count)
+
+            return {"removed": removed_count, "kept": kept_count}
