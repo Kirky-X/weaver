@@ -795,24 +795,6 @@ wheels = [
 ]
 
 [[package]]
-name = "dependency-injector"
-version = "4.49.0"
-source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
-dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
-]
-sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/f3/be/26bb530d06618fb0bb34244d46b0d0ccc53d0974e680d8653f1b1b313a0e/dependency_injector-4.49.0.tar.gz", hash = "sha256:17a04dbfaa8159f1dc068fc26bc2fa0af9774cdd87f99e3b61bd74c9e7171589", size = 1168930, upload-time = "2026-03-22T21:20:05.524Z" }
-wheels = [
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/5c/5d/cc49fb34e0c03aa56d7583de00e2f8f5aa1b8a878b695e970dcdb751a477/dependency_injector-4.49.0-cp310-abi3-macosx_11_0_arm64.whl", hash = "sha256:9690192fd5aed07f21dfdfae07696fef12c68bf98e4c0e1af8f8128b255a74a7", size = 1769395, upload-time = "2026-03-22T21:19:14.163Z" },
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/7f/97/b3b144c96e1f7fff0a7e2e83eb0767bd23b6bacffd0ac8cff397d350e94d/dependency_injector-4.49.0-cp310-abi3-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl", hash = "sha256:f91f2a191bdb17bd3068f32fe65f04128bc162c6237ea554c117b303c22aaabb", size = 1852089, upload-time = "2026-03-22T21:19:16.354Z" },
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/4c/e7/33061f427bcb56c8936d5db464d757d926bf752a874683fb64b2ee225463/dependency_injector-4.49.0-cp310-abi3-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:733c0d88b26be17a48e5741cc3e3956080112e40c07a38ff38e99dfa772f9772", size = 1765608, upload-time = "2026-03-22T21:19:19.217Z" },
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/1e/4d/2751a6c055de4a200d65af297ecd926d6b6107f66f3849e8122928abf461/dependency_injector-4.49.0-cp310-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:45720b30a2a3df6e5e2320e242f6dd94540ba27c3da57cafdc37fdeec59d5ce3", size = 1746555, upload-time = "2026-03-22T21:19:21.231Z" },
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/02/6f/f74fee9629528f0879295b9f89a5c751d3ad931eca0c78407f715e5472a6/dependency_injector-4.49.0-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:3b5d2f1be2dc971db47b1305a83b5a8c24d0eba7fb4cea7845679f9c9f24a0a9", size = 1843223, upload-time = "2026-03-22T21:19:23.356Z" },
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/c5/f0/45948c7c933f063039a44afb4bd61747a7bafd50693e6ccdc972fac0839c/dependency_injector-4.49.0-cp310-abi3-win32.whl", hash = "sha256:0593c8aaade651a5a88ff8ba1271a8364773e76d3aa2efbeacc3be4969cafd1c", size = 1546172, upload-time = "2026-03-22T21:19:25.392Z" },
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/e2/b5/1d8e5627137cb9a6812ecaa468eaf39154f6605c5088da4749e5a8579483/dependency_injector-4.49.0-cp310-abi3-win_amd64.whl", hash = "sha256:fa4b587158b0d65a1f9681ca648da3f9bf90f312f68c2f2e73cc58296ec2bf45", size = 1674743, upload-time = "2026-03-22T21:19:27.018Z" },
-]
-
-[[package]]
 name = "deprecated"
 version = "1.3.1"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
@@ -2794,15 +2776,6 @@ wheels = [
 ]
 
 [[package]]
-name = "python-multipart"
-version = "0.0.24"
-source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
-sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/8a/45/e23b5dc14ddb9918ae4a625379506b17b6f8fc56ca1d82db62462f59aea6/python_multipart-0.0.24.tar.gz", hash = "sha256:9574c97e1c026e00bc30340ef7c7d76739512ab4dfd428fec8c330fa6a5cc3c8", size = 37695, upload-time = "2026-04-05T20:49:13.829Z" }
-wheels = [
-    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/a3/73/89930efabd4da63cea44a3f438aeb753d600123570e6d6264e763617a9ce/python_multipart-0.0.24-py3-none-any.whl", hash = "sha256:9b110a98db707df01a53c194f0af075e736a770dc5058089650d70b4a182f950", size = 24420, upload-time = "2026-04-05T20:49:12.555Z" },
-]
-
-[[package]]
 name = "pytokens"
 version = "0.4.1"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
@@ -3968,7 +3941,6 @@ dependencies = [
     { name = "bm25s" },
     { name = "cashews" },
     { name = "crawl4ai" },
-    { name = "dependency-injector" },
     { name = "duckdb" },
     { name = "duckdb-engine" },
     { name = "fastapi" },
@@ -3979,7 +3951,6 @@ dependencies = [
     { name = "litellm" },
     { name = "loguru" },
     { name = "neo4j" },
-    { name = "nest-asyncio" },
     { name = "ntplib" },
     { name = "numpy" },
     { name = "openai" },
@@ -3992,7 +3963,6 @@ dependencies = [
     { name = "pydantic-settings" },
     { name = "python-dotenv" },
     { name = "python-igraph" },
-    { name = "python-multipart" },
     { name = "pyyaml" },
     { name = "real-ladybug" },
     { name = "redis", extra = ["hiredis"] },
@@ -4005,7 +3975,6 @@ dependencies = [
     { name = "tiktoken" },
     { name = "trafilatura" },
     { name = "typer" },
-    { name = "typing-extensions" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -4023,6 +3992,7 @@ dev = [
     { name = "detect-secrets" },
     { name = "isort" },
     { name = "mypy" },
+    { name = "nest-asyncio" },
     { name = "pre-commit" },
     { name = "pydocstyle" },
     { name = "pytest" },
@@ -4052,7 +4022,6 @@ requires-dist = [
     { name = "bm25s", specifier = ">=0.3.3" },
     { name = "cashews", specifier = ">=7.5.0" },
     { name = "crawl4ai", specifier = ">=0.8.6,<0.9.0" },
-    { name = "dependency-injector", specifier = ">=4.49.0" },
     { name = "duckdb", specifier = ">=1.5.1" },
     { name = "duckdb-engine", specifier = ">=0.17.0" },
     { name = "fastapi", specifier = ">=0.135.1" },
@@ -4064,7 +4033,6 @@ requires-dist = [
     { name = "litellm", specifier = ">=1.83.0" },
     { name = "loguru", specifier = ">=0.7.3" },
     { name = "neo4j", specifier = ">=6.1.0" },
-    { name = "nest-asyncio", specifier = ">=1.6.0" },
     { name = "ntplib", specifier = ">=0.4.0" },
     { name = "numpy", specifier = ">=1.26.4,<2.0.0" },
     { name = "openai", specifier = ">=1.0.0" },
@@ -4077,7 +4045,6 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2.13.1" },
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "python-igraph", specifier = ">=0.11.0" },
-    { name = "python-multipart", specifier = ">=0.0.9" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "real-ladybug", specifier = ">=0.15.3" },
     { name = "redis", extras = ["hiredis"], specifier = ">=7.4.0" },
@@ -4090,7 +4057,6 @@ requires-dist = [
     { name = "tiktoken", specifier = ">=0.12.0" },
     { name = "trafilatura", specifier = ">=2.0.0" },
     { name = "typer", specifier = ">=0.24.1" },
-    { name = "typing-extensions", specifier = ">=4.15.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.42.0" },
 ]
 provides-extras = ["search-enhancement"]
@@ -4104,6 +4070,7 @@ dev = [
     { name = "detect-secrets", specifier = ">=1.5.0" },
     { name = "isort", specifier = ">=8.0.1" },
     { name = "mypy", specifier = ">=1.19.1" },
+    { name = "nest-asyncio", specifier = ">=1.6.0" },
     { name = "pre-commit", specifier = ">=4.5.1" },
     { name = "pydocstyle", specifier = ">=6.3.0" },
     { name = "pytest", specifier = ">=9.0.2" },

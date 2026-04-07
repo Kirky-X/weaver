@@ -187,8 +187,6 @@ def build_command() -> list[str]:
         "apscheduler.schedulers.asyncio",
         "apscheduler.triggers.interval",
         "apscheduler.triggers.cron",
-        "dependency_injector",
-        "dependency_injector.ext",
         "loguru",
         "loguru._defaults",
         "pgvector",

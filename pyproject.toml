@@ -8,9 +8,7 @@ dependencies = [
     "alembic>=1.18.4",
     "apscheduler>=3.11.2",
     "asyncpg>=0.31.0",
-    "dependency-injector>=4.49.0",
     "fastapi>=0.135.1",
-    "python-multipart>=0.0.9",
     "feedparser>=6.0.12",
     "httpx[http2]>=0.28.1",
     "json_repair>=0.58.7",
@@ -43,8 +41,6 @@ dependencies = [
     # ── Advanced Community Detection ─────────────────────────
     "python-igraph>=0.11.0",
     "leidenalg>=0.11.0",
-    "typing-extensions>=4.15.0",
-    "nest-asyncio>=1.6.0",
     "litellm>=1.83.0",
     # ── Database Fallback ─────────────────────────────────────
     "duckdb>=1.5.1",
@@ -101,6 +97,8 @@ dev = [
     # ── Secret detection (baseline generation) ─────────────
     "detect-secrets>=1.5.0",
     "pytest-env>=1.2.0",
+    # ── Test utilities ────────────────────────────────────
+    "nest-asyncio>=1.6.0",  # E2E tests: asyncpg + TestClient event loop compat
 ]
 test = [
     "freezegun>=1.5.5",
@@ -454,7 +452,6 @@ module = [
     "neo4j.*",
     "asyncpg.*",
     "pgvector.*",
-    "dependency_injector.*",
     "opentelemetry.*",
     "loguru.*",
     # ── 已忽略的模块 ─────────────────────────────────────
