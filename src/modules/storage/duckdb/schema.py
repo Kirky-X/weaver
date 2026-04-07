@@ -93,6 +93,7 @@ SCHEMA_QUERIES = [
         payload JSON,
         status VARCHAR DEFAULT 'pending',
         retry_count INTEGER DEFAULT 0,
+        error TEXT,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     )""",

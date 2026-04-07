@@ -11,10 +11,12 @@ with Cypher query support. Key differences from Neo4j:
 
 from modules.storage.ladybug.article_repo import LadybugArticleRepo
 from modules.storage.ladybug.entity_repo import LadybugEntityRepo
+from modules.storage.ladybug.temporal_repo import LadybugTemporalRepo
 from modules.storage.ladybug.writer import LadybugWriter
 
 __all__ = [
     "LadybugArticleRepo",
     "LadybugEntityRepo",
+    "LadybugTemporalRepo",
     "LadybugWriter",
 ]
