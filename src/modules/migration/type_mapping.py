@@ -9,7 +9,7 @@ Provides type conversion mappings between:
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -233,7 +233,7 @@ def convert_value(
             if isinstance(value, (int, float)) and (
                 "datetime" in target_lower or "timestamp" in target_lower
             ):
-                return datetime.utcfromtimestamp(value / 1000)
+                return datetime.fromtimestamp(value / 1000, UTC)
 
         # JSON conversions
         if "json" in source_lower and target_lower in ("string", "varchar"):
