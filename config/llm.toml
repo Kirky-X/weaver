@@ -1,7 +1,8 @@
 # LLM Provider Configuration
 # ============================================================
 # Two-layer nested configuration: Provider + Model
-# API keys must use environment variable reference: ${ENV_VAR}
+# API keys should be set via environment variables:
+#   WEAVER__LLM__PROVIDERS__AIPING__API_KEY=sk-xxx
 # ============================================================
 
 # ============================================================
@@ -16,9 +17,10 @@ default_timeout = 120.0
 # Provider: aiping.cn (Primary)
 # ============================================================
 [providers.aiping]
+name = "aiping"
 type = "openai"
 base_url = "https://www.aiping.cn/api/v1"
-api_key = "${WEAVER_LLM__PROVIDERS__AIPING__API_KEY}"
+api_key = ""  # Set via WEAVER__LLM__PROVIDERS__AIPING__API_KEY
 rpm_limit = 100
 concurrency = 8
 timeout = 300.0
@@ -44,9 +46,10 @@ weight = 100
 # https://www.dmxapi.cn - OpenAI-compatible API
 # ============================================================
 [providers.dmx]
+name = "dmx"
 type = "openai"
 base_url = "https://www.dmxapi.cn/v1"
-api_key = "${WEAVER_LLM__PROVIDERS__DMX__API_KEY}"
+api_key = ""  # Set via WEAVER__LLM__PROVIDERS__DMX__API_KEY
 rpm_limit = 60
 concurrency = 5
 timeout = 120.0
@@ -68,6 +71,7 @@ weight = 80
 # Requires: ollama pull qwen3-embedding:0.6b
 # ============================================================
 [providers.ollama]
+name = "ollama"
 type = "openai"
 base_url = "http://localhost:11434/v1"
 api_key = "ollama"                  # Ollama does not require a real key
@@ -85,15 +89,15 @@ weight = 50
 # Default Labels
 # ============================================================
 [defaults.chat]
-label = "chat.aiping.GLM-Z1-9B-0414"
+primary = "chat.aiping.GLM-Z1-9B-0414"
 fallbacks = ["chat.dmx.glm-4.7-free"]
 
 [defaults.embedding]
-label = "embedding.aiping.Qwen3-Embedding-0.6B"
+primary = "embedding.aiping.Qwen3-Embedding-0.6B"
 fallbacks = ["embedding.ollama.qwen3-embedding:0.6b"]
 
 [defaults.rerank]
-label = "rerank.aiping.Qwen3-Reranker-0.6B"
+primary = "rerank.aiping.Qwen3-Reranker-0.6B"
 fallbacks = ["rerank.dmx.bge-reranker-v2-m3-free"]
 
 # ============================================================

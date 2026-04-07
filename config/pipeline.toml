@@ -1,0 +1,103 @@
+# Pipeline Configuration
+# ============================================================
+# News processing pipeline configuration
+# Environment variables can override any value:
+#   WEAVER__PIPELINE__PHASE1__CONCURRENCY=10
+# ============================================================
+
+version = "1.0"
+
+# ============================================================
+# Phase 1: Initial Processing
+# ============================================================
+
+[phase1]
+concurrency = 5
+
+[[phase1.stages]]
+name = "classifier"
+class_path = "modules.processing.pipeline.nodes.classifier.ClassifierNode"
+enabled = true
+timeout = 30
+retry = 3
+retry_delay = 5
+
+[[phase1.stages]]
+name = "cleaner"
+class_path = "modules.processing.pipeline.nodes.cleaner.CleanerNode"
+enabled = true
+timeout = 60
+retry = 3
+retry_delay = 5
+
+[[phase1.stages]]
+name = "categorizer"
+class_path = "modules.processing.pipeline.nodes.categorizer.CategorizerNode"
+enabled = true
+timeout = 45
+retry = 3
+retry_delay = 5
+
+[[phase1.stages]]
+name = "vectorize"
+class_path = "modules.processing.pipeline.nodes.vectorize.VectorizeNode"
+enabled = true
+timeout = 120
+retry = 3
+retry_delay = 5
+
+# ============================================================
+# Phase 3: Deep Analysis
+# ============================================================
+
+[phase3]
+concurrency = 5
+
+[[phase3.stages]]
+name = "re_vectorize"
+class_path = "modules.processing.pipeline.nodes.re_vectorize.ReVectorizeNode"
+enabled = true
+timeout = 120
+retry = 3
+retry_delay = 5
+
+[[phase3.stages]]
+name = "analyze"
+class_path = "modules.processing.pipeline.nodes.analyze.AnalyzeNode"
+enabled = true
+timeout = 90
+retry = 3
+retry_delay = 5
+
+[[phase3.stages]]
+name = "quality_scorer"
+class_path = "modules.processing.pipeline.nodes.quality_scorer.QualityScorerNode"
+enabled = true
+timeout = 60
+retry = 3
+retry_delay = 5
+
+[[phase3.stages]]
+name = "credibility"
+class_path = "modules.processing.pipeline.nodes.credibility_checker.CredibilityCheckerNode"
+enabled = true
+timeout = 45
+retry = 3
+retry_delay = 5
+
+[[phase3.stages]]
+name = "entity_extractor"
+class_path = "modules.processing.pipeline.nodes.entity_extractor.EntityExtractorNode"
+enabled = true
+timeout = 120
+retry = 3
+retry_delay = 5
+
+# ============================================================
+# Batch Processing
+# ============================================================
+
+[batch]
+merger_class = "modules.processing.pipeline.nodes.batch_merger.BatchMergerNode"
+enabled = true
+timeout = 180
