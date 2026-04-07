@@ -172,21 +172,6 @@ class TestCircuitBreaker:
         assert cb._fail_count == 2
 
 
-class TestRateLimiter:
-    """Tests for RateLimiter."""
-
-    def test_redis_token_bucket_initialization(self):
-        """Test RedisTokenBucket initializes correctly."""
-        from core.llm.rate_limiter import RedisTokenBucket
-
-        # Create mock Redis
-        mock_redis = MagicMock()
-        mock_redis.register_script = MagicMock(return_value=MagicMock())
-
-        bucket = RedisTokenBucket(redis_client=mock_redis)
-        assert bucket._redis is not None
-
-
 class TestPromptLoader:
     """Tests for PromptLoader."""
 

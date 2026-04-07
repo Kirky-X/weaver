@@ -346,12 +346,12 @@ def postgres_dsn(e2e_env: dict[str, str]) -> str:
     Returns:
         The PostgreSQL connection string.
     """
-    # Build DSN from individual POSTGRES_* environment variables
-    host = e2e_env.get("POSTGRES_HOST", "localhost")
-    port = e2e_env.get("POSTGRES_PORT", "5432")
-    user = e2e_env.get("POSTGRES_USER", "postgres")
-    password = e2e_env.get("POSTGRES_PASSWORD", "postgres")
-    database = e2e_env.get("POSTGRES_DATABASE", "weaver")
+    # Build DSN from individual WEAVER_POSTGRES__* environment variables
+    host = e2e_env.get("WEAVER_POSTGRES__HOST", "localhost")
+    port = e2e_env.get("WEAVER_POSTGRES__PORT", "5432")
+    user = e2e_env.get("WEAVER_POSTGRES__USER", "postgres")
+    password = e2e_env.get("WEAVER_POSTGRES__PASSWORD", "postgres")
+    database = e2e_env.get("WEAVER_POSTGRES__DATABASE", "weaver")
     return f"postgresql+asyncpg://{user}:{password}@{host}:{port}/{database}"
 
 

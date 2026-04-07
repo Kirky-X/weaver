@@ -286,12 +286,12 @@ def mock_circuit_breaker():
 
 @pytest.fixture
 def mock_rate_limiter():
-    """Mock rate limiter for testing."""
-    from core.resilience.rate_limiter import RedisTokenBucket
+    """Mock rate limiter for testing (aiolimiter AsyncLimiter)."""
+    from aiolimiter import AsyncLimiter
 
-    limiter = MagicMock(spec=RedisTokenBucket)
-    limiter.consume = AsyncMock(return_value=True)
-    limiter.get_tokens = AsyncMock(return_value=100)
+    limiter = MagicMock(spec=AsyncLimiter)
+    limiter.consume = AsyncMock(return_value=0.0)
+    limiter.acquire = AsyncMock(return_value=None)
     return limiter
 
 
