@@ -30,8 +30,8 @@ from modules.memory.graphs.temporal import TemporalGraphRepo
 from modules.memory.retrieval.adaptive_search import AdaptiveSearchEngine
 
 if TYPE_CHECKING:
-    from core.db import Neo4jPool
     from core.llm.client import LLMClient
+    from core.protocols import CachePool, GraphPool
     from modules.knowledge.search.intent.classifier import IntentClassifier
 
 log = get_logger("memory_service")
@@ -129,9 +129,9 @@ class MemoryIntegrationService:
 
     def __init__(
         self,
-        neo4j_pool: Neo4jPool,
+        graph_pool: GraphPool,
         llm_client: LLMClient,
-        redis_client: Any,
+        cache: CachePool,
         embedding_service: EmbeddingServiceProtocol,
         intent_classifier: IntentClassifier,
         config: MemoryServiceConfig | None = None,
@@ -141,9 +141,9 @@ class MemoryIntegrationService:
         """Initialize the memory integration service.
 
         Args:
-            neo4j_pool: Neo4j connection pool.
+            graph_pool: Graph database connection pool.
             llm_client: LLM client for causal inference.
-            redis_client: Redis client for consolidation queue.
+            cache: Cache pool for consolidation queue.
             embedding_service: Service for computing embeddings.
             intent_classifier: Classifier for query intent.
             config: Service configuration.
@@ -153,11 +153,11 @@ class MemoryIntegrationService:
         self._config = config or MemoryServiceConfig()
 
         # Initialize repositories
-        self._temporal_repo = TemporalGraphRepo(pool=neo4j_pool)
-        self._causal_repo = CausalGraphRepo(pool=neo4j_pool)
+        self._temporal_repo = TemporalGraphRepo(pool=graph_pool)
+        self._causal_repo = CausalGraphRepo(pool=graph_pool)
 
         # Initialize consolidation queue
-        self._consolidation_queue = ConsolidationQueue(redis=redis_client)
+        self._consolidation_queue = ConsolidationQueue(cache=cache)
 
         # Initialize fast path with optional repos
         self._fast_path = SynapticIngestionService(

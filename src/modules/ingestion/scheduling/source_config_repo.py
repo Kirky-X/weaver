@@ -4,14 +4,17 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from core.db.models import Source
-from core.db.postgres import PostgresPool
 from core.observability.logging import get_logger
 from modules.ingestion.domain.models import SourceConfig
+
+if TYPE_CHECKING:
+    from core.protocols import RelationalPool
 
 log = get_logger("source_config_repo")
 
@@ -21,11 +24,13 @@ class SourceConfigRepo:
 
     Provides database operations for SourceConfig and preset credibility lookups.
 
+    Implements: SourceRepository
+
     Args:
-        pool: PostgreSQL connection pool.
+        pool: Relational database connection pool.
     """
 
-    def __init__(self, pool: PostgresPool) -> None:
+    def __init__(self, pool: RelationalPool) -> None:
         self._pool = pool
 
     async def get(self, source_id: str) -> SourceConfig | None:

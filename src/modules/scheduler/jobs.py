@@ -7,21 +7,22 @@ import collections
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import json_repair
 from sqlalchemy import and_, select
 
 from config.settings import SchedulerSettings
-from core.cache.redis import RedisClient
 from core.db.models import Article, PersistStatus
-from core.db.postgres import PostgresPool
 from core.observability.logging import get_logger
 from core.observability.metrics import metrics
 from modules.ingestion.deduplication.retry import RetryQueue
 from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 from modules.scheduler.wrapper import scheduled_task
 from modules.storage import ArticleRepo, PendingSyncRepo, SourceAuthorityRepo, VectorRepo
+
+if TYPE_CHECKING:
+    from core.protocols import CachePool, RelationalPool
 
 log = get_logger("scheduler_jobs")
 
@@ -40,8 +41,8 @@ class SchedulerJobs:
 
     def __init__(
         self,
-        postgres_pool: PostgresPool,
-        redis_client: RedisClient,
+        relational_pool: RelationalPool,
+        cache: CachePool,
         neo4j_writer: Neo4jWriter,
         vector_repo: VectorRepo,
         article_repo: ArticleRepo,
@@ -52,14 +53,14 @@ class SchedulerJobs:
         llm_failure_repo: Any = None,
         url_validator: Any = None,
     ) -> None:
-        self._postgres = postgres_pool
-        self._redis = redis_client
+        self._relational_pool = relational_pool
+        self._cache = cache
         self._neo4j_writer = neo4j_writer
         self._vector_repo = vector_repo
         self._article_repo = article_repo
         self._source_authority_repo = source_authority_repo
         self._pending_sync_repo = pending_sync_repo
-        self._retry_queue = RetryQueue(redis_client)
+        self._retry_queue = RetryQueue(cache)
         self._pipeline = pipeline
         self._settings = settings or SchedulerSettings()
         self._llm_failure_repo = llm_failure_repo
@@ -78,7 +79,7 @@ class SchedulerJobs:
         """
         log.info("retry_neo4j_writes_start")
 
-        async with self._postgres.session() as session:
+        async with self._relational_pool.session() as session:
             # Find articles stuck in pg_done state for > 10 minutes
             threshold = datetime.now(UTC) - timedelta(minutes=10)
 
@@ -191,7 +192,7 @@ class SchedulerJobs:
         """
         log.info("update_source_auto_scores_start")
 
-        async with self._postgres.session() as session:
+        async with self._relational_pool.session() as session:
             # Get all sources with articles
             stmt = select(Article.source_host).distinct()
             result = await session.execute(stmt)
@@ -273,7 +274,7 @@ class SchedulerJobs:
 
             from sqlalchemy import text
 
-            async with self._postgres.session() as session:
+            async with self._relational_pool.session() as session:
                 result = await session.execute(text("SELECT neo4j_id FROM entity_vectors"))
                 pg_ids = {row[0] for row in result}
 
@@ -565,7 +566,7 @@ class SchedulerJobs:
         log.info("update_persist_status_metrics_start")
 
         try:
-            async with self._postgres.session() as session:
+            async with self._relational_pool.session() as session:
                 stmt = select(Article.persist_status, func.count(Article.id)).group_by(
                     Article.persist_status
                 )
@@ -848,23 +849,23 @@ class SchedulerJobs:
 class RetryManager:
     """Manages retry queues for failed crawl operations."""
 
-    def __init__(self, redis: RedisClient) -> None:
-        self._redis = redis
+    def __init__(self, cache: CachePool) -> None:
+        self._cache = cache
 
     async def add_to_retry(self, host: str, item: str, retry_at: datetime) -> None:
         """Add an item to the retry queue for a host."""
         key = f"crawl:retry:{host}"
         score = retry_at.timestamp()
-        await self._redis.zadd(key, {item: score})
+        await self._cache.zadd(key, {item: score})
 
     async def get_retry_items(self, host: str) -> list[str]:
         """Get all items ready for retry for a host."""
         key = f"crawl:retry:{host}"
         now = datetime.now(UTC).timestamp()
-        return await self._redis.zrangebyscore(key, "-inf", now)
+        return await self._cache.zrangebyscore(key, "-inf", now)
 
     async def remove_from_retry(self, host: str, *items: str) -> None:
         """Remove items from retry queue."""
         key = f"crawl:retry:{host}"
         if items:
-            await self._redis.zrem(key, *items)
+            await self._cache.zrem(key, *items)

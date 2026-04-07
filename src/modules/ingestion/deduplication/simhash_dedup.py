@@ -6,15 +6,18 @@ from __future__ import annotations
 import time
 import warnings
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 # Suppress SyntaxWarning from simhash library (third-party, cannot fix directly)
 with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=SyntaxWarning)
     from simhash import Simhash
 
-from core.cache.redis import RedisClient
 from core.observability.logging import get_logger
 from core.observability.metrics import metrics
+
+if TYPE_CHECKING:
+    from core.protocols import CachePool
 
 log = get_logger("simhash_dedup")
 
@@ -33,10 +36,12 @@ class SimHashDeduplicator:
     Uses 64-bit SimHash fingerprints to quickly identify similar titles.
     Articles with Hamming distance ≤ threshold are considered duplicates.
 
+    Implements: DeduplicationStrategy
+
     Args:
-        redis: Redis client for fingerprint storage.
+        cache: Cache pool for fingerprint storage.
         threshold: Maximum Hamming distance for similarity (default: 3).
-        ttl_seconds: TTL for Redis entries (default 7 days).
+        ttl_seconds: TTL for cache entries (default 7 days).
     """
 
     SIMHASH_KEY = "crawl:simhash:title"
@@ -45,11 +50,11 @@ class SimHashDeduplicator:
 
     def __init__(
         self,
-        redis: RedisClient,
+        cache: CachePool,
         threshold: int | None = None,
         ttl_seconds: int | None = None,
     ) -> None:
-        self._redis = redis
+        self._cache = cache
         self._threshold = threshold or self.DEFAULT_THRESHOLD
         self._ttl = ttl_seconds or self.DEFAULT_TTL
 
@@ -96,8 +101,8 @@ class SimHashDeduplicator:
         if not items:
             return []
 
-        # Get existing fingerprints from Redis
-        existing_fps = await self._redis.hgetall(self.SIMHASH_KEY)
+        # Get existing fingerprints from cache
+        existing_fps = await self._cache.hgetall(self.SIMHASH_KEY)
 
         # Generate fingerprints for new items
         new_items: list[TitleItem] = []
@@ -142,13 +147,11 @@ class SimHashDeduplicator:
                 new_items.append(item)
                 new_fps.append((fp_str, fp, item.url))
 
-        # Store new fingerprints in Redis
+        # Store new fingerprints in cache
         if new_fps:
-            pipe = self._redis.pipeline()
             now = str(int(time.time()))
             for fp_str, _, url in new_fps:
-                pipe.hset(self.SIMHASH_KEY, fp_str, f"{url}|{now}")
-            await pipe.execute()
+                await self._cache.hset(self.SIMHASH_KEY, fp_str, f"{url}|{now}")
 
         log.info(
             "simhash_dedup_complete",
@@ -200,7 +203,7 @@ class SimHashDeduplicator:
         max_age = max_age_seconds or self._ttl
         cutoff = int(time.time()) - max_age
 
-        all_entries = await self._redis.hgetall(self.SIMHASH_KEY)
+        all_entries = await self._cache.hgetall(self.SIMHASH_KEY)
         if not all_entries:
             return 0
 
@@ -219,7 +222,7 @@ class SimHashDeduplicator:
                 expired_keys.append(key)
 
         if expired_keys:
-            await self._redis.hdel(self.SIMHASH_KEY, *expired_keys)
+            await self._cache.hdel(self.SIMHASH_KEY, *expired_keys)
             log.info(
                 "simhash_cleanup",
                 removed=len(expired_keys),
@@ -234,7 +237,7 @@ class SimHashDeduplicator:
         Returns:
             Dictionary with statistics.
         """
-        all_entries = await self._redis.hgetall(self.SIMHASH_KEY)
+        all_entries = await self._cache.hgetall(self.SIMHASH_KEY)
         return {
             "total_fingerprints": len(all_entries),
             "redis_key": self.SIMHASH_KEY,

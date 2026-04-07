@@ -5,18 +5,21 @@ from __future__ import annotations
 
 import json
 import time
+from typing import TYPE_CHECKING
 
 import json_repair
 
-from core.cache.redis import RedisClient
 from core.constants import RedisKeys
 from core.observability.logging import get_logger
+
+if TYPE_CHECKING:
+    from core.protocols import CachePool
 
 log = get_logger("retry_queue")
 
 
 class RetryQueue:
-    """Redis-backed retry queue with host-level bucketing.
+    """Cache-backed retry queue with host-level bucketing.
 
     Failed items are stored in a sorted set keyed by host,
     with the score being the next retry timestamp.
@@ -24,8 +27,10 @@ class RetryQueue:
     Supports a dead-letter list for permanently failed items
     (after max retries).
 
+    Implements: RetryStrategy
+
     Args:
-        redis: Redis client instance.
+        cache: Cache pool instance.
         max_retries: Maximum number of retry attempts.
         base_delay: Base delay in seconds for exponential backoff.
     """
@@ -34,11 +39,11 @@ class RetryQueue:
 
     def __init__(
         self,
-        redis: RedisClient,
+        cache: CachePool,
         max_retries: int = 3,
         base_delay: float = 60.0,
     ) -> None:
-        self._redis = redis
+        self._cache = cache
         self._max_retries = max_retries
         self._base_delay = base_delay
 
@@ -70,7 +75,7 @@ class RetryQueue:
             }
         )
 
-        await self._redis.zadd(key, {payload: next_retry})
+        await self._cache.zadd(key, {payload: next_retry})
         log.debug(
             "retry_enqueued",
             url=url,
@@ -91,7 +96,7 @@ class RetryQueue:
         key = RedisKeys.crawl_retry(host)
         now = time.time()
 
-        items = await self._redis.zrangebyscore(key, 0, now, num=50)
+        items = await self._cache.zrangebyscore(key, 0, now, num=50)
         result = []
         for item_str in items:
             item = json_repair.loads(item_str)
@@ -102,7 +107,7 @@ class RetryQueue:
 
         # Remove fetched items from the sorted set
         if items:
-            await self._redis.zrem(key, *items)
+            await self._cache.zrem(key, *items)
 
         return result
 
@@ -116,7 +121,7 @@ class RetryQueue:
                 "dead_at": time.time(),
             }
         )
-        await self._redis.lpush(self.DEAD_LETTER_KEY, payload)
+        await self._cache.lpush(self.DEAD_LETTER_KEY, payload)
         log.warning(
             "move_to_dead_letter",
             url=url,

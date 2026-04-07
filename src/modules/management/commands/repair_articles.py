@@ -60,8 +60,8 @@ async def _init_minimal_container():
     log.info("redis_initialized")
 
     prompt_loader = PromptLoader(settings.prompt.dir)
-    llm_client = await LLMClient.create_from_config(
-        config_path="config/llm.toml",
+    llm_client = await LLMClient.create_from_settings(
+        llm_settings=settings.llm,
         prompt_loader=prompt_loader,
         redis_client=redis_client,
     )
