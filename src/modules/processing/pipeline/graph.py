@@ -78,7 +78,7 @@ class Pipeline:
         spacy: SpacyExtractor | None = None,
         vector_repo: Any = None,
         article_repo: Any = None,
-        neo4j_writer: Any = None,
+        graph_writer: Any = None,
         source_auth_repo: Any = None,
         entity_resolver: EntityResolver | None = None,
         redis_client: Any = None,
@@ -126,7 +126,7 @@ class Pipeline:
         self._entity_resolver = entity_resolver
         self._checkpoint_cleanup = CheckpointCleanupNode(redis_client)
         self._article_repo = article_repo
-        self._neo4j_writer = neo4j_writer
+        self._graph_writer = graph_writer
         self._vector_repo = vector_repo
         self._community_updater = community_updater
 
@@ -486,9 +486,9 @@ class Pipeline:
                         log.debug("mark_failed_cleanup_error", error=str(inner_exc))
                 return
 
-        if self._neo4j_writer:
+        if self._graph_writer:
             try:
-                neo4j_ids = await self._neo4j_writer.write(state)
+                neo4j_ids = await self._graph_writer.write(state)
                 state["neo4j_ids"] = neo4j_ids
                 if self._article_repo:
                     await self._article_repo.update_persist_status(
@@ -629,10 +629,10 @@ class Pipeline:
                             pass
                 return
 
-        if self._neo4j_writer:
+        if self._graph_writer:
             for state in valid_states:
                 try:
-                    neo4j_ids = await self._neo4j_writer.write(state)
+                    neo4j_ids = await self._graph_writer.write(state)
                     state["neo4j_ids"] = neo4j_ids
                     if self._article_repo and state.get("article_id"):
                         import uuid

@@ -123,7 +123,7 @@ async def _search_articles_impl(
 ) -> APIResponse[SearchResponse]:
     """Implement articles search internally."""
     try:
-        embeddings = await llm.embed("embedding.aiping_embedding.Qwen3-Embedding-0.6B", [query])
+        embeddings = await llm.embed("embedding.aiping.Qwen3-Embedding-0.6B", [query])
         query_vector = embeddings[0]
     except Exception:
         raise HTTPException(status_code=503, detail="Embedding service unavailable")
@@ -477,7 +477,7 @@ async def search_drift(
         llm = global_engine._llm
 
         engine = DRIFTSearchEngine(
-            neo4j_pool=pool,
+            graph_pool=pool,
             llm=llm,
             config=config,
             local_engine=local_engine,

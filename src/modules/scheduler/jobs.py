@@ -43,7 +43,7 @@ class SchedulerJobs:
         self,
         relational_pool: RelationalPool,
         cache: CachePool,
-        neo4j_writer: Neo4jWriter,
+        graph_writer: Neo4jWriter,
         vector_repo: VectorRepo,
         article_repo: ArticleRepo,
         source_authority_repo: SourceAuthorityRepo,
@@ -55,7 +55,7 @@ class SchedulerJobs:
     ) -> None:
         self._relational_pool = relational_pool
         self._cache = cache
-        self._neo4j_writer = neo4j_writer
+        self._graph_writer = graph_writer
         self._vector_repo = vector_repo
         self._article_repo = article_repo
         self._source_authority_repo = source_authority_repo
@@ -122,7 +122,7 @@ class SchedulerJobs:
                         )
 
                     # Attempt Neo4j write
-                    await self._neo4j_writer.write(state)
+                    await self._graph_writer.write(state)
 
                     # Update status
                     article.persist_status = PersistStatus.NEO4J_DONE
@@ -247,8 +247,8 @@ class SchedulerJobs:
         log.info("archive_old_neo4j_nodes_start")
 
         try:
-            count = await self._neo4j_writer.archive_old_articles(days=90)
-            await self._neo4j_writer.entity_repo.delete_orphan_entities()
+            count = await self._graph_writer.archive_old_articles(days=90)
+            await self._graph_writer.entity_repo.delete_orphan_entities()
             log.info("archive_old_neo4j_nodes_complete", count=count)
             return count
         except Exception as exc:
@@ -268,7 +268,7 @@ class SchedulerJobs:
         log.info("cleanup_orphan_entity_vectors_start")
 
         try:
-            active_ids = await self._neo4j_writer.entity_repo.list_all_entity_ids()
+            active_ids = await self._graph_writer.entity_repo.list_all_entity_ids()
 
             vector_repo = VectorRepo(self._postgres)
 
@@ -310,12 +310,12 @@ class SchedulerJobs:
             pg_ids = await self._article_repo.get_all_article_ids()
 
             # 1. Detect and clean up orphan Neo4j nodes
-            neo4j_ids = await self._neo4j_writer.article_repo.list_all_article_pg_ids()
+            neo4j_ids = await self._graph_writer.article_repo.list_all_article_pg_ids()
             orphan_ids = set(neo4j_ids) - pg_ids
 
             deleted = 0
             if orphan_ids:
-                deleted = await self._neo4j_writer.article_repo.delete_orphan_articles(
+                deleted = await self._graph_writer.article_repo.delete_orphan_articles(
                     list(orphan_ids)
                 )
                 log.info(
@@ -325,7 +325,7 @@ class SchedulerJobs:
                 )
 
             # 2. Count articles without mentions (orphan relationships)
-            orphan_cleaned = await self._neo4j_writer.article_repo.count_articles_without_mentions()
+            orphan_cleaned = await self._graph_writer.article_repo.count_articles_without_mentions()
 
             # 3. Detect enrichment gaps (NEO4J_DONE but NULL enrichment fields)
             incomplete = await self._article_repo.get_incomplete_articles(limit=100)
@@ -370,7 +370,7 @@ class SchedulerJobs:
         """
         try:
             # Count entities in Neo4j
-            neo4j_entity_ids = await self._neo4j_writer.entity_repo.list_all_entity_ids()
+            neo4j_entity_ids = await self._graph_writer.entity_repo.list_all_entity_ids()
             neo4j_count = len(neo4j_entity_ids)
 
             # Count entities in PostgreSQL with valid neo4j_id
@@ -616,7 +616,7 @@ class SchedulerJobs:
                     state["article_id"] = str(record.article_id)
 
                     # Write to Neo4j
-                    neo4j_ids = await self._neo4j_writer.write(state)
+                    neo4j_ids = await self._graph_writer.write(state)
 
                     # Update temp keys in entity_vectors with real neo4j IDs
                     if neo4j_ids and record.payload.get("entity_temp_keys"):
@@ -685,7 +685,7 @@ class SchedulerJobs:
 
         try:
             # 1. Entity count comparison
-            neo4j_entity_ids = await self._neo4j_writer.entity_repo.list_all_entity_ids()
+            neo4j_entity_ids = await self._graph_writer.entity_repo.list_all_entity_ids()
             neo4j_count = len(neo4j_entity_ids)
             pg_count = await self._vector_repo.count_entities_with_valid_neo4j_ids()
 

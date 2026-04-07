@@ -94,9 +94,9 @@ class Container:
         self._article_repo: ArticleRepo | None = None
         self._vector_repo: VectorRepo | None = None
         self._source_authority_repo: SourceAuthorityRepo | None = None
-        self._neo4j_entity_repo: Neo4jEntityRepo | None = None
-        self._neo4j_article_repo: Neo4jArticleRepo | None = None
-        self._neo4j_writer: Neo4jWriter | None = None
+        self._graph_entity_repo: Neo4jEntityRepo | None = None
+        self._graph_article_repo: Neo4jArticleRepo | None = None
+        self._graph_writer: Neo4jWriter | None = None
         self._graph_repo: Any = None  # GraphRepository with QueryBuilder
         self._entity_resolver: EntityResolver | None = None
         self._smart_fetcher: SmartFetcher | None = None
@@ -191,21 +191,6 @@ class Container:
         if self._strategy is None:
             return None
         return self._strategy.graph_type
-
-    # Legacy accessors for backward compatibility
-    def postgres_pool(self) -> RelationalPool:
-        """Get relational pool (PostgreSQL or DuckDB fallback).
-
-        Deprecated: Use relational_pool() instead.
-        """
-        return self.relational_pool()
-
-    def neo4j_pool(self) -> GraphPool | None:
-        """Get graph pool (Neo4j or LadybugDB fallback).
-
-        Deprecated: Use graph_pool() instead.
-        """
-        return self.graph_pool()
 
     async def init_redis(self) -> RedisClient | CashewsRedisFallback:
         """Initialize Redis client with fallback support.
@@ -384,7 +369,7 @@ class Container:
             self._scheduler_jobs = SchedulerJobs(
                 postgres_pool=self.relational_pool(),
                 redis_client=self._redis_client,
-                neo4j_writer=self._neo4j_writer,
+                graph_writer=self._graph_writer,
                 vector_repo=self._vector_repo,
                 article_repo=self._article_repo,
                 source_authority_repo=self._source_authority_repo,
@@ -483,7 +468,7 @@ class Container:
         )
 
         # ── Archive (weekly, conditional on Neo4j) ──
-        if self._neo4j_writer is not None:
+        if self._graph_writer is not None:
             scheduler.add_job(
                 jobs.archive_old_neo4j_nodes,
                 CronTrigger(
@@ -601,14 +586,14 @@ class Container:
             return None
         if self._strategy is None:
             return None
-        if self._neo4j_entity_repo is None:
+        if self._graph_entity_repo is None:
             if self._strategy.graph_type == "ladybug":
                 from modules.storage.ladybug import LadybugEntityRepo
 
-                self._neo4j_entity_repo = LadybugEntityRepo(graph_pool)
+                self._graph_entity_repo = LadybugEntityRepo(graph_pool)
             else:
-                self._neo4j_entity_repo = Neo4jEntityRepo(graph_pool)
-        return self._neo4j_entity_repo
+                self._graph_entity_repo = Neo4jEntityRepo(graph_pool)
+        return self._graph_entity_repo
 
     def graph_article_repo(self) -> Any | None:
         """Get graph article repository (Neo4j or LadybugDB implementation)."""
@@ -617,14 +602,14 @@ class Container:
             return None
         if self._strategy is None:
             return None
-        if self._neo4j_article_repo is None:
+        if self._graph_article_repo is None:
             if self._strategy.graph_type == "ladybug":
                 from modules.storage.ladybug import LadybugArticleRepo
 
-                self._neo4j_article_repo = LadybugArticleRepo(graph_pool)
+                self._graph_article_repo = LadybugArticleRepo(graph_pool)
             else:
-                self._neo4j_article_repo = Neo4jArticleRepo(graph_pool)
-        return self._neo4j_article_repo
+                self._graph_article_repo = Neo4jArticleRepo(graph_pool)
+        return self._graph_article_repo
 
     def graph_writer(self) -> Any | None:
         """Get graph writer (Neo4j or LadybugDB implementation)."""
@@ -633,15 +618,15 @@ class Container:
             return None
         if self._strategy is None:
             return None
-        if self._neo4j_writer is None:
+        if self._graph_writer is None:
             rt_normalizer = self.relation_type_normalizer()
             if self._strategy.graph_type == "ladybug":
                 from modules.storage.ladybug import LadybugWriter
 
-                self._neo4j_writer = LadybugWriter(graph_pool, rt_normalizer)
+                self._graph_writer = LadybugWriter(graph_pool, rt_normalizer)
             else:
-                self._neo4j_writer = Neo4jWriter(graph_pool, rt_normalizer)
-        return self._neo4j_writer
+                self._graph_writer = Neo4jWriter(graph_pool, rt_normalizer)
+        return self._graph_writer
 
     def graph_repo(self) -> Any:
         """Get database-agnostic graph repository.
@@ -671,19 +656,6 @@ class Container:
 
             self._relation_type_normalizer = RelationTypeNormalizer(self._strategy.relational_pool)
         return self._relation_type_normalizer
-
-    # Legacy accessors for backward compatibility
-    def neo4j_entity_repo(self) -> Any | None:
-        """Get graph entity repository. Deprecated: Use graph_entity_repo()."""
-        return self.graph_entity_repo()
-
-    def neo4j_article_repo(self) -> Any | None:
-        """Get graph article repository. Deprecated: Use graph_article_repo()."""
-        return self.graph_article_repo()
-
-    def neo4j_writer(self) -> Any | None:
-        """Get graph writer. Deprecated: Use graph_writer()."""
-        return self.graph_writer()
 
     def entity_resolver(self) -> EntityResolver:
         """Get entity resolver."""
@@ -1086,7 +1058,7 @@ class Container:
                 spacy=spacy_extractor,
                 vector_repo=self.vector_repo(),
                 article_repo=self.article_repo(),
-                neo4j_writer=self.neo4j_writer(),
+                graph_writer=self.graph_writer(),
                 source_auth_repo=self.source_authority_repo(),
                 entity_resolver=self.entity_resolver(),
                 redis_client=self._redis_client,

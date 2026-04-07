@@ -10,8 +10,8 @@ from typing import Any
 from sqlalchemy import and_, delete, select, update
 
 from core.db.models import PendingSync
-from core.db.postgres import PostgresPool
 from core.observability.logging import get_logger
+from core.protocols import RelationalPool
 
 log = get_logger("pending_sync_repo")
 
@@ -19,11 +19,13 @@ log = get_logger("pending_sync_repo")
 class PendingSyncRepo:
     """Repository for pending Neo4j sync operations.
 
+    Implements: EntityRepository (partial)
+
     Args:
-        pool: PostgreSQL connection pool.
+        pool: Relational database connection pool.
     """
 
-    def __init__(self, pool: PostgresPool) -> None:
+    def __init__(self, pool: RelationalPool) -> None:
         self._pool = pool
 
     async def upsert(self, article_id: uuid.UUID, sync_type: str, payload: dict[str, Any]) -> int:
