@@ -21,7 +21,6 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from api.endpoints import _deps as deps
-from api.endpoints.graph import set_postgres_pool as set_graph_postgres_pool
 from api.endpoints.health import health_check
 from api.middleware.api_response import register_exception_handlers
 from api.middleware.rate_limit import limiter
@@ -88,9 +87,6 @@ async def lifespan(app: FastAPI) -> None:
     redis_client = container.redis_client()
     log.debug("redis_client_set", client_id=id(redis_client))
 
-    # Set Neo4j client for graph module
-    set_graph_postgres_pool(container.postgres_pool())
-
     # Register all pools/clients with the centralized Endpoints registry
     deps.Endpoints._postgres = container.postgres_pool()
     deps.Endpoints._neo4j = container.neo4j_pool()
@@ -105,6 +101,8 @@ async def lifespan(app: FastAPI) -> None:
     deps.Endpoints._local_engine = container.local_search_engine()
     deps.Endpoints._global_engine = container.global_search_engine()
     deps.Endpoints._hybrid_engine = container.hybrid_search_engine()
+    deps.Endpoints._pipeline_service = container.pipeline_service()
+    deps.Endpoints._task_registry = container.task_registry()
     log.debug("endpoints_registry_populated")
 
     log.info(

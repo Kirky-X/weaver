@@ -32,6 +32,8 @@ if TYPE_CHECKING:
     from core.db.neo4j import Neo4jPool
     from core.db.postgres import PostgresPool
     from core.llm.client import LLMClient
+    from core.services.pipeline_service import PipelineServiceImpl
+    from core.services.task_registry import InMemoryTaskRegistry
     from modules.analytics.llm_failure.repo import LLMFailureRepo
     from modules.analytics.llm_usage.repo import LLMUsageRepo
     from modules.ingestion.scheduling.scheduler import SourceScheduler
@@ -63,6 +65,8 @@ class Endpoints:
     _source_authority_repo: SourceAuthorityRepo | None = None
     _llm_failure_repo: LLMFailureRepo | None = None
     _llm_usage_repo: LLMUsageRepo | None = None
+    _pipeline_service: PipelineServiceImpl | None = None
+    _task_registry: InMemoryTaskRegistry | None = None
 
     # ── Postgres ────────────────────────────────────────────────
 
@@ -163,3 +167,38 @@ class Endpoints:
         if Endpoints._llm_usage_repo is None:
             raise HTTPException(503, detail="LLM usage repo not initialized")
         return Endpoints._llm_usage_repo
+
+    # ── Pipeline Service ───────────────────────────────────────────
+
+    @staticmethod
+    def get_pipeline_service() -> PipelineServiceImpl:
+        """Get the pipeline service with stable public interface."""
+        if Endpoints._pipeline_service is None:
+            raise HTTPException(503, detail="Pipeline service not initialized")
+        return Endpoints._pipeline_service
+
+    # ── Task Registry ───────────────────────────────────────────────
+
+    @staticmethod
+    def get_task_registry() -> InMemoryTaskRegistry:
+        """Get the task registry for background task tracking."""
+        if Endpoints._task_registry is None:
+            raise HTTPException(503, detail="Task registry not initialized")
+        return Endpoints._task_registry
+
+    # ── Optional getters (return None instead of raising) ───────────
+
+    @staticmethod
+    def get_postgres_pool_optional() -> PostgresPool | None:
+        """Get PostgreSQL pool or None if not initialized."""
+        return Endpoints._postgres
+
+    @staticmethod
+    def get_neo4j_pool_optional() -> Neo4jPool | None:
+        """Get Neo4j pool or None if not initialized."""
+        return Endpoints._neo4j
+
+    @staticmethod
+    def get_redis_optional() -> RedisClient | CashewsRedisFallback | None:
+        """Get Redis client or None if not initialized."""
+        return Endpoints._redis

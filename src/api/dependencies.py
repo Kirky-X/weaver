@@ -16,7 +16,7 @@ Example:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Depends, HTTPException
 
@@ -26,12 +26,15 @@ if TYPE_CHECKING:
     from core.db.neo4j import Neo4jPool
     from core.db.postgres import PostgresPool
     from core.llm.client import LLMClient
+    from core.services.pipeline_service import PipelineServiceImpl
+    from core.services.task_registry import InMemoryTaskRegistry
     from modules.ingestion.scheduling.scheduler import SourceScheduler
     from modules.knowledge.search.engines.global_search import GlobalSearchEngine
     from modules.knowledge.search.engines.hybrid_search import HybridSearchEngine
     from modules.knowledge.search.engines.local_search import LocalSearchEngine
     from modules.storage import ArticleRepo, SourceAuthorityRepo, VectorRepo
     from modules.ingestion.scheduling.source_config_repo import SourceConfigRepo
+    from modules.analytics.llm_failure.repo import LLMFailureRepo
     from modules.analytics.llm_usage.repo import LLMUsageRepo
 
 from api.endpoints._deps import Endpoints
@@ -215,7 +218,7 @@ def get_source_authority_repo() -> SourceAuthorityRepo:
     return Endpoints.get_source_authority_repo()
 
 
-def get_llm_failure_repo() -> Any:
+def get_llm_failure_repo() -> LLMFailureRepo:
     """FastAPI dependency for LLM failure repository.
 
     Raises:
@@ -241,6 +244,32 @@ def get_llm_usage_repo() -> LLMUsageRepo:
     return Endpoints.get_llm_usage_repo()
 
 
+def get_pipeline_service() -> PipelineServiceImpl:
+    """FastAPI dependency for pipeline service.
+
+    Raises:
+        HTTPException: If service is not initialized.
+
+    Returns:
+        PipelineServiceImpl instance.
+
+    """
+    return Endpoints.get_pipeline_service()
+
+
+def get_task_registry() -> InMemoryTaskRegistry:
+    """FastAPI dependency for task registry.
+
+    Raises:
+        HTTPException: If registry is not initialized.
+
+    Returns:
+        InMemoryTaskRegistry instance.
+
+    """
+    return Endpoints.get_task_registry()
+
+
 # Type aliases for cleaner endpoint signatures
 PostgresPoolDep = Annotated["PostgresPool", Depends(get_postgres_pool)]
 RedisClientDep = Annotated["RedisClient | CashewsRedisFallback", Depends(get_redis_client)]
@@ -255,3 +284,4 @@ SourceSchedulerDep = Annotated["SourceScheduler", Depends(get_source_scheduler)]
 SourceConfigRepoDep = Annotated["SourceConfigRepo", Depends(get_source_config_repo)]
 SourceAuthorityRepoDep = Annotated["SourceAuthorityRepo", Depends(get_source_authority_repo)]
 LLMUsageRepoDep = Annotated["LLMUsageRepo", Depends(get_llm_usage_repo)]
+TaskRegistryDep = Annotated["InMemoryTaskRegistry", Depends(get_task_registry)]

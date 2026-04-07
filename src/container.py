@@ -14,6 +14,7 @@ from core.llm.client import LLMClient
 from core.observability import get_logger
 from core.prompt import PromptLoader
 from core.protocols import CachePool, EntityRepository, GraphPool, RelationalPool, VectorRepository
+from core.services.pipeline_service import PipelineServiceImpl
 from modules.analytics.llm_usage.buffer import LLMUsageBuffer
 from modules.analytics.llm_usage.repo import LLMUsageRepo
 from modules.ingestion import (
@@ -101,6 +102,7 @@ class Container:
         self._crawl4ai_fetcher: Any = None  # Crawl4AIFetcher
         self._crawler: Crawler | None = None
         self._pipeline: Pipeline | None = None
+        self._pipeline_service: PipelineServiceImpl | None = None
         self._deduplicator: Deduplicator | None = None
         self._event_bus: EventBus | None = None
         self._llm_failure_repo: Any = None
@@ -1056,6 +1058,21 @@ class Container:
         if self._pipeline is None:
             raise RuntimeError("Pipeline not initialized. Call init_pipeline() first.")
         return self._pipeline
+
+    def pipeline_service(self) -> PipelineServiceImpl:
+        """Get the pipeline service with stable public interface.
+
+        Returns:
+            PipelineServiceImpl instance that wraps the Pipeline.
+
+        Raises:
+            RuntimeError: If pipeline is not initialized.
+        """
+        if self._pipeline_service is None:
+            if self._pipeline is None:
+                raise RuntimeError("Pipeline not initialized. Call init_pipeline() first.")
+            self._pipeline_service = PipelineServiceImpl(self._pipeline)
+        return self._pipeline_service
 
     # ── Lifecycle ─────────────────────────────────────────────────
 
