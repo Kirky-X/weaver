@@ -188,6 +188,7 @@ async def update_authority(
         authority=new_authority,
         tier=new_tier,
         needs_review=False,  # Mark as reviewed
+        description=request.description,
     )
 
     log.info(

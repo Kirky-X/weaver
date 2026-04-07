@@ -526,26 +526,17 @@ class Pipeline:
         if terminal_states and self._article_repo:
             for state in terminal_states:
                 try:
-                    from sqlalchemy import select
-
-                    async with self._article_repo._pool.session() as session:
-                        from core.db.models import Article
-
-                        result = await session.execute(
-                            select(Article).where(Article.source_url == state["raw"].url)
+                    source_url = state["raw"].url
+                    updated = await self._article_repo.mark_terminal_by_url(source_url)
+                    if updated:
+                        log.info(
+                            "terminal_article_status_updated",
+                            url=source_url[:50],
                         )
-                        article = result.scalar_one_or_none()
-                        if article and article.persist_status == PersistStatus.PENDING:
-                            article.persist_status = PersistStatus.PG_DONE
-                            await session.commit()
-                            log.info(
-                                "terminal_article_status_updated",
-                                url=state["raw"].url[:50],
-                            )
                 except Exception as exc:
                     log.warning(
                         "terminal_article_status_update_failed",
-                        url=state["raw"].url[:50],
+                        url=state["raw"].url[:50] if state.get("raw") else "unknown",
                         error=str(exc),
                     )
 
@@ -697,6 +688,88 @@ class Pipeline:
         """Wait for all in-progress tasks to complete."""
         # In a production implementation, this would track in-flight tasks.
         log.info("pipeline_drained")
+
+    async def process_article_phase3(
+        self,
+        article_id: str,
+        state: PipelineState | None = None,
+        *,
+        force_reprocess: bool = False,
+    ) -> PipelineState:
+        """Process a single article through phase 3 enrichment.
+
+        This is a public interface for re-running enrichment on existing articles
+        without going through the full pipeline. Used by repair operations.
+
+        Args:
+            article_id: The article ID to process.
+            state: Optional pre-built pipeline state. If not provided, a minimal
+                   state will be created from the article_id.
+            force_reprocess: Force reprocessing even if article appears complete.
+
+        Returns:
+            The enriched pipeline state.
+
+        Raises:
+            ArticleNotFoundError: If article does not exist.
+        """
+        log.info("process_article_phase3", article_id=article_id, force_reprocess=force_reprocess)
+
+        if state is None:
+            # Build minimal state from article_id
+            if self._article_repo is None:
+                raise RuntimeError("article_repo required for process_article_phase3")
+
+            article = await self._article_repo.get_by_id(article_id)
+            if article is None:
+                raise ValueError(f"Article not found: {article_id}")
+
+            from modules.ingestion.domain.models import ArticleRaw
+
+            raw = ArticleRaw(
+                url=article.source_url,
+                title=article.title or "",
+                body=article.body or "",
+                source=article.source_host or "",
+                source_host=article.source_host or "",
+                publish_time=article.publish_time,
+            )
+            state = PipelineState(raw=raw)
+            state["article_id"] = str(article.id)
+            state["is_news"] = article.is_news
+            state["terminal"] = not article.is_news
+            state["cleaned"] = {
+                "title": article.title or "",
+                "body": article.body or "",
+            }
+
+        # Run phase 3 enrichment
+        return await self._phase3_per_article(state)
+
+    async def get_article_status(self, article_id: str) -> dict[str, Any]:
+        """Get the processing status for an article.
+
+        Args:
+            article_id: The article ID to check.
+
+        Returns:
+            Status dict with phase completion flags.
+        """
+        if self._article_repo is None:
+            return {"error": "article_repo not configured"}
+
+        article = await self._article_repo.get_by_id(article_id)
+        if article is None:
+            return {"status": "not_found", "article_id": article_id}
+
+        return {
+            "article_id": article_id,
+            "persist_status": str(article.persist_status) if article.persist_status else None,
+            "has_summary": article.summary is not None,
+            "has_category": article.category is not None,
+            "has_score": article.score is not None,
+            "has_credibility": article.credibility_score is not None,
+        }
 
     async def _maybe_trigger_community_update(self, states: list[PipelineState]) -> None:
         """Check and trigger incremental community update after Phase 4 persist.

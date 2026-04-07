@@ -33,6 +33,7 @@ from core.llm.client import LLMClient  # noqa: E402
 from core.llm.token_budget import TokenBudgetManager  # noqa: E402
 from core.observability.logging import get_logger  # noqa: E402
 from core.prompt.loader import PromptLoader  # noqa: E402
+from core.services.pipeline_service import PipelineServiceImpl  # noqa: E402
 from modules.ingestion.domain.models import ArticleRaw  # noqa: E402
 from modules.processing.nlp.spacy_extractor import SpacyExtractor  # noqa: E402
 from modules.processing.pipeline.graph import Pipeline  # noqa: E402
@@ -119,6 +120,9 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
             redis_client=redis_client,
         )
 
+        # Wrap pipeline with service interface for stable API
+        pipeline_service = PipelineServiceImpl(pipeline)
+
         repaired = 0
         total_checked = 0
 
@@ -168,9 +172,11 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
                     }
 
                     try:
-                        # Run phase3 enrichment only (phase3_per_article handles
-                        # analyze + quality_scorer + credibility + entity_extractor)
-                        enriched_state = await pipeline._phase3_per_article(state)
+                        # Run phase3 enrichment using public service interface
+                        enriched_state = await pipeline.process_article_phase3(
+                            article_id=str(article.id),
+                            state=state,
+                        )
 
                         # Extract enrichment values from enriched state
                         enriched_category = enriched_state.get("category")

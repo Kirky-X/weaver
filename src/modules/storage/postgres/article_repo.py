@@ -402,6 +402,34 @@ class ArticleRepo:
             )
             await session.commit()
 
+    async def mark_terminal_by_url(self, source_url: str) -> bool:
+        """Mark a terminal article as PG_DONE by source URL.
+
+        Used for articles that failed processing but need persist_status updated
+        so they don't stay stuck in PENDING state.
+
+        Args:
+            source_url: The article's source URL.
+
+        Returns:
+            True if an article was updated, False otherwise.
+        """
+        async with self._pool.session() as session:
+            result = await session.execute(
+                update(Article)
+                .where(Article.source_url == source_url)
+                .where(Article.persist_status == PersistStatus.PENDING)
+                .values(
+                    persist_status=PersistStatus.PG_DONE,
+                    updated_at=datetime.now(UTC),
+                )
+            )
+            await session.commit()
+            updated = result.rowcount > 0
+            if updated:
+                log.info("terminal_article_marked_done", source_url=source_url[:100])
+            return updated
+
     async def update_credibility(
         self,
         article_id: str,
