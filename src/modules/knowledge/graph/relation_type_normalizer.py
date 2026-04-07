@@ -10,13 +10,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import select, update
 
 from core.db.models import RelationType, UnknownRelationType
-from core.db.postgres import PostgresPool
 from core.observability.logging import get_logger
+
+if TYPE_CHECKING:
+    from core.protocols import RelationalPool
 
 log = get_logger("relation_type_normalizer")
 
@@ -51,15 +54,17 @@ class RelationTypeNormalizer:
     将 LLM 提取的原始关系类型归一化为标准关系类型。
     支持别名匹配、后缀清洗、未知类型记录等功能。
 
+    Implements: NormalizerStrategy
+
     Args:
-        pool: PostgreSQL 连接池。
+        pool: Relational database connection pool.
     """
 
-    def __init__(self, pool: PostgresPool) -> None:
+    def __init__(self, pool: RelationalPool) -> None:
         """Initialize the relation type normalizer.
 
         Args:
-            pool: PostgreSQL connection pool.
+            pool: Relational database connection pool.
         """
         self._pool = pool
         self._alias_cache: dict[str, NormalizedRelation] = {}

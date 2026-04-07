@@ -7,11 +7,11 @@ import time
 import uuid
 from collections import defaultdict
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import igraph as ig
 import leidenalg
 
-from core.db.neo4j import Neo4jPool
 from core.observability.logging import get_logger
 from modules.knowledge.graph.community_models import (
     Community,
@@ -19,6 +19,9 @@ from modules.knowledge.graph.community_models import (
     HierarchicalCluster,
 )
 from modules.knowledge.graph.community_repo import Neo4jCommunityRepo
+
+if TYPE_CHECKING:
+    from core.protocols import GraphPool
 
 log = get_logger("community_detector")
 
@@ -30,15 +33,17 @@ class CommunityDetector:
     algorithm to partition entities into hierarchical communities based on
     their RELATED_TO relationships.
 
+    Implements: CommunityDetectionStrategy
+
     Args:
-        pool: Neo4j connection pool.
+        pool: Graph database connection pool.
         max_cluster_size: Maximum size of leaf clusters.
         default_seed: Random seed for reproducibility.
     """
 
     def __init__(
         self,
-        pool: Neo4jPool,
+        pool: GraphPool,
         max_cluster_size: int = 10,
         default_seed: int = 42,
     ) -> None:

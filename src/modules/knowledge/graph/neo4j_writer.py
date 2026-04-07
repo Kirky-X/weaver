@@ -1,25 +1,25 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Neo4j writer for persisting pipeline state to graph database."""
+"""Graph writer for persisting pipeline state to graph database."""
 
 from __future__ import annotations
 
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from core.db.neo4j import Neo4jPool
 from core.observability.logging import get_logger
 from modules.processing.pipeline.state import PipelineState
 from modules.storage.neo4j.article_repo import Neo4jArticleRepo
 from modules.storage.neo4j.entity_repo import Neo4jEntityRepo
 
 if TYPE_CHECKING:
+    from core.protocols import GraphPool
     from modules.knowledge.graph.relation_type_normalizer import RelationTypeNormalizer
 
-log = get_logger("neo4j_writer")
+log = get_logger("graph_writer")
 
 
 class Neo4jWriter:
-    """Writes pipeline processing results to Neo4j graph database.
+    """Writes pipeline processing results to graph database.
 
     Coordinates entity and article repositories to persist:
     - Article nodes with metadata
@@ -28,16 +28,18 @@ class Neo4jWriter:
     - FOLLOWED_BY relationships (article -> article)
     - Typed entity-to-entity relationships (normalised via RelationTypeNormalizer)
 
+    Implements: GraphWriteStrategy
+
     Args:
-        pool: Neo4j connection pool.
+        pool: Graph database connection pool.
         relation_type_normalizer: Optional normaliser for relation types.
             When provided, LLM-extracted relation types are normalised
-            before writing to Neo4j.
+            before writing to graph database.
     """
 
     def __init__(
         self,
-        pool: Neo4jPool,
+        pool: GraphPool,
         relation_type_normalizer: RelationTypeNormalizer | None = None,
     ) -> None:
         self._pool = pool

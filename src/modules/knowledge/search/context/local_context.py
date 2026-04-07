@@ -9,13 +9,15 @@ Builds context by:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from core.db.neo4j import Neo4jPool
 from core.db.safe_query import validate_edge_type
 from core.observability.logging import get_logger
 from modules.knowledge.graph.relation_type_normalizer import RelationTypeNormalizer
 from modules.knowledge.search.context.builder import ContextBuilder, SearchContext
+
+if TYPE_CHECKING:
+    from core.protocols import GraphPool
 
 log = get_logger("search.local_context")
 
@@ -35,7 +37,7 @@ class LocalContextBuilder(ContextBuilder):
 
     def __init__(
         self,
-        neo4j_pool: Neo4jPool,
+        graph_pool: GraphPool,
         token_encoder: Any = None,
         default_max_tokens: int = 8000,
         max_entities: int = 20,
@@ -45,7 +47,7 @@ class LocalContextBuilder(ContextBuilder):
         """Initialize local context builder.
 
         Args:
-            neo4j_pool: Neo4j connection pool.
+            graph_pool: Graph database connection pool.
             token_encoder: Optional tokenizer.
             default_max_tokens: Default max tokens for context.
             max_entities: Maximum entities to include.
@@ -53,7 +55,7 @@ class LocalContextBuilder(ContextBuilder):
             max_hops: Maximum hops for neighborhood expansion.
         """
         super().__init__(token_encoder, default_max_tokens)
-        self._pool = neo4j_pool
+        self._pool = graph_pool
         self._max_entities = max_entities
         self._max_relationships = max_relationships
         self._max_hops = max_hops

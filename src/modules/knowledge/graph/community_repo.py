@@ -1,29 +1,33 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Neo4j community repository for community graph operations."""
+"""Graph community repository for community graph operations."""
 
 from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from core.db.neo4j import Neo4jPool
 from core.observability.logging import get_logger
 from modules.knowledge.graph.community_models import Community, CommunityReport
 
-log = get_logger("neo4j_community_repo")
+if TYPE_CHECKING:
+    from core.protocols import GraphPool
+
+log = get_logger("community_repo")
 
 
 class Neo4jCommunityRepo:
-    """Neo4j repository for community CRUD operations.
+    """Graph repository for community CRUD operations.
 
-    Handles community and community report persistence in Neo4j.
+    Handles community and community report persistence.
+
+    Implements: CommunityRepository
 
     Args:
-        pool: Neo4j connection pool.
+        pool: Graph database connection pool.
     """
 
-    def __init__(self, pool: Neo4jPool) -> None:
+    def __init__(self, pool: GraphPool) -> None:
         self._pool = pool
 
     async def ensure_constraints(self) -> None:

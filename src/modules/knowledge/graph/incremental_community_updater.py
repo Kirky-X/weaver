@@ -12,8 +12,8 @@ import uuid
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
-from core.db.neo4j import Neo4jPool
 from core.observability.logging import get_logger
 
 # Optional: Leiden algorithm for better community detection
@@ -24,6 +24,9 @@ try:
     LEIDEN_AVAILABLE = True
 except ImportError:
     LEIDEN_AVAILABLE = False
+
+if TYPE_CHECKING:
+    from core.protocols import GraphPool
 
 log = get_logger("incremental_community_updater")
 
@@ -72,8 +75,10 @@ class IncrementalCommunityUpdater:
     - Entity count changed > ENTITY_CHANGE_THRESHOLD since last rebuild
     - Modularity has degraded (>0.05 cumulative drop over 3 checks)
 
+    Implements: CommunityUpdateStrategy
+
     Args:
-        pool: Neo4j connection pool.
+        pool: Graph database connection pool.
         update_threshold: Minimum pending entities to trigger update (default: 50).
         interval_minutes: Minimum minutes between incremental updates (default: 30).
         max_subgraph_size: Maximum nodes in extracted subgraph (default: 2000).
@@ -87,7 +92,7 @@ class IncrementalCommunityUpdater:
 
     def __init__(
         self,
-        pool: Neo4jPool,
+        pool: GraphPool,
         update_threshold: int = 50,
         interval_minutes: int = 30,
         max_subgraph_size: int = 2000,

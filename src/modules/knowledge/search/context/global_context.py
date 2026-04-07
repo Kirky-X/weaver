@@ -7,12 +7,14 @@ suitable for broad, exploratory queries that span multiple communities.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from core.db.neo4j import Neo4jPool
 from core.llm.client import LLMClient
 from core.observability.logging import get_logger
 from modules.knowledge.search.context.builder import ContextBuilder, SearchContext
+
+if TYPE_CHECKING:
+    from core.protocols import GraphPool
 
 log = get_logger("search.global_context")
 
@@ -32,7 +34,7 @@ class GlobalContextBuilder(ContextBuilder):
 
     def __init__(
         self,
-        neo4j_pool: Neo4jPool,
+        graph_pool: GraphPool,
         token_encoder: Any = None,
         default_max_tokens: int = 12000,
         max_communities: int = 10,
@@ -43,7 +45,7 @@ class GlobalContextBuilder(ContextBuilder):
         """Initialize global context builder.
 
         Args:
-            neo4j_pool: Neo4j connection pool.
+            graph_pool: Graph database connection pool.
             token_encoder: Optional tokenizer.
             default_max_tokens: Default max tokens for context.
             max_communities: Maximum communities to include.
@@ -52,7 +54,7 @@ class GlobalContextBuilder(ContextBuilder):
             fallback_enabled: Whether to use entity-article fallback when no communities.
         """
         super().__init__(token_encoder, default_max_tokens)
-        self._pool = neo4j_pool
+        self._pool = graph_pool
         self._max_communities = max_communities
         self._max_entities_per_community = max_entities_per_community
         self._llm_client = llm_client

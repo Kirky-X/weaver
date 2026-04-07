@@ -5,15 +5,17 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
-from core.db.neo4j import Neo4jPool
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
 from core.observability.logging import get_logger
 from modules.knowledge.graph.community_repo import Neo4jCommunityRepo
+
+if TYPE_CHECKING:
+    from core.protocols import GraphPool
 
 log = get_logger("community_report_generator")
 
@@ -43,20 +45,22 @@ class CommunityReportGenerator:
     """Generates LLM-powered reports for communities.
 
     Handles:
-    - Fetching community data from Neo4j
+    - Fetching community data from graph database
     - Formatting prompts for LLM
     - Storing generated reports with embeddings
     - Batch report generation with concurrency control
 
+    Implements: ReportGenerationStrategy
+
     Args:
-        pool: Neo4j connection pool.
+        pool: Graph database connection pool.
         llm_client: LLM client for report generation.
         max_concurrent: Maximum concurrent LLM calls.
     """
 
     def __init__(
         self,
-        pool: Neo4jPool,
+        pool: GraphPool,
         llm_client: LLMClient,
         max_concurrent: int = 5,
         embedding_model: str = "embedding.aiping_embedding.Qwen3-Embedding-0.6B",

@@ -11,14 +11,16 @@ This service manages BM25 index lifecycle:
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import and_, select
 
 from core.db.models import Article, PersistStatus
-from core.db.postgres import PostgresPool
 from core.observability.logging import get_logger
 from modules.knowledge.search.retrievers.bm25_retriever import BM25Document, BM25Retriever
+
+if TYPE_CHECKING:
+    from core.protocols import RelationalPool
 
 log = get_logger("bm25_index_service")
 
@@ -33,18 +35,18 @@ class BM25IndexService:
     - Graceful error handling and recovery
 
     Args:
-        postgres_pool: PostgreSQL connection pool.
+        relational_pool: Relational database connection pool.
         bm25_retriever: BM25 retriever instance to manage.
         rebuild_interval_seconds: Interval for background rebuild (default 300s).
     """
 
     def __init__(
         self,
-        postgres_pool: PostgresPool,
+        relational_pool: RelationalPool,
         bm25_retriever: BM25Retriever,
         rebuild_interval_seconds: int = 300,
     ) -> None:
-        self._postgres = postgres_pool
+        self._relational_pool = relational_pool
         self._retriever = bm25_retriever
         self._rebuild_interval = rebuild_interval_seconds
         self._last_build_time: datetime | None = None
@@ -154,7 +156,7 @@ class BM25IndexService:
         Returns:
             List of BM25Document objects.
         """
-        async with self._postgres.session() as session:
+        async with self._relational_pool.session() as session:
             query = (
                 select(Article)
                 .where(
@@ -213,7 +215,7 @@ class BM25IndexService:
         Returns:
             List of BM25Document objects.
         """
-        async with self._postgres.session() as session:
+        async with self._relational_pool.session() as session:
             query = (
                 select(Article)
                 .where(

@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from core.constants import SearchMode
-from core.db.neo4j import Neo4jPool
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
 from core.observability.logging import get_logger
@@ -20,6 +19,7 @@ from modules.knowledge.search.context.global_context import GlobalContextBuilder
 from modules.knowledge.search.engines.local_search import SearchResult
 
 if TYPE_CHECKING:
+    from core.protocols import GraphPool
     from modules.knowledge.search.engines.hybrid_search import HybridSearchEngine
 
 log = get_logger("search.global_engine")
@@ -69,7 +69,7 @@ class GlobalSearchEngine:
 
     def __init__(
         self,
-        neo4j_pool: Neo4jPool | None = None,
+        graph_pool: GraphPool | None = None,
         llm: LLMClient | None = None,
         default_max_tokens: int = 12000,
         max_communities: int = 10,
@@ -79,12 +79,12 @@ class GlobalSearchEngine:
         """Initialize global search engine.
 
         Args:
-            neo4j_pool: Neo4j connection pool (deprecated, use context_builder).
+            graph_pool: Graph database connection pool (deprecated, use context_builder).
             llm: LLM client for answer generation.
             default_max_tokens: Default max tokens for context.
             max_communities: Maximum communities to process.
             hybrid_engine: Optional hybrid search engine for enhanced retrieval.
-            context_builder: Optional ContextBuilder instance (preferred over neo4j_pool).
+            context_builder: Optional ContextBuilder instance (preferred over graph_pool).
         """
         self._llm = llm
         self._default_max_tokens = default_max_tokens
@@ -94,16 +94,16 @@ class GlobalSearchEngine:
         # Support both old and new initialization patterns
         if context_builder is not None:
             self._context_builder = context_builder
-        elif neo4j_pool is not None:
-            self._pool = neo4j_pool
+        elif graph_pool is not None:
+            self._pool = graph_pool
             self._context_builder = GlobalContextBuilder(
-                neo4j_pool=neo4j_pool,
+                graph_pool=graph_pool,
                 default_max_tokens=default_max_tokens,
                 max_communities=max_communities,
                 llm_client=llm,
             )
         else:
-            raise ValueError("Either neo4j_pool or context_builder must be provided")
+            raise ValueError("Either graph_pool or context_builder must be provided")
 
     async def search(
         self,

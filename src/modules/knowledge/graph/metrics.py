@@ -6,11 +6,13 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from core.constants import GraphHealthStatus
-from core.db.neo4j import Neo4jPool
 from core.observability.logging import get_logger
+
+if TYPE_CHECKING:
+    from core.protocols import GraphPool
 
 log = get_logger("graph.metrics")
 
@@ -114,9 +116,11 @@ class GraphQualityMetrics:
     - Degree distribution
     - Orphan detection
     - Modularity score (optional)
+
+    Implements: MetricsCalculator
     """
 
-    def __init__(self, pool: Neo4jPool) -> None:
+    def __init__(self, pool: GraphPool) -> None:
         self._pool = pool
 
     async def calculate_all_metrics(

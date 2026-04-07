@@ -11,14 +11,16 @@ an iterative three-phase search process:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from core.db.neo4j import Neo4jPool
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
 from core.observability.logging import get_logger
 from modules.knowledge.search.context.global_context import GlobalContextBuilder
 from modules.knowledge.search.engines.local_search import LocalSearchEngine
+
+if TYPE_CHECKING:
+    from core.protocols import GraphPool
 
 log = get_logger("search.drift_engine")
 
@@ -71,7 +73,7 @@ class DRIFTSearchEngine:
 
     def __init__(
         self,
-        neo4j_pool: Neo4jPool,
+        graph_pool: GraphPool,
         llm: LLMClient,
         config: DriftConfig | None = None,
         local_engine: LocalSearchEngine | None = None,
@@ -79,20 +81,20 @@ class DRIFTSearchEngine:
         """Initialize DRIFT search engine.
 
         Args:
-            neo4j_pool: Neo4j connection pool.
+            graph_pool: Graph database connection pool.
             llm: LLM client for answer generation.
             config: DRIFT configuration.
             local_engine: Optional local search engine for follow-up phase.
         """
-        self._pool = neo4j_pool
+        self._pool = graph_pool
         self._llm = llm
         self._config = config or DriftConfig()
         self._context_builder = GlobalContextBuilder(
-            neo4j_pool=neo4j_pool,
+            graph_pool=graph_pool,
             llm_client=llm,
         )
         self._local_engine = local_engine or LocalSearchEngine(
-            neo4j_pool=neo4j_pool,
+            graph_pool=graph_pool,
             llm=llm,
         )
 

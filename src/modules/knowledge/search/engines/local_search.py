@@ -11,13 +11,13 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from core.constants import SearchMode
-from core.db.neo4j import Neo4jPool
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
 from core.observability.logging import get_logger
 from modules.knowledge.search.context.local_context import LocalContextBuilder
 
 if TYPE_CHECKING:
+    from core.protocols import GraphPool
     from modules.knowledge.search.engines.hybrid_search import HybridSearchEngine
 
 log = get_logger("search.local_engine")
@@ -52,7 +52,7 @@ class LocalSearchEngine:
 
     def __init__(
         self,
-        neo4j_pool: Neo4jPool | None = None,
+        graph_pool: GraphPool | None = None,
         llm: LLMClient | None = None,
         default_max_tokens: int = 8000,
         max_context_tokens: int = 6000,
@@ -62,12 +62,12 @@ class LocalSearchEngine:
         """Initialize local search engine.
 
         Args:
-            neo4j_pool: Neo4j connection pool (deprecated, use context_builder).
+            graph_pool: Graph database connection pool (deprecated, use context_builder).
             llm: LLM client for answer generation.
             default_max_tokens: Default max tokens for context.
             max_context_tokens: Maximum tokens for context window.
             hybrid_engine: Optional hybrid search engine for enhanced retrieval.
-            context_builder: Optional ContextBuilder instance (preferred over neo4j_pool).
+            context_builder: Optional ContextBuilder instance (preferred over graph_pool).
         """
         self._llm = llm
         self._default_max_tokens = default_max_tokens
@@ -77,7 +77,7 @@ class LocalSearchEngine:
         # Support both old and new initialization patterns
         if context_builder is not None:
             self._context_builder = context_builder
-        elif neo4j_pool is not None:
+        elif graph_pool is not None:
             self._pool = neo4j_pool
             self._context_builder = LocalContextBuilder(
                 neo4j_pool=neo4j_pool,
