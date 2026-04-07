@@ -6,6 +6,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from core.protocols.validation import ExplicitInterfaceMixin
+
 
 class TestAssertImplements:
     """Tests for assert_implements function."""
@@ -186,3 +188,83 @@ class TestProtocolValidationIntegration:
         assert hasattr(pool, "startup")
         assert hasattr(pool, "shutdown")
         assert hasattr(pool, "session")
+
+
+class TestExplicitInterfaceMixin:
+    """Tests for ExplicitInterfaceMixin."""
+
+    @pytest.fixture(autouse=True)
+    def _import_mixin(self) -> None:
+        """Make ExplicitInterfaceMixin available in all tests."""
+        from core.protocols.validation import ExplicitInterfaceMixin as Mixin
+
+        self.__class__.ExplicitInterfaceMixin = Mixin
+
+    def test_valid_protocol_implementation(self) -> None:
+        """Test that correctly implemented protocol passes at class definition."""
+
+        class MyProto(Protocol):
+            def foo(self) -> str: ...
+
+        # Should not raise
+        class MyService(ExplicitInterfaceMixin, implements=[MyProto]):
+            def foo(self) -> str:
+                return "bar"
+
+        assert MyService().foo() == "bar"
+
+    def test_missing_method_raises_type_error(self) -> None:
+        """Test that missing method raises TypeError at class definition."""
+        from core.protocols.validation import ExplicitInterfaceMixin
+
+        class MyProto(Protocol):
+            def foo(self) -> str: ...
+            def bar(self) -> int: ...
+
+        with pytest.raises(TypeError, match="bar"):
+            type(
+                "BadService",
+                (ExplicitInterfaceMixin,),
+                {"foo": lambda self: "x"},
+                implements=[MyProto],
+            )
+
+    def test_no_implements_passes(self) -> None:
+        """Test that omitting implements= does nothing."""
+
+        class MyService(ExplicitInterfaceMixin):
+            pass
+
+        assert MyService()  # Should instantiate fine
+
+    def test_single_protocol_without_list(self) -> None:
+        """Test that single protocol can be passed without list."""
+
+        class MyProto(Protocol):
+            def do_work(self) -> bool: ...
+
+        class MyService(ExplicitInterfaceMixin, implements=MyProto):
+            def do_work(self) -> bool:
+                return True
+
+        assert MyService().do_work() is True
+
+    def test_multiple_protocols(self) -> None:
+        """Test that multiple protocols are all validated."""
+
+        class ProtoA(Protocol):
+            def method_a(self) -> str: ...
+
+        class ProtoB(Protocol):
+            def method_b(self) -> int: ...
+
+        class MyService(ExplicitInterfaceMixin, implements=[ProtoA, ProtoB]):
+            def method_a(self) -> str:
+                return "a"
+
+            def method_b(self) -> int:
+                return 42
+
+        svc = MyService()
+        assert svc.method_a() == "a"
+        assert svc.method_b() == 42

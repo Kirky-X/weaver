@@ -97,6 +97,27 @@ def assert_implements(obj: Any, protocol: type) -> None:
         raise TypeError("\n".join(error_parts))
 
 
+class ExplicitInterfaceMixin:
+    """Mixin that validates Protocol implementation at class definition time.
+
+    Usage:
+        class MyService(ExplicitInterfaceMixin, implements=[MyProtocol]):
+            ...
+
+        # Or with multiple protocols:
+        class MyService(ExplicitInterfaceMixin, implements=[ProtoA, ProtoB]):
+            ...
+    """
+
+    def __init_subclass__(cls, implements: type | list[type] | None = None, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        if implements is None:
+            return
+        protocols = implements if isinstance(implements, list) else [implements]
+        for protocol in protocols:
+            assert_implements(cls, protocol)
+
+
 def get_protocol_methods(protocol: type) -> list[str]:
     """Get list of method names required by a Protocol.
 
