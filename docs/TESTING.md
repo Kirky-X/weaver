@@ -88,8 +88,8 @@ uv run pytest tests/performance/ -m performance
 |---------|-------|-------------|
 | `event_loop` | session | Event loop for async tests |
 | `mock_redis` | function | Mock Redis client |
-| `mock_postgres_pool` | function | Mock PostgreSQL pool |
-| `mock_neo4j_pool` | function | Mock Neo4j pool |
+| `mock_relational_pool` | function | Mock relational database pool |
+| `mock_graph_pool` | function | Mock graph database pool |
 | `mock_llm_client` | function | Mock LLM client |
 | `mock_settings` | function | Mock settings object |
 | `sample_article` | function | Sample article data |
@@ -143,10 +143,10 @@ async def test_feature_works(client, mock_external):
 import pytest
 
 @pytest.mark.integration
-async def test_pipeline_processes_article(postgres_pool, redis_client):
+async def test_pipeline_processes_article(relational_pool, redis_client):
     """Test that pipeline processes an article end-to-end."""
     # Setup test data
-    article = await create_test_article(postgres_pool)
+    article = await create_test_article(relational_pool)
 
     # Execute
     result = await pipeline.process(article)

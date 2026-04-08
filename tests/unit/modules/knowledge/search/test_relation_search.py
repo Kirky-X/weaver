@@ -18,7 +18,7 @@ from modules.knowledge.search.engines.local_search import LocalSearchEngine
 
 
 @pytest.fixture
-def mock_neo4j_pool():
+def mock_graph_pool():
     """Mock Neo4j connection pool."""
     pool = MagicMock()
     pool.execute_query = AsyncMock(return_value=[])
@@ -34,19 +34,19 @@ def mock_llm():
 
 
 @pytest.fixture
-def local_context_builder(mock_neo4j_pool):
+def local_context_builder(mock_graph_pool):
     """Create LocalContextBuilder with mock pool."""
     return LocalContextBuilder(
-        graph_pool=mock_neo4j_pool,
+        graph_pool=mock_graph_pool,
         default_max_tokens=8000,
     )
 
 
 @pytest.fixture
-def global_context_builder(mock_neo4j_pool):
+def global_context_builder(mock_graph_pool):
     """Create GlobalContextBuilder with mock pool."""
     return GlobalContextBuilder(
-        graph_pool=mock_neo4j_pool,
+        graph_pool=mock_graph_pool,
         default_max_tokens=12000,
     )
 
@@ -60,10 +60,10 @@ class TestLocalSearchWithRelationTypes:
     """Test LocalSearchEngine passes relation_types to context builder."""
 
     @pytest.mark.asyncio
-    async def test_local_search_with_relation_types(self, mock_neo4j_pool, mock_llm):
+    async def test_local_search_with_relation_types(self, mock_graph_pool, mock_llm):
         """Test that search passes relation_types to context builder."""
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -88,10 +88,10 @@ class TestLocalSearchWithRelationTypes:
         assert call_kwargs.kwargs.get("relation_types") == ["PARTNERS_WITH"]
 
     @pytest.mark.asyncio
-    async def test_local_search_without_relation_types(self, mock_neo4j_pool, mock_llm):
+    async def test_local_search_without_relation_types(self, mock_graph_pool, mock_llm):
         """Test that search works without relation_types (backward compatible)."""
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -120,10 +120,10 @@ class TestLocalContextWithRelationTypes:
     """Test LocalContextBuilder handles relation type filtering."""
 
     @pytest.mark.asyncio
-    async def test_local_context_with_symmetric_type(self, local_context_builder, mock_neo4j_pool):
+    async def test_local_context_with_symmetric_type(self, local_context_builder, mock_graph_pool):
         """Test context building with a symmetric relation type."""
         # Mock: entities found
-        mock_neo4j_pool.execute_query.side_effect = [
+        mock_graph_pool.execute_query.side_effect = [
             # _find_query_entities -> returns entity names
             [{"name": "华为"}],
             # _get_entities_with_details
@@ -160,9 +160,9 @@ class TestLocalContextWithRelationTypes:
         assert "双向" in rel_section.content
 
     @pytest.mark.asyncio
-    async def test_local_context_with_asymmetric_type(self, local_context_builder, mock_neo4j_pool):
+    async def test_local_context_with_asymmetric_type(self, local_context_builder, mock_graph_pool):
         """Test context building with an asymmetric relation type."""
-        mock_neo4j_pool.execute_query.side_effect = [
+        mock_graph_pool.execute_query.side_effect = [
             # _find_query_entities
             [{"name": "工信部"}],
             # _get_entities_with_details
@@ -199,10 +199,10 @@ class TestLocalContextWithRelationTypes:
 
     @pytest.mark.asyncio
     async def test_local_context_without_relation_types(
-        self, local_context_builder, mock_neo4j_pool
+        self, local_context_builder, mock_graph_pool
     ):
         """Test that default behavior is unchanged when no relation_types."""
-        mock_neo4j_pool.execute_query.side_effect = [
+        mock_graph_pool.execute_query.side_effect = [
             # _find_query_entities
             [{"name": "华为"}],
             # _get_entities_with_details
@@ -238,12 +238,12 @@ class TestGlobalContextWithRelationTypes:
 
     @pytest.mark.asyncio
     async def test_global_context_includes_relation_types(
-        self, global_context_builder, mock_neo4j_pool
+        self, global_context_builder, mock_graph_pool
     ):
         """Test that global context includes relation type direction info."""
         # _find_relevant_communities needs to return at least 2 communities
         # for _get_cross_community_relationships to be called.
-        mock_neo4j_pool.execute_query.side_effect = [
+        mock_graph_pool.execute_query.side_effect = [
             # _find_relevant_communities: first cypher (community search) -> 2 communities
             [
                 {

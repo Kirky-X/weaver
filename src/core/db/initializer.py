@@ -435,19 +435,19 @@ async def _diagnose_missing_tables(dsn: str) -> dict[str, Any]:
 
 
 async def verify_neo4j_constraints(
-    neo4j_pool: Any,
+    graph_pool: Any,
 ) -> tuple[bool, list[str]]:
     """Verify that all required Neo4j constraints exist.
 
     Args:
-        neo4j_pool: Neo4j connection pool.
+        graph_pool: Graph database connection pool.
 
     Returns:
         Tuple of (all_constraints_exist, list of missing constraint names).
     """
     try:
         # Get existing constraints
-        result = await neo4j_pool.execute_query("SHOW CONSTRAINTS")
+        result = await graph_pool.execute_query("SHOW CONSTRAINTS")
         existing_names = {record.get("name", "") for record in result}
 
         missing = []
@@ -464,7 +464,7 @@ async def verify_neo4j_constraints(
 
 
 async def initialize_neo4j(
-    neo4j_pool: Any,
+    graph_pool: Any,
     create_constraints: bool = True,
 ) -> dict[str, Any]:
     """Initialize Neo4j with required constraints and indexes.
@@ -473,7 +473,7 @@ async def initialize_neo4j(
     are created for the application to function correctly.
 
     Args:
-        neo4j_pool: Neo4j connection pool.
+        graph_pool: Graph database connection pool.
         create_constraints: Whether to create missing constraints.
 
     Returns:
@@ -490,7 +490,7 @@ async def initialize_neo4j(
 
     try:
         # Check existing constraints
-        all_exist, missing = await verify_neo4j_constraints(neo4j_pool)
+        all_exist, missing = await verify_neo4j_constraints(graph_pool)
 
         if all_exist:
             result["constraints_verified"] = True
@@ -505,7 +505,7 @@ async def initialize_neo4j(
         for constraint in REQUIRED_NEO4J_CONSTRAINTS:
             if constraint["name"] in missing:
                 try:
-                    await neo4j_pool.execute_query(constraint["query"])
+                    await graph_pool.execute_query(constraint["query"])
                     result["constraints_created"].append(constraint["name"])
                     log.info(
                         "neo4j_constraint_created",
@@ -522,7 +522,7 @@ async def initialize_neo4j(
                     )
 
         # Verify all constraints now exist
-        all_exist, _ = await verify_neo4j_constraints(neo4j_pool)
+        all_exist, _ = await verify_neo4j_constraints(graph_pool)
         result["constraints_verified"] = all_exist
 
     except Exception as e:

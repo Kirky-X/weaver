@@ -90,42 +90,6 @@ def unique_id():
 
 
 @pytest.fixture
-async def postgres_pool():
-    """Create a real PostgreSQL pool for integration tests.
-
-    Skips tests if PostgreSQL is not available.
-    """
-    from core.db.postgres import PostgresPool
-
-    if not await check_postgres_available():
-        pytest.skip("PostgreSQL not available")
-
-    dsn = get_postgres_dsn()
-    pool = PostgresPool(dsn)
-    await pool.startup()
-    yield pool
-    await pool.shutdown()
-
-
-@pytest.fixture
-async def neo4j_pool():
-    """Create a real Neo4j pool for integration tests.
-
-    Skips tests if Neo4j is not available.
-    """
-    from core.db.neo4j import Neo4jPool
-
-    if not await check_neo4j_available():
-        pytest.skip("Neo4j not available")
-
-    uri, auth = get_neo4j_config()
-    pool = Neo4jPool(uri, auth)
-    await pool.startup()
-    yield pool
-    await pool.shutdown()
-
-
-@pytest.fixture
 async def redis_client():
     """Create a real Redis client for integration tests.
 
@@ -293,8 +257,8 @@ async def database_strategy(relational_pool, graph_pool):
 
 
 @pytest.fixture
-async def optional_postgres_pool():
-    """Optional PostgreSQL pool - returns None if not available."""
+async def optional_relational_pool():
+    """Optional relational database pool - returns None if not available."""
     from core.db.postgres import PostgresPool
 
     if not await check_postgres_available():
@@ -309,8 +273,8 @@ async def optional_postgres_pool():
 
 
 @pytest.fixture
-async def optional_neo4j_pool():
-    """Optional Neo4j pool - returns None if not available."""
+async def optional_graph_pool():
+    """Optional graph database pool - returns None if not available."""
     from core.db.neo4j import Neo4jPool
 
     if not await check_neo4j_available():

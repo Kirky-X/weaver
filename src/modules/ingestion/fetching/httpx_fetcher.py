@@ -190,6 +190,11 @@ class HttpxFetcher(BaseFetcher):
 
                 except httpx.TransportError as exc:
                     # Transport errors are transient, retry
+                    latency = time.monotonic() - start
+                    MetricsCollector.fetch_total.labels(
+                        method="httpx", status="transport_error"
+                    ).inc()
+                    MetricsCollector.fetch_latency.labels(method="httpx").observe(latency)
                     log.warning(
                         "httpx_transport_error_retryable",
                         url=url,

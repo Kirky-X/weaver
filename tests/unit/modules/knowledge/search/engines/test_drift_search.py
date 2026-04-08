@@ -18,7 +18,7 @@ from modules.knowledge.search.engines.drift_search import (
 
 
 @pytest.fixture
-def mock_neo4j_pool():
+def mock_graph_pool():
     """Mock Neo4j connection pool."""
     return AsyncMock()
 
@@ -129,22 +129,22 @@ class TestDriftResult:
 class TestDRIFTSearchEngineInit:
     """Tests for DRIFTSearchEngine initialization."""
 
-    def test_init_with_required_params(self, mock_neo4j_pool, mock_llm):
+    def test_init_with_required_params(self, mock_graph_pool, mock_llm):
         """Test initialization with required params."""
         engine = DRIFTSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
-        assert engine._pool is mock_neo4j_pool
+        assert engine._pool is mock_graph_pool
         assert engine._llm is mock_llm
         assert engine._config is not None
 
-    def test_init_with_custom_config(self, mock_neo4j_pool, mock_llm):
+    def test_init_with_custom_config(self, mock_graph_pool, mock_llm):
         """Test initialization with custom config."""
         config = DriftConfig(primer_k=10, max_follow_ups=5)
         engine = DRIFTSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
             config=config,
         )
@@ -152,11 +152,11 @@ class TestDRIFTSearchEngineInit:
         assert engine._config.primer_k == 10
         assert engine._config.max_follow_ups == 5
 
-    def test_init_with_local_engine(self, mock_neo4j_pool, mock_llm):
+    def test_init_with_local_engine(self, mock_graph_pool, mock_llm):
         """Test initialization with custom local engine."""
         mock_local = MagicMock()
         engine = DRIFTSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
             local_engine=mock_local,
         )
@@ -168,9 +168,9 @@ class TestDRIFTSearchEngineExtraction:
     """Tests for text extraction methods."""
 
     @pytest.fixture
-    def engine(self, mock_neo4j_pool, mock_llm):
+    def engine(self, mock_graph_pool, mock_llm):
         return DRIFTSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -262,9 +262,9 @@ class TestDRIFTSearchEngineSearch:
     """Tests for search method."""
 
     @pytest.fixture
-    def engine(self, mock_neo4j_pool, mock_llm):
+    def engine(self, mock_graph_pool, mock_llm):
         engine = DRIFTSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
         return engine
@@ -325,9 +325,9 @@ class TestDRIFTSearchEnginePrimer:
     """Tests for _primer_phase method."""
 
     @pytest.fixture
-    def engine(self, mock_neo4j_pool, mock_llm):
+    def engine(self, mock_graph_pool, mock_llm):
         engine = DRIFTSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
         return engine
@@ -375,9 +375,9 @@ class TestDRIFTSearchEngineFollowUp:
     """Tests for _follow_up_phase method."""
 
     @pytest.fixture
-    def engine(self, mock_neo4j_pool, mock_llm):
+    def engine(self, mock_graph_pool, mock_llm):
         engine = DRIFTSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
         return engine
@@ -439,9 +439,9 @@ class TestDRIFTSearchEngineAggregate:
     """Tests for _aggregate_results method."""
 
     @pytest.fixture
-    def engine(self, mock_neo4j_pool, mock_llm):
+    def engine(self, mock_graph_pool, mock_llm):
         engine = DRIFTSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
         return engine

@@ -88,8 +88,8 @@ def event_loop():
 
 
 @pytest_asyncio.fixture(scope="session")
-async def postgres_pool():
-    """Create PostgreSQL pool for integration tests."""
+async def relational_pool():
+    """Create relational database pool for integration tests."""
     from core.db.postgres import PostgresPool
 
     dsn = os.getenv("POSTGRES_DSN", "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver")
@@ -143,8 +143,8 @@ def mock_postgres_pool():
 
 
 @pytest.fixture(scope="module")
-def mock_neo4j_pool():
-    """Mock Neo4j pool for testing - module scoped for performance."""
+def mock_graph_pool():
+    """Mock graph database pool for testing - module scoped for performance."""
     pool = MagicMock()
     session = MagicMock()
     session.__aenter__ = AsyncMock(return_value=session)

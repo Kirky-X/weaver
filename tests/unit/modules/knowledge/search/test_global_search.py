@@ -17,7 +17,7 @@ from modules.knowledge.search.engines.global_search import (
 
 
 @pytest.fixture
-def mock_neo4j_pool():
+def mock_graph_pool():
     """Mock Neo4j connection pool."""
     return AsyncMock()
 
@@ -46,10 +46,10 @@ class TestGlobalSearchEngineBasic:
     """Basic functionality tests for GlobalSearchEngine."""
 
     @pytest.mark.asyncio
-    async def test_global_search_initializes(self, mock_neo4j_pool, mock_llm):
+    async def test_global_search_initializes(self, mock_graph_pool, mock_llm):
         """Test that global search engine initializes correctly."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -57,10 +57,10 @@ class TestGlobalSearchEngineBasic:
         assert engine._max_communities == 10  # default
 
     @pytest.mark.asyncio
-    async def test_global_search_with_custom_params(self, mock_neo4j_pool, mock_llm):
+    async def test_global_search_with_custom_params(self, mock_graph_pool, mock_llm):
         """Test global search engine with custom parameters."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
             default_max_tokens=15000,
             max_communities=20,
@@ -70,7 +70,7 @@ class TestGlobalSearchEngineBasic:
         assert engine._max_communities == 20
 
     @pytest.mark.asyncio
-    async def test_global_search_returns_search_result(self, mock_neo4j_pool, mock_llm):
+    async def test_global_search_returns_search_result(self, mock_graph_pool, mock_llm):
         """Test that global search returns SearchResult."""
         from modules.knowledge.search.engines.local_search import SearchResult
 
@@ -85,7 +85,7 @@ class TestGlobalSearchEngineBasic:
         mock_llm.chat = AsyncMock(return_value=mock_response)
 
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -102,7 +102,7 @@ class TestGlobalSearchEngineEdgeCases:
     """Edge case tests for GlobalSearchEngine."""
 
     @pytest.mark.asyncio
-    async def test_global_search_with_no_communities(self, mock_neo4j_pool, mock_llm):
+    async def test_global_search_with_no_communities(self, mock_graph_pool, mock_llm):
         """Test global search with no communities found."""
         from modules.knowledge.search.engines.local_search import SearchResult
 
@@ -116,7 +116,7 @@ class TestGlobalSearchEngineEdgeCases:
         mock_llm.chat = AsyncMock(return_value=mock_response)
 
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -127,10 +127,10 @@ class TestGlobalSearchEngineEdgeCases:
         assert isinstance(result, SearchResult)
 
     @pytest.mark.asyncio
-    async def test_global_search_with_max_tokens_limit(self, mock_neo4j_pool, mock_llm):
+    async def test_global_search_with_max_tokens_limit(self, mock_graph_pool, mock_llm):
         """Test global search initializes with correct token limit."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
             default_max_tokens=8000,
         )
@@ -143,7 +143,7 @@ class TestGlobalSearchEngineErrorHandling:
     """Error handling tests for GlobalSearchEngine."""
 
     @pytest.mark.asyncio
-    async def test_global_search_handles_llm_error(self, mock_neo4j_pool, mock_llm):
+    async def test_global_search_handles_llm_error(self, mock_graph_pool, mock_llm):
         """Test global search handles LLM errors."""
         mock_context = MagicMock()
         mock_context.total_tokens = 100
@@ -151,7 +151,7 @@ class TestGlobalSearchEngineErrorHandling:
         mock_llm.chat = AsyncMock(side_effect=Exception("LLM unavailable"))
 
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -162,10 +162,10 @@ class TestGlobalSearchEngineErrorHandling:
         assert result is not None
 
     @pytest.mark.asyncio
-    async def test_global_search_handles_context_error(self, mock_neo4j_pool, mock_llm):
+    async def test_global_search_handles_context_error(self, mock_graph_pool, mock_llm):
         """Test global search handles context building errors."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -184,10 +184,10 @@ class TestGlobalSearchEngineSearchWithoutLLM:
     """Tests for search without LLM generation."""
 
     @pytest.mark.asyncio
-    async def test_search_without_llm_returns_context(self, mock_neo4j_pool, mock_llm):
+    async def test_search_without_llm_returns_context(self, mock_graph_pool, mock_llm):
         """Test search with use_llm=False returns context info."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -214,10 +214,10 @@ class TestGlobalSearchEngineSearchWithoutLLM:
         assert result.metadata["communities"] == 1
 
     @pytest.mark.asyncio
-    async def test_search_without_llm_with_communities(self, mock_neo4j_pool, mock_llm):
+    async def test_search_without_llm_with_communities(self, mock_graph_pool, mock_llm):
         """Test search with use_llm=False when communities exist."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -249,10 +249,10 @@ class TestGlobalSearchEngineNoCommunities:
     """Tests for handling no communities scenario."""
 
     @pytest.mark.asyncio
-    async def test_search_no_communities_at_all(self, mock_neo4j_pool, mock_llm):
+    async def test_search_no_communities_at_all(self, mock_graph_pool, mock_llm):
         """Test search when no communities exist in the graph."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -266,10 +266,10 @@ class TestGlobalSearchEngineNoCommunities:
         assert result.metadata["hint"] == "run POST /api/v1/admin/communities/rebuild"
 
     @pytest.mark.asyncio
-    async def test_search_no_relevant_communities_but_some_exist(self, mock_neo4j_pool, mock_llm):
+    async def test_search_no_relevant_communities_but_some_exist(self, mock_graph_pool, mock_llm):
         """Test search when no relevant communities but some exist."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -285,10 +285,10 @@ class TestGlobalSearchEngineMapReduce:
     """Tests for Map-Reduce search functionality."""
 
     @pytest.mark.asyncio
-    async def test_search_with_llm_and_communities(self, mock_neo4j_pool, mock_llm):
+    async def test_search_with_llm_and_communities(self, mock_graph_pool, mock_llm):
         """Test full Map-Reduce search with LLM."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -328,10 +328,10 @@ class TestGlobalSearchEngineMapReduce:
         assert result.metadata["intermediate_count"] == 2
 
     @pytest.mark.asyncio
-    async def test_get_community_contexts(self, mock_neo4j_pool, mock_llm):
+    async def test_get_community_contexts(self, mock_graph_pool, mock_llm):
         """Test _get_community_contexts method."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -365,10 +365,10 @@ class TestGlobalSearchEngineMapReduce:
 class TestGlobalSearchEnginePromptBuilding:
     """Tests for prompt building methods."""
 
-    def test_build_map_prompt_with_full_content(self, mock_neo4j_pool, mock_llm):
+    def test_build_map_prompt_with_full_content(self, mock_graph_pool, mock_llm):
         """Test _build_map_prompt with full_content available."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -389,10 +389,10 @@ class TestGlobalSearchEnginePromptBuilding:
         assert "EntityA" in prompt
         assert "Test Community" in prompt
 
-    def test_build_map_prompt_without_full_content(self, mock_neo4j_pool, mock_llm):
+    def test_build_map_prompt_without_full_content(self, mock_graph_pool, mock_llm):
         """Test _build_map_prompt falls back to summary when full_content is None."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -414,10 +414,10 @@ class TestGlobalSearchEnginePromptBuilding:
         # Should not have key entities section when None
         assert "Key Entities" not in prompt
 
-    def test_build_reduce_prompt(self, mock_neo4j_pool, mock_llm):
+    def test_build_reduce_prompt(self, mock_graph_pool, mock_llm):
         """Test _build_reduce_prompt with multiple answers."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -434,10 +434,10 @@ class TestGlobalSearchEnginePromptBuilding:
         assert "Community A" in prompt
         assert "Most Relevant Community: Community A" in prompt
 
-    def test_build_reduce_prompt_empty_weights(self, mock_neo4j_pool, mock_llm):
+    def test_build_reduce_prompt_empty_weights(self, mock_graph_pool, mock_llm):
         """Test _build_reduce_prompt with empty weights."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -449,10 +449,10 @@ class TestGlobalSearchEnginePromptBuilding:
 class TestGlobalSearchEngineConfidence:
     """Tests for confidence estimation methods."""
 
-    def test_estimate_confidence_empty_answers(self, mock_neo4j_pool, mock_llm):
+    def test_estimate_confidence_empty_answers(self, mock_graph_pool, mock_llm):
         """Test _estimate_confidence with empty answers."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -460,10 +460,10 @@ class TestGlobalSearchEngineConfidence:
 
         assert confidence == 0.0
 
-    def test_estimate_confidence_with_answers(self, mock_neo4j_pool, mock_llm):
+    def test_estimate_confidence_with_answers(self, mock_graph_pool, mock_llm):
         """Test _estimate_confidence with multiple answers."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -478,10 +478,10 @@ class TestGlobalSearchEngineConfidence:
         # Base 0.5 + 0.1 for 3 answers + 0.2 for >500 chars + 0.1 for all non-empty
         assert confidence == 0.9
 
-    def test_estimate_confidence_short_answers(self, mock_neo4j_pool, mock_llm):
+    def test_estimate_confidence_short_answers(self, mock_graph_pool, mock_llm):
         """Test _estimate_confidence with short answers."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -491,10 +491,10 @@ class TestGlobalSearchEngineConfidence:
         # Base 0.5, no +0.1 for <3 answers, no +0.2 for <=500 chars, +0.1 for all non-empty
         assert confidence == 0.6
 
-    def test_estimate_confidence_with_empty_string(self, mock_neo4j_pool, mock_llm):
+    def test_estimate_confidence_with_empty_string(self, mock_graph_pool, mock_llm):
         """Test _estimate_confidence with some empty strings."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -511,10 +511,10 @@ class TestGlobalSearchEngineSimple:
     """Tests for search_simple method."""
 
     @pytest.mark.asyncio
-    async def test_search_simple_without_llm(self, mock_neo4j_pool, mock_llm):
+    async def test_search_simple_without_llm(self, mock_graph_pool, mock_llm):
         """Test search_simple with use_llm=False."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -534,10 +534,10 @@ class TestGlobalSearchEngineSimple:
         assert result.metadata["llm_used"] is False
 
     @pytest.mark.asyncio
-    async def test_search_simple_with_llm(self, mock_neo4j_pool, mock_llm):
+    async def test_search_simple_with_llm(self, mock_graph_pool, mock_llm):
         """Test search_simple with LLM generation."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -558,10 +558,10 @@ class TestGlobalSearchEngineSimple:
         assert result.metadata["llm_used"] is True
 
     @pytest.mark.asyncio
-    async def test_search_simple_handles_llm_error(self, mock_neo4j_pool, mock_llm):
+    async def test_search_simple_handles_llm_error(self, mock_graph_pool, mock_llm):
         """Test search_simple handles LLM errors gracefully."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -585,10 +585,10 @@ class TestGlobalSearchEngineSimple:
 class TestGlobalSearchEngineSimpleConfidence:
     """Tests for _estimate_simple_confidence method."""
 
-    def test_estimate_simple_confidence_empty_sections(self, mock_neo4j_pool, mock_llm):
+    def test_estimate_simple_confidence_empty_sections(self, mock_graph_pool, mock_llm):
         """Test confidence with empty sections."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -604,10 +604,10 @@ class TestGlobalSearchEngineSimpleConfidence:
 
         assert confidence == 0.0
 
-    def test_estimate_simple_confidence_with_communities(self, mock_neo4j_pool, mock_llm):
+    def test_estimate_simple_confidence_with_communities(self, mock_graph_pool, mock_llm):
         """Test confidence with multiple communities."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -624,10 +624,10 @@ class TestGlobalSearchEngineSimpleConfidence:
         # Base 0.4 + 0.2 for >=3 communities + 0.2 for >1000 tokens
         assert confidence == 0.8
 
-    def test_estimate_simple_confidence_one_community(self, mock_neo4j_pool, mock_llm):
+    def test_estimate_simple_confidence_one_community(self, mock_graph_pool, mock_llm):
         """Test confidence with one community."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -648,10 +648,10 @@ class TestGlobalSearchEngineSimpleConfidence:
 class TestGlobalSearchEngineBuildSimplePrompt:
     """Tests for _build_simple_prompt method."""
 
-    def test_build_simple_prompt(self, mock_neo4j_pool, mock_llm):
+    def test_build_simple_prompt(self, mock_graph_pool, mock_llm):
         """Test _build_simple_prompt builds correct prompt."""
         engine = GlobalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 

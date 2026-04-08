@@ -11,7 +11,7 @@ from modules.knowledge.search.engines.local_search import LocalSearchEngine, Sea
 
 
 @pytest.fixture
-def mock_neo4j_pool():
+def mock_graph_pool():
     """Mock Neo4j connection pool."""
     return AsyncMock()
 
@@ -26,10 +26,10 @@ class TestLocalSearchEngineBasic:
     """Basic functionality tests for LocalSearchEngine."""
 
     @pytest.mark.asyncio
-    async def test_local_search_initializes(self, mock_neo4j_pool, mock_llm):
+    async def test_local_search_initializes(self, mock_graph_pool, mock_llm):
         """Test that local search engine initializes correctly."""
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -37,10 +37,10 @@ class TestLocalSearchEngineBasic:
         assert engine._default_max_tokens == 8000  # default
 
     @pytest.mark.asyncio
-    async def test_local_search_with_custom_params(self, mock_neo4j_pool, mock_llm):
+    async def test_local_search_with_custom_params(self, mock_graph_pool, mock_llm):
         """Test local search engine with custom parameters."""
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
             default_max_tokens=10000,
             max_context_tokens=8000,
@@ -50,7 +50,7 @@ class TestLocalSearchEngineBasic:
         assert engine._max_context_tokens == 8000
 
     @pytest.mark.asyncio
-    async def test_local_search_returns_search_result(self, mock_neo4j_pool, mock_llm):
+    async def test_local_search_returns_search_result(self, mock_graph_pool, mock_llm):
         """Test that local search returns SearchResult."""
         # Mock context
         mock_context = MagicMock()
@@ -63,7 +63,7 @@ class TestLocalSearchEngineBasic:
         mock_llm.call_at = AsyncMock(return_value="Test answer")
 
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -76,11 +76,11 @@ class TestLocalSearchEngineBasic:
         assert result.query == "Test query"
 
     @pytest.mark.asyncio
-    async def test_local_search_with_hybrid_engine(self, mock_neo4j_pool, mock_llm):
+    async def test_local_search_with_hybrid_engine(self, mock_graph_pool, mock_llm):
         """Test local search engine with hybrid engine reference."""
         mock_hybrid = MagicMock()
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
             hybrid_engine=mock_hybrid,
         )
@@ -92,7 +92,7 @@ class TestLocalSearchEngineSearch:
     """Tests for search method."""
 
     @pytest.mark.asyncio
-    async def test_search_with_use_llm_false(self, mock_neo4j_pool, mock_llm):
+    async def test_search_with_use_llm_false(self, mock_graph_pool, mock_llm):
         """Test search with use_llm=False returns context info."""
         mock_context = MagicMock()
         mock_context.total_tokens = 100
@@ -100,7 +100,7 @@ class TestLocalSearchEngineSearch:
         mock_context.metadata = {"article_count": 5, "total_entities": 10, "total_relationships": 5}
 
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -112,7 +112,7 @@ class TestLocalSearchEngineSearch:
         assert result.metadata["llm_used"] is False
 
     @pytest.mark.asyncio
-    async def test_search_with_relation_types(self, mock_neo4j_pool, mock_llm):
+    async def test_search_with_relation_types(self, mock_graph_pool, mock_llm):
         """Test search with relation_types filter."""
         mock_context = MagicMock()
         mock_context.total_tokens = 100
@@ -123,7 +123,7 @@ class TestLocalSearchEngineSearch:
         mock_llm.call_at = AsyncMock(return_value="Answer")
 
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -136,7 +136,7 @@ class TestLocalSearchEngineSearch:
         assert call_kwargs["relation_types"] == ["RELATED_TO", "MENTIONS"]
 
     @pytest.mark.asyncio
-    async def test_search_batch(self, mock_neo4j_pool, mock_llm):
+    async def test_search_batch(self, mock_graph_pool, mock_llm):
         """Test search_batch method."""
         mock_context = MagicMock()
         mock_context.total_tokens = 100
@@ -147,7 +147,7 @@ class TestLocalSearchEngineSearch:
         mock_llm.call_at = AsyncMock(return_value="Batch answer")
 
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -163,7 +163,7 @@ class TestLocalSearchEngineErrorHandling:
     """Error handling tests for LocalSearchEngine."""
 
     @pytest.mark.asyncio
-    async def test_local_search_handles_llm_error(self, mock_neo4j_pool, mock_llm):
+    async def test_local_search_handles_llm_error(self, mock_graph_pool, mock_llm):
         """Test local search handles LLM errors."""
         mock_context = MagicMock()
         mock_context.total_tokens = 100
@@ -174,7 +174,7 @@ class TestLocalSearchEngineErrorHandling:
         mock_llm.call_at = AsyncMock(side_effect=Exception("LLM unavailable"))
 
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -187,10 +187,10 @@ class TestLocalSearchEngineErrorHandling:
         assert result.confidence == 0.0
 
     @pytest.mark.asyncio
-    async def test_local_search_handles_context_error(self, mock_neo4j_pool, mock_llm):
+    async def test_local_search_handles_context_error(self, mock_graph_pool, mock_llm):
         """Test local search handles context building errors."""
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -205,13 +205,13 @@ class TestLocalSearchEngineErrorHandling:
 class TestLocalSearchEngineHelperMethods:
     """Tests for helper methods."""
 
-    def test_build_prompt(self, mock_neo4j_pool, mock_llm):
+    def test_build_prompt(self, mock_graph_pool, mock_llm):
         """Test _build_prompt creates valid prompt."""
         mock_context = MagicMock()
         mock_context.to_prompt = MagicMock(return_value="Mock context content")
 
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -221,7 +221,7 @@ class TestLocalSearchEngineHelperMethods:
         assert "Mock context content" in prompt
         assert "Instructions:" in prompt
 
-    def test_extract_entities_from_context(self, mock_neo4j_pool, mock_llm):
+    def test_extract_entities_from_context(self, mock_graph_pool, mock_llm):
         """Test _extract_entities_from_context extracts entity names."""
         mock_section = MagicMock()
         mock_section.metadata = {"entity_count": 3}
@@ -231,7 +231,7 @@ class TestLocalSearchEngineHelperMethods:
         mock_context.sections = [mock_section]
 
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -240,13 +240,13 @@ class TestLocalSearchEngineHelperMethods:
         assert "EntityA" in entities
         assert "EntityB" in entities
 
-    def test_extract_entities_empty_sections(self, mock_neo4j_pool, mock_llm):
+    def test_extract_entities_empty_sections(self, mock_graph_pool, mock_llm):
         """Test _extract_entities_from_context with empty sections."""
         mock_context = MagicMock()
         mock_context.sections = []
 
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -254,13 +254,13 @@ class TestLocalSearchEngineHelperMethods:
 
         assert entities == []
 
-    def test_estimate_confidence_empty_context(self, mock_neo4j_pool, mock_llm):
+    def test_estimate_confidence_empty_context(self, mock_graph_pool, mock_llm):
         """Test _estimate_confidence with empty context."""
         mock_context = MagicMock()
         mock_context.sections = []
 
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -268,7 +268,7 @@ class TestLocalSearchEngineHelperMethods:
 
         assert confidence == 0.0
 
-    def test_estimate_confidence_with_entities(self, mock_neo4j_pool, mock_llm):
+    def test_estimate_confidence_with_entities(self, mock_graph_pool, mock_llm):
         """Test _estimate_confidence with entities and relationships."""
         mock_context = MagicMock()
         mock_context.sections = [MagicMock()]
@@ -276,7 +276,7 @@ class TestLocalSearchEngineHelperMethods:
         mock_context.metadata = {"total_entities": 15, "total_relationships": 30}
 
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -285,7 +285,7 @@ class TestLocalSearchEngineHelperMethods:
         # Base 0.5 + min(0.2, 15*0.02) + min(0.2, 30*0.01)
         assert confidence == pytest.approx(0.5 + 0.2 + 0.2)
 
-    def test_estimate_confidence_low_tokens(self, mock_neo4j_pool, mock_llm):
+    def test_estimate_confidence_low_tokens(self, mock_graph_pool, mock_llm):
         """Test _estimate_confidence reduces confidence for low tokens."""
         mock_context = MagicMock()
         mock_context.sections = [MagicMock()]
@@ -293,7 +293,7 @@ class TestLocalSearchEngineHelperMethods:
         mock_context.metadata = {"total_entities": 5, "total_relationships": 10}
 
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 

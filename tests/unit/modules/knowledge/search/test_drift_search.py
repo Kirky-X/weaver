@@ -107,7 +107,7 @@ class TestDRIFTSearchEngine:
     """Tests for DRIFTSearchEngine."""
 
     @pytest.fixture
-    def mock_neo4j_pool(self):
+    def mock_graph_pool(self):
         """Create mock Neo4j pool."""
         pool = MagicMock()
         pool.execute_query = AsyncMock()
@@ -145,37 +145,37 @@ class TestDRIFTSearchEngine:
         return engine
 
     @pytest.fixture
-    def engine(self, mock_neo4j_pool, mock_llm):
+    def engine(self, mock_graph_pool, mock_llm):
         """Create DRIFTSearchEngine instance."""
         return DRIFTSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
     @pytest.fixture
-    def engine_with_mocks(self, mock_neo4j_pool, mock_llm, mock_local_engine):
+    def engine_with_mocks(self, mock_graph_pool, mock_llm, mock_local_engine):
         """Create DRIFTSearchEngine with mocked dependencies."""
         return DRIFTSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
             local_engine=mock_local_engine,
         )
 
-    def test_init_default_config(self, mock_neo4j_pool, mock_llm):
+    def test_init_default_config(self, mock_graph_pool, mock_llm):
         """Test initialization with default config."""
         engine = DRIFTSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
-        assert engine._pool is mock_neo4j_pool
+        assert engine._pool is mock_graph_pool
         assert engine._llm is mock_llm
         assert engine._config.primer_k == 3
 
-    def test_init_custom_config(self, mock_neo4j_pool, mock_llm):
+    def test_init_custom_config(self, mock_graph_pool, mock_llm):
         """Test initialization with custom config."""
         config = DriftConfig(primer_k=5, max_follow_ups=4)
         engine = DRIFTSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
             config=config,
         )
@@ -240,7 +240,7 @@ class TestDRIFTSearchEngine:
         assert result["llm_calls"] == 2
 
     @pytest.mark.asyncio
-    async def test_follow_up_phase_early_termination(self, mock_neo4j_pool, mock_llm):
+    async def test_follow_up_phase_early_termination(self, mock_graph_pool, mock_llm):
         """Test follow-up phase terminates early on high confidence."""
         from modules.knowledge.search.engines.local_search import SearchResult
 
@@ -256,7 +256,7 @@ class TestDRIFTSearchEngine:
         )
 
         engine = DRIFTSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
             config=config,
             local_engine=mock_local,
@@ -585,7 +585,7 @@ class TestDRIFTSearchEngineSearch:
     """Tests for the main search method."""
 
     @pytest.fixture
-    def mock_neo4j_pool(self):
+    def mock_graph_pool(self):
         """Create mock Neo4j pool."""
         pool = MagicMock()
         pool.execute_query = AsyncMock()
@@ -616,18 +616,18 @@ class TestDRIFTSearchEngineSearch:
         return engine
 
     @pytest.fixture
-    def engine(self, mock_neo4j_pool, mock_llm):
+    def engine(self, mock_graph_pool, mock_llm):
         """Create DRIFTSearchEngine instance."""
         return DRIFTSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
     @pytest.fixture
-    def engine_with_mocks(self, mock_neo4j_pool, mock_llm, mock_local_engine):
+    def engine_with_mocks(self, mock_graph_pool, mock_llm, mock_local_engine):
         """Create DRIFTSearchEngine with mocked dependencies."""
         return DRIFTSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
             local_engine=mock_local_engine,
         )

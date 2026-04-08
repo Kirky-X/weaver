@@ -24,7 +24,7 @@ class TestSearchWithContext:
     @pytest.mark.asyncio
     async def test_search_with_context_raises_without_entity_repo(
         self,
-        mock_neo4j_pool,
+        mock_graph_pool,
         mock_llm_client,
         mock_redis,
     ) -> None:
@@ -35,7 +35,7 @@ class TestSearchWithContext:
         mock_intent_classifier.classify.return_value = MagicMock(intent=MagicMock(value="open"))
 
         service = MemoryIntegrationService(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm_client=mock_llm_client,
             cache=mock_redis,
             embedding_service=MockEmbeddingService(),
@@ -52,7 +52,7 @@ class TestSearchWithContext:
     @pytest.mark.asyncio
     async def test_search_with_context_works_with_entity_repo(
         self,
-        mock_neo4j_pool,
+        mock_graph_pool,
         mock_llm_client,
         mock_redis,
     ) -> None:
@@ -68,7 +68,7 @@ class TestSearchWithContext:
         mock_entity_repo.link_entities = AsyncMock(return_value=0)
 
         service = MemoryIntegrationService(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm_client=mock_llm_client,
             cache=mock_redis,
             embedding_service=MockEmbeddingService(),

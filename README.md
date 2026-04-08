@@ -749,14 +749,14 @@ docker compose -f tests/e2e/docker-compose.yml down -v
 
 常用测试 fixtures（定义在 `tests/conftest.py`）：
 
-| Fixture              | 描述            |
-| -------------------- | --------------- |
-| `mock_redis`         | Redis mock      |
-| `mock_postgres_pool` | PostgreSQL mock |
-| `mock_neo4j_pool`    | Neo4j mock      |
-| `mock_llm_client`    | LLM 客户端 mock |
-| `mock_settings`      | 配置对象 mock   |
-| `sample_article`     | 示例文章数据    |
+| Fixture              | 描述                |
+| -------------------- | ------------------- |
+| `mock_redis`         | Redis mock          |
+| `mock_relational_pool` | 关系型数据库 mock |
+| `mock_graph_pool`    | 图数据库 mock       |
+| `mock_llm_client`    | LLM 客户端 mock     |
+| `mock_settings`      | 配置对象 mock       |
+| `sample_article`     | 示例文章数据        |
 
 ### 测试数据工厂
 
