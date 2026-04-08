@@ -60,3 +60,6 @@ docs/analysis/
 coverage.xml
 htmlcov/
 .gitnexus
+
+# Graphify tool cache files
+.graphify_*
