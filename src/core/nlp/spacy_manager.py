@@ -107,8 +107,23 @@ class SpacyModelManager:
         """
         local_path = self._config.local_paths.get(model)
 
-        if local_path and Path(local_path).exists():
-            self._install_from_local(model, local_path)
+        if local_path:
+            if Path(local_path).exists():
+                log.info(
+                    "spacy_local_path_found",
+                    model=model,
+                    path=local_path,
+                )
+                self._install_from_local(model, local_path)
+            else:
+                # Local path configured but doesn't exist - log warning and fallback
+                log.warning(
+                    "spacy_local_path_not_found",
+                    model=model,
+                    configured_path=local_path,
+                    hint="Falling back to network download",
+                )
+                self._install_from_network(model)
         else:
             self._install_from_network(model)
 
@@ -126,13 +141,27 @@ class SpacyModelManager:
 
         log.info("spacy_installing_from_local", model=model, path=local_path)
 
+        # Verify path is valid (double-check after _install_model check)
+        path = Path(local_path)
+        if not path.exists() or not path.is_file():
+            log.error(
+                "spacy_local_load_failed",
+                model=model,
+                path=local_path,
+                error="File does not exist or is not a file",
+            )
+            # Fall back to network download instead of failing
+            log.info("spacy_falling_back_to_network", model=model)
+            self._install_from_network(model)
+            return
+
         # Try uv first, fall back to pip
         uv_bin = shutil.which("uv")
         if uv_bin:
-            cmd = [uv_bin, "pip", "install", local_path]
+            cmd = [uv_bin, "pip", "install", str(path)]
         else:
             pip_bin = shutil.which("pip") or "pip"
-            cmd = [pip_bin, "install", local_path]
+            cmd = [pip_bin, "install", str(path)]
 
         result = subprocess.run(  # noqa: S603
             cmd,
@@ -143,7 +172,19 @@ class SpacyModelManager:
 
         if result.returncode != 0:
             error = result.stderr or result.stdout
-            self._handle_install_failure(model, error)
+            log.error(
+                "spacy_local_install_failed",
+                model=model,
+                path=local_path,
+                error=error[:500],  # Truncate long errors
+            )
+            # Fall back to network download on local install failure
+            log.info("spacy_falling_back_to_network", model=model)
+            try:
+                self._install_from_network(model)
+            except Exception as net_exc:
+                # If both fail, handle the final failure
+                self._handle_install_failure(model, f"Local: {error[:200]}, Network: {net_exc}")
         else:
             log.info("spacy_model_installed", model=model, source="local")
 

@@ -153,7 +153,7 @@ class TestDuckDBVectorQueryBuilder:
 
     def test_build_vector_cast(self, builder: DuckDBVectorQueryBuilder) -> None:
         result = builder.build_vector_cast(":emb")
-        assert result == "CAST(:emb AS FLOAT[1024])"
+        assert result == ":emb::FLOAT[1024]"
 
     def test_build_upsert_article_vector_query(self, builder: DuckDBVectorQueryBuilder) -> None:
         result = builder.build_upsert_article_vector_query()
@@ -186,8 +186,9 @@ class TestDuckDBVectorQueryBuilder:
     def test_format_embedding_param(self, builder: DuckDBVectorQueryBuilder) -> None:
         embedding = [0.1, 0.2, 0.3]
         result = builder.format_embedding_param(embedding)
-        assert isinstance(result, list)
-        assert result == embedding
+        # DuckDB now returns string format for better SQL compatibility
+        assert isinstance(result, str)
+        assert result == "[0.1,0.2,0.3]"
 
     def test_build_array_contains_expression(self, builder: DuckDBVectorQueryBuilder) -> None:
         result = builder.build_array_contains_expression("id", ":ids")
@@ -304,8 +305,12 @@ class TestQueryOutputComparison:
         pg_formatted = pg.format_embedding_param(emb)
         duck_formatted = duck.format_embedding_param(emb)
 
+        # Both return strings now, but with different formats
         assert isinstance(pg_formatted, str)
-        assert isinstance(duck_formatted, list)
+        assert isinstance(duck_formatted, str)
+        # pg uses [x,y,z] format, duck uses [x,y,z] format too
+        assert pg_formatted == "[0.1,0.2,0.3]"
+        assert duck_formatted == "[0.1,0.2,0.3]"
 
     def test_array_contains_differs(self) -> None:
         pg = PgVectorQueryBuilder()

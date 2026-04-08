@@ -596,10 +596,18 @@ class SchedulerJobs:
         Consumes pending records from pending_sync table, writes to Neo4j,
         updates temp keys in entity_vectors, and marks records as synced.
 
+        Note: When using LadybugDB (fallback mode), temp key updates are skipped
+        since LadybugDB handles entity IDs differently from Neo4j.
+
         Returns:
             Number of records successfully synced.
         """
         log.info("sync_pending_to_neo4j_start")
+
+        # Detect if using LadybugWriter (fallback mode)
+        using_ladybug = type(self._graph_writer).__name__ == "LadybugWriter"
+        if using_ladybug:
+            log.info("sync_pending_using_ladybug_fallback")
 
         try:
             pending_records = await self._pending_sync_repo.get_pending(limit=100)
@@ -615,23 +623,30 @@ class SchedulerJobs:
                     state = self._pending_sync_repo.reconstruct_state_from_payload(record.payload)
                     state["article_id"] = str(record.article_id)
 
-                    # Write to Neo4j
-                    neo4j_ids = await self._graph_writer.write(state)
+                    # Write to graph database (Neo4j or LadybugDB)
+                    entity_ids = await self._graph_writer.write(state)
 
-                    # Update temp keys in entity_vectors with real neo4j IDs
-                    if neo4j_ids and record.payload.get("entity_temp_keys"):
-                        temp_key_to_neo4j: dict[str, str] = {}
+                    # Update temp keys in entity_vectors with real entity IDs
+                    # Skip for LadybugDB as it handles entity IDs differently
+                    if entity_ids and record.payload.get("entity_temp_keys") and not using_ladybug:
+                        temp_key_to_entity: dict[str, str] = {}
                         entity_temp_keys = record.payload.get("entity_temp_keys", {})
                         for temp_key, entity_name in entity_temp_keys.items():
-                            # Find matching neo4j_id by entity name
+                            # Find matching entity_id by entity name
                             for idx, entity in enumerate(state.get("entities", [])):
-                                if entity.get("name") == entity_name and idx < len(neo4j_ids):
-                                    temp_key_to_neo4j[temp_key] = neo4j_ids[idx]
+                                if entity.get("name") == entity_name and idx < len(entity_ids):
+                                    temp_key_to_entity[temp_key] = entity_ids[idx]
                                     break
-                        if temp_key_to_neo4j:
-                            await self._vector_repo.update_entity_vectors_by_temp_keys(
-                                temp_key_to_neo4j
-                            )
+                        if temp_key_to_entity:
+                            try:
+                                await self._vector_repo.update_entity_vectors_by_temp_keys(
+                                    temp_key_to_entity
+                                )
+                            except Exception as vec_exc:
+                                log.warning(
+                                    "sync_entity_vector_update_failed",
+                                    error=str(vec_exc),
+                                )
 
                     # Update article persist status
                     await self._article_repo.update_persist_status(

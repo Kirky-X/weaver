@@ -7,6 +7,7 @@ This is the immutable temporal backbone of MAGMA's memory system.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from core.observability.logging import get_logger
@@ -21,10 +22,27 @@ class TemporalGraphRepo(BaseGraphRepo):
 
     The Temporal Graph provides the ground truth for chronological reasoning.
     Edges are strictly ordered pairs (n_i, n_j) where τ_i < τ_j.
+
+    Supports both Neo4j and LadybugDB backends by detecting pool type
+    and using appropriate query syntax.
     """
+
+    def __init__(self, pool) -> None:
+        """Initialize with graph pool.
+
+        Args:
+            pool: Graph database connection pool (Neo4j or LadybugDB).
+        """
+        super().__init__(pool)
+        self._is_ladybug = type(pool).__name__ == "LadybugPool"
 
     async def ensure_constraints(self) -> None:
         """Create EventNode constraints and indexes."""
+        if self._is_ladybug:
+            # LadybugDB schema is created via separate schema initialization
+            log.debug("temporal_constraints_skip_ladybug")
+            return
+
         constraints = [
             # EventNode uniqueness
             """
@@ -57,6 +75,12 @@ class TemporalGraphRepo(BaseGraphRepo):
         Returns:
             True if successful, False otherwise.
         """
+        if self._is_ladybug:
+            return await self._append_to_chain_ladybug(event)
+        return await self._append_to_chain_neo4j(event)
+
+    async def _append_to_chain_neo4j(self, event: EventNode) -> bool:
+        """Append event using Neo4j-specific syntax."""
         query = """
         // Create the new EventNode
         MERGE (e:EventNode {id: $id})
@@ -99,6 +123,90 @@ class TemporalGraphRepo(BaseGraphRepo):
             log.error("temporal_append_failed", event_id=event.id, error=str(exc))
             return False
 
+    async def _append_to_chain_ladybug(self, event: EventNode) -> bool:
+        """Append event using LadybugDB-compatible syntax.
+
+        LadybugDB uses INT64 timestamps instead of datetime functions.
+        """
+        now = int(time.time())
+        event_time = int(event.timestamp.timestamp()) if event.timestamp else now
+
+        # Check if event already exists
+        check_query = """
+        MATCH (e:EventNode {id: $id})
+        RETURN e.id
+        """
+        try:
+            existing = await self._pool.execute_query(check_query, {"id": event.id})
+            if existing:
+                log.debug("temporal_event_exists", event_id=event.id)
+                return True
+        except Exception:
+            pass  # Continue to create
+
+        # Find the most recent event
+        find_prev_query = """
+        MATCH (prev:EventNode)
+        WHERE NOT (prev)-[:FOLLOWED_BY]->(:EventNode)
+        RETURN prev.id AS prev_id, prev.event_time AS prev_time
+        ORDER BY prev.event_time DESC
+        LIMIT 1
+        """
+
+        prev_result = []
+        try:
+            prev_result = await self._pool.execute_query(find_prev_query)
+        except Exception:
+            pass  # No previous events
+
+        # Create new event node
+        create_query = """
+        CREATE (e:EventNode {
+            id: $id,
+            content: $content,
+            event_time: $event_time,
+            created_at: $created_at
+        })
+        RETURN e.id
+        """
+
+        create_params = {
+            "id": event.id,
+            "content": event.content,
+            "event_time": event_time,
+            "created_at": now,
+        }
+
+        try:
+            await self._pool.execute_query(create_query, create_params)
+
+            # Create FOLLOWED_BY relationship if there was a previous event
+            if prev_result and prev_result[0].get("prev_id"):
+                prev_id = prev_result[0]["prev_id"]
+                prev_time = prev_result[0].get("prev_time", event_time)
+                time_gap_hours = (event_time - prev_time) / 3600.0 if prev_time else 0.0
+
+                link_query = """
+                MATCH (prev:EventNode {id: $prev_id})
+                MATCH (curr:EventNode {id: $curr_id})
+                CREATE (prev)-[r:FOLLOWED_BY {time_gap_hours: $time_gap}]->(curr)
+                """
+                await self._pool.execute_query(
+                    link_query,
+                    {
+                        "prev_id": prev_id,
+                        "curr_id": event.id,
+                        "time_gap": time_gap_hours,
+                    },
+                )
+
+            log.info("temporal_event_appended", event_id=event.id)
+            return True
+
+        except Exception as exc:
+            log.error("temporal_append_failed", event_id=event.id, error=str(exc))
+            return False
+
     async def get_temporal_chain(
         self,
         limit: int = 100,
@@ -113,13 +221,16 @@ class TemporalGraphRepo(BaseGraphRepo):
         Returns:
             List of event dictionaries ordered by timestamp.
         """
-        query = """
+        # LadybugDB uses event_time (INT64), Neo4j uses timestamp (datetime)
+        time_field = "event_time" if self._is_ladybug else "timestamp"
+
+        query = f"""
         MATCH (e:EventNode)
         RETURN e.id AS id,
                e.content AS content,
-               e.timestamp AS timestamp,
+               e.{time_field} AS timestamp,
                e.attributes AS attributes
-        ORDER BY e.timestamp ASC
+        ORDER BY e.{time_field} ASC
         SKIP $offset
         LIMIT $limit
         """
@@ -143,6 +254,9 @@ class TemporalGraphRepo(BaseGraphRepo):
         Returns:
             List of neighbor events with direction indicator.
         """
+        # LadybugDB uses event_time (INT64), Neo4j uses timestamp (datetime)
+        time_field = "event_time" if self._is_ladybug else "timestamp"
+
         query = f"""
         MATCH (center:EventNode {{id: $event_id}})
 
@@ -151,7 +265,7 @@ class TemporalGraphRepo(BaseGraphRepo):
         WITH center, collect(DISTINCT {{
             id: prev.id,
             content: prev.content,
-            timestamp: prev.timestamp,
+            timestamp: prev.{time_field},
             direction: 'previous'
         }}) AS prev_neighbors
 
@@ -160,7 +274,7 @@ class TemporalGraphRepo(BaseGraphRepo):
         WITH prev_neighbors, collect(DISTINCT {{
             id: next.id,
             content: next.content,
-            timestamp: next.timestamp,
+            timestamp: next.{time_field},
             direction: 'next'
         }}) AS next_neighbors
 
