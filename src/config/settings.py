@@ -23,6 +23,7 @@ Examples:
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -184,27 +185,30 @@ class Settings(BaseSettings):
         return warnings
 
 
-# Global settings instance (cached after first access)
+# Global settings instance with thread-safe access
 _settings_instance: Settings | None = None
+_settings_lock = threading.Lock()
 
 
 def get_settings() -> Settings:
-    """Get the global settings instance.
+    """Get the global settings instance (thread-safe).
 
     Returns:
         Settings instance, creating on first call.
     """
     global _settings_instance
-    if _settings_instance is None:
-        _settings_instance = Settings()
-    return _settings_instance
+    with _settings_lock:
+        if _settings_instance is None:
+            _settings_instance = Settings()
+        return _settings_instance
 
 
 def set_settings(settings: Settings) -> None:
-    """Set the global settings instance.
+    """Set the global settings instance (thread-safe).
 
     Args:
         settings: Settings instance to use globally.
     """
     global _settings_instance
-    _settings_instance = settings
+    with _settings_lock:
+        _settings_instance = settings

@@ -128,20 +128,44 @@ class BatchMergerNode:
 
         if self._vector_repo:
             cross_tasks = [self._cross_query(s, uf, ids) for s in active_states]
-            await asyncio.gather(*cross_tasks)
+            cross_results = await asyncio.gather(*cross_tasks, return_exceptions=True)
+            # Log cross-query failures but continue with available results
+            for i, result in enumerate(cross_results):
+                if isinstance(result, Exception):
+                    log.warning(
+                        "cross_query_task_failed",
+                        url=active_states[i]["raw"].url,
+                        error=str(result),
+                    )
 
         groups = uf.get_groups()
         merge_tasks = []
-        merged_count = 0
+        group_info = []  # Track group info for error handling
         for root, members in groups.items():
             if len(members) <= 1:
                 continue
             group_states = [s for s in active_states if s["raw"].url in members]
             merge_tasks.append(self._llm_merge(group_states))
-            merged_count += len(members) - 1  # Count merged articles
+            group_info.append((root, len(members)))
 
         if merge_tasks:
-            await asyncio.gather(*merge_tasks)
+            merge_results = await asyncio.gather(*merge_tasks, return_exceptions=True)
+            # Calculate actual merged count (only successful merges)
+            merged_count = 0
+            for i, result in enumerate(merge_results):
+                if isinstance(result, Exception):
+                    log.error(
+                        "llm_merge_task_failed",
+                        group_root=group_info[i][0],
+                        member_count=group_info[i][1],
+                        error=str(result),
+                    )
+                    # Merge failed - articles remain unmerged
+                else:
+                    # Merge succeeded
+                    merged_count += group_info[i][1] - 1
+        else:
+            merged_count = 0
 
         # Record metrics
         elapsed = time.perf_counter() - start_time

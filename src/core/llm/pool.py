@@ -13,6 +13,7 @@ from core.llm.circuit_breaker import CircuitOpenError, ProviderCircuitBreaker
 from core.llm.metrics import ProviderMetrics
 from core.llm.types import Label, LLMResponse, ProviderConfig
 from core.observability.logging import get_logger
+from core.resilience.retry import retry_llm
 
 if TYPE_CHECKING:
     from core.event.bus import EventBus
@@ -200,31 +201,45 @@ class ProviderPool:
         payload: dict[str, Any],
         timeout: float,
     ) -> LLMResponse:
-        """执行单个请求."""
+        """执行单个请求，带指数退避重试."""
         # 速率限制
         if self._rate_limiter:
             async with self._rate_limiter:
                 pass
 
-        # 并发控制
+        # 并发控制 + 重试
         async with self._semaphore:
-            try:
-                response = await self._circuit_breaker.call(
-                    self._caller.call,
-                    label=label,
-                    provider_type=self.config.type,
-                    api_key=self.config.api_key,
-                    api_base=self.config.base_url,
-                    payload=payload,
-                    timeout=timeout,
-                )
+            last_error: Exception | None = None
+            async for attempt in retry_llm(max_attempts=3, min_wait=2.0, max_wait=30.0):
+                with attempt:
+                    try:
+                        response = await self._circuit_breaker.call(
+                            self._caller.call,
+                            label=label,
+                            provider_type=self.config.type,
+                            api_key=self.config.api_key,
+                            api_base=self.config.base_url,
+                            payload=payload,
+                            timeout=timeout,
+                        )
 
-                await self._metrics.record_success(response.latency_ms)
-                return response
+                        await self._metrics.record_success(response.latency_ms)
+                        return response
 
-            except Exception as e:
-                await self._metrics.record_failure(str(e))
-                raise
+                    except CircuitOpenError:
+                        # Circuit breaker open - fail fast, no retry
+                        raise
+
+                    except Exception as e:
+                        last_error = e
+                        # Record failure for metrics
+                        await self._metrics.record_failure(str(e))
+                        raise  # Let retry_llm decide whether to retry
+
+            # Retry exhausted (should not reach here)
+            if last_error:
+                raise last_error
+            raise RuntimeError("LLM call retry exhausted")
 
     def get_metrics(self) -> dict[str, Any]:
         """获取监控指标."""

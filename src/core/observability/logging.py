@@ -94,6 +94,9 @@ def log_filter(record: Any) -> bool:
     # Add trace_id to the record's extra fields
     record["extra"]["trace_id"] = get_trace_id()
 
+    # Add request_id if available (set by RequestContextMiddleware)
+    record["extra"]["request_id"] = _context_vars.get().get("request_id", "N/A")
+
     # Sanitize the log message
     if hasattr(record, "message") and isinstance(record["message"], str):
         record["message"] = redact_sensitive_data(record["message"])
@@ -128,7 +131,7 @@ def configure_logging(
     # Console output
     logger.add(
         sys.stderr,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | <yellow>trace_id={extra[trace_id]}</yellow> - <level>{message}</level>",
+        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | <yellow>req={extra[request_id]}</yellow> <yellow>trace={extra[trace_id]}</yellow> - <level>{message}</level>",
         level=level,
         filter=log_filter,
     )
@@ -141,7 +144,7 @@ def configure_logging(
 
         logger.add(
             file_path,
-            format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | trace_id={extra[trace_id]} - {message}",
+            format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | req={extra[request_id]} trace={extra[trace_id]} - {message}",
             level=level,
             filter=log_filter,
             rotation=rotation,

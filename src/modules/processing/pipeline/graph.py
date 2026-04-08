@@ -65,8 +65,8 @@ class Pipeline:
     """
 
     # Default concurrency limits for LLM processing
-    DEFAULT_PHASE1_CONCURRENCY = 5  # Concurrent processing for cloud LLM APIs
-    DEFAULT_PHASE3_CONCURRENCY = 5  # Same for post-merge processing
+    DEFAULT_PHASE1_CONCURRENCY = 20  # Concurrent processing for cloud LLM APIs
+    DEFAULT_PHASE3_CONCURRENCY = 20  # Same for post-merge processing
 
     def __init__(
         self,
@@ -258,7 +258,24 @@ class Pipeline:
 
         # Phase 1: Per-article concurrent nodes
         phase1_tasks = [self._phase1_per_article(state) for state in states]
-        states = await asyncio.gather(*phase1_tasks)
+        phase1_results = await asyncio.gather(*phase1_tasks, return_exceptions=True)
+        # Handle errors gracefully - failed articles get error state, others continue
+        states = []
+        for i, result in enumerate(phase1_results):
+            if isinstance(result, Exception):
+                log.error(
+                    "phase1_task_failed",
+                    article_index=i,
+                    error=str(result),
+                    error_type=type(result).__name__,
+                )
+                # Create failed state for the article
+                failed_state = PipelineState(raw=articles[i])
+                failed_state["terminal"] = True
+                failed_state["error"] = str(result)
+                states.append(failed_state)
+            else:
+                states.append(result)
 
         # Phase 2: Batch merger (serial)
         try:
@@ -272,7 +289,22 @@ class Pipeline:
 
             # Phase 3: Per-article post-merge nodes (concurrent)
             phase3_tasks = [self._phase3_per_article(state) for state in states]
-            states = list(await asyncio.gather(*phase3_tasks))
+            phase3_results = await asyncio.gather(*phase3_tasks, return_exceptions=True)
+            # Handle errors gracefully - keep original state for failed articles
+            states = []
+            for i, result in enumerate(phase3_results):
+                if isinstance(result, Exception):
+                    log.error(
+                        "phase3_task_failed",
+                        article_index=i,
+                        error=str(result),
+                        error_type=type(result).__name__,
+                    )
+                    # For phase3 failures, we keep the state but mark error
+                    # The article may still have partial results from earlier phases
+                    states.append({"terminal": False, "phase3_error": str(result)})
+                else:
+                    states.append(result)
 
             # Phase 4: Persist (批量持久化)
             await self._persist_batch(states)
@@ -282,7 +314,15 @@ class Pipeline:
 
             # Phase 5: Checkpoint cleanup
             cleanup_tasks = [self._checkpoint_cleanup.execute(state) for state in states]
-            await asyncio.gather(*cleanup_tasks)
+            cleanup_results = await asyncio.gather(*cleanup_tasks, return_exceptions=True)
+            # Log cleanup failures but don't fail the pipeline
+            for i, result in enumerate(cleanup_results):
+                if isinstance(result, Exception):
+                    log.warning(
+                        "checkpoint_cleanup_failed",
+                        article_index=i,
+                        error=str(result),
+                    )
 
             # Phase 6: Publish memory ingest events for successful states
             await self._publish_memory_events(states)
@@ -351,9 +391,31 @@ class Pipeline:
             categorizer_task = asyncio.create_task(run_categorizer(state))
             vectorize_task = asyncio.create_task(run_vectorize(state))
 
-            categorizer_state, vectorize_state = await asyncio.gather(
-                categorizer_task, vectorize_task
+            categorizer_result, vectorize_result = await asyncio.gather(
+                categorizer_task, vectorize_task, return_exceptions=True
             )
+
+            # Handle categorizer result
+            if isinstance(categorizer_result, Exception):
+                log.warning(
+                    "categorizer_failed",
+                    error=str(categorizer_result),
+                    url=state.get("raw", {}).url if hasattr(state, "get") else "unknown",
+                )
+                categorizer_state = {}
+            else:
+                categorizer_state = categorizer_result
+
+            # Handle vectorize result
+            if isinstance(vectorize_result, Exception):
+                log.warning(
+                    "vectorize_failed",
+                    error=str(vectorize_result),
+                    url=state.get("raw", {}).url if hasattr(state, "get") else "unknown",
+                )
+                vectorize_state = {}
+            else:
+                vectorize_state = vectorize_result
 
             state.update(categorizer_state)
             state.update(vectorize_state)
@@ -406,7 +468,31 @@ class Pipeline:
             analyze_task = asyncio.create_task(run_analyze(state))
             quality_task = asyncio.create_task(run_quality_scorer(state))
 
-            analyze_state, quality_state = await asyncio.gather(analyze_task, quality_task)
+            analyze_result, quality_result = await asyncio.gather(
+                analyze_task, quality_task, return_exceptions=True
+            )
+
+            # Handle analyze result
+            if isinstance(analyze_result, Exception):
+                log.warning(
+                    "analyze_failed",
+                    error=str(analyze_result),
+                    url=state.get("raw", {}).url if hasattr(state, "get") else "unknown",
+                )
+                analyze_state = {}
+            else:
+                analyze_state = analyze_result
+
+            # Handle quality scorer result
+            if isinstance(quality_result, Exception):
+                log.warning(
+                    "quality_scorer_failed",
+                    error=str(quality_result),
+                    url=state.get("raw", {}).url if hasattr(state, "get") else "unknown",
+                )
+                quality_state = {}
+            else:
+                quality_state = quality_result
 
             state.update(analyze_state)
             state.update(quality_state)
