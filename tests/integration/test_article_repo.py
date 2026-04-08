@@ -1,5 +1,9 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Integration tests for ArticleRepo - uses real PostgreSQL database."""
+"""Integration tests for ArticleRepo - uses real database with automatic fallback.
+
+Uses relational_pool fixture which automatically falls back to DuckDB
+when PostgreSQL is unavailable.
+"""
 
 import uuid
 
@@ -11,20 +15,26 @@ from modules.storage import ArticleRepo
 
 
 class TestArticleRepoIntegration:
-    """Integration tests for ArticleRepo with real PostgreSQL."""
+    """Integration tests for ArticleRepo with real database.
+
+    Uses relational_pool fixture which automatically falls back to DuckDB
+    when PostgreSQL is unavailable.
+    """
 
     @pytest.mark.asyncio
-    async def test_article_repo_initialization(self, postgres_pool):
+    async def test_article_repo_initialization(self, relational_pool):
         """Test ArticleRepo initializes correctly with real pool."""
-        repo = ArticleRepo(postgres_pool)
-        assert repo._pool is postgres_pool
+        pool, _ = relational_pool
+        repo = ArticleRepo(pool)
+        assert repo._pool is pool
 
     @pytest.mark.asyncio
-    async def test_upsert_creates_new_article(self, postgres_pool, unique_id):
+    async def test_upsert_creates_new_article(self, relational_pool, unique_id):
         """Test upsert creates a new article when not exists."""
         from types import SimpleNamespace
 
-        repo = ArticleRepo(postgres_pool)
+        pool, _ = relational_pool
+        repo = ArticleRepo(pool)
 
         state = PipelineState()
         state["raw"] = SimpleNamespace(
@@ -43,7 +53,7 @@ class TestArticleRepoIntegration:
             assert isinstance(article_id, uuid.UUID)
 
             # Verify article was created
-            async with postgres_pool.session_context() as session:
+            async with pool.session_context() as session:
                 result = await session.execute(
                     text("SELECT id, title, source_url FROM articles WHERE id = :id"),
                     {"id": article_id},
@@ -53,19 +63,20 @@ class TestArticleRepoIntegration:
                 assert row.title == f"Test Article {unique_id}"
         finally:
             # Cleanup
-            async with postgres_pool.session_context() as session:
+            async with pool.session_context() as session:
                 await session.execute(
                     text("DELETE FROM articles WHERE source_url LIKE :pattern"),
                     {"pattern": f"%{unique_id}%"},
                 )
 
     @pytest.mark.asyncio
-    async def test_upsert_updates_existing_article(self, postgres_pool, unique_id):
+    async def test_upsert_updates_existing_article(self, relational_pool, unique_id):
         """Test upsert updates existing article with enriched fields."""
         from decimal import Decimal
         from types import SimpleNamespace
 
-        repo = ArticleRepo(postgres_pool)
+        pool, _ = relational_pool
+        repo = ArticleRepo(pool)
 
         # First create an article
         state1 = PipelineState()
@@ -98,7 +109,7 @@ class TestArticleRepoIntegration:
             assert updated_id == article_id
 
             # Verify update - enrichment fields should be set
-            async with postgres_pool.session_context() as session:
+            async with pool.session_context() as session:
                 result = await session.execute(
                     text("SELECT score, quality_score FROM articles WHERE id = :id"),
                     {"id": article_id},
@@ -108,19 +119,20 @@ class TestArticleRepoIntegration:
                 assert row.quality_score == Decimal("0.90")
         finally:
             # Cleanup
-            async with postgres_pool.session_context() as session:
+            async with pool.session_context() as session:
                 await session.execute(
                     text("DELETE FROM articles WHERE source_url LIKE :pattern"),
                     {"pattern": f"%{unique_id}%"},
                 )
 
     @pytest.mark.asyncio
-    async def test_get_article_by_id(self, postgres_pool, unique_id):
+    async def test_get_article_by_id(self, relational_pool, unique_id):
         """Test get article by UUID."""
-        repo = ArticleRepo(postgres_pool)
+        pool, _ = relational_pool
+        repo = ArticleRepo(pool)
 
         # Create test article
-        async with postgres_pool.session_context() as session:
+        async with pool.session_context() as session:
             article_id = uuid.uuid4()
             await session.execute(
                 text("""
@@ -144,19 +156,20 @@ class TestArticleRepoIntegration:
             assert result.id == article_id
         finally:
             # Cleanup
-            async with postgres_pool.session_context() as session:
+            async with pool.session_context() as session:
                 await session.execute(
                     text("DELETE FROM articles WHERE id = :id"),
                     {"id": article_id},
                 )
 
     @pytest.mark.asyncio
-    async def test_get_article_by_string_id(self, postgres_pool, unique_id):
+    async def test_get_article_by_string_id(self, relational_pool, unique_id):
         """Test get article by string UUID."""
-        repo = ArticleRepo(postgres_pool)
+        pool, _ = relational_pool
+        repo = ArticleRepo(pool)
 
         # Create test article
-        async with postgres_pool.session_context() as session:
+        async with pool.session_context() as session:
             article_id = uuid.uuid4()
             await session.execute(
                 text("""
@@ -180,19 +193,20 @@ class TestArticleRepoIntegration:
             assert result.id == article_id
         finally:
             # Cleanup
-            async with postgres_pool.session_context() as session:
+            async with pool.session_context() as session:
                 await session.execute(
                     text("DELETE FROM articles WHERE id = :id"),
                     {"id": article_id},
                 )
 
     @pytest.mark.asyncio
-    async def test_get_pending_neo4j(self, postgres_pool, unique_id):
+    async def test_get_pending_neo4j(self, relational_pool, unique_id):
         """Test get pending Neo4j articles."""
-        repo = ArticleRepo(postgres_pool)
+        pool, _ = relational_pool
+        repo = ArticleRepo(pool)
 
         # Create test article with persist_status pg_done (what get_pending_neo4j queries)
-        async with postgres_pool.session_context() as session:
+        async with pool.session_context() as session:
             article_id = uuid.uuid4()
             await session.execute(
                 text("""
@@ -215,18 +229,19 @@ class TestArticleRepoIntegration:
             assert isinstance(result, list)
         finally:
             # Cleanup
-            async with postgres_pool.session_context() as session:
+            async with pool.session_context() as session:
                 await session.execute(
                     text("DELETE FROM articles WHERE source_url LIKE :pattern"),
                     {"pattern": f"%{unique_id}%"},
                 )
 
     @pytest.mark.asyncio
-    async def test_insert_raw_article(self, postgres_pool, unique_id):
+    async def test_insert_raw_article(self, relational_pool, unique_id):
         """Test insert raw article."""
         from modules.ingestion.domain.models import ArticleRaw
 
-        repo = ArticleRepo(postgres_pool)
+        pool, _ = relational_pool
+        repo = ArticleRepo(pool)
 
         raw_article = ArticleRaw(
             url=f"https://test.example.com/{unique_id}",
@@ -240,7 +255,7 @@ class TestArticleRepoIntegration:
             assert isinstance(article_id, uuid.UUID)
 
             # Verify article was created
-            async with postgres_pool.session_context() as session:
+            async with pool.session_context() as session:
                 result = await session.execute(
                     text("SELECT id FROM articles WHERE source_url = :url"),
                     {"url": raw_article.url},
@@ -249,18 +264,19 @@ class TestArticleRepoIntegration:
                 assert row is not None
         finally:
             # Cleanup
-            async with postgres_pool.session_context() as session:
+            async with pool.session_context() as session:
                 await session.execute(
                     text("DELETE FROM articles WHERE source_url LIKE :pattern"),
                     {"pattern": f"%{unique_id}%"},
                 )
 
     @pytest.mark.asyncio
-    async def test_insert_raw_existing_url(self, postgres_pool, unique_id):
+    async def test_insert_raw_existing_url(self, relational_pool, unique_id):
         """Test insert raw article with existing URL returns existing id."""
         from modules.ingestion.domain.models import ArticleRaw
 
-        repo = ArticleRepo(postgres_pool)
+        pool, _ = relational_pool
+        repo = ArticleRepo(pool)
 
         # First create an article
         raw1 = ArticleRaw(
@@ -286,19 +302,20 @@ class TestArticleRepoIntegration:
             assert second_id == first_id
         finally:
             # Cleanup
-            async with postgres_pool.session_context() as session:
+            async with pool.session_context() as session:
                 await session.execute(
                     text("DELETE FROM articles WHERE source_url LIKE :pattern"),
                     {"pattern": f"%{unique_id}%"},
                 )
 
     @pytest.mark.asyncio
-    async def test_mark_failed(self, postgres_pool, unique_id):
+    async def test_mark_failed(self, relational_pool, unique_id):
         """Test mark article as failed."""
-        repo = ArticleRepo(postgres_pool)
+        pool, _ = relational_pool
+        repo = ArticleRepo(pool)
 
         # Create test article
-        async with postgres_pool.session_context() as session:
+        async with pool.session_context() as session:
             article_id = uuid.uuid4()
             await session.execute(
                 text("""
@@ -320,7 +337,7 @@ class TestArticleRepoIntegration:
             await repo.mark_failed(article_id, "Test error")
 
             # Verify article was marked as failed
-            async with postgres_pool.session_context() as session:
+            async with pool.session_context() as session:
                 result = await session.execute(
                     text("SELECT processing_error FROM articles WHERE id = :id"),
                     {"id": article_id},
@@ -329,7 +346,7 @@ class TestArticleRepoIntegration:
                 assert row.processing_error == "Test error"
         finally:
             # Cleanup
-            async with postgres_pool.session_context() as session:
+            async with pool.session_context() as session:
                 await session.execute(
                     text("DELETE FROM articles WHERE id = :id"),
                     {"id": article_id},

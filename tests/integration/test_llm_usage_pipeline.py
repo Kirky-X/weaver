@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy import text
 
+from core.db.models import LLMUsageRaw
 from core.event.bus import EventBus, LLMUsageEvent
 from core.llm.types import TokenUsage
 from modules.analytics.llm_usage.buffer import LLMUsageBuffer
@@ -114,8 +115,9 @@ class TestLLMUsageRedisBuffer:
     """Test LLMUsageBuffer Redis accumulation with real Redis."""
 
     @pytest.mark.asyncio
-    async def test_buffer_accumulates_event(self, redis_client, unique_id):
+    async def test_buffer_accumulates_event(self, cache_pool, unique_id):
         """Test LLMUsageBuffer accumulates event to Redis HASH."""
+        redis_client, _ = cache_pool
         buffer = LLMUsageBuffer(redis_client, ttl_seconds=7200)
 
         event = LLMUsageEvent(
@@ -134,8 +136,9 @@ class TestLLMUsageRedisBuffer:
         await buffer.accumulate(event)
 
     @pytest.mark.asyncio
-    async def test_buffer_handles_failure_event(self, redis_client, unique_id):
+    async def test_buffer_handles_failure_event(self, cache_pool, unique_id):
         """Test LLMUsageBuffer handles failure event correctly."""
+        redis_client, _ = cache_pool
         buffer = LLMUsageBuffer(redis_client, ttl_seconds=7200)
 
         event = LLMUsageEvent(
@@ -159,14 +162,15 @@ class TestLLMUsageRepoIntegration:
     """Test LLMUsageRepo database operations with real PostgreSQL."""
 
     @pytest.fixture
-    async def repo(self, postgres_pool):
+    async def repo(self, relational_pool):
         """Create LLMUsageRepo with real pool."""
-        return LLMUsageRepo(postgres_pool)
+        pool, _ = relational_pool
+        return LLMUsageRepo(pool)
 
     @pytest.mark.asyncio
-    async def test_insert_raw_event(self, repo, postgres_pool, unique_id):
+    async def test_insert_raw_event(self, repo, relational_pool, unique_id):
         """Test LLMUsageRepo inserts raw event correctly with real database."""
-        from modules.analytics.llm_usage.models import LLMUsageRaw
+        postgres_pool, _ = relational_pool
 
         raw = LLMUsageRaw(
             label=f"test_{unique_id}",
@@ -204,9 +208,9 @@ class TestLLMUsageRepoIntegration:
                 )
 
     @pytest.mark.asyncio
-    async def test_insert_raw_batch(self, repo, postgres_pool, unique_id):
+    async def test_insert_raw_batch(self, repo, relational_pool, unique_id):
         """Test LLMUsageRepo inserts batch events correctly with real database."""
-        from modules.analytics.llm_usage.models import LLMUsageRaw
+        postgres_pool, _ = relational_pool
 
         raw_events = [
             LLMUsageRaw(
@@ -234,7 +238,7 @@ class TestLLMUsageRepoIntegration:
             async with postgres_pool.session_context() as session:
                 result = await session.execute(
                     text("SELECT COUNT(*) FROM llm_usage_raw WHERE label LIKE :pattern"),
-                    {"pattern": f"test_{uniqueid}%"},
+                    {"pattern": f"test_{unique_id}%"},
                 )
                 count = result.scalar()
                 assert count == 5
@@ -252,10 +256,12 @@ class TestLLMUsageCompleteChain:
 
     @pytest.mark.asyncio
     async def test_complete_chain_event_to_buffer_to_db(
-        self, event_bus, redis_client, postgres_pool, unique_id
+        self, event_bus, cache_pool, relational_pool, unique_id
     ):
         """Test complete chain: Event published → Buffer receives → DB stores."""
-        from modules.analytics.llm_usage.models import LLMUsageRaw
+
+        redis_client, _ = cache_pool
+        postgres_pool, _ = relational_pool
 
         buffer = LLMUsageBuffer(redis_client, ttl_seconds=7200)
         repo = LLMUsageRepo(postgres_pool)
@@ -329,10 +335,9 @@ class TestLLMUsageCompleteChain:
                 )
 
     @pytest.mark.asyncio
-    async def test_chain_handles_partial_failure(self, event_bus, postgres_pool, unique_id):
+    async def test_chain_handles_partial_failure(self, event_bus, relational_pool, unique_id):
         """Test chain continues even when one handler fails."""
-        from modules.analytics.llm_usage.models import LLMUsageRaw
-
+        postgres_pool, _ = relational_pool
         repo = LLMUsageRepo(postgres_pool)
         successful_handler_called = False
 
@@ -387,14 +392,15 @@ class TestLLMUsageAPIEndpoints:
     """Test LLM usage API endpoints with real database."""
 
     @pytest.fixture
-    def app(self, postgres_pool):
+    def app(self, relational_pool):
         """Create FastAPI app with LLM usage endpoints using real repo."""
         from api.endpoints import admin
         from api.endpoints._deps import Endpoints
         from api.middleware.auth import verify_api_key
 
         # Set real repo
-        Endpoints._llm_usage_repo = LLMUsageRepo(postgres_pool)
+        pool, _ = relational_pool
+        Endpoints._llm_usage_repo = LLMUsageRepo(pool)
 
         app = FastAPI()
         # Override auth dependency

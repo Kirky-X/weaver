@@ -1,72 +1,90 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Integration tests for graph metrics - NO MOCKS.
 
-Tests with real Neo4j database.
+Tests with fallback graph databases (Neo4j or LadybugDB).
 """
 
-import os
+import uuid
 
 import pytest
 
 
-async def _check_neo4j_available() -> bool:
-    """Check if Neo4j is available."""
-    try:
-        from core.db.neo4j import Neo4jPool
+@pytest.fixture
+async def entity_repo(graph_pool):
+    """Create EntityRepository based on graph pool type."""
+    pool, db_type = graph_pool
+    if db_type == "ladybug":
+        from modules.storage.ladybug import LadybugEntityRepo
 
-        uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-        user = os.getenv("NEO4J_USER", "neo4j")
-        password = os.getenv("NEO4J_PASSWORD", "weavertest")
-        pool = Neo4jPool(uri, (user, password))
-        await pool.startup()
-        await pool.shutdown()
-        return True
-    except Exception:
-        return False
+        return LadybugEntityRepo(pool), pool, db_type
+    else:
+        from modules.storage.neo4j.entity_repo import Neo4jEntityRepo
+
+        return Neo4jEntityRepo(pool), pool, db_type
 
 
 @pytest.fixture
-async def neo4j_pool():
-    """Get real Neo4j pool."""
-    if not await _check_neo4j_available():
-        pytest.skip("Neo4j not available")
+async def setup_test_graph(entity_repo):
+    """Set up test graph data using EntityRepository."""
+    repo, pool, db_type = entity_repo
 
-    from core.db.neo4j import Neo4jPool
+    # Create entities using EntityRepository (handles LadybugDB UUID requirements)
+    e1_id = await repo.merge_entity(
+        canonical_name="MetricsTest_Person1",
+        entity_type="人物",
+    )
+    e2_id = await repo.merge_entity(
+        canonical_name="MetricsTest_Person2",
+        entity_type="人物",
+    )
+    e3_id = await repo.merge_entity(
+        canonical_name="MetricsTest_Org",
+        entity_type="组织机构",
+    )
 
-    # Use port 7687 (Docker weaver stack) and password from .env
-    uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-    user = os.getenv("NEO4J_USER", "neo4j")
-    password = os.getenv("NEO4J_PASSWORD", "weavertest")
-    pool = Neo4jPool(uri, (user, password))
-    await pool.startup()
-    yield pool
-    await pool.shutdown()
+    # Create relationships using EntityRepository
+    await repo.merge_relation(
+        from_entity_id=e1_id,
+        to_entity_id=e2_id,
+        edge_type="RELATED_TO",
+        properties={"relation_type": "认识"},
+    )
+    await repo.merge_relation(
+        from_entity_id=e2_id,
+        to_entity_id=e3_id,
+        edge_type="RELATED_TO",
+        properties={"relation_type": "工作于"},
+    )
 
-
-@pytest.fixture
-async def setup_test_graph(neo4j_pool):
-    """Set up test graph data."""
-    await neo4j_pool.execute_query("""
-        MERGE (e1:Entity {canonical_name: 'MetricsTest_Person1', type: '人物'})
-        MERGE (e2:Entity {canonical_name: 'MetricsTest_Person2', type: '人物'})
-        MERGE (e3:Entity {canonical_name: 'MetricsTest_Org', type: '组织机构'})
-        MERGE (e1)-[:RELATED_TO {relation_type: '认识'}]->(e2)
-        MERGE (e2)-[:RELATED_TO {relation_type: '工作于'}]->(e3)
-    """)
     yield
-    await neo4j_pool.execute_query("""
-        MATCH (e:Entity)
-        WHERE e.canonical_name STARTS WITH 'MetricsTest'
-        DETACH DELETE e
-    """)
+    # Cleanup - handle both Neo4j (DETACH DELETE) and LadybugDB (manual delete)
+    if db_type == "ladybug":
+        # LadybugDB doesn't support DETACH DELETE
+        await pool.execute_query("""
+            MATCH (e:Entity)-[r:RELATED_TO]->()
+            WHERE e.canonical_name STARTS WITH 'MetricsTest'
+            DELETE r
+        """)
+        await pool.execute_query("""
+            MATCH (e:Entity)
+            WHERE e.canonical_name STARTS WITH 'MetricsTest'
+            DELETE e
+        """)
+    else:
+        await pool.execute_query("""
+            MATCH (e:Entity)
+            WHERE e.canonical_name STARTS WITH 'MetricsTest'
+            DETACH DELETE e
+        """)
 
 
 @pytest.mark.asyncio
-async def test_graph_metrics_calculation(neo4j_pool, setup_test_graph):
+async def test_graph_metrics_calculation(entity_repo, setup_test_graph):
     """Test graph metrics with real data."""
     from modules.knowledge.graph.metrics import GraphQualityMetrics
 
-    metrics = GraphQualityMetrics(neo4j_pool)
+    _, pool, db_type = entity_repo
+    metrics = GraphQualityMetrics(pool, db_type=db_type)
     result = await metrics.calculate_all_metrics()
 
     assert result.total_entities >= 3
@@ -74,42 +92,55 @@ async def test_graph_metrics_calculation(neo4j_pool, setup_test_graph):
 
 
 @pytest.mark.asyncio
-async def test_connected_components(neo4j_pool, setup_test_graph):
+async def test_connected_components(entity_repo, setup_test_graph):
     """Test connected components detection."""
     from modules.knowledge.graph.metrics import GraphQualityMetrics
 
-    metrics = GraphQualityMetrics(neo4j_pool)
+    _, pool, db_type = entity_repo
+    metrics = GraphQualityMetrics(pool, db_type=db_type)
     components = await metrics.get_connected_components()
 
     assert isinstance(components, list)
 
 
 @pytest.mark.asyncio
-async def test_orphan_entities(neo4j_pool):
+async def test_orphan_entities(entity_repo):
     """Test orphan entity detection."""
     from modules.knowledge.graph.metrics import GraphQualityMetrics
 
-    await neo4j_pool.execute_query("""
-        MERGE (e:Entity {canonical_name: 'MetricsTest_Orphan', type: '人物'})
-    """)
+    repo, pool, db_type = entity_repo
 
-    metrics = GraphQualityMetrics(neo4j_pool)
+    # Create orphan entity using EntityRepository
+    await repo.merge_entity(
+        canonical_name="MetricsTest_Orphan",
+        entity_type="人物",
+    )
+
+    metrics = GraphQualityMetrics(pool, db_type=db_type)
     orphans = await metrics.find_orphan_entities(limit=10)
 
     assert isinstance(orphans, list)
 
-    await neo4j_pool.execute_query("""
-        MATCH (e:Entity {canonical_name: 'MetricsTest_Orphan'})
-        DETACH DELETE e
-    """)
+    # Cleanup - handle both Neo4j and LadybugDB
+    if db_type == "ladybug":
+        await pool.execute_query("""
+            MATCH (e:Entity {canonical_name: 'MetricsTest_Orphan'})
+            DELETE e
+        """)
+    else:
+        await pool.execute_query("""
+            MATCH (e:Entity {canonical_name: 'MetricsTest_Orphan'})
+            DETACH DELETE e
+        """)
 
 
 @pytest.mark.asyncio
-async def test_modularity_calculation(neo4j_pool, setup_test_graph):
+async def test_modularity_calculation(entity_repo, setup_test_graph):
     """Test modularity with real graph."""
     from modules.knowledge.graph.metrics import GraphQualityMetrics
 
-    metrics = GraphQualityMetrics(neo4j_pool)
+    _, pool, db_type = entity_repo
+    metrics = GraphQualityMetrics(pool, db_type=db_type)
     score = await metrics.calculate_modularity()
 
     assert -1.0 <= score <= 1.0

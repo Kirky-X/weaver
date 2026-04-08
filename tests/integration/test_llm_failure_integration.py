@@ -1,5 +1,9 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Integration tests for LLM failure logging — full chain from event to DB."""
+"""Integration tests for LLM failure logging — full chain from event to DB.
+
+Uses relational_pool fixture which automatically falls back to DuckDB
+when PostgreSQL is unavailable.
+"""
 
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -15,9 +19,10 @@ class TestLLMFailureEventChain:
     """Integration tests for the LLM failure → EventBus → Repo chain."""
 
     @pytest.fixture
-    def repo(self, postgres_pool):
+    def repo(self, relational_pool):
         """Create LLMFailureRepo with real pool."""
-        return LLMFailureRepo(postgres_pool)
+        pool, _ = relational_pool
+        return LLMFailureRepo(pool)
 
     @pytest.mark.asyncio
     async def test_llm_failure_event_published_to_event_bus(self, event_bus):
@@ -52,9 +57,10 @@ class TestLLMFailureEventChain:
 
     @pytest.mark.asyncio
     async def test_event_bus_handler_records_failure_to_repo(
-        self, repo, event_bus, postgres_pool, unique_id
+        self, repo, event_bus, relational_pool, unique_id
     ):
         """Test EventBus handler correctly records failure to LLMFailureRepo."""
+        pool, _ = relational_pool
 
         async def handle(event):
             await repo.record(event)
@@ -76,7 +82,7 @@ class TestLLMFailureEventChain:
         )
 
         # Verify record was created
-        async with postgres_pool.session_context() as session:
+        async with pool.session_context() as session:
             result = await session.execute(
                 text(
                     "SELECT call_point, provider, error_type FROM llm_failures WHERE call_point = :cp"
@@ -89,7 +95,7 @@ class TestLLMFailureEventChain:
             assert row.provider == "anthropic"
 
         # Cleanup
-        async with postgres_pool.session_context() as session:
+        async with pool.session_context() as session:
             await session.execute(
                 text("DELETE FROM llm_failures WHERE call_point = :cp"),
                 {"cp": f"analyzer_{unique_id}"},
@@ -97,9 +103,10 @@ class TestLLMFailureEventChain:
 
     @pytest.mark.asyncio
     async def test_multiple_failures_recorded_separately(
-        self, repo, event_bus, postgres_pool, unique_id
+        self, repo, event_bus, relational_pool, unique_id
     ):
         """Test multiple failure events are recorded as separate rows."""
+        pool, _ = relational_pool
 
         async def handle(event):
             await repo.record(event)
@@ -122,7 +129,7 @@ class TestLLMFailureEventChain:
             )
 
         # Verify 3 records were created
-        async with postgres_pool.session_context() as session:
+        async with pool.session_context() as session:
             result = await session.execute(
                 text("SELECT COUNT(*) FROM llm_failures WHERE call_point LIKE :pattern"),
                 {"pattern": f"node_{unique_id}%"},
@@ -131,15 +138,18 @@ class TestLLMFailureEventChain:
             assert count == 3
 
         # Cleanup
-        async with postgres_pool.session_context() as session:
+        async with pool.session_context() as session:
             await session.execute(
                 text("DELETE FROM llm_failures WHERE call_point LIKE :pattern"),
                 {"pattern": f"node_{unique_id}%"},
             )
 
     @pytest.mark.asyncio
-    async def test_cleanup_deletes_old_records_only(self, repo, postgres_pool, unique_id):
+    async def test_cleanup_deletes_old_records_only(self, repo, relational_pool, unique_id):
         """Test cleanup_older_than only deletes records older than cutoff."""
+        from datetime import timedelta
+
+        pool, _ = relational_pool
 
         # Create test records
         async def handle(event):
@@ -163,7 +173,7 @@ class TestLLMFailureEventChain:
         )
 
         # Verify the record was created
-        async with postgres_pool.session_context() as session:
+        async with pool.session_context() as session:
             result = await session.execute(
                 text("SELECT COUNT(*) FROM llm_failures WHERE call_point = :cp"),
                 {"cp": f"cleanup_test_{unique_id}"},
@@ -171,22 +181,20 @@ class TestLLMFailureEventChain:
             assert result.scalar() == 1
 
         # Manually backdate the record so it is older than the cutoff
-        async with postgres_pool.session_context() as session:
+        # Calculate old timestamp in Python (database-agnostic)
+        old_timestamp = datetime.now(UTC) - timedelta(days=2)
+        async with pool.session_context() as session:
             await session.execute(
-                text(
-                    "UPDATE llm_failures SET created_at = created_at - INTERVAL '2 days' "
-                    "WHERE call_point = :cp"
-                ),
-                {"cp": f"cleanup_test_{unique_id}"},
+                text("UPDATE llm_failures SET created_at = :old_ts WHERE call_point = :cp"),
+                {"old_ts": old_timestamp, "cp": f"cleanup_test_{unique_id}"},
             )
             await session.commit()
 
         # Cleanup with days=1 should delete the backdated record
-        removed = await repo.cleanup_older_than(days=1)
-        assert removed >= 1
+        await repo.cleanup_older_than(days=1)
 
-        # Verify record was deleted
-        async with postgres_pool.session_context() as session:
+        # Verify record was deleted (actual test - rowcount may be -1 on some DB drivers like DuckDB)
+        async with pool.session_context() as session:
             result = await session.execute(
                 text("SELECT COUNT(*) FROM llm_failures WHERE call_point = :cp"),
                 {"cp": f"cleanup_test_{unique_id}"},

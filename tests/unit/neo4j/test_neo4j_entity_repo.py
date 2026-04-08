@@ -255,8 +255,8 @@ class TestNeo4jEntityRepo:
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         await repo.merge_relation(
-            from_neo4j_id="id1",
-            to_neo4j_id="id2",
+            from_entity_id="id1",
+            to_entity_id="id2",
             edge_type="PARTNERS_WITH",
             properties={"raw_type": "合作", "direction": "bidirectional"},
         )
@@ -276,8 +276,8 @@ class TestNeo4jEntityRepo:
         """Test merge_relation rejects invalid edge type."""
         with pytest.raises(ValueError, match="Invalid edge type"):
             await repo.merge_relation(
-                from_neo4j_id="id1",
-                to_neo4j_id="id2",
+                from_entity_id="id1",
+                to_entity_id="id2",
                 edge_type="invalid-type!",
             )
 
@@ -289,8 +289,8 @@ class TestNeo4jEntityRepo:
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         await repo.merge_relation(
-            from_neo4j_id="id1",
-            to_neo4j_id="id2",
+            from_entity_id="id1",
+            to_entity_id="id2",
             edge_type="REGULATES",
         )
 
@@ -367,8 +367,8 @@ class TestNeo4jEntityRepo:
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         await repo.merge_mentions_relation(
-            article_neo4j_id="article_id",
-            entity_neo4j_id="entity_id",
+            article_id="article_id",
+            entity_id="entity_id",
         )
 
         mock_pool.execute_query.assert_called_once()
@@ -379,8 +379,8 @@ class TestNeo4jEntityRepo:
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         await repo.merge_mentions_relation(
-            article_neo4j_id="article_id",
-            entity_neo4j_id="entity_id",
+            article_id="article_id",
+            entity_id="entity_id",
             role="subject",
         )
 
@@ -789,3 +789,266 @@ class TestFindByRelationTypes:
         )
 
         assert result == []
+
+
+class TestFindEntitiesByIds:
+    """Tests for find_entities_by_ids."""
+
+    @pytest.fixture
+    def repo(self):
+        """Create repo with mock pool."""
+        pool = MagicMock()
+        pool.execute_query = AsyncMock()
+        return Neo4jEntityRepo(pool)
+
+    @pytest.mark.asyncio
+    async def test_find_entities_by_ids_found(self, repo):
+        """Test find_entities_by_ids returns entities when found."""
+        repo._pool.execute_query = AsyncMock(
+            return_value=[
+                {"neo4j_id": "id1", "canonical_name": "张三", "type": "人物"},
+                {"neo4j_id": "id2", "canonical_name": "李四", "type": "人物"},
+            ]
+        )
+
+        result = await repo.find_entities_by_ids(["id1", "id2"])
+
+        assert len(result) == 2
+        assert result[0]["neo4j_id"] == "id1"
+        assert result[1]["canonical_name"] == "李四"
+
+    @pytest.mark.asyncio
+    async def test_find_entities_by_ids_empty(self, repo):
+        """Test find_entities_by_ids returns empty list when none found."""
+        repo._pool.execute_query = AsyncMock(return_value=[])
+
+        result = await repo.find_entities_by_ids(["nonexistent_id"])
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_find_entities_by_ids_query_params(self, repo):
+        """Test find_entities_by_ids passes correct params."""
+        repo._pool.execute_query = AsyncMock(return_value=[])
+
+        await repo.find_entities_by_ids(["id1", "id2"])
+
+        call_args = repo._pool.execute_query.call_args
+        params = call_args[0][1]
+        assert "ids" in params
+        assert params["ids"] == ["id1", "id2"]
+
+
+class TestCountOrphanEntities:
+    """Tests for count_orphan_entities."""
+
+    @pytest.fixture
+    def repo(self):
+        """Create repo with mock pool."""
+        pool = MagicMock()
+        pool.execute_query = AsyncMock()
+        return Neo4jEntityRepo(pool)
+
+    @pytest.mark.asyncio
+    async def test_count_orphan_entities(self, repo):
+        """Test count_orphan_entities returns count."""
+        repo._pool.execute_query = AsyncMock(return_value=[{"orphan_count": 5}])
+
+        result = await repo.count_orphan_entities()
+
+        assert result == 5
+
+    @pytest.mark.asyncio
+    async def test_count_orphan_entities_zero(self, repo):
+        """Test count_orphan_entities returns 0 when no orphans."""
+        repo._pool.execute_query = AsyncMock(return_value=[{"orphan_count": 0}])
+
+        result = await repo.count_orphan_entities()
+
+        assert result == 0
+
+
+class TestFindEntitiesByKeys:
+    """Tests for find_entities_by_keys."""
+
+    @pytest.fixture
+    def repo(self):
+        """Create repo with mock pool."""
+        pool = MagicMock()
+        pool.execute_query = AsyncMock()
+        return Neo4jEntityRepo(pool)
+
+    @pytest.mark.asyncio
+    async def test_find_entities_by_keys_found(self, repo):
+        """Test find_entities_by_keys returns entities when found."""
+        repo._pool.execute_query = AsyncMock(
+            return_value=[
+                {
+                    "neo4j_id": "id1",
+                    "canonical_name": "张三",
+                    "type": "人物",
+                    "aliases": ["张三", "老张"],
+                    "description": "描述",
+                },
+                {
+                    "neo4j_id": "id2",
+                    "canonical_name": "公司A",
+                    "type": "组织机构",
+                    "aliases": ["公司A"],
+                    "description": None,
+                },
+            ]
+        )
+
+        keys = [
+            {"canonical_name": "张三", "type": "人物"},
+            {"canonical_name": "公司A", "type": "组织机构"},
+        ]
+        result = await repo.find_entities_by_keys(keys)
+
+        assert len(result) == 2
+        assert result[0]["canonical_name"] == "张三"
+        assert result[1]["type"] == "组织机构"
+
+    @pytest.mark.asyncio
+    async def test_find_entities_by_keys_empty(self, repo):
+        """Test find_entities_by_keys returns empty list for empty input."""
+        result = await repo.find_entities_by_keys([])
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_find_entities_by_keys_partial_match(self, repo):
+        """Test find_entities_by_keys returns only found entities."""
+        repo._pool.execute_query = AsyncMock(
+            return_value=[{"neo4j_id": "id1", "canonical_name": "张三", "type": "人物"}]
+        )
+
+        keys = [
+            {"canonical_name": "张三", "type": "人物"},
+            {"canonical_name": "不存在", "type": "人物"},
+        ]
+        result = await repo.find_entities_by_keys(keys)
+
+        assert len(result) == 1
+        assert result[0]["canonical_name"] == "张三"
+
+    @pytest.mark.asyncio
+    async def test_find_entities_by_keys_query_params(self, repo):
+        """Test find_entities_by_keys passes correct params."""
+        repo._pool.execute_query = AsyncMock(return_value=[])
+
+        keys = [
+            {"canonical_name": "张三", "type": "人物"},
+            {"canonical_name": "公司A", "type": "组织机构"},
+        ]
+        await repo.find_entities_by_keys(keys)
+
+        call_args = repo._pool.execute_query.call_args
+        params = call_args[0][1]
+        assert "keys" in params
+        assert len(params["keys"]) == 2
+        assert params["keys"][0]["canonical_name"] == "张三"
+
+
+class TestGetEntityNeighborhood:
+    """Tests for get_entity_neighborhood."""
+
+    @pytest.fixture
+    def repo(self):
+        """Create repo with mock pool."""
+        pool = MagicMock()
+        pool.execute_query = AsyncMock()
+        return Neo4jEntityRepo(pool)
+
+    @pytest.mark.asyncio
+    async def test_get_entity_neighborhood_found(self, repo):
+        """Test get_entity_neighborhood returns neighborhood data."""
+        # Mock find_entity
+        repo._pool.execute_query = AsyncMock(
+            side_effect=[
+                # find_entity
+                [{"neo4j_id": "id1", "canonical_name": "张三", "type": "人物"}],
+                # events query
+                [
+                    {
+                        "id": "event1",
+                        "content": "事件内容",
+                        "timestamp": "2024-01-01",
+                        "source": "http://example.com",
+                    }
+                ],
+                # related entities query (hops=2)
+                [{"name": "公司A", "type": "组织机构"}],
+                # relations query
+                [
+                    {
+                        "type": "WORKS_FOR",
+                        "source": "张三",
+                        "target": "公司A",
+                        "confidence": 0.9,
+                    }
+                ],
+            ]
+        )
+
+        result = await repo.get_entity_neighborhood("张三", hops=2, limit=10)
+
+        assert result is not None
+        assert result["center"] == "张三"
+        assert len(result["events"]) == 1
+        assert len(result["related_entities"]) == 1
+        assert len(result["relations"]) == 1
+        assert result["hops"] == 2
+
+    @pytest.mark.asyncio
+    async def test_get_entity_neighborhood_not_found(self, repo):
+        """Test get_entity_neighborhood returns None when entity not found."""
+        repo._pool.execute_query = AsyncMock(return_value=[])
+
+        result = await repo.get_entity_neighborhood("不存在")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_get_entity_neighborhood_hops_1(self, repo):
+        """Test get_entity_neighborhood with hops=1."""
+        repo._pool.execute_query = AsyncMock(
+            side_effect=[
+                [{"neo4j_id": "id1", "canonical_name": "张三", "type": "人物"}],
+                [],  # events
+                [],  # related entities
+                [],  # relations
+            ]
+        )
+
+        result = await repo.get_entity_neighborhood("张三", hops=1)
+
+        assert result is not None
+        assert result["hops"] == 1
+        # Verify the query used hops=1 pattern (should not contain *1..2)
+        calls = repo._pool.execute_query.call_args_list
+        related_query = calls[2][0][0]  # Third call is related entities
+        assert "*1..2" not in related_query
+
+    @pytest.mark.asyncio
+    async def test_get_entity_neighborhood_with_type(self, repo):
+        """Test get_entity_neighborhood with entity_type parameter."""
+        repo._pool.execute_query = AsyncMock(
+            side_effect=[
+                [{"neo4j_id": "id1", "canonical_name": "张三", "type": "人物"}],
+                [],  # events
+                [],  # related entities
+                [],  # relations
+            ]
+        )
+
+        await repo.get_entity_neighborhood("张三", entity_type="人物")
+
+        # Verify find_entity was called with the type
+        first_call = repo._pool.execute_query.call_args_list[0]
+        query = first_call[0][0]
+        params = first_call[0][1]
+        assert "canonical_name" in query
+        assert params["canonical_name"] == "张三"
+        assert params["type"] == "人物"

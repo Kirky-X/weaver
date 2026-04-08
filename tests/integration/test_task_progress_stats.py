@@ -1,9 +1,11 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Integration tests for task progress statistics query."""
+"""Integration tests for task progress statistics query.
+
+Uses fallback databases (DuckDB) when PostgreSQL is not available.
+"""
 
 from __future__ import annotations
 
-import os
 import uuid
 
 import pytest
@@ -12,71 +14,32 @@ from sqlalchemy import delete, select
 from core.db.models import Article, PersistStatus
 
 
-def get_test_pool():
-    """Create a new PostgresPool for testing."""
-    from core.db.postgres import PostgresPool
-
-    # Use WEAVER_POSTGRES__DSN if set (Docker Compose), otherwise fallback to localhost:5432
-    dsn = os.getenv(
-        "WEAVER_POSTGRES__DSN",
-        os.getenv(
-            "POSTGRES_DSN",
-            f"postgresql+asyncpg://{os.getenv('POSTGRES_USER', 'postgres')}:{os.getenv('POSTGRES_PASSWORD', 'invalid')}@{os.getenv('POSTGRES_HOST', 'localhost')}:{os.getenv('POSTGRES_PORT', '5432')}/{os.getenv('POSTGRES_DATABASE', 'weaver')}",
-        ),
-    )
-    return PostgresPool(dsn)
-
-
-async def _check_postgres_available() -> bool:
-    """Check if PostgreSQL is available."""
-    try:
-        pool = get_test_pool()
-        await pool.startup()
-        await pool.shutdown()
-        return True
-    except Exception:
-        return False
-
-
-@pytest.fixture
-async def skip_if_no_postgres():
-    """Skip test if PostgreSQL is not available."""
-    if not await _check_postgres_available():
-        pytest.skip("PostgreSQL not available")
-
-
 class TestTaskProgressStats:
     """Integration tests for get_task_progress_stats method."""
 
     @pytest.mark.asyncio
-    async def test_get_progress_stats_returns_all_zeros_for_new_task(self, skip_if_no_postgres):
+    async def test_get_progress_stats_returns_all_zeros_for_new_task(self, relational_pool):
         """Test that querying a task with no articles returns all zeros."""
         from modules.storage.postgres.article_repo import ArticleRepo
 
-        pool = get_test_pool()
-        await pool.startup()
-        try:
-            repo = ArticleRepo(pool)
+        pool, _ = relational_pool
+        repo = ArticleRepo(pool)
 
-            # Query stats for a task that doesn't exist
-            stats = await repo.get_task_progress_stats(uuid.uuid4())
+        # Query stats for a task that doesn't exist
+        stats = await repo.get_task_progress_stats(uuid.uuid4())
 
-            assert stats["total_processed"] == 0
-            assert stats["processing_count"] == 0
-            assert stats["completed_count"] == 0
-            assert stats["failed_count"] == 0
-            assert stats["pending_count"] == 0
-        finally:
-            await pool.shutdown()
+        assert stats["total_processed"] == 0
+        assert stats["processing_count"] == 0
+        assert stats["completed_count"] == 0
+        assert stats["failed_count"] == 0
+        assert stats["pending_count"] == 0
 
     @pytest.mark.asyncio
-    async def test_get_progress_stats_with_mixed_statuses(self, skip_if_no_postgres):
+    async def test_get_progress_stats_with_mixed_statuses(self, relational_pool):
         """Test progress stats with articles in various persist statuses."""
         from modules.storage.postgres.article_repo import ArticleRepo
 
-        pool = get_test_pool()
-        await pool.startup()
-
+        pool, _ = relational_pool
         task_id = uuid.uuid4()
 
         # Create articles with different statuses for the same task
@@ -119,16 +82,13 @@ class TestTaskProgressStats:
             async with pool.session() as session:
                 await session.execute(delete(Article).where(Article.task_id == task_id))
                 await session.commit()
-            await pool.shutdown()
 
     @pytest.mark.asyncio
-    async def test_get_progress_stats_excludes_other_tasks(self, skip_if_no_postgres):
+    async def test_get_progress_stats_excludes_other_tasks(self, relational_pool):
         """Test that stats only include articles for the specific task_id."""
         from modules.storage.postgres.article_repo import ArticleRepo
 
-        pool = get_test_pool()
-        await pool.startup()
-
+        pool, _ = relational_pool
         task_id_1 = uuid.uuid4()
         task_id_2 = uuid.uuid4()
 
@@ -179,16 +139,13 @@ class TestTaskProgressStats:
                 await session.execute(delete(Article).where(Article.task_id == task_id_1))
                 await session.execute(delete(Article).where(Article.task_id == task_id_2))
                 await session.commit()
-            await pool.shutdown()
 
     @pytest.mark.asyncio
-    async def test_get_progress_stats_excludes_null_task_id(self, skip_if_no_postgres):
+    async def test_get_progress_stats_excludes_null_task_id(self, relational_pool):
         """Test that articles with NULL task_id are excluded from stats."""
         from modules.storage.postgres.article_repo import ArticleRepo
 
-        pool = get_test_pool()
-        await pool.startup()
-
+        pool, _ = relational_pool
         task_id = uuid.uuid4()
 
         # Create article with the task_id
@@ -235,18 +192,15 @@ class TestTaskProgressStats:
                     )
                 )
                 await session.commit()
-            await pool.shutdown()
 
 
 class TestTaskCompletionDetermination:
     """Integration tests for task completion status logic."""
 
     @pytest.mark.asyncio
-    async def test_task_completed_when_all_neo4j_done(self, skip_if_no_postgres):
+    async def test_task_completed_when_all_neo4j_done(self, relational_pool):
         """Test task is completed when all articles are NEO4J_DONE."""
-        pool = get_test_pool()
-        await pool.startup()
-
+        pool, _ = relational_pool
         task_id = uuid.uuid4()
 
         articles = [
@@ -285,14 +239,11 @@ class TestTaskCompletionDetermination:
             async with pool.session() as session:
                 await session.execute(delete(Article).where(Article.task_id == task_id))
                 await session.commit()
-            await pool.shutdown()
 
     @pytest.mark.asyncio
-    async def test_task_not_completed_with_pending_articles(self, skip_if_no_postgres):
+    async def test_task_not_completed_with_pending_articles(self, relational_pool):
         """Test task is NOT completed when articles are still pending."""
-        pool = get_test_pool()
-        await pool.startup()
-
+        pool, _ = relational_pool
         task_id = uuid.uuid4()
 
         articles = [
@@ -336,14 +287,11 @@ class TestTaskCompletionDetermination:
             async with pool.session() as session:
                 await session.execute(delete(Article).where(Article.task_id == task_id))
                 await session.commit()
-            await pool.shutdown()
 
     @pytest.mark.asyncio
-    async def test_task_not_completed_with_processing_articles(self, skip_if_no_postgres):
+    async def test_task_not_completed_with_processing_articles(self, relational_pool):
         """Test task is NOT completed when articles are in PROCESSING state."""
-        pool = get_test_pool()
-        await pool.startup()
-
+        pool, _ = relational_pool
         task_id = uuid.uuid4()
 
         article = Article(
@@ -378,14 +326,11 @@ class TestTaskCompletionDetermination:
             async with pool.session() as session:
                 await session.execute(delete(Article).where(Article.task_id == task_id))
                 await session.commit()
-            await pool.shutdown()
 
     @pytest.mark.asyncio
-    async def test_task_completed_with_mixed_failed_and_done(self, skip_if_no_postgres):
+    async def test_task_completed_with_mixed_failed_and_done(self, relational_pool):
         """Test task is completed when remaining articles are all FAILED."""
-        pool = get_test_pool()
-        await pool.startup()
-
+        pool, _ = relational_pool
         task_id = uuid.uuid4()
 
         articles = [
@@ -429,14 +374,11 @@ class TestTaskCompletionDetermination:
             async with pool.session() as session:
                 await session.execute(delete(Article).where(Article.task_id == task_id))
                 await session.commit()
-            await pool.shutdown()
 
     @pytest.mark.asyncio
-    async def test_task_completed_with_only_failed_articles(self, skip_if_no_postgres):
+    async def test_task_completed_with_only_failed_articles(self, relational_pool):
         """Test task is completed when ALL articles are FAILED."""
-        pool = get_test_pool()
-        await pool.startup()
-
+        pool, _ = relational_pool
         task_id = uuid.uuid4()
 
         articles = [
@@ -474,4 +416,3 @@ class TestTaskCompletionDetermination:
             async with pool.session() as session:
                 await session.execute(delete(Article).where(Article.task_id == task_id))
                 await session.commit()
-            await pool.shutdown()

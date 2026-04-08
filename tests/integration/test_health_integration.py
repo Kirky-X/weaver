@@ -35,13 +35,13 @@ class TestHealthEndpointIntegration:
     @pytest.fixture(autouse=True)
     def reset_global_pools(self):
         """Reset global pool references before and after each test."""
-        Endpoints._postgres = None
-        Endpoints._neo4j = None
-        Endpoints._redis = None
+        Endpoints._relational_pool = None
+        Endpoints._graph_pool = None
+        Endpoints._cache = None
         yield
-        Endpoints._postgres = None
-        Endpoints._neo4j = None
-        Endpoints._redis = None
+        Endpoints._relational_pool = None
+        Endpoints._graph_pool = None
+        Endpoints._cache = None
 
     @pytest.fixture
     def app(self):
@@ -52,15 +52,19 @@ class TestHealthEndpointIntegration:
     async def test_health_endpoint_returns_200_when_all_services_healthy(
         self,
         app,
-        postgres_pool,
-        neo4j_pool,
-        redis_client,
+        relational_pool,
+        graph_pool,
+        cache_pool,
     ):
         """Test health endpoint returns 200 when all services are healthy."""
-        # Set global pools with real connections
-        Endpoints._postgres = postgres_pool
-        Endpoints._neo4j = neo4j_pool
-        Endpoints._redis = redis_client
+        # Set global pools with real connections (using fallback fixtures)
+        rel_pool, _ = relational_pool
+        g_pool, _ = graph_pool
+        cache, _ = cache_pool
+
+        Endpoints._relational_pool = rel_pool
+        Endpoints._graph_pool = g_pool
+        Endpoints._cache = cache
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/health")
@@ -94,15 +98,19 @@ class TestHealthEndpointIntegration:
     async def test_health_endpoint_response_format(
         self,
         app,
-        postgres_pool,
-        neo4j_pool,
-        redis_client,
+        relational_pool,
+        graph_pool,
+        cache_pool,
     ):
         """Test health endpoint response format is correct."""
-        # Set global pools
-        Endpoints._postgres = postgres_pool
-        Endpoints._neo4j = neo4j_pool
-        Endpoints._redis = redis_client
+        # Set global pools (using fallback fixtures)
+        rel_pool, _ = relational_pool
+        g_pool, _ = graph_pool
+        cache, _ = cache_pool
+
+        Endpoints._relational_pool = rel_pool
+        Endpoints._graph_pool = g_pool
+        Endpoints._cache = cache
 
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.get("/health")
@@ -144,17 +152,21 @@ class TestHealthEndpointIntegration:
     async def test_health_endpoint_performance(
         self,
         app,
-        postgres_pool,
-        neo4j_pool,
-        redis_client,
+        relational_pool,
+        graph_pool,
+        cache_pool,
     ):
         """Test health endpoint responds within reasonable time."""
         import time
 
-        # Set global pools
-        Endpoints._postgres = postgres_pool
-        Endpoints._neo4j = neo4j_pool
-        Endpoints._redis = redis_client
+        # Set global pools (using fallback fixtures)
+        rel_pool, _ = relational_pool
+        g_pool, _ = graph_pool
+        cache, _ = cache_pool
+
+        Endpoints._relational_pool = rel_pool
+        Endpoints._graph_pool = g_pool
+        Endpoints._cache = cache
 
         # Measure response time
         start_time = time.time()
@@ -181,9 +193,10 @@ class TestIndividualHealthChecks:
     """Integration tests for individual health check functions."""
 
     @pytest.mark.asyncio
-    async def test_check_postgres_health_with_real_pool(self, postgres_pool):
+    async def test_check_postgres_health_with_real_pool(self, relational_pool):
         """Test PostgreSQL health check with real connection."""
-        result = await check_postgres_health(postgres_pool)
+        pool, _ = relational_pool
+        result = await check_postgres_health(pool)
 
         assert result["status"] == "ok"
         assert "latency_ms" in result
@@ -192,9 +205,10 @@ class TestIndividualHealthChecks:
         assert result.get("error") is None
 
     @pytest.mark.asyncio
-    async def test_check_neo4j_health_with_real_pool(self, neo4j_pool):
+    async def test_check_neo4j_health_with_real_pool(self, graph_pool):
         """Test Neo4j health check with real connection."""
-        result = await check_neo4j_health(neo4j_pool)
+        pool, _ = graph_pool
+        result = await check_neo4j_health(pool)
 
         assert result["status"] == "ok"
         assert "latency_ms" in result
@@ -203,9 +217,10 @@ class TestIndividualHealthChecks:
         assert result.get("error") is None
 
     @pytest.mark.asyncio
-    async def test_check_redis_health_with_real_client(self, redis_client):
+    async def test_check_redis_health_with_real_client(self, cache_pool):
         """Test Redis health check with real connection."""
-        result = await check_redis_health(redis_client)
+        client, _ = cache_pool
+        result = await check_redis_health(client)
 
         assert result["status"] == "ok"
         assert "latency_ms" in result

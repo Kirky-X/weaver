@@ -1,7 +1,6 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Integration tests for VectorRepo - requires real PostgreSQL database."""
+"""Integration tests for VectorRepo - uses fallback databases."""
 
-import os
 import uuid
 
 import pytest
@@ -9,26 +8,6 @@ from sqlalchemy import text
 
 from core.db.query_builders import create_vector_query_builder
 from modules.storage.postgres.vector_repo import SimilarArticle, SimilarEntity, VectorRepo
-
-
-async def _check_postgres_available() -> bool:
-    """Check if PostgreSQL is available."""
-    try:
-        from core.db.postgres import PostgresPool
-
-        dsn = os.getenv(
-            "WEAVER_POSTGRES__DSN",
-            os.getenv(
-                "POSTGRES_DSN",
-                f"postgresql+asyncpg://{os.getenv('POSTGRES_USER', 'postgres')}:{os.getenv('POSTGRES_PASSWORD', 'invalid')}@{os.getenv('POSTGRES_HOST', 'localhost')}:{os.getenv('POSTGRES_PORT', '5432')}/{os.getenv('POSTGRES_DATABASE', 'weaver')}",
-            ),
-        )
-        pool = PostgresPool(dsn)
-        await pool.startup()
-        await pool.shutdown()
-        return True
-    except Exception:
-        return False
 
 
 class TestSimilarArticle:
@@ -69,39 +48,21 @@ class TestSimilarEntity:
 
 
 class TestVectorRepoIntegration:
-    """Integration tests for VectorRepo with PostgreSQL."""
-
-    @pytest.fixture
-    async def pool(self):
-        """Create a fresh PostgreSQL pool for each test."""
-        if not await _check_postgres_available():
-            pytest.skip("PostgreSQL not available")
-
-        from core.db.postgres import PostgresPool
-
-        dsn = os.getenv(
-            "WEAVER_POSTGRES__DSN",
-            os.getenv(
-                "POSTGRES_DSN",
-                f"postgresql+asyncpg://{os.getenv('POSTGRES_USER', 'postgres')}:{os.getenv('POSTGRES_PASSWORD', 'invalid')}@{os.getenv('POSTGRES_HOST', 'localhost')}:{os.getenv('POSTGRES_PORT', '5432')}/{os.getenv('POSTGRES_DATABASE', 'weaver')}",
-            ),
-        )
-        pool = PostgresPool(dsn)
-        await pool.startup()
-        yield pool
-        await pool.shutdown()
+    """Integration tests for VectorRepo with fallback databases."""
 
     @pytest.mark.asyncio
-    async def test_vector_repo_initialization(self, pool):
+    async def test_vector_repo_initialization(self, relational_pool):
         """Test VectorRepo initializes correctly with real pool."""
-        query_builder = create_vector_query_builder("postgres")
+        pool, db_type = relational_pool
+        query_builder = create_vector_query_builder(db_type)
         repo = VectorRepo(pool, query_builder)
         assert repo._pool is pool
 
     @pytest.mark.asyncio
-    async def test_upsert_article_vectors(self, pool):
+    async def test_upsert_article_vectors(self, relational_pool):
         """Test upsert_article_vectors creates vectors."""
-        query_builder = create_vector_query_builder("postgres")
+        pool, db_type = relational_pool
+        query_builder = create_vector_query_builder(db_type)
         vector_repo = VectorRepo(pool, query_builder)
         article_id = uuid.uuid4()
 
@@ -142,9 +103,10 @@ class TestVectorRepoIntegration:
                 )
 
     @pytest.mark.asyncio
-    async def test_find_similar(self, pool):
+    async def test_find_similar(self, relational_pool):
         """Test find_similar returns similar articles."""
-        query_builder = create_vector_query_builder("postgres")
+        pool, db_type = relational_pool
+        query_builder = create_vector_query_builder(db_type)
         vector_repo = VectorRepo(pool, query_builder)
         article_id = uuid.uuid4()
 
