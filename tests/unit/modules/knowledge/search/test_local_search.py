@@ -11,7 +11,7 @@ from modules.knowledge.search.engines.local_search import LocalSearchEngine, Sea
 
 
 @pytest.fixture
-def mock_neo4j_pool():
+def mock_graph_pool():
     """Mock Neo4j connection pool."""
     return AsyncMock()
 
@@ -26,10 +26,10 @@ class TestLocalSearchEngineBasic:
     """Basic functionality tests for LocalSearchEngine."""
 
     @pytest.mark.asyncio
-    async def test_local_search_initializes(self, mock_neo4j_pool, mock_llm):
+    async def test_local_search_initializes(self, mock_graph_pool, mock_llm):
         """Test that local search engine initializes correctly."""
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -37,10 +37,10 @@ class TestLocalSearchEngineBasic:
         assert engine._default_max_tokens == 8000  # default
 
     @pytest.mark.asyncio
-    async def test_local_search_with_custom_params(self, mock_neo4j_pool, mock_llm):
+    async def test_local_search_with_custom_params(self, mock_graph_pool, mock_llm):
         """Test local search engine with custom parameters."""
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
             default_max_tokens=10000,
             max_context_tokens=8000,
@@ -50,7 +50,7 @@ class TestLocalSearchEngineBasic:
         assert engine._max_context_tokens == 8000
 
     @pytest.mark.asyncio
-    async def test_local_search_returns_search_result(self, mock_neo4j_pool, mock_llm):
+    async def test_local_search_returns_search_result(self, mock_graph_pool, mock_llm):
         """Test that local search returns SearchResult."""
         # Mock context
         mock_context = MagicMock()
@@ -64,7 +64,7 @@ class TestLocalSearchEngineBasic:
         mock_llm.chat = AsyncMock(return_value=mock_response)
 
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -81,7 +81,7 @@ class TestLocalSearchEngineEdgeCases:
     """Edge case tests for LocalSearchEngine."""
 
     @pytest.mark.asyncio
-    async def test_local_search_with_no_entities(self, mock_neo4j_pool, mock_llm):
+    async def test_local_search_with_no_entities(self, mock_graph_pool, mock_llm):
         """Test local search with no entities found."""
         # Mock empty context
         mock_context = MagicMock()
@@ -94,7 +94,7 @@ class TestLocalSearchEngineEdgeCases:
         mock_llm.chat = AsyncMock(return_value=mock_response)
 
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -105,10 +105,10 @@ class TestLocalSearchEngineEdgeCases:
         assert isinstance(result, SearchResult)
 
     @pytest.mark.asyncio
-    async def test_local_search_with_entity_names(self, mock_neo4j_pool, mock_llm):
+    async def test_local_search_with_entity_names(self, mock_graph_pool, mock_llm):
         """Test LocalSearchEngine initializes with correct params."""
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -117,10 +117,10 @@ class TestLocalSearchEngineEdgeCases:
         assert hasattr(engine, "_context_builder")
 
     @pytest.mark.asyncio
-    async def test_local_search_respects_token_limit(self, mock_neo4j_pool, mock_llm):
+    async def test_local_search_respects_token_limit(self, mock_graph_pool, mock_llm):
         """Test LocalSearchEngine has correct token limits."""
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
             max_context_tokens=6000,
         )
@@ -133,7 +133,7 @@ class TestLocalSearchEngineErrorHandling:
     """Error handling tests for LocalSearchEngine."""
 
     @pytest.mark.asyncio
-    async def test_local_search_handles_llm_error(self, mock_neo4j_pool, mock_llm):
+    async def test_local_search_handles_llm_error(self, mock_graph_pool, mock_llm):
         """Test local search handles LLM errors."""
         mock_context = MagicMock()
         mock_context.total_tokens = 100
@@ -142,7 +142,7 @@ class TestLocalSearchEngineErrorHandling:
         mock_llm.chat = AsyncMock(side_effect=Exception("LLM unavailable"))
 
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 
@@ -154,10 +154,10 @@ class TestLocalSearchEngineErrorHandling:
         assert "failed" in result.answer.lower() or result.confidence == 0.0
 
     @pytest.mark.asyncio
-    async def test_local_search_handles_context_error(self, mock_neo4j_pool, mock_llm):
+    async def test_local_search_handles_context_error(self, mock_graph_pool, mock_llm):
         """Test local search handles context building errors."""
         engine = LocalSearchEngine(
-            graph_pool=mock_neo4j_pool,
+            graph_pool=mock_graph_pool,
             llm=mock_llm,
         )
 

@@ -16,7 +16,7 @@ from modules.knowledge.search.retrievers.bm25_retriever import BM25Document
 
 
 @pytest.fixture
-def mock_postgres_pool() -> MagicMock:
+def mock_relational_pool() -> MagicMock:
     """Create mock PostgreSQL pool."""
     pool = MagicMock()
     pool.session = MagicMock()
@@ -35,11 +35,11 @@ def mock_bm25_retriever() -> MagicMock:
 
 @pytest.fixture
 def index_service(
-    mock_postgres_pool: MagicMock, mock_bm25_retriever: MagicMock
+    mock_relational_pool: MagicMock, mock_bm25_retriever: MagicMock
 ) -> BM25IndexService:
     """Create BM25IndexService with mocked dependencies."""
     return BM25IndexService(
-        relational_pool=mock_postgres_pool,
+        relational_pool=mock_relational_pool,
         bm25_retriever=mock_bm25_retriever,
         rebuild_interval_seconds=300,
     )
@@ -49,15 +49,15 @@ class TestBM25IndexServiceInit:
     """Tests for BM25IndexService initialization."""
 
     def test_init_default_params(
-        self, mock_postgres_pool: MagicMock, mock_bm25_retriever: MagicMock
+        self, mock_relational_pool: MagicMock, mock_bm25_retriever: MagicMock
     ) -> None:
         """Test initialization with default parameters."""
         service = BM25IndexService(
-            relational_pool=mock_postgres_pool,
+            relational_pool=mock_relational_pool,
             bm25_retriever=mock_bm25_retriever,
         )
 
-        assert service._relational_pool == mock_postgres_pool
+        assert service._relational_pool == mock_relational_pool
         assert service._retriever == mock_bm25_retriever
         assert service._rebuild_interval == 300
         assert service._last_build_time is None
@@ -65,11 +65,11 @@ class TestBM25IndexServiceInit:
         assert service._build_count == 0
 
     def test_init_custom_params(
-        self, mock_postgres_pool: MagicMock, mock_bm25_retriever: MagicMock
+        self, mock_relational_pool: MagicMock, mock_bm25_retriever: MagicMock
     ) -> None:
         """Test initialization with custom parameters."""
         service = BM25IndexService(
-            relational_pool=mock_postgres_pool,
+            relational_pool=mock_relational_pool,
             bm25_retriever=mock_bm25_retriever,
             rebuild_interval_seconds=600,
         )

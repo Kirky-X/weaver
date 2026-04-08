@@ -970,7 +970,7 @@ class Container:
 
             # Create the memory service with optional repos
             self._memory_service = MemoryIntegrationService(
-                neo4j_pool=self.graph_pool(),
+                graph_pool=self.graph_pool(),
                 llm_client=self._llm_client,
                 redis_client=self._redis_client,
                 embedding_service=embedding_service,

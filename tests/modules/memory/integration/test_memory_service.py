@@ -14,7 +14,7 @@ from modules.memory.integration.memory_service import (
 
 
 @pytest.fixture
-def mock_neo4j_pool():
+def mock_graph_pool():
     """Create mock Neo4j pool."""
     pool = MagicMock()
     pool.execute_query = AsyncMock(return_value=[])
@@ -59,7 +59,7 @@ def mock_intent_classifier():
 
 @pytest.fixture
 def memory_service(
-    mock_neo4j_pool,
+    mock_graph_pool,
     mock_llm_client,
     mock_redis_client,
     mock_embedding_service,
@@ -67,7 +67,7 @@ def memory_service(
 ):
     """Create MemoryIntegrationService with mocks."""
     return MemoryIntegrationService(
-        neo4j_pool=mock_neo4j_pool,
+        graph_pool=mock_graph_pool,
         llm_client=mock_llm_client,
         redis_client=mock_redis_client,
         embedding_service=mock_embedding_service,
@@ -90,19 +90,19 @@ def test_config_defaults():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_initialize_creates_constraints(memory_service, mock_neo4j_pool):
+async def test_initialize_creates_constraints(memory_service, mock_graph_pool):
     """Test that initialize creates constraints."""
     await memory_service.initialize()
 
     # Should call execute_query for constraint creation
-    assert mock_neo4j_pool.execute_query.call_count >= 2
+    assert mock_graph_pool.execute_query.call_count >= 2
 
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_ingest_creates_event(memory_service, mock_neo4j_pool):
+async def test_ingest_creates_event(memory_service, mock_graph_pool):
     """Test that ingest creates an EventNode."""
-    mock_neo4j_pool.execute_query.return_value = [{"created": 1}]
+    mock_graph_pool.execute_query.return_value = [{"created": 1}]
 
     state = {
         "article_id": "article-001",
@@ -128,7 +128,7 @@ async def test_ingest_disabled():
     config = MemoryServiceConfig(fast_path_enabled=False)
 
     service = MemoryIntegrationService(
-        neo4j_pool=MagicMock(),
+        graph_pool=MagicMock(),
         llm_client=MagicMock(),
         redis_client=MagicMock(),
         embedding_service=MagicMock(),
@@ -161,7 +161,7 @@ async def test_consolidate_disabled():
     config = MemoryServiceConfig(slow_path_enabled=False)
 
     service = MemoryIntegrationService(
-        neo4j_pool=MagicMock(),
+        graph_pool=MagicMock(),
         llm_client=MagicMock(),
         redis_client=MagicMock(),
         embedding_service=MagicMock(),

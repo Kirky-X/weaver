@@ -52,7 +52,7 @@ class TestHNSWPerformance:
     """Performance tests for HNSW index with large-scale vector data."""
 
     @pytest.fixture
-    async def postgres_pool(self):
+    async def relational_pool(self):
         """Create PostgreSQL pool for performance tests."""
         import os
 
@@ -66,15 +66,15 @@ class TestHNSWPerformance:
         await pool.shutdown()
 
     @pytest.fixture
-    async def vector_repo(self, postgres_pool):
+    async def vector_repo(self, relational_pool):
         """Create VectorRepo instance with real pool."""
         query_builder = create_vector_query_builder("postgres")
-        return VectorRepo(postgres_pool, query_builder)
+        return VectorRepo(relational_pool, query_builder)
 
     @pytest.fixture
-    async def hnsw_index_exists(self, postgres_pool):
+    async def hnsw_index_exists(self, relational_pool):
         """Verify HNSW indexes exist before running tests."""
-        async with postgres_pool.session() as session:
+        async with relational_pool.session() as session:
             # Check article_vectors HNSW index
             result = await session.execute(text("""
                 SELECT indexname
@@ -126,7 +126,7 @@ class TestHNSWPerformance:
         return normalized.tolist()
 
     @pytest.mark.asyncio
-    async def test_bulk_insert_performance(self, postgres_pool, vector_repo, hnsw_index_exists):
+    async def test_bulk_insert_performance(self, relational_pool, vector_repo, hnsw_index_exists):
         """Test bulk insert performance with 10,000 vectors.
 
         This test verifies:
@@ -171,7 +171,7 @@ class TestHNSWPerformance:
 
             # Pre-insert articles so FK constraint is satisfied
             article_ids = [a[0] for a in articles]
-            async with postgres_pool.session() as session:
+            async with relational_pool.session() as session:
                 await session.execute(
                     text("""
                         INSERT INTO articles (id, source_url, title, body, is_news, is_merged, persist_status, verified_by_sources)
@@ -217,7 +217,7 @@ class TestHNSWPerformance:
         ), f"Missing vectors: inserted {total_inserted}/{num_vectors * 2}"
 
     @pytest.mark.asyncio
-    async def test_hnsw_index_usage(self, postgres_pool, vector_repo, hnsw_index_exists):
+    async def test_hnsw_index_usage(self, relational_pool, vector_repo, hnsw_index_exists):
         """Verify HNSW index is being used for queries.
 
         This test:
@@ -239,7 +239,7 @@ class TestHNSWPerformance:
 
         # Pre-insert articles so FK constraint is satisfied
         article_ids = [a[0] for a in articles]
-        async with postgres_pool.session() as session:
+        async with relational_pool.session() as session:
             await session.execute(
                 text("""
                     INSERT INTO articles (id, source_url, title, body, is_news, is_merged, persist_status, verified_by_sources)
@@ -263,7 +263,7 @@ class TestHNSWPerformance:
         # Run similarity search with EXPLAIN ANALYZE
         query_vector = self.generate_random_vector(1024)
 
-        async with postgres_pool.session() as session:
+        async with relational_pool.session() as session:
             # Get query execution plan
             result = await session.execute(
                 text("""
@@ -306,7 +306,7 @@ class TestHNSWPerformance:
 
     @pytest.mark.asyncio
     async def test_query_performance_consistency(
-        self, postgres_pool, vector_repo, hnsw_index_exists
+        self, relational_pool, vector_repo, hnsw_index_exists
     ):
         """Test query performance across different query vectors.
 
@@ -329,7 +329,7 @@ class TestHNSWPerformance:
 
         # Pre-insert articles so FK constraint is satisfied
         article_ids = [a[0] for a in articles]
-        async with postgres_pool.session() as session:
+        async with relational_pool.session() as session:
             await session.execute(
                 text("""
                     INSERT INTO articles (id, source_url, title, body, is_news, is_merged, persist_status, verified_by_sources)
@@ -390,7 +390,7 @@ class TestHNSWPerformance:
 
     @pytest.mark.asyncio
     async def test_concurrent_query_performance(
-        self, postgres_pool, vector_repo, hnsw_index_exists
+        self, relational_pool, vector_repo, hnsw_index_exists
     ):
         """Test concurrent query performance.
 
@@ -413,7 +413,7 @@ class TestHNSWPerformance:
 
         # Pre-insert articles so FK constraint is satisfied
         article_ids = [a[0] for a in articles]
-        async with postgres_pool.session() as session:
+        async with relational_pool.session() as session:
             await session.execute(
                 text("""
                     INSERT INTO articles (id, source_url, title, body, is_news, is_merged, persist_status, verified_by_sources)
@@ -476,7 +476,7 @@ class TestHNSWPerformance:
 
     @pytest.mark.asyncio
     async def test_large_scale_similarity_search(
-        self, postgres_pool, vector_repo, hnsw_index_exists
+        self, relational_pool, vector_repo, hnsw_index_exists
     ):
         """Test similarity search with larger dataset.
 
@@ -517,7 +517,7 @@ class TestHNSWPerformance:
 
             # Pre-insert articles so FK constraint is satisfied
             article_ids = [a[0] for a in articles]
-            async with postgres_pool.session() as session:
+            async with relational_pool.session() as session:
                 await session.execute(
                     text("""
                         INSERT INTO articles (id, source_url, title, body, is_news, is_merged, persist_status, verified_by_sources)
@@ -581,7 +581,7 @@ class TestHNSWIndexCreation:
     """Tests for HNSW index creation and parameters."""
 
     @pytest.fixture
-    async def postgres_pool(self):
+    async def relational_pool(self):
         """Create PostgreSQL pool for tests."""
         import os
 
@@ -595,9 +595,9 @@ class TestHNSWIndexCreation:
         await pool.shutdown()
 
     @pytest.mark.asyncio
-    async def test_verify_hnsw_index_parameters(self, postgres_pool):
+    async def test_verify_hnsw_index_parameters(self, relational_pool):
         """Verify HNSW indexes were created with correct parameters."""
-        async with postgres_pool.session() as session:
+        async with relational_pool.session() as session:
             # Check article_vectors index
             result = await session.execute(text("""
                 SELECT
@@ -641,9 +641,9 @@ class TestHNSWIndexCreation:
         print(f"  entity_vectors: {entity_idx[0]}")
 
     @pytest.mark.asyncio
-    async def test_hnsw_ef_search_setting(self, postgres_pool):
+    async def test_hnsw_ef_search_setting(self, relational_pool):
         """Verify hnsw.ef_search parameter can be set for query tuning."""
-        async with postgres_pool.session() as session:
+        async with relational_pool.session() as session:
             # Set ef_search
             await session.execute(text("SET hnsw.ef_search = 200;"))
 
@@ -662,7 +662,7 @@ class TestVectorRepoPerformance:
     """Performance tests for VectorRepo operations."""
 
     @pytest.fixture
-    async def postgres_pool(self):
+    async def relational_pool(self):
         """Create PostgreSQL pool for tests."""
         import os
 
@@ -676,13 +676,13 @@ class TestVectorRepoPerformance:
         await pool.shutdown()
 
     @pytest.fixture
-    async def vector_repo(self, postgres_pool):
+    async def vector_repo(self, relational_pool):
         """Create VectorRepo instance."""
         query_builder = create_vector_query_builder("postgres")
-        return VectorRepo(postgres_pool, query_builder)
+        return VectorRepo(relational_pool, query_builder)
 
     @pytest.mark.asyncio
-    async def test_batch_find_similar_performance(self, vector_repo, postgres_pool):
+    async def test_batch_find_similar_performance(self, vector_repo, relational_pool):
         """Test batch query performance vs individual queries."""
         # Prepare test data
         num_test_articles = 50
@@ -698,7 +698,7 @@ class TestVectorRepoPerformance:
 
         # Pre-insert articles so FK constraint is satisfied
         article_ids = [a[0] for a in articles]
-        async with postgres_pool.session() as session:
+        async with relational_pool.session() as session:
             await session.execute(
                 text("""
                     INSERT INTO articles (id, source_url, title, body, is_news, is_merged, persist_status, verified_by_sources)

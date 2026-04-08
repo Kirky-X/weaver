@@ -60,7 +60,7 @@ await container.startup()
 
 # 获取全局容器实例
 container = get_container()
-postgres_pool = container.relational_pool()
+relational_pool = container.relational_pool()
 ```
 
 **主要职责**：
@@ -95,9 +95,9 @@ async def list_items(
 | 依赖函数                     | 返回类型             | 说明              |
 | ---------------------------- | -------------------- | ----------------- |
 | `get_container()`            | `Container`          | 应用容器实例      |
-| `get_postgres_pool()`        | `PostgresPool`       | PostgreSQL 连接池 |
+| `get_relational_pool()`      | `RelationalPool`     | 关系型数据库连接池 |
 | `get_redis_client()`         | `RedisClient`        | Redis 客户端      |
-| `get_neo4j_pool()`           | `Neo4jPool`          | Neo4j 连接池      |
+| `get_graph_pool()`           | `GraphPool`          | 图数据库连接池    |
 | `get_llm_client()`           | `LLMClient`          | LLM 客户端        |
 | `get_vector_repo()`          | `VectorRepo`         | 向量仓库          |
 | `get_article_repo()`         | `ArticleRepo`        | 文章仓库          |
