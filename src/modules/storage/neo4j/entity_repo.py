@@ -285,8 +285,8 @@ class Neo4jEntityRepo:
 
     async def merge_relation(
         self,
-        from_neo4j_id: str,
-        to_neo4j_id: str,
+        from_entity_id: str,
+        to_entity_id: str,
         edge_type: str,
         properties: dict[str, Any] | None = None,
     ) -> None:
@@ -296,8 +296,8 @@ class Neo4jEntityRepo:
         ``RelationTypeNormalizer`` before calling this method.
 
         Args:
-            from_neo4j_id: Source entity Neo4j element ID.
-            to_neo4j_id: Target entity Neo4j element ID.
+            from_entity_id: Source entity ID.
+            to_entity_id: Target entity ID.
             edge_type: Normalised edge type name (e.g. ``PARTNERS_WITH``).
             properties: Optional relationship properties (``raw_type``,
                 ``direction``, ``weight``, etc.).
@@ -317,8 +317,8 @@ class Neo4jEntityRepo:
         SET r += $props
         """
         params = {
-            "from_id": from_neo4j_id,
-            "to_id": to_neo4j_id,
+            "from_id": from_entity_id,
+            "to_id": to_entity_id,
             "props": properties or {},
         }
 
@@ -421,15 +421,15 @@ class Neo4jEntityRepo:
 
     async def merge_mentions_relation(
         self,
-        article_neo4j_id: str,
-        entity_neo4j_id: str,
+        article_id: str,
+        entity_id: str,
         role: str | None = None,
     ) -> None:
         """Create a MENTIONS relationship from article to entity.
 
         Args:
-            article_neo4j_id: The article's Neo4j ID.
-            entity_neo4j_id: The entity's Neo4j ID.
+            article_id: The article's ID.
+            entity_id: The entity's ID.
             role: Optional role (e.g., 'subject', 'object').
         """
         query = """
@@ -440,8 +440,8 @@ class Neo4jEntityRepo:
         MERGE (a)-[r:MENTIONS]->(e)
         """
         params = {
-            "article_id": article_neo4j_id,
-            "entity_id": entity_neo4j_id,
+            "article_id": article_id,
+            "entity_id": entity_id,
         }
 
         if role:

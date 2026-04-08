@@ -12,6 +12,7 @@ from __future__ import annotations
 import re
 import time
 import uuid
+from collections.abc import Iterator
 from typing import Any
 
 from core.observability.logging import get_logger
@@ -35,6 +36,9 @@ class LadybugEntityRepo:
     Args:
         pool: Graph database connection pool.
     """
+
+    MAX_MERGE_RETRIES = 3  # Consistent with Neo4jEntityRepo
+    DEFAULT_BATCH_SIZE = 1000
 
     def __init__(self, pool: GraphPool) -> None:
         self._pool = pool
@@ -222,6 +226,7 @@ class LadybugEntityRepo:
         import json
 
         now = int(time.time())
+        weight = properties.get("weight", 1.0) if properties else 1.0
 
         # LadybugDB: Check if relation exists, create if not
         # Using a simpler approach that works with LadybugDB's limited Cypher support
@@ -243,13 +248,14 @@ class LadybugEntityRepo:
         create_query = """
         MATCH (from:Entity {id: $from_id})
         MATCH (to:Entity {id: $to_id})
-        CREATE (from)-[r:RELATED_TO {edge_type: $edge_type, created_at: $created_at, updated_at: $updated_at, properties: $properties}]->(to)
+        CREATE (from)-[r:RELATED_TO {edge_type: $edge_type, created_at: $created_at, updated_at: $updated_at, properties: $properties, weight: $weight}]->(to)
         """
         create_params = {
             "from_id": from_entity_id,
             "to_id": to_entity_id,
             "edge_type": edge_type,
             "properties": json.dumps(properties or {}),
+            "weight": weight,
             "created_at": now,
             "updated_at": now,
         }
@@ -511,3 +517,82 @@ class LadybugEntityRepo:
             await self._pool.execute_query("MATCH (e:Entity {id: $id}) DELETE e", {"id": eid})
             count += 1
         return count
+
+    async def get_entity_neighborhood(
+        self,
+        entity_name: str,
+        entity_type: str | None = None,
+        hops: int = 2,
+        limit: int = 50,
+    ) -> dict[str, Any] | None:
+        """Get the neighborhood of an entity in the graph.
+
+        Retrieves the entity, its associated events, related entities,
+        and the relations connecting them.
+
+        Args:
+            entity_name: Canonical name of the entity.
+            entity_type: Optional entity type for disambiguation.
+            hops: Number of hops for neighborhood expansion (1 or 2).
+            limit: Maximum number of related items to return.
+
+        Returns:
+            Dictionary with center, events, related_entities, relations, hops.
+            Returns None if entity not found.
+        """
+        # Find the entity first
+        entity = await self.find_entity(entity_name, entity_type or "")
+        if not entity:
+            return None
+
+        # Get related entities (within hop distance)
+        # LadybugDB doesn't support variable-length paths, so we use 1-hop
+        related_query = """
+        MATCH (center:Entity {canonical_name: $name})
+        MATCH (center)-[r:RELATED_TO]-(related:Entity)
+        RETURN DISTINCT related.canonical_name as name,
+               related.type as type,
+               r.edge_type as relation_type
+        LIMIT $limit
+        """
+        related_result = await self._pool.execute_query(
+            related_query,
+            {"name": entity_name, "limit": limit},
+        )
+        related_entities = [dict(r) for r in related_result]
+
+        # Get relations involving this entity
+        relations_query = """
+        MATCH (e:Entity {canonical_name: $name})
+        MATCH (e)-[r:RELATED_TO]-(other)
+        RETURN r.edge_type as type,
+               e.canonical_name as source,
+               other.canonical_name as target
+        LIMIT $limit
+        """
+        relations_result = await self._pool.execute_query(
+            relations_query,
+            {"name": entity_name, "limit": limit},
+        )
+        relations = [dict(r) for r in relations_result]
+
+        return {
+            "center": entity_name,
+            "events": [],  # LadybugDB doesn't have Event nodes in current schema
+            "related_entities": related_entities,
+            "relations": relations,
+            "hops": hops,
+        }
+
+    @staticmethod
+    def _chunk(items: list[Any], size: int) -> Iterator[list[Any]]:
+        """Split items into chunks of specified size."""
+        for i in range(0, len(items), size):
+            yield items[i : i + size]
+
+    @staticmethod
+    async def _sleep(seconds: float) -> None:
+        """Async sleep helper."""
+        import asyncio
+
+        await asyncio.sleep(seconds)
