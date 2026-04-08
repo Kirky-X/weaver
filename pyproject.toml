@@ -99,6 +99,7 @@ dev = [
     "pytest-env>=1.2.0",
     # ── Test utilities ────────────────────────────────────
     "nest-asyncio>=1.6.0",  # E2E tests: asyncpg + TestClient event loop compat
+    "freezegun>=1.5.5",
 ]
 test = [
     "freezegun>=1.5.5",
