@@ -97,7 +97,7 @@ class TestEntityExtractorNodeBasic:
         mock_spacy.extract = MagicMock(return_value=[mock_entity])
 
         # Mock batch embedding
-        mock_llm.embed = AsyncMock(return_value=[[0.1] * 1536])
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 1536])
 
         # Mock LLM call
         mock_llm.call_at = AsyncMock(
@@ -160,7 +160,7 @@ class TestEntityExtractorNodeBasic:
         mock_entity.label = "ORG"
         mock_spacy.extract = MagicMock(return_value=[mock_entity])
 
-        mock_llm.embed = AsyncMock(return_value=[[0.1] * 1536])
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 1536])
         mock_llm.call_at = AsyncMock(return_value=EntityExtractorOutput(entities=[], relations=[]))
 
         node = EntityExtractorNode(
@@ -262,7 +262,7 @@ class TestEntityExtractorNodeEdgeCases:
         # LLM should still be called
         assert len(result["entities"]) == 1
         # Batch embed should not be called with empty list
-        mock_llm.embed.assert_not_called()
+        mock_llm.embed_default.assert_not_called()
 
 
 class TestEntityExtractorNodeErrorHandling:
@@ -327,7 +327,7 @@ class TestEntityExtractorNodeErrorHandling:
         mock_entity.label = "ORG"
         mock_spacy.extract = MagicMock(return_value=[mock_entity])
 
-        mock_llm.embed = AsyncMock(side_effect=Exception("Embedding failed"))
+        mock_llm.embed_default = AsyncMock(side_effect=Exception("Embedding failed"))
         mock_llm.call_at = AsyncMock(
             return_value=EntityExtractorOutput(
                 entities=[{"name": "Test", "type": "ORG"}],
@@ -369,7 +369,7 @@ class TestEntityExtractorNodeErrorHandling:
         mock_entity.label = "ORG"
         mock_spacy.extract = MagicMock(return_value=[mock_entity])
 
-        mock_llm.embed = AsyncMock(return_value=[[0.1] * 1536])
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 1536])
         mock_vector_repo.upsert_entity_vectors = AsyncMock(
             side_effect=Exception("Vector DB connection failed")
         )
@@ -411,7 +411,7 @@ class TestEntityExtractorNodeIntegration:
         mock_entity.label = "ORG"
         mock_spacy.extract = MagicMock(return_value=[mock_entity])
 
-        mock_llm.embed = AsyncMock(return_value=[[0.1, 0.2, 0.3]])
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1, 0.2, 0.3]])
         mock_llm.call_at = AsyncMock(
             return_value=EntityExtractorOutput(
                 entities=[{"name": "OpenAI", "type": "ORG", "description": "AI company"}],
@@ -452,7 +452,7 @@ class TestEntityExtractorNodeIntegration:
 
         mock_spacy.extract = MagicMock(return_value=[mock_entity1, mock_entity2])
 
-        mock_llm.embed = AsyncMock(return_value=[[0.1] * 1536, [0.2] * 1536])
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 1536, [0.2] * 1536])
         mock_llm.call_at = AsyncMock(
             return_value=EntityExtractorOutput(
                 entities=[

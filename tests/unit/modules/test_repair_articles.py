@@ -222,7 +222,7 @@ class TestInitMinimalContainer:
                             mock_settings.return_value = MagicMock()
                             mock_pg.return_value.startup = AsyncMock()
                             mock_redis.return_value.startup = AsyncMock()
-                            mock_llm.create_from_config = AsyncMock()
+                            mock_llm.create_from_settings = AsyncMock()
 
                             result = await _init_minimal_container()
 

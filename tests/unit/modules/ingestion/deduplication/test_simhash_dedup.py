@@ -15,19 +15,19 @@ class TestSimHashDeduplicatorInit:
 
     def test_init_default_params(self):
         """Test initialization with default parameters."""
-        mock_redis = MagicMock()
+        mock_cache = MagicMock()
 
-        dedup = SimHashDeduplicator(redis=mock_redis)
+        dedup = SimHashDeduplicator(cache=mock_cache)
 
         assert dedup._threshold == SimHashDeduplicator.DEFAULT_THRESHOLD
         assert dedup._ttl == SimHashDeduplicator.DEFAULT_TTL
 
     def test_init_custom_params(self):
         """Test initialization with custom parameters."""
-        mock_redis = MagicMock()
+        mock_cache = MagicMock()
 
         dedup = SimHashDeduplicator(
-            redis=mock_redis,
+            cache=mock_cache,
             threshold=5,
             ttl_seconds=86400,
         )
@@ -135,31 +135,26 @@ class TestDedupTitles:
     """Test SimHashDeduplicator.dedup_titles method."""
 
     @pytest.fixture
-    def mock_redis(self):
+    def mock_cache(self):
         """Create mock Redis client."""
-        redis = MagicMock()
-        redis.hgetall = AsyncMock(return_value={})
-        redis.hset = AsyncMock()
-        # Mock pipeline
-        pipeline_mock = MagicMock()
-        pipeline_mock.hset = MagicMock()
-        pipeline_mock.execute = AsyncMock(return_value=[1])
-        redis.pipeline = MagicMock(return_value=pipeline_mock)
-        return redis
+        cache = MagicMock()
+        cache.hgetall = AsyncMock(return_value={})
+        cache.hset = AsyncMock(return_value=1)
+        return cache
 
     @pytest.mark.asyncio
-    async def test_dedup_titles_empty_list(self, mock_redis):
+    async def test_dedup_titles_empty_list(self, mock_cache):
         """Test dedup_titles with empty list."""
-        dedup = SimHashDeduplicator(redis=mock_redis)
+        dedup = SimHashDeduplicator(cache=mock_cache)
 
         result = await dedup.dedup_titles([])
 
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_dedup_titles_all_new(self, mock_redis):
+    async def test_dedup_titles_all_new(self, mock_cache):
         """Test dedup_titles with all new items."""
-        dedup = SimHashDeduplicator(redis=mock_redis)
+        dedup = SimHashDeduplicator(cache=mock_cache)
 
         items = [
             TitleItem(url="https://example.com/1", title="Article One"),
@@ -171,9 +166,9 @@ class TestDedupTitles:
         assert len(result) == 2
 
     @pytest.mark.asyncio
-    async def test_dedup_titles_stores_fingerprints(self, mock_redis):
+    async def test_dedup_titles_stores_fingerprints(self, mock_cache):
         """Test dedup_titles stores fingerprints in Redis."""
-        dedup = SimHashDeduplicator(redis=mock_redis)
+        dedup = SimHashDeduplicator(cache=mock_cache)
 
         items = [
             TitleItem(url="https://example.com/1", title="Article One"),
@@ -181,21 +176,21 @@ class TestDedupTitles:
 
         await dedup.dedup_titles(items)
 
-        # Should have called pipeline execute
-        mock_redis.pipeline.assert_called()
+        # Should have called hset to store fingerprint
+        mock_cache.hset.assert_called()
 
     @pytest.mark.asyncio
-    async def test_dedup_titles_filters_existing(self, mock_redis):
+    async def test_dedup_titles_filters_existing(self, mock_cache):
         """Test dedup_titles filters existing fingerprints."""
         # Create a fingerprint for existing title
         existing_title = "Existing Article"
         existing_fp = SimHashDeduplicator.generate_fingerprint(existing_title)
 
-        mock_redis.hgetall = AsyncMock(
+        mock_cache.hgetall = AsyncMock(
             return_value={str(existing_fp): "https://example.com/existing"}
         )
 
-        dedup = SimHashDeduplicator(redis=mock_redis)
+        dedup = SimHashDeduplicator(cache=mock_cache)
 
         items = [
             TitleItem(url="https://example.com/new", title="New Article"),
@@ -209,12 +204,12 @@ class TestDedupTitles:
         assert result[0].title == "New Article"
 
     @pytest.mark.asyncio
-    async def test_dedup_titles_handles_invalid_existing_fp(self, mock_redis):
+    async def test_dedup_titles_handles_invalid_existing_fp(self, mock_cache):
         """Test dedup_titles handles invalid existing fingerprint."""
         # Invalid fingerprint value
-        mock_redis.hgetall = AsyncMock(return_value={"invalid": "https://example.com/existing"})
+        mock_cache.hgetall = AsyncMock(return_value={"invalid": "https://example.com/existing"})
 
-        dedup = SimHashDeduplicator(redis=mock_redis)
+        dedup = SimHashDeduplicator(cache=mock_cache)
 
         items = [
             TitleItem(url="https://example.com/1", title="Test Article"),
@@ -226,9 +221,9 @@ class TestDedupTitles:
         assert len(result) == 1
 
     @pytest.mark.asyncio
-    async def test_dedup_titles_filters_within_batch(self, mock_redis):
+    async def test_dedup_titles_filters_within_batch(self, mock_cache):
         """Test dedup_titles filters duplicates within same batch."""
-        dedup = SimHashDeduplicator(redis=mock_redis)
+        dedup = SimHashDeduplicator(cache=mock_cache)
 
         items = [
             TitleItem(url="https://example.com/1", title="Same Title"),
@@ -245,22 +240,17 @@ class TestDedupTitlesWithMetrics:
     """Test SimHashDeduplicator.dedup_titles_with_metrics method."""
 
     @pytest.fixture
-    def mock_redis(self):
+    def mock_cache(self):
         """Create mock Redis client."""
-        redis = MagicMock()
-        redis.hgetall = AsyncMock(return_value={})
-        redis.hset = AsyncMock()
-        # Mock pipeline
-        pipeline_mock = MagicMock()
-        pipeline_mock.hset = MagicMock()
-        pipeline_mock.execute = AsyncMock(return_value=[1])
-        redis.pipeline = MagicMock(return_value=pipeline_mock)
-        return redis
+        cache = MagicMock()
+        cache.hgetall = AsyncMock(return_value={})
+        cache.hset = AsyncMock(return_value=1)
+        return cache
 
     @pytest.mark.asyncio
-    async def test_dedup_titles_with_metrics_empty_list(self, mock_redis):
+    async def test_dedup_titles_with_metrics_empty_list(self, mock_cache):
         """Test dedup_titles_with_metrics with empty list."""
-        dedup = SimHashDeduplicator(redis=mock_redis)
+        dedup = SimHashDeduplicator(cache=mock_cache)
 
         result, filtered_count = await dedup.dedup_titles_with_metrics([])
 
@@ -268,9 +258,9 @@ class TestDedupTitlesWithMetrics:
         assert filtered_count == 0
 
     @pytest.mark.asyncio
-    async def test_dedup_titles_with_metrics_all_new(self, mock_redis):
+    async def test_dedup_titles_with_metrics_all_new(self, mock_cache):
         """Test dedup_titles_with_metrics with all new items."""
-        dedup = SimHashDeduplicator(redis=mock_redis)
+        dedup = SimHashDeduplicator(cache=mock_cache)
 
         items = [
             TitleItem(url="https://example.com/1", title="Unique Title One"),
@@ -283,9 +273,9 @@ class TestDedupTitlesWithMetrics:
         assert filtered_count == 0
 
     @pytest.mark.asyncio
-    async def test_dedup_titles_with_metrics_filters_duplicates(self, mock_redis):
+    async def test_dedup_titles_with_metrics_filters_duplicates(self, mock_cache):
         """Test dedup_titles_with_metrics filters near-duplicate titles."""
-        dedup = SimHashDeduplicator(redis=mock_redis)
+        dedup = SimHashDeduplicator(cache=mock_cache)
 
         # First add a title
         items1 = [
@@ -299,7 +289,7 @@ class TestDedupTitlesWithMetrics:
         ]
         # Mock that the fingerprint already exists
         fp = SimHashDeduplicator.generate_fingerprint("China economy grows 5%")
-        mock_redis.hgetall = AsyncMock(return_value={str(fp): "1"})
+        mock_cache.hgetall = AsyncMock(return_value={str(fp): "1"})
 
         result, filtered_count = await dedup.dedup_titles_with_metrics(items2)
 
@@ -310,83 +300,83 @@ class TestCleanupExpired:
     """Test SimHashDeduplicator.cleanup_expired method."""
 
     @pytest.fixture
-    def mock_redis(self):
+    def mock_cache(self):
         """Create mock Redis client."""
-        redis = MagicMock()
-        redis.hgetall = AsyncMock(return_value={})
-        redis.hdel = AsyncMock()
-        return redis
+        cache = MagicMock()
+        cache.hgetall = AsyncMock(return_value={})
+        cache.hdel = AsyncMock()
+        return cache
 
     @pytest.mark.asyncio
-    async def test_cleanup_expired_no_entries(self, mock_redis):
+    async def test_cleanup_expired_no_entries(self, mock_cache):
         """Test cleanup with no entries."""
-        mock_redis.hgetall = AsyncMock(return_value={})
+        mock_cache.hgetall = AsyncMock(return_value={})
 
-        dedup = SimHashDeduplicator(redis=mock_redis)
+        dedup = SimHashDeduplicator(cache=mock_cache)
         result = await dedup.cleanup_expired()
 
         assert result == 0
 
     @pytest.mark.asyncio
-    async def test_cleanup_expired_removes_old_entries(self, mock_redis):
+    async def test_cleanup_expired_removes_old_entries(self, mock_cache):
         """Test cleanup removes expired entries."""
         now = int(time.time())
         old_timestamp = now - 86400 * 10  # 10 days ago
 
-        mock_redis.hgetall = AsyncMock(
+        mock_cache.hgetall = AsyncMock(
             return_value={
                 "fp1": f"https://example.com/1|{old_timestamp}",
                 "fp2": f"https://example.com/2|{now - 3600}",  # 1 hour ago, not expired
             }
         )
 
-        dedup = SimHashDeduplicator(redis=mock_redis, ttl_seconds=86400 * 7)
+        dedup = SimHashDeduplicator(cache=mock_cache, ttl_seconds=86400 * 7)
         result = await dedup.cleanup_expired()
 
         assert result == 1  # Only one expired
-        mock_redis.hdel.assert_called_once()
+        mock_cache.hdel.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_cleanup_expired_handles_old_format(self, mock_redis):
+    async def test_cleanup_expired_handles_old_format(self, mock_cache):
         """Test cleanup handles entries without timestamp (old format)."""
-        mock_redis.hgetall = AsyncMock(
+        mock_cache.hgetall = AsyncMock(
             return_value={
                 "fp1": "https://example.com/1",  # Old format without timestamp
             }
         )
 
-        dedup = SimHashDeduplicator(redis=mock_redis)
+        dedup = SimHashDeduplicator(cache=mock_cache)
         result = await dedup.cleanup_expired()
 
         assert result == 1  # Old format entries should be removed
 
     @pytest.mark.asyncio
-    async def test_cleanup_expired_handles_invalid_timestamp(self, mock_redis):
+    async def test_cleanup_expired_handles_invalid_timestamp(self, mock_cache):
         """Test cleanup handles invalid timestamp values."""
-        mock_redis.hgetall = AsyncMock(
+        mock_cache.hgetall = AsyncMock(
             return_value={
                 "fp1": "https://example.com/1|invalid_timestamp",
             }
         )
 
-        dedup = SimHashDeduplicator(redis=mock_redis)
+        dedup = SimHashDeduplicator(cache=mock_cache)
         result = await dedup.cleanup_expired()
 
         assert result == 1  # Invalid entries should be removed
 
     @pytest.mark.asyncio
-    async def test_cleanup_expired_with_custom_max_age(self, mock_redis):
+    async def test_cleanup_expired_with_custom_max_age(self, mock_cache):
         """Test cleanup with custom max_age_seconds."""
         now = int(time.time())
         recent_timestamp = now - 3600  # 1 hour ago
 
-        mock_redis.hgetall = AsyncMock(
+        mock_cache.hgetall = AsyncMock(
             return_value={
                 "fp1": f"https://example.com/1|{recent_timestamp}",
             }
         )
 
-        dedup = SimHashDeduplicator(redis=mock_redis)
+        dedup = SimHashDeduplicator(cache=mock_cache)
         # Use very short max age (30 minutes)
         result = await dedup.cleanup_expired(max_age_seconds=1800)
 
@@ -397,18 +387,18 @@ class TestGetStats:
     """Test SimHashDeduplicator.get_stats method."""
 
     @pytest.fixture
-    def mock_redis(self):
+    def mock_cache(self):
         """Create mock Redis client."""
-        redis = MagicMock()
-        redis.hgetall = AsyncMock(return_value={})
-        return redis
+        cache = MagicMock()
+        cache.hgetall = AsyncMock(return_value={})
+        return cache
 
     @pytest.mark.asyncio
-    async def test_get_stats_empty(self, mock_redis):
+    async def test_get_stats_empty(self, mock_cache):
         """Test get_stats with no entries."""
-        mock_redis.hgetall = AsyncMock(return_value={})
+        mock_cache.hgetall = AsyncMock(return_value={})
 
-        dedup = SimHashDeduplicator(redis=mock_redis)
+        dedup = SimHashDeduplicator(cache=mock_cache)
         stats = await dedup.get_stats()
 
         assert stats["total_fingerprints"] == 0
@@ -416,25 +406,25 @@ class TestGetStats:
         assert stats["threshold"] == 3
 
     @pytest.mark.asyncio
-    async def test_get_stats_with_entries(self, mock_redis):
+    async def test_get_stats_with_entries(self, mock_cache):
         """Test get_stats with entries."""
-        mock_redis.hgetall = AsyncMock(
+        mock_cache.hgetall = AsyncMock(
             return_value={
                 "fp1": "https://example.com/1",
                 "fp2": "https://example.com/2",
             }
         )
 
-        dedup = SimHashDeduplicator(redis=mock_redis)
+        dedup = SimHashDeduplicator(cache=mock_cache)
         stats = await dedup.get_stats()
 
         assert stats["total_fingerprints"] == 2
 
     @pytest.mark.asyncio
-    async def test_get_stats_returns_config(self, mock_redis):
+    async def test_get_stats_returns_config(self, mock_cache):
         """Test get_stats returns configuration values."""
         dedup = SimHashDeduplicator(
-            redis=mock_redis,
+            cache=mock_cache,
             threshold=5,
             ttl_seconds=3600,
         )

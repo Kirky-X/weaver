@@ -13,36 +13,36 @@ class TestDeduplicator:
 
     def test_deduplicator_initialization(self):
         """Test deduplicator initializes correctly."""
-        mock_redis = MagicMock()
+        mock_cache = MagicMock()
         mock_repo = MagicMock()
 
-        dedup = Deduplicator(redis=mock_redis, article_repo=mock_repo)
+        dedup = Deduplicator(cache=mock_cache, article_repo=mock_repo)
 
-        assert dedup._redis is mock_redis
+        assert dedup._cache is mock_cache
         assert dedup._repo is mock_repo
         assert dedup.DEDUP_KEY == "crawl:dedup"
 
     @pytest.mark.asyncio
     async def test_dedup_with_no_items(self):
         """Test deduplication with empty list."""
-        mock_redis = MagicMock()
+        mock_cache = MagicMock()
         mock_repo = MagicMock()
-        mock_redis.pipeline = MagicMock(return_value=MagicMock())
+        mock_cache.pipeline = MagicMock(return_value=MagicMock())
 
-        dedup = Deduplicator(redis=mock_redis, article_repo=mock_repo)
+        dedup = Deduplicator(cache=mock_cache, article_repo=mock_repo)
 
         result = await dedup.dedup([])
 
         assert result == []
-        mock_redis.pipeline.assert_not_called()
+        mock_cache.pipeline.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_hash_function(self):
         """Test URL hashing function."""
-        mock_redis = MagicMock()
+        mock_cache = MagicMock()
         mock_repo = MagicMock()
 
-        dedup = Deduplicator(redis=mock_redis, article_repo=mock_repo)
+        dedup = Deduplicator(cache=mock_cache, article_repo=mock_repo)
 
         # Test that same URL produces same hash
         url = "https://example.com/article"
@@ -61,15 +61,15 @@ class TestDeduplicatorRedisLevel:
     """Tests for Redis first-level deduplication."""
 
     @pytest.fixture
-    def mock_redis(self):
+    def mock_cache(self):
         """Mock Redis client."""
-        redis = MagicMock()
+        cache = MagicMock()
         pipeline_mock = MagicMock()
         pipeline_mock.hexists = MagicMock()
         pipeline_mock.execute = AsyncMock(return_value=[False, True])
         pipeline_mock.hset = MagicMock()
-        redis.pipeline = MagicMock(return_value=pipeline_mock)
-        return redis
+        cache.pipeline = MagicMock(return_value=pipeline_mock)
+        return cache
 
     @pytest.fixture
     def mock_repo(self):
@@ -88,30 +88,30 @@ class TestDeduplicatorRedisLevel:
         return [item1, item2]
 
     @pytest.mark.asyncio
-    async def test_redis_dedup_first_level(self, mock_redis, mock_repo):
+    async def test_redis_dedup_first_level(self, mock_cache, mock_repo):
         """Test Redis first-level deduplication."""
-        dedup = Deduplicator(redis=mock_redis, article_repo=mock_repo)
+        dedup = Deduplicator(cache=mock_cache, article_repo=mock_repo)
         assert dedup.DEDUP_KEY == "crawl:dedup"
 
     @pytest.mark.asyncio
-    async def test_db_dedup_second_level(self, mock_redis, mock_repo, mock_items):
+    async def test_db_dedup_second_level(self, mock_cache, mock_repo, mock_items):
         """Test DB second-level deduplication."""
         mock_repo.get_existing_urls = AsyncMock(return_value=["https://example.com/article1"])
-        dedup = Deduplicator(redis=mock_redis, article_repo=mock_repo)
+        dedup = Deduplicator(cache=mock_cache, article_repo=mock_repo)
         assert dedup._repo is mock_repo
 
     @pytest.mark.asyncio
-    async def test_write_new_urls_to_redis(self, mock_redis, mock_repo):
+    async def test_write_new_urls_to_cache(self, mock_cache, mock_repo):
         """Test new URLs are written to Redis."""
-        dedup = Deduplicator(redis=mock_redis, article_repo=mock_repo)
+        dedup = Deduplicator(cache=mock_cache, article_repo=mock_repo)
         assert hasattr(dedup, "_hash")
 
     @pytest.mark.asyncio
-    async def test_pipeline_execution(self, mock_redis, mock_repo, mock_items):
+    async def test_pipeline_execution(self, mock_cache, mock_repo, mock_items):
         """Test complete deduplication pipeline."""
         mock_repo.get_existing_urls = AsyncMock(return_value=[])
-        dedup = Deduplicator(redis=mock_redis, article_repo=mock_repo)
-        assert dedup._redis is not None
+        dedup = Deduplicator(cache=mock_cache, article_repo=mock_repo)
+        assert dedup._cache is not None
         assert dedup._repo is not None
 
 

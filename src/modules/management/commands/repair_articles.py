@@ -103,7 +103,7 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
 
         article_repo = ArticleRepo(postgres_pool)
 
-        # Build pipeline with neo4j_writer=None (we only read from Neo4j, never write)
+        # Build pipeline with graph_writer=None (we only read from Neo4j, never write)
         spacy_extractor = SpacyExtractor()
         pipeline = Pipeline(
             llm=llm_client,
@@ -114,7 +114,7 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
             spacy=spacy_extractor,
             vector_repo=None,  # Not needed for repair (terminal articles skip vector ops)
             article_repo=article_repo,
-            neo4j_writer=None,  # Idempotent: do NOT write to Neo4j
+            graph_writer=None,  # Idempotent: do NOT write to Neo4j
             source_auth_repo=None,
             entity_resolver=None,
             redis_client=redis_client,

@@ -13,12 +13,12 @@ class TestDeduplicatorInit:
         """Test Deduplicator initializes with default TTL."""
         from modules.ingestion.deduplication import Deduplicator
 
-        mock_redis = MagicMock()
+        mock_cache = MagicMock()
         mock_repo = MagicMock()
 
-        dedup = Deduplicator(redis=mock_redis, article_repo=mock_repo)
+        dedup = Deduplicator(cache=mock_cache, article_repo=mock_repo)
 
-        assert dedup._redis is mock_redis
+        assert dedup._cache is mock_cache
         assert dedup._repo is mock_repo
         assert dedup._ttl == Deduplicator.DEFAULT_TTL
 
@@ -26,11 +26,11 @@ class TestDeduplicatorInit:
         """Test Deduplicator initializes with custom TTL."""
         from modules.ingestion.deduplication import Deduplicator
 
-        mock_redis = MagicMock()
+        mock_cache = MagicMock()
         mock_repo = MagicMock()
 
         dedup = Deduplicator(
-            redis=mock_redis,
+            cache=mock_cache,
             article_repo=mock_repo,
             ttl_seconds=3600,
         )
@@ -42,12 +42,13 @@ class TestDeduplicatorDedup:
     """Tests for Deduplicator.dedup()."""
 
     @pytest.fixture
-    def mock_redis(self):
+    def mock_cache(self):
         """Create mock Redis client."""
-        redis = MagicMock()
-        redis.pipeline = MagicMock()
-        redis.ping = AsyncMock(return_value=True)
-        return redis
+        cache = MagicMock()
+        cache.ping = AsyncMock(return_value=True)
+        cache.hexists_many = AsyncMock(return_value=[])
+        cache.hset = AsyncMock()
+        return cache
 
     @pytest.fixture
     def mock_repo(self):
@@ -57,11 +58,11 @@ class TestDeduplicatorDedup:
         return repo
 
     @pytest.fixture
-    def dedup(self, mock_redis, mock_repo):
+    def dedup(self, mock_cache, mock_repo):
         """Create Deduplicator instance."""
         from modules.ingestion.deduplication import Deduplicator
 
-        return Deduplicator(redis=mock_redis, article_repo=mock_repo)
+        return Deduplicator(cache=mock_cache, article_repo=mock_repo)
 
     @pytest.mark.asyncio
     async def test_dedup_empty_list(self, dedup):
@@ -70,7 +71,7 @@ class TestDeduplicatorDedup:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_dedup_filters_by_redis(self, dedup, mock_redis):
+    async def test_dedup_filters_by_cache(self, dedup, mock_cache):
         """Test dedup filters items already in Redis."""
         # Create mock items
         item1 = MagicMock()
@@ -78,10 +79,8 @@ class TestDeduplicatorDedup:
         item2 = MagicMock()
         item2.url = "https://example.com/2"
 
-        # Mock Redis pipeline
-        mock_pipe = AsyncMock()
-        mock_pipe.execute.return_value = [True, False]  # item1 exists, item2 new
-        mock_redis.pipeline.return_value = mock_pipe
+        # Mock hexists_many
+        mock_cache.hexists_many = AsyncMock(return_value=[True, False])  # item1 exists, item2 new
 
         result = await dedup.dedup([item1, item2])
 
@@ -89,31 +88,26 @@ class TestDeduplicatorDedup:
         assert result[0].url == "https://example.com/2"
 
     @pytest.mark.asyncio
-    async def test_dedup_all_filtered_by_redis(self, dedup, mock_redis):
+    async def test_dedup_all_filtered_by_cache(self, dedup, mock_cache):
         """Test dedup returns empty when all items filtered by Redis."""
         item1 = MagicMock()
         item1.url = "https://example.com/1"
 
-        mock_pipe = AsyncMock()
-        mock_pipe.execute.return_value = [True]  # All exist
-        mock_redis.pipeline.return_value = mock_pipe
+        mock_cache.hexists_many = AsyncMock(return_value=[True])  # All exist
 
         result = await dedup.dedup([item1])
 
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_dedup_filters_by_db(self, dedup, mock_redis, mock_repo):
+    async def test_dedup_filters_by_db(self, dedup, mock_cache, mock_repo):
         """Test dedup filters items already in database."""
         item1 = MagicMock()
         item1.url = "https://example.com/new"
         item2 = MagicMock()
         item2.url = "https://example.com/existing"
 
-        mock_pipe = AsyncMock()
-        mock_pipe.execute.return_value = [False, False]  # None in Redis
-        mock_redis.pipeline.return_value = mock_pipe
-
+        mock_cache.hexists_many = AsyncMock(return_value=[False, False])  # None in Redis
         mock_repo.get_existing_urls.return_value = {"https://example.com/existing"}
 
         result = await dedup.dedup([item1, item2])
@@ -122,31 +116,31 @@ class TestDeduplicatorDedup:
         assert result[0].url == "https://example.com/new"
 
     @pytest.mark.asyncio
-    async def test_dedup_adds_new_items_to_redis(self, dedup, mock_redis, mock_repo):
+    async def test_dedup_adds_new_items_to_cache(self, dedup, mock_cache, mock_repo):
         """Test dedup adds new items to Redis."""
         item = MagicMock()
         item.url = "https://example.com/new"
 
-        mock_pipe = AsyncMock()
-        mock_pipe.execute.return_value = [False]  # Not in Redis
-        mock_redis.pipeline.return_value = mock_pipe
-
+        mock_cache.hexists_many = AsyncMock(return_value=[False])  # Not in Redis
+        mock_cache.hset = AsyncMock()
         mock_repo.get_existing_urls.return_value = set()
 
         await dedup.dedup([item])
 
-        # Verify hset was called (via pipeline)
-        assert mock_pipe.hset.called or mock_redis.pipeline.called
+        # Verify hset was called
+        mock_cache.hset.assert_called()
 
 
 class TestDeduplicatorDedupUrls:
     """Tests for Deduplicator.dedup_urls()."""
 
     @pytest.fixture
-    def mock_redis(self):
-        redis = MagicMock()
-        redis.pipeline = MagicMock()
-        return redis
+    def mock_cache(self):
+        cache = MagicMock()
+        cache.ping = AsyncMock(return_value=True)
+        cache.hexists_many = AsyncMock(return_value=[])
+        cache.hset = AsyncMock()
+        return cache
 
     @pytest.fixture
     def mock_repo(self):
@@ -155,10 +149,10 @@ class TestDeduplicatorDedupUrls:
         return repo
 
     @pytest.fixture
-    def dedup(self, mock_redis, mock_repo):
+    def dedup(self, mock_cache, mock_repo):
         from modules.ingestion.deduplication import Deduplicator
 
-        return Deduplicator(redis=mock_redis, article_repo=mock_repo)
+        return Deduplicator(cache=mock_cache, article_repo=mock_repo)
 
     @pytest.mark.asyncio
     async def test_dedup_urls_empty_list(self, dedup):
@@ -167,11 +161,10 @@ class TestDeduplicatorDedupUrls:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_dedup_urls_filters_by_redis(self, dedup, mock_redis):
+    async def test_dedup_urls_filters_by_cache(self, dedup, mock_cache):
         """Test dedup_urls filters URLs in Redis."""
-        mock_pipe = AsyncMock()
-        mock_pipe.execute.return_value = [True, False]
-        mock_redis.pipeline.return_value = mock_pipe
+        # Mock hexists_many to return [True, False] (first URL exists, second new)
+        mock_cache.hexists_many = AsyncMock(return_value=[True, False])
 
         result = await dedup.dedup_urls(["https://example.com/1", "https://example.com/2"])
 
@@ -265,40 +258,40 @@ class TestDeduplicatorCleanupExpired:
     """Tests for Deduplicator.cleanup_expired()."""
 
     @pytest.fixture
-    def mock_redis(self):
-        redis = MagicMock()
-        redis.hgetall = AsyncMock()
-        redis.hdel = AsyncMock()
-        return redis
+    def mock_cache(self):
+        cache = MagicMock()
+        cache.hgetall = AsyncMock()
+        cache.hdel = AsyncMock()
+        return cache
 
     @pytest.fixture
     def mock_repo(self):
         return MagicMock()
 
     @pytest.fixture
-    def dedup(self, mock_redis, mock_repo):
+    def dedup(self, mock_cache, mock_repo):
         from modules.ingestion.deduplication import Deduplicator
 
-        return Deduplicator(redis=mock_redis, article_repo=mock_repo)
+        return Deduplicator(cache=mock_cache, article_repo=mock_repo)
 
     @pytest.mark.asyncio
-    async def test_cleanup_expired_empty(self, dedup, mock_redis):
+    async def test_cleanup_expired_empty(self, dedup, mock_cache):
         """Test cleanup returns 0 when no entries."""
-        mock_redis.hgetall.return_value = {}
+        mock_cache.hgetall.return_value = {}
 
         result = await dedup.cleanup_expired()
 
         assert result == 0
 
     @pytest.mark.asyncio
-    async def test_cleanup_expired_removes_old_entries(self, dedup, mock_redis):
+    async def test_cleanup_expired_removes_old_entries(self, dedup, mock_cache):
         """Test cleanup removes expired entries."""
         import time
 
         now = str(int(time.time()))
         old = str(int(time.time()) - 86400 * 10)  # 10 days old
 
-        mock_redis.hgetall.return_value = {
+        mock_cache.hgetall.return_value = {
             "key1": old,
             "key2": now,
         }
@@ -306,12 +299,12 @@ class TestDeduplicatorCleanupExpired:
         result = await dedup.cleanup_expired(max_age_seconds=86400 * 7)
 
         assert result == 1
-        mock_redis.hdel.assert_called_once()
+        mock_cache.hdel.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_cleanup_expired_handles_invalid_timestamp(self, dedup, mock_redis):
+    async def test_cleanup_expired_handles_invalid_timestamp(self, dedup, mock_cache):
         """Test cleanup handles invalid timestamps."""
-        mock_redis.hgetall.return_value = {
+        mock_cache.hgetall.return_value = {
             "key1": "invalid",
             "key2": "12345",
         }
