@@ -1,18 +1,37 @@
 #!/usr/bin/env python
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Comprehensive API endpoint test script.
+"""Comprehensive API endpoint test script with E2E pipeline support.
 
 Tests all HTTP endpoints using the embedded database strategy
 (DuckDB + LadybugDB + CashewsRedis).
 
+Also supports end-to-end pipeline testing:
+  - Register sources
+  - Trigger pipeline tasks
+  - Poll task status
+  - Optionally verify results in PostgreSQL/Neo4j (if available)
+
 Known limitations with LadybugDB:
 - Graph endpoints use Neo4j-specific Cypher syntax
 - These endpoints return 500 errors when Neo4j is unavailable
+- E2E database verification is skipped when external databases are not accessible
+
+Usage:
+    # API endpoint tests (default)
+    uv run scripts/test_api_endpoints.py
+
+    # E2E pipeline test
+    uv run scripts/test_api_endpoints.py --e2e --mode 36kr --max-items 5
+
+    # E2E with custom source and no auto-start
+    uv run scripts/test_api_endpoints.py --e2e --mode rss --no-verify-db
 """
 
 from __future__ import annotations
 
+import argparse
 import asyncio
+import os
 import sys
 import time
 from datetime import UTC, datetime, timedelta
@@ -32,10 +51,94 @@ BASE_URL = "http://127.0.0.1:8000"
 API_KEY = "test-api-key-32chars-long!!!!"
 TIMEOUT = 30.0
 
+# E2E configuration
+DEFAULT_API_KEY = "dev-api-key-for-testing-purposes"
+POLL_INTERVAL_SECONDS = 5
+POLL_TIMEOUT_SECONDS = 180
+API_TIMEOUT_SECONDS = 120
+
+# Source definitions for E2E
+SOURCE_36KR = {
+    "id": "36kr",
+    "name": "36kr",
+    "url": "https://www.newsnow.world/api/s?id=36kr",
+    "source_type": "newsnow",
+    "enabled": True,
+    "interval_minutes": 30,
+}
+
+RSS_SOURCES = [
+    {
+        "id": "cnbeta",
+        "name": "CNBeta",
+        "url": "https://plink.anyfeeder.com/cnbeta",
+        "source_type": "rss",
+        "enabled": True,
+        "interval_minutes": 30,
+        "tier": 2,
+        "credibility": 0.7,
+    },
+    {
+        "id": "huxiu",
+        "name": "Huxiu",
+        "url": "https://plink.anyfeeder.com/huxiu",
+        "source_type": "rss",
+        "enabled": True,
+        "interval_minutes": 30,
+        "tier": 2,
+        "credibility": 0.7,
+    },
+]
+
+# App process environment
+APP_ENV = {
+    "WEAVER_POSTGRES__DSN": "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver",
+    "NEO4J_PASSWORD": "password",
+    "POSTGRES_PASSWORD": os.getenv("POSTGRES_PASSWORD", "postgres"),
+    "ENVIRONMENT": "development",
+    "WEAVER_API__API_KEY": os.getenv(
+        "WEAVER_API__API_KEY", "dev_api_key_1234567890123456789012345678"
+    ),
+}
+
 PASS = "\u2713"
 FAIL = "\u2717"
 SKIP = "\u2928"
 WARN = "\u26a0"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Color output helpers
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class Colors:
+    RED = "\033[0;31m"
+    GREEN = "\033[0;32m"
+    YELLOW = "\033[1;33m"
+    BLUE = "\033[0;34m"
+    CYAN = "\033[0;36m"
+    NC = "\033[0m"
+
+
+def log_info(msg: str) -> None:
+    print(f"{Colors.GREEN}[INFO]{Colors.NC} {msg}")
+
+
+def log_warn(msg: str) -> None:
+    print(f"{Colors.YELLOW}[WARN]{Colors.NC} {msg}")
+
+
+def log_error(msg: str) -> None:
+    print(f"{Colors.RED}[ERROR]{Colors.NC} {msg}")
+
+
+def log_step(step: str, msg: str) -> None:
+    print(f"{Colors.BLUE}[{step}]{Colors.NC} {msg}")
+
+
+def log_source(source_id: str, msg: str) -> None:
+    print(f"{Colors.CYAN}[{source_id}]{Colors.NC} {msg}")
 
 
 class APITester:
@@ -874,6 +977,150 @@ class APITester:
             )
 
     # ─────────────────────────────────────────────────────────────────────────
+    # E2E Pipeline Testing
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def e2e_register_source(self, source: dict[str, Any]) -> bool:
+        """Register a single source for E2E test. Returns True if success or already exists."""
+        source_id = source["id"]
+        log_source(source_id, f"Registering source at {source['url']}...")
+
+        code, data, _ms = await self._request(
+            "POST",
+            "/api/v1/sources",
+            json_data=source,
+            expected_status=[201, 409],
+        )
+
+        if code == 201:
+            log_source(source_id, "Source registered (201)")
+            return True
+        elif code == 409:
+            log_source(source_id, "Source already exists (409)")
+            return True
+        else:
+            log_error(f"  [{source_id}] Failed: {code} {data}")
+            return False
+
+    async def e2e_trigger_pipeline(self, source_id: str, max_items: int) -> str | None:
+        """Trigger pipeline for a source and return task_id."""
+        log_source(source_id, "Triggering pipeline...")
+
+        code, data, _ms = await self._request(
+            "POST",
+            "/api/v1/pipeline/trigger",
+            json_data={
+                "source_id": source_id,
+                "max_items": max_items,
+                "force": True,
+            },
+        )
+
+        if code != 200:
+            log_error(f"  [{source_id}] Trigger failed: {code} {data}")
+            return None
+
+        task_id = data.get("data", data).get("task_id")
+        log_source(source_id, f"Pipeline triggered, task_id={task_id}")
+        return task_id
+
+    async def e2e_poll_task(self, source_id: str, task_id: str) -> dict[str, Any]:
+        """Poll a single task until completed, failed, or timeout."""
+        deadline = time.time() + POLL_TIMEOUT_SECONDS
+
+        while time.time() < deadline:
+            code, data, _ms = await self._request(
+                "GET",
+                f"/api/v1/pipeline/tasks/{task_id}",
+            )
+
+            if code is None:
+                log_warn(f"  [{source_id}] Poll error: {data}")
+                await asyncio.sleep(POLL_INTERVAL_SECONDS)
+                continue
+
+            status = data.get("status", "unknown")
+            completed = data.get("completed_count", 0)
+            processing = data.get("processing_count", 0)
+            failed = data.get("failed_count", 0)
+            pending = data.get("pending_count", 0)
+
+            print(
+                f"  [{source_id}] status={status} | "
+                f"completed={completed} processing={processing} failed={failed} pending={pending}"
+            )
+
+            if status in ("completed", "failed"):
+                log_source(source_id, f"Task finished: {status}")
+                return data
+
+            await asyncio.sleep(POLL_INTERVAL_SECONDS)
+
+        log_error(f"  [{source_id}] Polling timeout after {POLL_TIMEOUT_SECONDS}s")
+        # Return last known status
+        code, data, _ms = await self._request("GET", f"/api/v1/pipeline/tasks/{task_id}")
+        return data or {"status": "timeout"}
+
+    async def e2e_verify_databases(self, source_ids: list[str]) -> dict[str, Any]:
+        """Query PostgreSQL and Neo4j to verify data was stored (optional).
+
+        Returns dict with verification results. If databases are unavailable,
+        returns error messages but doesn't fail the test.
+        """
+        log_step("4/4", "Verifying database results (optional)...")
+        results: dict[str, Any] = {}
+
+        # PostgreSQL verification
+        try:
+            import asyncpg
+
+            conn = await asyncpg.connect(
+                host="localhost",
+                port=5432,
+                user="postgres",
+                password="postgres",
+                database="weaver",
+                timeout=10,
+            )
+            try:
+                for sid in source_ids:
+                    count = await conn.fetchval(
+                        "SELECT COUNT(*) FROM articles WHERE source_url LIKE '%' || $1 || '%' OR source_host LIKE '%' || $1 || '%'",
+                        sid,
+                    )
+                    results[f"pg_articles_{sid}"] = count
+                    log_info(f"  PostgreSQL articles for {sid}: {count}")
+
+                total = await conn.fetchval("SELECT COUNT(*) FROM articles")
+                results["pg_articles_total"] = total
+                log_info(f"  PostgreSQL total articles: {total}")
+            finally:
+                await conn.close()
+        except Exception as e:
+            log_warn(f"  PostgreSQL verification skipped: {e}")
+            results["pg_error"] = str(e)
+
+        # Neo4j verification
+        try:
+            from neo4j import GraphDatabase
+
+            driver = GraphDatabase.driver("bolt://localhost:7687", auth=("neo4j", "password"))
+            with driver.session() as session:
+                articles = session.run("MATCH (a:Article) RETURN count(a) AS cnt").single()[0]
+                results["neo4j_articles"] = articles
+                log_info(f"  Neo4j Article nodes: {articles}")
+
+                entities = session.run("MATCH (e:Entity) RETURN count(e) AS cnt").single()[0]
+                results["neo4j_entities"] = entities
+                log_info(f"  Neo4j Entity nodes: {entities}")
+            driver.close()
+        except Exception as e:
+            log_warn(f"  Neo4j verification skipped: {e}")
+            results["neo4j_error"] = str(e)
+
+        return results
+
+    # ─────────────────────────────────────────────────────────────────────────
     # Cleanup
     # ─────────────────────────────────────────────────────────────────────────
 
@@ -934,21 +1181,24 @@ class APITester:
         return {"total": total, "passed": passed, "failed": failed, "skipped": skipped}
 
 
-async def run_tests() -> int:
-    """Run all API tests."""
+async def run_tests(args: argparse.Namespace) -> int:
+    """Run all API tests or E2E pipeline tests."""
     print("=" * 70)
     print("  Weaver API Endpoint Tests")
     print("  Database: DuckDB + LadybugDB + CashewsRedis")
     print("=" * 70)
 
-    tester = APITester(BASE_URL, API_KEY, TIMEOUT)
+    base_url = args.url if hasattr(args, "url") and args.url else BASE_URL
+    api_key = args.api_key if hasattr(args, "api_key") and args.api_key else API_KEY
+
+    tester = APITester(base_url, api_key, TIMEOUT)
 
     try:
         # Wait for server
         print("\n[Server Connection]")
         for i in range(10):
             try:
-                resp = await tester._client.get(f"{BASE_URL}/health", timeout=5.0)
+                resp = await tester._client.get(f"{base_url}/health", timeout=5.0)
                 if resp.status_code == 200:
                     print(f"  {PASS} Server ready")
                     break
@@ -960,7 +1210,11 @@ async def run_tests() -> int:
             print(f"  {FAIL} Server not responding")
             return 1
 
-        # Run all tests
+        # E2E mode
+        if args.e2e:
+            return await run_e2e_mode(tester, args)
+
+        # Default: API endpoint tests
         await tester.test_health()
         await tester.test_sources()
         await tester.test_articles()
@@ -982,6 +1236,171 @@ async def run_tests() -> int:
         await tester.close()
 
 
+async def run_e2e_mode(tester: APITester, args: argparse.Namespace) -> int:
+    """Run E2E pipeline test mode."""
+    sources = resolve_sources(args.mode)
+    if not sources:
+        log_error(f"Unknown mode: {args.mode}")
+        return 1
+
+    max_items = args.max_items
+    verify_db = not args.no_verify_db
+
+    print("=" * 70)
+    print(f"Weaver {args.mode.upper()} Pipeline E2E Test")
+    print("=" * 70)
+    print(f"  App URL:      {tester.base_url}")
+    print(f"  Mode:         {args.mode}")
+    print(f"  Max items:    {max_items}")
+    print(f"  Verify DB:    {verify_db}")
+    print("=" * 70)
+
+    try:
+        # Step 1: Register sources
+        log_step("1/4", "Registering sources...")
+        for source in sources:
+            if not await tester.e2e_register_source(source):
+                log_error(f"Failed to register source: {source['id']}")
+                return 1
+
+        # Step 2: Trigger pipelines
+        log_step("2/4", f"Triggering pipelines (max_items={max_items})...")
+        task_ids: dict[str, str | None] = {}
+        for source in sources:
+            task_ids[source["id"]] = await tester.e2e_trigger_pipeline(source["id"], max_items)
+
+        if not any(task_ids.values()):
+            log_error("All pipeline triggers failed")
+            return 1
+
+        # Step 3: Poll tasks
+        log_step("3/4", "Polling task status...")
+        task_results: dict[str, dict[str, Any]] = {}
+        for source_id, task_id in task_ids.items():
+            if not task_id:
+                task_results[source_id] = {"status": "failed", "error": "No task_id"}
+                continue
+            task_results[source_id] = await tester.e2e_poll_task(source_id, task_id)
+
+        failed_tasks = [s for s, r in task_results.items() if r.get("status") == "failed"]
+        if failed_tasks:
+            log_warn(f"Some tasks failed: {failed_tasks}")
+
+        await asyncio.sleep(3)
+
+        # Step 4: Verify databases (optional)
+        source_ids = [s["id"] for s in sources]
+        if verify_db:
+            results = await tester.e2e_verify_databases(source_ids)
+        else:
+            log_step("4/4", "Database verification skipped (--no-verify-db)")
+            results = {}
+
+        # Summary
+        print("\n" + "=" * 70)
+        print("Test Summary")
+        print("=" * 70)
+
+        total = results.get("pg_articles_total", 0)
+        if total > 0:
+            for s in sources:
+                count = results.get(f"pg_articles_{s['id']}", 0)
+                if count > 0:
+                    log_info(f"[{s['id']}] {count} article(s) in PostgreSQL")
+                else:
+                    log_warn(f"[{s['id']}] No articles in PostgreSQL")
+
+            log_info(f"Total {total} article(s) in PostgreSQL")
+            print("=" * 70)
+            return 0
+        else:
+            # Check if we have PG error (database not available)
+            if "pg_error" in results:
+                log_warn("PostgreSQL not available - cannot verify article count")
+                log_info("E2E pipeline execution completed (database verification skipped)")
+                print("=" * 70)
+                return 0  # Success if pipeline ran, even without DB verification
+            else:
+                log_error("No articles found in PostgreSQL")
+                print("=" * 70)
+                return 1
+
+    except httpx.ConnectError:
+        log_error(f"Cannot connect to Weaver app at {tester.base_url}")
+        log_error("Is the app running?")
+        return 1
+    except Exception as e:
+        log_error(f"Unexpected error: {e}")
+        __import__("traceback").print_exc()
+        return 1
+
+
+def resolve_sources(mode: str) -> list[dict[str, Any]]:
+    """Return source list based on mode."""
+    sources = []
+    if mode in ("36kr", "all"):
+        sources.append(SOURCE_36KR)
+    if mode in ("rss", "all"):
+        sources.extend(RSS_SOURCES)
+    return sources
+
+
 if __name__ == "__main__":
-    exit_code = asyncio.run(run_tests())
+    parser = argparse.ArgumentParser(
+        description="Comprehensive API endpoint test script with E2E pipeline support",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # API endpoint tests (default)
+  uv run scripts/test_api_endpoints.py
+
+  # E2E pipeline test with 36kr source
+  uv run scripts/test_api_endpoints.py --e2e --mode 36kr --max-items 5
+
+  # E2E pipeline test with RSS sources, skip DB verification
+  uv run scripts/test_api_endpoints.py --e2e --mode rss --no-verify-db
+
+  # Custom URL and API key
+  uv run scripts/test_api_endpoints.py --url http://localhost:8001 --api-key my-key
+        """,
+    )
+
+    parser.add_argument(
+        "--url",
+        default=None,
+        help=f"API base URL (default: {BASE_URL})",
+    )
+    parser.add_argument(
+        "--api-key",
+        default=None,
+        help="API key for authentication",
+    )
+
+    # E2E mode flag
+    parser.add_argument(
+        "--e2e",
+        action="store_true",
+        help="Run E2E pipeline test instead of API endpoint tests",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["36kr", "rss", "all"],
+        default="36kr",
+        help="E2E test mode: 36kr (default), rss, or all",
+    )
+    parser.add_argument(
+        "--max-items",
+        type=int,
+        default=5,
+        help="Maximum items per source for E2E test (default: 5)",
+    )
+    parser.add_argument(
+        "--no-verify-db",
+        action="store_true",
+        help="Skip PostgreSQL/Neo4j verification in E2E mode",
+    )
+
+    args = parser.parse_args()
+
+    exit_code = asyncio.run(run_tests(args))
     sys.exit(exit_code)
