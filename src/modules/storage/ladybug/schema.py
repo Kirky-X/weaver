@@ -88,6 +88,7 @@ SCHEMA_QUERIES = [
         FROM Entity TO Entity,
         edge_type STRING,
         properties STRING,
+        weight DOUBLE,
         created_at INT64,
         updated_at INT64
     )

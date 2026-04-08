@@ -95,7 +95,8 @@ SCHEMA_QUERIES = [
         retry_count INTEGER DEFAULT 0,
         error TEXT,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        synced_at TIMESTAMP WITH TIME ZONE
     )""",
     # ── LLM Failures ────────────────────────────────────────────
     """CREATE TABLE IF NOT EXISTS llm_failures (
@@ -416,18 +417,20 @@ async def _seed_relation_types(pool) -> None:
             return
 
         for rt in _RELATION_TYPE_SEEDS:
-            aliases = rt.pop("aliases")
+            # Make a copy to avoid mutating the original seed data
+            rt_copy = rt.copy()
+            aliases = rt_copy.pop("aliases")
             await session.execute(
                 text("""
                     INSERT INTO relation_types (name, name_en, category, is_symmetric, sort_order, description, is_active)
                     VALUES (:name, :name_en, :category, :is_symmetric, :sort_order, :description, true)
                 """),
-                rt,
+                rt_copy,
             )
             # Get the inserted id
             result = await session.execute(
                 text("SELECT id FROM relation_types WHERE name_en = :name_en"),
-                {"name_en": rt["name_en"]},
+                {"name_en": rt_copy["name_en"]},
             )
             type_id = result.scalar()
 
