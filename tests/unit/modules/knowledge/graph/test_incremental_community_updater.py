@@ -960,6 +960,24 @@ class TestCheckAndRun:
                         "pending_count": 0,
                     }
                 ],  # stats
+                # Health check queries (all return healthy state)
+                [],  # find_empty_communities
+                [],  # find_entity_count_mismatches
+                [],  # find_missing_reports
+                [],  # find_stale_reports
+                [],  # find_hierarchy_breaks
+                [],  # _calculate_modularity edges
+                [],  # _get_community_assignments_for_modularity
+                [
+                    {
+                        "total_communities": 5,
+                        "avg_entity_count": 20.0,
+                        "max_level": 1,
+                        "communities_with_reports": 5,
+                        "stale_report_count": 0,
+                        "empty_community_count": 0,
+                    }
+                ],  # get_overall_metrics (healthy)
             ]
         )
 

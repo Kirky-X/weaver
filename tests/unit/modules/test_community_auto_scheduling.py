@@ -121,6 +121,11 @@ class TestCheckAndRun:
     @pytest.mark.asyncio
     async def test_no_trigger_when_conditions_not_met(self, updater, mock_pool):
         """Communities exist, entity change < 10%, recent rebuild → no trigger."""
+        from modules.knowledge.graph.community_health_models import (
+            CommunityHealthReport,
+            CommunityHealthStatus,
+        )
+
         recent_date = datetime.now(UTC) - timedelta(hours=1)
 
         mock_pool.execute_query.side_effect = [
@@ -137,6 +142,15 @@ class TestCheckAndRun:
             ],
             [{"total": 5}],  # get_stats → total_communities
         ]
+
+        # Mock health check to return healthy status
+        mock_health_report = CommunityHealthReport(
+            status=CommunityHealthStatus.HEALTHY,
+            score=100,
+            issues=[],
+            metrics={},
+        )
+        updater._run_health_check = AsyncMock(return_value=mock_health_report)
 
         result = await updater.check_and_run()
 

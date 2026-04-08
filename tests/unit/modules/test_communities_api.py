@@ -111,7 +111,7 @@ class TestRebuildCommunitiesEndpoint:
             return_value=mock_detector,
         ):
             with patch(
-                "api.endpoints.communities.get_neo4j_pool",
+                "api.endpoints.communities.get_graph_pool",
                 return_value=mock_pool,
             ):
                 request = RebuildRequest(max_cluster_size=10, seed=42)
@@ -139,7 +139,7 @@ class TestRebuildCommunitiesEndpoint:
             return_value=mock_detector,
         ):
             with patch(
-                "api.endpoints.communities.get_neo4j_pool",
+                "api.endpoints.communities.get_graph_pool",
                 return_value=mock_pool,
             ):
                 with pytest.raises(HTTPException) as exc_info:
@@ -340,7 +340,7 @@ class TestListCommunitiesEndpoint:
             return_value=mock_repo,
         ):
             with patch(
-                "api.endpoints.communities.get_neo4j_pool",
+                "api.endpoints.communities.get_graph_pool",
                 return_value=mock_pool,
             ):
                 result = await list_communities(
@@ -368,7 +368,7 @@ class TestListCommunitiesEndpoint:
             return_value=mock_repo,
         ):
             with patch(
-                "api.endpoints.communities.get_neo4j_pool",
+                "api.endpoints.communities.get_graph_pool",
                 return_value=mock_pool,
             ):
                 result = await list_communities(
@@ -429,7 +429,7 @@ class TestGetCommunityEndpoint:
             return_value=mock_repo,
         ):
             with patch(
-                "api.endpoints.communities.get_neo4j_pool",
+                "api.endpoints.communities.get_graph_pool",
                 return_value=mock_pool,
             ):
                 result = await get_community(
@@ -456,7 +456,7 @@ class TestGetCommunityEndpoint:
             return_value=mock_repo,
         ):
             with patch(
-                "api.endpoints.communities.get_neo4j_pool",
+                "api.endpoints.communities.get_graph_pool",
                 return_value=mock_pool,
             ):
                 with pytest.raises(HTTPException) as exc_info:
@@ -475,4 +475,4 @@ class TestDependencies:
     # Now uses api.dependencies via FastAPI dependency injection
 
     # NOTE: _neo4j_pool and _llm_client module-level variables removed
-    # The get_neo4j_pool and get_llm_client functions now use api.dependencies
+    # The get_graph_pool and get_llm_client functions now use api.dependencies

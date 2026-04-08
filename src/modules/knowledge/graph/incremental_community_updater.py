@@ -28,6 +28,13 @@ except ImportError:
 if TYPE_CHECKING:
     from core.protocols import GraphPool
 
+from modules.knowledge.graph.community_health_checker import CommunityHealthChecker
+from modules.knowledge.graph.community_health_models import (
+    CommunityHealthStatus,
+    HealthIssue,
+)
+from modules.knowledge.graph.community_repair_service import CommunityRepairService
+
 log = get_logger("incremental_community_updater")
 
 
@@ -190,8 +197,33 @@ class IncrementalCommunityUpdater:
                 "duration_seconds": result.duration_seconds,
             }
 
+        # Health check for degraded/critical status
+        health_report = await self._run_health_check()
+        if health_report.status in (
+            CommunityHealthStatus.DEGRADED,
+            CommunityHealthStatus.CRITICAL,
+        ):
+            log.info(
+                "check_and_run_health_check_failed",
+                status=health_report.status.value,
+                issues=len(health_report.issues),
+            )
+            repair_result = await self._auto_repair(health_report.issues)
+            return {
+                "triggered": True,
+                "reason": "health_check_failed",
+                "health_status": health_report.status.value,
+                "health_score": health_report.score,
+                "repaired": repair_result.to_dict(),
+            }
+
         # No conditions met
-        return {"triggered": False, "reason": None}
+        return {
+            "triggered": False,
+            "reason": None,
+            "health_status": health_report.status.value,
+            "health_score": health_report.score,
+        }
 
     async def force_rebuild(self) -> dict[str, object]:
         """Force full community rebuild unconditionally.
@@ -1422,3 +1454,33 @@ class IncrementalCommunityUpdater:
             await self._pool.execute_query(query, {"count": count})
         except Exception as exc:
             log.warning("increment_pending_count_failed", error=str(exc))
+
+    async def _run_health_check(self):
+        """Run community health check.
+
+        Returns:
+            CommunityHealthReport with diagnosis results.
+        """
+
+        checker = CommunityHealthChecker(self._pool, modularity_calculator=self)
+        return await checker.diagnose_all()
+
+    async def _auto_repair(self, issues: list[HealthIssue]):
+        """Auto-repair health issues.
+
+        Args:
+            issues: List of HealthIssue to repair.
+
+        Returns:
+            RepairSummary with repair results.
+        """
+        from modules.knowledge.graph.community_health_models import RepairSummary
+
+        # Filter to auto-repairable issues only
+        repairable = [i for i in issues if i.auto_repairable]
+
+        if not repairable:
+            return RepairSummary()
+
+        repair_service = CommunityRepairService(self._pool)
+        return await repair_service.auto_repair(repairable)

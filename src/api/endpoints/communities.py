@@ -15,6 +15,11 @@ from core.constants import ProcessingStatus
 from core.observability.logging import get_logger
 from core.protocols import GraphPool
 from modules.knowledge.graph.community_detector import CommunityDetector
+from modules.knowledge.graph.community_health_checker import CommunityHealthChecker
+from modules.knowledge.graph.community_health_models import (
+    IssueType,
+)
+from modules.knowledge.graph.community_repair_service import CommunityRepairService
 from modules.knowledge.graph.community_repo import Neo4jCommunityRepo
 from modules.knowledge.graph.community_report_generator import (
     CommunityReportGenerator,
@@ -92,6 +97,64 @@ class CommunityListResponse(BaseModel):
     communities: list[CommunityResponse]
     total: int
     level: int | None
+
+
+# ── Health Check Models ───────────────────────────────────────
+
+
+class HealthOverviewResponse(BaseModel):
+    """Response model for community health overview."""
+
+    status: str
+    score: float
+    total_communities: int
+    communities_with_reports: int
+    stale_reports: int
+    empty_communities: int
+    hierarchy_issues: int
+    last_check_at: str | None
+
+
+class IssueDetail(BaseModel):
+    """Detail model for a health issue."""
+
+    issue_type: str
+    severity: str
+    community_id: str | None = None
+    description: str
+    suggestion: str
+    auto_repairable: bool
+
+
+class DiagnoseResponse(BaseModel):
+    """Response model for full health diagnosis."""
+
+    status: str
+    score: float
+    issues: list[IssueDetail]
+    metrics: dict[str, Any]
+    repair_suggestions: list[str]
+
+
+class RepairRequest(BaseModel):
+    """Request model for repair operation."""
+
+    repair_types: list[str] | None = Field(
+        default=None,
+        description="Specific repair types to run, or None for all auto-repairable",
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="If True, only count without making changes",
+    )
+
+
+class RepairResponse(BaseModel):
+    """Response model for repair operation."""
+
+    repaired: dict[str, int]
+    failed: dict[str, list[str]]
+    duration_ms: float
 
 
 # ── Endpoints ───────────────────────────────────────────
@@ -408,3 +471,236 @@ async def get_community(
     except Exception as exc:
         log.error("get_community_failed", community_id=community_id, error=str(exc))
         raise HTTPException(status_code=500, detail=f"Failed to get community: {exc!s}")
+
+
+# ── Health Check Endpoints ───────────────────────────────────────
+
+
+@router.get("/health", response_model=APIResponse[HealthOverviewResponse])
+async def get_health_overview(
+    _: str = Depends(verify_api_key),
+    pool: GraphPool = Depends(get_graph_pool),
+) -> APIResponse[HealthOverviewResponse]:
+    """Get community health overview.
+
+    Returns a quick summary of community health status without full diagnosis.
+
+    Args:
+        _: Verified API key.
+        pool: GraphPool connection pool.
+
+    Returns:
+        Health overview with status and key metrics.
+
+    """
+    checker = CommunityHealthChecker(pool)
+
+    try:
+        # Quick metrics check
+        metrics = await checker._repo.get_overall_metrics()
+
+        # Determine basic status from metrics
+        total = metrics.get("total_communities", 0)
+        empty = metrics.get("empty_community_count", 0)
+        with_reports = metrics.get("communities_with_reports", 0)
+        stale = metrics.get("stale_report_count", 0)
+
+        if total == 0:
+            status = "critical"
+            score = 0.0
+        else:
+            empty_ratio = empty / total if total > 0 else 0
+            report_ratio = with_reports / total if total > 0 else 0
+
+            # Quick score calculation
+            score = 100.0
+            if empty_ratio > 0.10:
+                score -= 30
+            elif empty_ratio > 0.05:
+                score -= 15
+            if report_ratio < 0.7:
+                score -= 10
+            if stale > 0:
+                score -= 5
+
+            score = max(0.0, min(100.0, score))
+
+            if score >= 80:
+                status = "healthy"
+            elif score >= 60:
+                status = "moderate"
+            elif score >= 40:
+                status = "degraded"
+            else:
+                status = "critical"
+
+        # Get hierarchy breaks count
+        hierarchy_breaks = await checker._repo.find_hierarchy_breaks()
+
+        return success_response(
+            HealthOverviewResponse(
+                status=status,
+                score=score,
+                total_communities=total,
+                communities_with_reports=with_reports,
+                stale_reports=stale,
+                empty_communities=empty,
+                hierarchy_issues=len(hierarchy_breaks),
+                last_check_at=None,  # No persistent last check time yet
+            )
+        )
+
+    except Exception as exc:
+        log.error("get_health_overview_failed", error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Health check failed: {exc!s}")
+
+
+@router.post("/health/diagnose", response_model=APIResponse[DiagnoseResponse])
+async def diagnose_health(
+    _: str = Depends(verify_api_key),
+    pool: GraphPool = Depends(get_graph_pool),
+) -> APIResponse[DiagnoseResponse]:
+    """Perform full community health diagnosis.
+
+    Runs comprehensive checks including:
+    - Empty communities
+    - Entity count mismatches
+    - Missing reports
+    - Stale reports
+    - Hierarchy integrity
+    - Modularity score
+
+    Args:
+        _: Verified API key.
+        pool: GraphPool connection pool.
+
+    Returns:
+        Detailed diagnosis with all issues and suggestions.
+
+    """
+    checker = CommunityHealthChecker(pool)
+
+    try:
+        report = await checker.diagnose_all()
+
+        # Convert issues to response format
+        issue_details = [
+            IssueDetail(
+                issue_type=issue.issue_type.value,
+                severity=issue.severity,
+                community_id=issue.community_id,
+                description=issue.description,
+                suggestion=issue.suggestion,
+                auto_repairable=issue.auto_repairable,
+            )
+            for issue in report.issues
+        ]
+
+        # Extract repair suggestions
+        suggestions = list({issue.suggestion for issue in report.issues if issue.auto_repairable})
+
+        return success_response(
+            DiagnoseResponse(
+                status=report.status.value,
+                score=report.score,
+                issues=issue_details,
+                metrics=report.metrics,
+                repair_suggestions=suggestions,
+            )
+        )
+
+    except Exception as exc:
+        log.error("diagnose_health_failed", error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Diagnosis failed: {exc!s}")
+
+
+@router.post("/health/repair", response_model=APIResponse[RepairResponse])
+async def repair_health(
+    request: RepairRequest = RepairRequest(),
+    _: str = Depends(verify_api_key),
+    pool: GraphPool = Depends(get_graph_pool),
+    llm: Any = Depends(get_llm_client),
+) -> APIResponse[RepairResponse]:
+    """Repair community health issues.
+
+    Automatically repairs auto-repairable issues:
+    - Empty communities (delete)
+    - Entity count mismatches (update)
+    - Stale reports (regenerate)
+    - Broken hierarchy references (clean up)
+
+    Args:
+        request: Repair parameters.
+        _: Verified API key.
+        pool: GraphPool connection pool.
+        llm: LLM client for report regeneration.
+
+    Returns:
+        Repair results with counts and any failures.
+
+    """
+    log.info(
+        "repair_health_requested",
+        repair_types=request.repair_types,
+        dry_run=request.dry_run,
+    )
+
+    # First diagnose to get issues
+    checker = CommunityHealthChecker(pool)
+    report = await checker.diagnose_all()
+
+    # Filter to auto-repairable issues
+    repairable_issues = [i for i in report.issues if i.auto_repairable]
+
+    # Filter by requested repair types if specified
+    if request.repair_types:
+        type_set = {IssueType(t) for t in request.repair_types}
+        repairable_issues = [i for i in repairable_issues if i.issue_type in type_set]
+
+    if not repairable_issues:
+        return success_response(
+            RepairResponse(
+                repaired={},
+                failed={},
+                duration_ms=0.0,
+            )
+        )
+
+    # Create repair service
+    report_generator = CommunityReportGenerator(pool=pool, llm_client=llm)
+    repair_service = CommunityRepairService(pool=pool, report_generator=report_generator)
+
+    try:
+        summary = await repair_service.auto_repair(
+            issues=repairable_issues,
+            dry_run=request.dry_run,
+        )
+
+        # Build response
+        repaired = {}
+        failed = {}
+
+        for result in summary.results:
+            if result.success:
+                repaired[result.repair_type] = result.affected_count
+            else:
+                failed[result.repair_type] = [result.error or "Unknown error"]
+
+        log.info(
+            "repair_health_complete",
+            repaired=repaired,
+            failed_count=len(failed),
+            duration_ms=summary.duration_ms,
+        )
+
+        return success_response(
+            RepairResponse(
+                repaired=repaired,
+                failed=failed,
+                duration_ms=summary.duration_ms,
+            )
+        )
+
+    except Exception as exc:
+        log.error("repair_health_failed", error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Repair failed: {exc!s}")
