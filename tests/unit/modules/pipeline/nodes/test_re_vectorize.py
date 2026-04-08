@@ -36,7 +36,7 @@ class TestReVectorizeNodeBasic:
     @pytest.mark.asyncio
     async def test_successful_execution(self, mock_llm, sample_raw):
         """Should generate vectors and update state."""
-        mock_llm.embed = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
         node = ReVectorizeNode(mock_llm, model_id="text-embedding-3-large")
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": "Title", "body": "Body"}
@@ -51,22 +51,22 @@ class TestReVectorizeNodeBasic:
     @pytest.mark.asyncio
     async def test_calls_embed_with_correct_texts(self, mock_llm, sample_raw):
         """Should call embed with title and content."""
-        mock_llm.embed = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
         node = ReVectorizeNode(mock_llm)
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": "Test Title", "body": "Test body content"}
 
         await node.execute(state)
 
-        call_args = mock_llm.embed.call_args
-        texts = call_args[0][1]
+        call_args = mock_llm.embed_default.call_args
+        texts = call_args[0][0]
         assert texts[0] == "Test Title"
         assert texts[1] == "Test Title\nTest body content"[:2000]
 
     @pytest.mark.asyncio
     async def test_custom_model_id(self, mock_llm, sample_raw):
         """Should use custom model_id."""
-        mock_llm.embed = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
         node = ReVectorizeNode(mock_llm, model_id="qwen3-embedding:0.6b")
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": "Title", "body": "Body"}
@@ -89,7 +89,7 @@ class TestReVectorizeNodeEdgeCases:
 
         result = await node.execute(state)
 
-        mock_llm.embed.assert_not_called()
+        mock_llm.embed_default.assert_not_called()
         assert result["terminal"] is True
 
     @pytest.mark.asyncio
@@ -102,34 +102,34 @@ class TestReVectorizeNodeEdgeCases:
 
         result = await node.execute(state)
 
-        mock_llm.embed.assert_not_called()
+        mock_llm.embed_default.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_truncates_long_body(self, mock_llm, sample_raw):
         """Should truncate body for content embedding."""
-        mock_llm.embed = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
         node = ReVectorizeNode(mock_llm)
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": "Title", "body": "A" * 5000}
 
         await node.execute(state)
 
-        call_args = mock_llm.embed.call_args
-        texts = call_args[0][1]
+        call_args = mock_llm.embed_default.call_args
+        texts = call_args[0][0]
         # Content text = title + body[:2000]
         assert len(texts[1]) <= len("Title") + 2000 + 1  # title + \n + truncated body
 
     @pytest.mark.asyncio
     async def test_handles_empty_title(self, mock_llm, sample_raw):
         """Should handle empty title."""
-        mock_llm.embed = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
         node = ReVectorizeNode(mock_llm)
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": "", "body": "Body content"}
 
         await node.execute(state)
 
-        mock_llm.embed.assert_called()
+        mock_llm.embed_default.assert_called()
 
 
 class TestReVectorizeNodeErrorHandling:
@@ -138,7 +138,7 @@ class TestReVectorizeNodeErrorHandling:
     @pytest.mark.asyncio
     async def test_propagates_embed_error(self, mock_llm, sample_raw):
         """Should propagate embedding errors."""
-        mock_llm.embed = AsyncMock(side_effect=Exception("Embedding failed"))
+        mock_llm.embed_default = AsyncMock(side_effect=Exception("Embedding failed"))
         node = ReVectorizeNode(mock_llm)
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": "Title", "body": "Body"}
@@ -149,7 +149,7 @@ class TestReVectorizeNodeErrorHandling:
     @pytest.mark.asyncio
     async def test_handles_timeout(self, mock_llm, sample_raw):
         """Should propagate timeout errors."""
-        mock_llm.embed = AsyncMock(side_effect=TimeoutError("Timeout"))
+        mock_llm.embed_default = AsyncMock(side_effect=TimeoutError("Timeout"))
         node = ReVectorizeNode(mock_llm)
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": "Title", "body": "Body"}
@@ -164,7 +164,7 @@ class TestReVectorizeNodeIntegration:
     @pytest.mark.asyncio
     async def test_preserves_existing_state(self, mock_llm, sample_raw):
         """Should preserve existing state fields."""
-        mock_llm.embed = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
         node = ReVectorizeNode(mock_llm)
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": "Title", "body": "Body"}
@@ -180,7 +180,7 @@ class TestReVectorizeNodeIntegration:
     @pytest.mark.asyncio
     async def test_overwrites_existing_vectors(self, mock_llm, sample_raw):
         """Should overwrite existing vectors."""
-        mock_llm.embed = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
         node = ReVectorizeNode(mock_llm)
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": "Title", "body": "Body"}
@@ -194,7 +194,7 @@ class TestReVectorizeNodeIntegration:
     @pytest.mark.asyncio
     async def test_vector_dimensions(self, mock_llm, sample_raw):
         """Should return correct vector dimensions."""
-        mock_llm.embed = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
         node = ReVectorizeNode(mock_llm)
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": "Title", "body": "Body"}
