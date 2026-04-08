@@ -21,7 +21,7 @@ class TestGlobalContextBuilderInit:
 
     def test_default_params(self) -> None:
         pool = _make_pool()
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         assert builder._max_communities == 10
         assert builder._max_entities_per_community == 5
         assert builder._fallback_enabled is True
@@ -29,7 +29,7 @@ class TestGlobalContextBuilderInit:
     def test_custom_params(self) -> None:
         pool = _make_pool()
         builder = GlobalContextBuilder(
-            neo4j_pool=pool,
+            graph_pool=pool,
             max_communities=20,
             max_entities_per_community=10,
             fallback_enabled=False,
@@ -53,7 +53,7 @@ class TestGlobalContextBuilderBuild:
                 [{"count": 0}],  # _has_any_communities
             ]
         )
-        builder = GlobalContextBuilder(neo4j_pool=pool, fallback_enabled=False)
+        builder = GlobalContextBuilder(graph_pool=pool, fallback_enabled=False)
         ctx = await builder.build("test query")
         assert ctx.metadata.get("hint") is not None
         assert "rebuild" in ctx.metadata["hint"]
@@ -69,7 +69,7 @@ class TestGlobalContextBuilderBuild:
                 [{"count": 5}],  # _has_any_communities returns True
             ]
         )
-        builder = GlobalContextBuilder(neo4j_pool=pool, fallback_enabled=False)
+        builder = GlobalContextBuilder(graph_pool=pool, fallback_enabled=False)
         ctx = await builder.build("test query")
         assert ctx.metadata.get("total_communities") == 0
 
@@ -105,7 +105,7 @@ class TestGlobalContextBuilderBuild:
             return []
 
         pool.execute_query = mock_execute
-        builder = GlobalContextBuilder(neo4j_pool=pool, fallback_enabled=False)
+        builder = GlobalContextBuilder(graph_pool=pool, fallback_enabled=False)
         ctx = await builder.build("tech query")
 
         assert len(ctx.sections) >= 1
@@ -118,7 +118,7 @@ class TestFormatCommunities:
 
     def test_format_communities_section(self) -> None:
         pool = _make_pool()
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         communities = [
             {"title": "Tech", "summary": "Summary", "entity_count": 5},
         ]
@@ -128,7 +128,7 @@ class TestFormatCommunities:
 
     def test_format_entities_section(self) -> None:
         pool = _make_pool()
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         entities = [
             {"canonical_name": "华为", "type": "组织", "description": "Tech"},
         ]
@@ -137,7 +137,7 @@ class TestFormatCommunities:
 
     def test_format_cross_community_section(self) -> None:
         pool = _make_pool()
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         connections = [
             {
                 "source_community": "Tech",
@@ -154,7 +154,7 @@ class TestFormatCommunities:
 
     def test_format_cross_community_asymmetric(self) -> None:
         pool = _make_pool()
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         connections = [
             {
                 "source_community": "Gov",
@@ -175,21 +175,21 @@ class TestHasAnyCommunities:
     async def test_has_communities(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(return_value=[{"count": 5}])
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         assert await builder._has_any_communities() is True
 
     @pytest.mark.asyncio
     async def test_no_communities(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(return_value=[{"count": 0}])
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         assert await builder._has_any_communities() is False
 
     @pytest.mark.asyncio
     async def test_error_returns_false(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(return_value=None)
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         assert await builder._has_any_communities() is False
 
 
@@ -199,7 +199,7 @@ class TestEntityArticleFallback:
     @pytest.mark.asyncio
     async def test_empty_query_tokens(self) -> None:
         pool = _make_pool()
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         result = await builder._find_entity_article_fallback("")
         assert result == []
 
@@ -217,7 +217,7 @@ class TestEntityArticleFallback:
                 },
             ]
         )
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         result = await builder._find_entity_article_fallback("华为")
         assert len(result) == 1
         assert result[0]["id"].startswith("fallback:")
@@ -226,7 +226,7 @@ class TestEntityArticleFallback:
     async def test_fallback_no_results(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(return_value=[])
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         result = await builder._find_entity_article_fallback("nonexistent")
         assert result == []
 
@@ -234,7 +234,7 @@ class TestEntityArticleFallback:
     async def test_fallback_handles_error(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(side_effect=Exception("DB error"))
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         result = await builder._find_entity_article_fallback("query")
         assert result == []
 
@@ -245,7 +245,7 @@ class TestVectorSearchCommunities:
     @pytest.mark.asyncio
     async def test_vector_search_no_llm_client(self) -> None:
         pool = _make_pool()
-        builder = GlobalContextBuilder(neo4j_pool=pool, llm_client=None)
+        builder = GlobalContextBuilder(graph_pool=pool, llm_client=None)
         result = await builder._vector_search_communities("test", 0)
         assert result == []
 
@@ -253,7 +253,7 @@ class TestVectorSearchCommunities:
     async def test_vector_search_with_results(self) -> None:
         pool = _make_pool()
         mock_llm = MagicMock()
-        mock_llm.embed = AsyncMock(return_value=[[0.1] * 128])
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 128])
 
         pool.execute_query = AsyncMock(
             return_value=[
@@ -270,7 +270,7 @@ class TestVectorSearchCommunities:
             ]
         )
 
-        builder = GlobalContextBuilder(neo4j_pool=pool, llm_client=mock_llm)
+        builder = GlobalContextBuilder(graph_pool=pool, llm_client=mock_llm)
         result = await builder._vector_search_communities("test query", 0)
 
         assert len(result) == 1
@@ -281,9 +281,9 @@ class TestVectorSearchCommunities:
     async def test_vector_search_no_embeddings(self) -> None:
         pool = _make_pool()
         mock_llm = MagicMock()
-        mock_llm.embed = AsyncMock(return_value=[[]])
+        mock_llm.embed_default = AsyncMock(return_value=[[]])
 
-        builder = GlobalContextBuilder(neo4j_pool=pool, llm_client=mock_llm)
+        builder = GlobalContextBuilder(graph_pool=pool, llm_client=mock_llm)
         result = await builder._vector_search_communities("test", 0)
         assert result == []
 
@@ -291,9 +291,9 @@ class TestVectorSearchCommunities:
     async def test_vector_search_handles_error(self) -> None:
         pool = _make_pool()
         mock_llm = MagicMock()
-        mock_llm.embed = AsyncMock(side_effect=Exception("Embedding failed"))
+        mock_llm.embed_default = AsyncMock(side_effect=Exception("Embedding failed"))
 
-        builder = GlobalContextBuilder(neo4j_pool=pool, llm_client=mock_llm)
+        builder = GlobalContextBuilder(graph_pool=pool, llm_client=mock_llm)
         result = await builder._vector_search_communities("test", 0)
         assert result == []
 
@@ -316,7 +316,7 @@ class TestTextSearchCommunities:
             ]
         )
 
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         result = await builder._text_search_communities("tech", 0)
 
         assert len(result) == 1
@@ -339,7 +339,7 @@ class TestTextSearchCommunities:
             ]
         )
 
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         result = await builder._text_search_communities("nonexistent", 0)
 
         assert len(result) == 1
@@ -350,7 +350,7 @@ class TestTextSearchCommunities:
         pool = _make_pool()
         pool.execute_query = AsyncMock(side_effect=Exception("DB error"))
 
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         result = await builder._text_search_communities("test", 0)
 
         assert result == []
@@ -374,7 +374,7 @@ class TestGetKeyEntities:
             ]
         )
 
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         result = await builder._get_key_entities([{"id": "c1"}])
 
         assert len(result) == 1
@@ -383,14 +383,14 @@ class TestGetKeyEntities:
     @pytest.mark.asyncio
     async def test_get_key_entities_empty_communities(self) -> None:
         pool = _make_pool()
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         result = await builder._get_key_entities([])
         assert result == []
 
     @pytest.mark.asyncio
     async def test_get_key_entities_no_ids(self) -> None:
         pool = _make_pool()
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         result = await builder._get_key_entities([{"id": None}])
         assert result == []
 
@@ -398,7 +398,7 @@ class TestGetKeyEntities:
     async def test_get_key_entities_handles_error(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(side_effect=Exception("DB error"))
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         result = await builder._get_key_entities([{"id": "c1"}])
         assert result == []
 
@@ -421,7 +421,7 @@ class TestGetCrossCommunityRelationships:
             ]
         )
 
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         result = await builder._get_cross_community_relationships([{"id": "c1"}, {"id": "c2"}])
 
         assert len(result) == 2  # typed + generic results combined
@@ -429,7 +429,7 @@ class TestGetCrossCommunityRelationships:
     @pytest.mark.asyncio
     async def test_cross_community_single_community(self) -> None:
         pool = _make_pool()
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         result = await builder._get_cross_community_relationships([{"id": "c1"}])
         assert result == []
 
@@ -437,7 +437,7 @@ class TestGetCrossCommunityRelationships:
     async def test_cross_community_handles_error(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(side_effect=Exception("DB error"))
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         result = await builder._get_cross_community_relationships([{"id": "c1"}, {"id": "c2"}])
         assert result == []
 
@@ -449,7 +449,7 @@ class TestBuildWithFullFlow:
     async def test_build_with_vector_search_results(self) -> None:
         pool = _make_pool()
         mock_llm = MagicMock()
-        mock_llm.embed = AsyncMock(return_value=[[0.1] * 128])
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 128])
 
         call_count = 0
 
@@ -483,7 +483,7 @@ class TestBuildWithFullFlow:
             return []
 
         pool.execute_query = mock_execute
-        builder = GlobalContextBuilder(neo4j_pool=pool, llm_client=mock_llm)
+        builder = GlobalContextBuilder(graph_pool=pool, llm_client=mock_llm)
         ctx = await builder.build("tech query")
 
         assert ctx.metadata["total_communities"] == 1
@@ -523,7 +523,7 @@ class TestBuildWithFullFlow:
             return []
 
         pool.execute_query = mock_execute
-        builder = GlobalContextBuilder(neo4j_pool=pool, fallback_enabled=True)
+        builder = GlobalContextBuilder(graph_pool=pool, fallback_enabled=True)
         ctx = await builder.build("华为")
 
         assert ctx.metadata.get("fallback_source") == "entity_article"
@@ -574,7 +574,7 @@ class TestBuildWithFullFlow:
             return []
 
         pool.execute_query = mock_execute
-        builder = GlobalContextBuilder(neo4j_pool=pool, fallback_enabled=False)
+        builder = GlobalContextBuilder(graph_pool=pool, fallback_enabled=False)
         ctx = await builder.build("tech finance")
 
         assert ctx.metadata["total_communities"] == 1
@@ -590,7 +590,7 @@ class TestBuildMapReduceContext:
             return_value=[{"canonical_name": "E1", "type": "ORG", "description": "Desc"}]
         )
 
-        builder = GlobalContextBuilder(neo4j_pool=pool, fallback_enabled=False)
+        builder = GlobalContextBuilder(graph_pool=pool, fallback_enabled=False)
 
         with patch.object(
             builder,
@@ -618,7 +618,7 @@ class TestBuildMapReduceContext:
     async def test_map_reduce_no_communities(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(return_value=[])
-        builder = GlobalContextBuilder(neo4j_pool=pool, fallback_enabled=False)
+        builder = GlobalContextBuilder(graph_pool=pool, fallback_enabled=False)
 
         with patch.object(
             builder,
@@ -637,7 +637,7 @@ class TestGetCommunityEntities:
     @pytest.mark.asyncio
     async def test_get_community_entities_empty_id(self) -> None:
         pool = _make_pool()
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         result = await builder._get_community_entities("")
         assert result == []
 
@@ -650,7 +650,7 @@ class TestGetCommunityEntities:
             ]
         )
 
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         result = await builder._get_community_entities("c1")
 
         assert len(result) == 1
@@ -659,7 +659,7 @@ class TestGetCommunityEntities:
     async def test_get_community_entities_handles_error(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(side_effect=Exception("DB error"))
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         result = await builder._get_community_entities("c1")
         assert result == []
 
@@ -671,14 +671,14 @@ class TestHasAnyCommunitiesExtended:
     async def test_has_communities_with_level(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(return_value=[{"count": 3}])
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         assert await builder._has_any_communities(level=0) is True
 
     @pytest.mark.asyncio
     async def test_has_communities_malformed_result(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(return_value=[{"wrong_key": 5}])
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         # get("count", 0) returns 0 -> False
         assert await builder._has_any_communities() is False
 
@@ -686,5 +686,5 @@ class TestHasAnyCommunitiesExtended:
     async def test_has_communities_empty_result(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(return_value=[])
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         assert await builder._has_any_communities() is False

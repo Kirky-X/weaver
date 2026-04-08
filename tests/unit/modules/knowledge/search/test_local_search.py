@@ -29,7 +29,7 @@ class TestLocalSearchEngineBasic:
     async def test_local_search_initializes(self, mock_neo4j_pool, mock_llm):
         """Test that local search engine initializes correctly."""
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -40,7 +40,7 @@ class TestLocalSearchEngineBasic:
     async def test_local_search_with_custom_params(self, mock_neo4j_pool, mock_llm):
         """Test local search engine with custom parameters."""
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
             default_max_tokens=10000,
             max_context_tokens=8000,
@@ -64,7 +64,7 @@ class TestLocalSearchEngineBasic:
         mock_llm.chat = AsyncMock(return_value=mock_response)
 
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -94,7 +94,7 @@ class TestLocalSearchEngineEdgeCases:
         mock_llm.chat = AsyncMock(return_value=mock_response)
 
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -108,7 +108,7 @@ class TestLocalSearchEngineEdgeCases:
     async def test_local_search_with_entity_names(self, mock_neo4j_pool, mock_llm):
         """Test LocalSearchEngine initializes with correct params."""
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -120,7 +120,7 @@ class TestLocalSearchEngineEdgeCases:
     async def test_local_search_respects_token_limit(self, mock_neo4j_pool, mock_llm):
         """Test LocalSearchEngine has correct token limits."""
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
             max_context_tokens=6000,
         )
@@ -142,7 +142,7 @@ class TestLocalSearchEngineErrorHandling:
         mock_llm.chat = AsyncMock(side_effect=Exception("LLM unavailable"))
 
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -157,7 +157,7 @@ class TestLocalSearchEngineErrorHandling:
     async def test_local_search_handles_context_error(self, mock_neo4j_pool, mock_llm):
         """Test local search handles context building errors."""
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 

@@ -132,7 +132,7 @@ class TestDRIFTSearchEngineInit:
     def test_init_with_required_params(self, mock_neo4j_pool, mock_llm):
         """Test initialization with required params."""
         engine = DRIFTSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -144,7 +144,7 @@ class TestDRIFTSearchEngineInit:
         """Test initialization with custom config."""
         config = DriftConfig(primer_k=10, max_follow_ups=5)
         engine = DRIFTSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
             config=config,
         )
@@ -156,7 +156,7 @@ class TestDRIFTSearchEngineInit:
         """Test initialization with custom local engine."""
         mock_local = MagicMock()
         engine = DRIFTSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
             local_engine=mock_local,
         )
@@ -170,7 +170,7 @@ class TestDRIFTSearchEngineExtraction:
     @pytest.fixture
     def engine(self, mock_neo4j_pool, mock_llm):
         return DRIFTSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -264,7 +264,7 @@ class TestDRIFTSearchEngineSearch:
     @pytest.fixture
     def engine(self, mock_neo4j_pool, mock_llm):
         engine = DRIFTSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
         return engine
@@ -327,7 +327,7 @@ class TestDRIFTSearchEnginePrimer:
     @pytest.fixture
     def engine(self, mock_neo4j_pool, mock_llm):
         engine = DRIFTSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
         return engine
@@ -377,7 +377,7 @@ class TestDRIFTSearchEngineFollowUp:
     @pytest.fixture
     def engine(self, mock_neo4j_pool, mock_llm):
         engine = DRIFTSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
         return engine
@@ -441,7 +441,7 @@ class TestDRIFTSearchEngineAggregate:
     @pytest.fixture
     def engine(self, mock_neo4j_pool, mock_llm):
         engine = DRIFTSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
         return engine

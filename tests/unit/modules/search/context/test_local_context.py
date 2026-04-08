@@ -20,7 +20,7 @@ class TestLocalContextBuilderInit:
 
     def test_default_params(self) -> None:
         pool = _make_pool()
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         assert builder._max_entities == 20
         assert builder._max_relationships == 50
         assert builder._max_hops == 2
@@ -28,7 +28,7 @@ class TestLocalContextBuilderInit:
     def test_custom_params(self) -> None:
         pool = _make_pool()
         builder = LocalContextBuilder(
-            neo4j_pool=pool,
+            graph_pool=pool,
             max_entities=30,
             max_relationships=100,
             max_hops=3,
@@ -45,7 +45,7 @@ class TestLocalContextBuilderBuild:
         """Returns no entities found when query matches nothing."""
         pool = _make_pool()
         pool.execute_query = AsyncMock(return_value=[])
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         ctx = await builder.build("unknown entity")
 
         assert len(ctx.sections) == 1
@@ -87,7 +87,7 @@ class TestLocalContextBuilderBuild:
             return []
 
         pool.execute_query = mock_execute
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         ctx = await builder.build("华为 tech", entity_names=["华为"])
 
         assert len(ctx.sections) >= 2
@@ -128,7 +128,7 @@ class TestLocalContextBuilderBuild:
             return []
 
         pool.execute_query = mock_execute
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         ctx = await builder.build("华为", entity_names=["华为"])
 
         assert len(ctx.sections) >= 2
@@ -144,7 +144,7 @@ class TestLocalContextBuilderBuild:
         """Test build handles errors gracefully."""
         pool = _make_pool()
         pool.execute_query = AsyncMock(side_effect=Exception("DB error"))
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         ctx = await builder.build("error query")
 
         assert len(ctx.sections) >= 1
@@ -157,7 +157,7 @@ class TestFindQueryEntities:
     async def test_finds_entities(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(return_value=[{"name": "华为"}])
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         names = await builder._find_query_entities("华为")
         assert names == ["华为"]
 
@@ -165,7 +165,7 @@ class TestFindQueryEntities:
     async def test_error_returns_empty(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(side_effect=Exception("db error"))
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         names = await builder._find_query_entities("华为")
         assert names == []
 
@@ -181,14 +181,14 @@ class TestGetEntitiesWithDetails:
                 {"canonical_name": "华为", "type": "ORG", "description": "Tech"},
             ]
         )
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         result = await builder._get_entities_with_details(["华为"])
         assert len(result) == 1
 
     @pytest.mark.asyncio
     async def test_get_entities_with_details_empty(self) -> None:
         pool = _make_pool()
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         result = await builder._get_entities_with_details([])
         assert result == []
 
@@ -196,7 +196,7 @@ class TestGetEntitiesWithDetails:
     async def test_get_entities_with_details_error(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(side_effect=Exception("DB error"))
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         result = await builder._get_entities_with_details(["华为"])
         assert result == []
 
@@ -217,14 +217,14 @@ class TestGetRelationships:
                 },
             ]
         )
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         result = await builder._get_relationships(["华为", "腾讯"])
         assert len(result) == 1
 
     @pytest.mark.asyncio
     async def test_get_relationships_empty(self) -> None:
         pool = _make_pool()
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         result = await builder._get_relationships([])
         assert result == []
 
@@ -232,7 +232,7 @@ class TestGetRelationships:
     async def test_get_relationships_error(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(side_effect=Exception("DB error"))
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         result = await builder._get_relationships(["华为", "腾讯"])
         assert result == []
 
@@ -248,14 +248,14 @@ class TestGetRelatedArticles:
                 {"id": "a1", "title": "News", "summary": "Summary"},
             ]
         )
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         result = await builder._get_related_articles(["华为"])
         assert len(result) == 1
 
     @pytest.mark.asyncio
     async def test_get_related_articles_empty(self) -> None:
         pool = _make_pool()
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         result = await builder._get_related_articles([])
         assert result == []
 
@@ -263,7 +263,7 @@ class TestGetRelatedArticles:
     async def test_get_related_articles_error(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(side_effect=Exception("DB error"))
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         result = await builder._get_related_articles(["华为"])
         assert result == []
 
@@ -273,7 +273,7 @@ class TestFormatEntitiesSection:
 
     def test_format_entities(self) -> None:
         pool = _make_pool()
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         entities = [
             {"canonical_name": "华为", "type": "ORG", "description": "Tech company"},
         ]
@@ -283,7 +283,7 @@ class TestFormatEntitiesSection:
 
     def test_format_entities_empty(self) -> None:
         pool = _make_pool()
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         result = builder._format_entities_section([])
         assert result == ""
 
@@ -293,7 +293,7 @@ class TestFormatRelationshipSection:
 
     def test_format_relationships(self) -> None:
         pool = _make_pool()
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         rels = [
             {
                 "source_name": "A",
@@ -308,7 +308,7 @@ class TestFormatRelationshipSection:
 
     def test_format_relationships_empty(self) -> None:
         pool = _make_pool()
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         result = builder._format_relationships_section([])
         assert result == ""
 
@@ -318,7 +318,7 @@ class TestFormatArticlesSection:
 
     def test_format_articles_with_content(self) -> None:
         pool = _make_pool()
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         articles = [
             {"title": "Article 1", "summary": "A summary of article 1"},
             {"title": "Article 2", "summary": ""},
@@ -329,6 +329,6 @@ class TestFormatArticlesSection:
 
     def test_format_articles_empty(self) -> None:
         pool = _make_pool()
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         result = builder._format_articles_section([])
         assert result == ""

@@ -37,7 +37,7 @@ def mock_llm():
 def local_context_builder(mock_neo4j_pool):
     """Create LocalContextBuilder with mock pool."""
     return LocalContextBuilder(
-        neo4j_pool=mock_neo4j_pool,
+        graph_pool=mock_neo4j_pool,
         default_max_tokens=8000,
     )
 
@@ -46,7 +46,7 @@ def local_context_builder(mock_neo4j_pool):
 def global_context_builder(mock_neo4j_pool):
     """Create GlobalContextBuilder with mock pool."""
     return GlobalContextBuilder(
-        neo4j_pool=mock_neo4j_pool,
+        graph_pool=mock_neo4j_pool,
         default_max_tokens=12000,
     )
 
@@ -63,7 +63,7 @@ class TestLocalSearchWithRelationTypes:
     async def test_local_search_with_relation_types(self, mock_neo4j_pool, mock_llm):
         """Test that search passes relation_types to context builder."""
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -91,7 +91,7 @@ class TestLocalSearchWithRelationTypes:
     async def test_local_search_without_relation_types(self, mock_neo4j_pool, mock_llm):
         """Test that search works without relation_types (backward compatible)."""
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 

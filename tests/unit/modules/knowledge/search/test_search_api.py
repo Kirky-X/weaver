@@ -98,9 +98,9 @@ def _make_mock_llm(
 ) -> MagicMock:
     client = MagicMock()
     if exc is not None:
-        client.embed = AsyncMock(side_effect=exc)
+        client.embed_default = AsyncMock(side_effect=exc)
     else:
-        client.embed = AsyncMock(return_value=embeddings or [[0.1] * 1024])
+        client.embed_default = AsyncMock(return_value=embeddings or [[0.1] * 1024])
     return client
 
 

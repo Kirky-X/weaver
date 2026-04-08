@@ -21,7 +21,7 @@ class TestLocalContextBuilderInit:
 
     def test_default_params(self) -> None:
         pool = _make_pool()
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         assert builder._max_entities == 20
         assert builder._max_relationships == 50
         assert builder._max_hops == 2
@@ -29,7 +29,7 @@ class TestLocalContextBuilderInit:
     def test_custom_params(self) -> None:
         pool = _make_pool()
         builder = LocalContextBuilder(
-            neo4j_pool=pool,
+            graph_pool=pool,
             max_entities=30,
             max_relationships=100,
             max_hops=3,
@@ -46,7 +46,7 @@ class TestLocalContextBuilderBuild:
         """Returns no entities found when query matches nothing."""
         pool = _make_pool()
         pool.execute_query = AsyncMock(return_value=[])
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         ctx = await builder.build("unknown entity")
 
         assert len(ctx.sections) == 1
@@ -93,7 +93,7 @@ class TestLocalContextBuilderBuild:
             return []
 
         pool.execute_query = mock_execute
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         ctx = await builder.build("华为", entity_names=["华为"])
 
         assert ctx.metadata.get("total_entities", 0) > 0
@@ -118,7 +118,7 @@ class TestLocalContextBuilderBuild:
             return []
 
         pool.execute_query = mock_execute
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         ctx = await builder.build("华为", entity_names=["华为"], relation_types=["PARTNERS_WITH"])
 
         assert ctx.metadata.get("filtered_relation_types") == ["PARTNERS_WITH"]
@@ -129,7 +129,7 @@ class TestFormatMethods:
 
     def test_format_entities_section(self) -> None:
         pool = _make_pool()
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         entities = [
             {"canonical_name": "华为", "type": "组织机构", "description": "科技公司"},
         ]
@@ -138,7 +138,7 @@ class TestFormatMethods:
 
     def test_format_entities_no_description(self) -> None:
         pool = _make_pool()
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         entities = [
             {"canonical_name": "华为", "type": "组织"},
         ]
@@ -147,7 +147,7 @@ class TestFormatMethods:
 
     def test_format_relationships_section(self) -> None:
         pool = _make_pool()
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         rels = [
             {"source_name": "A", "target_name": "B", "relation_type": "合作", "is_symmetric": True},
         ]
@@ -157,7 +157,7 @@ class TestFormatMethods:
 
     def test_format_articles_section(self) -> None:
         pool = _make_pool()
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         articles = [
             {"title": "Test Article", "summary": "Summary text"},
         ]
@@ -199,14 +199,14 @@ class TestBuildRelMatchClause:
 
     def test_default_clause(self) -> None:
         pool = _make_pool()
-        builder = LocalContextBuilder(neo4j_pool=pool, max_hops=2)
+        builder = LocalContextBuilder(graph_pool=pool, max_hops=2)
         clause = builder._build_rel_match_clause()
         assert "RELATED_TO" in clause
         assert "1..2" in clause
 
     def test_typed_clause(self) -> None:
         pool = _make_pool()
-        builder = LocalContextBuilder(neo4j_pool=pool, max_hops=2)
+        builder = LocalContextBuilder(graph_pool=pool, max_hops=2)
         clause = builder._build_rel_match_clause(
             relation_types=["PARTNERS_WITH", "COLLABORATES_WITH"]
         )
@@ -221,7 +221,7 @@ class TestFindQueryEntities:
     async def test_finds_entities(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(return_value=[{"name": "华为"}])
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         names = await builder._find_query_entities("华为")
         assert names == ["华为"]
 
@@ -229,7 +229,7 @@ class TestFindQueryEntities:
     async def test_error_returns_empty(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(side_effect=Exception("db error"))
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         names = await builder._find_query_entities("华为")
         assert names == []
 
@@ -250,7 +250,7 @@ class TestLocalContextBuilderSecurity:
     def test_build_rel_match_clause_accepts_valid_types(self, relation_type) -> None:
         """Valid relation types should be accepted."""
         pool = _make_pool()
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         clause = builder._build_rel_match_clause(relation_types=[relation_type])
         assert relation_type in clause
 
@@ -268,7 +268,7 @@ class TestLocalContextBuilderSecurity:
     def test_build_rel_match_clause_rejects_malicious_types(self, relation_type) -> None:
         """Malicious relation types should be rejected."""
         pool = _make_pool()
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
         with pytest.raises((InvalidIdentifierError, ValueError)):
             builder._build_rel_match_clause(relation_types=[relation_type])
 
@@ -277,7 +277,7 @@ class TestLocalContextBuilderSecurity:
         """_get_relationships should validate relation types before querying."""
         pool = _make_pool()
         pool.execute_query = AsyncMock(return_value=[])
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
 
         # Valid types should work
         result = await builder._get_relationships(
@@ -291,7 +291,7 @@ class TestLocalContextBuilderSecurity:
         """Cypher injection attempts in relation_types should be blocked."""
         pool = _make_pool()
         pool.execute_query = AsyncMock(return_value=[])
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
 
         malicious_type = "KNOWS']; MATCH (n) DETACH DELETE n //"
         with pytest.raises((InvalidIdentifierError, ValueError)):
@@ -312,7 +312,7 @@ class TestLocalContextBuilderSecurity:
                 {"canonical_name": "华为", "type": "组织", "description": "", "aliases": []}
             ]
         )
-        builder = LocalContextBuilder(neo4j_pool=pool)
+        builder = LocalContextBuilder(graph_pool=pool)
 
         with pytest.raises((InvalidIdentifierError, ValueError)):
             await builder.build(

@@ -49,7 +49,7 @@ class TestGlobalSearchEngineBasic:
     async def test_global_search_initializes(self, mock_neo4j_pool, mock_llm):
         """Test that global search engine initializes correctly."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -60,7 +60,7 @@ class TestGlobalSearchEngineBasic:
     async def test_global_search_with_custom_params(self, mock_neo4j_pool, mock_llm):
         """Test global search engine with custom parameters."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
             default_max_tokens=15000,
             max_communities=20,
@@ -85,7 +85,7 @@ class TestGlobalSearchEngineBasic:
         mock_llm.chat = AsyncMock(return_value=mock_response)
 
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -116,7 +116,7 @@ class TestGlobalSearchEngineEdgeCases:
         mock_llm.chat = AsyncMock(return_value=mock_response)
 
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -130,7 +130,7 @@ class TestGlobalSearchEngineEdgeCases:
     async def test_global_search_with_max_tokens_limit(self, mock_neo4j_pool, mock_llm):
         """Test global search initializes with correct token limit."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
             default_max_tokens=8000,
         )
@@ -151,7 +151,7 @@ class TestGlobalSearchEngineErrorHandling:
         mock_llm.chat = AsyncMock(side_effect=Exception("LLM unavailable"))
 
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -165,7 +165,7 @@ class TestGlobalSearchEngineErrorHandling:
     async def test_global_search_handles_context_error(self, mock_neo4j_pool, mock_llm):
         """Test global search handles context building errors."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -187,7 +187,7 @@ class TestGlobalSearchEngineSearchWithoutLLM:
     async def test_search_without_llm_returns_context(self, mock_neo4j_pool, mock_llm):
         """Test search with use_llm=False returns context info."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -217,7 +217,7 @@ class TestGlobalSearchEngineSearchWithoutLLM:
     async def test_search_without_llm_with_communities(self, mock_neo4j_pool, mock_llm):
         """Test search with use_llm=False when communities exist."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -252,7 +252,7 @@ class TestGlobalSearchEngineNoCommunities:
     async def test_search_no_communities_at_all(self, mock_neo4j_pool, mock_llm):
         """Test search when no communities exist in the graph."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -269,7 +269,7 @@ class TestGlobalSearchEngineNoCommunities:
     async def test_search_no_relevant_communities_but_some_exist(self, mock_neo4j_pool, mock_llm):
         """Test search when no relevant communities but some exist."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -288,7 +288,7 @@ class TestGlobalSearchEngineMapReduce:
     async def test_search_with_llm_and_communities(self, mock_neo4j_pool, mock_llm):
         """Test full Map-Reduce search with LLM."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -331,7 +331,7 @@ class TestGlobalSearchEngineMapReduce:
     async def test_get_community_contexts(self, mock_neo4j_pool, mock_llm):
         """Test _get_community_contexts method."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -368,7 +368,7 @@ class TestGlobalSearchEnginePromptBuilding:
     def test_build_map_prompt_with_full_content(self, mock_neo4j_pool, mock_llm):
         """Test _build_map_prompt with full_content available."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -392,7 +392,7 @@ class TestGlobalSearchEnginePromptBuilding:
     def test_build_map_prompt_without_full_content(self, mock_neo4j_pool, mock_llm):
         """Test _build_map_prompt falls back to summary when full_content is None."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -417,7 +417,7 @@ class TestGlobalSearchEnginePromptBuilding:
     def test_build_reduce_prompt(self, mock_neo4j_pool, mock_llm):
         """Test _build_reduce_prompt with multiple answers."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -437,7 +437,7 @@ class TestGlobalSearchEnginePromptBuilding:
     def test_build_reduce_prompt_empty_weights(self, mock_neo4j_pool, mock_llm):
         """Test _build_reduce_prompt with empty weights."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -452,7 +452,7 @@ class TestGlobalSearchEngineConfidence:
     def test_estimate_confidence_empty_answers(self, mock_neo4j_pool, mock_llm):
         """Test _estimate_confidence with empty answers."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -463,7 +463,7 @@ class TestGlobalSearchEngineConfidence:
     def test_estimate_confidence_with_answers(self, mock_neo4j_pool, mock_llm):
         """Test _estimate_confidence with multiple answers."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -481,7 +481,7 @@ class TestGlobalSearchEngineConfidence:
     def test_estimate_confidence_short_answers(self, mock_neo4j_pool, mock_llm):
         """Test _estimate_confidence with short answers."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -494,7 +494,7 @@ class TestGlobalSearchEngineConfidence:
     def test_estimate_confidence_with_empty_string(self, mock_neo4j_pool, mock_llm):
         """Test _estimate_confidence with some empty strings."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -514,7 +514,7 @@ class TestGlobalSearchEngineSimple:
     async def test_search_simple_without_llm(self, mock_neo4j_pool, mock_llm):
         """Test search_simple with use_llm=False."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -537,7 +537,7 @@ class TestGlobalSearchEngineSimple:
     async def test_search_simple_with_llm(self, mock_neo4j_pool, mock_llm):
         """Test search_simple with LLM generation."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -561,7 +561,7 @@ class TestGlobalSearchEngineSimple:
     async def test_search_simple_handles_llm_error(self, mock_neo4j_pool, mock_llm):
         """Test search_simple handles LLM errors gracefully."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -588,7 +588,7 @@ class TestGlobalSearchEngineSimpleConfidence:
     def test_estimate_simple_confidence_empty_sections(self, mock_neo4j_pool, mock_llm):
         """Test confidence with empty sections."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -607,7 +607,7 @@ class TestGlobalSearchEngineSimpleConfidence:
     def test_estimate_simple_confidence_with_communities(self, mock_neo4j_pool, mock_llm):
         """Test confidence with multiple communities."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -627,7 +627,7 @@ class TestGlobalSearchEngineSimpleConfidence:
     def test_estimate_simple_confidence_one_community(self, mock_neo4j_pool, mock_llm):
         """Test confidence with one community."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -651,7 +651,7 @@ class TestGlobalSearchEngineBuildSimplePrompt:
     def test_build_simple_prompt(self, mock_neo4j_pool, mock_llm):
         """Test _build_simple_prompt builds correct prompt."""
         engine = GlobalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 

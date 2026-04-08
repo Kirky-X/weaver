@@ -78,13 +78,13 @@ class LocalSearchEngine:
         if context_builder is not None:
             self._context_builder = context_builder
         elif graph_pool is not None:
-            self._pool = neo4j_pool
+            self._pool = graph_pool
             self._context_builder = LocalContextBuilder(
-                neo4j_pool=neo4j_pool,
+                graph_pool=graph_pool,
                 default_max_tokens=default_max_tokens,
             )
         else:
-            raise ValueError("Either neo4j_pool or context_builder must be provided")
+            raise ValueError("Either graph_pool or context_builder must be provided")
 
     async def search(
         self,

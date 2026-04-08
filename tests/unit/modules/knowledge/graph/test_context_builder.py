@@ -24,7 +24,7 @@ class TestGlobalContextBuilder:
         from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         builder = GlobalContextBuilder(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             default_max_tokens=12000,
             max_communities=10,
         )
@@ -36,7 +36,7 @@ class TestGlobalContextBuilder:
         from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         builder = GlobalContextBuilder(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             default_max_tokens=15000,
             max_communities=20,
         )
@@ -50,7 +50,7 @@ class TestGlobalContextBuilder:
 
         mock_neo4j_pool.execute = AsyncMock(return_value=[])
 
-        builder = GlobalContextBuilder(neo4j_pool=mock_neo4j_pool)
+        builder = GlobalContextBuilder(graph_pool=mock_neo4j_pool)
 
         context = await builder.build(query="Test", max_tokens=5000)
 
@@ -65,7 +65,7 @@ class TestLocalContextBuilder:
         from modules.knowledge.search.context.local_context import LocalContextBuilder
 
         builder = LocalContextBuilder(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             default_max_tokens=8000,
         )
 
@@ -76,7 +76,7 @@ class TestLocalContextBuilder:
         from modules.knowledge.search.context.local_context import LocalContextBuilder
 
         builder = LocalContextBuilder(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             default_max_tokens=10000,
         )
 
@@ -89,7 +89,7 @@ class TestLocalContextBuilder:
 
         mock_neo4j_pool.execute = AsyncMock(return_value=[])
 
-        builder = LocalContextBuilder(neo4j_pool=mock_neo4j_pool)
+        builder = LocalContextBuilder(graph_pool=mock_neo4j_pool)
 
         context = await builder.build(query="Test", max_tokens=5000)
 
@@ -102,7 +102,7 @@ class TestLocalContextBuilder:
 
         mock_neo4j_pool.execute = AsyncMock(return_value=[])
 
-        builder = LocalContextBuilder(neo4j_pool=mock_neo4j_pool)
+        builder = LocalContextBuilder(graph_pool=mock_neo4j_pool)
 
         context = await builder.build(
             query="Test",
@@ -123,7 +123,7 @@ class TestContextBuilderEdgeCases:
 
         mock_neo4j_pool.execute = AsyncMock(return_value=[])
 
-        builder = GlobalContextBuilder(neo4j_pool=mock_neo4j_pool)
+        builder = GlobalContextBuilder(graph_pool=mock_neo4j_pool)
 
         context = await builder.build(query="Test", max_tokens=5000)
 
@@ -137,7 +137,7 @@ class TestContextBuilderEdgeCases:
         mock_neo4j_pool.execute = AsyncMock(return_value=[])
 
         builder = LocalContextBuilder(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             default_max_tokens=8000,
         )
 
@@ -159,7 +159,7 @@ class TestContextBuilderErrorHandling:
 
         mock_neo4j_pool.execute = AsyncMock(side_effect=Exception("Neo4j connection failed"))
 
-        builder = GlobalContextBuilder(neo4j_pool=mock_neo4j_pool)
+        builder = GlobalContextBuilder(graph_pool=mock_neo4j_pool)
 
         # Should handle error gracefully
         try:

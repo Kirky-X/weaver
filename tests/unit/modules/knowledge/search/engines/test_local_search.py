@@ -29,7 +29,7 @@ class TestLocalSearchEngineBasic:
     async def test_local_search_initializes(self, mock_neo4j_pool, mock_llm):
         """Test that local search engine initializes correctly."""
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -40,7 +40,7 @@ class TestLocalSearchEngineBasic:
     async def test_local_search_with_custom_params(self, mock_neo4j_pool, mock_llm):
         """Test local search engine with custom parameters."""
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
             default_max_tokens=10000,
             max_context_tokens=8000,
@@ -63,7 +63,7 @@ class TestLocalSearchEngineBasic:
         mock_llm.call_at = AsyncMock(return_value="Test answer")
 
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -80,7 +80,7 @@ class TestLocalSearchEngineBasic:
         """Test local search engine with hybrid engine reference."""
         mock_hybrid = MagicMock()
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
             hybrid_engine=mock_hybrid,
         )
@@ -100,7 +100,7 @@ class TestLocalSearchEngineSearch:
         mock_context.metadata = {"article_count": 5, "total_entities": 10, "total_relationships": 5}
 
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -123,7 +123,7 @@ class TestLocalSearchEngineSearch:
         mock_llm.call_at = AsyncMock(return_value="Answer")
 
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -147,7 +147,7 @@ class TestLocalSearchEngineSearch:
         mock_llm.call_at = AsyncMock(return_value="Batch answer")
 
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -174,7 +174,7 @@ class TestLocalSearchEngineErrorHandling:
         mock_llm.call_at = AsyncMock(side_effect=Exception("LLM unavailable"))
 
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -190,7 +190,7 @@ class TestLocalSearchEngineErrorHandling:
     async def test_local_search_handles_context_error(self, mock_neo4j_pool, mock_llm):
         """Test local search handles context building errors."""
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -211,7 +211,7 @@ class TestLocalSearchEngineHelperMethods:
         mock_context.to_prompt = MagicMock(return_value="Mock context content")
 
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -231,7 +231,7 @@ class TestLocalSearchEngineHelperMethods:
         mock_context.sections = [mock_section]
 
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -246,7 +246,7 @@ class TestLocalSearchEngineHelperMethods:
         mock_context.sections = []
 
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -260,7 +260,7 @@ class TestLocalSearchEngineHelperMethods:
         mock_context.sections = []
 
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -276,7 +276,7 @@ class TestLocalSearchEngineHelperMethods:
         mock_context.metadata = {"total_entities": 15, "total_relationships": 30}
 
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -293,7 +293,7 @@ class TestLocalSearchEngineHelperMethods:
         mock_context.metadata = {"total_entities": 5, "total_relationships": 10}
 
         engine = LocalSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 

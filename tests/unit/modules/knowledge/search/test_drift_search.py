@@ -148,7 +148,7 @@ class TestDRIFTSearchEngine:
     def engine(self, mock_neo4j_pool, mock_llm):
         """Create DRIFTSearchEngine instance."""
         return DRIFTSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -156,7 +156,7 @@ class TestDRIFTSearchEngine:
     def engine_with_mocks(self, mock_neo4j_pool, mock_llm, mock_local_engine):
         """Create DRIFTSearchEngine with mocked dependencies."""
         return DRIFTSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
             local_engine=mock_local_engine,
         )
@@ -164,7 +164,7 @@ class TestDRIFTSearchEngine:
     def test_init_default_config(self, mock_neo4j_pool, mock_llm):
         """Test initialization with default config."""
         engine = DRIFTSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
         assert engine._pool is mock_neo4j_pool
@@ -175,7 +175,7 @@ class TestDRIFTSearchEngine:
         """Test initialization with custom config."""
         config = DriftConfig(primer_k=5, max_follow_ups=4)
         engine = DRIFTSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
             config=config,
         )
@@ -256,7 +256,7 @@ class TestDRIFTSearchEngine:
         )
 
         engine = DRIFTSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
             config=config,
             local_engine=mock_local,
@@ -619,7 +619,7 @@ class TestDRIFTSearchEngineSearch:
     def engine(self, mock_neo4j_pool, mock_llm):
         """Create DRIFTSearchEngine instance."""
         return DRIFTSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
         )
 
@@ -627,7 +627,7 @@ class TestDRIFTSearchEngineSearch:
     def engine_with_mocks(self, mock_neo4j_pool, mock_llm, mock_local_engine):
         """Create DRIFTSearchEngine with mocked dependencies."""
         return DRIFTSearchEngine(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm=mock_llm,
             local_engine=mock_local_engine,
         )
@@ -706,7 +706,7 @@ class TestDRIFTSearchEngineSearch:
             mock_local.return_value = mock_local_instance
 
             engine = DRIFTSearchEngine(
-                neo4j_pool=mock_pool,
+                graph_pool=mock_pool,
                 llm=mock_llm,
                 config=config,
             )

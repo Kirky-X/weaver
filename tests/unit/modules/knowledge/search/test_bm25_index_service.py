@@ -39,7 +39,7 @@ def index_service(
 ) -> BM25IndexService:
     """Create BM25IndexService with mocked dependencies."""
     return BM25IndexService(
-        postgres_pool=mock_postgres_pool,
+        relational_pool=mock_postgres_pool,
         bm25_retriever=mock_bm25_retriever,
         rebuild_interval_seconds=300,
     )
@@ -53,11 +53,11 @@ class TestBM25IndexServiceInit:
     ) -> None:
         """Test initialization with default parameters."""
         service = BM25IndexService(
-            postgres_pool=mock_postgres_pool,
+            relational_pool=mock_postgres_pool,
             bm25_retriever=mock_bm25_retriever,
         )
 
-        assert service._postgres == mock_postgres_pool
+        assert service._relational_pool == mock_postgres_pool
         assert service._retriever == mock_bm25_retriever
         assert service._rebuild_interval == 300
         assert service._last_build_time is None
@@ -69,7 +69,7 @@ class TestBM25IndexServiceInit:
     ) -> None:
         """Test initialization with custom parameters."""
         service = BM25IndexService(
-            postgres_pool=mock_postgres_pool,
+            relational_pool=mock_postgres_pool,
             bm25_retriever=mock_bm25_retriever,
             rebuild_interval_seconds=600,
         )

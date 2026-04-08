@@ -35,9 +35,9 @@ class TestSearchWithContext:
         mock_intent_classifier.classify.return_value = MagicMock(intent=MagicMock(value="open"))
 
         service = MemoryIntegrationService(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm_client=mock_llm_client,
-            redis_client=mock_redis,
+            cache=mock_redis,
             embedding_service=MockEmbeddingService(),
             intent_classifier=mock_intent_classifier,
             config=MemoryServiceConfig(),
@@ -68,9 +68,9 @@ class TestSearchWithContext:
         mock_entity_repo.link_entities = AsyncMock(return_value=0)
 
         service = MemoryIntegrationService(
-            neo4j_pool=mock_neo4j_pool,
+            graph_pool=mock_neo4j_pool,
             llm_client=mock_llm_client,
-            redis_client=mock_redis,
+            cache=mock_redis,
             embedding_service=MockEmbeddingService(),
             intent_classifier=mock_intent_classifier,
             config=MemoryServiceConfig(),
