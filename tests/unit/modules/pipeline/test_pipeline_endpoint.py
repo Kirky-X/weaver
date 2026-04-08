@@ -31,9 +31,8 @@ class TestGetTaskStatusWithStats:
             }
         )
 
-        mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.hget = AsyncMock(return_value=redis_data)
+        mock_cache = MagicMock()
+        mock_cache.hget = AsyncMock(return_value=redis_data)
 
         mock_article_repo = MagicMock()
         mock_article_repo.get_task_progress_stats = AsyncMock(
@@ -54,8 +53,8 @@ class TestGetTaskStatusWithStats:
             result = await get_task_status(
                 task_id=task_id,
                 _="test-key",
-                redis=mock_redis,
-                postgres_pool=mock_postgres,
+                cache=mock_cache,
+                relational_pool=mock_postgres,
             )
 
         assert result.data.task_id == task_id
@@ -81,9 +80,8 @@ class TestGetTaskStatusWithStats:
             }
         )
 
-        mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.hget = AsyncMock(return_value=redis_data)
+        mock_cache = MagicMock()
+        mock_cache.hget = AsyncMock(return_value=redis_data)
 
         mock_postgres = MagicMock()
 
@@ -97,8 +95,8 @@ class TestGetTaskStatusWithStats:
             result = await get_task_status(
                 task_id=task_id,
                 _="test-key",
-                redis=mock_redis,
-                postgres_pool=mock_postgres,
+                cache=mock_cache,
+                relational_pool=mock_postgres,
             )
 
         # Should not raise; defaults are used
@@ -112,9 +110,8 @@ class TestGetTaskStatusWithStats:
         """Test that a non-existent task_id returns 404."""
         from api.endpoints.pipeline import get_task_status
 
-        mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.hget = AsyncMock(return_value=None)
+        mock_cache = MagicMock()
+        mock_cache.hget = AsyncMock(return_value=None)
 
         mock_postgres = MagicMock()
 
@@ -123,8 +120,8 @@ class TestGetTaskStatusWithStats:
             await get_task_status(
                 task_id=task_id,
                 _="test-key",
-                redis=mock_redis,
-                postgres_pool=mock_postgres,
+                cache=mock_cache,
+                relational_pool=mock_postgres,
             )
         assert exc_info.value.status_code == 404
 
@@ -133,9 +130,8 @@ class TestGetTaskStatusWithStats:
         """Test behavior with invalid UUID format (string is accepted as-is by the endpoint)."""
         from api.endpoints.pipeline import get_task_status
 
-        mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.hget = AsyncMock(return_value=None)
+        mock_cache = MagicMock()
+        mock_cache.hget = AsyncMock(return_value=None)
 
         mock_postgres = MagicMock()
 
@@ -144,8 +140,8 @@ class TestGetTaskStatusWithStats:
             await get_task_status(
                 task_id="not-a-uuid",
                 _="test-key",
-                redis=mock_redis,
-                postgres_pool=mock_postgres,
+                cache=mock_cache,
+                relational_pool=mock_postgres,
             )
         # Redis returns None for non-existent key → 404
         assert exc_info.value.status_code == 404
@@ -159,10 +155,9 @@ class TestQueueStatsEndpoint:
         """Test queue/stats returns queue depth from Redis."""
         from api.endpoints.pipeline import get_queue_stats
 
-        mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.llen = AsyncMock(return_value=7)
-        mock_redis.client.hgetall = AsyncMock(
+        mock_cache = MagicMock()
+        mock_cache.llen = AsyncMock(return_value=7)
+        mock_cache.hgetall = AsyncMock(
             return_value={
                 "task-1": json.dumps({"status": "completed"}),
                 "task-2": json.dumps({"status": "running"}),
@@ -189,8 +184,8 @@ class TestQueueStatsEndpoint:
 
         result = await get_queue_stats(
             _="test-key",
-            redis=mock_redis,
-            postgres_pool=mock_postgres,
+            cache=mock_cache,
+            relational_pool=mock_postgres,
         )
 
         assert result.data["queue_depth"] == 7
@@ -204,10 +199,9 @@ class TestQueueStatsEndpoint:
         """Test queue/stats skips tasks with malformed JSON data."""
         from api.endpoints.pipeline import get_queue_stats
 
-        mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.llen = AsyncMock(return_value=1)
-        mock_redis.client.hgetall = AsyncMock(
+        mock_cache = MagicMock()
+        mock_cache.llen = AsyncMock(return_value=1)
+        mock_cache.hgetall = AsyncMock(
             return_value={
                 "task-1": json.dumps({"status": "completed"}),
                 "task-bad": "not-valid-json{",
@@ -233,8 +227,8 @@ class TestQueueStatsEndpoint:
 
         result = await get_queue_stats(
             _="test-key",
-            redis=mock_redis,
-            postgres_pool=mock_postgres,
+            cache=mock_cache,
+            relational_pool=mock_postgres,
         )
 
         # total_tasks counts all Redis entries (including malformed ones)
@@ -255,9 +249,8 @@ class TestTriggerPipelineEdgeCases:
 
         task_uuid = uuid.uuid4()
 
-        mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.hset = AsyncMock()
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
 
         mock_scheduler = MagicMock()
         mock_scheduler.trigger_now = AsyncMock()
@@ -268,7 +261,7 @@ class TestTriggerPipelineEdgeCases:
             result = await trigger_pipeline(
                 request=request,
                 _="test-key",
-                redis=mock_redis,
+                cache=mock_cache,
                 scheduler=mock_scheduler,
             )
 
@@ -285,9 +278,8 @@ class TestTriggerPipelineEdgeCases:
 
         task_uuid = uuid.uuid4()
 
-        mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.hset = AsyncMock()
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
 
         mock_scheduler = MagicMock()
         mock_scheduler.trigger_now = AsyncMock()
@@ -298,7 +290,7 @@ class TestTriggerPipelineEdgeCases:
             result = await trigger_pipeline(
                 request=request,
                 _="test-key",
-                redis=mock_redis,
+                cache=mock_cache,
                 scheduler=mock_scheduler,
             )
 
@@ -311,9 +303,8 @@ class TestTriggerPipelineEdgeCases:
 
         task_uuid = uuid.uuid4()
 
-        mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.hset = AsyncMock()
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
 
         mock_scheduler = MagicMock()
         mock_scheduler.trigger_now = AsyncMock()
@@ -324,12 +315,12 @@ class TestTriggerPipelineEdgeCases:
             await trigger_pipeline(
                 request=request,
                 _="test-key",
-                redis=mock_redis,
+                cache=mock_cache,
                 scheduler=mock_scheduler,
             )
 
         # hset should be called at least once (initial status)
-        assert mock_redis.client.hset.call_count >= 1
+        assert mock_cache.hset.call_count >= 1
 
 
 class TestProcessSingleUrlEndpoint:
@@ -342,9 +333,8 @@ class TestProcessSingleUrlEndpoint:
 
         task_uuid = uuid.uuid4()
 
-        mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.hset = AsyncMock()
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
 
         mock_settings = MagicMock()
         mock_settings.pipeline_url_endpoint.whitelist_enabled = False
@@ -362,7 +352,7 @@ class TestProcessSingleUrlEndpoint:
                     result = await process_single_url(
                         request=request,
                         _="test-key",
-                        redis=mock_redis,
+                        cache=mock_cache,
                         settings=mock_settings,
                     )
 
@@ -375,7 +365,7 @@ class TestProcessSingleUrlEndpoint:
         from api.endpoints.pipeline import ProcessUrlRequest, process_single_url
         from core.security import URLValidationError
 
-        mock_redis = MagicMock()
+        mock_cache = MagicMock()
         mock_settings = MagicMock()
 
         request = ProcessUrlRequest(url="http://127.0.0.1/admin")
@@ -391,7 +381,7 @@ class TestProcessSingleUrlEndpoint:
                 await process_single_url(
                     request=request,
                     _="test-key",
-                    redis=mock_redis,
+                    cache=mock_cache,
                     settings=mock_settings,
                 )
 
@@ -404,7 +394,7 @@ class TestProcessSingleUrlEndpoint:
         from api.endpoints.pipeline import ProcessUrlRequest, process_single_url
         from core.security import URLValidationError
 
-        mock_redis = MagicMock()
+        mock_cache = MagicMock()
         mock_settings = MagicMock()
 
         request = ProcessUrlRequest(url="http://192.168.1.1/")
@@ -420,7 +410,7 @@ class TestProcessSingleUrlEndpoint:
                 await process_single_url(
                     request=request,
                     _="test-key",
-                    redis=mock_redis,
+                    cache=mock_cache,
                     settings=mock_settings,
                 )
 
@@ -433,7 +423,7 @@ class TestProcessSingleUrlEndpoint:
         from api.endpoints.pipeline import ProcessUrlRequest, process_single_url
         from core.security import URLValidationError
 
-        mock_redis = MagicMock()
+        mock_cache = MagicMock()
         mock_settings = MagicMock()
 
         request = ProcessUrlRequest(url="http://169.254.169.254/latest/meta-data/")
@@ -449,7 +439,7 @@ class TestProcessSingleUrlEndpoint:
                 await process_single_url(
                     request=request,
                     _="test-key",
-                    redis=mock_redis,
+                    cache=mock_cache,
                     settings=mock_settings,
                 )
 
@@ -460,7 +450,7 @@ class TestProcessSingleUrlEndpoint:
         """Test that whitelist mode blocks non-allowed domains."""
         from api.endpoints.pipeline import ProcessUrlRequest, process_single_url
 
-        mock_redis = MagicMock()
+        mock_cache = MagicMock()
         mock_settings = MagicMock()
         mock_settings.pipeline_url_endpoint.whitelist_enabled = True
         mock_settings.pipeline_url_endpoint.allowed_domains = ["trusted.com", "news.example.org"]
@@ -476,7 +466,7 @@ class TestProcessSingleUrlEndpoint:
                 await process_single_url(
                     request=request,
                     _="test-key",
-                    redis=mock_redis,
+                    cache=mock_cache,
                     settings=mock_settings,
                 )
 
@@ -490,9 +480,8 @@ class TestProcessSingleUrlEndpoint:
 
         task_uuid = uuid.uuid4()
 
-        mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.hset = AsyncMock()
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
 
         mock_settings = MagicMock()
         mock_settings.pipeline_url_endpoint.whitelist_enabled = True
@@ -511,7 +500,7 @@ class TestProcessSingleUrlEndpoint:
                     result = await process_single_url(
                         request=request,
                         _="test-key",
-                        redis=mock_redis,
+                        cache=mock_cache,
                         settings=mock_settings,
                     )
 
@@ -551,10 +540,9 @@ class TestProcessSingleUrlBackground:
         """Test that background processing updates status to running."""
         from api.endpoints.pipeline import _process_single_url
 
-        mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.hget = AsyncMock(return_value=b'{"task_id": "test-id"}')
-        mock_redis.client.hset = AsyncMock()
+        mock_cache = MagicMock()
+        mock_cache.hget = AsyncMock(return_value=b'{"task_id": "test-id"}')
+        mock_cache.hset = AsyncMock()
 
         mock_crawler = MagicMock()
         mock_crawler.crawl_batch = AsyncMock(return_value=[MagicMock()])
@@ -570,11 +558,11 @@ class TestProcessSingleUrlBackground:
             await _process_single_url(
                 url="https://example.com/article",
                 task_id="test-id",
-                redis=mock_redis,
+                cache=mock_cache,
             )
 
         # Verify status was updated to running and then completed
-        assert mock_redis.client.hset.call_count >= 2
+        assert mock_cache.hset.call_count >= 2
 
     @pytest.mark.asyncio
     async def test_background_process_handles_fetch_error(self):
@@ -582,10 +570,9 @@ class TestProcessSingleUrlBackground:
         from api.endpoints.pipeline import _process_single_url
         from modules.ingestion.fetching.exceptions import FetchError
 
-        mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.hget = AsyncMock(return_value=b'{"task_id": "test-id"}')
-        mock_redis.client.hset = AsyncMock()
+        mock_cache = MagicMock()
+        mock_cache.hget = AsyncMock(return_value=b'{"task_id": "test-id"}')
+        mock_cache.hset = AsyncMock()
 
         mock_crawler = MagicMock()
         mock_crawler.crawl_batch = AsyncMock(
@@ -599,11 +586,11 @@ class TestProcessSingleUrlBackground:
             await _process_single_url(
                 url="https://example.com/article",
                 task_id="test-id",
-                redis=mock_redis,
+                cache=mock_cache,
             )
 
         # Status should be updated to failed
-        calls = [call.args for call in mock_redis.client.hset.call_args_list]
+        calls = [call.args for call in mock_cache.hset.call_args_list]
         last_call_data = json.loads(calls[-1][2])
         assert last_call_data["status"] == "failed"
         assert "Connection failed" in last_call_data.get("error", "")

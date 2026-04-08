@@ -230,25 +230,25 @@ class TestBatchMergerNodeInit:
         assert node._prompt_loader == mock_prompt_loader
         assert node._vector_repo is None
         assert node._article_repo is None
-        assert node._neo4j_writer is None
+        assert node._graph_writer is None
 
     def test_init_with_optional_deps(self, mock_llm, mock_prompt_loader):
         """Test initialization with optional dependencies."""
         mock_vector_repo = MagicMock()
         mock_article_repo = MagicMock()
-        mock_neo4j_writer = MagicMock()
+        mock_graph_writer = MagicMock()
 
         node = BatchMergerNode(
             mock_llm,
             mock_prompt_loader,
             vector_repo=mock_vector_repo,
             article_repo=mock_article_repo,
-            neo4j_writer=mock_neo4j_writer,
+            graph_writer=mock_graph_writer,
         )
 
         assert node._vector_repo == mock_vector_repo
         assert node._article_repo == mock_article_repo
-        assert node._neo4j_writer == mock_neo4j_writer
+        assert node._graph_writer == mock_graph_writer
 
 
 class TestBatchMergerNodeExecuteBatch:
@@ -1070,14 +1070,14 @@ class TestBatchMergerSagaCompensation:
         mock_article_repo.update_persist_status = AsyncMock()
         mock_article_repo.delete = AsyncMock()
 
-        mock_neo4j_writer = MagicMock()
-        mock_neo4j_writer.write = AsyncMock(side_effect=Exception("Neo4j connection failed"))
+        mock_graph_writer = MagicMock()
+        mock_graph_writer.write = AsyncMock(side_effect=Exception("Neo4j connection failed"))
 
         node = BatchMergerNode(
             mock_llm,
             mock_prompt_loader,
             article_repo=mock_article_repo,
-            neo4j_writer=mock_neo4j_writer,
+            graph_writer=mock_graph_writer,
         )
 
         result = await node.persist_batch_saga([state])
@@ -1117,8 +1117,8 @@ class TestBatchMergerSagaCompensation:
         mock_article_repo.delete = AsyncMock()
 
         # First succeeds, second fails, third succeeds
-        mock_neo4j_writer = MagicMock()
-        mock_neo4j_writer.write = AsyncMock(
+        mock_graph_writer = MagicMock()
+        mock_graph_writer.write = AsyncMock(
             side_effect=[
                 ["node1"],  # Success
                 Exception("Failed"),  # Failure
@@ -1130,7 +1130,7 @@ class TestBatchMergerSagaCompensation:
             mock_llm,
             mock_prompt_loader,
             article_repo=mock_article_repo,
-            neo4j_writer=mock_neo4j_writer,
+            graph_writer=mock_graph_writer,
         )
 
         result = await node.persist_batch_saga(states)

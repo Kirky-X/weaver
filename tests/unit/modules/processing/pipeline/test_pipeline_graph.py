@@ -103,12 +103,12 @@ class TestPipelineInit:
             spacy=mock_spacy,
             vector_repo=mock_vector_repo,
             article_repo=mock_article_repo,
-            neo4j_writer=mock_neo4j_writer,
+            graph_writer=mock_neo4j_writer,
             source_auth_repo=mock_source_auth_repo,
         )
 
         assert pipeline._article_repo == mock_article_repo
-        assert pipeline._neo4j_writer == mock_neo4j_writer
+        assert pipeline._graph_writer == mock_neo4j_writer
 
     def test_default_concurrency_values(self):
         """Test default concurrency values."""
@@ -197,8 +197,11 @@ class TestPipelineProcessBatch:
             return MagicMock()
 
         llm.call_at = AsyncMock(side_effect=mock_call)
-        llm.embed = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
-        llm.embed_default = AsyncMock(return_value=[[0.1] * 1024])
+
+        def mock_embed(texts, **kwargs):
+            return [[0.1] * 1024 for _ in texts]
+
+        llm.embed_default = AsyncMock(side_effect=mock_embed)
         return llm
 
     @pytest.fixture
@@ -316,8 +319,11 @@ class TestPipelinePhase1:
             return MagicMock()
 
         llm.call_at = AsyncMock(side_effect=mock_call)
-        llm.embed = AsyncMock(return_value=[[0.1] * 1024])
-        llm.embed_default = AsyncMock(return_value=[[0.1] * 1024])
+
+        def mock_embed(texts, **kwargs):
+            return [[0.1] * 1024 for _ in texts]
+
+        llm.embed_default = AsyncMock(side_effect=mock_embed)
         return llm
 
     @pytest.fixture
@@ -409,8 +415,11 @@ class TestPipelinePhase3:
             return MagicMock()
 
         llm.call_at = AsyncMock(side_effect=mock_call)
-        llm.embed = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
-        llm.embed_default = AsyncMock(return_value=[[0.1] * 1024])
+
+        def mock_embed(texts, **kwargs):
+            return [[0.1] * 1024 for _ in texts]
+
+        llm.embed_default = AsyncMock(side_effect=mock_embed)
         return llm
 
     @pytest.fixture
@@ -627,7 +636,7 @@ class TestPipelinePersist:
     async def test_persist_without_repos(
         self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
     ):
-        """Test persist without article_repo and neo4j_writer."""
+        """Test persist without article_repo and graph_writer."""
         pipeline = Pipeline(
             llm=mock_llm,
             budget=mock_budget,
@@ -674,7 +683,7 @@ class TestPipelinePersist:
     async def test_persist_with_neo4j_writer(
         self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
     ):
-        """Test persist with neo4j_writer."""
+        """Test persist with graph_writer."""
         import uuid
 
         mock_article_repo = MagicMock()
@@ -690,7 +699,7 @@ class TestPipelinePersist:
             prompt_loader=mock_prompt_loader,
             event_bus=mock_event_bus,
             article_repo=mock_article_repo,
-            neo4j_writer=mock_neo4j_writer,
+            graph_writer=mock_neo4j_writer,
         )
 
         raw = MagicMock()
@@ -756,7 +765,7 @@ class TestPipelinePersist:
             prompt_loader=mock_prompt_loader,
             event_bus=mock_event_bus,
             article_repo=mock_article_repo,
-            neo4j_writer=mock_neo4j_writer,
+            graph_writer=mock_neo4j_writer,
         )
 
         raw = MagicMock()
@@ -920,7 +929,7 @@ class TestPipelinePersistFallback:
             prompt_loader=mock_prompt_loader,
             event_bus=mock_event_bus,
             article_repo=mock_article_repo,
-            neo4j_writer=mock_neo4j_writer,
+            graph_writer=mock_neo4j_writer,
         )
 
         raw = MagicMock()
@@ -959,7 +968,7 @@ class TestPipelinePersistFallback:
             prompt_loader=mock_prompt_loader,
             event_bus=mock_event_bus,
             article_repo=mock_article_repo,
-            neo4j_writer=None,
+            graph_writer=None,
         )
 
         raw = MagicMock()
@@ -999,7 +1008,7 @@ class TestPipelinePersistFallback:
             prompt_loader=mock_prompt_loader,
             event_bus=mock_event_bus,
             article_repo=mock_article_repo,
-            neo4j_writer=mock_neo4j_writer,
+            graph_writer=mock_neo4j_writer,
         )
 
         raw = MagicMock()

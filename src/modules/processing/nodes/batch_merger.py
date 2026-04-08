@@ -101,7 +101,7 @@ class BatchMergerNode:
         self._prompt_loader = prompt_loader
         self._vector_repo = vector_repo
         self._article_repo = article_repo
-        self._graph_writer = neo4j_writer
+        self._graph_writer = graph_writer
 
     async def execute_batch(self, states: list[PipelineState]) -> list[PipelineState]:
         """Execute batch merging on a list of pipeline states.

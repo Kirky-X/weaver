@@ -155,7 +155,7 @@ class SchedulerJobs:
         log.info("flush_retry_queue_start")
 
         # Get all host keys
-        keys = await self._redis.keys("crawl:retry:*")
+        keys = await self._cache.keys("crawl:retry:*")
         if not keys:
             log.info("flush_retry_queue_no_keys")
             return 0
@@ -166,15 +166,15 @@ class SchedulerJobs:
         for key in keys:
             # Get items ready for retry
             # ZRANGEBYSCORE key -inf now
-            items = await self._redis.zrangebyscore(key, "-inf", now)
+            items = await self._cache.zrangebyscore(key, "-inf", now)
 
             if items:
                 # Remove from retry queue
-                await self._redis.zrem(key, *items)
+                await self._cache.zrem(key, *items)
 
                 # Add to crawl queue
                 for item in items:
-                    await self._redis.lpush("crawl:queue", item)
+                    await self._cache.lpush("crawl:queue", item)
                     requeue_count += 1
 
         log.info("flush_retry_queue_complete", count=requeue_count)
@@ -270,7 +270,7 @@ class SchedulerJobs:
         try:
             active_ids = await self._graph_writer.entity_repo.list_all_entity_ids()
 
-            vector_repo = VectorRepo(self._postgres)
+            vector_repo = VectorRepo(self._relational_pool)
 
             from sqlalchemy import text
 
@@ -473,13 +473,13 @@ class SchedulerJobs:
                 if all_terminal:
                     try:
                         task_key = "pipeline:task_status"
-                        existing = await self._redis.client.hget(task_key, str(task_id))
+                        existing = await self._cache.client.hget(task_key, str(task_id))
                         if existing:
                             task_data = json_repair.loads(existing)
                             if task_data.get("status") not in ("completed", "failed"):
                                 task_data["status"] = "completed"
                                 task_data["completed_at"] = datetime.now(UTC).isoformat()
-                                await self._redis.client.hset(
+                                await self._cache.client.hset(
                                     task_key, str(task_id), json.dumps(task_data)
                                 )
                                 log.info(
@@ -539,7 +539,7 @@ class SchedulerJobs:
             if self._settings.pipeline_retry_dynamic_batch and articles:
                 new_rate = success_count / len(articles) if articles else 1.0
                 key = "pipeline:retry:success_rate"
-                await self._redis.set(key, str(new_rate), ex=3600)  # 1 hour TTL
+                await self._cache.set(key, str(new_rate), ex=3600)  # 1 hour TTL
                 log.debug(
                     "retry_pipeline_processing_success_rate_updated",
                     success_rate=new_rate,
@@ -759,7 +759,7 @@ class SchedulerJobs:
         """
         try:
             key = "pipeline:retry:success_rate"
-            rate_str = await self._redis.get(key)
+            rate_str = await self._cache.get(key)
             if rate_str is None:
                 return 1.0
             return float(rate_str)
@@ -806,7 +806,7 @@ class SchedulerJobs:
         """Clean up old raw LLM usage records."""
         from modules.analytics.llm_usage.repo import LLMUsageRepo
 
-        repo = LLMUsageRepo(self._postgres)
+        repo = LLMUsageRepo(self._relational_pool)
         deleted = await repo.cleanup_raw_older_than(self._settings.llm_usage_raw_retention_days)
         return deleted
 
@@ -816,8 +816,8 @@ class SchedulerJobs:
         from modules.analytics.llm_usage.aggregator import flush_usage_buffer
 
         processed, errors = await flush_usage_buffer(
-            redis_client=self._redis,
-            postgres_pool=self._postgres,
+            redis_client=self._cache,
+            postgres_pool=self._relational_pool,
         )
         return processed
 

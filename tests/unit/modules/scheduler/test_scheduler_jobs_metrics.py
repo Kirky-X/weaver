@@ -16,9 +16,9 @@ class TestRetryPipelineMetrics:
         from modules.scheduler.jobs import SchedulerJobs
 
         return SchedulerJobs(
-            postgres_pool=MagicMock(),
-            redis_client=MagicMock(),
-            neo4j_writer=MagicMock(),
+            relational_pool=MagicMock(),
+            cache=MagicMock(),
+            graph_writer=MagicMock(),
             vector_repo=MagicMock(),
             article_repo=MagicMock(),
             source_authority_repo=MagicMock(),
@@ -206,9 +206,9 @@ class TestRetryPipelineMetrics:
         from modules.scheduler.jobs import SchedulerJobs
 
         jobs_no_pipeline = SchedulerJobs(
-            postgres_pool=MagicMock(),
-            redis_client=MagicMock(),
-            neo4j_writer=MagicMock(),
+            relational_pool=MagicMock(),
+            cache=MagicMock(),
+            graph_writer=MagicMock(),
             vector_repo=MagicMock(),
             article_repo=MagicMock(),
             source_authority_repo=MagicMock(),
