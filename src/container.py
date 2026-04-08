@@ -541,6 +541,17 @@ class Container:
                 coalesce=True,
             )
 
+        # ── Community Health Check ──
+        if self.graph_pool() is not None:
+            scheduler.add_job(
+                self._community_health_check,
+                IntervalTrigger(hours=6),
+                id="community_health_check",
+                name="Community health check and auto repair",
+                max_instances=1,
+                coalesce=True,
+            )
+
         # ── Metrics ──
         scheduler.add_job(
             jobs.update_persist_status_metrics,
@@ -572,6 +583,68 @@ class Container:
 
         scheduler.start()
         log.info("scheduler_started", jobs=len(scheduler.get_jobs()))
+
+    async def _community_health_check(self) -> dict[str, object]:
+        """Periodic community health check with auto-repair.
+
+        Runs every 6 hours to diagnose and automatically repair community issues.
+
+        Returns:
+            Dict with health status and repair results.
+        """
+        from modules.knowledge.graph.community_health_checker import CommunityHealthChecker
+        from modules.knowledge.graph.community_health_models import CommunityHealthStatus
+        from modules.knowledge.graph.community_repair_service import CommunityRepairService
+
+        log.info("community_health_check_start")
+
+        graph_pool = self.graph_pool()
+        if graph_pool is None:
+            return {"status": "skipped", "reason": "no_graph_pool"}
+
+        try:
+            checker = CommunityHealthChecker(graph_pool)
+            report = await checker.diagnose_all()
+
+            if report.status in (
+                CommunityHealthStatus.DEGRADED,
+                CommunityHealthStatus.CRITICAL,
+            ):
+                log.warning(
+                    "community_health_check_issues_found",
+                    status=report.status.value,
+                    issues=len(report.issues),
+                )
+
+                # Auto-repair
+                repair_service = CommunityRepairService(graph_pool)
+                repairable = [i for i in report.issues if i.auto_repairable]
+                if repairable:
+                    repair_result = await repair_service.auto_repair(repairable)
+                    log.info(
+                        "community_health_check_repair_complete",
+                        repaired=repair_result.total_repaired,
+                    )
+                    return {
+                        "status": report.status.value,
+                        "score": report.score,
+                        "repaired": repair_result.to_dict(),
+                    }
+
+            log.info(
+                "community_health_check_complete",
+                status=report.status.value,
+                score=report.score,
+            )
+            return {
+                "status": report.status.value,
+                "score": report.score,
+                "issues_count": len(report.issues),
+            }
+
+        except Exception as exc:
+            log.error("community_health_check_failed", error=str(exc))
+            return {"status": "error", "error": str(exc)}
 
     # ── Graph Repositories ─────────────────────────────────────────
 

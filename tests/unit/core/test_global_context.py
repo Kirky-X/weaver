@@ -105,7 +105,7 @@ class TestGlobalContextBuilderFallback:
             ],
         )
 
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         result = await builder._find_entity_article_fallback("小米 AI")
 
         assert len(result) == 1
@@ -148,7 +148,7 @@ class TestGlobalContextBuilderFallback:
             ],
         )
 
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         # Query for "腾讯" should only match first record
         result = await builder._find_entity_article_fallback("腾讯")
 
@@ -165,7 +165,7 @@ class TestGlobalContextBuilderFallback:
             fallback_results=[],  # No matching results
         )
 
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         result = await builder._find_entity_article_fallback("完全不存在的查询词XYZ")
 
         assert result == []
@@ -192,7 +192,7 @@ class TestGlobalContextBuilderFallback:
             ],
         )
 
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         context = await builder.build(query="AI", max_tokens=1000)
 
         assert context.metadata.get("fallback_source") == "entity_article"
@@ -208,7 +208,7 @@ class TestGlobalContextBuilderFallback:
             fallback_results=[],
         )
 
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         context = await builder.build(query="完全不存在的查询", max_tokens=1000)
 
         # Should have a "No Communities" section (indicating no communities exist)
@@ -240,7 +240,7 @@ class TestGlobalContextBuilderFallback:
             ],
         )
 
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         result, used_fallback, search_method = await builder._find_relevant_communities(
             "华为", level=0
         )
@@ -284,7 +284,7 @@ class TestGlobalContextBuilderFallback:
             ],
         )
 
-        builder = GlobalContextBuilder(neo4j_pool=pool)
+        builder = GlobalContextBuilder(graph_pool=pool)
         result = await builder._find_entity_article_fallback("公司")
 
         # companyA should be first (score=0.925) > companyB (score=0.55)

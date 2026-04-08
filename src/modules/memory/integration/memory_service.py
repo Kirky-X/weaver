@@ -157,7 +157,7 @@ class MemoryIntegrationService:
         self._causal_repo = CausalGraphRepo(pool=graph_pool)
 
         # Initialize consolidation queue
-        self._consolidation_queue = ConsolidationQueue(cache=cache)
+        self._consolidation_queue = ConsolidationQueue(redis=cache)
 
         # Initialize fast path with optional repos
         self._fast_path = SynapticIngestionService(
