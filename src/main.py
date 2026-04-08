@@ -24,6 +24,7 @@ from api.endpoints import _deps as deps
 from api.endpoints.health import health_check
 from api.middleware.api_response import register_exception_handlers
 from api.middleware.rate_limit import limiter
+from api.middleware.request_context import RequestContextMiddleware
 from api.router import api_router
 from api.schemas.response import APIResponse, success_response
 from config.settings import Settings
@@ -350,10 +351,11 @@ def create_app(container: Container | None = None) -> FastAPI:
     )
 
     # Add pure ASGI middleware (avoid BaseHTTPMiddleware due to TestClient issues)
-    # Note: Order matters - last added is first executed
+    # Note: Order matters - last added is first executed (innermost)
     app.add_middleware(RequestSizeLimitMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(HTTPLoggingMiddleware)  # HTTP request/response logging
+    app.add_middleware(RequestContextMiddleware)  # Request ID for logging (innermost)
 
     # Register centralized exception handlers
     register_exception_handlers(app)

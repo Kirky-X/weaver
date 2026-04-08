@@ -217,6 +217,65 @@ class PreStartupHealthChecker:
         result.latency_ms = (time.monotonic() - start_time) * 1000
         return result
 
+    async def check_api_key_security(self) -> ServiceCheckResult:
+        """Validate API key configuration at startup.
+
+        Ensures API key meets minimum security requirements for production.
+
+        Returns:
+            ServiceCheckResult with validation status.
+        """
+        import os
+        import time
+
+        start_time = time.monotonic()
+        result = ServiceCheckResult(service="api_key")
+
+        try:
+            api_key = self._settings.api.get_api_key()
+            environment = os.environ.get("ENVIRONMENT", "development")
+            min_key_length = 32
+
+            if not api_key:
+                if environment == "production":
+                    result.error = "API key not configured"
+                    result.details.append("Set WEAVER_API__API_KEY environment variable")
+                    result.healthy = False
+                else:
+                    result.details.append("WARNING: API key not configured (development mode)")
+                    result.healthy = True
+                result.latency_ms = (time.monotonic() - start_time) * 1000
+                return result
+
+            key_length = len(api_key)
+            result.details.append(f"API key configured: {key_length} characters")
+
+            if key_length < min_key_length:
+                if environment == "production":
+                    result.error = (
+                        f"API key too short: {key_length} chars (minimum {min_key_length})"
+                    )
+                    result.details.append(
+                        f"Production requires API key with at least {min_key_length} characters"
+                    )
+                    result.healthy = False
+                else:
+                    result.details.append(
+                        f"WARNING: API key shorter than recommended ({key_length} chars)"
+                    )
+                    result.healthy = True
+            else:
+                result.details.append("API key length meets security requirements")
+                result.healthy = True
+
+        except Exception as exc:
+            result.error = str(exc)
+            result.details.append(f"Validation failed: {exc}")
+            result.healthy = False
+
+        result.latency_ms = (time.monotonic() - start_time) * 1000
+        return result
+
     async def check_all(self) -> dict[str, ServiceCheckResult]:
         """Check all configured services in parallel.
 
@@ -231,6 +290,7 @@ class PreStartupHealthChecker:
             "postgres": self.check_postgres,
             "redis": self.check_redis,
             "neo4j": self.check_neo4j,
+            "api_key": self.check_api_key_security,
         }
 
         # Run all checks in parallel

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 from config.settings import Settings
@@ -1172,7 +1173,27 @@ class Container:
             self._task_registry = InMemoryTaskRegistry()
         return self._task_registry
 
-    # ── Lifecycle ─────────────────────────────────────────────────
+    # ── Initialization Order and Dependencies ─────────────────────────────────────
+    #
+    # The following shows the initialization order and their dependencies:
+    #
+    # Stage               | Dependencies           | Method
+    # --------------------|------------------------|------------------------
+    # database            | -                      | init_strategy()
+    # migrations          | database               | initialize_database()
+    # redis               | -                      | init_redis()
+    # llm                 | database, redis        | init_llm()
+    # search_engines      | database, llm          | init_search_engines()
+    # bm25_index          | search_engines         | _init_bm25_index()
+    # smart_fetcher       | -                      | init_smart_fetcher()
+    # source_scheduler    | smart_fetcher, database| init_source_scheduler()
+    # pipeline            | llm, database, redis   | init_pipeline()
+    # memory_service      | database, llm, redis   | init_memory_service()
+    # llm_failure_logging | database, event_bus    | (inline in startup)
+    # llm_usage_stats     | redis, database        | (inline in startup)
+    # scheduler           | pipeline               | _setup_scheduler()
+    #
+    # Note: This order is critical. Modifying it may break initialization.
 
     async def startup(self) -> None:
         """Initialize all services."""
@@ -1319,38 +1340,44 @@ class Container:
         log.info("container_shutdown_complete")
 
 
-# Global container instance
+# Global container instance with thread-safe access
 _container: Container | None = None
+_container_lock = threading.Lock()
 
 
 def get_container() -> Container:
-    """Get the global container instance."""
-    if _container is None:
-        raise RuntimeError("Container not initialized. Create it in main.py first.")
-    return _container
+    """Get the global container instance (thread-safe)."""
+    with _container_lock:
+        if _container is None:
+            raise RuntimeError("Container not initialized. Create it in main.py first.")
+        return _container
 
 
 def set_container(container: Container) -> None:
-    """Set the global container instance."""
+    """Set the global container instance (thread-safe)."""
     global _container
-    _container = container
+    with _container_lock:
+        _container = container
 
 
-# Convenience function for settings access in auth middleware
+# Settings instance with thread-safe access
 _settings_instance: Settings | None = None
+_settings_lock = threading.Lock()
 
 
 def get_settings() -> Settings:
-    """Get settings instance (for auth middleware)."""
+    """Get settings instance (thread-safe)."""
     global _settings_instance
-    if _settings_instance is None:
-        from config.settings import Settings
+    with _settings_lock:
+        if _settings_instance is None:
+            from config.settings import Settings
 
-        _settings_instance = Settings()
-    return _settings_instance
+            _settings_instance = Settings()
+        return _settings_instance
 
 
 def set_settings(settings: Settings) -> None:
-    """Set settings instance."""
+    """Set settings instance (thread-safe)."""
     global _settings_instance
-    _settings_instance = settings
+    with _settings_lock:
+        _settings_instance = settings

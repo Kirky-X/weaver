@@ -9,6 +9,7 @@ import httpx
 
 from core.observability.logging import get_logger
 from core.observability.metrics import MetricsCollector
+from core.resilience.retry import retry_network
 from modules.ingestion.fetching.base import BaseFetcher
 
 if TYPE_CHECKING:
@@ -117,7 +118,7 @@ class HttpxFetcher(BaseFetcher):
     async def fetch(
         self, url: str, headers: dict[str, str] | None = None
     ) -> tuple[int, str, dict[str, str]]:
-        """Fetch content via httpx.
+        """Fetch content via httpx with automatic retry on transient errors.
 
         Args:
             url: The URL to fetch.
@@ -133,57 +134,70 @@ class HttpxFetcher(BaseFetcher):
         import time
 
         start = time.monotonic()
-        try:
-            # Validate URL before making request (SSRF protection)
-            if self._url_validator:
-                await self._url_validator.validate(url)
 
-            # Build request to allow redirect inspection
-            request = self._client.build_request("GET", url, headers=headers or {})
+        # Security validation - do NOT retry if this fails
+        if self._url_validator:
+            await self._url_validator.validate(url)
 
-            # Send with streaming to intercept redirects
-            response = await self._client.send(request, follow_redirects=True)
+        # Network operation with retry
+        async for attempt in retry_network(max_attempts=3, min_wait=1.0, max_wait=10.0):
+            with attempt:
+                try:
+                    # Build request to allow redirect inspection
+                    request = self._client.build_request("GET", url, headers=headers or {})
 
-            # Check redirect chain for security
-            if response.history and self._url_validator:
-                await self._validate_redirect_chain(response.history, url)
+                    # Send with streaming to intercept redirects
+                    response = await self._client.send(request, follow_redirects=True)
 
-            latency = time.monotonic() - start
-            MetricsCollector.fetch_total.labels(method="httpx", status="success").inc()
-            MetricsCollector.fetch_latency.labels(method="httpx").observe(latency)
-            log.debug(
-                "httpx_fetch_ok",
-                url=url,
-                status=response.status_code,
-                http_version=response.http_version,
-                redirects=len(response.history),
-            )
-            return response.status_code, response.text, dict(response.headers)
+                    # Check redirect chain for security - do NOT retry if this fails
+                    if response.history and self._url_validator:
+                        await self._validate_redirect_chain(response.history, url)
 
-        except RedirectBlockedError:
-            latency = time.monotonic() - start
-            MetricsCollector.fetch_total.labels(method="httpx", status="blocked").inc()
-            MetricsCollector.fetch_latency.labels(method="httpx").observe(latency)
-            raise
+                    latency = time.monotonic() - start
+                    MetricsCollector.fetch_total.labels(method="httpx", status="success").inc()
+                    MetricsCollector.fetch_latency.labels(method="httpx").observe(latency)
+                    log.debug(
+                        "httpx_fetch_ok",
+                        url=url,
+                        status=response.status_code,
+                        http_version=response.http_version,
+                        redirects=len(response.history),
+                    )
+                    return response.status_code, response.text, dict(response.headers)
 
-        except httpx.HTTPStatusError as exc:
-            latency = time.monotonic() - start
-            MetricsCollector.fetch_total.labels(method="httpx", status="error").inc()
-            MetricsCollector.fetch_latency.labels(method="httpx").observe(latency)
-            log.warning("httpx_status_error", url=url, status=exc.response.status_code)
-            raise
-        except httpx.TransportError as exc:
-            latency = time.monotonic() - start
-            MetricsCollector.fetch_total.labels(method="httpx", status="transport_error").inc()
-            MetricsCollector.fetch_latency.labels(method="httpx").observe(latency)
-            log.warning("httpx_transport_error", url=url, error=str(exc))
-            raise
-        except Exception as exc:
-            latency = time.monotonic() - start
-            MetricsCollector.fetch_total.labels(method="httpx", status="error").inc()
-            MetricsCollector.fetch_latency.labels(method="httpx").observe(latency)
-            log.warning("httpx_fetch_error", url=url, error=str(exc))
-            raise
+                except RedirectBlockedError:
+                    # Security errors - do not retry, propagate immediately
+                    latency = time.monotonic() - start
+                    MetricsCollector.fetch_total.labels(method="httpx", status="blocked").inc()
+                    MetricsCollector.fetch_latency.labels(method="httpx").observe(latency)
+                    raise
+
+                except httpx.HTTPStatusError as exc:
+                    # HTTP errors (4xx, 5xx) - let retry logic handle server errors
+                    latency = time.monotonic() - start
+                    if exc.response.status_code >= 500:
+                        # Server errors are transient, retry
+                        log.warning(
+                            "httpx_server_error_retryable",
+                            url=url,
+                            status=exc.response.status_code,
+                        )
+                        raise  # Let retry_network handle
+                    # Client errors (4xx) are not retryable
+                    MetricsCollector.fetch_total.labels(method="httpx", status="error").inc()
+                    MetricsCollector.fetch_latency.labels(method="httpx").observe(latency)
+                    raise
+
+                except httpx.TransportError as exc:
+                    # Transport errors are transient, retry
+                    log.warning(
+                        "httpx_transport_error_retryable",
+                        url=url,
+                        error=str(exc),
+                    )
+                    raise  # Let retry_network handle
+
+        raise RuntimeError("Fetch retry exhausted")  # Should never reach here
 
     async def post(
         self,
