@@ -148,10 +148,10 @@ class TestAuthMiddlewareIntegration:
         # Override the dependency to return a mock pool
         from unittest.mock import MagicMock
 
-        from api.dependencies import get_postgres_pool
+        from api.dependencies import get_relational_pool
 
         mock_pool = MagicMock()
-        app.dependency_overrides[get_postgres_pool] = lambda: mock_pool
+        app.dependency_overrides[get_relational_pool] = lambda: mock_pool
 
         with TestClient(app) as client:
             response = client.get("/articles")
@@ -164,14 +164,14 @@ class TestAuthMiddlewareIntegration:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
-        from api.dependencies import get_postgres_pool
+        from api.dependencies import get_relational_pool
         from api.endpoints.articles import router
 
         app = FastAPI()
         app.include_router(router)
 
         mock_pool = MagicMock()
-        app.dependency_overrides[get_postgres_pool] = lambda: mock_pool
+        app.dependency_overrides[get_relational_pool] = lambda: mock_pool
 
         # Override get_settings to return a known API key
         mock_settings = MagicMock()
@@ -189,7 +189,7 @@ class TestAuthMiddlewareIntegration:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
-        from api.dependencies import get_postgres_pool
+        from api.dependencies import get_relational_pool
         from api.endpoints.articles import router
 
         app = FastAPI()
@@ -205,7 +205,7 @@ class TestAuthMiddlewareIntegration:
         mock_pool = MagicMock()
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
-        app.dependency_overrides[get_postgres_pool] = lambda: mock_pool
+        app.dependency_overrides[get_relational_pool] = lambda: mock_pool
 
         mock_settings = MagicMock()
         mock_settings.api.get_api_key.return_value = "correct-key"
@@ -223,15 +223,15 @@ class TestAuthMiddlewareIntegration:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
-        from api.dependencies import get_redis_client, get_source_scheduler
+        from api.dependencies import get_cache_client, get_source_scheduler
         from api.endpoints.pipeline import router
 
         app = FastAPI()
         app.include_router(router)
 
-        mock_redis = MagicMock()
+        mock_cache = MagicMock()
         mock_scheduler = MagicMock()
-        app.dependency_overrides[get_redis_client] = lambda: mock_redis
+        app.dependency_overrides[get_cache_client] = lambda: mock_cache
         app.dependency_overrides[get_source_scheduler] = lambda: mock_scheduler
 
         with TestClient(app) as client:
@@ -245,14 +245,14 @@ class TestAuthMiddlewareIntegration:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
-        from api.dependencies import get_redis_client
+        from api.dependencies import get_cache_client
         from api.endpoints.pipeline import router
 
         app = FastAPI()
         app.include_router(router)
 
-        mock_redis = MagicMock()
-        app.dependency_overrides[get_redis_client] = lambda: mock_redis
+        mock_cache = MagicMock()
+        app.dependency_overrides[get_cache_client] = lambda: mock_cache
 
         with TestClient(app) as client:
             response = client.get(f"/pipeline/tasks/{uuid.uuid4()}")

@@ -311,56 +311,53 @@ class TestFlushUsageBuffer:
     """Tests for flush_usage_buffer function."""
 
     @pytest.fixture
-    def mock_redis_client(self):
-        """Create a mock RedisClient."""
-        client = MagicMock()
-        client.scan = AsyncMock()
-        client.delete = AsyncMock()
-        # Mock the inner Redis client for hgetall
-        inner_client = MagicMock()
-        inner_client.hgetall = AsyncMock()
-        client.client = inner_client
-        return client
+    def mock_cache(self):
+        """Create a mock CachePool."""
+        cache = MagicMock()
+        cache.scan = AsyncMock()
+        cache.hgetall = AsyncMock()
+        cache.delete = AsyncMock()
+        return cache
 
     @pytest.fixture
-    def mock_postgres_pool(self):
-        """Create a mock PostgresPool."""
+    def mock_relational_pool(self):
+        """Create a mock RelationalPool."""
         return MagicMock()
 
     @pytest.mark.asyncio
     @freeze_time("2026-04-06 14:30:00", tz_offset=0)
-    async def test_flush_no_keys_returns_zero(self, mock_redis_client, mock_postgres_pool):
+    async def test_flush_no_keys_returns_zero(self, mock_cache, mock_relational_pool):
         """Test flush returns (0, 0) when no keys found."""
-        mock_redis_client.scan.return_value = (0, [])
+        mock_cache.scan.return_value = (0, [])
 
-        result = await flush_usage_buffer(mock_redis_client, mock_postgres_pool)
+        result = await flush_usage_buffer(mock_cache, mock_relational_pool)
 
         assert result == (0, 0)
-        mock_redis_client.scan.assert_called_once()
+        mock_cache.scan.assert_called_once()
 
     @pytest.mark.asyncio
     @freeze_time("2026-04-06 14:30:00", tz_offset=0)
-    async def test_flush_excludes_current_hour(self, mock_redis_client, mock_postgres_pool):
+    async def test_flush_excludes_current_hour(self, mock_cache, mock_relational_pool):
         """Test flush excludes current hour bucket."""
         current_hour_key = f"{REDIS_KEY_PREFIX}:2026040614"
 
         # Return current hour key but it should be filtered out
-        mock_redis_client.scan.return_value = (0, [current_hour_key])
+        mock_cache.scan.return_value = (0, [current_hour_key])
 
-        result = await flush_usage_buffer(mock_redis_client, mock_postgres_pool)
+        result = await flush_usage_buffer(mock_cache, mock_relational_pool)
 
         assert result == (0, 0)
 
     @pytest.mark.asyncio
     @freeze_time("2026-04-06 14:30:00", tz_offset=0)
-    async def test_flush_processes_single_key(self, mock_redis_client, mock_postgres_pool):
+    async def test_flush_processes_single_key(self, mock_cache, mock_relational_pool):
         """Test flush processes a single key successfully."""
         past_hour_key = f"{REDIS_KEY_PREFIX}:2026040510"
 
-        mock_redis_client.scan.return_value = (0, [past_hour_key])
+        mock_cache.scan.return_value = (0, [past_hour_key])
 
         # Mock hgetall to return usage data
-        mock_redis_client.client.hgetall.return_value = {
+        mock_cache.hgetall.return_value = {
             "chat::openai::gpt-4::classifier::count": "5",
             "chat::openai::gpt-4::classifier::success": "5",
         }
@@ -374,38 +371,38 @@ class TestFlushUsageBuffer:
             "modules.analytics.llm_usage.repo.LLMUsageRepo",
             return_value=mock_repo,
         ):
-            result = await flush_usage_buffer(mock_redis_client, mock_postgres_pool)
+            result = await flush_usage_buffer(mock_cache, mock_relational_pool)
 
         assert result == (1, 0)
-        mock_redis_client.delete.assert_called_once_with(past_hour_key)
+        mock_cache.delete.assert_called_once_with(past_hour_key)
 
     @pytest.mark.asyncio
     @freeze_time("2026-04-06 14:30:00", tz_offset=0)
-    async def test_flush_deletes_empty_hash(self, mock_redis_client, mock_postgres_pool):
+    async def test_flush_deletes_empty_hash(self, mock_cache, mock_relational_pool):
         """Test flush deletes empty hash without processing."""
         past_hour_key = f"{REDIS_KEY_PREFIX}:2026040510"
 
-        mock_redis_client.scan.return_value = (0, [past_hour_key])
-        mock_redis_client.client.hgetall.return_value = {}
+        mock_cache.scan.return_value = (0, [past_hour_key])
+        mock_cache.hgetall.return_value = {}
 
-        result = await flush_usage_buffer(mock_redis_client, mock_postgres_pool)
+        result = await flush_usage_buffer(mock_cache, mock_relational_pool)
 
         assert result == (0, 0)
-        mock_redis_client.delete.assert_called_once_with(past_hour_key)
+        mock_cache.delete.assert_called_once_with(past_hour_key)
 
     @pytest.mark.asyncio
     @freeze_time("2026-04-06 14:30:00", tz_offset=0)
-    async def test_flush_handles_multiple_keys(self, mock_redis_client, mock_postgres_pool):
+    async def test_flush_handles_multiple_keys(self, mock_cache, mock_relational_pool):
         """Test flush processes multiple keys."""
         keys = [
             f"{REDIS_KEY_PREFIX}:2026040510",
             f"{REDIS_KEY_PREFIX}:2026040511",
         ]
 
-        mock_redis_client.scan.return_value = (0, keys)
+        mock_cache.scan.return_value = (0, keys)
 
         # Return data for both keys
-        mock_redis_client.client.hgetall.side_effect = [
+        mock_cache.hgetall.side_effect = [
             {"chat::openai::gpt-4::classifier::count": "5"},
             {"chat::anthropic::claude::analyzer::count": "3"},
         ]
@@ -418,25 +415,25 @@ class TestFlushUsageBuffer:
             "modules.analytics.llm_usage.repo.LLMUsageRepo",
             return_value=mock_repo,
         ):
-            result = await flush_usage_buffer(mock_redis_client, mock_postgres_pool)
+            result = await flush_usage_buffer(mock_cache, mock_relational_pool)
 
         assert result == (2, 0)
-        assert mock_redis_client.delete.call_count == 2
+        assert mock_cache.delete.call_count == 2
 
     @pytest.mark.asyncio
     @freeze_time("2026-04-06 14:30:00", tz_offset=0)
-    async def test_flush_handles_scan_pagination(self, mock_redis_client, mock_postgres_pool):
+    async def test_flush_handles_scan_pagination(self, mock_cache, mock_relational_pool):
         """Test flush handles SCAN pagination correctly."""
         keys_page1 = [f"{REDIS_KEY_PREFIX}:2026040510"]
         keys_page2 = [f"{REDIS_KEY_PREFIX}:2026040511"]
 
         # First scan returns cursor 100, second returns cursor 0
-        mock_redis_client.scan.side_effect = [
+        mock_cache.scan.side_effect = [
             (100, keys_page1),
             (0, keys_page2),
         ]
 
-        mock_redis_client.client.hgetall.side_effect = [
+        mock_cache.hgetall.side_effect = [
             {"chat::openai::gpt-4::classifier::count": "5"},
             {"chat::anthropic::claude::analyzer::count": "3"},
         ]
@@ -449,19 +446,19 @@ class TestFlushUsageBuffer:
             "modules.analytics.llm_usage.repo.LLMUsageRepo",
             return_value=mock_repo,
         ):
-            result = await flush_usage_buffer(mock_redis_client, mock_postgres_pool)
+            result = await flush_usage_buffer(mock_cache, mock_relational_pool)
 
         assert result == (2, 0)
-        assert mock_redis_client.scan.call_count == 2
+        assert mock_cache.scan.call_count == 2
 
     @pytest.mark.asyncio
     @freeze_time("2026-04-06 14:30:00", tz_offset=0)
-    async def test_flush_counts_errors(self, mock_redis_client, mock_postgres_pool):
+    async def test_flush_counts_errors(self, mock_cache, mock_relational_pool):
         """Test flush counts errors when processing fails."""
         past_hour_key = f"{REDIS_KEY_PREFIX}:2026040510"
 
-        mock_redis_client.scan.return_value = (0, [past_hour_key])
-        mock_redis_client.client.hgetall.return_value = {
+        mock_cache.scan.return_value = (0, [past_hour_key])
+        mock_cache.hgetall.return_value = {
             "chat::openai::gpt-4::classifier::count": "5",
         }
 
@@ -472,35 +469,33 @@ class TestFlushUsageBuffer:
             "modules.analytics.llm_usage.repo.LLMUsageRepo",
             return_value=mock_repo,
         ):
-            result = await flush_usage_buffer(mock_redis_client, mock_postgres_pool)
+            result = await flush_usage_buffer(mock_cache, mock_relational_pool)
 
         assert result == (0, 1)
 
     @pytest.mark.asyncio
     @freeze_time("2026-04-06 14:30:00", tz_offset=0)
-    async def test_flush_handles_invalid_key_format(self, mock_redis_client, mock_postgres_pool):
+    async def test_flush_handles_invalid_key_format(self, mock_cache, mock_relational_pool):
         """Test flush handles keys with invalid time bucket format."""
         invalid_key = f"{REDIS_KEY_PREFIX}:invalid_format"
 
-        mock_redis_client.scan.return_value = (0, [invalid_key])
-        mock_redis_client.client.hgetall.return_value = {"data": "value"}
+        mock_cache.scan.return_value = (0, [invalid_key])
+        mock_cache.hgetall.return_value = {"data": "value"}
 
-        result = await flush_usage_buffer(mock_redis_client, mock_postgres_pool)
+        result = await flush_usage_buffer(mock_cache, mock_relational_pool)
 
         # Invalid key format causes exception, counted as error
         assert result == (0, 1)
 
     @pytest.mark.asyncio
     @freeze_time("2026-04-06 14:30:00", tz_offset=0)
-    async def test_flush_calls_upsert_with_correct_params(
-        self, mock_redis_client, mock_postgres_pool
-    ):
+    async def test_flush_calls_upsert_with_correct_params(self, mock_cache, mock_relational_pool):
         """Test flush calls upsert_hourly with correct parameters."""
         past_hour_key = f"{REDIS_KEY_PREFIX}:2026040510"
         expected_time_bucket = datetime(2026, 4, 5, 10, 0, 0, tzinfo=UTC)
 
-        mock_redis_client.scan.return_value = (0, [past_hour_key])
-        mock_redis_client.client.hgetall.return_value = {
+        mock_cache.scan.return_value = (0, [past_hour_key])
+        mock_cache.hgetall.return_value = {
             "chat::openai::gpt-4::classifier::count": "10",
             "chat::openai::gpt-4::classifier::input_tok": "2000",
             "chat::openai::gpt-4::classifier::output_tok": "1000",
@@ -518,7 +513,7 @@ class TestFlushUsageBuffer:
             "modules.analytics.llm_usage.repo.LLMUsageRepo",
             return_value=mock_repo,
         ):
-            result = await flush_usage_buffer(mock_redis_client, mock_postgres_pool)
+            result = await flush_usage_buffer(mock_cache, mock_relational_pool)
 
         assert result == (1, 0)
         mock_repo.upsert_hourly.assert_called_once()
@@ -541,14 +536,12 @@ class TestFlushUsageBuffer:
 
     @pytest.mark.asyncio
     @freeze_time("2026-04-06 14:30:00", tz_offset=0)
-    async def test_flush_processes_multiple_groups_per_key(
-        self, mock_redis_client, mock_postgres_pool
-    ):
+    async def test_flush_processes_multiple_groups_per_key(self, mock_cache, mock_relational_pool):
         """Test flush processes multiple groups within single key."""
         past_hour_key = f"{REDIS_KEY_PREFIX}:2026040510"
 
-        mock_redis_client.scan.return_value = (0, [past_hour_key])
-        mock_redis_client.client.hgetall.return_value = {
+        mock_cache.scan.return_value = (0, [past_hour_key])
+        mock_cache.hgetall.return_value = {
             "chat::openai::gpt-4::classifier::count": "5",
             "chat::openai::gpt-4::classifier::success": "5",
             "chat::anthropic::claude::analyzer::count": "3",
@@ -563,7 +556,7 @@ class TestFlushUsageBuffer:
             "modules.analytics.llm_usage.repo.LLMUsageRepo",
             return_value=mock_repo,
         ):
-            result = await flush_usage_buffer(mock_redis_client, mock_postgres_pool)
+            result = await flush_usage_buffer(mock_cache, mock_relational_pool)
 
         assert result == (1, 0)
         # Two groups, two upsert calls
@@ -571,17 +564,17 @@ class TestFlushUsageBuffer:
 
     @pytest.mark.asyncio
     @freeze_time("2026-04-06 14:30:00", tz_offset=0)
-    async def test_flush_handles_partial_errors(self, mock_redis_client, mock_postgres_pool):
+    async def test_flush_handles_partial_errors(self, mock_cache, mock_relational_pool):
         """Test flush continues processing after errors."""
         keys = [
             f"{REDIS_KEY_PREFIX}:2026040510",
             f"{REDIS_KEY_PREFIX}:2026040511",
         ]
 
-        mock_redis_client.scan.return_value = (0, keys)
+        mock_cache.scan.return_value = (0, keys)
 
         # First key succeeds, second fails
-        mock_redis_client.client.hgetall.side_effect = [
+        mock_cache.hgetall.side_effect = [
             {"chat::openai::gpt-4::classifier::count": "5"},
             Exception("Redis error"),
         ]
@@ -594,7 +587,7 @@ class TestFlushUsageBuffer:
             "modules.analytics.llm_usage.repo.LLMUsageRepo",
             return_value=mock_repo,
         ):
-            result = await flush_usage_buffer(mock_redis_client, mock_postgres_pool)
+            result = await flush_usage_buffer(mock_cache, mock_relational_pool)
 
         # First processed, second error
         assert result == (1, 1)

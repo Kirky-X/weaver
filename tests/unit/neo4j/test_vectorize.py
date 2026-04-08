@@ -40,7 +40,7 @@ class TestVectorizeNodeBasic:
     async def test_vectorize_successful(self, mock_llm, sample_raw):
         """Test successful vectorization."""
         mock_embedding = [0.1] * 1536
-        mock_llm.embed = AsyncMock(return_value=[mock_embedding])
+        mock_llm.embed_default = AsyncMock(return_value=[mock_embedding])
 
         node = VectorizeNode(mock_llm)
         state = PipelineState(raw=sample_raw)
@@ -56,7 +56,7 @@ class TestVectorizeNodeBasic:
     @pytest.mark.asyncio
     async def test_vectorize_calls_embed_correctly(self, mock_llm, sample_raw):
         """Test that vectorize calls embed with correct text."""
-        mock_llm.embed = AsyncMock(return_value=[[0.1] * 1536])
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 1536])
 
         node = VectorizeNode(mock_llm)
         state = PipelineState(raw=sample_raw)
@@ -64,12 +64,12 @@ class TestVectorizeNodeBasic:
 
         await node.execute(state)
 
-        # Verify embed was called
-        mock_llm.embed.assert_called_once()
-        call_args = mock_llm.embed.call_args
+        # Verify embed_default was called
+        mock_llm.embed_default.assert_called_once()
+        call_args = mock_llm.embed_default.call_args
 
-        # embed(label, [text]) — second positional arg is the text list
-        text = call_args[0][1][0]
+        # embed_default([text]) — first positional arg is the text list
+        text = call_args[0][0][0]
         assert "Test Title" in text
         assert "Test Body" in text
 
@@ -77,7 +77,7 @@ class TestVectorizeNodeBasic:
     async def test_vectorize_truncates_body(self, mock_llm):
         """Test that vectorize truncates body to 2000 chars."""
         long_body = "A" * 3000
-        mock_llm.embed = AsyncMock(return_value=[[0.1] * 1536])
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 1536])
 
         raw = ArticleRaw(
             url="https://example.com/long",
@@ -95,8 +95,8 @@ class TestVectorizeNodeBasic:
         await node.execute(state)
 
         # Verify body was truncated
-        call_args = mock_llm.embed.call_args
-        text = call_args[0][1][0]
+        call_args = mock_llm.embed_default.call_args
+        text = call_args[0][0][0]
         # Title (4) + newline (1) + body[:2000] (2000) = 2005 chars max
         assert len(text) <= 2005
 
@@ -116,12 +116,12 @@ class TestVectorizeNodeEdgeCases:
 
         # Should return state unchanged
         assert "vectors" not in result
-        mock_llm.embed.assert_not_called()
+        mock_llm.embed_default.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_vectorize_with_short_content(self, mock_llm):
         """Test vectorization with very short content."""
-        mock_llm.embed = AsyncMock(return_value=[[0.1] * 1536])
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 1536])
 
         raw = ArticleRaw(
             url="https://example.com/short",
@@ -144,7 +144,7 @@ class TestVectorizeNodeEdgeCases:
     @pytest.mark.asyncio
     async def test_vectorize_with_empty_body(self, mock_llm, sample_raw):
         """Test vectorization with empty body."""
-        mock_llm.embed = AsyncMock(return_value=[[0.1] * 1536])
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 1536])
 
         node = VectorizeNode(mock_llm)
         state = PipelineState(raw=sample_raw)
@@ -162,7 +162,7 @@ class TestVectorizeNodeErrorHandling:
     @pytest.mark.asyncio
     async def test_vectorize_handles_embedding_error(self, mock_llm, sample_raw):
         """Test that vectorize handles embedding errors."""
-        mock_llm.embed = AsyncMock(side_effect=Exception("Embedding service unavailable"))
+        mock_llm.embed_default = AsyncMock(side_effect=Exception("Embedding service unavailable"))
 
         node = VectorizeNode(mock_llm)
         state = PipelineState(raw=sample_raw)
@@ -177,7 +177,7 @@ class TestVectorizeNodeErrorHandling:
         """Test that vectorize handles timeout errors."""
         import asyncio
 
-        mock_llm.embed = AsyncMock(side_effect=TimeoutError("Request timeout"))
+        mock_llm.embed_default = AsyncMock(side_effect=TimeoutError("Request timeout"))
 
         node = VectorizeNode(mock_llm)
         state = PipelineState(raw=sample_raw)
@@ -190,7 +190,7 @@ class TestVectorizeNodeErrorHandling:
     @pytest.mark.asyncio
     async def test_vectorize_handles_empty_embedding_result(self, mock_llm, sample_raw):
         """Test that vectorize handles empty embedding result."""
-        mock_llm.embed = AsyncMock(return_value=[])
+        mock_llm.embed_default = AsyncMock(return_value=[])
 
         node = VectorizeNode(mock_llm)
         state = PipelineState(raw=sample_raw)
@@ -207,7 +207,7 @@ class TestVectorizeNodeIntegration:
     @pytest.mark.asyncio
     async def test_vectorize_preserves_state(self, mock_llm, sample_raw):
         """Test that vectorize preserves existing state fields."""
-        mock_llm.embed = AsyncMock(return_value=[[0.2] * 1536])
+        mock_llm.embed_default = AsyncMock(return_value=[[0.2] * 1536])
 
         node = VectorizeNode(mock_llm)
         state = PipelineState(raw=sample_raw)
@@ -228,7 +228,7 @@ class TestVectorizeNodeIntegration:
     async def test_vectorize_with_different_embedding_dimensions(self, mock_llm, sample_raw):
         """Test vectorization with different embedding dimensions."""
         # Test with smaller embedding
-        mock_llm.embed = AsyncMock(return_value=[[0.1] * 512])
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 512])
 
         node = VectorizeNode(mock_llm)
         state = PipelineState(raw=sample_raw)
@@ -243,7 +243,7 @@ class TestVectorizeNodeIntegration:
         """Test that multiple vectorization calls are consistent."""
         embedding1 = [0.1] * 1536
         embedding2 = [0.2] * 1536
-        mock_llm.embed = AsyncMock(side_effect=[[embedding1], [embedding2]])
+        mock_llm.embed_default = AsyncMock(side_effect=[[embedding1], [embedding2]])
 
         node = VectorizeNode(mock_llm)
 

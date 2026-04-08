@@ -46,7 +46,7 @@ class TestPersistBatchSagaSuccess:
         return repo
 
     @pytest.fixture
-    def mock_neo4j_writer(self):
+    def mock_graph_writer(self):
         """Mock Neo4j writer."""
         writer = MagicMock()
         writer.write = AsyncMock(return_value=[str(uuid.uuid4())])
@@ -87,7 +87,7 @@ class TestPersistBatchSagaSuccess:
         mock_prompt_loader,
         mock_article_repo,
         mock_vector_repo,
-        mock_neo4j_writer,
+        mock_graph_writer,
         mock_states,
     ):
         """Test successful PostgreSQL + Neo4j persistence."""
@@ -96,7 +96,7 @@ class TestPersistBatchSagaSuccess:
             prompt_loader=mock_prompt_loader,
             vector_repo=mock_vector_repo,
             article_repo=mock_article_repo,
-            neo4j_writer=mock_neo4j_writer,
+            graph_writer=mock_graph_writer,
         )
 
         result = await node.persist_batch_saga(mock_states)
@@ -113,7 +113,7 @@ class TestPersistBatchSagaSuccess:
         assert mock_article_repo.update_persist_status.call_count == 6  # 3 PG_DONE + 3 NEO4J_DONE
 
         # Verify Phase 2: Neo4j persistence
-        assert mock_neo4j_writer.write.call_count == 3
+        assert mock_graph_writer.write.call_count == 3
 
         # Verify no compensation
         mock_article_repo.delete.assert_not_called()
@@ -190,7 +190,7 @@ class TestPersistBatchSagaPhase1Failure:
         return repo
 
     @pytest.fixture
-    def mock_neo4j_writer(self):
+    def mock_graph_writer(self):
         """Mock Neo4j writer."""
         writer = MagicMock()
         writer.write = AsyncMock(return_value=[str(uuid.uuid4())])
@@ -225,7 +225,7 @@ class TestPersistBatchSagaPhase1Failure:
         mock_llm,
         mock_prompt_loader,
         mock_article_repo,
-        mock_neo4j_writer,
+        mock_graph_writer,
         mock_states,
     ):
         """Test PostgreSQL failure in Phase 1."""
@@ -233,7 +233,7 @@ class TestPersistBatchSagaPhase1Failure:
             llm=mock_llm,
             prompt_loader=mock_prompt_loader,
             article_repo=mock_article_repo,
-            neo4j_writer=mock_neo4j_writer,
+            graph_writer=mock_graph_writer,
         )
 
         result = await node.persist_batch_saga(mock_states)
@@ -249,7 +249,7 @@ class TestPersistBatchSagaPhase1Failure:
         mock_article_repo.bulk_upsert.assert_called_once()
 
         # Verify Phase 2 was not attempted
-        mock_neo4j_writer.write.assert_not_called()
+        mock_graph_writer.write.assert_not_called()
 
         # Verify no compensation (nothing to compensate)
         mock_article_repo.delete.assert_not_called()
@@ -307,7 +307,7 @@ class TestPersistBatchSagaPhase2Failure:
         return repo
 
     @pytest.fixture
-    def mock_neo4j_writer(self):
+    def mock_graph_writer(self):
         """Mock Neo4j writer that fails."""
         writer = MagicMock()
         writer.write = AsyncMock(side_effect=Exception("Neo4j connection failed"))
@@ -348,7 +348,7 @@ class TestPersistBatchSagaPhase2Failure:
         mock_prompt_loader,
         mock_article_repo,
         mock_vector_repo,
-        mock_neo4j_writer,
+        mock_graph_writer,
         mock_states,
     ):
         """Test Neo4j failure triggers compensation transaction."""
@@ -357,7 +357,7 @@ class TestPersistBatchSagaPhase2Failure:
             prompt_loader=mock_prompt_loader,
             vector_repo=mock_vector_repo,
             article_repo=mock_article_repo,
-            neo4j_writer=mock_neo4j_writer,
+            graph_writer=mock_graph_writer,
         )
 
         result = await node.persist_batch_saga(mock_states)
@@ -373,7 +373,7 @@ class TestPersistBatchSagaPhase2Failure:
         mock_article_repo.bulk_upsert.assert_called_once()
 
         # Verify Phase 2 was attempted
-        assert mock_neo4j_writer.write.call_count == 2
+        assert mock_graph_writer.write.call_count == 2
 
         # Verify compensation: delete called for each failed article
         assert mock_article_repo.delete.call_count == 2
@@ -397,15 +397,15 @@ class TestPersistBatchSagaPhase2Failure:
                 raise Exception("Neo4j failed on second article")
             return [str(uuid.uuid4())]
 
-        neo4j_writer = MagicMock()
-        neo4j_writer.write = partial_fail
+        graph_writer = MagicMock()
+        graph_writer.write = partial_fail
 
         node = BatchMergerNode(
             llm=mock_llm,
             prompt_loader=mock_prompt_loader,
             vector_repo=mock_vector_repo,
             article_repo=mock_article_repo,
-            neo4j_writer=neo4j_writer,
+            graph_writer=graph_writer,
         )
 
         result = await node.persist_batch_saga(mock_states)
@@ -453,7 +453,7 @@ class TestPersistBatchSagaCompensationFailure:
         return repo
 
     @pytest.fixture
-    def mock_neo4j_writer(self):
+    def mock_graph_writer(self):
         """Mock Neo4j writer that fails."""
         writer = MagicMock()
         writer.write = AsyncMock(side_effect=Exception("Neo4j connection failed"))
@@ -494,7 +494,7 @@ class TestPersistBatchSagaCompensationFailure:
         mock_prompt_loader,
         mock_article_repo,
         mock_vector_repo,
-        mock_neo4j_writer,
+        mock_graph_writer,
         mock_states,
     ):
         """Test compensation failure is logged but doesn't crash."""
@@ -503,7 +503,7 @@ class TestPersistBatchSagaCompensationFailure:
             prompt_loader=mock_prompt_loader,
             vector_repo=mock_vector_repo,
             article_repo=mock_article_repo,
-            neo4j_writer=mock_neo4j_writer,
+            graph_writer=mock_graph_writer,
         )
 
         # Should not raise exception even if compensation fails
@@ -542,7 +542,7 @@ class TestPersistBatchSagaIdempotency:
         return repo
 
     @pytest.fixture
-    def mock_neo4j_writer(self):
+    def mock_graph_writer(self):
         """Mock Neo4j writer."""
         writer = MagicMock()
         writer.write = AsyncMock(return_value=[str(uuid.uuid4())])
@@ -582,7 +582,7 @@ class TestPersistBatchSagaIdempotency:
         mock_llm,
         mock_prompt_loader,
         mock_article_repo,
-        mock_neo4j_writer,
+        mock_graph_writer,
         mock_states,
     ):
         """Test saga skips duplicate articles."""
@@ -597,7 +597,7 @@ class TestPersistBatchSagaIdempotency:
             llm=mock_llm,
             prompt_loader=mock_prompt_loader,
             article_repo=mock_article_repo,
-            neo4j_writer=mock_neo4j_writer,
+            graph_writer=mock_graph_writer,
         )
 
         result = await node.persist_batch_saga(mock_states)
@@ -617,7 +617,7 @@ class TestPersistBatchSagaIdempotency:
         mock_llm,
         mock_prompt_loader,
         mock_article_repo,
-        mock_neo4j_writer,
+        mock_graph_writer,
         mock_states,
     ):
         """Test saga when all articles are duplicates."""
@@ -629,7 +629,7 @@ class TestPersistBatchSagaIdempotency:
             llm=mock_llm,
             prompt_loader=mock_prompt_loader,
             article_repo=mock_article_repo,
-            neo4j_writer=mock_neo4j_writer,
+            graph_writer=mock_graph_writer,
         )
 
         result = await node.persist_batch_saga(mock_states)
@@ -643,7 +643,7 @@ class TestPersistBatchSagaIdempotency:
 
         # No persistence operations
         mock_article_repo.bulk_upsert.assert_not_called()
-        mock_neo4j_writer.write.assert_not_called()
+        mock_graph_writer.write.assert_not_called()
 
 
 class TestPersistBatchSagaVectorPersistence:
@@ -678,7 +678,7 @@ class TestPersistBatchSagaVectorPersistence:
         return repo
 
     @pytest.fixture
-    def mock_neo4j_writer(self):
+    def mock_graph_writer(self):
         """Mock Neo4j writer."""
         writer = MagicMock()
         writer.write = AsyncMock(return_value=[str(uuid.uuid4())])
@@ -691,7 +691,7 @@ class TestPersistBatchSagaVectorPersistence:
         mock_prompt_loader,
         mock_article_repo,
         mock_vector_repo,
-        mock_neo4j_writer,
+        mock_graph_writer,
     ):
         """Test saga persists vectors when available."""
         # Create state with vectors
@@ -721,7 +721,7 @@ class TestPersistBatchSagaVectorPersistence:
             prompt_loader=mock_prompt_loader,
             vector_repo=mock_vector_repo,
             article_repo=mock_article_repo,
-            neo4j_writer=mock_neo4j_writer,
+            graph_writer=mock_graph_writer,
         )
 
         result = await node.persist_batch_saga([state])
@@ -747,7 +747,7 @@ class TestPersistBatchSagaVectorPersistence:
         mock_llm,
         mock_prompt_loader,
         mock_article_repo,
-        mock_neo4j_writer,
+        mock_graph_writer,
     ):
         """Test saga handles states without vectors."""
         # Create state without vectors
@@ -771,7 +771,7 @@ class TestPersistBatchSagaVectorPersistence:
             llm=mock_llm,
             prompt_loader=mock_prompt_loader,
             article_repo=mock_article_repo,
-            neo4j_writer=mock_neo4j_writer,
+            graph_writer=mock_graph_writer,
         )
 
         result = await node.persist_batch_saga([state])
@@ -786,7 +786,7 @@ class TestPersistBatchSagaVectorPersistence:
         mock_llm,
         mock_prompt_loader,
         mock_article_repo,
-        mock_neo4j_writer,
+        mock_graph_writer,
     ):
         """Test saga handles malformed vector data gracefully."""
         # Create state with malformed vectors
@@ -814,7 +814,7 @@ class TestPersistBatchSagaVectorPersistence:
             llm=mock_llm,
             prompt_loader=mock_prompt_loader,
             article_repo=mock_article_repo,
-            neo4j_writer=mock_neo4j_writer,
+            graph_writer=mock_graph_writer,
         )
 
         result = await node.persist_batch_saga([state])
@@ -850,7 +850,7 @@ class TestPersistBatchSagaStatusUpdates:
         return repo
 
     @pytest.fixture
-    def mock_neo4j_writer(self):
+    def mock_graph_writer(self):
         """Mock Neo4j writer."""
         writer = MagicMock()
         writer.write = AsyncMock(return_value=[str(uuid.uuid4())])
@@ -890,7 +890,7 @@ class TestPersistBatchSagaStatusUpdates:
         mock_llm,
         mock_prompt_loader,
         mock_article_repo,
-        mock_neo4j_writer,
+        mock_graph_writer,
         mock_states,
     ):
         """Test saga updates status to PG_DONE after Phase 1."""
@@ -898,7 +898,7 @@ class TestPersistBatchSagaStatusUpdates:
             llm=mock_llm,
             prompt_loader=mock_prompt_loader,
             article_repo=mock_article_repo,
-            neo4j_writer=mock_neo4j_writer,
+            graph_writer=mock_graph_writer,
         )
 
         await node.persist_batch_saga(mock_states)
@@ -917,7 +917,7 @@ class TestPersistBatchSagaStatusUpdates:
         mock_llm,
         mock_prompt_loader,
         mock_article_repo,
-        mock_neo4j_writer,
+        mock_graph_writer,
         mock_states,
     ):
         """Test saga updates status to NEO4J_DONE after Phase 2."""
@@ -925,7 +925,7 @@ class TestPersistBatchSagaStatusUpdates:
             llm=mock_llm,
             prompt_loader=mock_prompt_loader,
             article_repo=mock_article_repo,
-            neo4j_writer=mock_neo4j_writer,
+            graph_writer=mock_graph_writer,
         )
 
         await node.persist_batch_saga(mock_states)
@@ -944,7 +944,7 @@ class TestPersistBatchSagaStatusUpdates:
         mock_llm,
         mock_prompt_loader,
         mock_article_repo,
-        mock_neo4j_writer,
+        mock_graph_writer,
         mock_states,
     ):
         """Test saga marks articles as failed on Phase 1 error."""
@@ -955,7 +955,7 @@ class TestPersistBatchSagaStatusUpdates:
             llm=mock_llm,
             prompt_loader=mock_prompt_loader,
             article_repo=mock_article_repo,
-            neo4j_writer=mock_neo4j_writer,
+            graph_writer=mock_graph_writer,
         )
 
         await node.persist_batch_saga(mock_states)
@@ -1026,7 +1026,7 @@ class TestPersistBatchSagaIntegration:
             llm=mock_llm,
             prompt_loader=mock_prompt_loader,
             article_repo=article_repo,
-            neo4j_writer=None,  # No Neo4j writer
+            graph_writer=None,  # No Neo4j writer
         )
 
         result = await node.persist_batch_saga(mock_states)
@@ -1049,15 +1049,15 @@ class TestPersistBatchSagaIntegration:
         article_repo.bulk_upsert = AsyncMock(return_value=[uuid.uuid4() for _ in range(3)])
         article_repo.update_persist_status = AsyncMock()
 
-        neo4j_writer = MagicMock()
-        neo4j_writer.write = AsyncMock(return_value=[str(uuid.uuid4())])
+        graph_writer = MagicMock()
+        graph_writer.write = AsyncMock(return_value=[str(uuid.uuid4())])
 
         node = BatchMergerNode(
             llm=mock_llm,
             prompt_loader=mock_prompt_loader,
             vector_repo=None,  # No vector repo
             article_repo=article_repo,
-            neo4j_writer=neo4j_writer,
+            graph_writer=graph_writer,
         )
 
         result = await node.persist_batch_saga(mock_states)

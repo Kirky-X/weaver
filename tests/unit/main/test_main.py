@@ -43,8 +43,8 @@ def mock_container(mock_settings):
     container.shutdown = AsyncMock()
 
     # Mock all the pool/client/repo accessors
-    container.postgres_pool = MagicMock()
-    container.neo4j_pool = MagicMock()
+    container.relational_pool = MagicMock()
+    container.graph_pool = MagicMock()
     container.redis_client = MagicMock()
     container.llm_client = MagicMock()
     container.source_scheduler = MagicMock()

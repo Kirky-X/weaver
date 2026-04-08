@@ -28,18 +28,18 @@ class TestRetryQueue:
     @pytest.fixture
     def retry_queue(self, mock_redis):
         """Create retry queue instance."""
-        return RetryQueue(redis=mock_redis)
+        return RetryQueue(cache=mock_redis)
 
     def test_initialization(self, mock_redis):
         """Test retry queue initializes correctly."""
-        queue = RetryQueue(redis=mock_redis)
-        assert queue._redis is mock_redis
+        queue = RetryQueue(cache=mock_redis)
+        assert queue._cache is mock_redis
         assert queue._max_retries == 3
         assert queue._base_delay == 60.0
 
     def test_initialization_custom_params(self, mock_redis):
         """Test retry queue with custom parameters."""
-        queue = RetryQueue(redis=mock_redis, max_retries=5, base_delay=30.0)
+        queue = RetryQueue(cache=mock_redis, max_retries=5, base_delay=30.0)
         assert queue._max_retries == 5
         assert queue._base_delay == 30.0
 
@@ -183,7 +183,7 @@ class TestRetryQueue:
     @pytest.mark.asyncio
     async def test_max_retries_boundary(self, mock_redis):
         """Test max retries boundary conditions."""
-        queue = RetryQueue(redis=mock_redis, max_retries=3)
+        queue = RetryQueue(cache=mock_redis, max_retries=3)
 
         await queue.enqueue(url="https://example.com/article", host="example.com", attempt=2)
         mock_redis.zadd.assert_called_once()

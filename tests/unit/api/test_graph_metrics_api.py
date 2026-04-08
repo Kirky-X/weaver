@@ -110,7 +110,7 @@ class TestGraphMetricsEndpoint:
         """Test health view returns health summary."""
         from api.endpoints.graph_metrics import get_graph_metrics
 
-        mock_neo4j = AsyncMock()
+        mock_graph_pool = AsyncMock()
 
         with patch("api.endpoints.graph_metrics.GraphQualityMetrics") as mock_metrics_class:
             mock_metrics = AsyncMock()
@@ -129,7 +129,7 @@ class TestGraphMetricsEndpoint:
             mock_metrics_class.return_value = mock_metrics
 
             result = await get_graph_metrics(
-                view="health", include=None, _="test-key", neo4j=mock_neo4j
+                view="health", include=None, _="test-key", graph_pool=mock_graph_pool
             )
 
         assert result.data.health_score == 85.0
@@ -140,9 +140,9 @@ class TestGraphMetricsEndpoint:
         """Test full view returns complete metrics."""
         from api.endpoints.graph_metrics import get_graph_metrics
 
-        mock_neo4j = AsyncMock()
+        mock_graph_pool = AsyncMock()
 
-        with patch("api.endpoints.graph_metrics.get_redis_client", return_value=None):
+        with patch("api.endpoints.graph_metrics.get_cache_client", return_value=None):
             with patch("api.endpoints.graph_metrics.GraphQualityMetrics") as mock_metrics_class:
                 from datetime import UTC, datetime
 
@@ -165,7 +165,7 @@ class TestGraphMetricsEndpoint:
                 mock_metrics_class.return_value = mock_metrics
 
                 result = await get_graph_metrics(
-                    view="full", include=None, _="test-key", neo4j=mock_neo4j
+                    view="full", include=None, _="test-key", graph_pool=mock_graph_pool
                 )
 
         assert result.data.total_entities == 1000
@@ -176,7 +176,7 @@ class TestGraphMetricsEndpoint:
         """Test community view returns community metrics."""
         from api.endpoints.graph_metrics import get_graph_metrics
 
-        mock_neo4j = AsyncMock()
+        mock_graph_pool = AsyncMock()
 
         with patch("modules.knowledge.graph.community_repo.Neo4jCommunityRepo") as mock_repo_class:
             mock_repo = AsyncMock()
@@ -194,7 +194,7 @@ class TestGraphMetricsEndpoint:
             mock_repo_class.return_value = mock_repo
 
             result = await get_graph_metrics(
-                view="community", include=None, _="test-key", neo4j=mock_neo4j
+                view="community", include=None, _="test-key", graph_pool=mock_graph_pool
             )
 
         assert result.data.total_communities == 100
@@ -207,9 +207,11 @@ class TestGraphMetricsEndpoint:
 
         from api.endpoints.graph_metrics import get_graph_metrics
 
-        mock_neo4j = AsyncMock()
+        mock_graph_pool = AsyncMock()
 
         with pytest.raises(HTTPException) as exc_info:
-            await get_graph_metrics(view="invalid", include=None, _="test-key", neo4j=mock_neo4j)
+            await get_graph_metrics(
+                view="invalid", include=None, _="test-key", graph_pool=mock_graph_pool
+            )
 
         assert exc_info.value.status_code == 400

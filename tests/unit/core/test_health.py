@@ -206,16 +206,16 @@ class TestHealthCheck:
     def reset_global_pools(self):
         """Reset Endpoints pool references before and after each test."""
         # Reset before test
-        Endpoints._postgres = None
-        Endpoints._neo4j = None
-        Endpoints._redis = None
+        Endpoints._relational_pool = None
+        Endpoints._graph_pool = None
+        Endpoints._cache = None
 
         yield
 
         # Reset after test
-        Endpoints._postgres = None
-        Endpoints._neo4j = None
-        Endpoints._redis = None
+        Endpoints._relational_pool = None
+        Endpoints._graph_pool = None
+        Endpoints._cache = None
 
     @pytest.fixture
     def mock_postgres_pool(self):
@@ -246,9 +246,9 @@ class TestHealthCheck:
     @pytest.mark.asyncio
     async def test_all_healthy(self, mock_postgres_pool, mock_neo4j_pool, mock_redis_client):
         """Test health check when all dependencies are healthy."""
-        Endpoints._postgres = mock_postgres_pool
-        Endpoints._neo4j = mock_neo4j_pool
-        Endpoints._redis = mock_redis_client
+        Endpoints._relational_pool = mock_postgres_pool
+        Endpoints._graph_pool = mock_neo4j_pool
+        Endpoints._cache = mock_redis_client
 
         result = await health_check()
 
@@ -269,9 +269,9 @@ class TestHealthCheck:
         async_context.__aexit__ = AsyncMock(return_value=None)
         mock_postgres_pool.session_context = MagicMock(return_value=async_context)
 
-        Endpoints._postgres = mock_postgres_pool
-        Endpoints._neo4j = mock_neo4j_pool
-        Endpoints._redis = mock_redis_client
+        Endpoints._relational_pool = mock_postgres_pool
+        Endpoints._graph_pool = mock_neo4j_pool
+        Endpoints._cache = mock_redis_client
 
         result = await health_check()
 
@@ -285,9 +285,9 @@ class TestHealthCheck:
         """Test health check when Neo4j is unhealthy."""
         mock_neo4j_pool.execute_query = AsyncMock(side_effect=Exception("ServiceUnavailable"))
 
-        Endpoints._postgres = mock_postgres_pool
-        Endpoints._neo4j = mock_neo4j_pool
-        Endpoints._redis = mock_redis_client
+        Endpoints._relational_pool = mock_postgres_pool
+        Endpoints._graph_pool = mock_neo4j_pool
+        Endpoints._cache = mock_redis_client
 
         result = await health_check()
 
@@ -301,9 +301,9 @@ class TestHealthCheck:
         """Test health check when Redis is unhealthy."""
         mock_redis_client.ping = AsyncMock(side_effect=Exception("Connection refused"))
 
-        Endpoints._postgres = mock_postgres_pool
-        Endpoints._neo4j = mock_neo4j_pool
-        Endpoints._redis = mock_redis_client
+        Endpoints._relational_pool = mock_postgres_pool
+        Endpoints._graph_pool = mock_neo4j_pool
+        Endpoints._cache = mock_redis_client
 
         result = await health_check()
 
@@ -326,9 +326,9 @@ class TestHealthCheck:
         mock_neo4j_pool.execute_query = AsyncMock(side_effect=Exception("Failed"))
         mock_redis_client.ping = AsyncMock(side_effect=Exception("Failed"))
 
-        Endpoints._postgres = mock_postgres_pool
-        Endpoints._neo4j = mock_neo4j_pool
-        Endpoints._redis = mock_redis_client
+        Endpoints._relational_pool = mock_postgres_pool
+        Endpoints._graph_pool = mock_neo4j_pool
+        Endpoints._cache = mock_redis_client
 
         result = await health_check()
 
@@ -353,8 +353,8 @@ class TestHealthCheck:
     @pytest.mark.asyncio
     async def test_partial_pools_initialized(self, mock_neo4j_pool, mock_redis_client):
         """Test health check when only some pools are initialized."""
-        Endpoints._neo4j = mock_neo4j_pool
-        Endpoints._redis = mock_redis_client
+        Endpoints._graph_pool = mock_neo4j_pool
+        Endpoints._cache = mock_redis_client
         # PostgreSQL pool not set
 
         result = await health_check()
@@ -378,9 +378,9 @@ class TestHealthCheck:
         mock_neo4j_pool.execute_query = AsyncMock(side_effect=TimeoutError())
         mock_redis_client.ping = AsyncMock(side_effect=TimeoutError())
 
-        Endpoints._postgres = mock_postgres_pool
-        Endpoints._neo4j = mock_neo4j_pool
-        Endpoints._redis = mock_redis_client
+        Endpoints._relational_pool = mock_postgres_pool
+        Endpoints._graph_pool = mock_neo4j_pool
+        Endpoints._cache = mock_redis_client
 
         result = await health_check()
 
@@ -407,9 +407,9 @@ class TestHealthCheck:
 
         # Redis: healthy (default)
 
-        Endpoints._postgres = mock_postgres_pool
-        Endpoints._neo4j = mock_neo4j_pool
-        Endpoints._redis = mock_redis_client
+        Endpoints._relational_pool = mock_postgres_pool
+        Endpoints._graph_pool = mock_neo4j_pool
+        Endpoints._cache = mock_redis_client
 
         result = await health_check()
 
@@ -423,9 +423,9 @@ class TestHealthCheck:
         self, mock_postgres_pool, mock_neo4j_pool, mock_redis_client
     ):
         """Test that latency is measured for all dependency checks."""
-        Endpoints._postgres = mock_postgres_pool
-        Endpoints._neo4j = mock_neo4j_pool
-        Endpoints._redis = mock_redis_client
+        Endpoints._relational_pool = mock_postgres_pool
+        Endpoints._graph_pool = mock_neo4j_pool
+        Endpoints._cache = mock_redis_client
 
         result = await health_check()
 
@@ -451,9 +451,9 @@ class TestHealthCheck:
         mock_neo4j_pool.execute_query = AsyncMock(side_effect=Exception("Neo4j connection failed"))
         mock_redis_client.ping = AsyncMock(side_effect=Exception("Redis connection failed"))
 
-        Endpoints._postgres = mock_postgres_pool
-        Endpoints._neo4j = mock_neo4j_pool
-        Endpoints._redis = mock_redis_client
+        Endpoints._relational_pool = mock_postgres_pool
+        Endpoints._graph_pool = mock_neo4j_pool
+        Endpoints._cache = mock_redis_client
 
         result = await health_check()
 
@@ -468,45 +468,45 @@ class TestGlobalPoolSetters:
     def test_set_postgres_pool(self):
         """Test setting PostgreSQL pool via Endpoints."""
         mock_pool = MagicMock(spec=PostgresPool)
-        Endpoints._postgres = mock_pool
+        Endpoints._relational_pool = mock_pool
 
-        assert Endpoints._postgres is mock_pool
+        assert Endpoints._relational_pool is mock_pool
 
         # Cleanup
-        Endpoints._postgres = None
+        Endpoints._relational_pool = None
 
     def test_set_neo4j_pool(self):
         """Test setting Neo4j pool via Endpoints."""
         mock_pool = MagicMock(spec=Neo4jPool)
-        Endpoints._neo4j = mock_pool
+        Endpoints._graph_pool = mock_pool
 
-        assert Endpoints._neo4j is mock_pool
+        assert Endpoints._graph_pool is mock_pool
 
         # Cleanup
-        Endpoints._neo4j = None
+        Endpoints._graph_pool = None
 
     def test_set_redis_client(self):
         """Test setting Redis client via Endpoints."""
         mock_client = MagicMock(spec=RedisClient)
-        Endpoints._redis = mock_client
+        Endpoints._cache = mock_client
 
-        assert Endpoints._redis is mock_client
+        assert Endpoints._cache is mock_client
 
         # Cleanup
-        Endpoints._redis = None
+        Endpoints._cache = None
 
     def test_set_pools_to_none(self):
         """Test setting pool references to None."""
         # First set to mock
-        Endpoints._postgres = MagicMock(spec=PostgresPool)
-        Endpoints._neo4j = MagicMock(spec=Neo4jPool)
-        Endpoints._redis = MagicMock(spec=RedisClient)
+        Endpoints._relational_pool = MagicMock(spec=PostgresPool)
+        Endpoints._graph_pool = MagicMock(spec=Neo4jPool)
+        Endpoints._cache = MagicMock(spec=RedisClient)
 
         # Then set to None
-        Endpoints._postgres = None
-        Endpoints._neo4j = None
-        Endpoints._redis = None
+        Endpoints._relational_pool = None
+        Endpoints._graph_pool = None
+        Endpoints._cache = None
 
-        assert Endpoints._postgres is None
-        assert Endpoints._neo4j is None
-        assert Endpoints._redis is None
+        assert Endpoints._relational_pool is None
+        assert Endpoints._graph_pool is None
+        assert Endpoints._cache is None

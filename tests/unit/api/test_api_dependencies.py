@@ -45,66 +45,64 @@ class TestGetContainer:
 class TestEndpointsDependencyRegistry:
     """Tests for Endpoints class dependency registry."""
 
-    def test_get_postgres_pool_returns_when_set(self):
-        """Test get_postgres_pool returns pool when set."""
+    def test_get_relational_pool_returns_when_set(self):
+        """Test get_relational_pool returns pool when set."""
         from api.endpoints._deps import Endpoints
 
         mock_pool = MagicMock()
-        Endpoints._postgres = mock_pool
-        with pytest.warns(DeprecationWarning, match="Use Depends"):
-            result = Endpoints.get_postgres_pool()
+        Endpoints._relational_pool = mock_pool
+        result = Endpoints.get_relational_pool()
         assert result == mock_pool
         # Cleanup
-        Endpoints._postgres = None
+        Endpoints._relational_pool = None
 
-    def test_get_postgres_pool_raises_when_not_set(self):
-        """Test get_postgres_pool raises HTTPException when not set."""
+    def test_get_relational_pool_raises_when_not_set(self):
+        """Test get_relational_pool raises HTTPException when not set."""
         from api.endpoints._deps import Endpoints
 
-        Endpoints._postgres = None
-        with pytest.warns(DeprecationWarning, match="Use Depends"):
-            with pytest.raises(HTTPException) as exc_info:
-                Endpoints.get_postgres_pool()
+        Endpoints._relational_pool = None
+        with pytest.raises(HTTPException) as exc_info:
+            Endpoints.get_relational_pool()
         assert exc_info.value.status_code == 503
 
-    def test_get_neo4j_pool_returns_when_set(self):
-        """Test get_neo4j_pool returns pool when set."""
+    def test_get_graph_pool_returns_when_set(self):
+        """Test get_graph_pool returns pool when set."""
         from api.endpoints._deps import Endpoints
 
         mock_pool = MagicMock()
-        Endpoints._neo4j = mock_pool
-        result = Endpoints.get_neo4j_pool()
+        Endpoints._graph_pool = mock_pool
+        result = Endpoints.get_graph_pool()
         assert result == mock_pool
         # Cleanup
-        Endpoints._neo4j = None
+        Endpoints._graph_pool = None
 
-    def test_get_neo4j_pool_raises_when_not_set(self):
-        """Test get_neo4j_pool raises HTTPException when not set."""
+    def test_get_graph_pool_raises_when_not_set(self):
+        """Test get_graph_pool raises HTTPException when not set."""
         from api.endpoints._deps import Endpoints
 
-        Endpoints._neo4j = None
+        Endpoints._graph_pool = None
         with pytest.raises(HTTPException) as exc_info:
-            Endpoints.get_neo4j_pool()
+            Endpoints.get_graph_pool()
         assert exc_info.value.status_code == 503
 
-    def test_get_redis_returns_when_set(self):
-        """Test get_redis returns client when set."""
+    def test_get_cache_returns_when_set(self):
+        """Test get_cache returns client when set."""
         from api.endpoints._deps import Endpoints
 
-        mock_redis = MagicMock()
-        Endpoints._redis = mock_redis
-        result = Endpoints.get_redis()
-        assert result == mock_redis
+        mock_cache = MagicMock()
+        Endpoints._cache = mock_cache
+        result = Endpoints.get_cache()
+        assert result == mock_cache
         # Cleanup
-        Endpoints._redis = None
+        Endpoints._cache = None
 
-    def test_get_redis_raises_when_not_set(self):
-        """Test get_redis raises HTTPException when not set."""
+    def test_get_cache_raises_when_not_set(self):
+        """Test get_cache raises HTTPException when not set."""
         from api.endpoints._deps import Endpoints
 
-        Endpoints._redis = None
+        Endpoints._cache = None
         with pytest.raises(HTTPException) as exc_info:
-            Endpoints.get_redis()
+            Endpoints.get_cache()
         assert exc_info.value.status_code == 503
 
     def test_get_llm_returns_when_set(self):
@@ -211,31 +209,31 @@ class TestEndpointsDependencyRegistry:
 class TestDependencyFunctions:
     """Tests for dependency functions in api/dependencies.py."""
 
-    def test_get_postgres_pool_delegates_to_endpoints(self):
-        """Test get_postgres_pool delegates to Endpoints."""
-        from api.dependencies import get_postgres_pool
+    def test_get_relational_pool_delegates_to_endpoints(self):
+        """Test get_relational_pool delegates to Endpoints."""
+        from api.dependencies import get_relational_pool
 
         mock_pool = MagicMock()
-        with patch("api.dependencies.Endpoints.get_postgres_pool", return_value=mock_pool):
-            result = get_postgres_pool()
+        with patch("api.dependencies.Endpoints.get_relational_pool", return_value=mock_pool):
+            result = get_relational_pool()
             assert result == mock_pool
 
-    def test_get_redis_client_delegates_to_endpoints(self):
-        """Test get_redis_client delegates to Endpoints."""
-        from api.dependencies import get_redis_client
+    def test_get_cache_client_delegates_to_endpoints(self):
+        """Test get_cache_client delegates to Endpoints."""
+        from api.dependencies import get_cache_client
 
-        mock_redis = MagicMock()
-        with patch("api.dependencies.Endpoints.get_redis", return_value=mock_redis):
-            result = get_redis_client()
-            assert result == mock_redis
+        mock_cache = MagicMock()
+        with patch("api.dependencies.Endpoints.get_cache", return_value=mock_cache):
+            result = get_cache_client()
+            assert result == mock_cache
 
-    def test_get_neo4j_pool_delegates_to_endpoints(self):
-        """Test get_neo4j_pool delegates to Endpoints."""
-        from api.dependencies import get_neo4j_pool
+    def test_get_graph_pool_delegates_to_endpoints(self):
+        """Test get_graph_pool delegates to Endpoints."""
+        from api.dependencies import get_graph_pool
 
         mock_pool = MagicMock()
-        with patch("api.dependencies.Endpoints.get_neo4j_pool", return_value=mock_pool):
-            result = get_neo4j_pool()
+        with patch("api.dependencies.Endpoints.get_graph_pool", return_value=mock_pool):
+            result = get_graph_pool()
             assert result == mock_pool
 
     def test_get_llm_client_delegates_to_endpoints(self):
@@ -317,14 +315,13 @@ class TestTypeAliases:
     def test_type_aliases_exist(self):
         """Test that all type aliases are defined."""
         from api.dependencies import (
-            ArticleRepoDep,
+            CachePoolDep,
             GlobalSearchEngineDep,
+            GraphPoolDep,
             HybridSearchEngineDep,
             LLMClientDep,
             LocalSearchEngineDep,
-            Neo4jPoolDep,
-            PostgresPoolDep,
-            RedisClientDep,
+            RelationalPoolDep,
             SourceAuthorityRepoDep,
             SourceConfigRepoDep,
             SourceSchedulerDep,
@@ -332,34 +329,17 @@ class TestTypeAliases:
         )
 
         # Type aliases should be Annotated types
-        assert PostgresPoolDep is not None
-        assert RedisClientDep is not None
-        assert Neo4jPoolDep is not None
+        assert RelationalPoolDep is not None
+        assert CachePoolDep is not None
+        assert GraphPoolDep is not None
         assert LLMClientDep is not None
         assert VectorRepoDep is not None
-        assert ArticleRepoDep is not None
         assert LocalSearchEngineDep is not None
         assert GlobalSearchEngineDep is not None
         assert HybridSearchEngineDep is not None
         assert SourceSchedulerDep is not None
         assert SourceConfigRepoDep is not None
         assert SourceAuthorityRepoDep is not None
-
-
-class TestGetArticleRepo:
-    """Tests for get_article_repo factory dependency."""
-
-    def test_get_article_repo_creates_instance(self):
-        """Test get_article_repo creates ArticleRepo with injected pool."""
-        from api.dependencies import get_article_repo
-
-        mock_pool = MagicMock()
-
-        with patch("api.dependencies.get_postgres_pool", return_value=mock_pool):
-            result = get_article_repo(mock_pool)
-            assert result is not None
-            # ArticleRepo should have the pool
-            assert result._pool == mock_pool
 
 
 class TestDependencyErrorHandling:
@@ -370,9 +350,9 @@ class TestDependencyErrorHandling:
         from api.endpoints._deps import Endpoints
 
         # Reset all to None
-        Endpoints._postgres = None
-        Endpoints._neo4j = None
-        Endpoints._redis = None
+        Endpoints._relational_pool = None
+        Endpoints._graph_pool = None
+        Endpoints._cache = None
         Endpoints._llm = None
         Endpoints._local_engine = None
         Endpoints._global_engine = None
@@ -386,8 +366,9 @@ class TestDependencyErrorHandling:
 
         # All getters should raise HTTPException with 503
         getters = [
-            Endpoints.get_neo4j_pool,
-            Endpoints.get_redis,
+            Endpoints.get_relational_pool,
+            Endpoints.get_graph_pool,
+            Endpoints.get_cache,
             Endpoints.get_llm,
             Endpoints.get_local_engine,
             Endpoints.get_global_engine,
@@ -403,12 +384,6 @@ class TestDependencyErrorHandling:
         for getter in getters:
             with pytest.raises(HTTPException) as exc_info:
                 getter()
-            assert exc_info.value.status_code == 503
-
-        # get_postgres_pool is deprecated, test separately with warning
-        with pytest.warns(DeprecationWarning, match="Use Depends"):
-            with pytest.raises(HTTPException) as exc_info:
-                Endpoints.get_postgres_pool()
             assert exc_info.value.status_code == 503
 
 

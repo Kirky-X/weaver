@@ -344,9 +344,8 @@ class TestPipelineEndpoint:
         """Test POST /pipeline/trigger with specific source."""
         from api.endpoints.pipeline import TriggerRequest, trigger_pipeline
 
-        mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.hset = AsyncMock()
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
 
         mock_scheduler = MagicMock()
         mock_scheduler.trigger_now = AsyncMock()
@@ -360,7 +359,7 @@ class TestPipelineEndpoint:
             result = await trigger_pipeline(
                 request=request,
                 _="test-key",
-                redis=mock_redis,
+                cache=mock_cache,
                 scheduler=mock_scheduler,
             )
 
@@ -376,9 +375,8 @@ class TestPipelineEndpoint:
         """Test POST /pipeline/trigger for all enabled sources."""
         from api.endpoints.pipeline import TriggerRequest, trigger_pipeline
 
-        mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.hset = AsyncMock()
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
 
         mock_source1 = MagicMock()
         mock_source1.id = "source-1"
@@ -399,7 +397,7 @@ class TestPipelineEndpoint:
             result = await trigger_pipeline(
                 request=request,
                 _="test-key",
-                redis=mock_redis,
+                cache=mock_cache,
                 scheduler=mock_scheduler,
             )
 
@@ -410,9 +408,8 @@ class TestPipelineEndpoint:
         """Test POST /pipeline/trigger handles errors."""
         from api.endpoints.pipeline import TriggerRequest, trigger_pipeline
 
-        mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.hset = AsyncMock()
+        mock_cache = MagicMock()
+        mock_cache.hset = AsyncMock()
 
         mock_scheduler = MagicMock()
         mock_scheduler.trigger_now = AsyncMock(side_effect=Exception("Connection failed"))
@@ -427,7 +424,7 @@ class TestPipelineEndpoint:
                 await trigger_pipeline(
                     request=request,
                     _="test-key",
-                    redis=mock_redis,
+                    cache=mock_cache,
                     scheduler=mock_scheduler,
                 )
             assert exc_info.value.status_code == 500
@@ -437,9 +434,8 @@ class TestPipelineEndpoint:
         """Test GET /pipeline/tasks/{task_id} returns status."""
         from api.endpoints.pipeline import get_task_status
 
-        mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.hget = AsyncMock(
+        mock_cache = MagicMock()
+        mock_cache.hget = AsyncMock(
             return_value=json.dumps(
                 {
                     "task_id": "task-123",
@@ -450,10 +446,13 @@ class TestPipelineEndpoint:
             )
         )
 
+        mock_relational_pool = MagicMock()
+
         result = await get_task_status(
             task_id="task-123",
             _="test-key",
-            redis=mock_redis,
+            cache=mock_cache,
+            relational_pool=mock_relational_pool,
         )
         assert result.data.task_id == "task-123"
         assert result.data.status == "completed"
@@ -463,15 +462,17 @@ class TestPipelineEndpoint:
         """Test GET /pipeline/tasks/{task_id} returns 404."""
         from api.endpoints.pipeline import get_task_status
 
-        mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.hget = AsyncMock(return_value=None)
+        mock_cache = MagicMock()
+        mock_cache.hget = AsyncMock(return_value=None)
+
+        mock_relational_pool = MagicMock()
 
         with pytest.raises(HTTPException) as exc_info:
             await get_task_status(
                 task_id="missing-task",
                 _="test-key",
-                redis=mock_redis,
+                cache=mock_cache,
+                relational_pool=mock_relational_pool,
             )
         assert exc_info.value.status_code == 404
 
@@ -480,10 +481,9 @@ class TestPipelineEndpoint:
         """Test GET /pipeline/queue/stats endpoint."""
         from api.endpoints.pipeline import get_queue_stats
 
-        mock_redis = MagicMock()
-        mock_redis.client = MagicMock()
-        mock_redis.client.llen = AsyncMock(return_value=5)
-        mock_redis.client.hgetall = AsyncMock(
+        mock_cache = MagicMock()
+        mock_cache.llen = AsyncMock(return_value=5)
+        mock_cache.hgetall = AsyncMock(
             return_value={
                 "task-1": json.dumps({"status": "completed"}),
                 "task-2": json.dumps({"status": "running"}),
@@ -506,8 +506,8 @@ class TestPipelineEndpoint:
 
         result = await get_queue_stats(
             _="test-key",
-            redis=mock_redis,
-            postgres_pool=mock_postgres,
+            cache=mock_cache,
+            relational_pool=mock_postgres,
         )
         assert result.data["queue_depth"] == 5
         assert result.data["total_tasks"] == 2
@@ -884,57 +884,26 @@ class TestGraphEndpoint:
         """Test GET /graph/entities/{name} returns entity."""
         from api.endpoints.graph import get_entity
 
-        class AsyncIterator:
-            def __init__(self, items):
-                self.items = items
-                self.index = 0
-
-            def __aiter__(self):
-                return self
-
-            async def __anext__(self):
-                if self.index >= len(self.items):
-                    raise StopAsyncIteration
-                item = self.items[self.index]
-                self.index += 1
-                return item
-
-        mock_session = AsyncMock()
-
-        entity_result = AsyncMock()
-        entity_result.single = AsyncMock(
+        mock_graph_repo = MagicMock()
+        mock_graph_repo.get_entity = AsyncMock(
             return_value={
                 "id": "entity-123",
                 "canonical_name": "Test Entity",
                 "type": "person",
                 "aliases": ["alias1"],
                 "description": "Test description",
-                "updated_at": datetime(2024, 1, 1, tzinfo=UTC),
+                "updated_at": "2024-01-01T00:00:00",
             }
         )
-
-        empty_result = AsyncMock()
-        empty_result.__aiter__ = lambda self: AsyncIterator([]).__aiter__()
-        empty_result.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
-
-        mock_session.run = AsyncMock(
-            side_effect=[
-                entity_result,
-                empty_result,
-                empty_result,
-                empty_result,
-            ]
-        )
-
-        mock_neo4j = MagicMock()
-        mock_neo4j.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_neo4j.session.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_graph_repo.get_entity_relations = AsyncMock(return_value=[])
+        mock_graph_repo.get_related_entities = AsyncMock(return_value=[])
+        mock_graph_repo.get_entity_articles = AsyncMock(return_value=[])
 
         result = await get_entity(
             name="Test%20Entity",
             limit=10,
             _="test-key",
-            neo4j=mock_neo4j,
+            graph_repo=mock_graph_repo,
         )
         assert result.data.entity.canonical_name == "Test Entity"
 
@@ -943,21 +912,15 @@ class TestGraphEndpoint:
         """Test GET /graph/entities/{name} returns 404."""
         from api.endpoints.graph import get_entity
 
-        mock_session = AsyncMock()
-        mock_result = AsyncMock()
-        mock_result.single = AsyncMock(return_value=None)
-        mock_session.run = AsyncMock(return_value=mock_result)
-
-        mock_neo4j = MagicMock()
-        mock_neo4j.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_neo4j.session.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_graph_repo = MagicMock()
+        mock_graph_repo.get_entity = AsyncMock(return_value=None)
 
         with pytest.raises(HTTPException) as exc_info:
             await get_entity(
                 name="Missing%20Entity",
                 limit=10,
                 _="test-key",
-                neo4j=mock_neo4j,
+                graph_repo=mock_graph_repo,
             )
         assert exc_info.value.status_code == 404
 
@@ -966,55 +929,24 @@ class TestGraphEndpoint:
         """Test GET /graph/articles/{article_id}/graph returns graph."""
         from api.endpoints.graph import get_article_graph
 
-        class AsyncIterator:
-            def __init__(self, items):
-                self.items = items
-                self.index = 0
-
-            def __aiter__(self):
-                return self
-
-            async def __anext__(self):
-                if self.index >= len(self.items):
-                    raise StopAsyncIteration
-                item = self.items[self.index]
-                self.index += 1
-                return item
-
-        mock_session = AsyncMock()
-
-        mock_article_result = AsyncMock()
-        mock_article_result.single = AsyncMock(
+        mock_graph_repo = MagicMock()
+        mock_graph_repo.get_article = AsyncMock(
             return_value={
                 "id": "article-123",
                 "title": "Test Article",
                 "category": "tech",
-                "publish_time": datetime(2024, 1, 1, tzinfo=UTC),
+                "publish_time": "2024-01-01T00:00:00",
                 "score": 0.85,
             }
         )
-
-        empty_result = AsyncMock()
-        empty_result.__aiter__ = lambda self: AsyncIterator([]).__aiter__()
-        empty_result.__anext__ = AsyncMock(side_effect=StopAsyncIteration)
-
-        mock_session.run = AsyncMock(
-            side_effect=[
-                mock_article_result,
-                empty_result,
-                empty_result,
-                empty_result,
-            ]
-        )
-
-        mock_neo4j = MagicMock()
-        mock_neo4j.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_neo4j.session.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_graph_repo.get_article_entities = AsyncMock(return_value=[])
+        mock_graph_repo.get_article_relationships = AsyncMock(return_value=[])
+        mock_graph_repo.get_related_articles = AsyncMock(return_value=[])
 
         result = await get_article_graph(
             article_id="article-123",
             _="test-key",
-            neo4j=mock_neo4j,
+            graph_repo=mock_graph_repo,
         )
         assert result.data.article.title == "Test Article"
 
@@ -1023,20 +955,14 @@ class TestGraphEndpoint:
         """Test GET /graph/articles/{article_id}/graph returns 404."""
         from api.endpoints.graph import get_article_graph
 
-        mock_session = AsyncMock()
-        mock_result = AsyncMock()
-        mock_result.single = AsyncMock(return_value=None)
-        mock_session.run = AsyncMock(return_value=mock_result)
-
-        mock_neo4j = MagicMock()
-        mock_neo4j.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_neo4j.session.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_graph_repo = MagicMock()
+        mock_graph_repo.get_article = AsyncMock(return_value=None)
 
         with pytest.raises(HTTPException) as exc_info:
             await get_article_graph(
                 article_id="missing-article",
                 _="test-key",
-                neo4j=mock_neo4j,
+                graph_repo=mock_graph_repo,
             )
         assert exc_info.value.status_code == 404
 
