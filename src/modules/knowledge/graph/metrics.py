@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from core.constants import GraphHealthStatus
+from core.db.graph_query_builders import GraphQueryBuilder, create_graph_query_builder
 from core.observability.logging import get_logger
 
 if TYPE_CHECKING:
@@ -120,8 +121,22 @@ class GraphQualityMetrics:
     Implements: MetricsCalculator
     """
 
-    def __init__(self, pool: GraphPool) -> None:
+    def __init__(
+        self,
+        pool: GraphPool,
+        query_builder: GraphQueryBuilder | None = None,
+        db_type: str = "neo4j",
+    ) -> None:
+        """Initialize metrics calculator.
+
+        Args:
+            pool: Graph database connection pool.
+            query_builder: Optional query builder for database-specific syntax.
+            db_type: Database type ('neo4j' or 'ladybug'), used to create
+                query_builder if not provided.
+        """
         self._pool = pool
+        self._query_builder = query_builder or create_graph_query_builder(db_type)
 
     async def calculate_all_metrics(
         self,
@@ -307,12 +322,7 @@ class GraphQualityMetrics:
 
     async def _calculate_component_metrics(self, metrics: GraphMetrics) -> None:
         """Calculate connected component statistics."""
-        component_query = """
-        MATCH (e:Entity)
-        OPTIONAL MATCH (e)-[:RELATED_TO]-(connected:Entity)
-        WITH e, collect(DISTINCT connected) AS neighbors
-        RETURN e.canonical_name AS entity, [n IN neighbors | n.canonical_name] AS neighbors
-        """
+        component_query = self._query_builder.build_component_neighbors_query()
 
         try:
             results = await self._pool.execute_query(component_query)
@@ -325,10 +335,22 @@ class GraphQualityMetrics:
                 neighbors = row.get("neighbors", [])
                 if entity:
                     all_entities.add(entity)
-                    for neighbor in neighbors:
-                        if neighbor:
-                            adjacency[entity].add(neighbor)
-                            all_entities.add(neighbor)
+                    # LadybugDB returns neighbors as list of Entity objects
+                    # Neo4j returns neighbors as list of canonical_name strings
+                    if self._query_builder.supports_list_comprehension():
+                        # Neo4j: neighbors are already strings
+                        for neighbor in neighbors:
+                            if neighbor:
+                                adjacency[entity].add(neighbor)
+                                all_entities.add(neighbor)
+                    else:
+                        # LadybugDB: neighbors are Entity objects
+                        for neighbor in neighbors:
+                            if neighbor and isinstance(neighbor, dict):
+                                neighbor_name = neighbor.get("canonical_name")
+                                if neighbor_name:
+                                    adjacency[entity].add(neighbor_name)
+                                    all_entities.add(neighbor_name)
 
             visited: set[str] = set()
             components: list[set[str]] = []
@@ -353,9 +375,11 @@ class GraphQualityMetrics:
         ORDER BY count DESC
         """
 
+        # LadybugDB uses edge_type property; Neo4j uses dynamic relation types
+        # For RELATED_TO table, we use edge_type for both
         rel_type_query = """
         MATCH ()-[r:RELATED_TO]->()
-        RETURN r.relation_type AS type, count(r) AS count
+        RETURN r.edge_type AS type, count(r) AS count
         ORDER BY count DESC
         LIMIT 20
         """
@@ -384,12 +408,7 @@ class GraphQualityMetrics:
             return
 
         # Reuse component data if already computed, otherwise compute
-        component_query = """
-        MATCH (e:Entity)
-        OPTIONAL MATCH (e)-[:RELATED_TO]-(connected:Entity)
-        WITH e, collect(DISTINCT connected) AS neighbors
-        RETURN e.canonical_name AS entity, [n IN neighbors | n.canonical_name] AS neighbors
-        """
+        component_query = self._query_builder.build_component_neighbors_query()
 
         try:
             results = await self._pool.execute_query(component_query)
@@ -402,10 +421,19 @@ class GraphQualityMetrics:
                 neighbors = row.get("neighbors", [])
                 if entity:
                     all_entities.add(entity)
-                    for neighbor in neighbors:
-                        if neighbor:
-                            adjacency[entity].add(neighbor)
-                            all_entities.add(neighbor)
+                    # Handle both Neo4j (string list) and LadybugDB (Entity object list)
+                    if self._query_builder.supports_list_comprehension():
+                        for neighbor in neighbors:
+                            if neighbor:
+                                adjacency[entity].add(neighbor)
+                                all_entities.add(neighbor)
+                    else:
+                        for neighbor in neighbors:
+                            if neighbor and isinstance(neighbor, dict):
+                                neighbor_name = neighbor.get("canonical_name")
+                                if neighbor_name:
+                                    adjacency[entity].add(neighbor_name)
+                                    all_entities.add(neighbor_name)
 
             visited: set[str] = set()
             components: list[set[str]] = []
@@ -440,14 +468,7 @@ class GraphQualityMetrics:
 
     async def get_connected_components(self) -> list[ConnectedComponent]:
         """Get all connected components with details."""
-        component_query = """
-        MATCH (e:Entity)
-        OPTIONAL MATCH (e)-[:RELATED_TO]-(connected:Entity)
-        WITH e, collect(DISTINCT connected) AS neighbors
-        RETURN e.canonical_name AS entity,
-               e.type AS type,
-               [n IN neighbors | n.canonical_name] AS neighbors
-        """
+        component_query = self._query_builder.build_component_neighbors_query()
 
         results = await self._pool.execute_query(component_query)
 
@@ -463,10 +484,19 @@ class GraphQualityMetrics:
                 all_entities.add(entity)
                 if etype:
                     entity_types[entity] = etype
-                for neighbor in neighbors:
-                    if neighbor:
-                        adjacency[entity].add(neighbor)
-                        all_entities.add(neighbor)
+                # Handle both Neo4j (string list) and LadybugDB (Entity object list)
+                if self._query_builder.supports_list_comprehension():
+                    for neighbor in neighbors:
+                        if neighbor:
+                            adjacency[entity].add(neighbor)
+                            all_entities.add(neighbor)
+                else:
+                    for neighbor in neighbors:
+                        if neighbor and isinstance(neighbor, dict):
+                            neighbor_name = neighbor.get("canonical_name")
+                            if neighbor_name:
+                                adjacency[entity].add(neighbor_name)
+                                all_entities.add(neighbor_name)
 
         visited: set[str] = set()
         components: list[ConnectedComponent] = []
@@ -500,19 +530,7 @@ class GraphQualityMetrics:
 
     async def calculate_entity_degrees(self) -> list[EntityDegree]:
         """Calculate degree statistics for all entities."""
-        query = """
-        MATCH (e:Entity)
-        OPTIONAL MATCH (e)-[r_out:RELATED_TO]->()
-        OPTIONAL MATCH ()-[r_in:RELATED_TO]->(e)
-        OPTIONAL MATCH ()-[m:MENTIONS]->(e)
-        RETURN elementId(e) AS entity_id,
-               e.canonical_name AS name,
-               e.type AS type,
-               count(DISTINCT r_out) AS out_degree,
-               count(DISTINCT r_in) AS in_degree,
-               count(DISTINCT m) AS mention_count
-        ORDER BY (count(DISTINCT r_out) + count(DISTINCT r_in)) DESC
-        """
+        query = self._query_builder.build_degree_query()
 
         results = await self._pool.execute_query(query)
 
@@ -614,12 +632,7 @@ class GraphQualityMetrics:
         Returns:
             Modularity score between -1 and 1.
         """
-        edges_query = """
-        MATCH (e1:Entity)-[r:RELATED_TO]->(e2:Entity)
-        RETURN e1.canonical_name AS source,
-               e2.canonical_name AS target,
-               coalesce(r.weight, 1.0) AS weight
-        """
+        edges_query = self._query_builder.build_edges_with_weight_query()
 
         results = await self._pool.execute_query(edges_query)
         edges = [

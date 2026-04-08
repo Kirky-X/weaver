@@ -296,8 +296,8 @@ class Neo4jWriter:
 
             try:
                 await self._entity_repo.merge_relation(
-                    from_neo4j_id=source_id,
-                    to_neo4j_id=target_id,
+                    from_entity_id=source_id,
+                    to_entity_id=target_id,
                     edge_type=edge_type,
                     properties={
                         "raw_type": raw_type,
