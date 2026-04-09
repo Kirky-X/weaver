@@ -91,6 +91,7 @@ async def lifespan(app: FastAPI) -> None:
     # Register all pools/clients with the centralized Endpoints registry
     # Use Protocol-compatible attribute names
     deps.Endpoints._relational_pool = container.relational_pool()
+    deps.Endpoints._relational_pool_type = container.relational_pool_type
     deps.Endpoints._graph_pool = container.graph_pool()
     deps.Endpoints._graph_pool_type = container.graph_pool_type
     deps.Endpoints._cache = redis_client
@@ -378,6 +379,48 @@ def create_app(container: Container | None = None) -> FastAPI:
         if result.status != "healthy":
             raise HTTPException(status_code=503, detail=result.model_dump())
         return success_response(result.model_dump())
+
+    @app.get("/api/v1/status", response_model=APIResponse[dict])
+    async def system_status() -> APIResponse[dict]:
+        """System status endpoint.
+
+        Returns overall system status including database types and processing stats.
+        """
+        from api.endpoints._deps import Endpoints
+
+        relational_type = Endpoints.get_relational_type()
+        graph_type = Endpoints.get_graph_type()
+        cache_type = Endpoints.get_cache_type()
+
+        return success_response(
+            {
+                "status": "running",
+                "version": "1.0.0",
+                "database": {
+                    "relational": relational_type,
+                    "graph": graph_type,
+                    "cache": cache_type,
+                },
+            }
+        )
+
+    @app.get("/api/v1/config", response_model=APIResponse[dict])
+    async def system_config() -> APIResponse[dict]:
+        """System configuration endpoint.
+
+        Returns current configuration including available features.
+        """
+        from api.endpoints._deps import Endpoints
+
+        return success_response(
+            {
+                "relational_pool_type": Endpoints.get_relational_type(),
+                "graph_pool_type": Endpoints.get_graph_type(),
+                "llm_enabled": Endpoints._llm is not None,
+                "search_enabled": Endpoints._local_engine is not None,
+                "graph_available": Endpoints._graph_pool is not None,
+            }
+        )
 
     @app.get("/metrics")
     async def metrics_endpoint() -> PlainTextResponse:

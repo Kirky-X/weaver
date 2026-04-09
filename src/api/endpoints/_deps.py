@@ -44,6 +44,7 @@ class Endpoints:
     _graph_pool: GraphPool | None = None
     _graph_pool_type: str | None = None
     _cache: CachePool | None = None
+    _relational_pool_type: str | None = None
 
     # ── Service Instances ─────────────────────────────────────────────
     _llm: LLMClient | None = None
@@ -85,6 +86,23 @@ class Endpoints:
             raise HTTPException(503, detail="Graph pool type not initialized")
         return Endpoints._graph_pool_type
 
+    @staticmethod
+    def get_relational_type() -> str:
+        """Get relational database type ('postgres' or 'duckdb')."""
+        return Endpoints._relational_pool_type or "unknown"
+
+    @staticmethod
+    def get_graph_type() -> str:
+        """Get graph database type ('neo4j' or 'ladybug')."""
+        return Endpoints._graph_pool_type or "unknown"
+
+    @staticmethod
+    def get_cache_type() -> str:
+        """Get cache type ('redis' or 'cashews')."""
+        if Endpoints._cache is not None:
+            return type(Endpoints._cache).__name__
+        return "none"
+
     # ── Cache ─────────────────────────────────────────────────────────
 
     @staticmethod
@@ -103,6 +121,11 @@ class Endpoints:
             raise HTTPException(503, detail="LLM client not initialized")
         return Endpoints._llm
 
+    @staticmethod
+    def get_llm_client() -> LLMClient | None:
+        """Get LLM client or None if unavailable."""
+        return Endpoints._llm
+
     # ── Search Engines ────────────────────────────────────────────────
 
     @staticmethod
@@ -110,6 +133,11 @@ class Endpoints:
         """Get local search engine."""
         if Endpoints._local_engine is None:
             raise HTTPException(503, detail="Search service not initialized")
+        return Endpoints._local_engine
+
+    @staticmethod
+    def get_local_search_engine() -> LocalSearchEngine | None:
+        """Get local search engine or None if unavailable."""
         return Endpoints._local_engine
 
     @staticmethod

@@ -12,14 +12,6 @@ from pydantic import BaseModel, Field
 from api.dependencies import get_source_authority_repo
 from api.endpoints._deps import Endpoints
 from api.middleware.auth import verify_api_key
-from api.schemas.llm_usage import (
-    LLMUsageByCallPoint,
-    LLMUsageByModel,
-    LLMUsageByProvider,
-    LLMUsageRecord,
-    LLMUsageResponse,
-    LLMUsageSummary,
-)
 from api.schemas.response import APIResponse, success_response
 from core.observability.logging import get_logger
 from modules.storage.postgres.source_authority_repo import SourceAuthorityRepo
@@ -302,14 +294,23 @@ async def get_llm_failure_stats(
 # ── LLM Usage Endpoints ─────────────────────────────────────────
 
 
-@router.get("/llm-usage", response_model=APIResponse[LLMUsageResponse])
-async def get_llm_usage(
+@router.get(
+    "/llm-usage",
+    response_model=APIResponse[dict],
+    summary="Unified LLM usage statistics",
+)
+async def get_llm_usage_unified(
     from_: datetime = Query(..., alias="from", description="Start of time range (ISO format)"),
     to: datetime = Query(..., description="End of time range (ISO format)"),
+    group_by: str = Query(
+        "summary",
+        pattern="^(summary|time|provider|model|call_point)$",
+        description="Grouping dimension: summary, time, provider, model, or call_point",
+    ),
     granularity: str = Query(
         "hourly",
         pattern="^(hourly|daily|monthly)$",
-        description="Time granularity: hourly, daily, or monthly",
+        description="Time granularity (only used when group_by=time)",
     ),
     provider: str | None = Query(None, description="Filter by provider name"),
     model: str | None = Query(None, description="Filter by model name"),
@@ -317,254 +318,150 @@ async def get_llm_usage(
     call_point: str | None = Query(None, description="Filter by call point"),
     _: str = Depends(verify_api_key),
     repo: LLMUsageRepo = Depends(get_llm_usage_repo),
-) -> APIResponse[LLMUsageResponse]:
-    """Get LLM usage statistics with time-based aggregation.
+) -> APIResponse[dict]:
+    """Unified LLM usage statistics endpoint.
 
-    Query aggregated LLM usage statistics for monitoring and analysis.
-    Supports different time granularities and optional filters.
+    Replaces the 5 separate LLM usage endpoints with a single endpoint
+    that supports different grouping dimensions via the `group_by` parameter.
 
-    Args:
-        from_: Start of time range (ISO format).
-        to: End of time range (ISO format).
-        granularity: Time granularity - "hourly", "daily", or "monthly".
-        provider: Optional filter by provider name.
-        model: Optional filter by model name.
-        llm_type: Optional filter by LLM type (chat/embedding/rerank).
-        call_point: Optional filter by call point.
-        _: Verified API key.
-        repo: LLM usage repository.
-
-    Returns:
-        Aggregated LLM usage records with total count.
-
+    **Migration from deprecated endpoints:**
+    - `/admin/llm-usage` → `/admin/llm-usage?group_by=time`
+    - `/admin/llm-usage/summary` → `/admin/llm-usage?group_by=summary`
+    - `/admin/llm-usage/by-provider` → `/admin/llm-usage?group_by=provider`
+    - `/admin/llm-usage/by-model` → `/admin/llm-usage?group_by=model`
+    - `/admin/llm-usage/by-call-point` → `/admin/llm-usage?group_by=call_point`
     """
-    records = await repo.query_hourly(
-        start_time=from_,
-        end_time=to,
-        granularity=granularity,
-        provider=provider,
-        model=model,
-        llm_type=llm_type,
-        call_point=call_point,
-    )
-
-    # Convert to response models
-    usage_records = [
-        LLMUsageRecord(
-            time_bucket=(
-                datetime.fromisoformat(r["time_bucket"])
-                if isinstance(r["time_bucket"], str)
-                else r["time_bucket"]
-            ),
-            label=r.get("label", ""),
-            call_point=r.get("call_point", ""),
-            llm_type=r.get("llm_type", ""),
-            provider=r.get("provider", ""),
-            model=r.get("model", ""),
-            call_count=r["call_count"],
-            input_tokens=r.get("input_tokens_sum", 0),
-            output_tokens=r.get("output_tokens_sum", 0),
-            total_tokens=r.get("total_tokens_sum", 0),
-            latency_avg_ms=r["latency_avg_ms"],
-            latency_min_ms=r.get("latency_min_ms", 0.0),
-            latency_max_ms=r.get("latency_max_ms", 0.0),
-            success_count=r["success_count"],
-            failure_count=r["failure_count"],
+    if group_by == "summary":
+        summary = await repo.get_summary(
+            start_time=from_,
+            end_time=to,
+            provider=provider,
+            model=model,
+            llm_type=llm_type,
+            call_point=call_point,
         )
-        for r in records
-    ]
-
-    return success_response(
-        LLMUsageResponse(
-            records=usage_records,
-            total=len(usage_records),
+        return success_response(
+            {
+                "group_by": "summary",
+                "total_calls": summary["total_calls"],
+                "total_input_tokens": summary["total_input_tokens"],
+                "total_output_tokens": summary["total_output_tokens"],
+                "total_tokens": summary["total_tokens"],
+                "avg_latency_ms": summary["avg_latency_ms"],
+                "max_latency_ms": summary.get("max_latency_ms", 0.0),
+                "min_latency_ms": summary.get("min_latency_ms", 0.0),
+                "success_rate": summary["success_rate"],
+                "error_types": summary.get("error_types", {}),
+            }
         )
-    )
 
-
-@router.get("/llm-usage/summary", response_model=APIResponse[LLMUsageSummary])
-async def get_llm_usage_summary(
-    from_: datetime = Query(..., alias="from", description="Start of time range (ISO format)"),
-    to: datetime = Query(..., description="End of time range (ISO format)"),
-    provider: str | None = Query(None, description="Filter by provider name"),
-    model: str | None = Query(None, description="Filter by model name"),
-    llm_type: str | None = Query(None, description="Filter by LLM type (chat/embedding/rerank)"),
-    call_point: str | None = Query(None, description="Filter by call point"),
-    _: str = Depends(verify_api_key),
-    repo: LLMUsageRepo = Depends(get_llm_usage_repo),
-) -> APIResponse[LLMUsageSummary]:
-    """Get summary statistics for LLM usage.
-
-    Returns aggregate statistics including total calls, tokens, and success rate.
-
-    Args:
-        from_: Start of time range (ISO format).
-        to: End of time range (ISO format).
-        provider: Optional filter by provider name.
-        model: Optional filter by model name.
-        llm_type: Optional filter by LLM type (chat/embedding/rerank).
-        call_point: Optional filter by call point.
-        _: Verified API key.
-        repo: LLM usage repository.
-
-    Returns:
-        Summary statistics for the specified time range and filters.
-
-    """
-    summary = await repo.get_summary(
-        start_time=from_,
-        end_time=to,
-        provider=provider,
-        model=model,
-        llm_type=llm_type,
-        call_point=call_point,
-    )
-
-    return success_response(
-        LLMUsageSummary(
-            total_calls=summary["total_calls"],
-            total_input_tokens=summary["total_input_tokens"],
-            total_output_tokens=summary["total_output_tokens"],
-            total_tokens=summary["total_tokens"],
-            avg_latency_ms=summary["avg_latency_ms"],
-            max_latency_ms=summary.get("max_latency_ms", 0.0),
-            min_latency_ms=summary.get("min_latency_ms", 0.0),
-            success_rate=summary["success_rate"],
-            error_types=summary.get("error_types", {}),
+    elif group_by == "time":
+        records = await repo.query_hourly(
+            start_time=from_,
+            end_time=to,
+            granularity=granularity,
+            provider=provider,
+            model=model,
+            llm_type=llm_type,
+            call_point=call_point,
         )
-    )
-
-
-@router.get("/llm-usage/by-provider", response_model=APIResponse[list[LLMUsageByProvider]])
-async def get_llm_usage_by_provider(
-    from_: datetime = Query(..., alias="from", description="Start of time range (ISO format)"),
-    to: datetime = Query(..., description="End of time range (ISO format)"),
-    llm_type: str | None = Query(None, description="Filter by LLM type (chat/embedding/rerank)"),
-    _: str = Depends(verify_api_key),
-    repo: LLMUsageRepo = Depends(get_llm_usage_repo),
-) -> APIResponse[list[LLMUsageByProvider]]:
-    """Get LLM usage statistics grouped by provider.
-
-    Returns aggregated usage statistics for each LLM provider.
-
-    Args:
-        from_: Start of time range (ISO format).
-        to: End of time range (ISO format).
-        llm_type: Optional filter by LLM type (chat/embedding/rerank).
-        _: Verified API key.
-        repo: LLM usage repository.
-
-    Returns:
-        List of provider-level usage statistics.
-
-    """
-    records = await repo.get_by_provider(
-        start_time=from_,
-        end_time=to,
-        llm_type=llm_type,
-    )
-
-    return success_response(
-        [
-            LLMUsageByProvider(
-                provider=r["provider"],
-                call_count=r["call_count"],
-                input_tokens=r.get("input_tokens", 0),
-                output_tokens=r.get("output_tokens", 0),
-                total_tokens=r["total_tokens"],
-                avg_latency_ms=r.get("avg_latency_ms", 0.0),
-                success_rate=r.get("success_rate", 1.0),
-            )
+        usage_records = [
+            {
+                "time_bucket": (
+                    datetime.fromisoformat(r["time_bucket"])
+                    if isinstance(r["time_bucket"], str)
+                    else r["time_bucket"]
+                ),
+                "label": r.get("label", ""),
+                "call_point": r.get("call_point", ""),
+                "llm_type": r.get("llm_type", ""),
+                "provider": r.get("provider", ""),
+                "model": r.get("model", ""),
+                "call_count": r["call_count"],
+                "input_tokens": r.get("input_tokens_sum", 0),
+                "output_tokens": r.get("output_tokens_sum", 0),
+                "total_tokens": r.get("total_tokens_sum", 0),
+                "latency_avg_ms": r["latency_avg_ms"],
+                "success_count": r["success_count"],
+                "failure_count": r["failure_count"],
+            }
             for r in records
         ]
-    )
+        return success_response(
+            {"group_by": "time", "records": usage_records, "total": len(usage_records)}
+        )
 
+    elif group_by == "provider":
+        records = await repo.get_by_provider(
+            start_time=from_,
+            end_time=to,
+            llm_type=llm_type,
+        )
+        return success_response(
+            {
+                "group_by": "provider",
+                "records": [
+                    {
+                        "provider": r["provider"],
+                        "call_count": r["call_count"],
+                        "input_tokens": r.get("input_tokens", 0),
+                        "output_tokens": r.get("output_tokens", 0),
+                        "total_tokens": r["total_tokens"],
+                        "avg_latency_ms": r.get("avg_latency_ms", 0.0),
+                        "success_rate": r.get("success_rate", 1.0),
+                    }
+                    for r in records
+                ],
+            }
+        )
 
-@router.get("/llm-usage/by-model", response_model=APIResponse[list[LLMUsageByModel]])
-async def get_llm_usage_by_model(
-    from_: datetime = Query(..., alias="from", description="Start of time range (ISO format)"),
-    to: datetime = Query(..., description="End of time range (ISO format)"),
-    provider: str | None = Query(None, description="Filter by provider name"),
-    _: str = Depends(verify_api_key),
-    repo: LLMUsageRepo = Depends(get_llm_usage_repo),
-) -> APIResponse[list[LLMUsageByModel]]:
-    """Get LLM usage statistics grouped by model.
+    elif group_by == "model":
+        records = await repo.get_by_model(
+            start_time=from_,
+            end_time=to,
+            provider=provider,
+        )
+        return success_response(
+            {
+                "group_by": "model",
+                "records": [
+                    {
+                        "model": r["model"],
+                        "provider": r["provider"],
+                        "call_count": r["call_count"],
+                        "input_tokens": r.get("input_tokens", 0),
+                        "output_tokens": r.get("output_tokens", 0),
+                        "total_tokens": r["total_tokens"],
+                        "avg_latency_ms": r.get("avg_latency_ms", 0.0),
+                        "success_rate": r.get("success_rate", 1.0),
+                    }
+                    for r in records
+                ],
+            }
+        )
 
-    Returns aggregated usage statistics for each LLM model.
+    elif group_by == "call_point":
+        records = await repo.get_by_call_point(
+            start_time=from_,
+            end_time=to,
+        )
+        return success_response(
+            {
+                "group_by": "call_point",
+                "records": [
+                    {
+                        "call_point": r["call_point"],
+                        "call_count": r["call_count"],
+                        "total_tokens": r["total_tokens"],
+                        "avg_latency_ms": r.get("avg_latency_ms", 0.0),
+                        "success_rate": r.get("success_rate", 1.0),
+                    }
+                    for r in records
+                ],
+            }
+        )
 
-    Args:
-        from_: Start of time range (ISO format).
-        to: End of time range (ISO format).
-        provider: Optional filter by provider name.
-        _: Verified API key.
-        repo: LLM usage repository.
-
-    Returns:
-        List of model-level usage statistics.
-
-    """
-    records = await repo.get_by_model(
-        start_time=from_,
-        end_time=to,
-        provider=provider,
-    )
-
-    return success_response(
-        [
-            LLMUsageByModel(
-                model=r["model"],
-                provider=r["provider"],
-                call_count=r["call_count"],
-                input_tokens=r.get("input_tokens", 0),
-                output_tokens=r.get("output_tokens", 0),
-                total_tokens=r["total_tokens"],
-                avg_latency_ms=r.get("avg_latency_ms", 0.0),
-                success_rate=r.get("success_rate", 1.0),
-            )
-            for r in records
-        ]
-    )
-
-
-@router.get("/llm-usage/by-call-point", response_model=APIResponse[list[LLMUsageByCallPoint]])
-async def get_llm_usage_by_call_point(
-    from_: datetime = Query(..., alias="from", description="Start of time range (ISO format)"),
-    to: datetime = Query(..., description="End of time range (ISO format)"),
-    _: str = Depends(verify_api_key),
-    repo: LLMUsageRepo = Depends(get_llm_usage_repo),
-) -> APIResponse[list[LLMUsageByCallPoint]]:
-    """Get LLM usage statistics grouped by call point.
-
-    Returns aggregated usage statistics for each call point
-    (e.g., classifier, analyzer, entity_extractor).
-
-    Args:
-        from_: Start of time range (ISO format).
-        to: End of time range (ISO format).
-        _: Verified API key.
-        repo: LLM usage repository.
-
-    Returns:
-        List of call point level usage statistics.
-
-    """
-    records = await repo.get_by_call_point(
-        start_time=from_,
-        end_time=to,
-    )
-
-    return success_response(
-        [
-            LLMUsageByCallPoint(
-                call_point=r["call_point"],
-                call_count=r["call_count"],
-                total_tokens=r["total_tokens"],
-                avg_latency_ms=r.get("avg_latency_ms", 0.0),
-                success_rate=r.get("success_rate", 1.0),
-            )
-            for r in records
-        ]
-    )
+    raise HTTPException(status_code=400, detail=f"Invalid group_by: {group_by}")
 
 
 # ── Article Management ───────────────────────────────────────────
