@@ -129,6 +129,29 @@ class GraphQueryBuilder(Protocol):
         """Build query to find entities by relation types."""
         ...
 
+    # === Visualization Queries ===
+
+    def build_visualization_nodes_query(self) -> str:
+        """Build query to get nodes for graph visualization."""
+        ...
+
+    def build_visualization_edges_query(self) -> str:
+        """Build query to get edges for graph visualization."""
+        ...
+
+    def build_subgraph_nodes_query(self, hop_pattern: str, include_types: bool) -> str:
+        """Build query to get nodes for subgraph extraction.
+
+        Args:
+            hop_pattern: Hop pattern like '*1..2' for variable-length path.
+            include_types: Whether to include type filtering clause.
+        """
+        ...
+
+    def build_subgraph_edges_query(self) -> str:
+        """Build query to get edges for subgraph visualization."""
+        ...
+
 
 class Neo4jQueryBuilder:
     """Neo4j (Cypher) implementation of GraphQueryBuilder."""
@@ -335,6 +358,79 @@ class Neo4jQueryBuilder:
                 LIMIT $limit
             """
 
+    # === Visualization Queries ===
+
+    def build_visualization_nodes_query(self) -> str:
+        """Build Neo4j query to get nodes for graph visualization."""
+        return """
+        MATCH (e:Entity)
+        RETURN e.canonical_name AS id,
+               e.canonical_name AS label,
+               e.type AS type,
+               e.description AS description,
+               size([(e)-[:RELATED_TO]-()|1]) AS degree
+        ORDER BY degree DESC
+        LIMIT $limit
+        """
+
+    def build_visualization_edges_query(self) -> str:
+        """Build Neo4j query to get edges for graph visualization."""
+        return """
+        MATCH (e1:Entity)-[r:RELATED_TO]->(e2:Entity)
+        WHERE e1.canonical_name IN $node_ids AND e2.canonical_name IN $node_ids
+        RETURN e1.canonical_name AS source,
+               e2.canonical_name AS target,
+               r.relation_type AS relation_type,
+               r.weight AS weight
+        LIMIT $edge_limit
+        """
+
+    def build_subgraph_nodes_query(self, hop_pattern: str, include_types: bool) -> str:
+        """Build Neo4j query to get nodes for subgraph extraction."""
+        if include_types:
+            return f"""
+            MATCH path = (center:Entity {{canonical_name: $center}})-[:RELATED_TO{hop_pattern}]-(related:Entity)
+            WHERE related.type IN $include_types
+            WITH collect(DISTINCT related) AS related_nodes
+            MATCH (center:Entity {{canonical_name: $center}})
+            WITH center + related_nodes AS all_nodes
+            UNWIND all_nodes AS node
+            MATCH (node)-[r:RELATED_TO]-(other)
+            WHERE other IN all_nodes
+            RETURN DISTINCT node.canonical_name AS id,
+                   node.canonical_name AS label,
+                   node.type AS type,
+                   node.description AS description
+            LIMIT 200
+            """
+        else:
+            return f"""
+            MATCH path = (center:Entity {{canonical_name: $center}})-[:RELATED_TO{hop_pattern}]-(related:Entity)
+            WITH collect(DISTINCT related) AS related_nodes
+            MATCH (center:Entity {{canonical_name: $center}})
+            WITH center + related_nodes AS all_nodes
+            UNWIND all_nodes AS node
+            MATCH (node)-[r:RELATED_TO]-(other)
+            WHERE other IN all_nodes
+            RETURN DISTINCT node.canonical_name AS id,
+                   node.canonical_name AS label,
+                   node.type AS type,
+                   node.description AS description
+            LIMIT 200
+            """
+
+    def build_subgraph_edges_query(self) -> str:
+        """Build Neo4j query to get edges for subgraph visualization."""
+        return """
+        MATCH (e1:Entity)-[r:RELATED_TO]->(e2:Entity)
+        WHERE e1.canonical_name IN $node_ids AND e2.canonical_name IN $node_ids
+        RETURN e1.canonical_name AS source,
+               e2.canonical_name AS target,
+               r.relation_type AS relation_type,
+               r.weight AS weight
+        LIMIT 500
+        """
+
 
 class LadybugQueryBuilder:
     """LadybugDB implementation of GraphQueryBuilder.
@@ -428,30 +524,33 @@ class LadybugQueryBuilder:
 
     def build_get_entity_query(self) -> str:
         """Build LadybugDB query to get entity by canonical name and type."""
+        # LadybugDB Entity has no aliases field - return None for aliases
         return """
             MATCH (e:Entity {canonical_name: $name})
             RETURN e.id as id, e.canonical_name as canonical_name, e.type as type,
-                   e.aliases as aliases, e.description as description,
+                   NULL as aliases, e.description as description,
                    e.updated_at as updated_at
         """
 
     def build_get_entity_relations_query(self) -> str:
         """Build LadybugDB query to get entity relationships."""
+        # LadybugDB RELATED_TO has edge_type, not relation_type; no source_article_id
         return """
             MATCH (e:Entity {canonical_name: $name})-[r:RELATED_TO]->(target:Entity)
-            RETURN target.canonical_name as target, r.relation_type as relation_type,
-                   r.source_article_id as source_article_id, r.created_at as created_at
+            RETURN target.canonical_name as target, r.edge_type as relation_type,
+                   NULL as source_article_id, r.created_at as created_at
             ORDER BY r.created_at DESC
             LIMIT $limit
         """
 
     def build_get_related_entities_query(self) -> str:
         """Build LadybugDB query to get entities mentioned in same articles."""
+        # LadybugDB Entity has no aliases field - return None for aliases
         return """
             MATCH (e:Entity {canonical_name: $name})-[:MENTIONS]-(a:Article)-[:MENTIONS]-(re:Entity)
             WHERE re.canonical_name <> $name
             RETURN DISTINCT re.id as id, re.canonical_name as canonical_name,
-                   re.type as type, re.aliases as aliases
+                   re.type as type, NULL as aliases
             LIMIT $limit
         """
 
@@ -475,21 +574,24 @@ class LadybugQueryBuilder:
 
     def build_get_article_entities_query(self) -> str:
         """Build LadybugDB query to get entities mentioned in an article."""
+        # LadybugDB Entity has no aliases field - return None for aliases
         return """
             MATCH (a:Article {pg_id: $id})-[r:MENTIONS]->(e:Entity)
             RETURN e.id as id, e.canonical_name as canonical_name, e.type as type,
-                   e.aliases as aliases, r.role as role
+                   NULL as aliases, r.role as role
         """
 
     def build_get_article_relationships_query(self) -> str:
         """Build LadybugDB query to get relationships between entities in an article."""
+        # LadybugDB RELATED_TO uses edge_type field, not relation_type
+        # No source_article_id in RELATED_TO schema
         return """
             MATCH (a:Article {pg_id: $id})-[:MENTIONS]->(e1:Entity)
             MATCH (e1)-[r:RELATED_TO]->(e2:Entity)
             WHERE (a)-[:MENTIONS]->(e2)
             RETURN e1.canonical_name as source, e2.canonical_name as target,
-                   r.relation_type as relation_type,
-                   r.source_article_id as source_article_id, r.created_at as created_at
+                   r.edge_type as relation_type,
+                   NULL as source_article_id, r.created_at as created_at
         """
 
     def build_get_related_articles_query(self) -> str:
@@ -504,27 +606,28 @@ class LadybugQueryBuilder:
 
     def build_get_relation_types_query(self) -> str:
         """Build LadybugDB query to get relation types for an entity."""
+        # LadybugDB: Use RELATED_TO with edge_type field instead of type(r)
+        # Entity has no pruned field in LadybugDB schema
+        # Note: LadybugDB doesn't support rebinding relationship in CASE WHEN,
+        # so we return 'outgoing' as default primary_direction
         return """
-            MATCH (e:Entity {canonical_name: $name, type: $type})-[r]-(other:Entity)
-            WHERE type(r) <> 'MENTIONS' AND type(r) <> 'FOLLOWED_BY'
-              AND NOT other.pruned = true
-            RETURN type(r) AS relation_type,
+            MATCH (e:Entity {canonical_name: $name, type: $type})-[r:RELATED_TO]-(other:Entity)
+            RETURN r.edge_type AS relation_type,
                    count(DISTINCT other) AS target_count,
-                   head(collect(DISTINCT
-                       CASE WHEN (e)-[r]->(other) THEN 'outgoing' ELSE 'incoming' END
-                   )) AS primary_direction
+                   'outgoing' AS primary_direction
             ORDER BY target_count DESC
         """
 
     def build_find_by_relation_types_query(self, relation_types: list[str] | None) -> str:
         """Build LadybugDB query to find entities by relation types."""
+        # LadybugDB: Use RELATED_TO with edge_type field
+        # Note: LadybugDB doesn't support pattern matching in CASE WHEN,
+        # so we return 'outgoing' as default direction
         if not relation_types:
             return """
-                MATCH (e:Entity {canonical_name: $name, type: $type})-[r]-(other:Entity)
-                WHERE type(r) <> 'MENTIONS' AND type(r) <> 'FOLLOWED_BY'
-                  AND NOT other.pruned = true
-                RETURN type(r) AS relation_type,
-                       CASE WHEN (e)-[r]->(other) THEN 'outgoing' ELSE 'incoming' END AS direction,
+                MATCH (e:Entity {canonical_name: $name, type: $type})-[r:RELATED_TO]-(other:Entity)
+                RETURN r.edge_type AS relation_type,
+                       'outgoing' AS direction,
                        other.canonical_name AS target_name,
                        other.type AS target_type,
                        other.description AS target_description,
@@ -533,14 +636,13 @@ class LadybugQueryBuilder:
                 LIMIT $limit
             """
         else:
-            type_filters = " OR ".join(f"type(r) = '{rt}'" for rt in relation_types)
+            # Filter by specific edge types
+            edge_type_filters = " OR ".join(f"r.edge_type = '{rt}'" for rt in relation_types)
             return f"""
-                MATCH (e:Entity {{canonical_name: $name, type: $type}})-[r]-(other:Entity)
-                WHERE ({type_filters})
-                  AND type(r) <> 'MENTIONS' AND type(r) <> 'FOLLOWED_BY'
-                  AND NOT other.pruned = true
-                RETURN type(r) AS relation_type,
-                       CASE WHEN (e)-[r]->(other) THEN 'outgoing' ELSE 'incoming' END AS direction,
+                MATCH (e:Entity {{canonical_name: $name, type: $type}})-[r:RELATED_TO]-(other:Entity)
+                WHERE ({edge_type_filters})
+                RETURN r.edge_type AS relation_type,
+                       'outgoing' AS direction,
                        other.canonical_name AS target_name,
                        other.type AS target_type,
                        other.description AS target_description,
@@ -548,6 +650,94 @@ class LadybugQueryBuilder:
                 ORDER BY weight DESC
                 LIMIT $limit
             """
+
+    # === Visualization Queries ===
+
+    def build_visualization_nodes_query(self) -> str:
+        """Build LadybugDB query to get nodes for graph visualization.
+
+        Note: LadybugDB doesn't support list comprehension, so degree is computed
+        differently using count on relationship patterns.
+        """
+        return """
+        MATCH (e:Entity)
+        OPTIONAL MATCH (e)-[r:RELATED_TO]-()
+        WITH e, count(DISTINCT r) AS degree
+        RETURN e.canonical_name AS id,
+               e.canonical_name AS label,
+               e.type AS type,
+               e.description AS description,
+               degree
+        ORDER BY degree DESC
+        LIMIT $limit
+        """
+
+    def build_visualization_edges_query(self) -> str:
+        """Build LadybugDB query to get edges for graph visualization.
+
+        Note: LadybugDB RELATED_TO uses edge_type field, not relation_type.
+        """
+        return """
+        MATCH (e1:Entity)-[r:RELATED_TO]->(e2:Entity)
+        WHERE e1.canonical_name IN $node_ids AND e2.canonical_name IN $node_ids
+        RETURN e1.canonical_name AS source,
+               e2.canonical_name AS target,
+               r.edge_type AS relation_type,
+               r.weight AS weight
+        LIMIT $edge_limit
+        """
+
+    def build_subgraph_nodes_query(self, hop_pattern: str, include_types: bool) -> str:
+        """Build LadybugDB query to get nodes for subgraph extraction.
+
+        Note: LadybugDB supports variable-length path syntax (*1..N).
+        """
+        if include_types:
+            return f"""
+            MATCH path = (center:Entity {{canonical_name: $center}})-[:RELATED_TO{hop_pattern}]-(related:Entity)
+            WHERE related.type IN $include_types
+            WITH collect(DISTINCT related) AS related_nodes
+            MATCH (center:Entity {{canonical_name: $center}})
+            WITH center + related_nodes AS all_nodes
+            UNWIND all_nodes AS node
+            MATCH (node)-[r:RELATED_TO]-(other)
+            WHERE other IN all_nodes
+            RETURN DISTINCT node.canonical_name AS id,
+                   node.canonical_name AS label,
+                   node.type AS type,
+                   node.description AS description
+            LIMIT 200
+            """
+        else:
+            return f"""
+            MATCH path = (center:Entity {{canonical_name: $center}})-[:RELATED_TO{hop_pattern}]-(related:Entity)
+            WITH collect(DISTINCT related) AS related_nodes
+            MATCH (center:Entity {{canonical_name: $center}})
+            WITH center + related_nodes AS all_nodes
+            UNWIND all_nodes AS node
+            MATCH (node)-[r:RELATED_TO]-(other)
+            WHERE other IN all_nodes
+            RETURN DISTINCT node.canonical_name AS id,
+                   node.canonical_name AS label,
+                   node.type AS type,
+                   node.description AS description
+            LIMIT 200
+            """
+
+    def build_subgraph_edges_query(self) -> str:
+        """Build LadybugDB query to get edges for subgraph visualization.
+
+        Note: LadybugDB RELATED_TO uses edge_type field, not relation_type.
+        """
+        return """
+        MATCH (e1:Entity)-[r:RELATED_TO]->(e2:Entity)
+        WHERE e1.canonical_name IN $node_ids AND e2.canonical_name IN $node_ids
+        RETURN e1.canonical_name AS source,
+               e2.canonical_name AS target,
+               r.edge_type AS relation_type,
+               r.weight AS weight
+        LIMIT 500
+        """
 
 
 def create_graph_query_builder(db_type: str | GraphDatabaseType) -> GraphQueryBuilder:

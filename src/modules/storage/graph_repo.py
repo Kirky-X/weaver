@@ -309,3 +309,120 @@ class GraphRepository:
             }
             for r in result
         ]
+
+    # ── Visualization Operations ───────────────────────────────────────
+
+    async def get_visualization_nodes(self, limit: int = 100) -> list[dict[str, Any]]:
+        """Get nodes for graph visualization.
+
+        Args:
+            limit: Maximum number of nodes to return.
+
+        Returns:
+            List of node dicts with id, label, type, description, and degree.
+        """
+        query = self._query_builder.build_visualization_nodes_query()
+        result = await self._pool.execute_query(query, {"limit": limit})
+        nodes = []
+        for row in result:
+            nodes.append(
+                {
+                    "id": row.get("id") or "",
+                    "label": row.get("label") or "",
+                    "type": row.get("type") or "未知",
+                    "description": row.get("description"),
+                    "degree": row.get("degree", 0),
+                }
+            )
+        return nodes
+
+    async def get_visualization_edges(
+        self, node_ids: list[str], edge_limit: int = 300
+    ) -> list[dict[str, Any]]:
+        """Get edges for graph visualization.
+
+        Args:
+            node_ids: List of node canonical names to filter edges.
+            edge_limit: Maximum number of edges to return.
+
+        Returns:
+            List of edge dicts with source, target, relation_type, and weight.
+        """
+        query = self._query_builder.build_visualization_edges_query()
+        result = await self._pool.execute_query(
+            query, {"node_ids": node_ids, "edge_limit": edge_limit}
+        )
+        edges = []
+        for row in result:
+            edges.append(
+                {
+                    "source": row.get("source") or "",
+                    "target": row.get("target") or "",
+                    "relation_type": row.get("relation_type") or "RELATED_TO",
+                    "weight": row.get("weight"),
+                }
+            )
+        return edges
+
+    async def get_subgraph_nodes(
+        self,
+        center_entity: str,
+        hop_pattern: str,
+        include_types: list[str] | None = None,
+        exclude_types: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Get nodes for subgraph extraction around a center entity.
+
+        Args:
+            center_entity: Center entity canonical name.
+            hop_pattern: Hop pattern like '*1..1', '*1..2', etc.
+            include_types: Optional list of entity types to include.
+            exclude_types: Optional list of entity types to exclude (applied in Python).
+
+        Returns:
+            List of node dicts with id, label, type, and description.
+        """
+        query = self._query_builder.build_subgraph_nodes_query(
+            hop_pattern, include_types is not None
+        )
+        params: dict[str, Any] = {"center": center_entity}
+        if include_types:
+            params["include_types"] = include_types
+        result = await self._pool.execute_query(query, params)
+        nodes = []
+        for row in result:
+            entity_type = row.get("type") or "未知"
+            if exclude_types and entity_type in exclude_types:
+                continue
+            nodes.append(
+                {
+                    "id": row.get("id") or "",
+                    "label": row.get("label") or "",
+                    "type": entity_type,
+                    "description": row.get("description"),
+                }
+            )
+        return nodes
+
+    async def get_subgraph_edges(self, node_ids: list[str]) -> list[dict[str, Any]]:
+        """Get edges for subgraph visualization.
+
+        Args:
+            node_ids: List of node canonical names to filter edges.
+
+        Returns:
+            List of edge dicts with source, target, relation_type, and weight.
+        """
+        query = self._query_builder.build_subgraph_edges_query()
+        result = await self._pool.execute_query(query, {"node_ids": node_ids})
+        edges = []
+        for row in result:
+            edges.append(
+                {
+                    "source": row.get("source") or "",
+                    "target": row.get("target") or "",
+                    "relation_type": row.get("relation_type") or "RELATED_TO",
+                    "weight": row.get("weight"),
+                }
+            )
+        return edges

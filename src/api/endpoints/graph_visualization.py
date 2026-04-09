@@ -8,15 +8,17 @@ Provides API endpoints for:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from api.dependencies import get_graph_pool
+from api.dependencies import get_graph_repo
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
-from core.protocols import GraphPool
+
+if TYPE_CHECKING:
+    from modules.storage.graph_repo import GraphRepository
 
 router = APIRouter(prefix="/graph/visualization", tags=["graph-visualization"])
 
@@ -76,7 +78,7 @@ class SubgraphRequest(BaseModel):
 async def get_graph_visualization(
     limit: int = Query(100, ge=10, le=1000, description="Max nodes to return"),
     _: str = Depends(verify_api_key),
-    graph_pool: GraphPool = Depends(get_graph_pool),
+    graph_repo: GraphRepository = Depends(get_graph_repo),
 ) -> APIResponse[GraphSnapshotResponse]:
     """Get a snapshot of the knowledge graph for visualization.
 
@@ -87,19 +89,8 @@ async def get_graph_visualization(
     **Migration:**
     - `/graph/visualization/snapshot` → `/graph/visualization`
     """
-    node_query = """
-    MATCH (e:Entity)
-    RETURN e.canonical_name AS id,
-           e.canonical_name AS label,
-           e.type AS type,
-           e.description AS description,
-           size([(e)-[:RELATED_TO]-()|1]) AS degree
-    ORDER BY degree DESC
-    LIMIT $limit
-    """
-
     try:
-        results = await graph_pool.execute_query(node_query, {"limit": limit})
+        nodes_data = await graph_repo.get_visualization_nodes(limit)
     except Exception as exc:
         return success_response(
             GraphSnapshotResponse(
@@ -115,41 +106,28 @@ async def get_graph_visualization(
     nodes = []
     node_ids = set()
 
-    for r in results:
+    for node in nodes_data:
         nodes.append(
             NodeResponse(
-                id=r.get("id") or "",
-                label=r.get("label") or "",
-                type=r.get("type") or "未知",
-                properties={"description": r.get("description"), "degree": r.get("degree", 0)},
+                id=node["id"],
+                label=node["label"],
+                type=node["type"],
+                properties={
+                    "description": node.get("description"),
+                    "degree": node.get("degree", 0),
+                },
             )
         )
-        node_ids.add(r.get("id"))
+        node_ids.add(node["id"])
 
     if not node_ids:
         return success_response(
             GraphSnapshotResponse(nodes=[], edges=[], metadata={"total_nodes": 0})
         )
 
-    edge_query = """
-    MATCH (e1:Entity)-[r:RELATED_TO]->(e2:Entity)
-    WHERE e1.canonical_name IN $node_ids AND e2.canonical_name IN $node_ids
-    RETURN e1.canonical_name AS source,
-           e2.canonical_name AS target,
-           r.relation_type AS relation_type,
-           r.weight AS weight
-    LIMIT $edge_limit
-    """
-
     edge_limit = limit * 3
     try:
-        edge_results = await graph_pool.execute_query(
-            edge_query,
-            {
-                "node_ids": list(node_ids),
-                "edge_limit": edge_limit,
-            },
-        )
+        edges_data = await graph_repo.get_visualization_edges(list(node_ids), edge_limit)
     except Exception:
         return success_response(
             GraphSnapshotResponse(
@@ -165,12 +143,12 @@ async def get_graph_visualization(
 
     edges = [
         EdgeResponse(
-            source=r.get("source", ""),
-            target=r.get("target", ""),
-            relation_type=r.get("relation_type") or "RELATED_TO",
-            weight=r.get("weight"),
+            source=edge["source"],
+            target=edge["target"],
+            relation_type=edge["relation_type"],
+            weight=edge.get("weight"),
         )
-        for r in edge_results
+        for edge in edges_data
     ]
 
     return success_response(
@@ -186,7 +164,7 @@ async def get_graph_visualization(
 async def get_subgraph(
     request: SubgraphRequest,
     _: str = Depends(verify_api_key),
-    graph_pool: GraphPool = Depends(get_graph_pool),
+    graph_repo: GraphRepository = Depends(get_graph_repo),
 ) -> APIResponse[GraphSnapshotResponse]:
     """Extract a subgraph around a center entity.
 
@@ -209,71 +187,44 @@ async def get_subgraph(
 
     max_hops = int(request.max_hops)
     hop_pattern = _HOPS_PATTERNS.get(max_hops, "*1..2")  # Default to 2 hops
-    cypher = f"""
-    MATCH path = (center:Entity {{canonical_name: $center}})-[:RELATED_TO{hop_pattern}]-(related:Entity)
-    """
 
-    params: dict[str, Any] = {"center": request.center_entity}
-
-    if request.include_types:
-        cypher += "\nWHERE related.type IN $include_types"
-        params["include_types"] = request.include_types
-
-    cypher += """
-    WITH collect(DISTINCT related) AS related_nodes
-    MATCH (center:Entity {canonical_name: $center})
-    WITH center + related_nodes AS all_nodes
-    UNWIND all_nodes AS node
-    MATCH (node)-[r:RELATED_TO]-(other)
-    WHERE other IN all_nodes
-    RETURN DISTINCT node.canonical_name AS id,
-           node.canonical_name AS label,
-           node.type AS type,
-           node.description AS description
-    LIMIT 200
-    """
-
-    results = await graph_pool.execute_query(cypher, params)
+    try:
+        nodes_data = await graph_repo.get_subgraph_nodes(
+            center_entity=request.center_entity,
+            hop_pattern=hop_pattern,
+            include_types=request.include_types,
+            exclude_types=request.exclude_types,
+        )
+    except Exception:
+        raise HTTPException(status_code=404, detail="No nodes found in subgraph")
 
     nodes = []
     node_ids = set()
 
-    for r in results:
-        if request.exclude_types and (r.get("type") or "未知") in request.exclude_types:
-            continue
+    for node in nodes_data:
         nodes.append(
             NodeResponse(
-                id=r.get("id") or "",
-                label=r.get("label") or "",
-                type=r.get("type") or "未知",
-                properties={"description": r.get("description")},
+                id=node["id"],
+                label=node["label"],
+                type=node["type"],
+                properties={"description": node.get("description")},
             )
         )
-        node_ids.add(r.get("id"))
+        node_ids.add(node["id"])
 
     if not node_ids:
         raise HTTPException(status_code=404, detail="No nodes found in subgraph")
 
-    edge_query = """
-    MATCH (e1:Entity)-[r:RELATED_TO]->(e2:Entity)
-    WHERE e1.canonical_name IN $node_ids AND e2.canonical_name IN $node_ids
-    RETURN e1.canonical_name AS source,
-           e2.canonical_name AS target,
-           r.relation_type AS relation_type,
-           r.weight AS weight
-    LIMIT 500
-    """
-
-    edge_results = await graph_pool.execute_query(edge_query, {"node_ids": list(node_ids)})
+    edges_data = await graph_repo.get_subgraph_edges(list(node_ids))
 
     edges = [
         EdgeResponse(
-            source=r.get("source", ""),
-            target=r.get("target", ""),
-            relation_type=r.get("relation_type") or "RELATED_TO",
-            weight=r.get("weight"),
+            source=edge["source"],
+            target=edge["target"],
+            relation_type=edge["relation_type"],
+            weight=edge.get("weight"),
         )
-        for r in edge_results
+        for edge in edges_data
     ]
 
     return success_response(
