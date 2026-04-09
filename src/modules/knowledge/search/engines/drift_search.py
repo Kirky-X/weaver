@@ -11,16 +11,12 @@ an iterative three-phase search process:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
 from core.observability.logging import get_logger
-from modules.knowledge.search.context.global_context import GlobalContextBuilder
 from modules.knowledge.search.engines.local_search import LocalSearchEngine
-
-if TYPE_CHECKING:
-    from core.protocols import GraphPool
 
 log = get_logger("search.drift_engine")
 
@@ -73,7 +69,7 @@ class DRIFTSearchEngine:
 
     def __init__(
         self,
-        graph_pool: GraphPool,
+        context_builder: Any,
         llm: LLMClient,
         config: DriftConfig | None = None,
         local_engine: LocalSearchEngine | None = None,
@@ -81,22 +77,15 @@ class DRIFTSearchEngine:
         """Initialize DRIFT search engine.
 
         Args:
-            graph_pool: Graph database connection pool.
+            context_builder: ContextBuilder instance for building search context.
             llm: LLM client for answer generation.
             config: DRIFT configuration.
             local_engine: Optional local search engine for follow-up phase.
         """
-        self._pool = graph_pool
         self._llm = llm
         self._config = config or DriftConfig()
-        self._context_builder = GlobalContextBuilder(
-            graph_pool=graph_pool,
-            llm_client=llm,
-        )
-        self._local_engine = local_engine or LocalSearchEngine(
-            graph_pool=graph_pool,
-            llm=llm,
-        )
+        self._context_builder = context_builder
+        self._local_engine = local_engine
 
     async def search(self, query: str) -> DriftResult:
         """Execute DRIFT search.

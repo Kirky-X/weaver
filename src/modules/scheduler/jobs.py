@@ -154,16 +154,19 @@ class SchedulerJobs:
         """
         log.info("flush_retry_queue_start")
 
-        # Get all host keys
-        keys = await self._cache.keys("crawl:retry:*")
-        if not keys:
+        # Get all host keys using scan_iter (non-blocking)
+        keys_to_process = []
+        async for key in self._cache.scan_iter("crawl:retry:*"):
+            keys_to_process.append(key)
+
+        if not keys_to_process:
             log.info("flush_retry_queue_no_keys")
             return 0
 
         requeue_count = 0
         now = datetime.now(UTC).timestamp()
 
-        for key in keys:
+        for key in keys_to_process:
             # Get items ready for retry
             # ZRANGEBYSCORE key -inf now
             items = await self._cache.zrangebyscore(key, "-inf", now)

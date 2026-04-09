@@ -14,10 +14,8 @@ from core.constants import SearchMode
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
 from core.observability.logging import get_logger
-from modules.knowledge.search.context.local_context import LocalContextBuilder
 
 if TYPE_CHECKING:
-    from core.protocols import GraphPool
     from modules.knowledge.search.engines.hybrid_search import HybridSearchEngine
 
 log = get_logger("search.local_engine")
@@ -52,39 +50,26 @@ class LocalSearchEngine:
 
     def __init__(
         self,
-        graph_pool: GraphPool | None = None,
+        context_builder: Any,
         llm: LLMClient | None = None,
         default_max_tokens: int = 8000,
         max_context_tokens: int = 6000,
         hybrid_engine: HybridSearchEngine | None = None,
-        context_builder: Any | None = None,
     ) -> None:
         """Initialize local search engine.
 
         Args:
-            graph_pool: Graph database connection pool (deprecated, use context_builder).
+            context_builder: ContextBuilder instance for building search context.
             llm: LLM client for answer generation.
             default_max_tokens: Default max tokens for context.
             max_context_tokens: Maximum tokens for context window.
             hybrid_engine: Optional hybrid search engine for enhanced retrieval.
-            context_builder: Optional ContextBuilder instance (preferred over graph_pool).
         """
         self._llm = llm
         self._default_max_tokens = default_max_tokens
         self._max_context_tokens = max_context_tokens
         self._hybrid_engine = hybrid_engine
-
-        # Support both old and new initialization patterns
-        if context_builder is not None:
-            self._context_builder = context_builder
-        elif graph_pool is not None:
-            self._pool = graph_pool
-            self._context_builder = LocalContextBuilder(
-                graph_pool=graph_pool,
-                default_max_tokens=default_max_tokens,
-            )
-        else:
-            raise ValueError("Either graph_pool or context_builder must be provided")
+        self._context_builder = context_builder
 
     async def search(
         self,

@@ -53,15 +53,25 @@ class GraphRepository:
         result = await self._pool.execute_query(query, {"name": canonical_name})
         if result:
             record = result[0]
+            updated_at = record.get("updated_at")
+            if updated_at is not None:
+                # LadybugDB stores as INT64 timestamp, Neo4j as datetime
+                if isinstance(updated_at, int):
+                    from datetime import UTC, datetime
+
+                    updated_at = datetime.fromtimestamp(updated_at / 1000, tz=UTC).isoformat()
+                elif hasattr(updated_at, "isoformat"):
+                    updated_at = updated_at.isoformat()
+                else:
+                    updated_at = str(updated_at)
+
             return {
                 "id": record.get("id") or "",
                 "canonical_name": record.get("canonical_name") or "",
                 "type": record.get("type") or "未知",
                 "aliases": record.get("aliases"),
                 "description": record.get("description"),
-                "updated_at": (
-                    record["updated_at"].isoformat() if record.get("updated_at") else None
-                ),
+                "updated_at": updated_at,
             }
         return None
 
@@ -81,12 +91,22 @@ class GraphRepository:
         result = await self._pool.execute_query(query, {"name": canonical_name, "limit": limit})
         relations = []
         for row in result:
+            created_at = row.get("created_at")
+            if created_at is not None:
+                if isinstance(created_at, int):
+                    from datetime import UTC, datetime
+
+                    created_at = datetime.fromtimestamp(created_at / 1000, tz=UTC).isoformat()
+                elif hasattr(created_at, "isoformat"):
+                    created_at = created_at.isoformat()
+                else:
+                    created_at = str(created_at)
             relations.append(
                 {
                     "target": row["target"],
                     "relation_type": row["relation_type"] or "RELATED_TO",
                     "source_article_id": row.get("source_article_id"),
-                    "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+                    "created_at": created_at,
                 }
             )
         return relations
@@ -135,14 +155,22 @@ class GraphRepository:
         result = await self._pool.execute_query(query, {"name": canonical_name, "limit": limit})
         articles = []
         for row in result:
+            publish_time = row.get("publish_time")
+            if publish_time is not None:
+                if isinstance(publish_time, int):
+                    from datetime import UTC, datetime
+
+                    publish_time = datetime.fromtimestamp(publish_time / 1000, tz=UTC).isoformat()
+                elif hasattr(publish_time, "isoformat"):
+                    publish_time = publish_time.isoformat()
+                else:
+                    publish_time = str(publish_time)
             articles.append(
                 {
                     "id": row["id"],
                     "title": row["title"],
                     "category": row.get("category"),
-                    "publish_time": (
-                        row["publish_time"].isoformat() if row.get("publish_time") else None
-                    ),
+                    "publish_time": publish_time,
                     "score": row.get("score"),
                 }
             )
@@ -163,13 +191,22 @@ class GraphRepository:
         result = await self._pool.execute_query(query, {"id": article_id})
         if result:
             record = result[0]
+            publish_time = record.get("publish_time")
+            if publish_time is not None:
+                if isinstance(publish_time, int):
+                    from datetime import UTC, datetime
+
+                    publish_time = datetime.fromtimestamp(publish_time / 1000, tz=UTC).isoformat()
+                elif hasattr(publish_time, "isoformat"):
+                    publish_time = publish_time.isoformat()
+                else:
+                    publish_time = str(publish_time)
+
             return {
                 "id": record.get("id") or "",
                 "title": record.get("title") or "",
                 "category": record.get("category"),
-                "publish_time": (
-                    record["publish_time"].isoformat() if record.get("publish_time") else None
-                ),
+                "publish_time": publish_time,
                 "score": record.get("score"),
             }
         return None
@@ -212,6 +249,16 @@ class GraphRepository:
         result = await self._pool.execute_query(query, {"id": article_id})
         relationships = []
         for row in result:
+            created_at = row.get("created_at")
+            if created_at is not None:
+                if isinstance(created_at, int):
+                    from datetime import UTC, datetime
+
+                    created_at = datetime.fromtimestamp(created_at / 1000, tz=UTC).isoformat()
+                elif hasattr(created_at, "isoformat"):
+                    created_at = created_at.isoformat()
+                else:
+                    created_at = str(created_at)
             relationships.append(
                 {
                     "source_id": row["source"],
@@ -219,9 +266,7 @@ class GraphRepository:
                     "relation_type": row["relation_type"] or "RELATED_TO",
                     "properties": {
                         "source_article_id": row.get("source_article_id"),
-                        "created_at": (
-                            row["created_at"].isoformat() if row.get("created_at") else None
-                        ),
+                        "created_at": created_at,
                     },
                 }
             )
