@@ -80,7 +80,7 @@ def _get_ntp_time() -> datetime | None:
 
     def _probe(server: str) -> None:
         try:
-            client = ntplib.NTPClient()
+            client = _get_ntp_client()
             response = client.request(server, version=4, timeout=NTP_TIMEOUT)
             ts = datetime.fromtimestamp(response.tx_time, tz=UTC)
             if result["time"] is None:
