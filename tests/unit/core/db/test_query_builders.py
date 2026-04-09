@@ -306,11 +306,11 @@ class TestQueryOutputComparison:
         pg_formatted = pg.format_embedding_param(emb)
         duck_formatted = duck.format_embedding_param(emb)
 
-        # pg uses [x,y,z] string format, duck returns raw list
+        # Both return string array literal format for SQLAlchemy compatibility
         assert isinstance(pg_formatted, str)
         assert pg_formatted == "[0.1,0.2,0.3]"
-        assert isinstance(duck_formatted, list)
-        assert duck_formatted == [0.1, 0.2, 0.3]
+        assert isinstance(duck_formatted, str)
+        assert duck_formatted == "[0.1,0.2,0.3]"
 
     def test_array_contains_differs(self) -> None:
         pg = PgVectorQueryBuilder()
