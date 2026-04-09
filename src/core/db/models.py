@@ -628,3 +628,43 @@ class LLMUsageHourly(Base):
         Index("ix_llm_usage_hourly_provider", "provider"),
         Index("ix_llm_usage_hourly_model", "model"),
     )
+
+
+class LLMCompareHourly(Base):
+    """Hourly aggregated LLM comparison statistics.
+
+    Stores comparison results between primary and candidate models
+    for shadow evaluation analysis.
+    """
+
+    __tablename__ = "llm_compare_hourly"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    time_bucket: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    call_point: Mapped[str] = mapped_column(String(100), nullable=False)
+    primary_model: Mapped[str] = mapped_column(String(100), nullable=False)
+    candidate_model: Mapped[str] = mapped_column(String(100), nullable=False)
+    comparison_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    primary_latency_sum: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    candidate_latency_sum: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    primary_success_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    candidate_success_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "time_bucket",
+            "call_point",
+            "primary_model",
+            "candidate_model",
+            name="uq_llm_compare_hourly",
+        ),
+        Index("ix_llm_compare_hourly_time_bucket", "time_bucket"),
+        Index("ix_llm_compare_hourly_call_point", "call_point"),
+        Index("ix_llm_compare_hourly_primary", "primary_model"),
+        Index("ix_llm_compare_hourly_candidate", "candidate_model"),
+    )

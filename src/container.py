@@ -110,6 +110,11 @@ class Container:
         self._event_bus: EventBus | None = None
         self._llm_failure_repo: Any = None
         self._llm_usage_buffer: LLMUsageBuffer | None = None
+        self._llm_experience: Any = None  # ExperienceStore
+        self._live_config: Any = None  # LiveConfig
+        self._smart_router: Any = None  # SmartRouter
+        self._eval_runner: Any = None  # EvalRunner
+        self._eval_compare_buffer: Any = None  # EvalCompareBuffer
         self._pending_sync_repo: PendingSyncRepo | None = None
         self._scheduler_jobs: Any = None
         self._scheduler: Any = None  # AsyncIOScheduler instance
@@ -227,15 +232,60 @@ class Container:
     # ── LLM & Prompt ─────────────────────────────────────────────
 
     async def init_llm(self) -> LLMClient:
-        """Initialize LLM client."""
+        """Initialize LLM client with smart routing support."""
         if self._llm_client is None:
+            # Initialize event bus if not already done
+            if self._event_bus is None:
+                self._event_bus = EventBus()
+                log.info("event_bus_created_in_llm", event_bus_id=id(self._event_bus))
+
+            # Initialize ExperienceStore
+            from core.llm.experience import ExperienceStore
+
+            self._llm_experience = ExperienceStore(event_bus=self._event_bus)
+            log.info("llm_experience_initialized")
+
+            # Build circuit breakers map from provider pools (created later in ProviderPool)
+            circuit_breakers: dict[str, Any] = {}
+            # These will be populated after pools are created
+
+            # Build SmartRouter
+            from core.llm.smart_router import SmartRouter
+
+            self._smart_router = SmartRouter(
+                settings=self._settings.llm,
+                experience=self._llm_experience,
+                circuit_breakers=circuit_breakers,
+            )
+            log.info("llm_smart_router_initialized")
+
+            # Build EvalRunner if enabled
+            eval_cfg = self._settings.llm.eval_config
+            if eval_cfg and eval_cfg.enabled:
+                from core.llm.eval_runner import EvalRunner
+
+                self._eval_runner = EvalRunner.from_eval_config(
+                    eval_cfg=eval_cfg,
+                    llm_client=None,  # type: ignore[arg-type]
+                    event_bus=self._event_bus,
+                )
+                log.info("llm_eval_runner_initialized")
+
             # Use LLM settings from Settings.llm (loaded from llm.toml)
             self._llm_client = await LLMClient.create_from_settings(
                 llm_settings=self._settings.llm,
                 prompt_loader=self.prompt_loader(),
-                redis_client=self._redis_client,  # Pass RedisClient wrapper, it will be unwrapped in rate_limiter
+                redis_client=self._redis_client,
+                event_bus=self._event_bus,
             )
-            log.info("llm_client_initialized_from_settings")
+
+            # Wire SmartRouter and EvalRunner into LLMClient
+            self._llm_client._smart_router = self._smart_router
+            if self._eval_runner:
+                self._eval_runner._llm_client = self._llm_client
+                self._llm_client._eval_runner = self._eval_runner
+
+            log.info("llm_client_initialized_with_smart_routing")
 
         return self._llm_client
 
@@ -368,8 +418,8 @@ class Container:
             from modules.scheduler.jobs import SchedulerJobs
 
             self._scheduler_jobs = SchedulerJobs(
-                postgres_pool=self.relational_pool(),
-                redis_client=self._redis_client,
+                relational_pool=self.relational_pool(),
+                cache=self._redis_client,
                 graph_writer=self._graph_writer,
                 vector_repo=self._vector_repo,
                 article_repo=self._article_repo,
@@ -1103,7 +1153,7 @@ class Container:
         """Get deduplicator."""
         if self._deduplicator is None:
             self._deduplicator = Deduplicator(
-                redis=self._redis_client,
+                cache=self._redis_client,
                 article_repo=self._article_repo,
             )
         return self._deduplicator
@@ -1253,7 +1303,7 @@ class Container:
 
         # Initialize LLM usage statistics: buffer + raw record handler + aggregator thread
         self._llm_usage_buffer = LLMUsageBuffer(
-            redis_client=self._redis_client,
+            cache=self._redis_client,
             ttl_seconds=self._settings.scheduler.llm_usage_redis_buffer_ttl_seconds,
         )
 
@@ -1277,6 +1327,28 @@ class Container:
         self._event_bus.subscribe(LLMUsageEvent, _handle_llm_usage_buffer)
         self._event_bus.subscribe(LLMUsageEvent, _handle_llm_usage_raw)
         log.info("llm_usage_handlers_subscribed", event_bus_id=id(self._event_bus))
+
+        # Initialize LLM comparison buffer and handlers (shadow evaluation)
+        from core.event.bus import LLMCompareEvent
+        from modules.analytics.llm_compare.buffer import EvalCompareBuffer
+        from modules.analytics.llm_compare.repo import EvalCompareRepo
+
+        self._eval_compare_buffer = EvalCompareBuffer(
+            cache=self._redis_client,
+            ttl_seconds=86400,  # 24 hours
+        )
+
+        async def _handle_eval_compare_buffer(event: LLMCompareEvent) -> None:
+            if self._eval_compare_buffer:
+                await self._eval_compare_buffer.accumulate(event)
+
+        async def _handle_eval_compare_raw(event: LLMCompareEvent) -> None:
+            repo = EvalCompareRepo(self.relational_pool())
+            await repo.insert_raw(event)
+
+        self._event_bus.subscribe(LLMCompareEvent, _handle_eval_compare_buffer)
+        self._event_bus.subscribe(LLMCompareEvent, _handle_eval_compare_raw)
+        log.info("llm_compare_handlers_subscribed", event_bus_id=id(self._event_bus))
 
         # Initialize pending sync repo (already done in property getter, but ensure it exists)
         _ = self.pending_sync_repo()

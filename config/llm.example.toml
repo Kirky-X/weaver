@@ -126,3 +126,44 @@ fallbacks = ["chat.anthropic.claude-sonnet-4-20250514"]
 [call-points.embedding]
 primary = "embedding.openai.text-embedding-3-large"
 fallbacks = ["embedding.ollama.nomic-embed-text"]
+
+# ============================================================
+# Smart Router Configuration (optional)
+# ============================================================
+# Controls dynamic model selection scoring per call point.
+# If not set, falls back to static primary/fallback chain above.
+# ============================================================
+
+[routing.classifier]
+mode = "auto"                      # auto | fast | best
+
+  [routing.classifier.weights]
+  editorial = 0.35                 # Preset priority from TOML order
+  reliability = 0.25               # Historical success rate
+  cost = 0.15                      # Estimated token cost
+  latency = 0.10                   # Historical P50 latency
+
+  [routing.classifier.bandit]
+  enabled = true
+  exploration_weight = 0.15        # Thompson Sampling exploration
+  warmup_calls = 3                 # Min calls before stats are trusted
+
+[routing.entity_extractor]
+mode = "best"                      # Quality-first for extraction tasks
+
+[routing.embedding]
+mode = "fast"                      # Cost-first for embedding tasks
+
+# ============================================================
+# Shadow Evaluation (optional, default: disabled)
+# ============================================================
+# Parallel send requests to candidate models for A/B comparison.
+# Does NOT affect the main call path.
+# ============================================================
+
+[eval]
+enabled = false                    # Enable shadow evaluation
+sample_rate = 0.1                  # 10% of requests trigger shadow calls
+target_call_points = ["classifier", "entity_extractor"]
+baseline_model = "chat.openai.gpt-4o"
+candidate_models = ["chat.anthropic.claude-sonnet-4-20250514"]

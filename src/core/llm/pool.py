@@ -85,6 +85,14 @@ class ProviderPool:
         # 监控指标
         self._metrics = ProviderMetrics()
 
+        # Set timeout on circuit breaker for slow request detection
+        self._circuit_breaker._timeout = config.timeout
+
+    @property
+    def circuit_breaker(self) -> ProviderCircuitBreaker:
+        """Access the circuit breaker for ModelSelector integration."""
+        return self._circuit_breaker
+
     @property
     def is_available(self) -> bool:
         """检查provider是否可用."""

@@ -214,6 +214,97 @@ class GlobalConfig(BaseModel):
         return {}
 
 
+class RoutingMode(str, Enum):
+    """Routing mode controlling the balance between cost and quality."""
+
+    AUTO = "auto"
+    FAST = "fast"
+    BEST = "best"
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateScore:
+    """Scored candidate model for selection.
+
+    Attributes:
+        model: Model name (e.g., "GLM-Z1-9B-0414")
+        provider: Provider name (e.g., "aiping")
+        total: Weighted total score
+        editorial_score: Preset priority score [0, 1]
+        reliability_score: Historical success rate [0, 1]
+        cost_score: Normalized cost score [0, 1]
+        latency_score: Normalized latency score [0, 1]
+    """
+
+    model: str
+    provider: str
+    total: float
+    editorial_score: float
+    reliability_score: float
+    cost_score: float
+    latency_score: float
+
+
+@dataclass(frozen=True, slots=True)
+class ExperienceData:
+    """Runtime experience data for a (call_point, provider, model) triplet.
+
+    Attributes:
+        call_count: Total number of calls
+        success_count: Number of successful calls
+        failure_count: Number of failed calls
+        total_latency_ms: Sum of all latencies
+        avg_latency_ms: Average latency
+        last_call_time: Timestamp of last call
+        thompson_alpha: Beta distribution alpha parameter
+        thompson_beta: Beta distribution beta parameter
+        last_error_type: Last error type string
+    """
+
+    call_count: int = 0
+    success_count: int = 0
+    failure_count: int = 0
+    total_latency_ms: float = 0.0
+    avg_latency_ms: float = 0.0
+    last_call_time: float = 0.0
+    thompson_alpha: float = 1.0
+    thompson_beta: float = 1.0
+    last_error_type: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class EvalConfig:
+    """Shadow evaluation configuration.
+
+    Attributes:
+        enabled: Whether shadow evaluation is enabled
+        sample_rate: Fraction of requests to shadow (0.0 to 1.0)
+        target_call_points: List of call points to evaluate
+        baseline_model: Baseline model label for comparison
+        candidate_models: List of candidate model labels to compare
+    """
+
+    enabled: bool = False
+    sample_rate: float = 0.1
+    target_call_points: list[str] = ()  # type: ignore[assignment]
+    baseline_model: str = ""
+    candidate_models: list[str] = ()  # type: ignore[assignment]
+
+
+class RoutingInfeasibleError(Exception):
+    """Raised when no candidate model satisfies the routing constraints.
+
+    Attributes:
+        message: Human-readable error message
+        reason: Machine-readable reason code
+    """
+
+    def __init__(self, message: str, reason: str = "no_available_models") -> None:
+        self.message = message
+        self.reason = reason
+        super().__init__(message)
+
+
 @dataclass
 class LLMTask:
     """Represents a single LLM operation to be queued and executed.

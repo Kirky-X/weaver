@@ -28,6 +28,7 @@ dependencies = [
     "simhash>=2.1.2",
     "slowapi>=0.1.9",
     "spacy>=3.8.14",
+    "watchfiles>=1.0.0",
     "sqlalchemy[asyncio]>=2.0.48",
     "loguru>=0.7.3",
     "tiktoken>=0.12.0",

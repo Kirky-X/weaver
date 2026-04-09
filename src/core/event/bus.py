@@ -86,6 +86,40 @@ class LLMUsageEvent(BaseEvent):
 
 
 @dataclass
+class LLMCompareEvent(BaseEvent):
+    """LLM 影子评测对比事件。
+
+    当影子评测启用时，按采样率并行发送请求到对比模型，
+    完成后发布此事件用于统计和分析。
+
+    Attributes:
+        call_point: 调用点标识
+        primary_model: 主模型标签
+        candidate_model: 对比模型标签
+        primary_latency: 主模型延迟 (ms)
+        candidate_latency: 对比模型延迟 (ms)
+        primary_success: 主模型是否成功
+        candidate_success: 对比模型是否成功
+        primary_output: 主模型输出
+        candidate_output: 对比模型输出
+        primary_tokens: 主模型 token 使用量
+        candidate_tokens: 对比模型 token 使用量
+    """
+
+    call_point: str = ""
+    primary_model: str = ""
+    candidate_model: str = ""
+    primary_latency: float = 0.0
+    candidate_latency: float = 0.0
+    primary_success: bool = True
+    candidate_success: bool = True
+    primary_output: str = ""
+    candidate_output: str = ""
+    primary_tokens: TokenUsage = field(default_factory=TokenUsage)
+    candidate_tokens: TokenUsage = field(default_factory=TokenUsage)
+
+
+@dataclass
 class MemoryIngestEvent(BaseEvent):
     """Emitted when pipeline completes processing an article for memory ingestion.
 

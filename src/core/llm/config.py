@@ -6,7 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -15,10 +15,12 @@ from pydantic_settings import (
 )
 
 from core.llm.types import (
+    EvalConfig,
     GlobalConfig,
     ModelConfig,
     ProviderConfig,
     RoutingConfig,
+    RoutingMode,
 )
 from core.observability.logging import get_logger
 
@@ -59,6 +61,12 @@ class LLMSettings(BaseSettings):
 
     # Call-point routing (maps from TOML "call-points" key)
     call_points: dict[str, RoutingConfig] = {}
+
+    # Per-call-point routing mode and weights
+    routing: dict[str, dict[str, Any]] = {}
+
+    # Shadow evaluation config
+    eval_config: EvalConfig = Field(default_factory=EvalConfig)
 
     @field_validator("providers", mode="before")
     @classmethod
@@ -111,6 +119,49 @@ class LLMSettings(BaseSettings):
                     result[key] = RoutingConfig(**val)
             return result
         return {}
+
+    @field_validator("routing", mode="before")
+    @classmethod
+    def parse_routing(cls, v: Any) -> dict[str, dict[str, Any]]:
+        """Parse per-call-point routing configuration."""
+        if v is None:
+            return {}
+        if isinstance(v, dict):
+            result: dict[str, dict[str, Any]] = {}
+            for key, val in v.items():
+                if isinstance(val, dict):
+                    # Normalize mode string
+                    mode = val.get("mode", "auto")
+                    if isinstance(mode, str):
+                        try:
+                            mode = RoutingMode(mode).value
+                        except ValueError:
+                            mode = "auto"
+                    result[key] = {
+                        "mode": mode,
+                        "weights": val.get("weights", {}),
+                        "bandit": val.get("bandit", {}),
+                    }
+            return result
+        return {}
+
+    @field_validator("eval_config", mode="before")
+    @classmethod
+    def parse_eval_config(cls, v: Any) -> EvalConfig:
+        """Parse shadow evaluation configuration."""
+        if v is None:
+            return EvalConfig()
+        if isinstance(v, EvalConfig):
+            return v
+        if isinstance(v, dict):
+            return EvalConfig(
+                enabled=v.get("enabled", False),
+                sample_rate=v.get("sample_rate", 0.1),
+                target_call_points=tuple(v.get("target_call_points", [])),
+                baseline_model=v.get("baseline_model", ""),
+                candidate_models=tuple(v.get("candidate_models", [])),
+            )
+        return EvalConfig()
 
     @classmethod
     def settings_customise_sources(

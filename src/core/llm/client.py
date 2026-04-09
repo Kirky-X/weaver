@@ -26,6 +26,8 @@ from core.utils.time_utils import get_current_time_with_timezone
 
 if TYPE_CHECKING:
     from core.event.bus import EventBus
+    from core.llm.eval_runner import EvalRunner
+    from core.llm.smart_router import SmartRouter
     from core.prompt.loader import PromptLoader
 
 log = get_logger("llm_client")
@@ -50,6 +52,8 @@ class LLMClient:
         redis_client: Any = None,
         prompt_loader: PromptLoader | None = None,
         event_bus: EventBus | None = None,
+        smart_router: SmartRouter | None = None,
+        eval_runner: EvalRunner | None = None,
     ) -> None:
         """初始化LLM客户端.
 
@@ -59,9 +63,13 @@ class LLMClient:
             redis_client: 可选的Redis客户端（用于embedding缓存）
             prompt_loader: 可选的Prompt加载器（用于call_at方法）
             event_bus: 可选的EventBus，用于发射LLMUsageEvent
+            smart_router: 可选的智能路由器（动态评分选择模型）
+            eval_runner: 可选的影子评测器
         """
         self._global_config = global_config
         self._router = LabelRouter(global_config)
+        self._smart_router = smart_router
+        self._eval_runner = eval_runner
         self._redis = redis_client
         self._prompts = prompt_loader
         self._event_bus = event_bus
@@ -214,7 +222,11 @@ class LLMClient:
         Returns:
             解析后的模型实例或原始字符串
         """
-        labels = self._router.get_call_point_route(call_point)
+        # Use SmartRouter if configured, fallback to static LabelRouter
+        if self._smart_router:
+            labels = self._smart_router.route(call_point)
+        else:
+            labels = self._router.get_call_point_route(call_point)
         if not labels:
             raise ValueError(f"Call point not configured: {call_point}")
 
@@ -241,7 +253,7 @@ class LLMClient:
                 "user_content": user_content,
             }
 
-        return await self.call(
+        result = await self.call(
             labels[0],
             request_payload,
             labels[1:],
@@ -249,6 +261,21 @@ class LLMClient:
             timeout,
             call_point=call_point,
         )
+
+        # Trigger shadow evaluation if enabled
+        if self._eval_runner and self._eval_runner.should_trigger(call_point):
+            cp_str = call_point.value if isinstance(call_point, CallPoint) else call_point
+            await self._eval_runner.trigger_shadow_call(
+                call_point=cp_str,
+                primary_label=labels[0],
+                primary_result=result,
+                primary_latency=0.0,  # Already captured in the call
+                primary_success=True,
+                primary_tokens=TokenUsage(),
+                payload=request_payload,
+            )
+
+        return result
 
     async def embed(
         self,

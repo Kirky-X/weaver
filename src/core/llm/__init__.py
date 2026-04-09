@@ -6,6 +6,8 @@ This module provides a unified interface for LLM interactions with:
 - LiteLLM unified calling interface
 - Label-based routing with fallback support
 - Circuit breaker for fault tolerance
+- Smart routing with multi-dimensional scoring
+- Shadow evaluation for model comparison
 - json_repair for robust JSON parsing
 
 Usage:
@@ -31,8 +33,11 @@ Usage:
 from core.llm.client import LLMClient
 from core.llm.types import (
     CallPoint,
+    CandidateScore,
     Capability,
     CircuitState,
+    EvalConfig,
+    ExperienceData,
     GlobalConfig,
     Label,
     LLMResponse,
@@ -41,21 +46,59 @@ from core.llm.types import (
     ModelConfig,
     ProviderConfig,
     RoutingConfig,
+    RoutingInfeasibleError,
+    RoutingMode,
     TokenUsage,
 )
 
 __all__ = [
     "CallPoint",
+    "CandidateScore",
     "Capability",
     "CircuitState",
+    "EvalConfig",
+    "EvalRunner",
+    "ExperienceData",
+    "ExperienceStore",
     "GlobalConfig",
     "LLMClient",
     "LLMResponse",
     "LLMTask",
     "LLMType",
     "Label",
+    "LiveConfig",
     "ModelConfig",
+    "ModelSelector",
     "ProviderConfig",
     "RoutingConfig",
+    "RoutingInfeasibleError",
+    "RoutingMode",
+    "SmartRouter",
     "TokenUsage",
 ]
+
+
+def __getattr__(name: str):  # type: ignore[no-untyped-def]
+    """Lazy import for new module-level exports."""
+    if name == "ExperienceStore":
+        from core.llm.experience import ExperienceStore
+
+        return ExperienceStore
+    if name == "EvalRunner":
+        from core.llm.eval_runner import EvalRunner
+
+        return EvalRunner
+    if name == "ModelSelector":
+        from core.llm.model_selector import ModelSelector
+
+        return ModelSelector
+    if name == "SmartRouter":
+        from core.llm.smart_router import SmartRouter
+
+        return SmartRouter
+    if name == "LiveConfig":
+        from core.llm.live_config import LiveConfig
+
+        return LiveConfig
+    msg = f"module {__name__!r} has no attribute {name!r}"
+    raise AttributeError(msg)
