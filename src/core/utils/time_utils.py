@@ -2,6 +2,8 @@
 """时间工具模块 - 支持 NTP 网络时间获取"""
 
 from datetime import UTC, datetime
+from threading import Event, Thread
+from time import monotonic
 
 import ntplib  # type: ignore[import-untyped]
 
@@ -9,23 +11,42 @@ from core.observability.logging import get_logger
 
 log = get_logger("time_utils")
 
-# NTP 服务器列表
+# NTP server list (China priority)
 NTP_SERVERS = [
+    "ntp.aliyun.com",
+    "ntp.tencent.com",
     "pool.ntp.org",
+    "cn.ntp.org.cn",
     "time.google.com",
-    "time.cloudflare.com",
 ]
 
 # NTP 请求超时(秒)
-NTP_TIMEOUT = 3
+NTP_TIMEOUT = 1
+
+# NTP 缓存 TTL(秒)
+CACHE_TTL = 3600
+
+# 模块级 NTP 缓存
+_ntp_cache: dict[str, datetime | None | str | float] = {"time": None, "expires": 0.0}
+
+# 单例 NTP 客户端
+_ntp_client: ntplib.NTPClient | None = None
+
+
+def _get_ntp_client() -> ntplib.NTPClient:
+    """获取单例 NTP 客户端."""
+    global _ntp_client
+    if _ntp_client is None:
+        _ntp_client = ntplib.NTPClient()
+    return _ntp_client
 
 
 def get_current_time_with_timezone() -> str:
     """获取当前时间(带本地时区)，优先从 NTP 获取
 
     尝试顺序:
-    1. NTP 服务器 (pool.ntp.org, time.google.com, time.cloudflare.com)
-    2. 本地系统时间
+    1. 并发探测 NTP 服务器 (阿里云、腾讯云、pool.ntp.org、中国NTP、Google)
+    2. 本地系统时间(降级)
 
     Returns:
         ISO 格式时间字符串，如 "2024-01-15T10:30:45+08:00"
@@ -43,23 +64,46 @@ def get_current_time_with_timezone() -> str:
 def _get_ntp_time() -> datetime | None:
     """从 NTP 服务器获取时间
 
-    使用 ntplib 库替代手动 socket 实现，提供更好的错误处理和协议支持。
+    使用并发线程同时向所有 NTP 服务器发送请求，第一个成功响应者获胜。
+    结果缓存 CACHE_TTL 秒，避免重复网络请求。
 
     Returns:
         UTC 时间或 None(获取失败时)
     """
-    client = ntplib.NTPClient()
+    # 检查缓存
+    if monotonic() < _ntp_cache["expires"]:
+        log.debug("ntp_cache_hit")
+        return _ntp_cache["time"]  # type: ignore[return-value]
 
-    for server in NTP_SERVERS:
+    result: dict[str, datetime | None] = {"time": None}
+    ready = Event()
+
+    def _probe(server: str) -> None:
         try:
-            response = client.request(server, version=3, timeout=NTP_TIMEOUT)
-            return datetime.fromtimestamp(response.tx_time, tz=UTC)
+            client = ntplib.NTPClient()
+            response = client.request(server, version=4, timeout=NTP_TIMEOUT)
+            ts = datetime.fromtimestamp(response.tx_time, tz=UTC)
+            if result["time"] is None:
+                result["time"] = ts
+                ready.set()
         except ntplib.NTPException as e:
-            log.debug("ntp_request_failed", server=server, error=str(e))
-            continue
+            log.info("ntp_request_failed", server=server, error=str(e))
         except Exception as e:
-            log.debug("ntp_unexpected_error", server=server, error=str(e))
-            continue
+            log.info("ntp_unexpected_error", server=server, error=str(e))
 
+    threads = [Thread(target=_probe, args=(s,), daemon=True) for s in NTP_SERVERS]
+    for t in threads:
+        t.start()
+
+    ready.wait(timeout=NTP_TIMEOUT)
+
+    if result["time"] is not None:
+        _ntp_cache["time"] = result["time"]
+        _ntp_cache["expires"] = monotonic() + CACHE_TTL
+        return result["time"]
+
+    # 全部失败
     log.warning("ntp_all_servers_failed", servers=NTP_SERVERS)
+    _ntp_cache["time"] = None
+    _ntp_cache["expires"] = monotonic() + CACHE_TTL
     return None

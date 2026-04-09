@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import time
-import warnings
 from typing import Any, cast
 
 from redis.asyncio import ConnectionPool, Redis
@@ -176,21 +175,6 @@ class RedisClient:
     async def zrem(self, name: str, *members: str) -> int:
         """Remove members from a sorted set."""
         return await self.client.zrem(name, *members)
-
-    async def keys(self, pattern: str) -> list[str]:
-        """Return all keys matching pattern.
-
-        .. deprecated:: 0.2.0
-            Use :meth:`scan_iter` instead. The KEYS command is O(N) and
-            can block the Redis server for long periods on large datasets.
-        """
-        warnings.warn(
-            "keys() is deprecated. Use scan_iter() for production code. "
-            "The KEYS command can block the Redis server.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return await self.client.keys(pattern)
 
     async def scan_iter(self, pattern: str, count: int = 100):
         """Iterate over keys matching pattern using SCAN (non-blocking).
@@ -481,14 +465,6 @@ class CashewsRedisFallback:
         return sum(1 for m in members if ss.pop(m, None) is not None)
 
     # ── Scan ───────────────────────────────────────────────────
-
-    async def keys(self, pattern: str) -> list[str]:
-        warnings.warn(
-            "keys() is deprecated in CashewsRedisFallback.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return [k for k in self._store if self._match_pattern(k, pattern)]
 
     async def scan(
         self,

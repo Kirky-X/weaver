@@ -150,15 +150,13 @@ class URLSecurityCache:
             return
 
         try:
-            # Find all keys with our prefix
-            if hasattr(self._redis, "keys"):
-                keys = await self._redis.keys(f"{self._prefix}*")
-                if keys:
-                    await self._redis.delete(*keys)
-            elif hasattr(self._redis, "execute_command"):
-                keys = await self._redis.execute_command("KEYS", f"{self._prefix}*")
-                if keys:
-                    await self._redis.execute_command("DEL", *keys)
+            # Find all keys with our prefix using scan_iter (non-blocking)
+            keys_to_delete = []
+            async for key in self._redis.scan_iter(f"{self._prefix}*"):
+                keys_to_delete.append(key)
+
+            if keys_to_delete:
+                await self._redis.delete(*keys_to_delete)
 
             log.info("cache_cleared")
 
