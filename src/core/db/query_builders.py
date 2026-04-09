@@ -277,34 +277,33 @@ class DuckDBVectorQueryBuilder:
         """No initialization needed for DuckDB in tests."""
         return []
 
-    def format_embedding_param(self, embedding: list[float]) -> str:
-        """Format embedding as DuckDB array literal string.
+    def format_embedding_param(self, embedding: list[float]) -> list[float]:
+        """Return embedding as-is for DuckDB list parameter binding.
 
-        DuckDB's SQLAlchemy driver may not handle Python list parameters
-        correctly with CAST operations. We format the embedding as a
-        DuckDB array literal string that can be embedded directly in SQL.
+        DuckDB's SQLAlchemy driver (duckdb_engine) does not support
+        ``:param::FLOAT[1024]`` syntax. Instead, use ``CAST(:param AS FLOAT[1024])``
+        and pass the raw Python list as the parameter value.
         """
-        # Format as DuckDB array literal: [1.0, 2.0, 3.0, ...]
-        return f"[{','.join(str(x) for x in embedding)}]"
+        return embedding
 
     def build_similarity_expression(self, column: str) -> str:
         """Build DuckDB cosine similarity expression."""
-        # Use the formatted embedding directly in the expression
-        return f"array_cosine_similarity({column}, :embedding::FLOAT[1024])"
+        # duckdb_engine doesn't support ::cast syntax; use CAST() instead
+        return f"array_cosine_similarity({column}, CAST(:embedding AS FLOAT[1024]))"
 
     def build_vector_cast(self, param: str) -> str:
         """Build DuckDB vector cast."""
-        return f"{param}::FLOAT[1024]"
+        return f"CAST({param} AS FLOAT[1024])"
 
     def build_upsert_article_vector_query(self) -> str:
         """Build DuckDB upsert with INSERT OR REPLACE.
 
-        Note: embedding parameter should be pre-formatted as array literal string
-        via format_embedding_param() before being passed to the query.
+        Note: embedding parameter should be a Python list[float], not a
+        pre-formatted string. The CAST() ensures correct type conversion.
         """
         return """
             INSERT OR REPLACE INTO article_vectors (article_id, vector_type, embedding, model_id)
-            VALUES (:article_id, :vector_type, :embedding::FLOAT[1024], :model_id)
+            VALUES (:article_id, :vector_type, CAST(:embedding AS FLOAT[1024]), :model_id)
         """
 
     def build_upsert_article_vector_batch_query(self, batch_size: int) -> str:
