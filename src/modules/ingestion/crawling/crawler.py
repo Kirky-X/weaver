@@ -73,21 +73,29 @@ class Crawler:
 
             if item.body:
                 # Body already extracted from content:encoded in the RSS feed.
-                # Validate the pre-filled body using trafilatura.
-                extracted = trafilatura.extract(item.body, include_comments=False)
-                if extracted and len(extracted) >= MIN_ARTICLE_LENGTH:
-                    body = extracted
+                # Check if it's already plain text (no HTML tags) or HTML content.
+                # RSSParser._strip_html_tags produces plain text, so we should
+                # validate length directly instead of using trafilatura.extract().
+                if len(item.body) >= MIN_ARTICLE_LENGTH:
+                    # Already sufficient plain text content
+                    body = item.body
                 else:
-                    log.debug(
-                        "prefilled_body_insufficient",
-                        url=item.url,
-                        original_len=len(item.body),
-                        extracted_len=len(extracted) if extracted else 0,
-                    )
-                    # Re-fetch with browser rendering
-                    async with global_sem, host_sems[host]:
-                        _, html, _ = await self._fetcher.fetch(item.url, force_browser=True)
-                        body = trafilatura.extract(html, include_comments=False) or ""
+                    # Body might be HTML (e.g., from other sources) or insufficient plain text.
+                    # Try trafilatura for HTML content.
+                    extracted = trafilatura.extract(item.body, include_comments=False)
+                    if extracted and len(extracted) >= MIN_ARTICLE_LENGTH:
+                        body = extracted
+                    else:
+                        log.debug(
+                            "prefilled_body_insufficient",
+                            url=item.url,
+                            original_len=len(item.body),
+                            extracted_len=len(extracted) if extracted else 0,
+                        )
+                        # Re-fetch with browser rendering
+                        async with global_sem, host_sems[host]:
+                            _, html, _ = await self._fetcher.fetch(item.url, force_browser=True)
+                            body = trafilatura.extract(html, include_comments=False) or ""
             else:
                 # No pre-filled body, fetch the page
                 async with global_sem, host_sems[host]:

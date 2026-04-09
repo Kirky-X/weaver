@@ -124,6 +124,10 @@ class RedisClient:
         """Check if a hash field exists."""
         return await self.client.hexists(name, key)
 
+    async def hgetall(self, name: str) -> dict[str, str]:
+        """Get all fields and values in a hash."""
+        return await self.client.hgetall(name)
+
     async def hexists_many(self, name: str, keys: list[str]) -> list[bool]:
         """Check if multiple hash fields exist using pipeline."""
         pipe = self.client.pipeline()

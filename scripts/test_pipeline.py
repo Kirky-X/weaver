@@ -489,6 +489,14 @@ async def clear_databases(server_ctx: ServerContext) -> None:
             await graph_pool.execute_query("MATCH (n) DELETE n")
         step("Graph nodes cleared", True)
 
+    # Clear Redis dedup cache
+    cache_client = server_ctx.container._redis_client
+    if cache_client:
+        with contextlib.suppress(Exception):
+            await cache_client.delete("crawl:dedup")
+            await cache_client.delete("crawl:simhash:title")
+        step("Redis dedup cache cleared", True)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Test Runners

@@ -3976,6 +3976,7 @@ dependencies = [
     { name = "trafilatura" },
     { name = "typer" },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "watchfiles" },
 ]
 
 [package.optional-dependencies]
@@ -4059,6 +4060,7 @@ requires-dist = [
     { name = "trafilatura", specifier = ">=2.0.0" },
     { name = "typer", specifier = ">=0.24.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.42.0" },
+    { name = "watchfiles", specifier = ">=1.0.0" },
 ]
 provides-extras = ["search-enhancement"]
 

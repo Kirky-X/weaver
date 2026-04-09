@@ -41,8 +41,13 @@ SCHEMA_QUERIES = [
         title STRING,
         summary STRING,
         level INT64,
+        parent_id STRING,
+        entity_count INT64,
         rank DOUBLE,
-        created_at INT64
+        period STRING,
+        modularity DOUBLE,
+        created_at INT64,
+        updated_at INT64
     )
     """,
     # CommunityReport node table
@@ -61,6 +66,8 @@ SCHEMA_QUERIES = [
     """
     CREATE NODE TABLE IF NOT EXISTS EventNode (
         id STRING PRIMARY KEY,
+        content STRING,
+        attributes STRING,
         event_type STRING,
         name STRING,
         description STRING,

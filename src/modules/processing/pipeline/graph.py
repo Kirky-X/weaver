@@ -295,10 +295,11 @@ class Pipeline:
             for i, result in enumerate(phase3_results):
                 if isinstance(result, Exception):
                     log.error(
-                        "phase3_task_failed",
+                        f"phase3_task_failed: {type(result).__name__}: {result}",
                         article_index=i,
-                        error=str(result),
-                        error_type=type(result).__name__,
+                    )
+                    log.debug(
+                        f"phase3_traceback: {traceback.format_exception(type(result), result, result.__traceback__)}"
                     )
                     # For phase3 failures, we keep the state but mark error
                     # The article may still have partial results from earlier phases

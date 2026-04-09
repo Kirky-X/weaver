@@ -94,6 +94,8 @@ class GlobalSearchEngine:
         # Support both old and new initialization patterns
         if context_builder is not None:
             self._context_builder = context_builder
+            # Extract pool from context_builder for DRIFT search compatibility
+            self._pool = getattr(context_builder, "_pool", None)
         elif graph_pool is not None:
             self._pool = graph_pool
             self._context_builder = GlobalContextBuilder(

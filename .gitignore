@@ -61,5 +61,9 @@ coverage.xml
 htmlcov/
 .gitnexus
 
+# API response cache files
+api_responses/
+
 # Graphify tool cache files
 .graphify_*
+src/graphify-out/
