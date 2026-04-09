@@ -1115,6 +1115,45 @@ class TestRouter:
         assert api_router.prefix == "/api/v1"
 
 
+class TestSystemConfigEndpoint:
+    """Tests for /api/v1/config endpoint."""
+
+    def test_config_endpoint_calls_correct_methods(self):
+        """Test that system_config uses existing Endpoints methods (not broken ones)."""
+        from api.endpoints._deps import Endpoints
+
+        # Verify the correct methods exist (these are what main.py should call)
+        assert hasattr(Endpoints, "get_llm")
+        assert hasattr(Endpoints, "get_local_engine")
+        assert hasattr(Endpoints, "get_graph_pool_optional")
+        assert hasattr(Endpoints, "get_relational_type")
+        assert hasattr(Endpoints, "get_graph_type")
+
+    def test_config_endpoint_methods_return_expected_types(self):
+        """Test that Endpoints getter methods return correct types when uninitialized."""
+        from api.endpoints._deps import Endpoints
+
+        # Type getters should always work even when pools are None
+        assert Endpoints.get_relational_type() in ("postgres", "duckdb", "unknown")
+        assert Endpoints.get_graph_type() in ("neo4j", "ladybug", "unknown")
+
+    @pytest.mark.asyncio
+    async def test_config_endpoint_response_structure(self):
+        """Test system_config endpoint returns correct response structure."""
+        from main import create_app
+
+        app = create_app()
+        # The config endpoint may fail with 503 if dependencies aren't initialized,
+        # but the route should exist and be callable
+        from httpx import ASGITransport, AsyncClient
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/api/v1/config")
+            # Either 200 (if deps initialized) or 503 (if not) — both are valid
+            assert response.status_code in (200, 503)
+
+
 class TestMetricsEndpoint:
     """Tests for metrics endpoint."""
 

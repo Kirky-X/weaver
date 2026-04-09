@@ -129,11 +129,15 @@ class TestCommunitiesRouter:
         assert "admin" in router.tags
         assert "communities" in router.tags
 
-    def test_graph_router_prefix(self) -> None:
-        """Test graph router has correct prefix."""
-        from api.endpoints.communities import graph_router
+    def test_graph_router_merged(self) -> None:
+        """Test graph_router was merged into main router."""
+        from api.endpoints.communities import router
 
-        assert graph_router.prefix == "/graph/communities"
+        # The list and detail endpoints are now on the main router
+        routes = [r for r in router.routes if hasattr(r, "path")]
+        paths = {r.path for r in routes}
+        assert "/admin/communities" in paths  # list communities
+        assert "/admin/communities/{community_id}" in paths  # get community detail
 
 
 class TestCommunitiesEndpoints:
@@ -297,16 +301,16 @@ class TestCommunityEndpointsRoutes:
         routes = [route.path for route in router.routes]
         assert "/admin/communities/reports/generate" in routes
 
-    def test_graph_router_has_list_route(self) -> None:
-        """Test graph router has list endpoint."""
-        from api.endpoints.communities import graph_router
+    def test_router_has_list_route(self) -> None:
+        """Test main router has list endpoint."""
+        from api.endpoints.communities import router
 
-        routes = [route.path for route in graph_router.routes]
-        assert "/graph/communities" in routes
+        routes = [route.path for route in router.routes]
+        assert "/admin/communities" in routes
 
-    def test_graph_router_has_detail_route(self) -> None:
-        """Test graph router has detail endpoint."""
-        from api.endpoints.communities import graph_router
+    def test_router_has_detail_route(self) -> None:
+        """Test main router has detail endpoint."""
+        from api.endpoints.communities import router
 
-        routes = [route.path for route in graph_router.routes]
-        assert "/graph/communities/{community_id}" in routes
+        routes = [route.path for route in router.routes]
+        assert "/admin/communities/{community_id}" in routes

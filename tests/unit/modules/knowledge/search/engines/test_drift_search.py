@@ -18,8 +18,8 @@ from modules.knowledge.search.engines.drift_search import (
 
 
 @pytest.fixture
-def mock_graph_pool():
-    """Mock Neo4j connection pool."""
+def mock_context_builder():
+    """Mock context builder."""
     return AsyncMock()
 
 
@@ -129,22 +129,22 @@ class TestDriftResult:
 class TestDRIFTSearchEngineInit:
     """Tests for DRIFTSearchEngine initialization."""
 
-    def test_init_with_required_params(self, mock_graph_pool, mock_llm):
+    def test_init_with_required_params(self, mock_context_builder, mock_llm):
         """Test initialization with required params."""
         engine = DRIFTSearchEngine(
-            graph_pool=mock_graph_pool,
+            context_builder=mock_context_builder,
             llm=mock_llm,
         )
 
-        assert engine._pool is mock_graph_pool
+        assert engine._context_builder is mock_context_builder
         assert engine._llm is mock_llm
         assert engine._config is not None
 
-    def test_init_with_custom_config(self, mock_graph_pool, mock_llm):
+    def test_init_with_custom_config(self, mock_context_builder, mock_llm):
         """Test initialization with custom config."""
         config = DriftConfig(primer_k=10, max_follow_ups=5)
         engine = DRIFTSearchEngine(
-            graph_pool=mock_graph_pool,
+            context_builder=mock_context_builder,
             llm=mock_llm,
             config=config,
         )
@@ -152,11 +152,11 @@ class TestDRIFTSearchEngineInit:
         assert engine._config.primer_k == 10
         assert engine._config.max_follow_ups == 5
 
-    def test_init_with_local_engine(self, mock_graph_pool, mock_llm):
+    def test_init_with_local_engine(self, mock_context_builder, mock_llm):
         """Test initialization with custom local engine."""
         mock_local = MagicMock()
         engine = DRIFTSearchEngine(
-            graph_pool=mock_graph_pool,
+            context_builder=mock_context_builder,
             llm=mock_llm,
             local_engine=mock_local,
         )
@@ -168,9 +168,9 @@ class TestDRIFTSearchEngineExtraction:
     """Tests for text extraction methods."""
 
     @pytest.fixture
-    def engine(self, mock_graph_pool, mock_llm):
+    def engine(self, mock_context_builder, mock_llm):
         return DRIFTSearchEngine(
-            graph_pool=mock_graph_pool,
+            context_builder=mock_context_builder,
             llm=mock_llm,
         )
 
@@ -262,10 +262,15 @@ class TestDRIFTSearchEngineSearch:
     """Tests for search method."""
 
     @pytest.fixture
-    def engine(self, mock_graph_pool, mock_llm):
+    def engine(self, mock_context_builder, mock_llm):
+        mock_local_engine = MagicMock()
+        mock_local_engine.search = AsyncMock(
+            return_value=MagicMock(answer="Local answer", confidence=0.7)
+        )
         engine = DRIFTSearchEngine(
-            graph_pool=mock_graph_pool,
+            context_builder=mock_context_builder,
             llm=mock_llm,
+            local_engine=mock_local_engine,
         )
         return engine
 
@@ -325,9 +330,9 @@ class TestDRIFTSearchEnginePrimer:
     """Tests for _primer_phase method."""
 
     @pytest.fixture
-    def engine(self, mock_graph_pool, mock_llm):
+    def engine(self, mock_context_builder, mock_llm):
         engine = DRIFTSearchEngine(
-            graph_pool=mock_graph_pool,
+            context_builder=mock_context_builder,
             llm=mock_llm,
         )
         return engine
@@ -375,10 +380,15 @@ class TestDRIFTSearchEngineFollowUp:
     """Tests for _follow_up_phase method."""
 
     @pytest.fixture
-    def engine(self, mock_graph_pool, mock_llm):
+    def engine(self, mock_context_builder, mock_llm):
+        mock_local_engine = MagicMock()
+        mock_local_engine.search = AsyncMock(
+            return_value=MagicMock(answer="Local answer", confidence=0.7)
+        )
         engine = DRIFTSearchEngine(
-            graph_pool=mock_graph_pool,
+            context_builder=mock_context_builder,
             llm=mock_llm,
+            local_engine=mock_local_engine,
         )
         return engine
 
@@ -439,10 +449,12 @@ class TestDRIFTSearchEngineAggregate:
     """Tests for _aggregate_results method."""
 
     @pytest.fixture
-    def engine(self, mock_graph_pool, mock_llm):
+    def engine(self, mock_context_builder, mock_llm):
+        mock_local_engine = MagicMock()
         engine = DRIFTSearchEngine(
-            graph_pool=mock_graph_pool,
+            context_builder=mock_context_builder,
             llm=mock_llm,
+            local_engine=mock_local_engine,
         )
         return engine
 

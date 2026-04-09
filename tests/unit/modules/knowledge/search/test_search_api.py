@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -58,6 +59,8 @@ def _make_mock_global_engine(
                 metadata={"search_type": "global"},
             )
         )
+    engine._context_builder = MagicMock()
+    engine._llm = MagicMock()
     return engine
 
 
@@ -104,6 +107,12 @@ def _make_mock_llm(
     return client
 
 
+def _make_mock_hybrid_engine() -> MagicMock:
+    engine = MagicMock()
+    engine.search = AsyncMock(return_value=None)
+    return engine
+
+
 def _make_mock_request() -> MagicMock:
     from starlette.requests import Request
 
@@ -113,15 +122,23 @@ def _make_mock_request() -> MagicMock:
     return mock_req
 
 
+@dataclass
+class MockClassification:
+    """Mock classification result."""
+
+    intent: MagicMock
+    confidence: float = 0.9
+
+
 # ── Test GET /search (unified) ─────────────────────────────────
 
 
 class TestSearchUnifiedEndpoint:
-    """Tests for GET /search unified endpoint."""
+    """Tests for GET /search unified endpoint with intent routing."""
 
     @pytest.mark.asyncio
-    async def test_search_mode_local_routes_to_local_engine(self):
-        """Test GET /search?mode=local routes to LocalSearchEngine."""
+    async def test_search_uses_intent_routing(self):
+        """Test GET /search uses intent routing to determine search strategy."""
         from api.endpoints.search import SearchResponse, search_unified
 
         mock_result = SearchResult(
@@ -137,160 +154,53 @@ class TestSearchUnifiedEndpoint:
         mock_global_engine = _make_mock_global_engine()
         mock_vector_repo = _make_mock_vector_repo()
         mock_llm = _make_mock_llm()
+        mock_hybrid_engine = _make_mock_hybrid_engine()
 
-        result = await search_unified(
-            request=_make_mock_request(),
-            q="腾讯",
-            mode="local",
-            entity_names=None,
-            max_tokens=None,
-            community_level=0,
-            threshold=0.75,
-            limit=20,
-            category=None,
-            use_hybrid=True,
-            global_mode="map_reduce",
-            _="valid-key",
-            local_engine=mock_local_engine,
-            global_engine=mock_global_engine,
-            vector_repo=mock_vector_repo,
-            llm=mock_llm,
-        )
+        with patch("api.endpoints.search.IntentRouter") as MockIntentRouter:
+            # Mock the intent router
+            mock_router_instance = MagicMock()
+            mock_classifier = MagicMock()
+            mock_intent = MagicMock()
+            mock_intent.value = "ENTITY"
+            mock_classifier.classify = AsyncMock(
+                return_value=MockClassification(intent=mock_intent, confidence=0.9)
+            )
+            mock_router_instance._classifier = mock_classifier
+            mock_router_instance.route = AsyncMock(return_value=mock_result)
+            MockIntentRouter.return_value = mock_router_instance
 
-        assert isinstance(result.data, SearchResponse)
-        assert result.data.search_type == "local"
-        assert result.data.query == "腾讯"
-
-    @pytest.mark.asyncio
-    async def test_search_mode_global_routes_to_global_engine(self):
-        """Test GET /search?mode=global routes to GlobalSearchEngine."""
-        from api.endpoints.search import SearchResponse, search_unified
-
-        mock_result = SearchResult(
-            query="AI",
-            answer="AI领域有重大进展",
-            context_tokens=200,
-            confidence=0.75,
-            entities=["AI"],
-            sources=[],
-            metadata={"search_type": "global"},
-        )
-        mock_global_engine = _make_mock_global_engine(result=mock_result)
-        mock_local_engine = _make_mock_local_engine()
-        mock_vector_repo = _make_mock_vector_repo()
-        mock_llm = _make_mock_llm()
-
-        result = await search_unified(
-            request=_make_mock_request(),
-            q="AI",
-            mode="global",
-            entity_names=None,
-            max_tokens=None,
-            community_level=0,
-            threshold=0.75,
-            limit=20,
-            category=None,
-            use_hybrid=True,
-            global_mode="map_reduce",
-            _="valid-key",
-            local_engine=mock_local_engine,
-            global_engine=mock_global_engine,
-            vector_repo=mock_vector_repo,
-            llm=mock_llm,
-        )
-
-        assert isinstance(result.data, SearchResponse)
-        assert result.data.search_type == "global"
-
-    @pytest.mark.asyncio
-    async def test_search_mode_articles_routes_to_vector_search(self):
-        """Test GET /search?mode=articles routes to VectorRepo."""
-        from api.endpoints.search import SearchResponse, search_unified
-
-        mock_similar = [
-            SimilarArticle(article_id="xyz-789", category="finance", similarity=0.95),
-        ]
-        mock_vector_repo = _make_mock_vector_repo(similar=mock_similar)
-        mock_local_engine = _make_mock_local_engine()
-        mock_global_engine = _make_mock_global_engine()
-        mock_llm = _make_mock_llm()
-
-        result = await search_unified(
-            request=_make_mock_request(),
-            q="半导体",
-            mode="articles",
-            entity_names=None,
-            max_tokens=None,
-            community_level=0,
-            threshold=0.75,
-            limit=20,
-            category=None,
-            use_hybrid=True,
-            global_mode="map_reduce",
-            _="valid-key",
-            local_engine=mock_local_engine,
-            global_engine=mock_global_engine,
-            vector_repo=mock_vector_repo,
-            llm=mock_llm,
-        )
-
-        assert isinstance(result.data, SearchResponse)
-        assert result.data.search_type == "articles"
-        assert len(result.data.sources) == 1
-        assert result.data.sources[0]["article_id"] == "xyz-789"
-
-    @pytest.mark.asyncio
-    async def test_search_default_mode_is_local(self):
-        """Test GET /search without mode defaults to local."""
-        from api.endpoints.search import SearchResponse, search_unified
-
-        mock_result = SearchResult(
-            query="腾讯",
-            answer="腾讯答案",
-            context_tokens=100,
-            confidence=0.9,
-            entities=["腾讯"],
-            sources=[],
-            metadata={"search_type": "local"},
-        )
-        mock_local_engine = _make_mock_local_engine(result=mock_result)
-        mock_global_engine = _make_mock_global_engine()
-        mock_vector_repo = _make_mock_vector_repo()
-        mock_llm = _make_mock_llm()
-
-        result = await search_unified(
-            request=_make_mock_request(),
-            q="腾讯",
-            mode=None,  # Test default behavior without explicit mode
-            entity_names=None,
-            max_tokens=None,
-            community_level=0,
-            threshold=0.75,
-            limit=20,
-            category=None,
-            use_hybrid=True,
-            global_mode="map_reduce",
-            _="valid-key",
-            local_engine=mock_local_engine,
-            global_engine=mock_global_engine,
-            vector_repo=mock_vector_repo,
-            llm=mock_llm,
-        )
+            result = await search_unified(
+                request=_make_mock_request(),
+                q="腾讯",
+                community_level=0,
+                threshold=0.75,
+                limit=20,
+                category=None,
+                use_hybrid=True,
+                global_mode="map_reduce",
+                _="valid-key",
+                local_engine=mock_local_engine,
+                global_engine=mock_global_engine,
+                vector_repo=mock_vector_repo,
+                llm=mock_llm,
+                hybrid_engine=mock_hybrid_engine,
+            )
 
         assert isinstance(result.data, SearchResponse)
         assert result.data.search_type == "auto"
+        assert result.data.query == "腾讯"
 
     @pytest.mark.asyncio
-    async def test_search_local_with_entity_names_param(self):
-        """Test GET /search?mode=local with entity_names comma-separated parameter."""
+    async def test_search_intent_routing_metadata(self):
+        """Test that intent routing adds metadata to response."""
         from api.endpoints.search import SearchResponse, search_unified
 
         mock_result = SearchResult(
-            query="腾讯和阿里巴巴",
-            answer="两家公司都是中国互联网巨头",
-            context_tokens=300,
+            query="为什么AI发展这么快",
+            answer="AI发展迅速的原因",
+            context_tokens=200,
             confidence=0.85,
-            entities=["腾讯", "阿里巴巴"],
+            entities=["AI"],
             sources=[],
             metadata={"search_type": "local"},
         )
@@ -298,46 +208,23 @@ class TestSearchUnifiedEndpoint:
         mock_global_engine = _make_mock_global_engine()
         mock_vector_repo = _make_mock_vector_repo()
         mock_llm = _make_mock_llm()
+        mock_hybrid_engine = _make_mock_hybrid_engine()
 
-        result = await search_unified(
-            request=_make_mock_request(),
-            q="腾讯和阿里巴巴",
-            mode="local",
-            entity_names="腾讯,阿里巴巴",
-            max_tokens=None,
-            community_level=0,
-            threshold=0.75,
-            limit=20,
-            category=None,
-            use_hybrid=True,
-            global_mode="map_reduce",
-            _="valid-key",
-            local_engine=mock_local_engine,
-            global_engine=mock_global_engine,
-            vector_repo=mock_vector_repo,
-            llm=mock_llm,
-        )
+        with patch("api.endpoints.search.IntentRouter") as MockIntentRouter:
+            mock_router_instance = MagicMock()
+            mock_classifier = MagicMock()
+            mock_intent = MagicMock()
+            mock_intent.value = "WHY"
+            mock_classifier.classify = AsyncMock(
+                return_value=MockClassification(intent=mock_intent, confidence=0.95)
+            )
+            mock_router_instance._classifier = mock_classifier
+            mock_router_instance.route = AsyncMock(return_value=mock_result)
+            MockIntentRouter.return_value = mock_router_instance
 
-        assert isinstance(result.data, SearchResponse)
-        assert result.data.search_type == "local"
-
-    @pytest.mark.asyncio
-    async def test_search_local_returns_503_on_neo4j_exception(self):
-        """Test GET /search?mode=local returns 503 when Neo4j raises exception."""
-        from api.endpoints.search import search_unified
-
-        mock_local_engine = _make_mock_local_engine(exc=Exception("Neo4j connection failed"))
-        mock_global_engine = _make_mock_global_engine()
-        mock_vector_repo = _make_mock_vector_repo()
-        mock_llm = _make_mock_llm()
-
-        with pytest.raises(HTTPException) as exc_info:
-            await search_unified(
+            result = await search_unified(
                 request=_make_mock_request(),
-                q="腾讯",
-                mode="local",
-                entity_names=None,
-                max_tokens=None,
+                q="为什么AI发展这么快",
                 community_level=0,
                 threshold=0.75,
                 limit=20,
@@ -349,41 +236,11 @@ class TestSearchUnifiedEndpoint:
                 global_engine=mock_global_engine,
                 vector_repo=mock_vector_repo,
                 llm=mock_llm,
+                hybrid_engine=mock_hybrid_engine,
             )
-        assert exc_info.value.status_code == 503
-        assert "Graph service unavailable" in exc_info.value.detail
 
-    @pytest.mark.asyncio
-    async def test_search_articles_returns_503_on_embedding_failure(self):
-        """Test GET /search?mode=articles returns 503 when embedding service fails."""
-        from api.endpoints.search import search_unified
-
-        mock_vector_repo = _make_mock_vector_repo()
-        mock_llm = _make_mock_llm(exc=Exception("Embedding provider unavailable"))
-        mock_local_engine = _make_mock_local_engine()
-        mock_global_engine = _make_mock_global_engine()
-
-        with pytest.raises(HTTPException) as exc_info:
-            await search_unified(
-                request=_make_mock_request(),
-                q="半导体",
-                mode="articles",
-                entity_names=None,
-                max_tokens=None,
-                community_level=0,
-                threshold=0.75,
-                limit=20,
-                category=None,
-                use_hybrid=True,
-                global_mode="map_reduce",
-                _="valid-key",
-                local_engine=mock_local_engine,
-                global_engine=mock_global_engine,
-                vector_repo=mock_vector_repo,
-                llm=mock_llm,
-            )
-        assert exc_info.value.status_code == 503
-        assert "Embedding service unavailable" in exc_info.value.detail
+        assert result.data.metadata["intent"] == "WHY"
+        assert result.data.metadata["intent_confidence"] == 0.95
 
 
 # ── Test HTTP-level (Integration style) ─────────────────────────

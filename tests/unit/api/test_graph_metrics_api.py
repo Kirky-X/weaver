@@ -50,40 +50,15 @@ class TestGraphMetricsModels:
         assert response.total_articles == 500
         assert response.modularity_score == 0.75
 
-    def test_community_metrics_response_model(self) -> None:
-        """Test CommunityMetricsResponse model."""
-        from api.endpoints.graph_metrics import CommunityMetricsResponse
+    def test_community_metrics_response_model_removed(self) -> None:
+        """Test CommunityMetricsResponse was removed with community view."""
+        with pytest.raises(ImportError):
+            from api.endpoints.graph_metrics import CommunityMetricsResponse
 
-        response = CommunityMetricsResponse(
-            total_communities=100,
-            total_reports=80,
-            levels=3,
-            average_entity_count=10.0,
-            average_rank=0.85,
-            modularity_score=0.75,
-            level_distribution=[{"level": 1, "count": 50}],
-            top_communities=[{"id": "c1", "title": "Tech", "level": 1, "entity_count": 25}],
-            health_score=80.0,
-            health_status="healthy",
-        )
-        assert response.total_communities == 100
-        assert response.health_score == 80.0
-
-    def test_community_health_response_model(self) -> None:
-        """Test CommunityHealthResponse model."""
-        from api.endpoints.graph_metrics import CommunityHealthResponse
-
-        response = CommunityHealthResponse(
-            score=85.0,
-            status="healthy",
-            issues=[],
-            recommendations=["Continue monitoring"],
-            modularity=0.75,
-            coverage=0.95,
-            report_coverage=0.80,
-        )
-        assert response.score == 85.0
-        assert response.status == "healthy"
+    def test_community_health_response_model_removed(self) -> None:
+        """Test CommunityHealthResponse was removed with community view."""
+        with pytest.raises(ImportError):
+            from api.endpoints.graph_metrics import CommunityHealthResponse
 
 
 class TestGraphMetricsRouter:
@@ -172,33 +147,21 @@ class TestGraphMetricsEndpoint:
         assert result.data.total_articles == 500
 
     @pytest.mark.asyncio
-    async def test_get_graph_metrics_community_view(self) -> None:
-        """Test community view returns community metrics."""
+    async def test_get_graph_metrics_community_view_removed(self) -> None:
+        """Test community view returns 400 with redirect message."""
+        from fastapi import HTTPException
+
         from api.endpoints.graph_metrics import get_graph_metrics
 
         mock_graph_pool = AsyncMock()
 
-        with patch("modules.knowledge.graph.community_repo.Neo4jCommunityRepo") as mock_repo_class:
-            mock_repo = AsyncMock()
-            mock_repo.count_communities = AsyncMock(return_value=100)
-            mock_repo.get_community_metrics = AsyncMock(
-                return_value={
-                    "average_entity_count": 10.0,
-                    "average_rank": 0.85,
-                    "average_modularity": 0.75,
-                    "report_count": 80,
-                }
-            )
-            mock_repo.get_level_distribution = AsyncMock(return_value=[{"level": 1, "count": 50}])
-            mock_repo.list_communities = AsyncMock(return_value=[])
-            mock_repo_class.return_value = mock_repo
-
-            result = await get_graph_metrics(
+        with pytest.raises(HTTPException) as exc_info:
+            await get_graph_metrics(
                 view="community", include=None, _="test-key", graph_pool=mock_graph_pool
             )
 
-        assert result.data.total_communities == 100
-        assert result.data.total_reports == 80
+        assert exc_info.value.status_code == 400
+        assert "admin/communities/health" in exc_info.value.detail
 
     @pytest.mark.asyncio
     async def test_get_graph_metrics_invalid_view(self) -> None:

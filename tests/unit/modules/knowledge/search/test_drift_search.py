@@ -107,7 +107,7 @@ class TestDRIFTSearchEngine:
     """Tests for DRIFTSearchEngine."""
 
     @pytest.fixture
-    def mock_graph_pool(self):
+    def mock_context_builder(self):
         """Create mock Neo4j pool."""
         pool = MagicMock()
         pool.execute_query = AsyncMock()
@@ -145,37 +145,37 @@ class TestDRIFTSearchEngine:
         return engine
 
     @pytest.fixture
-    def engine(self, mock_graph_pool, mock_llm):
+    def engine(self, mock_context_builder, mock_llm):
         """Create DRIFTSearchEngine instance."""
         return DRIFTSearchEngine(
-            graph_pool=mock_graph_pool,
+            context_builder=mock_context_builder,
             llm=mock_llm,
         )
 
     @pytest.fixture
-    def engine_with_mocks(self, mock_graph_pool, mock_llm, mock_local_engine):
+    def engine_with_mocks(self, mock_context_builder, mock_llm, mock_local_engine):
         """Create DRIFTSearchEngine with mocked dependencies."""
         return DRIFTSearchEngine(
-            graph_pool=mock_graph_pool,
+            context_builder=mock_context_builder,
             llm=mock_llm,
             local_engine=mock_local_engine,
         )
 
-    def test_init_default_config(self, mock_graph_pool, mock_llm):
+    def test_init_default_config(self, mock_context_builder, mock_llm):
         """Test initialization with default config."""
         engine = DRIFTSearchEngine(
-            graph_pool=mock_graph_pool,
+            context_builder=mock_context_builder,
             llm=mock_llm,
         )
-        assert engine._pool is mock_graph_pool
+        assert engine._context_builder is mock_context_builder
         assert engine._llm is mock_llm
         assert engine._config.primer_k == 3
 
-    def test_init_custom_config(self, mock_graph_pool, mock_llm):
+    def test_init_custom_config(self, mock_context_builder, mock_llm):
         """Test initialization with custom config."""
         config = DriftConfig(primer_k=5, max_follow_ups=4)
         engine = DRIFTSearchEngine(
-            graph_pool=mock_graph_pool,
+            context_builder=mock_context_builder,
             llm=mock_llm,
             config=config,
         )
@@ -240,7 +240,7 @@ class TestDRIFTSearchEngine:
         assert result["llm_calls"] == 2
 
     @pytest.mark.asyncio
-    async def test_follow_up_phase_early_termination(self, mock_graph_pool, mock_llm):
+    async def test_follow_up_phase_early_termination(self, mock_context_builder, mock_llm):
         """Test follow-up phase terminates early on high confidence."""
         from modules.knowledge.search.engines.local_search import SearchResult
 
@@ -256,7 +256,7 @@ class TestDRIFTSearchEngine:
         )
 
         engine = DRIFTSearchEngine(
-            graph_pool=mock_graph_pool,
+            context_builder=mock_context_builder,
             llm=mock_llm,
             config=config,
             local_engine=mock_local,
@@ -410,53 +410,35 @@ class TestDRIFTSearchEngine:
     @pytest.mark.asyncio
     async def test_primer_phase_no_communities(self):
         """Test primer phase when no communities found."""
-        mock_pool = MagicMock()
+        mock_context_builder = MagicMock()
+        mock_context = MagicMock()
+        mock_context.metadata = {"total_communities": 0}
+        mock_context_builder.build = AsyncMock(return_value=mock_context)
         mock_llm = MagicMock()
 
-        with (
-            patch(
-                "modules.knowledge.search.engines.drift_search.GlobalContextBuilder"
-            ) as mock_builder,
-            patch("modules.knowledge.search.engines.drift_search.LocalSearchEngine"),
-        ):
-            mock_context_builder = MagicMock()
-            mock_context = MagicMock()
-            mock_context.metadata = {"total_communities": 0}
-            mock_context_builder.build = AsyncMock(return_value=mock_context)
-            mock_builder.return_value = mock_context_builder
+        engine = DRIFTSearchEngine(mock_context_builder, mock_llm)
+        result = await engine._primer_phase("test query")
 
-            engine = DRIFTSearchEngine(mock_pool, mock_llm)
-            result = await engine._primer_phase("test query")
-
-            assert result["fallback"] is True
-            assert result.get("community_count", 0) == 0
+        assert result["fallback"] is True
+        assert result.get("community_count", 0) == 0
 
     @pytest.mark.asyncio
     async def test_primer_phase_with_communities(self):
         """Test primer phase with communities found."""
-        mock_pool = MagicMock()
+        mock_context_builder = MagicMock()
+        mock_context = MagicMock()
+        mock_context.metadata = {"total_communities": 3, "community_ids": ["c1", "c2", "c3"]}
+        mock_context.to_string.return_value = "context text"
+        mock_context_builder.build = AsyncMock(return_value=mock_context)
         mock_llm = MagicMock()
         mock_llm.call_at = AsyncMock(return_value="答案内容\n\n1. 后续问题？")
 
-        with (
-            patch(
-                "modules.knowledge.search.engines.drift_search.GlobalContextBuilder"
-            ) as mock_builder,
-            patch("modules.knowledge.search.engines.drift_search.LocalSearchEngine"),
-        ):
-            mock_context_builder = MagicMock()
-            mock_context = MagicMock()
-            mock_context.metadata = {"total_communities": 3, "community_ids": ["c1", "c2", "c3"]}
-            mock_context.to_string.return_value = "context text"
-            mock_context_builder.build = AsyncMock(return_value=mock_context)
-            mock_builder.return_value = mock_context_builder
+        engine = DRIFTSearchEngine(mock_context_builder, mock_llm)
+        result = await engine._primer_phase("test query")
 
-            engine = DRIFTSearchEngine(mock_pool, mock_llm)
-            result = await engine._primer_phase("test query")
-
-            assert result["fallback"] is False
-            assert result["community_count"] == 3
-            assert result["llm_calls"] == 1
+        assert result["fallback"] is False
+        assert result["community_count"] == 3
+        assert result["llm_calls"] == 1
 
 
 class TestDRIFTSearchEngineFollowUpPhase:
@@ -465,30 +447,24 @@ class TestDRIFTSearchEngineFollowUpPhase:
     @pytest.mark.asyncio
     async def test_follow_up_phase_empty_questions(self):
         """Test follow-up phase with no questions."""
-        mock_pool = MagicMock()
+        mock_context_builder = MagicMock()
         mock_llm = MagicMock()
+        mock_local_engine = MagicMock()
 
-        with (
-            patch("modules.knowledge.search.engines.drift_search.GlobalContextBuilder"),
-            patch("modules.knowledge.search.engines.drift_search.LocalSearchEngine") as mock_local,
-        ):
-            mock_local_engine = MagicMock()
-            mock_local.return_value = mock_local_engine
+        engine = DRIFTSearchEngine(mock_context_builder, mock_llm, local_engine=mock_local_engine)
+        result = await engine._follow_up_phase(
+            query="test",
+            initial_answer="initial",
+            follow_up_questions=[],
+        )
 
-            engine = DRIFTSearchEngine(mock_pool, mock_llm)
-            result = await engine._follow_up_phase(
-                query="test",
-                initial_answer="initial",
-                follow_up_questions=[],
-            )
-
-            assert result["results"] == []
-            assert result["llm_calls"] == 0
+        assert result["results"] == []
+        assert result["llm_calls"] == 0
 
     @pytest.mark.asyncio
     async def test_follow_up_phase_with_questions(self):
         """Test follow-up phase with questions."""
-        mock_pool = MagicMock()
+        mock_context_builder = MagicMock()
         mock_llm = MagicMock()
 
         # Create a proper mock result with answer and confidence attributes
@@ -497,28 +473,23 @@ class TestDRIFTSearchEngineFollowUpPhase:
         mock_local_result.confidence = 0.6
         mock_local_result.source_entities = []
 
-        with (
-            patch("modules.knowledge.search.engines.drift_search.GlobalContextBuilder"),
-            patch("modules.knowledge.search.engines.drift_search.LocalSearchEngine") as mock_local,
-        ):
-            mock_local_engine = MagicMock()
-            mock_local_engine.search = AsyncMock(return_value=mock_local_result)
-            mock_local.return_value = mock_local_engine
+        mock_local_engine = MagicMock()
+        mock_local_engine.search = AsyncMock(return_value=mock_local_result)
 
-            engine = DRIFTSearchEngine(mock_pool, mock_llm)
-            result = await engine._follow_up_phase(
-                query="test",
-                initial_answer="initial",
-                follow_up_questions=["问题1？", "问题2？"],
-            )
+        engine = DRIFTSearchEngine(mock_context_builder, mock_llm, local_engine=mock_local_engine)
+        result = await engine._follow_up_phase(
+            query="test",
+            initial_answer="initial",
+            follow_up_questions=["问题1？", "问题2？"],
+        )
 
-            assert len(result["results"]) == 2
-            assert result["llm_calls"] == 2
+        assert len(result["results"]) == 2
+        assert result["llm_calls"] == 2
 
     @pytest.mark.asyncio
     async def test_follow_up_phase_early_termination(self):
         """Test follow-up phase early termination on high confidence."""
-        mock_pool = MagicMock()
+        mock_context_builder = MagicMock()
         mock_llm = MagicMock()
 
         # Create a result with high confidence
@@ -527,30 +498,22 @@ class TestDRIFTSearchEngineFollowUpPhase:
         mock_high_conf_result.confidence = 0.9
         mock_high_conf_result.source_entities = []
 
-        mock_low_conf_result = MagicMock()
-        mock_low_conf_result.answer = "low confidence answer"
-        mock_low_conf_result.confidence = 0.5
-        mock_low_conf_result.source_entities = []
+        mock_local_engine = MagicMock()
+        mock_local_engine.search = AsyncMock(return_value=mock_high_conf_result)
 
-        with (
-            patch("modules.knowledge.search.engines.drift_search.GlobalContextBuilder"),
-            patch("modules.knowledge.search.engines.drift_search.LocalSearchEngine") as mock_local,
-        ):
-            mock_local_engine = MagicMock()
-            mock_local_engine.search = AsyncMock(return_value=mock_high_conf_result)
-            mock_local.return_value = mock_local_engine
+        config = DriftConfig(confidence_threshold=0.8, max_follow_ups=3)
+        engine = DRIFTSearchEngine(
+            mock_context_builder, mock_llm, config=config, local_engine=mock_local_engine
+        )
 
-            config = DriftConfig(confidence_threshold=0.8, max_follow_ups=3)
-            engine = DRIFTSearchEngine(mock_pool, mock_llm, config=config)
+        result = await engine._follow_up_phase(
+            query="test",
+            initial_answer="initial",
+            follow_up_questions=["问题1？", "问题2？", "问题3？"],
+        )
 
-            result = await engine._follow_up_phase(
-                query="test",
-                initial_answer="initial",
-                follow_up_questions=["问题1？", "问题2？", "问题3？"],
-            )
-
-            # Should stop after first high-confidence result
-            assert len(result["results"]) == 1
+        # Should stop after first high-confidence result
+        assert len(result["results"]) == 1
 
 
 class TestDRIFTSearchEngineAggregateResults:
@@ -559,33 +522,29 @@ class TestDRIFTSearchEngineAggregateResults:
     @pytest.mark.asyncio
     async def test_aggregate_results(self):
         """Test result aggregation."""
-        mock_pool = MagicMock()
+        mock_context_builder = MagicMock()
         mock_llm = MagicMock()
         mock_llm.call_at = AsyncMock(return_value="最终答案 [置信度: 0.8]")
 
-        with (
-            patch("modules.knowledge.search.engines.drift_search.GlobalContextBuilder"),
-            patch("modules.knowledge.search.engines.drift_search.LocalSearchEngine"),
-        ):
-            engine = DRIFTSearchEngine(mock_pool, mock_llm)
+        engine = DRIFTSearchEngine(mock_context_builder, mock_llm)
 
-            result = await engine._aggregate_results(
-                query="test query",
-                primer={"answer": "初始答案"},
-                follow_ups=[
-                    {"question": "问题1？", "answer": "答案1"},
-                ],
-            )
+        result = await engine._aggregate_results(
+            query="test query",
+            primer={"answer": "初始答案"},
+            follow_ups=[
+                {"question": "问题1？", "answer": "答案1"},
+            ],
+        )
 
-            assert "answer" in result
-            assert result["confidence"] == 0.8
+        assert "answer" in result
+        assert result["confidence"] == 0.8
 
 
 class TestDRIFTSearchEngineSearch:
     """Tests for the main search method."""
 
     @pytest.fixture
-    def mock_graph_pool(self):
+    def mock_context_builder(self):
         """Create mock Neo4j pool."""
         pool = MagicMock()
         pool.execute_query = AsyncMock()
@@ -616,18 +575,18 @@ class TestDRIFTSearchEngineSearch:
         return engine
 
     @pytest.fixture
-    def engine(self, mock_graph_pool, mock_llm):
+    def engine(self, mock_context_builder, mock_llm):
         """Create DRIFTSearchEngine instance."""
         return DRIFTSearchEngine(
-            graph_pool=mock_graph_pool,
+            context_builder=mock_context_builder,
             llm=mock_llm,
         )
 
     @pytest.fixture
-    def engine_with_mocks(self, mock_graph_pool, mock_llm, mock_local_engine):
+    def engine_with_mocks(self, mock_context_builder, mock_llm, mock_local_engine):
         """Create DRIFTSearchEngine with mocked dependencies."""
         return DRIFTSearchEngine(
-            graph_pool=mock_graph_pool,
+            context_builder=mock_context_builder,
             llm=mock_llm,
             local_engine=mock_local_engine,
         )

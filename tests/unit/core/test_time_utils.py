@@ -1,6 +1,7 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for time_utils module."""
 
+import time
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
@@ -8,11 +9,23 @@ import ntplib
 import pytest
 
 from core.utils.time_utils import (
+    CACHE_TTL,
     NTP_SERVERS,
     NTP_TIMEOUT,
     _get_ntp_time,
+    _ntp_cache,
     get_current_time_with_timezone,
 )
+
+
+@pytest.fixture(autouse=True)
+def reset_cache():
+    """Reset NTP cache before each test."""
+    _ntp_cache["time"] = None
+    _ntp_cache["expires"] = 0.0
+    yield
+    _ntp_cache["time"] = None
+    _ntp_cache["expires"] = 0.0
 
 
 class TestGetNtpTime:
@@ -33,21 +46,29 @@ class TestGetNtpTime:
         assert result.tzinfo == UTC
 
     @patch("core.utils.time_utils.ntplib.NTPClient")
-    def test_get_ntp_time_fallback_to_second_server(self, mock_ntp_client):
-        """Test fallback to second server when first fails."""
+    def test_get_ntp_time_fastest_wins(self, mock_ntp_client):
+        """Test that the fastest server response is used."""
+        call_order = []
+
+        def make_delayed_response(delay: float):
+            def side_effect(*args, **kwargs):
+                time.sleep(delay)
+                call_order.append(kwargs.get("timeout"))
+                resp = MagicMock()
+                resp.tx_time = 1704067200.0
+                return resp
+
+            return side_effect
+
         mock_client = MagicMock()
-        mock_response = MagicMock()
-        mock_response.tx_time = 1704067200.0
-        mock_client.request.side_effect = [
-            ntplib.NTPException("Server 1 failed"),
-            mock_response,
-        ]
+        mock_client.request.side_effect = make_delayed_response(0.01)
         mock_ntp_client.return_value = mock_client
 
         result = _get_ntp_time()
 
         assert result is not None
-        assert mock_client.request.call_count == 2
+        # All servers were probed concurrently (5 calls)
+        assert mock_client.request.call_count == 5
 
     @patch("core.utils.time_utils.ntplib.NTPClient")
     def test_get_ntp_time_returns_none_on_all_failures(self, mock_ntp_client):
@@ -70,6 +91,111 @@ class TestGetNtpTime:
         result = _get_ntp_time()
 
         assert result is None
+
+    @patch("core.utils.time_utils.ntplib.NTPClient")
+    def test_concurrent_probing_uses_all_servers(self, mock_ntp_client):
+        """Test that all servers are probed concurrently."""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.tx_time = 1704067200.0
+        mock_client.request.return_value = mock_response
+        mock_ntp_client.return_value = mock_client
+
+        _get_ntp_time()
+
+        # All 5 servers should be probed
+        assert mock_client.request.call_count == len(NTP_SERVERS)
+
+
+class TestNtpCache:
+    """Tests for TTL cache behavior."""
+
+    @patch("core.utils.time_utils.ntplib.NTPClient")
+    def test_cache_hit_avoids_network(self, mock_ntp_client):
+        """Test that cached result is returned without network call."""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.tx_time = 1704067200.0
+        mock_client.request.return_value = mock_response
+        mock_ntp_client.return_value = mock_client
+
+        # First call - should hit network (5 clients, one per thread)
+        result1 = _get_ntp_time()
+        assert result1 is not None
+        assert mock_ntp_client.call_count == len(NTP_SERVERS)
+
+        # Record call count after first probe
+        calls_after_first = mock_ntp_client.call_count
+
+        # Second call - should hit cache, no new NTPClient created
+        result2 = _get_ntp_time()
+        assert result2 == result1
+        # No additional network calls
+        assert mock_ntp_client.call_count == calls_after_first
+
+    @patch("core.utils.time_utils.ntplib.NTPClient")
+    def test_cache_stores_none_on_failure(self, mock_ntp_client):
+        """Test that failed probes cache None."""
+        mock_client = MagicMock()
+        mock_client.request.side_effect = ntplib.NTPException("Failed")
+        mock_ntp_client.return_value = mock_client
+
+        result1 = _get_ntp_time()
+        assert result1 is None
+        calls_after_first = mock_ntp_client.call_count
+
+        # Second call should return cached None without network
+        result2 = _get_ntp_time()
+        assert result2 is None
+        # No additional calls
+        assert mock_ntp_client.call_count == calls_after_first
+
+    @patch("core.utils.time_utils.monotonic")
+    @patch("core.utils.time_utils.ntplib.NTPClient")
+    def test_cache_expiration_triggers_new_probe(self, mock_ntp_client, mock_monotonic):
+        """Test that expired cache triggers new NTP probe."""
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.tx_time = 1704067200.0
+        mock_client.request.return_value = mock_response
+        mock_ntp_client.return_value = mock_client
+
+        # Simulate time progression
+        call_count = [0]
+
+        def monotonic_side():
+            call_count[0] += 1
+            if call_count[0] <= 2:
+                return 0.0  # Initial time
+            return CACHE_TTL + 1  # After expiration
+
+        mock_monotonic.side_effect = monotonic_side
+
+        result1 = _get_ntp_time()
+        assert result1 is not None
+
+        # After expiration, should probe again (5 more clients)
+        result2 = _get_ntp_time()
+        assert result2 is not None
+        # Two rounds of probing: 5 + 5 = 10
+        assert mock_ntp_client.call_count == len(NTP_SERVERS) * 2
+
+    @patch("core.utils.time_utils.monotonic")
+    @patch("core.utils.time_utils.ntplib.NTPClient")
+    def test_cache_miss_triggers_probe(self, mock_ntp_client, mock_monotonic):
+        """Test that cache miss (initial state) triggers NTP probe."""
+        mock_monotonic.return_value = 0.0
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.tx_time = 1704067200.0
+        mock_client.request.return_value = mock_response
+        mock_ntp_client.return_value = mock_client
+
+        result = _get_ntp_time()
+
+        assert result is not None
+        # One round of probing (5 servers)
+        assert mock_ntp_client.call_count == len(NTP_SERVERS)
 
 
 class TestGetCurrentTimeWithTimezone:
@@ -100,22 +226,27 @@ class TestNtpConstants:
     """Tests for NTP constants."""
 
     def test_ntp_servers_list(self):
-        """Test NTP servers list is not empty."""
-        assert len(NTP_SERVERS) > 0
-        assert "pool.ntp.org" in NTP_SERVERS
+        """Test NTP servers list has 5 entries with domestic first."""
+        assert len(NTP_SERVERS) == 5
+        assert NTP_SERVERS[0] == "ntp.aliyun.com"
+        assert NTP_SERVERS[1] == "ntp.tencent.com"
+        assert "time.google.com" in NTP_SERVERS
 
     def test_ntp_timeout_value(self):
-        """Test NTP timeout is reasonable."""
-        assert NTP_TIMEOUT > 0
-        assert NTP_TIMEOUT <= 10
+        """Test NTP timeout is 1 second."""
+        assert NTP_TIMEOUT == 1
+
+    def test_cache_ttl_value(self):
+        """Test cache TTL is 3600 seconds (1 hour)."""
+        assert CACHE_TTL == 3600
 
 
 class TestNtplibIntegration:
     """Integration tests for ntplib usage."""
 
     @patch("core.utils.time_utils.ntplib.NTPClient")
-    def test_ntplib_client_created_correctly(self, mock_ntp_client):
-        """Test NTPClient is created correctly."""
+    def test_ntplib_client_created_for_each_probe(self, mock_ntp_client):
+        """Test NTPClient is created for each concurrent probe."""
         mock_client = MagicMock()
         mock_response = MagicMock()
         mock_response.tx_time = 1704067200.0
@@ -124,7 +255,8 @@ class TestNtplibIntegration:
 
         _get_ntp_time()
 
-        mock_ntp_client.assert_called_once()
+        # One NTPClient per server (5 total)
+        assert mock_ntp_client.call_count == len(NTP_SERVERS)
 
     def test_ntplib_available(self):
         """Test ntplib is available and importable."""

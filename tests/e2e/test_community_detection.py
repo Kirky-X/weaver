@@ -25,7 +25,7 @@ def _patch_search_deps():
     mock_local_engine.search = AsyncMock()
 
     mock_global_engine = MagicMock()
-    mock_global_engine._pool = MagicMock()
+    mock_global_engine._context_builder = MagicMock()
     mock_global_engine._llm = MagicMock()
 
     mock_hybrid_engine = MagicMock()
