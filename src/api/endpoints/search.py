@@ -12,12 +12,11 @@ from api.endpoints import _deps as deps
 from api.middleware.auth import verify_api_key
 from api.middleware.rate_limit import limiter
 from api.schemas.response import APIResponse, success_response
-from core.constants import SearchMode
 from core.llm.client import LLMClient
 from core.observability.logging import get_logger
 from modules.knowledge.search.engines.global_search import GlobalSearchEngine
 from modules.knowledge.search.engines.hybrid_search import HybridSearchEngine
-from modules.knowledge.search.engines.local_search import LocalSearchEngine, SearchResult
+from modules.knowledge.search.engines.local_search import LocalSearchEngine
 from modules.knowledge.search.intent.router import IntentRouter, RoutingConfig
 from modules.memory.core.graph_types import IntentType, OutputMode
 from modules.storage import VectorRepo
@@ -41,198 +40,6 @@ class SearchResponse(BaseModel):
     metadata: dict[str, Any]
 
 
-def _result_to_response(result: SearchResult, search_type: str) -> SearchResponse:
-    """Map a SearchResult to SearchResponse."""
-    sources: list[dict[str, Any]]
-    if search_type == "articles":
-        sources = result.sources if isinstance(result.sources, list) else []
-    else:
-        sources = result.sources if isinstance(result.sources, list) else []
-
-    return SearchResponse(
-        query=result.query,
-        answer=result.answer,
-        context_tokens=result.context_tokens,
-        confidence=result.confidence,
-        search_type=search_type,
-        entities=result.entities,
-        sources=sources,
-        metadata=result.metadata,
-    )
-
-
-# ── Internal Helper Functions ───────────────────────────────────
-
-
-async def _search_local_impl(
-    query: str,
-    entity_names: str | None,
-    max_tokens: int | None,
-    engine: LocalSearchEngine,
-) -> APIResponse[SearchResponse]:
-    """Implement local search internally."""
-    try:
-        names: list[str] | None = (
-            [n.strip() for n in entity_names.split(",") if n.strip()] if entity_names else None
-        )
-        result = await engine.search(
-            query=query,
-            max_tokens=max_tokens,
-            entity_names=names,
-            use_llm=False,
-        )
-        return success_response(_result_to_response(result, SearchMode.LOCAL.value))
-    except Exception as exc:
-        if "neo4j" in str(exc).lower() or "graph" in str(exc).lower():
-            raise HTTPException(status_code=503, detail="Graph service unavailable")
-        raise HTTPException(status_code=503, detail="LLM service unavailable")
-
-
-async def _search_global_impl(
-    query: str,
-    community_level: int,
-    mode: str,
-    engine: GlobalSearchEngine,
-) -> APIResponse[SearchResponse]:
-    """Implement global search internally."""
-    try:
-        if mode == "simple":
-            result = await engine.search_simple(
-                query=query, community_level=community_level, use_llm=False
-            )
-        else:
-            result = await engine.search(
-                query=query, community_level=community_level, use_llm=False
-            )
-        return success_response(_result_to_response(result, SearchMode.GLOBAL.value))
-    except Exception as exc:
-        if "neo4j" in str(exc).lower() or "graph" in str(exc).lower():
-            raise HTTPException(status_code=503, detail="Graph service unavailable")
-        raise HTTPException(status_code=503, detail="LLM service unavailable")
-
-
-async def _search_articles_impl(
-    query: str,
-    threshold: float,
-    limit: int,
-    category: str | None,
-    use_hybrid: bool,
-    vector_repo: VectorRepo,
-    llm: LLMClient,
-    hybrid_engine: HybridSearchEngine | None,
-) -> APIResponse[SearchResponse]:
-    """Implement articles search internally."""
-    try:
-        embeddings = await llm.embed_default([query])
-        query_vector = embeddings[0]
-    except Exception:
-        raise HTTPException(status_code=503, detail="Embedding service unavailable")
-
-    if not query_vector:
-        raise HTTPException(status_code=503, detail="Embedding service unavailable")
-
-    # Use hybrid search engine if enabled and available
-    hybrid_used = False
-    search_mode = SearchMode.LOCAL.value
-
-    if use_hybrid and hybrid_engine is not None:
-        try:
-            hybrid_result = await hybrid_engine.search(
-                query=query,
-                embedding=query_vector,
-                limit=limit,
-            )
-
-            if hybrid_result:
-                hybrid_used = True
-                search_mode = SearchMode.HYBRID.value
-
-                sources = [
-                    {
-                        "article_id": item.get("article_id", item.get("doc_id", "")),
-                        "similarity": item.get("score", 0.0),
-                        "category": item.get("category"),
-                        "hybrid_score": item.get("hybrid_score"),
-                        "bm25_score": item.get("bm25_score"),
-                    }
-                    for item in hybrid_result
-                ]
-
-                confidence = sources[0]["similarity"] if sources else 0.0
-
-                return success_response(
-                    SearchResponse(
-                        query=query,
-                        answer=f"Found {len(sources)} similar articles.",
-                        context_tokens=0,
-                        confidence=confidence,
-                        search_type=SearchMode.ARTICLES.value,
-                        entities=[],
-                        sources=sources,
-                        metadata={
-                            "total_results": len(sources),
-                            "threshold": threshold,
-                            "category_filter": category,
-                            "search_mode": search_mode,
-                            "hybrid_used": hybrid_used,
-                        },
-                    )
-                )
-        except Exception as exc:
-            # Fall back to vector-only search
-            get_logger(__name__).warning(f"Hybrid search failed, falling back: {exc}")
-
-    # Fallback: Vector-only search
-    query_tokens = query.split()
-
-    try:
-        similar = await vector_repo.find_similar_hybrid(
-            embedding=query_vector,
-            query_tokens=query_tokens,
-            category=category,
-            min_score=threshold,
-            limit=limit,
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=503, detail=f"Vector search failed: {exc}")
-
-    sources = [
-        {
-            "article_id": item.article_id,
-            "similarity": item.similarity,
-            "category": item.category,
-            "hybrid_score": item.hybrid_score,
-        }
-        for item in similar
-    ]
-
-    answer = f"Found {len(sources)} similar articles."
-    confidence = (
-        float(similar[0].hybrid_score)
-        if (similar and similar[0].hybrid_score is not None)
-        else float(similar[0].similarity) if similar else 0.0
-    )
-
-    return success_response(
-        SearchResponse(
-            query=query,
-            answer=answer,
-            context_tokens=0,
-            confidence=confidence,
-            search_type="articles",
-            entities=[],
-            sources=sources,
-            metadata={
-                "total_results": len(sources),
-                "threshold": threshold,
-                "category_filter": category,
-                "search_mode": "vector_only",
-                "hybrid_used": False,
-            },
-        )
-    )
-
-
 # ── Unified Search Endpoint ─────────────────────────────────────
 
 
@@ -241,13 +48,6 @@ async def _search_articles_impl(
 async def search_unified(
     request: Request,
     q: str = Query(..., description="Search query"),
-    mode: str | None = Query(
-        None,
-        description="DEPRECATED: Use automatic intent-aware routing instead",
-        deprecated="Use automatic intent-aware routing instead of manual mode selection",
-    ),
-    entity_names: str | None = Query(None, description="DEPRECATED: Intent router handles this"),
-    max_tokens: int | None = Query(None, description="DEPRECATED: Intent router handles this"),
     community_level: int = Query(0, ge=0, le=10, description="Community level (global mode)"),
     threshold: float = Query(
         0.0, ge=0.0, le=1.0, description="Similarity threshold (articles mode)"
@@ -273,7 +73,7 @@ async def search_unified(
 ) -> APIResponse[SearchResponse]:
     """Unified search endpoint with MAGMA-inspired intent-aware routing.
 
-    **Intent-Aware Routing:** The system now automatically classifies your query
+    **Intent-Aware Routing:** The system automatically classifies your query
     to determine the best search strategy:
 
     | Intent Type | Description | Search Strategy |
@@ -283,14 +83,6 @@ async def search_unified(
     | **ENTITY** | "X是什么..."、实体 | Local search with entity filtering |
     | **MULTI_HOP** | "X和Y的关系..."、对比 | Global search with deeper community traversal |
     | **OPEN** | "关于..."、探索 | Global search with standard community level |
-
-    **Migration from deprecated endpoints:**
-    - `/search/local?q=xxx` → `/search?q=xxx` (mode now optional, defaults to intent routing)
-    - `/search/global?q=xxx` → `/search?q=xxx`
-    - `/search/articles?q=xxx` → `/search?q=xxx`
-
-    **Backward Compatibility:** The `mode` parameter is **deprecated** but still supported
-    for explicit override. Users who prefer manual mode selection can still use `?mode=local`.
     """
     # Validate output_mode (default to CONTEXT)
     out_mode_value = output_mode if isinstance(output_mode, str) else "context"
@@ -301,41 +93,6 @@ async def search_unified(
 
     # Validate enrich_entities (default to False)
     enrich = enrich_entities if isinstance(enrich_entities, bool) else False
-
-    # Handle explicit mode override - bypass intent routing
-    if mode:
-        get_logger(__name__).info(
-            "explicit_mode_override",
-            mode=mode,
-            output_mode=out_mode.value,
-            enrich_entities=enrich,
-        )
-
-        if mode == "local":
-            return await _search_local_impl(
-                query=q,
-                entity_names=entity_names,
-                max_tokens=max_tokens,
-                engine=local_engine,
-            )
-        elif mode == "global":
-            return await _search_global_impl(
-                query=q,
-                community_level=community_level,
-                mode=global_mode,
-                engine=global_engine,
-            )
-        elif mode == "articles":
-            return await _search_articles_impl(
-                query=q,
-                threshold=threshold,
-                limit=limit,
-                category=category,
-                use_hybrid=use_hybrid,
-                vector_repo=vector_repo,
-                llm=llm,
-                hybrid_engine=hybrid_engine,
-            )
 
     # Initialize intent router for automatic routing
     intent_router = IntentRouter(
@@ -472,12 +229,12 @@ async def search_drift(
             confidence_threshold=body.confidence_threshold,
         )
 
-        # Get Neo4j pool and LLM from global engine
-        pool = global_engine._pool
+        # Get context builder and LLM from global engine
+        context_builder = global_engine._context_builder
         llm = global_engine._llm
 
         engine = DRIFTSearchEngine(
-            graph_pool=pool,
+            context_builder=context_builder,
             llm=llm,
             config=config,
             local_engine=local_engine,

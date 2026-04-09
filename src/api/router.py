@@ -16,7 +16,6 @@ from api.endpoints import (
     search,
     sources,
 )
-from modules.migration.api import router as migration_router
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -29,5 +28,4 @@ api_router.include_router(graph_metrics.router)
 api_router.include_router(graph_visualization.router)
 api_router.include_router(admin.router)
 api_router.include_router(communities.router)
-api_router.include_router(communities.graph_router)
-api_router.include_router(migration_router)
+api_router.include_router(communities._redirect_router)

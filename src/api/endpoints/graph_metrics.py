@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field
 from api.dependencies import get_cache_client, get_graph_pool
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
-from core.constants import GraphHealthStatus
 from core.observability.logging import get_logger
 from core.protocols import GraphPool
 from modules.knowledge.graph.metrics import GraphQualityMetrics
@@ -61,39 +60,6 @@ class GraphMetricsResponse(BaseModel):
     computed_at: str = Field(..., description="ISO timestamp of metrics computation")
 
 
-class CommunityMetricsResponse(BaseModel):
-    """Response model for community-level metrics."""
-
-    total_communities: int = Field(..., ge=0, description="Total number of communities")
-    total_reports: int = Field(..., ge=0, description="Total number of reports")
-    levels: int = Field(..., ge=0, description="Number of hierarchy levels")
-    average_entity_count: float = Field(..., ge=0, description="Average entities per community")
-    average_rank: float = Field(..., ge=0, description="Average community rank")
-    modularity_score: float | None = Field(None, description="Overall modularity score")
-    level_distribution: list[dict[str, Any]] = Field(
-        default_factory=list, description="Community count per level"
-    )
-    top_communities: list[dict[str, Any]] = Field(
-        default_factory=list, description="Top ranked communities"
-    )
-    health_score: float = Field(..., ge=0, le=100, description="Community structure health score")
-    health_status: str = Field(..., description="Health status label")
-
-
-class CommunityHealthResponse(BaseModel):
-    """Response model for community health assessment."""
-
-    score: float = Field(..., ge=0, le=100, description="Health score (0-100)")
-    status: str = Field(..., description="Status: healthy, moderate, degraded, critical")
-    issues: list[str] = Field(default_factory=list, description="Detected issues")
-    recommendations: list[str] = Field(
-        default_factory=list, description="Improvement recommendations"
-    )
-    modularity: float | None = Field(None, description="Modularity score")
-    coverage: float = Field(..., ge=0, le=1, description="Entity coverage ratio")
-    report_coverage: float = Field(..., ge=0, le=1, description="Report coverage ratio")
-
-
 # ── Unified Metrics Endpoint ────────────────────────────────────
 
 
@@ -138,18 +104,23 @@ async def get_graph_metrics(
     - `/graph/metrics/high-degree` → `/graph/metrics?view=full&include=high_degree`
     - `/graph/metrics/modularity` → `/graph/metrics?view=full&include=modularity`
     - `/graph/metrics/distributions` → `/graph/metrics?view=full&include=distributions`
-    - `/graph/metrics/community/health` → `/graph/metrics?view=community`
+
+    **Removed views:**
+    - `community` view moved to `/admin/communities/health`
     """
     if view == "health":
         return await _get_health_view(graph_pool)
     elif view == "full":
         return await _get_full_view(graph_pool, include)
     elif view == "community":
-        return await _get_community_view(graph_pool)
+        raise HTTPException(
+            status_code=400,
+            detail="Community view has been moved to GET /api/v1/admin/communities/health",
+        )
     else:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid view: {view}. Valid views: health, full, community",
+            detail=f"Invalid view: {view}. Valid views: health, full",
         )
 
 
@@ -264,83 +235,3 @@ def _should_include(item: str, include_set: set[str] | None) -> bool:
     if include_set is None:
         return True
     return item.lower() in include_set
-
-
-async def _get_community_view(graph_pool: GraphPool) -> APIResponse[CommunityMetricsResponse]:
-    """Get community metrics view."""
-    from modules.knowledge.graph.community_repo import Neo4jCommunityRepo
-
-    repo = Neo4jCommunityRepo(graph_pool)
-    total_communities = await repo.count_communities()
-
-    if total_communities == 0:
-        return success_response(
-            CommunityMetricsResponse(
-                total_communities=0,
-                total_reports=0,
-                levels=0,
-                average_entity_count=0.0,
-                average_rank=0.0,
-                modularity_score=None,
-                level_distribution=[],
-                top_communities=[],
-                health_score=0.0,
-                health_status="no_communities",
-            )
-        )
-
-    metrics = await repo.get_community_metrics()
-    level_distribution = await repo.get_level_distribution()
-    top_communities = await repo.list_communities(limit=10)
-    top_communities_data = [
-        {
-            "id": c.id,
-            "title": c.title,
-            "level": c.level,
-            "entity_count": c.entity_count,
-            "rank": c.rank,
-        }
-        for c in top_communities
-    ]
-
-    modularity = metrics.get("average_modularity", 0.0)
-    report_count = metrics.get("report_count", 0)
-    report_coverage = report_count / total_communities if total_communities > 0 else 0
-    modularity_score = (modularity + 1) / 2 if modularity else 0.5
-    health_score = modularity_score * 50 + report_coverage * 50
-
-    if health_score >= 80:
-        health_status = GraphHealthStatus.HEALTHY.value
-    elif health_score >= 60:
-        health_status = GraphHealthStatus.MODERATE.value
-    elif health_score >= 40:
-        health_status = GraphHealthStatus.DEGRADED.value
-    else:
-        health_status = GraphHealthStatus.CRITICAL.value
-
-    # Get community health data
-    issues: list[str] = []
-    recommendations: list[str] = []
-
-    if modularity < 0.0:
-        issues.append("Low modularity score indicates poor community structure")
-        recommendations.append("Consider adjusting cluster size parameters")
-
-    if report_coverage < 0.5:
-        issues.append(f"Only {report_coverage:.1%} of communities have reports")
-        recommendations.append("Run POST /api/v1/admin/communities/reports/generate")
-
-    return success_response(
-        CommunityMetricsResponse(
-            total_communities=total_communities,
-            total_reports=report_count,
-            levels=len(level_distribution),
-            average_entity_count=metrics.get("average_entity_count", 0.0),
-            average_rank=metrics.get("average_rank", 0.0),
-            modularity_score=modularity,
-            level_distribution=level_distribution,
-            top_communities=top_communities_data,
-            health_score=health_score,
-            health_status=health_status,
-        )
-    )

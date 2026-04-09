@@ -338,12 +338,13 @@ async def regenerate_report(
         raise HTTPException(status_code=500, detail=f"Report regeneration failed: {exc!s}")
 
 
-# ── Graph Community Endpoints ─────────────────────────────────────
+# ── Graph Community Endpoints (merged into main router) ─────────
 
-graph_router = APIRouter(prefix="/graph/communities", tags=["graph", "communities"])
+# These endpoints were previously at /graph/communities.
+# They are now part of the main /admin/communities router above.
 
 
-@graph_router.get("", response_model=APIResponse[CommunityListResponse])
+@router.get("", response_model=APIResponse[CommunityListResponse])
 async def list_communities(
     level: int | None = Query(None, description="Filter by community level"),
     limit: int = Query(20, ge=1, le=100, description="Maximum results"),
@@ -401,7 +402,7 @@ async def list_communities(
         raise HTTPException(status_code=500, detail=f"Failed to list communities: {exc!s}")
 
 
-@graph_router.get("/{community_id}", response_model=APIResponse[CommunityDetailResponse])
+@router.get("/{community_id}", response_model=APIResponse[CommunityDetailResponse])
 async def get_community(
     community_id: str,
     _: str = Depends(verify_api_key),
@@ -717,3 +718,21 @@ async def repair_health(
     except Exception as exc:
         log.error("repair_health_failed", error=str(exc))
         raise HTTPException(status_code=500, detail=f"Repair failed: {exc!s}")
+
+
+# ── Legacy Redirects ─────────────────────────────────────────────
+# Redirect old /graph/communities paths to /admin/communities
+
+_redirect_router = APIRouter(prefix="/graph/communities", tags=["_legacy_redirects"])
+
+
+@_redirect_router.get("")
+@_redirect_router.get("/{path:path}")
+async def redirect_graph_communities() -> None:
+    """301 redirect from old /graph/communities to /admin/communities."""
+    from fastapi.responses import RedirectResponse
+
+    return RedirectResponse(
+        url="/api/v1/admin/communities",
+        status_code=301,
+    )
