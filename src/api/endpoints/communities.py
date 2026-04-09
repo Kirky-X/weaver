@@ -8,10 +8,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from api.dependencies import get_graph_pool, get_llm_client
+from api.dependencies import get_graph_pool, get_graph_pool_type, get_llm_client
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from core.constants import ProcessingStatus
+from core.db.graph_query_builders import GraphDatabaseType
 from core.observability.logging import get_logger
 from core.protocols import GraphPool
 from modules.knowledge.graph.community_detector import CommunityDetector
@@ -27,6 +28,12 @@ from modules.knowledge.graph.community_report_generator import (
 )
 
 log = get_logger("community_api")
+
+
+def _get_db_type(pool_type: str) -> GraphDatabaseType:
+    """Convert pool type string to GraphDatabaseType enum."""
+    return GraphDatabaseType.LADYBUG if pool_type == "ladybug" else GraphDatabaseType.NEO4J
+
 
 router = APIRouter(prefix="/admin/communities", tags=["admin", "communities"])
 
@@ -165,6 +172,7 @@ async def rebuild_communities(
     request: RebuildRequest = RebuildRequest(),
     _: str = Depends(verify_api_key),
     pool: GraphPool = Depends(get_graph_pool),
+    pool_type: str = Depends(get_graph_pool_type),
 ) -> APIResponse[RebuildResponse]:
     """Rebuild all communities from scratch.
 
@@ -184,10 +192,13 @@ async def rebuild_communities(
     """
     log.info("community_rebuild_requested", max_cluster_size=request.max_cluster_size)
 
+    db_type = _get_db_type(pool_type)
+
     detector = CommunityDetector(
         pool=pool,
         max_cluster_size=request.max_cluster_size,
         default_seed=request.seed,
+        database_type=db_type,
     )
 
     try:
@@ -339,6 +350,7 @@ async def list_communities(
     offset: int = Query(0, ge=0, description="Result offset"),
     _: str = Depends(verify_api_key),
     pool: GraphPool = Depends(get_graph_pool),
+    pool_type: str = Depends(get_graph_pool_type),
 ) -> APIResponse[CommunityListResponse]:
     """List communities, optionally filtered by level.
 
@@ -353,7 +365,7 @@ async def list_communities(
         List of communities.
 
     """
-    repo = Neo4jCommunityRepo(pool)
+    repo = Neo4jCommunityRepo(pool, database_type=_get_db_type(pool_type))
 
     try:
         communities = await repo.list_communities(level=level, limit=limit, offset=offset)
@@ -394,6 +406,7 @@ async def get_community(
     community_id: str,
     _: str = Depends(verify_api_key),
     pool: GraphPool = Depends(get_graph_pool),
+    pool_type: str = Depends(get_graph_pool_type),
 ) -> APIResponse[CommunityDetailResponse]:
     """Get detailed information about a specific community.
 
@@ -406,7 +419,7 @@ async def get_community(
         Community details with entities and report.
 
     """
-    repo = Neo4jCommunityRepo(pool)
+    repo = Neo4jCommunityRepo(pool, database_type=_get_db_type(pool_type))
 
     try:
         community = await repo.get_community(community_id)

@@ -42,6 +42,7 @@ class Endpoints:
     # ── Pool Instances (Protocol Types) ───────────────────────────────
     _relational_pool: RelationalPool | None = None
     _graph_pool: GraphPool | None = None
+    _graph_pool_type: str | None = None
     _cache: CachePool | None = None
 
     # ── Service Instances ─────────────────────────────────────────────
@@ -76,6 +77,13 @@ class Endpoints:
         if Endpoints._graph_pool is None:
             raise HTTPException(503, detail="Graph pool not initialized")
         return Endpoints._graph_pool
+
+    @staticmethod
+    def get_graph_pool_type() -> str:
+        """Get graph database type ('neo4j' or 'ladybug')."""
+        if Endpoints._graph_pool_type is None:
+            raise HTTPException(503, detail="Graph pool type not initialized")
+        return Endpoints._graph_pool_type
 
     # ── Cache ─────────────────────────────────────────────────────────
 

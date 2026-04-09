@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 import igraph as ig
 import leidenalg
 
+from core.db.graph_query_builders import GraphDatabaseType
 from core.observability.logging import get_logger
 from modules.knowledge.graph.community_models import (
     Community,
@@ -46,11 +47,13 @@ class CommunityDetector:
         pool: GraphPool,
         max_cluster_size: int = 10,
         default_seed: int = 42,
+        database_type: GraphDatabaseType = GraphDatabaseType.NEO4J,
     ) -> None:
         self._pool = pool
-        self._repo = Neo4jCommunityRepo(pool)
+        self._repo = Neo4jCommunityRepo(pool, database_type=database_type)
         self._max_cluster_size = max_cluster_size
         self._default_seed = default_seed
+        self._database_type = database_type
 
     async def detect_communities(
         self,
@@ -179,7 +182,7 @@ class CommunityDetector:
         return result
 
     async def _build_edge_list(self) -> list[tuple[str, str, float]]:
-        """Extract entity relationships from Neo4j.
+        """Extract entity relationships from graph database.
 
         Matches all relationship types except non-entity relationships
         (HAS_ENTITY, MENTIONS, FOLLOWED_BY), covering both legacy RELATED_TO
@@ -188,15 +191,29 @@ class CommunityDetector:
         Returns:
             List of (source, target, weight) tuples.
         """
-        query = """
-        MATCH (e1:Entity)-[r]->(e2:Entity)
-        WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
-          AND (e1.pruned IS NULL OR e1.pruned = false)
-          AND (e2.pruned IS NULL OR e2.pruned = false)
-        RETURN e1.canonical_name AS source,
-               e2.canonical_name AS target,
-               coalesce(r.weight, 1.0) AS weight
-        """
+        if self._database_type == GraphDatabaseType.LADYBUG:
+            # LadybugDB: Entity-to-Entity edges all use RELATED_TO table
+            # with edge_type field. No pruned field in LadybugDB schema.
+            # Note: LadybugDB doesn't support IS NULL OR ... NOT IN syntax.
+            # All RELATED_TO edges between entities are valid (MENTIONS is
+            # Article->Entity only, HAS_ENTITY is Community->Entity only).
+            query = """
+            MATCH (e1:Entity)-[r:RELATED_TO]->(e2:Entity)
+            RETURN e1.canonical_name AS source,
+                   e2.canonical_name AS target,
+                   coalesce(r.weight, 1.0) AS weight
+            """
+        else:
+            # Neo4j: Multiple relationship types, use type(r) function
+            query = """
+            MATCH (e1:Entity)-[r]->(e2:Entity)
+            WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
+              AND (e1.pruned IS NULL OR e1.pruned = false)
+              AND (e2.pruned IS NULL OR e2.pruned = false)
+            RETURN e1.canonical_name AS source,
+                   e2.canonical_name AS target,
+                   coalesce(r.weight, 1.0) AS weight
+            """
         results = await self._pool.execute_query(query)
 
         # Normalize edges (undirected) and deduplicate
@@ -225,14 +242,21 @@ class CommunityDetector:
         Returns:
             List of orphan entity canonical names.
         """
-        # Find entities that either:
-        # 1. Have no relationships to other entities at all, OR
-        # 2. Only have HAS_ENTITY, MENTIONS, or FOLLOWED_BY relationships
-        query = """
-        MATCH (e:Entity)
-        WHERE NOT EXISTS((e)-[:HAS_ENTITY|MENTIONS|FOLLOWED_BY]-(:Entity))
-        RETURN e.canonical_name AS name
-        """
+        if self._database_type == GraphDatabaseType.LADYBUG:
+            # LadybugDB: No NOT EXISTS support. Find all entities, then
+            # subtract those with RELATED_TO relationships.
+            query = """
+            MATCH (e:Entity)
+            WHERE NOT (e)-[:RELATED_TO]-(:Entity)
+            RETURN e.canonical_name AS name
+            """
+        else:
+            # Neo4j: Use NOT EXISTS pattern
+            query = """
+            MATCH (e:Entity)
+            WHERE NOT EXISTS((e)-[:HAS_ENTITY|MENTIONS|FOLLOWED_BY]-(:Entity))
+            RETURN e.canonical_name AS name
+            """
         results = await self._pool.execute_query(query)
         return [r.get("name", "") for r in results if r.get("name")]
 
@@ -544,10 +568,18 @@ class CommunityDetector:
         if not entity_names:
             return {}
 
-        query = """
-        UNWIND $names AS name
-        MATCH (e:Entity {canonical_name: name})
-        RETURN e.canonical_name AS name, e.type AS type
-        """
+        if self._database_type == GraphDatabaseType.LADYBUG:
+            # LadybugDB: Use IN clause instead of UNWIND
+            query = """
+            MATCH (e:Entity)
+            WHERE e.canonical_name IN $names
+            RETURN e.canonical_name AS name, e.type AS type
+            """
+        else:
+            query = """
+            UNWIND $names AS name
+            MATCH (e:Entity {canonical_name: name})
+            RETURN e.canonical_name AS name, e.type AS type
+            """
         results = await self._pool.execute_query(query, {"names": entity_names})
         return {r.get("name", ""): r.get("type", "未知") for r in results}

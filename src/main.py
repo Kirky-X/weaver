@@ -92,6 +92,7 @@ async def lifespan(app: FastAPI) -> None:
     # Use Protocol-compatible attribute names
     deps.Endpoints._relational_pool = container.relational_pool()
     deps.Endpoints._graph_pool = container.graph_pool()
+    deps.Endpoints._graph_pool_type = container.graph_pool_type
     deps.Endpoints._cache = redis_client
     deps.Endpoints._llm = container.llm_client()
     deps.Endpoints._scheduler = container.source_scheduler()

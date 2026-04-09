@@ -92,6 +92,19 @@ def get_graph_pool() -> GraphPool:
     return Endpoints.get_graph_pool()
 
 
+def get_graph_pool_type() -> str:
+    """FastAPI dependency for graph database type.
+
+    Returns:
+        String identifier ('neo4j' or 'ladybug').
+
+    Raises:
+        HTTPException: If pool type is not initialized.
+
+    """
+    return Endpoints.get_graph_pool_type()
+
+
 def get_cache_client() -> CachePool:
     """FastAPI dependency for cache client.
 

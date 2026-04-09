@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+import time
 import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+from core.db.graph_query_builders import GraphDatabaseType
 from core.observability.logging import get_logger
 from modules.knowledge.graph.community_models import Community, CommunityReport
 
@@ -27,11 +29,30 @@ class Neo4jCommunityRepo:
         pool: Graph database connection pool.
     """
 
-    def __init__(self, pool: GraphPool) -> None:
+    def __init__(
+        self,
+        pool: GraphPool,
+        database_type: GraphDatabaseType = GraphDatabaseType.NEO4J,
+    ) -> None:
         self._pool = pool
+        self._database_type = database_type
+
+    def _now_ts(self) -> int:
+        """Get current timestamp as integer for LadybugDB."""
+        return int(time.time() * 1000)
+
+    def _now_datetime(self) -> str:
+        """Get datetime() expression based on database type."""
+        if self._database_type == GraphDatabaseType.LADYBUG:
+            return str(self._now_ts())
+        return "datetime()"
 
     async def ensure_constraints(self) -> None:
         """Create uniqueness constraints and indexes for Community nodes."""
+        if self._database_type == GraphDatabaseType.LADYBUG:
+            # LadybugDB doesn't support CREATE CONSTRAINT/INDEX via Cypher
+            return
+
         constraints = [
             # Community ID uniqueness
             """
@@ -74,6 +95,35 @@ class Neo4jCommunityRepo:
         Returns:
             Number of communities deleted.
         """
+        if self._database_type == GraphDatabaseType.LADYBUG:
+            # LadybugDB: No DETACH DELETE. Delete relationships first, then nodes.
+            # Delete CommunityReport nodes and their REPORTS_ON relationships
+            try:
+                await self._pool.execute_query("MATCH (r:CommunityReport) DELETE r")
+            except Exception as exc:
+                log.debug("delete_reports_step", error=str(exc))
+            # Count communities before deletion
+            count_result = await self._pool.execute_query(
+                "MATCH (c:Community) RETURN count(c) AS total"
+            )
+            total = count_result[0].get("total", 0) if count_result else 0
+            # Delete HAS_ENTITY relationships from communities
+            try:
+                await self._pool.execute_query("MATCH (c:Community)-[r:HAS_ENTITY]->() DELETE r")
+            except Exception as exc:
+                log.debug("delete_has_entity_step", error=str(exc))
+            # Delete PARENT_COMMUNITY relationships
+            try:
+                await self._pool.execute_query(
+                    "MATCH (c:Community)-[r:PARENT_COMMUNITY]->() DELETE r"
+                )
+            except Exception as exc:
+                log.debug("delete_parent_step", error=str(exc))
+            # Delete community nodes
+            await self._pool.execute_query("MATCH (c:Community) DELETE c")
+            return total
+
+        # Neo4j: Use DETACH DELETE
         query = """
         MATCH (c:Community)
         WITH c, count(c) AS total
@@ -111,21 +161,39 @@ class Neo4jCommunityRepo:
         Returns:
             The created community ID.
         """
-        query = """
-        CREATE (c:Community {
-            id: $id,
-            title: $title,
-            level: $level,
-            parent_id: $parent_id,
-            entity_count: $entity_count,
-            rank: $rank,
-            period: $period,
-            modularity: $modularity,
-            created_at: datetime(),
-            updated_at: datetime()
-        })
-        RETURN c.id AS id
-        """
+        if self._database_type == GraphDatabaseType.LADYBUG:
+            now = self._now_ts()
+            query = """
+            CREATE (c:Community {
+                id: $id,
+                title: $title,
+                level: $level,
+                parent_id: $parent_id,
+                entity_count: $entity_count,
+                rank: $rank,
+                period: $period,
+                modularity: $modularity,
+                created_at: $created_at,
+                updated_at: $updated_at
+            })
+            RETURN c.id AS id
+            """
+        else:
+            query = """
+            CREATE (c:Community {
+                id: $id,
+                title: $title,
+                level: $level,
+                parent_id: $parent_id,
+                entity_count: $entity_count,
+                rank: $rank,
+                period: $period,
+                modularity: $modularity,
+                created_at: datetime(),
+                updated_at: datetime()
+            })
+            RETURN c.id AS id
+            """
         params = {
             "id": community_id,
             "title": title,
@@ -135,7 +203,13 @@ class Neo4jCommunityRepo:
             "rank": rank,
             "period": period or datetime.now(UTC).date().isoformat(),
             "modularity": modularity,
+            "created_at": now if self._database_type == GraphDatabaseType.LADYBUG else None,
+            "updated_at": now if self._database_type == GraphDatabaseType.LADYBUG else None,
         }
+        # Remove None values that are only used for Neo4j
+        if self._database_type != GraphDatabaseType.LADYBUG:
+            params.pop("created_at", None)
+            params.pop("updated_at", None)
         result = await self._pool.execute_query(query, params)
         if result:
             return result[0]["id"]
@@ -186,6 +260,25 @@ class Neo4jCommunityRepo:
         if not assignments:
             return 0
 
+        if self._database_type == GraphDatabaseType.LADYBUG:
+            # LadybugDB: No UNWIND. Use individual MERGE queries.
+            total = 0
+            for a in assignments:
+                try:
+                    await self.add_entity_to_community(
+                        a["community_id"], a["entity_name"], a["entity_type"]
+                    )
+                    total += 1
+                except Exception as exc:
+                    log.debug(
+                        "add_entity_to_community_failed",
+                        community_id=a["community_id"],
+                        entity=a["entity_name"],
+                        error=str(exc),
+                    )
+            return total
+
+        # Neo4j: Use UNWIND for batch
         query = """
         UNWIND $assignments AS a
         MATCH (c:Community {id: a.community_id})
@@ -353,34 +446,58 @@ class Neo4jCommunityRepo:
             Report ID.
         """
         report_id = str(uuid.uuid4())
-        query = """
-        MATCH (c:Community {id: $community_id})
-        CREATE (r:CommunityReport {
-            id: $report_id,
-            community_id: $community_id,
-            title: $title,
-            summary: $summary,
-            full_content: $full_content,
-            key_entities: $key_entities,
-            key_relationships: $key_relationships,
-            rank: $rank,
-            stale: false,
-            created_at: datetime(),
-            updated_at: datetime()
-        })
-        CREATE (r)-[:REPORTS_ON]->(c)
-        RETURN r.id AS id
-        """
-        params = {
-            "report_id": report_id,
-            "community_id": community_id,
-            "title": title,
-            "summary": summary,
-            "full_content": full_content,
-            "key_entities": key_entities,
-            "key_relationships": key_relationships,
-            "rank": rank,
-        }
+        if self._database_type == GraphDatabaseType.LADYBUG:
+            now = self._now_ts()
+            query = """
+            MATCH (c:Community {id: $community_id})
+            CREATE (r:CommunityReport {
+                id: $report_id,
+                community_id: $community_id,
+                title: $title,
+                summary: $summary,
+                full_content: $full_content,
+                created_at: $created_at
+            })
+            CREATE (r)-[:REPORTS_ON]->(c)
+            RETURN r.id AS id
+            """
+            params = {
+                "report_id": report_id,
+                "community_id": community_id,
+                "title": title,
+                "summary": summary,
+                "full_content": full_content,
+                "created_at": now,
+            }
+        else:
+            query = """
+            MATCH (c:Community {id: $community_id})
+            CREATE (r:CommunityReport {
+                id: $report_id,
+                community_id: $community_id,
+                title: $title,
+                summary: $summary,
+                full_content: $full_content,
+                key_entities: $key_entities,
+                key_relationships: $key_relationships,
+                rank: $rank,
+                stale: false,
+                created_at: datetime(),
+                updated_at: datetime()
+            })
+            CREATE (r)-[:REPORTS_ON]->(c)
+            RETURN r.id AS id
+            """
+            params = {
+                "report_id": report_id,
+                "community_id": community_id,
+                "title": title,
+                "summary": summary,
+                "full_content": full_content,
+                "key_entities": key_entities,
+                "key_relationships": key_relationships,
+                "rank": rank,
+            }
         result = await self._pool.execute_query(query, params)
         if result:
             return result[0]["id"]
@@ -395,21 +512,32 @@ class Neo4jCommunityRepo:
         Returns:
             CommunityReport or None.
         """
-        query = """
-        MATCH (r:CommunityReport {community_id: $community_id})
-        RETURN r.id AS id,
-               r.community_id AS community_id,
-               r.title AS title,
-               r.summary AS summary,
-               r.full_content AS full_content,
-               r.key_entities AS key_entities,
-               r.key_relationships AS key_relationships,
-               r.rank AS rank,
-               r.full_content_embedding AS full_content_embedding,
-               r.stale AS stale,
-               r.created_at AS created_at,
-               r.updated_at AS updated_at
-        """
+        if self._database_type == GraphDatabaseType.LADYBUG:
+            # LadybugDB: Fewer fields in schema
+            query = """
+            MATCH (r:CommunityReport {community_id: $community_id})
+            RETURN r.id AS id,
+                   r.community_id AS community_id,
+                   r.title AS title,
+                   r.summary AS summary,
+                   r.full_content AS full_content
+            """
+        else:
+            query = """
+            MATCH (r:CommunityReport {community_id: $community_id})
+            RETURN r.id AS id,
+                   r.community_id AS community_id,
+                   r.title AS title,
+                   r.summary AS summary,
+                   r.full_content AS full_content,
+                   r.key_entities AS key_entities,
+                   r.key_relationships AS key_relationships,
+                   r.rank AS rank,
+                   r.full_content_embedding AS full_content_embedding,
+                   r.stale AS stale,
+                   r.created_at AS created_at,
+                   r.updated_at AS updated_at
+            """
         result = await self._pool.execute_query(query, {"community_id": community_id})
         if result:
             return CommunityReport.from_neo4j(dict(result[0]))
@@ -429,12 +557,19 @@ class Neo4jCommunityRepo:
         Returns:
             True if updated.
         """
-        query = """
-        MATCH (r:CommunityReport {id: $report_id})
-        SET r.full_content_embedding = $embedding,
-            r.updated_at = datetime()
-        RETURN r.id AS id
-        """
+        if self._database_type == GraphDatabaseType.LADYBUG:
+            query = """
+            MATCH (r:CommunityReport {id: $report_id})
+            SET r.full_content_embedding = $embedding
+            RETURN r.id AS id
+            """
+        else:
+            query = """
+            MATCH (r:CommunityReport {id: $report_id})
+            SET r.full_content_embedding = $embedding,
+                r.updated_at = datetime()
+            RETURN r.id AS id
+            """
         result = await self._pool.execute_query(
             query, {"report_id": report_id, "embedding": embedding}
         )
@@ -449,6 +584,9 @@ class Neo4jCommunityRepo:
         Returns:
             True if marked stale.
         """
+        if self._database_type == GraphDatabaseType.LADYBUG:
+            # LadybugDB: No stale field in schema, just skip
+            return True
         query = """
         MATCH (r:CommunityReport {community_id: $community_id})
         SET r.stale = true, r.updated_at = datetime()
@@ -466,11 +604,29 @@ class Neo4jCommunityRepo:
         Returns:
             True if deleted.
         """
-        query = """
-        MATCH (r:CommunityReport {community_id: $community_id})
-        DETACH DELETE r
-        RETURN count(r) AS deleted
-        """
+        if self._database_type == GraphDatabaseType.LADYBUG:
+            # LadybugDB: No DETACH DELETE. Delete relationship first.
+            try:
+                await self._pool.execute_query(
+                    """
+                MATCH (r:CommunityReport {community_id: $community_id})-[rel:REPORTS_ON]->()
+                DELETE rel
+                """,
+                    {"community_id": community_id},
+                )
+            except Exception:
+                pass
+            query = """
+            MATCH (r:CommunityReport {community_id: $community_id})
+            DELETE r
+            RETURN count(r) AS deleted
+            """
+        else:
+            query = """
+            MATCH (r:CommunityReport {community_id: $community_id})
+            DETACH DELETE r
+            RETURN count(r) AS deleted
+            """
         result = await self._pool.execute_query(query, {"community_id": community_id})
         return bool(result)
 
@@ -490,44 +646,78 @@ class Neo4jCommunityRepo:
         Returns:
             List of (CommunityReport, similarity_score) tuples.
         """
-        if level is not None:
-            cypher = """
-            MATCH (r:CommunityReport)-[:REPORTS_ON]->(c:Community)
-            WHERE c.level = $level AND r.full_content_embedding IS NOT NULL
-            WITH r, vector.similarity.cosine(r.full_content_embedding, $embedding) AS score
-            WHERE score > 0.0
-            RETURN r.id AS id,
-                   r.community_id AS community_id,
-                   r.title AS title,
-                   r.summary AS summary,
-                   r.full_content AS full_content,
-                   r.key_entities AS key_entities,
-                   r.key_relationships AS key_relationships,
-                   r.rank AS rank,
-                   score
-            ORDER BY score DESC
-            LIMIT $top_k
-            """
-            params = {"embedding": query_embedding, "level": level, "top_k": top_k}
+        if self._database_type == GraphDatabaseType.LADYBUG:
+            # LadybugDB: No vector.similarity.cosine. Use array_cosine_similarity.
+            if level is not None:
+                cypher = """
+                MATCH (r:CommunityReport)-[:REPORTS_ON]->(c:Community)
+                WHERE c.level = $level AND r.full_content_embedding IS NOT NULL
+                WITH r, array_cosine_similarity(r.full_content_embedding, $embedding) AS score
+                WHERE score > 0.0
+                RETURN r.id AS id,
+                       r.community_id AS community_id,
+                       r.title AS title,
+                       r.summary AS summary,
+                       r.full_content AS full_content,
+                       score
+                ORDER BY score DESC
+                LIMIT $top_k
+                """
+            else:
+                cypher = """
+                MATCH (r:CommunityReport)
+                WHERE r.full_content_embedding IS NOT NULL
+                WITH r, array_cosine_similarity(r.full_content_embedding, $embedding) AS score
+                WHERE score > 0.0
+                RETURN r.id AS id,
+                       r.community_id AS community_id,
+                       r.title AS title,
+                       r.summary AS summary,
+                       r.full_content AS full_content,
+                       score
+                ORDER BY score DESC
+                LIMIT $top_k
+                """
         else:
-            cypher = """
-            MATCH (r:CommunityReport)
-            WHERE r.full_content_embedding IS NOT NULL
-            WITH r, vector.similarity.cosine(r.full_content_embedding, $embedding) AS score
-            WHERE score > 0.0
-            RETURN r.id AS id,
-                   r.community_id AS community_id,
-                   r.title AS title,
-                   r.summary AS summary,
-                   r.full_content AS full_content,
-                   r.key_entities AS key_entities,
-                   r.key_relationships AS key_relationships,
-                   r.rank AS rank,
-                   score
-            ORDER BY score DESC
-            LIMIT $top_k
-            """
-            params = {"embedding": query_embedding, "top_k": top_k}
+            if level is not None:
+                cypher = """
+                MATCH (r:CommunityReport)-[:REPORTS_ON]->(c:Community)
+                WHERE c.level = $level AND r.full_content_embedding IS NOT NULL
+                WITH r, vector.similarity.cosine(r.full_content_embedding, $embedding) AS score
+                WHERE score > 0.0
+                RETURN r.id AS id,
+                       r.community_id AS community_id,
+                       r.title AS title,
+                       r.summary AS summary,
+                       r.full_content AS full_content,
+                       r.key_entities AS key_entities,
+                       r.key_relationships AS key_relationships,
+                       r.rank AS rank,
+                       score
+                ORDER BY score DESC
+                LIMIT $top_k
+                """
+            else:
+                cypher = """
+                MATCH (r:CommunityReport)
+                WHERE r.full_content_embedding IS NOT NULL
+                WITH r, vector.similarity.cosine(r.full_content_embedding, $embedding) AS score
+                WHERE score > 0.0
+                RETURN r.id AS id,
+                       r.community_id AS community_id,
+                       r.title AS title,
+                       r.summary AS summary,
+                       r.full_content AS full_content,
+                       r.key_entities AS key_entities,
+                       r.key_relationships AS key_relationships,
+                       r.rank AS rank,
+                       score
+                ORDER BY score DESC
+                LIMIT $top_k
+                """
+        params = {"embedding": query_embedding, "top_k": top_k}
+        if level is not None:
+            params["level"] = level
 
         result = await self._pool.execute_query(cypher, params)
         return [(CommunityReport.from_neo4j(dict(r)), r.get("score", 0.0)) for r in result]
@@ -540,6 +730,53 @@ class Neo4jCommunityRepo:
         Returns:
             Dictionary with community statistics.
         """
+        if self._database_type == GraphDatabaseType.LADYBUG:
+            # LadybugDB: Break complex WITH chain into individual queries
+            metrics: dict[str, Any] = {
+                "total_communities": 0,
+                "levels": 0,
+                "avg_size": 0.0,
+                "max_size": 0,
+                "min_size": 0,
+                "leaf_count": 0,
+                "reports": 0,
+                "orphan_communities": 0,
+            }
+
+            # Total communities + basic stats
+            result = await self._pool.execute_query("""
+            MATCH (c:Community)
+            RETURN count(c) AS total_communities,
+                   max(c.level) AS max_level,
+                   avg(c.entity_count) AS avg_size,
+                   max(c.entity_count) AS max_size,
+                   min(c.entity_count) AS min_size
+            """)
+            if result:
+                metrics["total_communities"] = result[0].get("total_communities", 0)
+                max_level = result[0].get("max_level", 0)
+                metrics["levels"] = (max_level + 1) if max_level is not None else 0
+                metrics["avg_size"] = result[0].get("avg_size", 0.0) or 0.0
+                metrics["max_size"] = result[0].get("max_size", 0) or 0
+                metrics["min_size"] = result[0].get("min_size", 0) or 0
+
+            # Leaf count (level 0)
+            result = await self._pool.execute_query(
+                "MATCH (c:Community) WHERE c.level = 0 RETURN count(c) AS leaf_count"
+            )
+            if result:
+                metrics["leaf_count"] = result[0].get("leaf_count", 0)
+
+            # Report count
+            result = await self._pool.execute_query(
+                "MATCH (r:CommunityReport) RETURN count(r) AS reports"
+            )
+            if result:
+                metrics["reports"] = result[0].get("reports", 0)
+
+            return metrics
+
+        # Neo4j: Use complex WITH chain
         query = """
         MATCH (c:Community)
         WITH count(c) AS total_communities,
