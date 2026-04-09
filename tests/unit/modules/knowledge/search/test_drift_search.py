@@ -545,10 +545,10 @@ class TestDRIFTSearchEngineSearch:
 
     @pytest.fixture
     def mock_context_builder(self):
-        """Create mock Neo4j pool."""
-        pool = MagicMock()
-        pool.execute_query = AsyncMock()
-        return pool
+        """Create mock context builder."""
+        builder = MagicMock()
+        builder.build = AsyncMock()
+        return builder
 
     @pytest.fixture
     def mock_llm(self):
@@ -592,45 +592,30 @@ class TestDRIFTSearchEngineSearch:
         )
 
     @pytest.mark.asyncio
-    async def test_search_fallback_to_local(self):
+    async def test_search_fallback_to_local(self, mock_context_builder, mock_llm):
         """Test search fallback to local when no communities."""
-        mock_pool = MagicMock()
-        mock_llm = MagicMock()
-
         # Create mock for local search result
         mock_local_result = MagicMock()
         mock_local_result.answer = "local answer"
         mock_local_result.confidence = 0.7
 
-        with (
-            patch(
-                "modules.knowledge.search.engines.drift_search.GlobalContextBuilder"
-            ) as mock_builder,
-            patch("modules.knowledge.search.engines.drift_search.LocalSearchEngine") as mock_local,
-        ):
-            # Setup context builder to return no communities
-            mock_context_builder = MagicMock()
-            mock_context = MagicMock()
-            mock_context.metadata = {"total_communities": 0}
-            mock_context_builder.build = AsyncMock(return_value=mock_context)
-            mock_builder.return_value = mock_context_builder
+        mock_local_engine = MagicMock()
+        mock_local_engine.search = AsyncMock(return_value=mock_local_result)
 
-            # Setup local engine
-            mock_local_engine = MagicMock()
-            mock_local_engine.search = AsyncMock(return_value=mock_local_result)
-            mock_local.return_value = mock_local_engine
+        # Setup context builder to return no communities
+        mock_context = MagicMock()
+        mock_context.metadata = {"total_communities": 0}
+        mock_context_builder.build = AsyncMock(return_value=mock_context)
 
-            engine = DRIFTSearchEngine(mock_pool, mock_llm)
-            result = await engine.search("test query")
+        engine = DRIFTSearchEngine(mock_context_builder, mock_llm, local_engine=mock_local_engine)
+        result = await engine.search("test query")
 
-            assert result.drift_mode == "fallback_local"
-            assert result.answer == "local answer"
+        assert result.drift_mode == "fallback_local"
+        assert result.answer == "local answer"
 
     @pytest.mark.asyncio
-    async def test_search_full_drift(self):
+    async def test_search_full_drift(self, mock_context_builder, mock_llm):
         """Test full DRIFT search flow."""
-        mock_pool = MagicMock()
-        mock_llm = MagicMock()
         mock_llm.call_at = AsyncMock(
             side_effect=[
                 "初始答案\n\n1. 后续问题？",
@@ -639,38 +624,30 @@ class TestDRIFTSearchEngineSearch:
         )
         config = DriftConfig(primer_k=3, max_follow_ups=2)
 
-        with (
-            patch(
-                "modules.knowledge.search.engines.drift_search.GlobalContextBuilder"
-            ) as mock_builder,
-            patch("modules.knowledge.search.engines.drift_search.LocalSearchEngine") as mock_local,
-        ):
-            # Setup context builder
-            mock_context_builder = MagicMock()
-            mock_context = MagicMock()
-            mock_context.metadata = {"total_communities": 2, "community_ids": ["c1", "c2"]}
-            mock_context.to_string.return_value = "context"
-            mock_context_builder.build = AsyncMock(return_value=mock_context)
-            mock_builder.return_value = mock_context_builder
+        # Setup context builder
+        mock_context = MagicMock()
+        mock_context.metadata = {"total_communities": 2, "community_ids": ["c1", "c2"]}
+        mock_context.to_string.return_value = "context"
+        mock_context_builder.build = AsyncMock(return_value=mock_context)
 
-            # Setup local engine mock with async search
-            mock_local_instance = MagicMock()
-            mock_local_instance.search = AsyncMock(
-                return_value=MagicMock(
-                    answer="local answer",
-                    confidence=0.8,
-                    source_entities=[],
-                )
+        # Setup local engine mock with async search
+        mock_local_engine = MagicMock()
+        mock_local_engine.search = AsyncMock(
+            return_value=MagicMock(
+                answer="local answer",
+                confidence=0.8,
+                source_entities=[],
             )
-            mock_local.return_value = mock_local_instance
+        )
 
-            engine = DRIFTSearchEngine(
-                graph_pool=mock_pool,
-                llm=mock_llm,
-                config=config,
-            )
+        engine = DRIFTSearchEngine(
+            context_builder=mock_context_builder,
+            llm=mock_llm,
+            config=config,
+            local_engine=mock_local_engine,
+        )
 
-            result = await engine.search("测试查询")
+        result = await engine.search("测试查询")
 
         assert result is not None
 

@@ -143,21 +143,20 @@ class TestSearchEndpoints:
     """Tests for search endpoint functions."""
 
     @pytest.mark.asyncio
-    async def test_result_to_response(self) -> None:
-        """Test SearchResult to SearchResponse conversion."""
-        from api.endpoints.search import SearchResponse, _result_to_response
+    async def test_search_response_creation(self) -> None:
+        """Test SearchResponse creation."""
+        from api.endpoints.search import SearchResponse
 
-        # Create mock SearchResult
-        mock_result = MagicMock()
-        mock_result.query = "test query"
-        mock_result.answer = "test answer"
-        mock_result.context_tokens = 100
-        mock_result.confidence = 0.9
-        mock_result.entities = ["Apple", "Microsoft"]
-        mock_result.sources = [{"article_id": "123"}]
-        mock_result.metadata = {"total": 1}
-
-        response = _result_to_response(mock_result, "local")
+        response = SearchResponse(
+            query="test query",
+            answer="test answer",
+            context_tokens=100,
+            confidence=0.9,
+            search_type="local",
+            entities=["Apple", "Microsoft"],
+            sources=[{"article_id": "123"}],
+            metadata={"total": 1},
+        )
 
         assert response.query == "test query"
         assert response.search_type == "local"

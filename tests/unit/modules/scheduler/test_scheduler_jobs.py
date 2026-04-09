@@ -228,17 +228,29 @@ class TestFlushRetryQueue:
             pending_sync_repo=MagicMock(),
         )
 
+    @staticmethod
+    def _make_async_gen(items: list):
+        """Create an async generator from a list."""
+
+        async def gen():
+            for item in items:
+                yield item
+
+        return gen
+
     @pytest.mark.asyncio
     async def test_flush_retry_queue_no_keys(self, scheduler_jobs):
         """Test when no retry keys exist."""
-        scheduler_jobs._cache.keys = AsyncMock(return_value=[])
+        scheduler_jobs._cache.scan_iter = MagicMock(return_value=self._make_async_gen([])())
         result = await scheduler_jobs.flush_retry_queue()
         assert result == 0
 
     @pytest.mark.asyncio
     async def test_flush_retry_queue_with_items(self, scheduler_jobs):
         """Test flushing items from retry queue."""
-        scheduler_jobs._cache.keys = AsyncMock(return_value=["crawl:retry:example.com"])
+        scheduler_jobs._cache.scan_iter = MagicMock(
+            return_value=self._make_async_gen([b"crawl:retry:example.com"])()
+        )
         scheduler_jobs._cache.zrangebyscore = AsyncMock(return_value=[b'{"url": "test"}'])
         scheduler_jobs._cache.zrem = AsyncMock(return_value=1)
         scheduler_jobs._cache.lpush = AsyncMock(return_value=1)
@@ -249,11 +261,13 @@ class TestFlushRetryQueue:
     @pytest.mark.asyncio
     async def test_flush_retry_queue_multiple_hosts(self, scheduler_jobs):
         """Test flushing items from multiple hosts."""
-        scheduler_jobs._cache.keys = AsyncMock(
-            return_value=[
-                "crawl:retry:host1.com",
-                "crawl:retry:host2.com",
-            ]
+        scheduler_jobs._cache.scan_iter = MagicMock(
+            return_value=self._make_async_gen(
+                [
+                    b"crawl:retry:host1.com",
+                    b"crawl:retry:host2.com",
+                ]
+            )()
         )
         scheduler_jobs._cache.zrangebyscore = AsyncMock(return_value=[b"item1", b"item2"])
         scheduler_jobs._cache.zrem = AsyncMock(return_value=2)

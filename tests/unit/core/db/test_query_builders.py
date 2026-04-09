@@ -153,7 +153,8 @@ class TestDuckDBVectorQueryBuilder:
 
     def test_build_vector_cast(self, builder: DuckDBVectorQueryBuilder) -> None:
         result = builder.build_vector_cast(":emb")
-        assert result == "CAST(:emb AS FLOAT[1024])"
+        # DuckDB uses native ::type cast syntax
+        assert result == ":emb::FLOAT[1024]"
 
     def test_build_upsert_article_vector_query(self, builder: DuckDBVectorQueryBuilder) -> None:
         result = builder.build_upsert_article_vector_query()
@@ -186,9 +187,9 @@ class TestDuckDBVectorQueryBuilder:
     def test_format_embedding_param(self, builder: DuckDBVectorQueryBuilder) -> None:
         embedding = [0.1, 0.2, 0.3]
         result = builder.format_embedding_param(embedding)
-        # DuckDB returns raw list for SQLAlchemy parameter binding
-        assert isinstance(result, list)
-        assert result == [0.1, 0.2, 0.3]
+        # DuckDB returns string array literal for SQLAlchemy compatibility
+        assert isinstance(result, str)
+        assert result == "[0.1,0.2,0.3]"
 
     def test_build_array_contains_expression(self, builder: DuckDBVectorQueryBuilder) -> None:
         result = builder.build_array_contains_expression("id", ":ids")

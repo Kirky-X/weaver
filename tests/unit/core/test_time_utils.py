@@ -14,18 +14,23 @@ from core.utils.time_utils import (
     NTP_TIMEOUT,
     _get_ntp_time,
     _ntp_cache,
+    _ntp_client,
     get_current_time_with_timezone,
 )
 
 
 @pytest.fixture(autouse=True)
 def reset_cache():
-    """Reset NTP cache before each test."""
+    """Reset NTP cache and singleton client before each test."""
+    import core.utils.time_utils as time_utils
+
     _ntp_cache["time"] = None
     _ntp_cache["expires"] = 0.0
+    time_utils._ntp_client = None
     yield
     _ntp_cache["time"] = None
     _ntp_cache["expires"] = 0.0
+    time_utils._ntp_client = None
 
 
 class TestGetNtpTime:
@@ -119,10 +124,10 @@ class TestNtpCache:
         mock_client.request.return_value = mock_response
         mock_ntp_client.return_value = mock_client
 
-        # First call - should hit network (5 clients, one per thread)
+        # First call - should hit network (1 singleton client, 5 requests)
         result1 = _get_ntp_time()
         assert result1 is not None
-        assert mock_ntp_client.call_count == len(NTP_SERVERS)
+        assert mock_ntp_client.call_count == 1
 
         # Record call count after first probe
         calls_after_first = mock_ntp_client.call_count
@@ -177,8 +182,11 @@ class TestNtpCache:
         # After expiration, should probe again (5 more clients)
         result2 = _get_ntp_time()
         assert result2 is not None
-        # Two rounds of probing: 5 + 5 = 10
-        assert mock_ntp_client.call_count == len(NTP_SERVERS) * 2
+        # After expiration, should probe again
+        result2 = _get_ntp_time()
+        assert result2 is not None
+        # Singleton: 1 NTPClient, but .request called 10 times (5 per round)
+        assert mock_ntp_client.call_count == 1
 
     @patch("core.utils.time_utils.monotonic")
     @patch("core.utils.time_utils.ntplib.NTPClient")
@@ -194,8 +202,8 @@ class TestNtpCache:
         result = _get_ntp_time()
 
         assert result is not None
-        # One round of probing (5 servers)
-        assert mock_ntp_client.call_count == len(NTP_SERVERS)
+        # One singleton client created (5 requests on it)
+        assert mock_ntp_client.call_count == 1
 
 
 class TestGetCurrentTimeWithTimezone:
@@ -245,8 +253,8 @@ class TestNtplibIntegration:
     """Integration tests for ntplib usage."""
 
     @patch("core.utils.time_utils.ntplib.NTPClient")
-    def test_ntplib_client_created_for_each_probe(self, mock_ntp_client):
-        """Test NTPClient is created for each concurrent probe."""
+    def test_ntplib_client_is_singleton(self, mock_ntp_client):
+        """Test NTPClient is created once and reused (singleton pattern)."""
         mock_client = MagicMock()
         mock_response = MagicMock()
         mock_response.tx_time = 1704067200.0
@@ -255,8 +263,10 @@ class TestNtplibIntegration:
 
         _get_ntp_time()
 
-        # One NTPClient per server (5 total)
-        assert mock_ntp_client.call_count == len(NTP_SERVERS)
+        # Singleton: only one NTPClient instantiated
+        assert mock_ntp_client.call_count == 1
+        # But .request called for all 5 servers
+        assert mock_client.request.call_count == len(NTP_SERVERS)
 
     def test_ntplib_available(self):
         """Test ntplib is available and importable."""
