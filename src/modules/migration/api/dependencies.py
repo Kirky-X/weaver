@@ -51,7 +51,7 @@ class MigrationService:
             "config": config,
             "status": "pending",
             "engine": None,
-            "created_at": datetime.utcnow(),
+            "created_at": datetime.now(),
             "started_at": None,
         }
         return task_id
@@ -70,7 +70,7 @@ class MigrationService:
             return
 
         task["status"] = "running"
-        task["started_at"] = datetime.utcnow()
+        task["started_at"] = datetime.now()
 
         try:
             config = task["config"]

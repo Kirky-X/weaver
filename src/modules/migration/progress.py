@@ -97,7 +97,7 @@ class MigrationProgressDisplay:
 
     def start(self) -> None:
         """Start the progress display."""
-        self._started_at = datetime.utcnow()
+        self._started_at = datetime.now()
         self._progress.start()
 
     def stop(self) -> None:
@@ -121,7 +121,7 @@ class MigrationProgressDisplay:
         self._task_info[name] = TaskInfo(
             name=name,
             total=total,
-            started_at=datetime.utcnow(),
+            started_at=datetime.now(),
         )
 
     def update(self, name: str, advance: int = 1) -> None:
@@ -204,7 +204,7 @@ class MigrationProgressDisplay:
 
             elapsed = ""
             if info.started_at:
-                seconds = (datetime.utcnow() - info.started_at).total_seconds()
+                seconds = (datetime.now() - info.started_at).total_seconds()
                 elapsed = f"{int(seconds // 60):02d}:{int(seconds % 60):02d}"
 
             table.add_row(
@@ -241,7 +241,7 @@ class MigrationProgressDisplay:
             totals.add_row("Failed:", f"[red]{failed_count}[/red]")
 
         if self._started_at:
-            elapsed = (datetime.utcnow() - self._started_at).total_seconds()
+            elapsed = (datetime.now() - self._started_at).total_seconds()
             totals.add_row("Total Time:", f"{int(elapsed // 60):02d}:{int(elapsed % 60):02d}")
 
         self._console.print(totals)

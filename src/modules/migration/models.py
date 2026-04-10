@@ -118,14 +118,14 @@ class MigrationProgress:
     table: str
     total: int
     migrated: int = 0
-    started_at: datetime = field(default_factory=datetime.utcnow)
+    started_at: datetime = field(default_factory=datetime.now)
     status: str = "pending"
     error: str | None = None
 
     @property
     def elapsed_seconds(self) -> float:
         """Calculate elapsed time in seconds."""
-        return (datetime.utcnow() - self.started_at).total_seconds()
+        return (datetime.now() - self.started_at).total_seconds()
 
     @property
     def percent_complete(self) -> float:
@@ -162,7 +162,7 @@ class MigrationResult:
         """Calculate total elapsed time in seconds."""
         if self.completed_at:
             return (self.completed_at - self.started_at).total_seconds()
-        return (datetime.utcnow() - self.started_at).total_seconds()
+        return (datetime.now() - self.started_at).total_seconds()
 
     @property
     def success(self) -> bool:

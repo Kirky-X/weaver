@@ -135,7 +135,7 @@ class MigrationEngine:
         Returns:
             MigrationResult with details of the operation.
         """
-        self._started_at = datetime.utcnow()
+        self._started_at = datetime.now()
         is_graph = self._is_graph_migration()
 
         # Initialize progress display
@@ -151,7 +151,7 @@ class MigrationEngine:
             else:
                 result = await self._run_relational()
 
-            result.completed_at = datetime.utcnow()
+            result.completed_at = datetime.now()
             self._display.print_summary()
 
             return result
@@ -177,7 +177,7 @@ class MigrationEngine:
         result = MigrationResult(
             config=self._config,
             items=[],
-            started_at=self._started_at or datetime.utcnow(),
+            started_at=self._started_at or datetime.now(),
         )
 
         self._display.start()
@@ -282,7 +282,7 @@ class MigrationEngine:
         result = MigrationResult(
             config=self._config,
             items=[],
-            started_at=self._started_at or datetime.utcnow(),
+            started_at=self._started_at or datetime.now(),
         )
 
         self._display.start()
