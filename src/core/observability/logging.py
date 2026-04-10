@@ -30,6 +30,32 @@ DEFAULT_LOG_ROTATION = os.environ.get("LOG_ROTATION", "10 MB")
 DEFAULT_LOG_RETENTION = os.environ.get("LOG_RETENTION", "7 days")
 
 
+def set_task_context(task_id: str, task_type: str = "scheduler") -> None:
+    """Set context variables for background tasks (scheduler jobs, event handlers).
+
+    This allows background tasks to have meaningful identifiers in logs
+    instead of N/A for request_id.
+
+    Args:
+        task_id: Unique identifier for the task (e.g., job_id like "flush_retry_queue").
+        task_type: Type of task (scheduler, event_handler, pipeline, etc).
+    """
+    current = _context_vars.get()
+    _context_vars.set(
+        {
+            **current,
+            "task_id": task_id,
+            "task_type": task_type,
+        }
+    )
+
+
+def clear_task_context() -> None:
+    """Clear task context variables after background task completes."""
+    current = _context_vars.get()
+    _context_vars.set({k: v for k, v in current.items() if k not in ("task_id", "task_type")})
+
+
 def get_trace_id() -> str:
     """Extract trace_id from OpenTelemetry context.
 
@@ -94,8 +120,21 @@ def log_filter(record: Any) -> bool:
     # Add trace_id to the record's extra fields
     record["extra"]["trace_id"] = get_trace_id()
 
-    # Add request_id if available (set by RequestContextMiddleware)
-    record["extra"]["request_id"] = _context_vars.get().get("request_id", "N/A")
+    # Get context vars for request_id or task_id fallback
+    ctx = _context_vars.get()
+    request_id = ctx.get("request_id")
+
+    # Use request_id if available (HTTP requests), otherwise use task_id (background tasks)
+    if request_id:
+        record["extra"]["request_id"] = request_id
+    else:
+        task_id = ctx.get("task_id")
+        task_type = ctx.get("task_type", "task")
+        if task_id:
+            # Format: task_type:task_id (e.g., "scheduler:flush_retry_queue")
+            record["extra"]["request_id"] = f"{task_type}:{task_id}"
+        else:
+            record["extra"]["request_id"] = "N/A"
 
     # Sanitize the log message
     if hasattr(record, "message") and isinstance(record["message"], str):
