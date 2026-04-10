@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from core.security.signing import SigningKey
+from core.security.crypto.signing import SigningKey
 from modules.knowledge.search.retrievers.bm25_retriever import (
     BM25Document,
     BM25Result,

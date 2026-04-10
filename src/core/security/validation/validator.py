@@ -19,12 +19,12 @@ from typing import Any
 from config.settings import URLSecuritySettings
 from core.observability import get_logger
 from core.security.cache import URLSecurityCache
-from core.security.malicious_url.heuristic_checker import HeuristicChecker
-from core.security.malicious_url.phishtank_sync import PhishTankSync
-from core.security.malicious_url.ssl_verifier import SSLVerifier
-from core.security.malicious_url.urlhaus_client import URLhausClient
 from core.security.models import CheckResult, CheckSource, URLRisk, ValidationResult
-from core.security.ssrf import SSRFChecker, SSRFError
+from core.security.validation.malicious_url.heuristic_checker import HeuristicChecker
+from core.security.validation.malicious_url.phishtank_sync import PhishTankSync
+from core.security.validation.malicious_url.ssl_verifier import SSLVerifier
+from core.security.validation.malicious_url.urlhaus_client import URLhausClient
+from core.security.validation.ssrf import SSRFChecker, SSRFError
 from modules.ingestion import HttpxFetcher
 
 log = get_logger("security.validator")

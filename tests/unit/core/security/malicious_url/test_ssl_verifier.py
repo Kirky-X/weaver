@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from core.security.malicious_url.ssl_verifier import SSLVerifier
 from core.security.models import CheckSource, URLRisk
+from core.security.validation.malicious_url.ssl_verifier import SSLVerifier
 
 
 class TestSSLVerifier:
@@ -51,7 +51,7 @@ class TestSSLVerifier:
         with patch.object(verifier, "_fetch_certificate") as mock_fetch:
             from datetime import datetime, timedelta
 
-            from core.security.malicious_url.ssl_verifier import CertificateInfo
+            from core.security.validation.malicious_url.ssl_verifier import CertificateInfo
 
             mock_fetch.return_value = CertificateInfo(
                 subject="example.com",
@@ -76,7 +76,7 @@ class TestSSLVerifier:
         with patch.object(verifier, "_fetch_certificate") as mock_fetch:
             from datetime import datetime, timedelta
 
-            from core.security.malicious_url.ssl_verifier import CertificateInfo
+            from core.security.validation.malicious_url.ssl_verifier import CertificateInfo
 
             mock_fetch.return_value = CertificateInfo(
                 subject="example.com",
@@ -101,7 +101,7 @@ class TestSSLVerifier:
         with patch.object(verifier, "_fetch_certificate") as mock_fetch:
             from datetime import datetime, timedelta
 
-            from core.security.malicious_url.ssl_verifier import CertificateInfo
+            from core.security.validation.malicious_url.ssl_verifier import CertificateInfo
 
             mock_fetch.return_value = CertificateInfo(
                 subject="example.com",
@@ -126,7 +126,7 @@ class TestSSLVerifier:
         with patch.object(verifier, "_fetch_certificate") as mock_fetch:
             from datetime import datetime, timedelta
 
-            from core.security.malicious_url.ssl_verifier import CertificateInfo
+            from core.security.validation.malicious_url.ssl_verifier import CertificateInfo
 
             mock_fetch.return_value = CertificateInfo(
                 subject="example.com",
@@ -151,7 +151,7 @@ class TestSSLVerifier:
         with patch.object(verifier, "_fetch_certificate") as mock_fetch:
             from datetime import datetime, timedelta
 
-            from core.security.malicious_url.ssl_verifier import CertificateInfo
+            from core.security.validation.malicious_url.ssl_verifier import CertificateInfo
 
             mock_fetch.return_value = CertificateInfo(
                 subject="example.com",
@@ -175,7 +175,7 @@ class TestSSLVerifier:
         with patch.object(verifier, "_fetch_certificate") as mock_fetch:
             from datetime import datetime, timedelta
 
-            from core.security.malicious_url.ssl_verifier import CertificateInfo
+            from core.security.validation.malicious_url.ssl_verifier import CertificateInfo
 
             mock_fetch.return_value = CertificateInfo(
                 subject="example.com",
@@ -263,7 +263,7 @@ class TestSSLVerifier:
         with patch.object(verifier, "_fetch_certificate") as mock_fetch:
             from datetime import datetime, timedelta
 
-            from core.security.malicious_url.ssl_verifier import CertificateInfo
+            from core.security.validation.malicious_url.ssl_verifier import CertificateInfo
 
             mock_fetch.return_value = CertificateInfo(
                 subject="example.com",

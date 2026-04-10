@@ -5,8 +5,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.security.malicious_url.urlhaus_client import URLhausClient, URLhausResponse, URLhausStatus
 from core.security.models import CheckSource, URLRisk
+from core.security.validation.malicious_url.urlhaus_client import (
+    URLhausClient,
+    URLhausResponse,
+    URLhausStatus,
+)
 
 
 class TestURLhausClient:

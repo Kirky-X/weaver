@@ -11,7 +11,7 @@ class TestGraphMetricsModels:
 
     def test_health_summary_response_model(self) -> None:
         """Test HealthSummaryResponse model."""
-        from api.endpoints.graph_metrics import HealthSummaryResponse
+        from api.endpoints.graph.graph_metrics import HealthSummaryResponse
 
         response = HealthSummaryResponse(
             health_score=85.0,
@@ -29,7 +29,7 @@ class TestGraphMetricsModels:
 
     def test_graph_metrics_response_model(self) -> None:
         """Test GraphMetricsResponse model."""
-        from api.endpoints.graph_metrics import GraphMetricsResponse
+        from api.endpoints.graph.graph_metrics import GraphMetricsResponse
 
         response = GraphMetricsResponse(
             total_entities=1000,
@@ -53,12 +53,12 @@ class TestGraphMetricsModels:
     def test_community_metrics_response_model_removed(self) -> None:
         """Test CommunityMetricsResponse was removed with community view."""
         with pytest.raises(ImportError):
-            from api.endpoints.graph_metrics import CommunityMetricsResponse
+            from api.endpoints.graph.graph_metrics import CommunityMetricsResponse
 
     def test_community_health_response_model_removed(self) -> None:
         """Test CommunityHealthResponse was removed with community view."""
         with pytest.raises(ImportError):
-            from api.endpoints.graph_metrics import CommunityHealthResponse
+            from api.endpoints.graph.graph_metrics import CommunityHealthResponse
 
 
 class TestGraphMetricsRouter:
@@ -66,13 +66,13 @@ class TestGraphMetricsRouter:
 
     def test_router_prefix(self) -> None:
         """Test router has correct prefix."""
-        from api.endpoints.graph_metrics import router
+        from api.endpoints.graph.graph_metrics import router
 
         assert router.prefix == "/graph/metrics"
 
     def test_router_tags(self) -> None:
         """Test router has correct tags."""
-        from api.endpoints.graph_metrics import router
+        from api.endpoints.graph.graph_metrics import router
 
         assert "graph-metrics" in router.tags
 
@@ -83,11 +83,11 @@ class TestGraphMetricsEndpoint:
     @pytest.mark.asyncio
     async def test_get_graph_metrics_health_view(self) -> None:
         """Test health view returns health summary."""
-        from api.endpoints.graph_metrics import get_graph_metrics
+        from api.endpoints.graph.graph_metrics import get_graph_metrics
 
         mock_graph_pool = AsyncMock()
 
-        with patch("api.endpoints.graph_metrics.GraphQualityMetrics") as mock_metrics_class:
+        with patch("api.endpoints.graph.graph_metrics.GraphQualityMetrics") as mock_metrics_class:
             mock_metrics = AsyncMock()
             mock_metrics.get_health_summary = AsyncMock(
                 return_value={
@@ -113,12 +113,14 @@ class TestGraphMetricsEndpoint:
     @pytest.mark.asyncio
     async def test_get_graph_metrics_full_view(self) -> None:
         """Test full view returns complete metrics."""
-        from api.endpoints.graph_metrics import get_graph_metrics
+        from api.endpoints.graph.graph_metrics import get_graph_metrics
 
         mock_graph_pool = AsyncMock()
 
-        with patch("api.endpoints.graph_metrics.get_cache_client", return_value=None):
-            with patch("api.endpoints.graph_metrics.GraphQualityMetrics") as mock_metrics_class:
+        with patch("api.endpoints.graph.graph_metrics.get_cache_client", return_value=None):
+            with patch(
+                "api.endpoints.graph.graph_metrics.GraphQualityMetrics"
+            ) as mock_metrics_class:
                 from datetime import UTC, datetime
 
                 mock_metrics = AsyncMock()
@@ -151,7 +153,7 @@ class TestGraphMetricsEndpoint:
         """Test community view returns 400 with redirect message."""
         from fastapi import HTTPException
 
-        from api.endpoints.graph_metrics import get_graph_metrics
+        from api.endpoints.graph.graph_metrics import get_graph_metrics
 
         mock_graph_pool = AsyncMock()
 
@@ -168,7 +170,7 @@ class TestGraphMetricsEndpoint:
         """Test invalid view raises error."""
         from fastapi import HTTPException
 
-        from api.endpoints.graph_metrics import get_graph_metrics
+        from api.endpoints.graph.graph_metrics import get_graph_metrics
 
         mock_graph_pool = AsyncMock()
 

@@ -16,16 +16,16 @@ from core.security.audit import (
     SecurityCheckSeverity,
     run_security_audit,
 )
-from core.security.models import CheckResult, CheckSource, URLRisk, ValidationResult
-from core.security.signing import (
+from core.security.crypto.signing import (
     IntegrityError,
     SigningKey,
     SigningKeyError,
     load_signed_json,
     save_signed_json,
 )
-from core.security.ssrf import SSRFChecker, SSRFError
-from core.security.validator import URLValidator, URLValidatorConfig
+from core.security.models import CheckResult, CheckSource, URLRisk, ValidationResult
+from core.security.validation.ssrf import SSRFChecker, SSRFError
+from core.security.validation.validator import URLValidator, URLValidatorConfig
 
 # Backward compatibility alias
 URLValidationError = SSRFError

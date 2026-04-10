@@ -331,7 +331,7 @@ class TestSSRFProtectionIntegration:
     @pytest.mark.asyncio
     async def test_ssrf_checker_is_safe_url(self):
         """Test SSRFChecker is_safe_url method with real DNS resolution."""
-        from core.security.ssrf import SSRFChecker
+        from core.security.validation.ssrf import SSRFChecker
 
         checker = SSRFChecker()
 
@@ -343,7 +343,7 @@ class TestSSRFProtectionIntegration:
     @pytest.mark.asyncio
     async def test_ssrf_checker_blocks_private_urls(self):
         """Test SSRFChecker blocks private IPs with real network checks."""
-        from core.security.ssrf import SSRFChecker
+        from core.security.validation.ssrf import SSRFChecker
 
         checker = SSRFChecker()
 
@@ -356,7 +356,7 @@ class TestSSRFProtectionIntegration:
     @pytest.mark.asyncio
     async def test_ssrf_checker_hostname_not_blocked(self):
         """Test SSRFChecker allows hostnames (sync check doesn't resolve DNS)."""
-        from core.security.ssrf import SSRFChecker
+        from core.security.validation.ssrf import SSRFChecker
 
         checker = SSRFChecker()
 
@@ -369,7 +369,7 @@ class TestSSRFProtectionIntegration:
     @pytest.mark.asyncio
     async def test_ssrf_checker_blocks_localhost_variants(self):
         """Test SSRFChecker blocks various localhost representations."""
-        from core.security.ssrf import SSRFChecker
+        from core.security.validation.ssrf import SSRFChecker
 
         checker = SSRFChecker()
 

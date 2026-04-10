@@ -140,7 +140,7 @@ class TestAuthMiddlewareIntegration:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
-        from api.endpoints.articles import router
+        from api.endpoints.content.articles import router
 
         app = FastAPI()
         app.include_router(router)
@@ -165,7 +165,7 @@ class TestAuthMiddlewareIntegration:
         from fastapi.testclient import TestClient
 
         from api.dependencies import get_relational_pool
-        from api.endpoints.articles import router
+        from api.endpoints.content.articles import router
 
         app = FastAPI()
         app.include_router(router)
@@ -190,7 +190,7 @@ class TestAuthMiddlewareIntegration:
         from fastapi.testclient import TestClient
 
         from api.dependencies import get_relational_pool
-        from api.endpoints.articles import router
+        from api.endpoints.content.articles import router
 
         app = FastAPI()
         app.include_router(router)
@@ -224,7 +224,7 @@ class TestAuthMiddlewareIntegration:
         from fastapi.testclient import TestClient
 
         from api.dependencies import get_cache_client, get_source_scheduler
-        from api.endpoints.pipeline import router
+        from api.endpoints.content.pipeline import router
 
         app = FastAPI()
         app.include_router(router)
@@ -246,7 +246,7 @@ class TestAuthMiddlewareIntegration:
         from fastapi.testclient import TestClient
 
         from api.dependencies import get_cache_client
-        from api.endpoints.pipeline import router
+        from api.endpoints.content.pipeline import router
 
         app = FastAPI()
         app.include_router(router)

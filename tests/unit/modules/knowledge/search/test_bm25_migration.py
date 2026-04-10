@@ -12,7 +12,12 @@ from pathlib import Path
 
 import pytest
 
-from core.security.signing import IntegrityError, SigningKey, load_signed_json, save_signed_json
+from core.security.crypto.signing import (
+    IntegrityError,
+    SigningKey,
+    load_signed_json,
+    save_signed_json,
+)
 from modules.knowledge.search.retrievers.bm25_retriever import (
     BM25Document,
     BM25Retriever,

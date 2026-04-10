@@ -13,7 +13,7 @@ class TestGraphModels:
 
     def test_entity_response_model(self) -> None:
         """Test EntityResponse model."""
-        from api.endpoints.graph import EntityResponse
+        from api.endpoints.graph.graph import EntityResponse
 
         entity = EntityResponse(
             id="entity-123",
@@ -30,7 +30,7 @@ class TestGraphModels:
 
     def test_entity_relationship_model(self) -> None:
         """Test EntityRelationship model."""
-        from api.endpoints.graph import EntityRelationship
+        from api.endpoints.graph.graph import EntityRelationship
 
         rel = EntityRelationship(
             target="Cupertino",
@@ -43,7 +43,11 @@ class TestGraphModels:
 
     def test_entity_with_relations_model(self) -> None:
         """Test EntityWithRelations model."""
-        from api.endpoints.graph import EntityRelationship, EntityResponse, EntityWithRelations
+        from api.endpoints.graph.graph import (
+            EntityRelationship,
+            EntityResponse,
+            EntityWithRelations,
+        )
 
         entity = EntityWithRelations(
             entity=EntityResponse(
@@ -70,7 +74,7 @@ class TestGraphModels:
 
     def test_article_graph_node_model(self) -> None:
         """Test ArticleGraphNode model."""
-        from api.endpoints.graph import ArticleGraphNode
+        from api.endpoints.graph.graph import ArticleGraphNode
 
         node = ArticleGraphNode(
             id="article-123",
@@ -84,7 +88,7 @@ class TestGraphModels:
 
     def test_article_graph_relationship_model(self) -> None:
         """Test ArticleGraphRelationship model."""
-        from api.endpoints.graph import ArticleGraphRelationship
+        from api.endpoints.graph.graph import ArticleGraphRelationship
 
         rel = ArticleGraphRelationship(
             source_id="Apple",
@@ -97,7 +101,7 @@ class TestGraphModels:
 
     def test_relation_type_summary_model(self) -> None:
         """Test RelationTypeSummary model."""
-        from api.endpoints.graph import RelationTypeSummary
+        from api.endpoints.graph.graph import RelationTypeSummary
 
         summary = RelationTypeSummary(
             relation_type="LOCATED_IN",
@@ -109,7 +113,7 @@ class TestGraphModels:
 
     def test_related_entity_result_model(self) -> None:
         """Test RelatedEntityResult model."""
-        from api.endpoints.graph import RelatedEntityResult
+        from api.endpoints.graph.graph import RelatedEntityResult
 
         result = RelatedEntityResult(
             relation_type="WORKS_FOR",
@@ -129,13 +133,13 @@ class TestGraphRouter:
 
     def test_router_prefix(self) -> None:
         """Test router has correct prefix."""
-        from api.endpoints.graph import router
+        from api.endpoints.graph.graph import router
 
         assert router.prefix == "/graph"
 
     def test_router_tags(self) -> None:
         """Test router has correct tags."""
-        from api.endpoints.graph import router
+        from api.endpoints.graph.graph import router
 
         assert "graph" in router.tags
 
@@ -146,7 +150,7 @@ class TestGraphEndpoints:
     @pytest.mark.asyncio
     async def test_get_entity_success(self) -> None:
         """Test GET /graph/entities/{name} returns entity."""
-        from api.endpoints.graph import get_entity
+        from api.endpoints.graph.graph import get_entity
 
         mock_graph_repo = MagicMock()
         mock_graph_repo.get_entity = AsyncMock(
@@ -171,7 +175,7 @@ class TestGraphEndpoints:
     @pytest.mark.asyncio
     async def test_get_entity_not_found(self) -> None:
         """Test GET /graph/entities/{name} handles not found."""
-        from api.endpoints.graph import get_entity
+        from api.endpoints.graph.graph import get_entity
 
         mock_graph_repo = MagicMock()
         mock_graph_repo.get_entity = AsyncMock(return_value=None)
@@ -184,7 +188,7 @@ class TestGraphEndpoints:
     @pytest.mark.asyncio
     async def test_get_article_graph_success(self) -> None:
         """Test GET /graph/articles/{id}/graph returns graph."""
-        from api.endpoints.graph import get_article_graph
+        from api.endpoints.graph.graph import get_article_graph
 
         mock_graph_repo = MagicMock()
         mock_graph_repo.get_article = AsyncMock(
@@ -209,7 +213,7 @@ class TestGraphEndpoints:
     @pytest.mark.asyncio
     async def test_get_entity_relations_success(self) -> None:
         """Test GET /graph/relations returns relation types."""
-        from api.endpoints.graph import get_entity_relations
+        from api.endpoints.graph.graph import get_entity_relations
 
         mock_graph_repo = MagicMock()
         mock_graph_repo.get_relation_types = AsyncMock(
@@ -231,7 +235,7 @@ class TestGraphEndpoints:
     @pytest.mark.asyncio
     async def test_search_relations_success(self) -> None:
         """Test GET /graph/relations/search returns matching relations."""
-        from api.endpoints.graph import search_relations
+        from api.endpoints.graph.graph import search_relations
 
         mock_graph_repo = MagicMock()
         mock_graph_repo.find_by_relation_types = AsyncMock(
@@ -265,28 +269,28 @@ class TestGraphEndpointsRoutes:
 
     def test_router_has_entity_route(self) -> None:
         """Test router has entity endpoint."""
-        from api.endpoints.graph import router
+        from api.endpoints.graph.graph import router
 
         routes = [route.path for route in router.routes]
         assert "/graph/entities/{name}" in routes
 
     def test_router_has_article_graph_route(self) -> None:
         """Test router has article graph endpoint."""
-        from api.endpoints.graph import router
+        from api.endpoints.graph.graph import router
 
         routes = [route.path for route in router.routes]
         assert "/graph/articles/{article_id}/graph" in routes
 
     def test_router_has_relations_route(self) -> None:
         """Test router has relations endpoint."""
-        from api.endpoints.graph import router
+        from api.endpoints.graph.graph import router
 
         routes = [route.path for route in router.routes]
         assert "/graph/relations" in routes
 
     def test_router_has_relations_search_route(self) -> None:
         """Test router has relations search endpoint."""
-        from api.endpoints.graph import router
+        from api.endpoints.graph.graph import router
 
         routes = [route.path for route in router.routes]
         assert "/graph/relations/search" in routes

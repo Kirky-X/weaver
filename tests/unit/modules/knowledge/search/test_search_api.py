@@ -139,7 +139,7 @@ class TestSearchUnifiedEndpoint:
     @pytest.mark.asyncio
     async def test_search_uses_intent_routing(self):
         """Test GET /search uses intent routing to determine search strategy."""
-        from api.endpoints.search import SearchResponse, search_unified
+        from api.endpoints.content.search import SearchResponse, search_unified
 
         mock_result = SearchResult(
             query="腾讯",
@@ -156,7 +156,7 @@ class TestSearchUnifiedEndpoint:
         mock_llm = _make_mock_llm()
         mock_hybrid_engine = _make_mock_hybrid_engine()
 
-        with patch("api.endpoints.search.IntentRouter") as MockIntentRouter:
+        with patch("api.endpoints.content.search.IntentRouter") as MockIntentRouter:
             # Mock the intent router
             mock_router_instance = MagicMock()
             mock_classifier = MagicMock()
@@ -193,7 +193,7 @@ class TestSearchUnifiedEndpoint:
     @pytest.mark.asyncio
     async def test_search_intent_routing_metadata(self):
         """Test that intent routing adds metadata to response."""
-        from api.endpoints.search import SearchResponse, search_unified
+        from api.endpoints.content.search import SearchResponse, search_unified
 
         mock_result = SearchResult(
             query="为什么AI发展这么快",
@@ -210,7 +210,7 @@ class TestSearchUnifiedEndpoint:
         mock_llm = _make_mock_llm()
         mock_hybrid_engine = _make_mock_hybrid_engine()
 
-        with patch("api.endpoints.search.IntentRouter") as MockIntentRouter:
+        with patch("api.endpoints.content.search.IntentRouter") as MockIntentRouter:
             mock_router_instance = MagicMock()
             mock_classifier = MagicMock()
             mock_intent = MagicMock()
@@ -254,7 +254,7 @@ class TestSearchUnifiedHTTPAuth:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
-        from api.endpoints.search import router
+        from api.endpoints.content.search import router
 
         app = FastAPI()
         app.include_router(router)
@@ -272,7 +272,7 @@ class TestSearchUnifiedHTTPAuth:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
-        from api.endpoints.search import router
+        from api.endpoints.content.search import router
 
         app = FastAPI()
         app.include_router(router)

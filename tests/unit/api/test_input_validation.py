@@ -6,7 +6,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from api.endpoints.sources import SourceCreateRequest, SourceUpdateRequest
+from api.endpoints.content.sources import SourceCreateRequest, SourceUpdateRequest
 
 
 class TestSourceInputValidation:
