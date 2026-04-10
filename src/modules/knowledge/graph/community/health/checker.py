@@ -11,13 +11,13 @@ import time
 from typing import TYPE_CHECKING
 
 from core.observability.logging import get_logger
-from modules.knowledge.graph.community_health_models import (
+from modules.knowledge.graph.community.health.models import (
     CommunityHealthReport,
     CommunityHealthStatus,
     HealthIssue,
     IssueType,
 )
-from modules.knowledge.graph.community_health_repo import CommunityHealthRepo
+from modules.knowledge.graph.community.health.repo import CommunityHealthRepo
 
 if TYPE_CHECKING:
     from core.protocols import GraphPool

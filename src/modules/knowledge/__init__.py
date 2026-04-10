@@ -9,6 +9,8 @@ Consolidates graph_store and search modules:
 
 # Graph operations
 from modules.knowledge.graph import (
+    CommunityDetector,
+    CommunityReportGenerator,
     EntityResolver,
     GraphMetrics,
     IncrementalCommunityUpdater,
@@ -16,8 +18,6 @@ from modules.knowledge.graph import (
     Neo4jWriter,
     RelationTypeNormalizer,
 )
-from modules.knowledge.graph.community_detector import CommunityDetector
-from modules.knowledge.graph.community_report_generator import CommunityReportGenerator
 
 # Search operations
 from modules.knowledge.search import (

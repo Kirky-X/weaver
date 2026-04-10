@@ -31,7 +31,7 @@ from modules.knowledge.graph import (
     name_normalizer,
     resolution_rules,
 )
-from modules.knowledge.graph.incremental_community_updater import IncrementalCommunityUpdater
+from modules.knowledge.graph.community.updater import IncrementalCommunityUpdater
 from modules.knowledge.search import (
     GlobalSearchEngine,
     HybridSearchConfig,
@@ -648,9 +648,9 @@ class Container:
         Returns:
             Dict with health status and repair results.
         """
-        from modules.knowledge.graph.community_health_checker import CommunityHealthChecker
-        from modules.knowledge.graph.community_health_models import CommunityHealthStatus
-        from modules.knowledge.graph.community_repair_service import CommunityRepairService
+        from modules.knowledge.graph.community.health.checker import CommunityHealthChecker
+        from modules.knowledge.graph.community.health.models import CommunityHealthStatus
+        from modules.knowledge.graph.community.repair_service import CommunityRepairService
 
         log.info("community_health_check_start")
 

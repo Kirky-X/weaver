@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
 from core.observability.logging import get_logger
-from modules.knowledge.graph.community_repo import Neo4jCommunityRepo
+from modules.knowledge.graph.community.repo import Neo4jCommunityRepo
 
 if TYPE_CHECKING:
     from core.protocols import GraphPool

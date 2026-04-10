@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from modules.knowledge.graph.incremental_community_updater import (
+from modules.knowledge.graph.community.updater import (
     IncrementalCommunityUpdater,
     IncrementalUpdateResult,
 )
@@ -48,7 +48,7 @@ class TestCheckAndRun:
             None,  # _update_full_rebuild_metadata execute
         ]
 
-        with patch("modules.knowledge.graph.community_detector.CommunityDetector") as MockDetector:
+        with patch("modules.knowledge.graph.community.detector.CommunityDetector") as MockDetector:
             mock_detector = MagicMock()
             mock_detector.rebuild_communities = AsyncMock(return_value=_make_rebuild_result())
             MockDetector.return_value = mock_detector
@@ -70,7 +70,7 @@ class TestCheckAndRun:
             None,  # _update_full_rebuild_metadata
         ]
 
-        with patch("modules.knowledge.graph.community_detector.CommunityDetector") as MockDetector:
+        with patch("modules.knowledge.graph.community.detector.CommunityDetector") as MockDetector:
             mock_detector = MagicMock()
             mock_detector.rebuild_communities = AsyncMock(
                 return_value=_make_rebuild_result(8, 120, 0.50)
@@ -106,7 +106,7 @@ class TestCheckAndRun:
             None,  # _update_full_rebuild_metadata
         ]
 
-        with patch("modules.knowledge.graph.community_detector.CommunityDetector") as MockDetector:
+        with patch("modules.knowledge.graph.community.detector.CommunityDetector") as MockDetector:
             mock_detector = MagicMock()
             mock_detector.rebuild_communities = AsyncMock(
                 return_value=_make_rebuild_result(6, 100, 0.42)
@@ -121,7 +121,7 @@ class TestCheckAndRun:
     @pytest.mark.asyncio
     async def test_no_trigger_when_conditions_not_met(self, updater, mock_pool):
         """Communities exist, entity change < 10%, recent rebuild → no trigger."""
-        from modules.knowledge.graph.community_health_models import (
+        from modules.knowledge.graph.community.health.models import (
             CommunityHealthReport,
             CommunityHealthStatus,
         )
@@ -169,7 +169,7 @@ class TestForceRebuild:
             None,  # _update_full_rebuild_metadata
         ]
 
-        with patch("modules.knowledge.graph.community_detector.CommunityDetector") as MockDetector:
+        with patch("modules.knowledge.graph.community.detector.CommunityDetector") as MockDetector:
             mock_detector = MagicMock()
             mock_detector.rebuild_communities = AsyncMock(
                 return_value=_make_rebuild_result(12, 200, 0.48)
@@ -190,7 +190,7 @@ class TestForceRebuild:
             None,  # _update_full_rebuild_metadata
         ]
 
-        with patch("modules.knowledge.graph.community_detector.CommunityDetector") as MockDetector:
+        with patch("modules.knowledge.graph.community.detector.CommunityDetector") as MockDetector:
             mock_detector = MagicMock()
             mock_detector.rebuild_communities = AsyncMock(
                 return_value=_make_rebuild_result(10, 150, 0.55)

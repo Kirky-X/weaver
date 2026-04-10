@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from core.db.graph_query_builders import GraphDatabaseType
 from core.observability.logging import get_logger
-from modules.knowledge.graph.community_models import Community, CommunityReport
+from modules.knowledge.graph.community.models import Community, CommunityReport
 
 if TYPE_CHECKING:
     from core.protocols import GraphPool

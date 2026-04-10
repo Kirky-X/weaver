@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from modules.knowledge.graph.community_detector import CommunityDetector
-from modules.knowledge.graph.community_models import (
+from modules.knowledge.graph.community.detector import CommunityDetector
+from modules.knowledge.graph.community.models import (
     Community,
     CommunityDetectionResult,
     HierarchicalCluster,

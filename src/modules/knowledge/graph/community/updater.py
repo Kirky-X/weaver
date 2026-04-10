@@ -28,12 +28,12 @@ except ImportError:
 if TYPE_CHECKING:
     from core.protocols import GraphPool
 
-from modules.knowledge.graph.community_health_checker import CommunityHealthChecker
-from modules.knowledge.graph.community_health_models import (
+from modules.knowledge.graph.community.health.checker import CommunityHealthChecker
+from modules.knowledge.graph.community.health.models import (
     CommunityHealthStatus,
     HealthIssue,
 )
-from modules.knowledge.graph.community_repair_service import CommunityRepairService
+from modules.knowledge.graph.community.repair_service import CommunityRepairService
 
 log = get_logger("incremental_community_updater")
 
@@ -614,7 +614,7 @@ class IncrementalCommunityUpdater:
         result.modularity_before = await self._calculate_modularity()
 
         # Delegate to CommunityDetector for Leiden-based rebuild
-        from modules.knowledge.graph.community_detector import CommunityDetector
+        from modules.knowledge.graph.community.detector import CommunityDetector
 
         detector = CommunityDetector(pool=self._pool)
         detection_result = await detector.rebuild_communities()
@@ -1474,7 +1474,7 @@ class IncrementalCommunityUpdater:
         Returns:
             RepairSummary with repair results.
         """
-        from modules.knowledge.graph.community_health_models import RepairSummary
+        from modules.knowledge.graph.community.health.models import RepairSummary
 
         # Filter to auto-repairable issues only
         repairable = [i for i in issues if i.auto_repairable]

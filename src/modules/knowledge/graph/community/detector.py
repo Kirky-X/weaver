@@ -14,12 +14,12 @@ import leidenalg
 
 from core.db.graph_query_builders import GraphDatabaseType
 from core.observability.logging import get_logger
-from modules.knowledge.graph.community_models import (
+from modules.knowledge.graph.community.models import (
     Community,
     CommunityDetectionResult,
     HierarchicalCluster,
 )
-from modules.knowledge.graph.community_repo import Neo4jCommunityRepo
+from modules.knowledge.graph.community.repo import Neo4jCommunityRepo
 
 if TYPE_CHECKING:
     from core.protocols import GraphPool

@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, call
 
 import pytest
 
-from modules.knowledge.graph.community_models import Community, CommunityReport
-from modules.knowledge.graph.community_repo import Neo4jCommunityRepo
+from modules.knowledge.graph.community.models import Community, CommunityReport
+from modules.knowledge.graph.community.repo import Neo4jCommunityRepo
 
 
 class TestNeo4jCommunityRepoInit:

@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.knowledge.graph.community_health_checker import CommunityHealthChecker
-from modules.knowledge.graph.community_health_models import (
+from modules.knowledge.graph.community.health.checker import CommunityHealthChecker
+from modules.knowledge.graph.community.health.models import (
     CommunityHealthReport,
     CommunityHealthStatus,
     HealthIssue,
@@ -15,8 +15,8 @@ from modules.knowledge.graph.community_health_models import (
     RepairResult,
     RepairSummary,
 )
-from modules.knowledge.graph.community_health_repo import CommunityHealthRepo
-from modules.knowledge.graph.community_repair_service import CommunityRepairService
+from modules.knowledge.graph.community.health.repo import CommunityHealthRepo
+from modules.knowledge.graph.community.repair_service import CommunityRepairService
 
 
 class TestCommunityHealthRepo:

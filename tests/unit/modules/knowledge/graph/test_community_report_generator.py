@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from modules.knowledge.graph.community_models import Community, CommunityReport
-from modules.knowledge.graph.community_report_generator import (
+from modules.knowledge.graph.community.models import Community, CommunityReport
+from modules.knowledge.graph.community.report_generator import (
     CommunityReportGenerator,
     CommunityReportOutput,
     ReportGenerationResult,

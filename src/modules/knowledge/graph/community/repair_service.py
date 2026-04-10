@@ -12,7 +12,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from core.observability.logging import get_logger
-from modules.knowledge.graph.community_health_models import (
+from modules.knowledge.graph.community.health.models import (
     HealthIssue,
     IssueType,
     RepairResult,
