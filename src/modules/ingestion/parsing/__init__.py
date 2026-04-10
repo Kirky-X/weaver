@@ -21,6 +21,7 @@ Example plugin usage:
 
 from modules.ingestion.parsing.base import BaseSourceParser
 from modules.ingestion.parsing.models import NewsItem, SourceConfig
+from modules.ingestion.parsing.newsnow_parser import NewsNowParser
 from modules.ingestion.parsing.plugin import (
     PluginMetadata,
     get_plugin,
@@ -34,6 +35,7 @@ from modules.ingestion.parsing.rss_parser import RSSParser
 __all__ = [
     "BaseSourceParser",
     "NewsItem",
+    "NewsNowParser",
     "PluginMetadata",
     "RSSParser",
     "SourceRegistry",

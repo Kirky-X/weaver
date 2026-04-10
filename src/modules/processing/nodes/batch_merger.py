@@ -285,6 +285,12 @@ class BatchMergerNode:
         )
         primary["cleaned"]["body"] = result.merged_body
         primary["cleaned"]["title"] = result.merged_title
+        # Invalidate summary and related fields after merge since body/content changed.
+        # The merged body comes from multiple articles, so the original summary
+        # (from one article) no longer matches. Remove all summary-derived fields
+        # to prevent data inconsistency in the persisted article.
+        for key in ("summary_info", "sentiment", "credibility", "quality_score"):
+            primary.pop(key, None)
         primary["merged_source_ids"] = [s["raw"].url for s in group_states if s is not primary]
 
         for s in group_states:

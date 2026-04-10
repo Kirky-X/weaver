@@ -235,7 +235,7 @@ class Deduplicator:
         5. Remove default ports (80 for HTTP, 443 for HTTPS)
         6. Decode percent-encoded characters, then re-encode consistently
         7. Normalize path (resolve . and ..)
-        8. Remove query string
+        8. ~~Remove query string~~ (removed — query params often carry article IDs)
         9. Remove fragment
         10. Remove trailing slash (except for root which becomes no slash)
 
@@ -300,19 +300,21 @@ class Deduplicator:
             path = ""
 
         # 4. Remove query string and fragment
-        # Special case: WeChat articles are uniquely identified by __biz + mid
-        # in the query string, so these must be preserved.
-        if netloc == "mp.weixin.qq.com":
+        # Special case: Some sites use query params as article identifiers:
+        # - WeChat: __biz + mid + idx
+        # - Solidot: sid
+        # Preserve these to avoid collapsing distinct articles into one.
+        if netloc in ("mp.weixin.qq.com", "solidot.org", "www.solidot.org"):
             query_params = parsed.query.split("&") if parsed.query else []
             kept = []
             dropped = []
             for param in query_params:
-                if param.startswith(("__biz=", "mid=")):
+                if param.startswith(("__biz=", "mid=", "idx=", "sid=")):
                     kept.append(param)
                 else:
                     dropped.append(param)
             if dropped:
-                log.debug("wechat_query_params_dropped", count=len(dropped))
+                log.debug("query_params_dropped", count=len(dropped))
             query = "&".join(kept) if kept else ""
         else:
             query = ""

@@ -196,7 +196,8 @@ class GraphRepository:
                 if isinstance(publish_time, int):
                     from datetime import UTC, datetime
 
-                    publish_time = datetime.fromtimestamp(publish_time / 1000, tz=UTC).isoformat()
+                    # LadybugDB stores publish_time as INT64 seconds (not ms)
+                    publish_time = datetime.fromtimestamp(publish_time, tz=UTC).isoformat()
                 elif hasattr(publish_time, "isoformat"):
                     publish_time = publish_time.isoformat()
                 else:
@@ -285,14 +286,22 @@ class GraphRepository:
         result = await self._pool.execute_query(query, {"id": article_id})
         articles = []
         for row in result:
+            publish_time = row.get("publish_time")
+            if publish_time is not None:
+                if isinstance(publish_time, int):
+                    from datetime import UTC, datetime
+
+                    publish_time = datetime.fromtimestamp(publish_time / 1000, tz=UTC).isoformat()
+                elif hasattr(publish_time, "isoformat"):
+                    publish_time = publish_time.isoformat()
+                else:
+                    publish_time = str(publish_time)
             articles.append(
                 {
                     "id": row.get("id") or "",
                     "title": row.get("title") or "",
                     "category": row.get("category"),
-                    "publish_time": (
-                        row["publish_time"].isoformat() if row.get("publish_time") else None
-                    ),
+                    "publish_time": publish_time,
                     "score": row.get("score"),
                 }
             )

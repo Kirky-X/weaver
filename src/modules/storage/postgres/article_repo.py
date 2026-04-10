@@ -60,6 +60,14 @@ def _apply_state_to_article(article: Article, state: PipelineState) -> None:
                 article.event_time = datetime.fromisoformat(si["event_time"])
             except (ValueError, TypeError):
                 pass
+    elif state.get("merged_source_ids"):
+        # Article was merged by batch_merger — clear stale summary since the
+        # merged body no longer matches the original single-article summary
+        article.summary = None
+        article.subjects = None
+        article.key_data = None
+        article.impact = None
+        article.has_data = None
 
     # Sentiment mapping
     if "sentiment" in state:
