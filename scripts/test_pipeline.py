@@ -272,6 +272,21 @@ class PipelineAPIClient:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+KNOWN_NEWSNOW_SOURCES: list[str] = [
+    "36kr",
+    "huxiu",
+    "36kr_bao",
+    "cnbeta",
+    "solidot",
+    "ithome",
+    "hupu",
+    "geekpark",
+    "tmtpost",
+    "pingwest",
+    "ifanr",
+]
+
+
 RSS_SOURCES: dict[str, dict[str, Any]] = {
     "solidot": {
         "url": "https://www.solidot.org/index.rss",
@@ -503,6 +518,128 @@ async def clear_databases(server_ctx: ServerContext) -> None:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+async def run_all_sources(
+    client: PipelineAPIClient,
+    timeout: int,
+    clear_db: bool = False,
+) -> TestResult:
+    """Run ALL sources (RSS + NewsNow) with no item limits.
+
+    Args:
+        client: API client.
+        timeout: Per-pipeline timeout.
+        clear_db: Whether to clear DB first (handled by caller).
+
+    Returns:
+        Test result with aggregate stats.
+    """
+
+    phase_header("PHASE 1: Source Discovery & Creation")
+
+    # Collect all source configs
+    all_sources: list[dict[str, Any]] = []
+
+    # RSS sources
+    for source_key in RSS_SOURCES:
+        try:
+            config = build_rss_source_config(source_key)
+            all_sources.append(config)
+        except Exception as e:
+            step(f"RSS source {source_key}", False, str(e))
+
+    # NewsNow sources
+    for source_id in KNOWN_NEWSNOW_SOURCES:
+        config = build_newsnow_source_config(source_id)
+        all_sources.append(config)
+
+    step(f"Total sources discovered", True, f"{len(all_sources)} sources")
+
+    # Create all sources
+    created_source_ids: list[str] = []
+    skipped_sources: list[tuple[str, str]] = []
+    for config in all_sources:
+        try:
+            source = await client.create_source(config)
+            created_source_ids.append(source["id"])
+            step(f"Created: {source['id']}", True, f"{source.get('source_type', '?')}")
+        except Exception as e:
+            skipped_sources.append((config["id"], str(e)))
+            step(f"Skipped: {config['id']}", False, str(e)[:80])
+
+    if not created_source_ids:
+        return TestResult(
+            success=False,
+            message="All sources failed to create",
+            details={"skipped": skipped_sources},
+        )
+
+    phase_header("PHASE 2: Pipeline Execution (unlimited items)")
+
+    # Trigger all pipelines sequentially
+    task_map: list[tuple[str, str]] = []  # (source_id, task_id)
+    failed_pipelines: list[tuple[str, str]] = []
+    for source_id in created_source_ids:
+        try:
+            task_id = await client.trigger_pipeline(source_id, max_items=None)
+            task_map.append((source_id, task_id))
+            step(f"Pipeline triggered: {source_id}", True, f"task_id: {task_id[:8]}...")
+        except Exception as e:
+            failed_pipelines.append((source_id, str(e)))
+            step(f"Pipeline trigger failed: {source_id}", False, str(e)[:80])
+
+    if not task_map:
+        return TestResult(
+            success=False,
+            message="All pipeline triggers failed",
+            details={"failed": failed_pipelines},
+        )
+
+    # Wait for all tasks to complete
+    phase_header("PHASE 3: Waiting for Completion")
+
+    completed_tasks: list[tuple[str, TaskStatus]] = []
+    failed_tasks: list[tuple[str, str]] = []
+    for source_id, task_id in task_map:
+        try:
+            status = await client.wait_for_task(task_id, timeout=timeout)
+            ok = status.status == "completed"
+            step(
+                f"{source_id}",
+                ok,
+                f"status={status.status} processed={status.total_processed} "
+                f"completed={status.completed_count} failed={status.failed_count}",
+            )
+            completed_tasks.append((source_id, status))
+            if not ok:
+                failed_tasks.append((source_id, status.error or "unknown error"))
+        except TimeoutError as e:
+            failed_tasks.append((source_id, str(e)))
+            step(f"{source_id}", False, f"TIMEOUT: {e}")
+
+    phase_header("PHASE 4: Final Verification")
+
+    # Check total articles
+    articles = await client.list_articles(page=1, page_size=1)
+    total = articles.get("total", 0)
+    step(f"Total articles in database", total > 0, f"{total} articles")
+
+    success_count = len(completed_tasks) - len(failed_tasks)
+    total_count = len(completed_tasks)
+
+    return TestResult(
+        success=success_count > 0 and total > 0,
+        message=f"{success_count}/{total_count} pipelines completed successfully",
+        articles_count=total,
+        details={
+            "total_sources": len(created_source_ids),
+            "completed": success_count,
+            "failed_tasks": failed_tasks,
+            "skipped_sources": skipped_sources,
+            "failed_pipelines": failed_pipelines,
+        },
+    )
+
+
 async def run_newsnow_test(
     client: PipelineAPIClient,
     source_id: str,
@@ -730,6 +867,8 @@ async def main(args: argparse.Namespace) -> int:
             result = await run_strategy_test(
                 client, args.source_id, args.max_items, args.timeout, server_ctx
             )
+        elif args.mode == "all":
+            result = await run_all_sources(client, timeout=args.timeout, clear_db=args.clear_db)
         else:
             print(f"Unknown mode: {args.mode}")
             return 1
@@ -767,6 +906,9 @@ if __name__ == "__main__":
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+    # All sources, all items (recommended for full data import)
+    uv run scripts/test_pipeline.py --mode all --clear-db
+
     # NewsNow mode (default)
     uv run scripts/test_pipeline.py --mode newsnow --max-items 5
 
@@ -785,9 +927,9 @@ Examples:
     )
     parser.add_argument(
         "--mode",
-        choices=["newsnow", "rss", "strategy"],
+        choices=["newsnow", "rss", "strategy", "all"],
         default="newsnow",
-        help="Test mode (default: newsnow)",
+        help="Test mode: newsnow, rss, strategy, or all (default: newsnow)",
     )
     parser.add_argument(
         "--source",
