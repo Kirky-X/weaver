@@ -1160,6 +1160,15 @@ class TestValidateAll:
         validator.validate_neo4j = AsyncMock(
             return_value=ValidationResult(service="Neo4j", healthy=True)
         )
+        validator.validate_redis = AsyncMock(
+            return_value=ValidationResult(service="Redis", healthy=True)
+        )
+        validator.validate_llm = AsyncMock(
+            return_value=ValidationResult(service="LLM", healthy=True)
+        )
+        validator.validate_embedding = AsyncMock(
+            return_value=ValidationResult(service="Embedding", healthy=True)
+        )
 
         results = await validator.validate_all()
 
