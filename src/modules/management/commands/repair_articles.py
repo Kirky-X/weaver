@@ -30,7 +30,7 @@ from core.cache import RedisClient  # noqa: E402
 from core.db import PostgresPool  # noqa: E402
 from core.event.bus import EventBus  # noqa: E402
 from core.llm.client import LLMClient  # noqa: E402
-from core.llm.token_budget import TokenBudgetManager  # noqa: E402
+from core.llm.config.token_budget import TokenBudgetManager  # noqa: E402
 from core.observability.logging import get_logger  # noqa: E402
 from core.prompt.loader import PromptLoader  # noqa: E402
 from core.services.pipeline_service import PipelineServiceImpl  # noqa: E402

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 from core.db.models import PersistStatus
 from core.event.bus import EventBus
 from core.llm.client import LLMClient
-from core.llm.token_budget import TokenBudgetManager
+from core.llm.config.token_budget import TokenBudgetManager
 from core.observability.logging import get_logger
 from core.observability.metrics import MetricsCollector
 from core.prompt.loader import PromptLoader

@@ -10,15 +10,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from core.llm.model_selector import ModelSelector
-from core.llm.router import LabelRouter
+from core.llm.routing.model_selector import ModelSelector
+from core.llm.routing.router import LabelRouter
 from core.llm.types import Label, RoutingMode
 from core.observability.logging import get_logger
 
 if TYPE_CHECKING:
-    from core.llm.circuit_breaker import ProviderCircuitBreaker
-    from core.llm.config import LLMSettings
-    from core.llm.experience import ExperienceStore
+    from core.llm.config.config import LLMSettings
+    from core.llm.evaluation.experience import ExperienceStore
+    from core.llm.resilience.circuit_breaker import ProviderCircuitBreaker
 
 log = get_logger("smart_router")
 

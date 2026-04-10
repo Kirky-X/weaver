@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING
 
 from core.event.bus import CredibilityComputedEvent, EventBus
 from core.llm.client import LLMClient
-from core.llm.output_validator import CredibilityOutput
-from core.llm.token_budget import TokenBudgetManager
+from core.llm.config.token_budget import TokenBudgetManager
 from core.llm.types import CallPoint
+from core.llm.validation.output_validator import CredibilityOutput
 from core.observability.logging import get_logger
 from core.observability.metrics import MetricsCollector
 from modules.processing.pipeline.state import PipelineState

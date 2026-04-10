@@ -94,23 +94,23 @@ def __getattr__(name: str):  # type: ignore[no-untyped-def]
     - LiveConfig: Requires live configuration system
     """
     if name == "ExperienceStore":
-        from core.llm.experience import ExperienceStore
+        from core.llm.evaluation.experience import ExperienceStore
 
         return ExperienceStore
     if name == "EvalRunner":
-        from core.llm.eval_runner import EvalRunner
+        from core.llm.evaluation.eval_runner import EvalRunner
 
         return EvalRunner
     if name == "ModelSelector":
-        from core.llm.model_selector import ModelSelector
+        from core.llm.routing.model_selector import ModelSelector
 
         return ModelSelector
     if name == "SmartRouter":
-        from core.llm.smart_router import SmartRouter
+        from core.llm.routing.smart_router import SmartRouter
 
         return SmartRouter
     if name == "LiveConfig":
-        from core.llm.live_config import LiveConfig
+        from core.llm.config.live_config import LiveConfig
 
         return LiveConfig
     msg = f"module {__name__!r} has no attribute {name!r}"

@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.llm.output_validator import ClassifierOutput
 from core.llm.types import CallPoint
+from core.llm.validation.output_validator import ClassifierOutput
 from modules.ingestion.domain.models import ArticleRaw
 from modules.processing.nodes.classifier import ClassifierNode
 from modules.processing.pipeline.state import PipelineState

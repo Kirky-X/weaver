@@ -298,7 +298,7 @@ def mock_rate_limiter():
 @pytest.fixture
 def mock_token_budget_manager():
     """Mock token budget manager for testing."""
-    from core.llm.token_budget import TokenBudgetManager
+    from core.llm.config.token_budget import TokenBudgetManager
 
     manager = MagicMock(spec=TokenBudgetManager)
     manager.count_tokens = MagicMock(return_value=100)

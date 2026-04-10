@@ -4,8 +4,8 @@
 from __future__ import annotations
 
 from core.llm.client import LLMClient
-from core.llm.output_validator import CategorizerOutput
 from core.llm.types import CallPoint
+from core.llm.validation.output_validator import CategorizerOutput
 from core.observability.logging import get_logger
 from core.prompt.loader import PromptLoader
 from modules.processing.pipeline.state import PipelineState

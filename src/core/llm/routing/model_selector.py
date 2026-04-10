@@ -20,8 +20,8 @@ from core.llm.types import (
 from core.observability.logging import get_logger
 
 if TYPE_CHECKING:
-    from core.llm.circuit_breaker import ProviderCircuitBreaker
-    from core.llm.experience import ExperienceStore
+    from core.llm.evaluation.experience import ExperienceStore
+    from core.llm.resilience.circuit_breaker import ProviderCircuitBreaker
 
 log = get_logger("model_selector")
 

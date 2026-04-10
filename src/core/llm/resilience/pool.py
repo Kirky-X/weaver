@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING, Any
 from aiolimiter import AsyncLimiter
 
 from core.llm.caller import LiteLLMCaller
-from core.llm.circuit_breaker import CircuitOpenError, ProviderCircuitBreaker
-from core.llm.metrics import ProviderMetrics
+from core.llm.resilience.circuit_breaker import CircuitOpenError, ProviderCircuitBreaker
+from core.llm.resilience.metrics import ProviderMetrics
 from core.llm.types import Label, LLMResponse, ProviderConfig
 from core.observability.logging import get_logger
 from core.resilience.retry import retry_llm

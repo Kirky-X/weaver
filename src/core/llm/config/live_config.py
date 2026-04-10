@@ -13,7 +13,7 @@ from collections.abc import Callable, Coroutine
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from core.llm.config import LLMSettings
+from core.llm.config.config import LLMSettings
 from core.observability.logging import get_logger
 
 log = get_logger("live_config")

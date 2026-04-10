@@ -4,8 +4,8 @@
 import pytest
 
 from core.event.bus import EventBus
-from core.llm.experience import ExperienceStore
-from core.llm.model_selector import (
+from core.llm.evaluation.experience import ExperienceStore
+from core.llm.routing.model_selector import (
     DEFAULT_WEIGHTS,
     ModelSelector,
     WeightConfig,

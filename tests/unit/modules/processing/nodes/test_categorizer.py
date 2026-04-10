@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.llm.output_validator import CategorizerOutput
+from core.llm.validation.output_validator import CategorizerOutput
 from modules.ingestion.domain.models import ArticleRaw
 from modules.processing.nodes.categorizer import (
     CategorizerNode,

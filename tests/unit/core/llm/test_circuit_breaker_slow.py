@@ -3,7 +3,7 @@
 
 import pytest
 
-from core.llm.circuit_breaker import (
+from core.llm.resilience.circuit_breaker import (
     CircuitOpenError,
     ProviderCircuitBreaker,
 )
