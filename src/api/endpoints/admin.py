@@ -13,12 +13,11 @@ from api.dependencies import get_source_authority_repo
 from api.endpoints._deps import Endpoints
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
-from core.observability.logging import get_logger
-from modules.storage.postgres.source_authority_repo import SourceAuthorityRepo
+from core.observability import get_logger
+from modules.storage import SourceAuthorityRepo
 
 if TYPE_CHECKING:
-    from modules.analytics.llm_failure.repo import LLMFailureRepo
-    from modules.analytics.llm_usage.repo import LLMUsageRepo
+    from modules.analytics import LLMFailureRepo, LLMUsageRepo
 
 log = get_logger("admin_api")
 

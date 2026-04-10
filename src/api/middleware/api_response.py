@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from api.schemas.response import ResponseCode
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 log = get_logger("api")
 

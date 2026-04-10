@@ -7,7 +7,8 @@ import uuid
 from contextvars import ContextVar
 from typing import Any
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
+from core.observability.logging import _context_vars
 
 log = get_logger("request_context")
 
@@ -83,8 +84,7 @@ class RequestContextMiddleware:
         set_request_id(request_id)
 
         # Also set in the existing context_vars for loguru
-        from core.observability.logging import _context_vars
-
+        # Note: Accessing _context_vars is necessary here to integrate with loguru's context system
         ctx = _context_vars.get().copy()
         ctx["request_id"] = request_id
         _context_vars.set(ctx)

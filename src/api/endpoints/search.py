@@ -12,13 +12,16 @@ from api.endpoints import _deps as deps
 from api.middleware.auth import verify_api_key
 from api.middleware.rate_limit import limiter
 from api.schemas.response import APIResponse, success_response
-from core.llm.client import LLMClient
-from core.observability.logging import get_logger
-from modules.knowledge.search.engines.global_search import GlobalSearchEngine
-from modules.knowledge.search.engines.hybrid_search import HybridSearchEngine
-from modules.knowledge.search.engines.local_search import LocalSearchEngine
-from modules.knowledge.search.intent.router import IntentRouter, RoutingConfig
-from modules.memory.core.graph_types import IntentType, OutputMode
+from core.llm import LLMClient
+from core.observability import get_logger
+from modules.knowledge.search import (
+    GlobalSearchEngine,
+    HybridSearchEngine,
+    IntentRouter,
+    LocalSearchEngine,
+    RoutingConfig,
+)
+from modules.memory import IntentType, OutputMode
 from modules.storage import VectorRepo
 
 router = APIRouter(prefix="/search", tags=["search"])

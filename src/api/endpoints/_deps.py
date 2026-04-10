@@ -14,17 +14,13 @@ from typing import TYPE_CHECKING
 from fastapi import HTTPException
 
 if TYPE_CHECKING:
-    from core.llm.client import LLMClient
+    from core.llm import LLMClient
     from core.protocols import CachePool, GraphPool, RelationalPool
     from core.services.pipeline_service import PipelineServiceImpl
     from core.services.task_registry import InMemoryTaskRegistry
-    from modules.analytics.llm_failure.repo import LLMFailureRepo
-    from modules.analytics.llm_usage.repo import LLMUsageRepo
-    from modules.ingestion.scheduling.scheduler import SourceScheduler
-    from modules.ingestion.scheduling.source_config_repo import SourceConfigRepo
-    from modules.knowledge.search.engines.global_search import GlobalSearchEngine
-    from modules.knowledge.search.engines.hybrid_search import HybridSearchEngine
-    from modules.knowledge.search.engines.local_search import LocalSearchEngine
+    from modules.analytics import LLMFailureRepo, LLMUsageRepo
+    from modules.ingestion import SourceConfigRepo, SourceScheduler
+    from modules.knowledge.search import GlobalSearchEngine, HybridSearchEngine, LocalSearchEngine
     from modules.storage import SourceAuthorityRepo, VectorRepo
     from modules.storage.graph_repo import GraphRepository
 

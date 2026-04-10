@@ -12,18 +12,16 @@ from api.dependencies import get_graph_pool, get_graph_pool_type, get_llm_client
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from core.constants import ProcessingStatus
-from core.db.graph_query_builders import GraphDatabaseType
-from core.observability.logging import get_logger
+from core.db import GraphDatabaseType
+from core.observability import get_logger
 from core.protocols import GraphPool
-from modules.knowledge.graph.community_detector import CommunityDetector
-from modules.knowledge.graph.community_health_checker import CommunityHealthChecker
-from modules.knowledge.graph.community_health_models import (
-    IssueType,
-)
-from modules.knowledge.graph.community_repair_service import CommunityRepairService
-from modules.knowledge.graph.community_repo import Neo4jCommunityRepo
-from modules.knowledge.graph.community_report_generator import (
+from modules.knowledge.graph import (
+    CommunityDetector,
+    CommunityHealthChecker,
+    CommunityRepairService,
     CommunityReportGenerator,
+    IssueType,
+    Neo4jCommunityRepo,
     ReportGenerationResult,
 )
 

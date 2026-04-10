@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 
 from core.constants import HealthStatus
-from core.observability.metrics import metrics
+from core.observability import metrics
 
 
 class ServiceHealthCheck(BaseModel):

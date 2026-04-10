@@ -15,8 +15,8 @@ from api.dependencies import get_relational_pool
 from api.middleware.auth import verify_api_key
 from api.middleware.rate_limit import limiter
 from api.schemas.response import APIResponse, success_response
-from core.db.models import Article, CategoryType
-from core.observability.logging import get_logger
+from core.db import Article, CategoryType
+from core.observability import get_logger
 from core.protocols import RelationalPool
 
 log = get_logger("articles_api")

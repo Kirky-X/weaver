@@ -23,10 +23,10 @@ from api.schemas.response import APIResponse, success_response
 from config.settings import Settings
 from container import get_settings
 from core.constants import PipelineTaskStatus
-from core.observability.metrics import metrics
+from core.observability import metrics
 from core.protocols import CachePool, RelationalPool
 from core.security import URLValidationError, URLValidator
-from modules.ingestion.scheduling.scheduler import SourceScheduler
+from modules.ingestion import SourceScheduler
 from modules.storage import ArticleRepo
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])

@@ -9,6 +9,10 @@ import secrets
 from fastapi import HTTPException, Security
 from fastapi.security import APIKeyHeader
 
+from core.observability import get_logger
+
+log = get_logger("auth_middleware")
+
 api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 # Minimum API key length for security
@@ -55,8 +59,6 @@ async def verify_api_key(
                 "Set WEAVER_API__API_KEY environment variable with at least 32 characters.",
             )
         # Development mode: warn but allow weak keys
-        from core.observability.logging import get_logger
-
         log = get_logger("api.auth")
         log.warning(
             "weak_api_key_detected",

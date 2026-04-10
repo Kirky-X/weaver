@@ -11,9 +11,9 @@ from pydantic import BaseModel, Field
 from api.dependencies import get_cache_client, get_graph_pool
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from core.protocols import GraphPool
-from modules.knowledge.graph.metrics import GraphQualityMetrics
+from modules.knowledge.graph import GraphQualityMetrics
 
 log = get_logger("graph_metrics")
 

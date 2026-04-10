@@ -12,9 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 from api.dependencies import get_source_config_repo, get_source_scheduler
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
-from modules.ingestion.domain.models import SourceConfig
-from modules.ingestion.scheduling.scheduler import SourceScheduler
-from modules.ingestion.scheduling.source_config_repo import SourceConfigRepo
+from modules.ingestion import SourceConfig, SourceConfigRepo, SourceScheduler
 
 router = APIRouter(prefix="/sources", tags=["sources"])
 
