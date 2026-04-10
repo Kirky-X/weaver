@@ -762,6 +762,7 @@ class Container:
 
         Returns GraphRepository with the appropriate QueryBuilder for
         the current graph database (Neo4j or LadybugDB).
+        When Neo4j is primary, LadybugDB is used as fallback pool.
 
         Raises:
             RuntimeError: If graph database is not available.
@@ -775,7 +776,22 @@ class Container:
             from modules.storage.graph_repo import GraphRepository
 
             query_builder = create_graph_query_builder(self._strategy.graph_type)
-            self._graph_repo = GraphRepository(graph_pool, query_builder)
+
+            # When Neo4j is primary, use LadybugDB as fallback
+            fallback_pool = None
+            fallback_query_builder = None
+            if self._strategy.graph_type == "neo4j":
+                from core.db.ladybug_pool import LadybugPool
+
+                # Use the pipeline's LadybugDB path where data is actually written
+                ladybug_pool = LadybugPool(db_path=self._settings.ladybug.db_path)
+                ladybug_pool.startup_sync()
+                fallback_pool = ladybug_pool
+                fallback_query_builder = create_graph_query_builder("ladybug")
+
+            self._graph_repo = GraphRepository(
+                graph_pool, query_builder, fallback_pool, fallback_query_builder
+            )
         return self._graph_repo
 
     def relation_type_normalizer(self) -> Any | None:
@@ -882,6 +898,7 @@ class Container:
             self._global_search_engine = GlobalSearchEngine(
                 llm=self._llm_client,
                 context_builder=global_builder,
+                local_engine=self._local_search_engine,
             )
         return (self._local_search_engine, self._global_search_engine)
 
