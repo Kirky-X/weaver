@@ -10,7 +10,7 @@ from core.llm.types import CallPoint
 from core.llm.validation.output_validator import AnalyzeOutput
 from core.observability.logging import get_logger
 from core.prompt.loader import PromptLoader
-from modules.processing.nodes.categorizer import normalize_emotion
+from modules.processing.nodes.classification.categorizer import normalize_emotion
 from modules.processing.pipeline.state import PipelineState
 
 log = get_logger("node.analyze")

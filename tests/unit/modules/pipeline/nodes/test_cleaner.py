@@ -10,7 +10,7 @@ import pytest
 
 from core.llm.validation.output_validator import CleanerContent, CleanerEntity, CleanerOutput
 from modules.ingestion.domain.models import ArticleRaw
-from modules.processing.nodes.cleaner import CleanerNode
+from modules.processing.nodes.quality.cleaner import CleanerNode
 from modules.processing.pipeline.state import PipelineState
 
 

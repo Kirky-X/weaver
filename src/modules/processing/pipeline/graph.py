@@ -20,17 +20,17 @@ from modules.knowledge.graph.community.updater import (
 )
 from modules.knowledge.graph.entity_resolver import EntityResolver
 from modules.processing.nlp.spacy_extractor import SpacyExtractor
-from modules.processing.nodes.analyze import AnalyzeNode
-from modules.processing.nodes.batch_merger import BatchMergerNode
-from modules.processing.nodes.categorizer import CategorizerNode
 from modules.processing.nodes.checkpoint_cleanup import CheckpointCleanupNode
-from modules.processing.nodes.classifier import ClassifierNode
-from modules.processing.nodes.cleaner import CleanerNode
-from modules.processing.nodes.credibility_checker import CredibilityCheckerNode
-from modules.processing.nodes.entity_extractor import EntityExtractorNode
-from modules.processing.nodes.quality_scorer import QualityScorerNode
-from modules.processing.nodes.re_vectorize import ReVectorizeNode
-from modules.processing.nodes.vectorize import VectorizeNode
+from modules.processing.nodes.classification.categorizer import CategorizerNode
+from modules.processing.nodes.classification.classifier import ClassifierNode
+from modules.processing.nodes.classification.credibility_checker import CredibilityCheckerNode
+from modules.processing.nodes.extraction.analyze import AnalyzeNode
+from modules.processing.nodes.extraction.entity_extractor import EntityExtractorNode
+from modules.processing.nodes.merging.batch_merger import BatchMergerNode
+from modules.processing.nodes.quality.cleaner import CleanerNode
+from modules.processing.nodes.quality.quality_scorer import QualityScorerNode
+from modules.processing.nodes.vectorization.re_vectorize import ReVectorizeNode
+from modules.processing.nodes.vectorization.vectorize import VectorizeNode
 from modules.processing.pipeline.state import PipelineState
 
 if TYPE_CHECKING:

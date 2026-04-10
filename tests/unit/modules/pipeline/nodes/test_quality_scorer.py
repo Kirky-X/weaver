@@ -10,7 +10,7 @@ import pytest
 
 from core.llm.validation.output_validator import QualityScorerOutput
 from modules.ingestion.domain.models import ArticleRaw
-from modules.processing.nodes.quality_scorer import QualityScorerNode
+from modules.processing.nodes.quality.quality_scorer import QualityScorerNode
 from modules.processing.pipeline.state import PipelineState
 
 
