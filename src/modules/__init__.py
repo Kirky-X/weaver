@@ -10,6 +10,7 @@ This package contains all business logic modules organized by domain:
 - storage: Database repositories (PostgreSQL, Neo4j)
 - scheduler: Background job scheduling
 - management: CLI commands and management utilities
+- memory: Multi-graph memory system (MAGMA-style)
 
 Note: Import specific modules to avoid circular imports:
     from modules.ingestion import Crawler, Deduplicator
@@ -17,6 +18,9 @@ Note: Import specific modules to avoid circular imports:
     from modules.processing.pipeline.graph import Pipeline
     from modules.knowledge.graph import Neo4jWriter
     from modules.knowledge.search import GlobalSearchEngine
+
+This package does not export symbols at the top level (__all__ = [])
+to avoid circular dependencies. Always import from specific submodules.
 """
 
 __all__ = []

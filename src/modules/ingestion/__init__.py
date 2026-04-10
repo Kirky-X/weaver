@@ -54,6 +54,7 @@ from modules.ingestion.fetching import (
 # Parsing
 from modules.ingestion.parsing import (
     BaseSourceParser,
+    NewsNowParser,
     PluginMetadata,
     RSSParser,
     SourceRegistry,

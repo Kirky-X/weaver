@@ -57,29 +57,42 @@ __all__ = [
     "Capability",
     "CircuitState",
     "EvalConfig",
-    "EvalRunner",
+    "EvalRunner",  # Lazy imported via __getattr__
     "ExperienceData",
-    "ExperienceStore",
+    "ExperienceStore",  # Lazy imported via __getattr__
     "GlobalConfig",
     "LLMClient",
     "LLMResponse",
     "LLMTask",
     "LLMType",
     "Label",
-    "LiveConfig",
+    "LiveConfig",  # Lazy imported via __getattr__
     "ModelConfig",
-    "ModelSelector",
+    "ModelSelector",  # Lazy imported via __getattr__
     "ProviderConfig",
     "RoutingConfig",
     "RoutingInfeasibleError",
     "RoutingMode",
-    "SmartRouter",
+    "SmartRouter",  # Lazy imported via __getattr__
     "TokenUsage",
 ]
 
 
 def __getattr__(name: str):  # type: ignore[no-untyped-def]
-    """Lazy import for new module-level exports."""
+    """Lazy import for heavy modules to avoid circular dependencies and improve startup time.
+
+    The following modules are lazy-loaded because:
+    - They have heavy dependencies (e.g., model loading, network connections)
+    - They are not needed in all code paths
+    - Deferring import avoids circular dependency issues
+
+    Lazy-loaded symbols:
+    - ExperienceStore: Requires experience data loading
+    - EvalRunner: Requires evaluation framework setup
+    - ModelSelector: Requires model registry initialization
+    - SmartRouter: Requires routing configuration
+    - LiveConfig: Requires live configuration system
+    """
     if name == "ExperienceStore":
         from core.llm.experience import ExperienceStore
 

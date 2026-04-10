@@ -7,11 +7,13 @@ pattern for database-agnostic vector operations.
 """
 
 from modules.storage.duckdb.article_repo import DuckDBArticleRepo
+from modules.storage.duckdb.llm_usage_repo import DuckDBLLMUsageRepo
 from modules.storage.duckdb.pending_sync_repo import DuckDBPendingSyncRepo
 from modules.storage.duckdb.source_authority_repo import DuckDBSourceAuthorityRepo
 
 __all__ = [
     "DuckDBArticleRepo",
+    "DuckDBLLMUsageRepo",
     "DuckDBPendingSyncRepo",
     "DuckDBSourceAuthorityRepo",
 ]
