@@ -30,7 +30,8 @@ from api.schemas.response import APIResponse, success_response
 from config.settings import Settings
 from container import Container, set_container, set_settings
 from core.nlp.spacy_manager import SpacyModelConfig, SpacyModelManager
-from core.observability.logging import configure_logging, get_logger
+from core.observability import get_logger
+from core.observability.logging import configure_logging
 from core.observability.tracing import configure_tracing, instrument_fastapi
 
 log = get_logger("main")
@@ -386,6 +387,15 @@ def create_app(container: Container | None = None) -> FastAPI:
 
         Returns overall system status including database types and processing stats.
         """
+        import toml
+
+        version = "unknown"
+        try:
+            pyproject = toml.load("pyproject.toml")
+            version = pyproject.get("project", {}).get("version", "unknown")
+        except Exception:
+            pass
+
         from api.endpoints._deps import Endpoints
 
         relational_type = Endpoints.get_relational_type()
@@ -395,7 +405,7 @@ def create_app(container: Container | None = None) -> FastAPI:
         return success_response(
             {
                 "status": "running",
-                "version": "1.0.0",
+                "version": version,
                 "database": {
                     "relational": relational_type,
                     "graph": graph_type,

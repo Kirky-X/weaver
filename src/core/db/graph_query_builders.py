@@ -555,9 +555,13 @@ class LadybugQueryBuilder:
         """
 
     def build_get_entity_articles_query(self) -> str:
-        """Build LadybugDB query to get articles mentioning an entity."""
+        """Build LadybugDB query to get articles mentioning an entity.
+
+        Note: LadybugDB MENTIONS goes FROM Article TO Entity, so we match
+        the reverse direction.
+        """
         return """
-            MATCH (e:Entity {canonical_name: $name})-[:MENTIONS]->(a:Article)
+            MATCH (a:Article)-[:MENTIONS]->(e:Entity {canonical_name: $name})
             RETURN a.pg_id as id, a.title as title, a.category as category,
                    a.publish_time as publish_time, a.score as score
             ORDER BY a.publish_time DESC
@@ -595,10 +599,15 @@ class LadybugQueryBuilder:
         """
 
     def build_get_related_articles_query(self) -> str:
-        """Build LadybugDB query to get related articles."""
+        """Build LadybugDB query to get related articles.
+
+        Note: LadybugDB doesn't support | syntax for multiple relation types.
+        Only FOLLOWED_BY connects Article to Article (MENTIONS is Article->Entity).
+        DISTINCT causes "variable not in scope" errors in LadybugDB.
+        """
         return """
-            MATCH (a:Article {pg_id: $id})-[r:FOLLOWED_BY|MENTIONS]->(ra:Article)
-            RETURN DISTINCT ra.pg_id as id, ra.title as title, ra.category as category,
+            MATCH (a:Article {pg_id: $id})-[r:FOLLOWED_BY]->(ra:Article)
+            RETURN ra.pg_id as id, ra.title as title, ra.category as category,
                    ra.publish_time as publish_time, ra.score as score
             ORDER BY ra.publish_time DESC
             LIMIT 10

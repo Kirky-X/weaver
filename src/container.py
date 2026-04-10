@@ -8,16 +8,15 @@ from typing import Any
 
 from config.settings import Settings
 from core.cache import CashewsRedisFallback, RedisClient
-from core.db.strategy import DatabaseStrategy, create_strategy
+from core.db import DatabaseStrategy, create_strategy
 from core.event import EventBus, LLMFailureEvent, LLMUsageEvent
-from core.llm.client import LLMClient
+from core.llm import LLMClient
 from core.observability import get_logger
 from core.prompt import PromptLoader
 from core.protocols import CachePool, EntityRepository, GraphPool, RelationalPool, VectorRepository
 from core.services.pipeline_service import PipelineServiceImpl
 from core.services.task_registry import InMemoryTaskRegistry
-from modules.analytics.llm_usage.buffer import LLMUsageBuffer
-from modules.analytics.llm_usage.repo import LLMUsageRepo
+from modules.analytics import LLMUsageBuffer, LLMUsageRepo
 from modules.ingestion import (
     Crawler,
     Deduplicator,
@@ -26,15 +25,21 @@ from modules.ingestion import (
     SourceRegistry,
     SourceScheduler,
 )
-from modules.knowledge.graph import EntityResolver, Neo4jWriter
+from modules.knowledge.graph import (
+    EntityResolver,
+    Neo4jWriter,
+    name_normalizer,
+    resolution_rules,
+)
 from modules.knowledge.graph.incremental_community_updater import IncrementalCommunityUpdater
-from modules.knowledge.graph.name_normalizer import name_normalizer
-from modules.knowledge.graph.resolution_rules import resolution_rules
-from modules.knowledge.search.engines.global_search import GlobalSearchEngine
-from modules.knowledge.search.engines.hybrid_search import HybridSearchConfig, HybridSearchEngine
-from modules.knowledge.search.engines.local_search import LocalSearchEngine
-from modules.processing.pipeline.graph import Pipeline
-from modules.storage.duckdb.llm_usage_repo import DuckDBLLMUsageRepo
+from modules.knowledge.search import (
+    GlobalSearchEngine,
+    HybridSearchConfig,
+    HybridSearchEngine,
+    LocalSearchEngine,
+)
+from modules.processing import Pipeline
+from modules.storage.duckdb import DuckDBLLMUsageRepo
 from modules.storage.neo4j import Neo4jArticleRepo, Neo4jEntityRepo
 from modules.storage.postgres import ArticleRepo, PendingSyncRepo, SourceAuthorityRepo, VectorRepo
 

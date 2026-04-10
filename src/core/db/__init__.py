@@ -2,6 +2,7 @@
 """Core database module - PostgreSQL, Neo4j, DuckDB, and LadybugDB connection pools."""
 
 from core.db.duckdb_pool import DuckDBPool
+from core.db.graph_query_builders import GraphDatabaseType
 from core.db.initializer import (
     REQUIRED_NEO4J_CONSTRAINTS,
     REQUIRED_TABLES,
@@ -43,6 +44,7 @@ __all__ = [
     "DuckDBPool",
     "EmotionType",
     "EntityVector",
+    "GraphDatabaseType",
     "GraphPool",
     "LadybugPool",
     "Neo4jPool",
