@@ -116,7 +116,6 @@ class TestInstallFromLocal:
 
             mock_run.assert_called_once()
 
-    @pytest.mark.skip(reason="Flaky: SSL/network timeout in CI environment")
     def test_install_failure_strict_mode(self, tmp_path: Path) -> None:
         """Test installation failure in strict mode."""
         config = SpacyModelConfig(strict_mode=True)
@@ -125,17 +124,16 @@ class TestInstallFromLocal:
         wheel_path = tmp_path / "model.whl"
         wheel_path.touch()
 
-        mock_uv = self._mock_uv_module()
         with (
-            patch.dict(sys.modules, {"uv": mock_uv}),
-            patch("subprocess.run") as mock_run,
+            patch.object(manager, "_install_from_network") as mock_network,
+            patch("core.nlp.spacy_manager.subprocess.run") as mock_run,
         ):
             mock_run.return_value = MagicMock(returncode=1, stderr="Install failed")
+            mock_network.side_effect = RuntimeError("Fallback also failed")
 
             with pytest.raises(RuntimeError, match="Failed to install spaCy model"):
                 manager._install_from_local("zh_core_web_lg", str(wheel_path))
 
-    @pytest.mark.skip(reason="Flaky: SSL/network timeout in CI environment")
     def test_install_failure_non_strict_mode(self, tmp_path: Path) -> None:
         """Test installation failure in non-strict mode."""
         config = SpacyModelConfig(strict_mode=False)
@@ -144,15 +142,12 @@ class TestInstallFromLocal:
         wheel_path = tmp_path / "model.whl"
         wheel_path.touch()
 
-        mock_uv = self._mock_uv_module()
-        with (
-            patch.dict(sys.modules, {"uv": mock_uv}),
-            patch("subprocess.run") as mock_run,
-        ):
-            mock_run.return_value = MagicMock(returncode=1, stderr="Install failed")
+        with patch.object(manager, "_install_from_network"):
+            with patch("core.nlp.spacy_manager.subprocess.run") as mock_run:
+                mock_run.return_value = MagicMock(returncode=1, stderr="Install failed")
 
-            # Should not raise in non-strict mode
-            manager._install_from_local("zh_core_web_lg", str(wheel_path))
+                # Should not raise in non-strict mode
+                manager._install_from_local("zh_core_web_lg", str(wheel_path))
 
 
 class TestInstallFromNetwork:
@@ -171,7 +166,6 @@ class TestInstallFromNetwork:
 
             mock_download.assert_called_once_with("en_core_web_sm")
 
-    @pytest.mark.skip(reason="Flaky: SSL/network timeout in CI environment")
     def test_install_failure_strict_mode(self) -> None:
         """Test network installation failure in strict mode."""
         config = SpacyModelConfig(strict_mode=True)
@@ -183,7 +177,6 @@ class TestInstallFromNetwork:
             with pytest.raises(RuntimeError, match="Failed to install spaCy model"):
                 manager._install_from_network("en_core_web_sm")
 
-    @pytest.mark.skip(reason="Flaky: SSL/network timeout in CI environment")
     def test_install_failure_non_strict_mode(self) -> None:
         """Test network installation failure in non-strict mode."""
         config = SpacyModelConfig(strict_mode=False)
