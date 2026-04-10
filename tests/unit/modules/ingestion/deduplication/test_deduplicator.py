@@ -363,13 +363,13 @@ class TestNormalizeUrl:
         assert result == "https://example.com"
 
     def test_wechat_url_preserves_biz_mid(self):
-        """WeChat URLs should preserve __biz and mid params."""
+        """WeChat URLs should preserve __biz, mid and idx params."""
         result = Deduplicator.normalize_url(
             "https://mp.weixin.qq.com/s?__biz=MjM5NzQ5MTkyMA==&mid=2658216812&idx=1"
         )
         assert "__biz=MjM5NzQ5MTkyMA" in result
         assert "mid=2658216812" in result
-        assert "idx=1" not in result  # Other params should be removed
+        assert "idx=1" in result  # idx is preserved for WeChat (article identifier)
 
     def test_empty_url(self):
         """Empty URL should be handled gracefully."""
