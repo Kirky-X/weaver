@@ -4,6 +4,9 @@
 
 ## 目录
 
+- [系统端点](#系统端点)
+  - [GET /api/v1/status](#get-apiv1status)
+  - [GET /api/v1/config](#get-apiv1config)
 - [文章端点](#文章端点)
   - [GET /api/v1/articles](#get-apiv1articles)
   - [GET /api/v1/articles/{article_id}](#get-apiv1articlesarticle_id)
@@ -38,6 +41,104 @@
   - [GET /metrics](#get-metrics)
 - [错误响应格式](#错误响应格式)
 - [通用规范](#通用规范)
+
+---
+
+## 系统端点
+
+### GET /api/v1/status
+
+系统状态端点，返回当前运行状态和数据库类型信息。
+
+#### 请求
+
+```http
+GET /api/v1/status HTTP/1.1
+Host: api.weaver.example.com
+```
+
+**请求参数**: 无
+
+**认证**: 不需要
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "status": "running",
+  "version": "1.0.0",
+  "database": {
+    "relational": "postgres",
+    "graph": "neo4j",
+    "cache": "redis"
+  }
+}
+```
+
+**响应字段说明**:
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `status` | string | 系统状态: "running" |
+| `version` | string | 系统版本号 |
+| `database.relational` | string | 关系型数据库类型: "postgres" 或 "duckdb" |
+| `database.graph` | string | 图数据库类型: "neo4j", "ladybug" 或 null |
+| `database.cache` | string | 缓存类型: "redis" 或 "cashews" |
+
+#### 使用场景
+
+- 监控系统健康状态
+- 验证数据库连接
+- 检查系统版本
+
+---
+
+### GET /api/v1/config
+
+系统配置端点，返回当前功能启用状态。
+
+#### 请求
+
+```http
+GET /api/v1/config HTTP/1.1
+Host: api.weaver.example.com
+```
+
+**请求参数**: 无
+
+**认证**: 不需要
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "relational_pool_type": "postgres",
+  "graph_pool_type": "neo4j",
+  "llm_enabled": true,
+  "search_enabled": true,
+  "graph_available": true
+}
+```
+
+**响应字段说明**:
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `relational_pool_type` | string | 关系型数据库类型 |
+| `graph_pool_type` | string | 图数据库类型 |
+| `llm_enabled` | boolean | LLM 功能是否启用 |
+| `search_enabled` | boolean | 搜索功能是否启用 |
+| `graph_available` | boolean | 图数据库是否可用 |
+
+#### 使用场景
+
+- 前端功能开关控制
+- 客户端能力检查
+- 调试配置问题
 
 ---
 
@@ -722,7 +823,19 @@ X-API-Key: your-api-key
 
 ### GET /api/v1/search
 
-统一搜索端点，根据 `mode` 参数路由到对应的搜索引擎。
+统一搜索端点，采用 **Intent-Aware Routing** 自动分类查询意图并选择最优搜索策略。
+
+#### Intent-Aware Routing
+
+系统自动识别查询意图，无需手动指定搜索模式:
+
+| 意图类型 | 示例查询 | 搜索策略 |
+|----------|----------|----------|
+| **WHY** | “为什么小米汽车销量增长这么快？” | Local search + 因果关系聚焦 |
+| **WHEN** | “2024年AI领域有哪些重大事件？” | Local search + 时间窗口排序 |
+| **ENTITY** | “OpenAI是什么公司？” | Local search + 实体过滤 |
+| **MULTI_HOP** | “OpenAI和Google在AI领域的竞争关系？” | Global search + 深度社区遍历 |
+| **OPEN** | “关于新能源汽车的发展现状” | Global search + 标准社区层级 |
 
 #### 请求
 
@@ -737,23 +850,23 @@ X-API-Key: your-api-key
 | 参数              | 类型    | 默认值       | 说明                                                |
 | ----------------- | ------- | ------------ | --------------------------------------------------- |
 | `q`               | string  | -            | 搜索查询（必填）                                    |
-| `mode`            | string  | `local`      | 搜索模式：`local`、`global`、`articles`             |
-| `entity_names`    | string  | -            | 逗号分隔的实体名（local 模式）                      |
-| `max_tokens`      | integer | -            | 最大上下文 token 数（local/global 模式）            |
 | `community_level` | integer | 0            | 社区层级（global 模式，0-10）                       |
-| `global_mode`     | string  | `map_reduce` | 全局搜索模式（global 模式）：`map_reduce`、`simple` |
 | `threshold`       | float   | 0.0          | 最低相似度（articles 模式，0-1）                    |
 | `limit`           | integer | 20           | 最大结果数（articles 模式，1-100）                  |
 | `category`        | string  | -            | 文章类别过滤（articles 模式）                       |
 | `use_hybrid`      | boolean | true         | 启用混合搜索（articles 模式，BM25 + 向量）          |
+| `global_mode`     | string  | `map_reduce` | 全局搜索模式：`map_reduce` 或 `simple`              |
+| `output_mode`     | string  | `context`    | 输出格式：`context`（原始片段）或 `narrative`（LLM 合成答案） |
+| `enrich_entities` | boolean | false        | 启用实体聚合，丰富结果中的实体邻居信息              |
 
-**mode 说明：**
+**output_mode 说明：**
 
-- `local`（默认）：实体聚焦的图谱问答，适合"X 是谁？"、"X 和 Y 的关系？"等实体查询
-- `global`：社区级聚合搜索（Map-Reduce 模式），适合跨多个话题的探索性查询
-- `articles`：基于 pgvector 的混合向量+关键词相似文章搜索
+- `context`（默认）：返回原始上下文片段，适合需要自行处理的场景
+- `narrative`：返回 LLM 合成的叙述性答案，适合直接展示给用户
 
-**注意：** local 和 global 模式当前默认跳过 LLM 生成步骤（`use_llm=False`），直接返回构建的知识图谱上下文。
+**enrich_entities 说明：**
+
+启用后，搜索结果会包含实体的邻居信息（关联实体和关系），提供更完整的上下文。
 
 #### 响应
 

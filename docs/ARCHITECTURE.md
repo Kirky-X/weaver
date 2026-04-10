@@ -19,7 +19,24 @@
 
 ### 概述
 
-Weaver 采用 **FastAPI Depends 模式** 实现依赖注入，统一管理服务的创建、生命周期和依赖关系。该架构确保了组件间的松耦合，提高了可测试性和可维护性。
+Weaver 采用 **FastAPI Depends 模式** 实现依赖注入,统一管理服务的创建、生命周期和依赖关系。该架构确保了组件间的松耦合,提高了可测试性和可维护性。
+
+### 多数据库策略
+
+Weaver 支持多种数据库后端,根据配置自动选择并使用 Protocol 接口实现抽象:
+
+**关系型数据库 (Relational)**:
+- **PostgreSQL**: 生产环境首选,支持完整功能
+- **DuckDB**: 开发/测试环境,零配置嵌入式数据库
+
+**图数据库 (Graph)**:
+- **Neo4j**: 生产环境首选,完整图谱功能
+- **LadybugDB**: 开发/测试环境,嵌入式图数据库
+- **可选**: 图数据库可以为 None,部分功能降级
+
+**缓存 (Cache)**:
+- **Redis**: 生产环境,分布式缓存
+- **CashewsRedisFallback**: 开发环境,内存缓存自动降级
 
 ### 架构层次
 
@@ -28,8 +45,9 @@ main.py (lifespan)
        ↓
 Container.startup() / shutdown()
        ↓
-Endpoints._postgres = container.relational_pool()
-Endpoints._redis = container.redis_client()
+Endpoints._relational_pool = container.relational_pool()
+Endpoints._graph_pool = container.graph_pool()
+Endpoints._cache = redis_client
 Endpoints._llm = container.llm_client()
        ↓
 _deps.py (Endpoints 类)
@@ -44,6 +62,26 @@ dependencies.py (依赖函数层)
 API Endpoints (使用层)
   - pool: PostgresPoolDep (推荐)
 ```
+
+### 初始化顺序和依赖关系
+
+初始化顺序至关重要,修改可能导致启动失败:
+
+| 阶段 | 依赖项 | 方法 |
+|------|--------|------|
+| database | - | init_strategy() |
+| migrations | database | initialize_database() |
+| redis | - | init_redis() |
+| llm | database, redis | init_llm() |
+| search_engines | database, llm | init_search_engines() |
+| bm25_index | search_engines | _init_bm25_index() |
+| smart_fetcher | - | init_smart_fetcher() |
+| source_scheduler | smart_fetcher, database | init_source_scheduler() |
+| pipeline | llm, database, redis | init_pipeline() |
+| memory_service | database, llm, redis | init_memory_service() |
+| llm_failure_logging | database, event_bus | (inline in startup) |
+| llm_usage_stats | redis, database | (inline in startup) |
+| scheduler | pipeline | _setup_scheduler() |
 
 ### 核心组件
 
@@ -95,23 +133,60 @@ async def list_items(
 | 依赖函数                     | 返回类型             | 说明              |
 | ---------------------------- | -------------------- | ----------------- |
 | `get_container()`            | `Container`          | 应用容器实例      |
-| `get_relational_pool()`      | `RelationalPool`     | 关系型数据库连接池 |
-| `get_redis_client()`         | `RedisClient`        | Redis 客户端      |
-| `get_graph_pool()`           | `GraphPool`          | 图数据库连接池    |
-| `get_llm_client()`           | `LLMClient`          | LLM 客户端        |
+| `get_relational_pool()`      | `RelationalPool`     | 关系型数据库连接池 (PostgreSQL/DuckDB) |
+| `get_graph_pool()`           | `GraphPool`          | 图数据库连接池 (Neo4j/LadybugDB) |
+| `get_cache()`                | `CachePool`          | 缓存客户端 (Redis/Cashews) |
+| `get_llm()`                  | `LLMClient`          | LLM 客户端        |
 | `get_vector_repo()`          | `VectorRepo`         | 向量仓库          |
-| `get_article_repo()`         | `ArticleRepo`        | 文章仓库          |
-| `get_local_search_engine()`  | `LocalSearchEngine`  | 本地搜索引擎      |
-| `get_global_search_engine()` | `GlobalSearchEngine` | 全局搜索引擎      |
-| `get_hybrid_search_engine()` | `HybridSearchEngine` | 混合搜索引擎      |
-| `get_source_scheduler()`     | `SourceScheduler`    | 源调度器          |
+| `get_graph_repo()`           | `GraphRepository`    | 图数据库仓库      |
+| `get_local_engine()`         | `LocalSearchEngine`  | 本地搜索引擎      |
+| `get_global_engine()`        | `GlobalSearchEngine` | 全局搜索引擎      |
+| `get_hybrid_engine()`        | `HybridSearchEngine` | 混合搜索引擎      |
+| `get_scheduler()`            | `SourceScheduler`    | 源调度器          |
+| `get_pipeline_service()`     | `PipelineServiceImpl` | Pipeline 服务   |
+| `get_task_registry()`        | `InMemoryTaskRegistry` | 任务注册表    |
+
+**数据库类型查询**:
+
+| 方法                         | 返回值   | 说明                           |
+| ---------------------------- | -------- | ------------------------------ |
+| `get_relational_type()`      | `str`    | "postgres" 或 "duckdb"         |
+| `get_graph_type()`           | `str`    | "neo4j" 或 "ladybug"           |
+| `get_cache_type()`           | `str`    | "RedisClient" 或 "CashewsRedisFallback" |
 
 ### 服务生命周期
 
 | 生命周期      | 说明                         | 示例                                 |
 | ------------- | ---------------------------- | ------------------------------------ |
-| **Singleton** | 全局唯一实例，应用启动时创建 | PostgresPool, Neo4jPool, RedisClient |
-| **Transient** | 每次请求创建新实例           | ArticleRepo (需要传入 Pool)          |
+| **Singleton** | 全局唯一实例，应用启动时创建 | RelationalPool, GraphPool, RedisClient, LLMClient |
+| **Transient** | 每次请求创建新实例           | Repo 类 (需要传入 Pool)              |
+
+### Event Bus 事件系统
+
+Weaver 使用 EventBus 实现组件间的松耦合通信:
+
+**核心事件类型**:
+- `LLMFailureEvent`: LLM 调用失败事件，自动记录到数据库
+- `LLMUsageEvent`: LLM 使用统计事件，更新 Prometheus 指标
+- `LLMCompareEvent`: LLM 对比评估事件，用于影子评估
+- `MemoryIngestEvent`: 记忆摄入事件，触发 Memory Service 处理
+
+**事件处理流程**:
+```python
+# 发布事件
+event_bus.publish(LLMUsageEvent(...))
+
+# 订阅事件 (在 Container.startup 中注册)
+event_bus.subscribe(LLMUsageEvent, _handle_llm_usage_metrics)
+event_bus.subscribe(LLMUsageEvent, _handle_llm_usage_buffer)
+event_bus.subscribe(LLMUsageEvent, _handle_llm_usage_raw)
+```
+
+**实际应用**:
+- LLM 失败自动记录和监控
+- Token 使用量实时统计
+- 影子评估数据收集
+- Pipeline 到 Memory 的数据流
 
 ---
 
@@ -214,6 +289,197 @@ HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
 | 端口被占用               | 自动分配新端口，日志输出 `port_resolved` |
 | 所有端口耗尽             | 抛出 `PortExhaustionError`，应用启动失败 |
 | `port_auto_detect=false` | 使用配置端口，不进行检测                 |
+
+---
+
+## Smart LLM Router架构
+
+### 概述
+
+Weaver 实现了智能 LLM 路由系统，通过历史性能学习、熔断器集成和多 Provider 自动切换，确保 LLM 调用的可靠性和成本效益。
+
+### 核心组件
+
+#### SmartRouter
+
+SmartRouter 负责智能选择最优 LLM Provider:
+
+**工作原理**:
+1. **ExperienceStore**: 记录每个 Provider 的历史性能数据
+   - 响应时间
+   - 成功率
+   - Token 消耗
+   - 错误类型
+
+2. **Circuit Breaker 集成**: 自动熔断不健康的 Provider
+   - 连续失败 5 次后打开熔断器
+   - 60 秒冷却期后尝试半开状态
+   - 探测成功则关闭熔断器
+
+3. **多 Provider 自动切换**:
+   - 主 Provider 失败时自动切换到 Fallback
+   - 基于历史性能动态调整优先级
+   - 支持成本优化路由
+
+**配置示例** (config/llm.toml):
+```toml
+[llm.providers.openai]
+api_key = "sk-xxx"
+base_url = "https://api.openai.com/v1"
+model = "gpt-4o"
+rpm_limit = 60
+concurrency = 5
+
+[llm.providers.ollama]
+base_url = "http://localhost:11434"
+model = "qwen3.5:9b"
+concurrency = 3
+
+[llm.call_points.search_local]
+primary = "openai"
+fallbacks = ["ollama"]
+```
+
+#### EvalRunner 评估系统
+
+EvalRunner 提供影子评估能力:
+
+**功能**:
+- 并行调用多个 Provider
+- 对比响应质量
+- 收集评估数据到 LLMCompareEvent
+- 支持 A/B 测试
+
+**配置**:
+```toml
+[llm.eval]
+enabled = true
+shadow_mode = true  # 不影响主流程
+```
+
+### LLM Usage 统计和监控
+
+**实时统计**:
+1. **Redis Buffer**: 聚合 LLM 使用量 (2小时 TTL)
+2. **Database Raw Records**: 持久化详细记录
+3. **Prometheus Metrics**: 实时指标暴露
+
+**Prometheus 指标**:
+```prometheus
+# Input/Output/Total Tokens
+llm_token_input_total{provider="openai",model="gpt-4o",call_point="search_local"} 123456
+llm_token_output_total{provider="openai",model="gpt-4o",call_point="search_local"} 78901
+llm_token_total{provider="openai",model="gpt-4o",call_point="search_local"} 202357
+```
+
+**后台聚合任务**:
+- 每 5 分钟从 Redis 刷新到 PostgreSQL
+- 原始记录保留 2 天
+- 自动清理过期数据
+
+### 事件驱动架构
+
+**LLM 调用流程**:
+```
+LLMClient.call()
+  ↓
+SmartRouter.select_provider()
+  ↓
+ProviderPool.execute()
+  ↓
+发布 LLMUsageEvent → Redis Buffer
+                  → Database Raw Record
+                  → Prometheus Metrics
+  ↓
+失败时发布 LLMFailureEvent → Database Record
+```
+
+---
+
+## MAGMA Memory集成架构
+
+### 概述
+
+Weaver 实现了基于 MAGMA 框架的记忆集成服务，支持快速检索、深度整合和因果关系推理，为搜索和对话提供长期记忆能力。
+
+### 核心组件
+
+#### MemoryIntegrationService
+
+记忆集成服务提供三大核心能力:
+
+**1. Fast Path (快速路径)**:
+- 从图数据库快速检索已有记忆
+- 基于实体和关系的即时召回
+- 低延迟响应 (< 100ms)
+
+**2. Slow Path (慢速路径)**:
+- 深度记忆整合和推理
+- 因果关系链发现
+- 后台定时 Consolidation (合并冗余记忆)
+
+**3. Causal Inference (因果推理)**:
+- 识别实体间的因果关系
+- 时间窗口内的因果链构建
+- 支持 WHY 类型查询的深度回答
+
+**配置参数** (MemorySettings):
+```toml
+[memory]
+fast_path_enabled = true
+slow_path_enabled = true
+causal_confidence_threshold = 0.7
+max_traversal_depth = 3
+beam_width = 5
+token_budget = 8000
+consolidation_interval_minutes = 60
+```
+
+### Memory Event Handler
+
+**Pipeline 到 Memory 的数据流**:
+
+```python
+# Pipeline 处理文章后发布事件
+event_bus.publish(MemoryIngestEvent(
+    article_id="uuid",
+    state=pipeline_state,
+))
+
+# Memory Service 自动处理
+async def handle_memory_ingest(event: MemoryIngestEvent):
+    await memory_service.ingest(event.state)
+```
+
+**摄入内容**:
+- 实体及其关系
+- 时间信息
+- 因果链
+- 情感分析结果
+
+### 搜索集成
+
+Memory 服务与搜索系统深度集成:
+
+**Intent-Aware Routing 增强**:
+- WHY 查询: 使用因果记忆链
+- WHEN 查询: 使用时间记忆窗口
+- ENTITY 查询: 使用实体记忆网络
+
+**输出模式**:
+- `output_mode=context`: 返回原始记忆片段
+- `output_mode=narrative`: LLM 合成叙述性答案
+
+### 依赖要求
+
+Memory 服务需要以下组件:
+- Graph Pool (Neo4j/LadybugDB)
+- LLM Client
+- Redis Client
+- Vector Repo
+- Entity Repo
+
+如果依赖不满足，Memory 服务将自动跳过初始化，不影响核心功能。
 
 ---
 
@@ -417,6 +683,116 @@ circuit_breaker_state{service="neo4j"} 0
 
 # 失败计数
 circuit_breaker_fail_count{service="neo4j"} 2
+```
+
+---
+
+## 后台任务调度
+
+### 概述
+
+Weaver 使用 **APScheduler** 实现统一的后台任务调度系统，替代了原有的多线程和分散调度器。所有任务通过单一调度器管理，确保资源可控、易于监控。
+
+### 调度器配置
+
+**全局配置** (config/settings.toml):
+```toml
+[scheduler]
+enabled = true                                    # 总开关
+misfire_grace_time_seconds = 300                  # 错过执行的宽限期
+job_timeout_seconds = 600                         # 单个任务最大执行时间
+```
+
+### 任务分类
+
+#### 1. 数据同步任务 (Data Sync)
+
+| 任务 ID | 触发器 | 间隔 | 说明 |
+|---------|--------|------|------|
+| `sync_pending_to_neo4j` | Interval | 10 分钟 | 同步待处理记录到 Neo4j |
+| `retry_neo4j_writes` | Interval | 10 分钟 | 重试失败的 Neo4j 写入 |
+| `sync_neo4j_with_postgres` | Interval | 1 小时 | 全量 Neo4j ↔ PostgreSQL 同步 |
+| `consistency_check` | Cron | 每天 3:00 | 数据一致性检查 |
+| `startup_sync_pending_to_neo4j` | Date | 启动时 | 启动时立即执行一次同步 |
+
+#### 2. 清理任务 (Cleanup)
+
+| 任务 ID | 触发器 | 间隔 | 说明 |
+|---------|--------|------|------|
+| `cleanup_old_synced` | Cron | 每天 3:30 | 清理旧同步记录 (保留 7 天) |
+| `llm_failure_cleanup` | Interval | 24 小时 | 清理 LLM 失败记录 (保留 3 天) |
+| `llm_usage_raw_cleanup` | Interval | 6 小时 | 清理 LLM 使用原始记录 (保留 2 天) |
+| `pipeline_retry` | Interval | 15 分钟 | 重试失败的 Pipeline 处理 |
+
+#### 3. 归档任务 (Archive, 条件性)
+
+需要 Neo4j 可用才注册:
+
+| 任务 ID | 触发器 | 间隔 | 说明 |
+|---------|--------|------|------|
+| `archive_old_neo4j_nodes` | Cron | 每周六 2:00 | 归档旧 Neo4j 节点 (90 天) |
+| `cleanup_orphan_entity_vectors` | Cron | 每周六 3:00 | 清理孤立实体向量 |
+
+#### 4. 抓取重试任务 (Crawl Retry)
+
+| 任务 ID | 触发器 | 间隔 | 说明 |
+|---------|--------|------|------|
+| `flush_retry_queue` | Interval | 30 秒 | 刷新过期抓取重试队列 |
+
+#### 5. LLM 使用统计 (LLM Usage)
+
+| 任务 ID | 触发器 | 间隔 | 说明 |
+|---------|--------|------|------|
+| `llm_usage_aggregate` | Interval | 5 分钟 | LLM 使用量 Redis → PostgreSQL 聚合 |
+
+#### 6. 源评分任务 (Source Scoring)
+
+| 任务 ID | 触发器 | 间隔 | 说明 |
+|---------|--------|------|------|
+| `update_source_auto_scores` | Cron | 每天 3:00 | 更新源权威评分 |
+
+#### 7. 社区检测任务 (Community Detection)
+
+| 任务 ID | 触发器 | 间隔 | 说明 |
+|---------|--------|------|------|
+| `community_auto_check` | Interval | 30 分钟 | 社区自动检测检查 |
+| `community_health_check` | Interval | 6 小时 | 社区健康检查和自动修复 |
+
+#### 8. 指标更新任务 (Metrics)
+
+| 任务 ID | 触发器 | 间隔 | 说明 |
+|---------|--------|------|------|
+| `update_persist_status_metrics` | Interval | 5 分钟 | 更新 Prometheus 持久化状态指标 |
+
+#### 9. Memory Consolidation (条件性)
+
+需要 Memory Service 可用才注册:
+
+| 任务 ID | 触发器 | 间隔 | 说明 |
+|---------|--------|------|------|
+| `memory_consolidation` | Interval | 60 分钟 | Memory 慢路径整合 |
+
+### 任务执行保证
+
+**可靠性机制**:
+- `max_instances=1`: 同一任务不会并发执行
+- `coalesce=True`: 错过多次执行时合并为一次
+- `misfire_grace_time`: 允许延迟执行的宽限期
+
+**监控**:
+- 所有任务执行日志结构化输出
+- 关键任务失败告警
+- Prometheus 指标暴露
+
+### 调度器生命周期
+
+```python
+# 启动时
+scheduler.start()
+log.info("scheduler_started", jobs=len(scheduler.get_jobs()))
+
+# 关闭时
+scheduler.shutdown(wait=False)  # 不等待当前任务完成
 ```
 
 ---
