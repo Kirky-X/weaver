@@ -1,0 +1,33 @@
+"""Base storage interfaces - Protocol definitions for storage backends."""
+
+from __future__ import annotations
+
+from typing import Protocol, runtime_checkable
+
+
+@runtime_checkable
+class ArticleRepository(Protocol):
+    """Protocol for article storage operations."""
+
+    async def save_article(self, article_data: dict) -> str: ...
+    async def get_article(self, article_id: str) -> dict | None: ...
+    async def article_exists(self, url: str) -> bool: ...
+    async def delete_article(self, article_id: str) -> bool: ...
+
+
+@runtime_checkable
+class EntityRepository(Protocol):
+    """Protocol for entity storage operations."""
+
+    async def save_entity(self, entity_data: dict) -> str: ...
+    async def get_entity(self, entity_id: str) -> dict | None: ...
+    async def find_entities(self, **filters: str) -> list[dict]: ...
+
+
+@runtime_checkable
+class VectorRepository(Protocol):
+    """Protocol for vector storage operations."""
+
+    async def upsert_vectors(self, vectors: list[dict]) -> int: ...
+    async def search_vectors(self, query: list[float], limit: int = 10) -> list[dict]: ...
+    async def delete_vectors(self, ids: list[str]) -> int: ...
