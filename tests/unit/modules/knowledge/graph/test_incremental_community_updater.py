@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.knowledge.graph.incremental_community_updater import (
+from modules.knowledge.graph.community.updater import (
     CommunityStats,
     IncrementalCommunityUpdater,
     IncrementalUpdateResult,

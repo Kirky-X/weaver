@@ -31,7 +31,7 @@ from modules.knowledge.graph import (
     name_normalizer,
     resolution_rules,
 )
-from modules.knowledge.graph.incremental_community_updater import IncrementalCommunityUpdater
+from modules.knowledge.graph.community.updater import IncrementalCommunityUpdater
 from modules.knowledge.search import (
     GlobalSearchEngine,
     HybridSearchConfig,
@@ -245,7 +245,7 @@ class Container:
                 log.info("event_bus_created_in_llm", event_bus_id=id(self._event_bus))
 
             # Initialize ExperienceStore
-            from core.llm.experience import ExperienceStore
+            from core.llm.evaluation.experience import ExperienceStore
 
             self._llm_experience = ExperienceStore(event_bus=self._event_bus)
             log.info("llm_experience_initialized")
@@ -255,7 +255,7 @@ class Container:
             # These will be populated after pools are created
 
             # Build SmartRouter
-            from core.llm.smart_router import SmartRouter
+            from core.llm.routing.smart_router import SmartRouter
 
             self._smart_router = SmartRouter(
                 settings=self._settings.llm,
@@ -267,7 +267,7 @@ class Container:
             # Build EvalRunner if enabled
             eval_cfg = self._settings.llm.eval_config
             if eval_cfg and eval_cfg.enabled:
-                from core.llm.eval_runner import EvalRunner
+                from core.llm.evaluation.eval_runner import EvalRunner
 
                 self._eval_runner = EvalRunner.from_eval_config(
                     eval_cfg=eval_cfg,
@@ -648,9 +648,9 @@ class Container:
         Returns:
             Dict with health status and repair results.
         """
-        from modules.knowledge.graph.community_health_checker import CommunityHealthChecker
-        from modules.knowledge.graph.community_health_models import CommunityHealthStatus
-        from modules.knowledge.graph.community_repair_service import CommunityRepairService
+        from modules.knowledge.graph.community.health.checker import CommunityHealthChecker
+        from modules.knowledge.graph.community.health.models import CommunityHealthStatus
+        from modules.knowledge.graph.community.repair_service import CommunityRepairService
 
         log.info("community_health_check_start")
 
@@ -1168,7 +1168,7 @@ class Container:
     async def init_pipeline(self) -> Pipeline:
         """Initialize the processing pipeline."""
         if self._pipeline is None:
-            from core.llm.token_budget import TokenBudgetManager
+            from core.llm.config.token_budget import TokenBudgetManager
             from modules.processing.nlp.spacy_extractor import SpacyExtractor
 
             if self._event_bus is None:

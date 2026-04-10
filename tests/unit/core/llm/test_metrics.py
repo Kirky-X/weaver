@@ -3,7 +3,7 @@
 
 import pytest
 
-from core.llm.metrics import ProviderMetrics
+from core.llm.resilience.metrics import ProviderMetrics
 
 
 class TestProviderMetrics:

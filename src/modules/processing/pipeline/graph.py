@@ -10,27 +10,27 @@ from typing import TYPE_CHECKING, Any
 from core.db.models import PersistStatus
 from core.event.bus import EventBus
 from core.llm.client import LLMClient
-from core.llm.token_budget import TokenBudgetManager
+from core.llm.config.token_budget import TokenBudgetManager
 from core.observability.logging import get_logger
 from core.observability.metrics import MetricsCollector
 from core.prompt.loader import PromptLoader
 from modules.ingestion.domain.models import ArticleRaw
-from modules.knowledge.graph.entity_resolver import EntityResolver
-from modules.knowledge.graph.incremental_community_updater import (
+from modules.knowledge.graph.community.updater import (
     IncrementalCommunityUpdater,
 )
+from modules.knowledge.graph.entity_resolver import EntityResolver
 from modules.processing.nlp.spacy_extractor import SpacyExtractor
-from modules.processing.nodes.analyze import AnalyzeNode
-from modules.processing.nodes.batch_merger import BatchMergerNode
-from modules.processing.nodes.categorizer import CategorizerNode
 from modules.processing.nodes.checkpoint_cleanup import CheckpointCleanupNode
-from modules.processing.nodes.classifier import ClassifierNode
-from modules.processing.nodes.cleaner import CleanerNode
-from modules.processing.nodes.credibility_checker import CredibilityCheckerNode
-from modules.processing.nodes.entity_extractor import EntityExtractorNode
-from modules.processing.nodes.quality_scorer import QualityScorerNode
-from modules.processing.nodes.re_vectorize import ReVectorizeNode
-from modules.processing.nodes.vectorize import VectorizeNode
+from modules.processing.nodes.classification.categorizer import CategorizerNode
+from modules.processing.nodes.classification.classifier import ClassifierNode
+from modules.processing.nodes.classification.credibility_checker import CredibilityCheckerNode
+from modules.processing.nodes.extraction.analyze import AnalyzeNode
+from modules.processing.nodes.extraction.entity_extractor import EntityExtractorNode
+from modules.processing.nodes.merging.batch_merger import BatchMergerNode
+from modules.processing.nodes.quality.cleaner import CleanerNode
+from modules.processing.nodes.quality.quality_scorer import QualityScorerNode
+from modules.processing.nodes.vectorization.re_vectorize import ReVectorizeNode
+from modules.processing.nodes.vectorization.vectorize import VectorizeNode
 from modules.processing.pipeline.state import PipelineState
 
 if TYPE_CHECKING:

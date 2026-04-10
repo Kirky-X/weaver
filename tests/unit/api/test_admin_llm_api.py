@@ -116,6 +116,6 @@ class TestAdminRouter:
 
     def test_router_prefix(self) -> None:
         """Test router has correct prefix."""
-        from api.endpoints.admin import router
+        from api.endpoints.admin.admin import router
 
         assert router.prefix == "/admin"

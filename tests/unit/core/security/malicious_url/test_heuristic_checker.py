@@ -3,8 +3,8 @@
 
 import pytest
 
-from core.security.malicious_url.heuristic_checker import HeuristicChecker
 from core.security.models import CheckSource, URLRisk
+from core.security.validation.malicious_url.heuristic_checker import HeuristicChecker
 
 
 class TestHeuristicChecker:

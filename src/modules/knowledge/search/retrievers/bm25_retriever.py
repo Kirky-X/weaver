@@ -22,7 +22,7 @@ import bm25s
 import spacy
 
 from core.observability.logging import get_logger
-from core.security.signing import (
+from core.security.crypto.signing import (
     IntegrityError,
     SigningKey,
     load_signed_json,

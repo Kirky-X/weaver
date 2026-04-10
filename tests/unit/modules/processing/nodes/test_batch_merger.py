@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.llm.output_validator import MergerOutput
+from core.llm.validation.output_validator import MergerOutput
 from modules.ingestion.domain.models import ArticleRaw
-from modules.processing.nodes.batch_merger import BatchMergerNode, UnionFind
+from modules.processing.nodes.merging.batch_merger import BatchMergerNode, UnionFind
 from modules.processing.pipeline.state import PipelineState
 
 

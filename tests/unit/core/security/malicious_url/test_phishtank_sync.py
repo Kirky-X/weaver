@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.security.malicious_url.phishtank_sync import PhishTankEntry, PhishTankSync
 from core.security.models import CheckSource, URLRisk
+from core.security.validation.malicious_url.phishtank_sync import PhishTankEntry, PhishTankSync
 
 # ---------------------------------------------------------------------------
 # Fixtures

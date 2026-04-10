@@ -9,8 +9,9 @@ Public API:
 """
 
 from modules.ingestion.deduplication.deduplicator import Deduplicator
+from modules.ingestion.deduplication.models import TitleItem
 from modules.ingestion.deduplication.retry import RetryQueue
-from modules.ingestion.deduplication.simhash_dedup import SimHashDeduplicator, TitleItem
+from modules.ingestion.deduplication.simhash_dedup import SimHashDeduplicator
 
 __all__ = [
     "Deduplicator",

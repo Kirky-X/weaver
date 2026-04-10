@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from modules.ingestion.domain.models import ArticleRaw
-from modules.processing.nodes.vectorize import VectorizeNode
+from modules.processing.nodes.vectorization.vectorize import VectorizeNode
 from modules.processing.pipeline.state import PipelineState
 
 

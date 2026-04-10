@@ -14,7 +14,7 @@ class TestSourceResponseModel:
 
     def test_source_response_model(self):
         """Test SourceResponse model."""
-        from api.endpoints.sources import SourceResponse
+        from api.endpoints.content.sources import SourceResponse
 
         response = SourceResponse(
             id="test",
@@ -30,7 +30,7 @@ class TestSourceResponseModel:
 
     def test_source_response_with_credibility(self):
         """Test SourceResponse includes credibility and tier."""
-        from api.endpoints.sources import SourceResponse
+        from api.endpoints.content.sources import SourceResponse
 
         response = SourceResponse(
             id="reuters",
@@ -48,7 +48,7 @@ class TestSourceResponseModel:
 
     def test_source_create_request_model(self):
         """Test SourceCreateRequest model validation."""
-        from api.endpoints.sources import SourceCreateRequest
+        from api.endpoints.content.sources import SourceCreateRequest
 
         request = SourceCreateRequest(
             id="new_source",
@@ -62,7 +62,7 @@ class TestSourceResponseModel:
 
     def test_source_create_request_with_credibility(self):
         """Test SourceCreateRequest with credibility and tier."""
-        from api.endpoints.sources import SourceCreateRequest
+        from api.endpoints.content.sources import SourceCreateRequest
 
         request = SourceCreateRequest(
             id="xinhua",
@@ -76,7 +76,7 @@ class TestSourceResponseModel:
 
     def test_source_create_request_credibility_validation(self):
         """Test SourceCreateRequest rejects invalid credibility."""
-        from api.endpoints.sources import SourceCreateRequest
+        from api.endpoints.content.sources import SourceCreateRequest
 
         with pytest.raises(ValidationError):
             SourceCreateRequest(
@@ -88,7 +88,7 @@ class TestSourceResponseModel:
 
     def test_source_create_request_tier_validation(self):
         """Test SourceCreateRequest rejects invalid tier."""
-        from api.endpoints.sources import SourceCreateRequest
+        from api.endpoints.content.sources import SourceCreateRequest
 
         with pytest.raises(ValidationError):
             SourceCreateRequest(
@@ -100,7 +100,7 @@ class TestSourceResponseModel:
 
     def test_source_update_request_model(self):
         """Test SourceUpdateRequest model validation."""
-        from api.endpoints.sources import SourceUpdateRequest
+        from api.endpoints.content.sources import SourceUpdateRequest
 
         request = SourceUpdateRequest(
             name="Updated Name",
@@ -117,7 +117,7 @@ class TestSourceResponseModel:
 
     def test_source_response_from_config(self):
         """Test SourceResponse.from_config factory method."""
-        from api.endpoints.sources import SourceResponse
+        from api.endpoints.content.sources import SourceResponse
         from modules.ingestion.domain.models import SourceConfig
 
         config = SourceConfig(
@@ -144,7 +144,7 @@ class TestSourcesEndpoint:
     @pytest.mark.asyncio
     async def test_list_sources_endpoint(self):
         """Test GET /sources endpoint."""
-        from api.endpoints.sources import list_sources
+        from api.endpoints.content.sources import list_sources
         from modules.ingestion.domain.models import SourceConfig
 
         mock_repo = AsyncMock()
@@ -172,7 +172,7 @@ class TestSourcesEndpoint:
     @pytest.mark.asyncio
     async def test_create_source_endpoint_success(self):
         """Test POST /sources endpoint creates new source."""
-        from api.endpoints.sources import SourceCreateRequest, create_source
+        from api.endpoints.content.sources import SourceCreateRequest, create_source
         from modules.ingestion.domain.models import SourceConfig
 
         new_config = SourceConfig(
@@ -213,7 +213,7 @@ class TestSourcesEndpoint:
     @pytest.mark.asyncio
     async def test_create_source_endpoint_conflict(self):
         """Test POST /sources returns 409 for existing source."""
-        from api.endpoints.sources import SourceCreateRequest, create_source
+        from api.endpoints.content.sources import SourceCreateRequest, create_source
         from modules.ingestion.domain.models import SourceConfig
 
         mock_repo = AsyncMock()
@@ -242,7 +242,7 @@ class TestSourcesEndpoint:
     @pytest.mark.asyncio
     async def test_update_source_endpoint_success(self):
         """Test PUT /sources/{source_id} endpoint."""
-        from api.endpoints.sources import SourceUpdateRequest, update_source
+        from api.endpoints.content.sources import SourceUpdateRequest, update_source
         from modules.ingestion.domain.models import SourceConfig
 
         mock_existing = SourceConfig(
@@ -285,7 +285,7 @@ class TestSourcesEndpoint:
     @pytest.mark.asyncio
     async def test_update_source_endpoint_not_found(self):
         """Test PUT /sources/{source_id} returns 404 for missing source."""
-        from api.endpoints.sources import SourceUpdateRequest, update_source
+        from api.endpoints.content.sources import SourceUpdateRequest, update_source
 
         mock_repo = AsyncMock()
         mock_repo.get = AsyncMock(return_value=None)
@@ -304,7 +304,7 @@ class TestSourcesEndpoint:
     @pytest.mark.asyncio
     async def test_delete_source_endpoint_success(self):
         """Test DELETE /sources/{source_id} endpoint."""
-        from api.endpoints.sources import delete_source
+        from api.endpoints.content.sources import delete_source
 
         mock_repo = AsyncMock()
         mock_repo.delete = AsyncMock(return_value=True)
@@ -319,7 +319,7 @@ class TestSourcesEndpoint:
     @pytest.mark.asyncio
     async def test_delete_source_endpoint_not_found(self):
         """Test DELETE /sources/{source_id} returns 404 for missing source."""
-        from api.endpoints.sources import delete_source
+        from api.endpoints.content.sources import delete_source
 
         mock_repo = AsyncMock()
         mock_repo.delete = AsyncMock(return_value=False)

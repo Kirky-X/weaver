@@ -1,0 +1,59 @@
+# Path Changes Tracker
+# Tracks all file movements and import path changes during refactoring
+# Format: old_path -> new_path with affected files list
+
+metadata:
+  started: "2026-04-10"
+  branch: "refactor/restructure"
+
+changes:
+  # P0: Community sub-module
+  community:
+    old_base: "src/modules/knowledge/graph/"
+    new_base: "src/modules/knowledge/graph/community/"
+    files: []
+    external_refs_updated: []
+
+  # P1: Core/LLM reorganization
+  llm:
+    old_base: "src/core/llm/"
+    new_base: "src/core/llm/"
+    subdirs:
+      core: []
+      routing: []
+      config: []
+      resilience: []
+      validation: []
+      evaluation: []
+    external_refs_updated: []
+
+  # P1: Storage
+  storage:
+    changes: []
+
+  # P1: Ingestion
+  ingestion:
+    changes: []
+
+  # P2: Processing nodes
+  processing_nodes:
+    old_base: "src/modules/processing/nodes/"
+    new_base: "src/modules/processing/nodes/"
+    subdirs:
+      extraction: []
+      classification: []
+      merging: []
+      quality: []
+      vectorization: []
+
+  # P2: Memory
+  memory:
+    changes: []
+
+  # P3: Security
+  security:
+    changes: []
+
+  # P3: API Endpoints
+  api_endpoints:
+    changes: []

@@ -58,7 +58,7 @@ from config.subconfigs import (
     TemporalInferenceSettings,
     URLSecuritySettings,
 )
-from core.llm.config import LLMSettings
+from core.llm.config.config import LLMSettings
 from modules.processing.pipeline.config import PipelineSettings
 
 # Load environment variables from .env file

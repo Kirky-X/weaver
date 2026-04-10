@@ -7,7 +7,7 @@ import socket
 
 import pytest
 
-from core.security.validator import URLValidator, URLValidatorConfig
+from core.security.validation.validator import URLValidator, URLValidatorConfig
 from modules.ingestion.fetching.httpx_fetcher import HttpxFetcher
 from modules.ingestion.fetching.smart_fetcher import SmartFetcher
 
@@ -104,7 +104,7 @@ class TestSSRFProtection:
     @pytest.mark.asyncio
     async def test_ssrf_checker_is_safe_url(self) -> None:
         """Test SSRFChecker is_safe_url method with real DNS resolution."""
-        from core.security.ssrf import SSRFChecker
+        from core.security.validation.ssrf import SSRFChecker
 
         checker = SSRFChecker()
 
@@ -116,7 +116,7 @@ class TestSSRFProtection:
     @pytest.mark.asyncio
     async def test_ssrf_checker_blocks_private_urls(self) -> None:
         """Test SSRFChecker blocks private IPs with real network checks."""
-        from core.security.ssrf import SSRFChecker
+        from core.security.validation.ssrf import SSRFChecker
 
         checker = SSRFChecker()
 
@@ -129,7 +129,7 @@ class TestSSRFProtection:
     @pytest.mark.asyncio
     async def test_ssrf_checker_blocks_localhost_variants(self) -> None:
         """Test SSRFChecker blocks various localhost representations."""
-        from core.security.ssrf import SSRFChecker
+        from core.security.validation.ssrf import SSRFChecker
 
         checker = SSRFChecker()
 
@@ -143,12 +143,12 @@ class TestSSRFProtection:
     @pytest.mark.asyncio
     async def test_fetcher_rejects_private_url(self) -> None:
         """Test HttpxFetcher rejects requests to private IPs with SSRF protection."""
-        from core.security.ssrf import SSRFError
+        from core.security.validation.ssrf import SSRFError
 
         httpx_fetcher = HttpxFetcher(timeout=5.0)
 
         # Create SSRF checker
-        from core.security.ssrf import SSRFChecker
+        from core.security.validation.ssrf import SSRFChecker
 
         checker = SSRFChecker()
 

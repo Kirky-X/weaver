@@ -54,10 +54,10 @@ class TestCommunityDetectionWorkflow:
         # The rebuild endpoint creates a CommunityDetector internally,
         # so we mock the class itself.
         with patch(
-            "modules.knowledge.graph.community_detector.CommunityDetector.rebuild_communities",
+            "modules.knowledge.graph.community.detector.CommunityDetector.rebuild_communities",
             new_callable=AsyncMock,
         ) as mock_rebuild:
-            from modules.knowledge.graph.community_models import CommunityDetectionResult
+            from modules.knowledge.graph.community.models import CommunityDetectionResult
 
             mock_rebuild.return_value = CommunityDetectionResult(
                 communities=[],
@@ -101,7 +101,7 @@ class TestCommunityDetectionWorkflow:
                 return_value=None,
             ),
         ):
-            from modules.knowledge.graph.community_models import Community
+            from modules.knowledge.graph.community.models import Community
 
             mock_list.return_value = [
                 Community(
@@ -139,7 +139,7 @@ class TestCommunityDetectionWorkflow:
         auth_headers: dict[str, str],
     ) -> None:
         """Test getting individual community detail."""
-        from modules.knowledge.graph.community_models import Community
+        from modules.knowledge.graph.community.models import Community
 
         mock_community = Community(
             id="comm-1",
@@ -206,7 +206,7 @@ class TestCommunityDetectionWorkflow:
             "modules.knowledge.graph.community_report_generator.CommunityReportGenerator.regenerate_report",
             new_callable=AsyncMock,
         ) as mock_regenerate:
-            from modules.knowledge.graph.community_report_generator import ReportGenerationResult
+            from modules.knowledge.graph.community.report_generator import ReportGenerationResult
 
             mock_regenerate.return_value = ReportGenerationResult(
                 community_id="comm-1",
@@ -348,10 +348,10 @@ class TestCommunityDetectionScheduler:
     ) -> None:
         """Test forcing a community rebuild."""
         with patch(
-            "modules.knowledge.graph.community_detector.CommunityDetector.rebuild_communities",
+            "modules.knowledge.graph.community.detector.CommunityDetector.rebuild_communities",
             new_callable=AsyncMock,
         ) as mock_rebuild:
-            from modules.knowledge.graph.community_models import CommunityDetectionResult
+            from modules.knowledge.graph.community.models import CommunityDetectionResult
 
             mock_rebuild.return_value = CommunityDetectionResult(
                 communities=[],

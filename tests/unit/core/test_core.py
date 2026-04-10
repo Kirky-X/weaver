@@ -190,7 +190,7 @@ class TestTokenBudget:
 
     def test_token_budget_manager_initialization(self):
         """Test TokenBudgetManager can be created."""
-        from core.llm.token_budget import DEFAULT_LIMIT, TokenBudgetManager
+        from core.llm.config.token_budget import DEFAULT_LIMIT, TokenBudgetManager
 
         manager = TokenBudgetManager()
         assert manager is not None

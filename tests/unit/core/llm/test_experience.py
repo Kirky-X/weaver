@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from core.event.bus import EventBus, LLMUsageEvent
-from core.llm.experience import ExperienceStore
+from core.llm.evaluation.experience import ExperienceStore
 from core.llm.types import TokenUsage
 
 

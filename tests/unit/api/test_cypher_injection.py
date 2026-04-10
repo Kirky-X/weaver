@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import ValidationError
 
-from api.endpoints.graph_visualization import SubgraphRequest
+from api.endpoints.graph.graph_visualization import SubgraphRequest
 
 
 class TestCypherInjectionProtection:

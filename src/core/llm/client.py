@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from pydantic import BaseModel
 
 from core.constants import RedisKeys
-from core.llm.pool import ProviderPool
-from core.llm.router import LabelRouter
+from core.llm.resilience.pool import ProviderPool
+from core.llm.routing.router import LabelRouter
 from core.llm.types import (
     CallPoint,
     GlobalConfig,
@@ -26,8 +26,8 @@ from core.utils.time_utils import get_current_time_with_timezone
 
 if TYPE_CHECKING:
     from core.event.bus import EventBus
-    from core.llm.eval_runner import EvalRunner
-    from core.llm.smart_router import SmartRouter
+    from core.llm.evaluation.eval_runner import EvalRunner
+    from core.llm.routing.smart_router import SmartRouter
     from core.prompt.loader import PromptLoader
 
 log = get_logger("llm_client")

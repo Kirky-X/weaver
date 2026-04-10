@@ -17,7 +17,7 @@ class TestGetTaskStatusWithStats:
     @pytest.mark.asyncio
     async def test_get_task_status_returns_progress_stats(self):
         """Test that task status includes article progress statistics."""
-        from api.endpoints.pipeline import get_task_status
+        from api.endpoints.content.pipeline import get_task_status
 
         task_id = str(uuid.uuid4())
 
@@ -48,7 +48,7 @@ class TestGetTaskStatusWithStats:
         mock_postgres = MagicMock()
 
         # Patch get_article_repo
-        with patch("api.endpoints.pipeline.ArticleRepo") as MockArticleRepo:
+        with patch("api.endpoints.content.pipeline.ArticleRepo") as MockArticleRepo:
             MockArticleRepo.return_value = mock_article_repo
             result = await get_task_status(
                 task_id=task_id,
@@ -68,7 +68,7 @@ class TestGetTaskStatusWithStats:
     @pytest.mark.asyncio
     async def test_get_task_status_stats_failure_uses_defaults(self):
         """Test that stats retrieval failure uses default zero values."""
-        from api.endpoints.pipeline import get_task_status
+        from api.endpoints.content.pipeline import get_task_status
 
         task_id = str(uuid.uuid4())
 
@@ -85,7 +85,7 @@ class TestGetTaskStatusWithStats:
 
         mock_postgres = MagicMock()
 
-        with patch("api.endpoints.pipeline.ArticleRepo") as MockArticleRepo:
+        with patch("api.endpoints.content.pipeline.ArticleRepo") as MockArticleRepo:
             mock_article_repo = MagicMock()
             mock_article_repo.get_task_progress_stats = AsyncMock(
                 side_effect=Exception("DB connection error")
@@ -108,7 +108,7 @@ class TestGetTaskStatusWithStats:
     @pytest.mark.asyncio
     async def test_get_task_status_task_not_found_returns_404(self):
         """Test that a non-existent task_id returns 404."""
-        from api.endpoints.pipeline import get_task_status
+        from api.endpoints.content.pipeline import get_task_status
 
         mock_cache = MagicMock()
         mock_cache.hget = AsyncMock(return_value=None)
@@ -128,7 +128,7 @@ class TestGetTaskStatusWithStats:
     @pytest.mark.asyncio
     async def test_get_task_status_invalid_uuid_still_calls_redis(self):
         """Test behavior with invalid UUID format (string is accepted as-is by the endpoint)."""
-        from api.endpoints.pipeline import get_task_status
+        from api.endpoints.content.pipeline import get_task_status
 
         mock_cache = MagicMock()
         mock_cache.hget = AsyncMock(return_value=None)
@@ -153,7 +153,7 @@ class TestQueueStatsEndpoint:
     @pytest.mark.asyncio
     async def test_get_queue_stats_returns_queue_depth(self):
         """Test queue/stats returns queue depth from Redis."""
-        from api.endpoints.pipeline import get_queue_stats
+        from api.endpoints.content.pipeline import get_queue_stats
 
         mock_cache = MagicMock()
         mock_cache.llen = AsyncMock(return_value=7)
@@ -197,7 +197,7 @@ class TestQueueStatsEndpoint:
     @pytest.mark.asyncio
     async def test_get_queue_stats_handles_malformed_task_data(self):
         """Test queue/stats skips tasks with malformed JSON data."""
-        from api.endpoints.pipeline import get_queue_stats
+        from api.endpoints.content.pipeline import get_queue_stats
 
         mock_cache = MagicMock()
         mock_cache.llen = AsyncMock(return_value=1)
@@ -245,7 +245,7 @@ class TestTriggerPipelineEdgeCases:
     @pytest.mark.asyncio
     async def test_trigger_with_max_items_sets_scheduler_param(self):
         """Test that max_items in request is passed to scheduler.trigger_now."""
-        from api.endpoints.pipeline import TriggerRequest, trigger_pipeline
+        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
 
         task_uuid = uuid.uuid4()
 
@@ -257,7 +257,7 @@ class TestTriggerPipelineEdgeCases:
 
         request = TriggerRequest(source_id="test-source", max_items=50)
 
-        with patch("api.endpoints.pipeline.uuid.uuid4", return_value=task_uuid):
+        with patch("api.endpoints.content.pipeline.uuid.uuid4", return_value=task_uuid):
             result = await trigger_pipeline(
                 request=request,
                 _="test-key",
@@ -274,7 +274,7 @@ class TestTriggerPipelineEdgeCases:
     @pytest.mark.asyncio
     async def test_trigger_with_force_flag_sets_scheduler_param(self):
         """Test that force=True in request is handled."""
-        from api.endpoints.pipeline import TriggerRequest, trigger_pipeline
+        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
 
         task_uuid = uuid.uuid4()
 
@@ -286,7 +286,7 @@ class TestTriggerPipelineEdgeCases:
 
         request = TriggerRequest(source_id="test-source", force=True)
 
-        with patch("api.endpoints.pipeline.uuid.uuid4", return_value=task_uuid):
+        with patch("api.endpoints.content.pipeline.uuid.uuid4", return_value=task_uuid):
             result = await trigger_pipeline(
                 request=request,
                 _="test-key",
@@ -299,7 +299,7 @@ class TestTriggerPipelineEdgeCases:
     @pytest.mark.asyncio
     async def test_trigger_redis_hset_called_with_task_status(self):
         """Test that Redis hset is called to store task status on trigger."""
-        from api.endpoints.pipeline import TriggerRequest, trigger_pipeline
+        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
 
         task_uuid = uuid.uuid4()
 
@@ -311,7 +311,7 @@ class TestTriggerPipelineEdgeCases:
 
         request = TriggerRequest(source_id="test-source")
 
-        with patch("api.endpoints.pipeline.uuid.uuid4", return_value=task_uuid):
+        with patch("api.endpoints.content.pipeline.uuid.uuid4", return_value=task_uuid):
             await trigger_pipeline(
                 request=request,
                 _="test-key",
@@ -329,7 +329,7 @@ class TestProcessSingleUrlEndpoint:
     @pytest.mark.asyncio
     async def test_process_url_returns_task_id(self):
         """Test that processing a URL returns a task ID."""
-        from api.endpoints.pipeline import ProcessUrlRequest, process_single_url
+        from api.endpoints.content.pipeline import ProcessUrlRequest, process_single_url
 
         task_uuid = uuid.uuid4()
 
@@ -346,9 +346,11 @@ class TestProcessSingleUrlEndpoint:
         mock_validator = MagicMock()
         mock_validator.validate = AsyncMock(return_value=MagicMock(is_safe=True))
 
-        with patch("api.endpoints.pipeline._get_url_validator", return_value=mock_validator):
-            with patch("api.endpoints.pipeline.uuid.uuid4", return_value=task_uuid):
-                with patch("api.endpoints.pipeline.asyncio.create_task"):
+        with patch(
+            "api.endpoints.content.pipeline._get_url_validator", return_value=mock_validator
+        ):
+            with patch("api.endpoints.content.pipeline.uuid.uuid4", return_value=task_uuid):
+                with patch("api.endpoints.content.pipeline.asyncio.create_task"):
                     result = await process_single_url(
                         request=request,
                         _="test-key",
@@ -362,7 +364,7 @@ class TestProcessSingleUrlEndpoint:
     @pytest.mark.asyncio
     async def test_process_url_blocks_ssrf_localhost(self):
         """Test that SSRF URLs are blocked."""
-        from api.endpoints.pipeline import ProcessUrlRequest, process_single_url
+        from api.endpoints.content.pipeline import ProcessUrlRequest, process_single_url
         from core.security import URLValidationError
 
         mock_cache = MagicMock()
@@ -376,7 +378,9 @@ class TestProcessSingleUrlEndpoint:
             side_effect=URLValidationError("SSRF detected: localhost", "SSRF")
         )
 
-        with patch("api.endpoints.pipeline._get_url_validator", return_value=mock_validator):
+        with patch(
+            "api.endpoints.content.pipeline._get_url_validator", return_value=mock_validator
+        ):
             with pytest.raises(HTTPException) as exc_info:
                 await process_single_url(
                     request=request,
@@ -391,7 +395,7 @@ class TestProcessSingleUrlEndpoint:
     @pytest.mark.asyncio
     async def test_process_url_blocks_ssrf_private_ip(self):
         """Test that private IP addresses are blocked."""
-        from api.endpoints.pipeline import ProcessUrlRequest, process_single_url
+        from api.endpoints.content.pipeline import ProcessUrlRequest, process_single_url
         from core.security import URLValidationError
 
         mock_cache = MagicMock()
@@ -405,7 +409,9 @@ class TestProcessSingleUrlEndpoint:
             side_effect=URLValidationError("SSRF detected: private IP", "SSRF")
         )
 
-        with patch("api.endpoints.pipeline._get_url_validator", return_value=mock_validator):
+        with patch(
+            "api.endpoints.content.pipeline._get_url_validator", return_value=mock_validator
+        ):
             with pytest.raises(HTTPException) as exc_info:
                 await process_single_url(
                     request=request,
@@ -420,7 +426,7 @@ class TestProcessSingleUrlEndpoint:
     @pytest.mark.asyncio
     async def test_process_url_blocks_ssrf_aws_metadata(self):
         """Test that AWS metadata endpoint is blocked."""
-        from api.endpoints.pipeline import ProcessUrlRequest, process_single_url
+        from api.endpoints.content.pipeline import ProcessUrlRequest, process_single_url
         from core.security import URLValidationError
 
         mock_cache = MagicMock()
@@ -434,7 +440,9 @@ class TestProcessSingleUrlEndpoint:
             side_effect=URLValidationError("SSRF detected: metadata endpoint", "SSRF")
         )
 
-        with patch("api.endpoints.pipeline._get_url_validator", return_value=mock_validator):
+        with patch(
+            "api.endpoints.content.pipeline._get_url_validator", return_value=mock_validator
+        ):
             with pytest.raises(HTTPException) as exc_info:
                 await process_single_url(
                     request=request,
@@ -448,7 +456,7 @@ class TestProcessSingleUrlEndpoint:
     @pytest.mark.asyncio
     async def test_process_url_whitelist_mode_blocks_non_allowed_domain(self):
         """Test that whitelist mode blocks non-allowed domains."""
-        from api.endpoints.pipeline import ProcessUrlRequest, process_single_url
+        from api.endpoints.content.pipeline import ProcessUrlRequest, process_single_url
 
         mock_cache = MagicMock()
         mock_settings = MagicMock()
@@ -461,7 +469,9 @@ class TestProcessSingleUrlEndpoint:
         mock_validator = MagicMock()
         mock_validator.validate = AsyncMock(return_value=MagicMock(is_safe=True))
 
-        with patch("api.endpoints.pipeline._get_url_validator", return_value=mock_validator):
+        with patch(
+            "api.endpoints.content.pipeline._get_url_validator", return_value=mock_validator
+        ):
             with pytest.raises(HTTPException) as exc_info:
                 await process_single_url(
                     request=request,
@@ -476,7 +486,7 @@ class TestProcessSingleUrlEndpoint:
     @pytest.mark.asyncio
     async def test_process_url_whitelist_mode_allows_subdomain(self):
         """Test that whitelist mode allows subdomains of allowed domains."""
-        from api.endpoints.pipeline import ProcessUrlRequest, process_single_url
+        from api.endpoints.content.pipeline import ProcessUrlRequest, process_single_url
 
         task_uuid = uuid.uuid4()
 
@@ -494,9 +504,11 @@ class TestProcessSingleUrlEndpoint:
         mock_validator = MagicMock()
         mock_validator.validate = AsyncMock(return_value=MagicMock(is_safe=True))
 
-        with patch("api.endpoints.pipeline._get_url_validator", return_value=mock_validator):
-            with patch("api.endpoints.pipeline.uuid.uuid4", return_value=task_uuid):
-                with patch("api.endpoints.pipeline.asyncio.create_task"):
+        with patch(
+            "api.endpoints.content.pipeline._get_url_validator", return_value=mock_validator
+        ):
+            with patch("api.endpoints.content.pipeline.uuid.uuid4", return_value=task_uuid):
+                with patch("api.endpoints.content.pipeline.asyncio.create_task"):
                     result = await process_single_url(
                         request=request,
                         _="test-key",
@@ -511,7 +523,7 @@ class TestProcessSingleUrlEndpoint:
         """Test that invalid URL format is rejected."""
         from pydantic import ValidationError
 
-        from api.endpoints.pipeline import ProcessUrlRequest, process_single_url
+        from api.endpoints.content.pipeline import ProcessUrlRequest, process_single_url
 
         # Missing scheme
         with pytest.raises(ValidationError) as exc_info:
@@ -524,7 +536,7 @@ class TestProcessSingleUrlEndpoint:
         """Test that file:// scheme is rejected."""
         from pydantic import ValidationError
 
-        from api.endpoints.pipeline import ProcessUrlRequest, process_single_url
+        from api.endpoints.content.pipeline import ProcessUrlRequest, process_single_url
 
         with pytest.raises(ValidationError) as exc_info:
             ProcessUrlRequest(url="file:///etc/passwd")
@@ -538,7 +550,7 @@ class TestProcessSingleUrlBackground:
     @pytest.mark.asyncio
     async def test_background_process_updates_status_to_running(self):
         """Test that background processing updates status to running."""
-        from api.endpoints.pipeline import _process_single_url
+        from api.endpoints.content.pipeline import _process_single_url
 
         mock_cache = MagicMock()
         mock_cache.hget = AsyncMock(return_value=b'{"task_id": "test-id"}')
@@ -567,7 +579,7 @@ class TestProcessSingleUrlBackground:
     @pytest.mark.asyncio
     async def test_background_process_handles_fetch_error(self):
         """Test that FetchError is handled and status set to failed."""
-        from api.endpoints.pipeline import _process_single_url
+        from api.endpoints.content.pipeline import _process_single_url
         from modules.ingestion.fetching.exceptions import FetchError
 
         mock_cache = MagicMock()

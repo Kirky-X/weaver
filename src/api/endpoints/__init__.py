@@ -17,19 +17,27 @@ Example usage:
 """
 
 from api.endpoints.admin import router as admin_router
-from api.endpoints.articles import router as articles_router
+from api.endpoints.communities import (
+    _redirect_router as communities_redirect_router,
+    router as communities_router,
+)
+from api.endpoints.content.articles import router as articles_router
+from api.endpoints.content.pipeline import router as pipeline_router
+from api.endpoints.content.search import router as search_router
+from api.endpoints.content.sources import router as sources_router
 from api.endpoints.graph import router as graph_router
-from api.endpoints.graph_metrics import router as graph_metrics_router
-from api.endpoints.graph_visualization import router as graph_visualization_router
-from api.endpoints.pipeline import router as pipeline_router
-from api.endpoints.sources import router as sources_router
+from api.endpoints.graph.graph_metrics import router as graph_metrics_router
+from api.endpoints.graph.graph_visualization import router as graph_visualization_router
 
 __all__ = [
     "admin_router",
     "articles_router",
+    "communities_redirect_router",
+    "communities_router",
     "graph_metrics_router",
     "graph_router",
     "graph_visualization_router",
     "pipeline_router",
+    "search_router",
     "sources_router",
 ]

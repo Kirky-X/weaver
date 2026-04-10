@@ -92,7 +92,7 @@ class TestListArticlesPagination:
     @pytest.mark.asyncio
     async def test_default_page_is_1(self):
         """Test default page number is 1."""
-        from api.endpoints.articles import list_articles
+        from api.endpoints.content.articles import list_articles
 
         article = _make_mock_article()
         pool = _make_mock_pool([article], total=1)
@@ -115,7 +115,7 @@ class TestListArticlesPagination:
     @pytest.mark.asyncio
     async def test_custom_page_and_page_size(self):
         """Test custom page and page_size parameters."""
-        from api.endpoints.articles import list_articles
+        from api.endpoints.content.articles import list_articles
 
         articles = [_make_mock_article(title=f"Article {i}") for i in range(10)]
         pool = _make_mock_pool(articles, total=50)
@@ -139,7 +139,7 @@ class TestListArticlesPagination:
     @pytest.mark.asyncio
     async def test_total_pages_calculation(self):
         """Test total_pages is computed correctly."""
-        from api.endpoints.articles import list_articles
+        from api.endpoints.content.articles import list_articles
 
         articles = [_make_mock_article() for _ in range(10)]
         pool = _make_mock_pool(articles, total=25)
@@ -164,7 +164,7 @@ class TestListArticlesPagination:
     @pytest.mark.asyncio
     async def test_page_out_of_range_returns_empty_items(self):
         """Test requesting a page beyond available data returns empty items."""
-        from api.endpoints.articles import list_articles
+        from api.endpoints.content.articles import list_articles
 
         # Pool returns 0 articles for this page
         pool = _make_mock_pool([], total=5)
@@ -192,7 +192,7 @@ class TestListArticlesFiltering:
     @pytest.mark.asyncio
     async def test_filter_by_source_host(self):
         """Test filtering articles by source_host."""
-        from api.endpoints.articles import list_articles
+        from api.endpoints.content.articles import list_articles
 
         articles = [_make_mock_article(source_host="news.example.com")]
         pool = _make_mock_pool(articles, total=1)
@@ -216,7 +216,7 @@ class TestListArticlesFiltering:
     @pytest.mark.asyncio
     async def test_filter_by_min_score(self):
         """Test filtering articles by minimum score."""
-        from api.endpoints.articles import list_articles
+        from api.endpoints.content.articles import list_articles
 
         article = _make_mock_article(score=0.85)
         pool = _make_mock_pool([article], total=1)
@@ -239,7 +239,7 @@ class TestListArticlesFiltering:
     @pytest.mark.asyncio
     async def test_combined_filters(self):
         """Test using multiple filters simultaneously."""
-        from api.endpoints.articles import list_articles
+        from api.endpoints.content.articles import list_articles
 
         article = _make_mock_article(source_host="tech.example.com", score=0.9)
         pool = _make_mock_pool([article], total=1)
@@ -266,7 +266,7 @@ class TestListArticlesSorting:
     @pytest.mark.asyncio
     async def test_sort_by_created_at_ascending(self):
         """Test sorting by created_at in ascending order."""
-        from api.endpoints.articles import list_articles
+        from api.endpoints.content.articles import list_articles
 
         articles = [_make_mock_article()]
         pool = _make_mock_pool(articles, total=1)
@@ -290,7 +290,7 @@ class TestListArticlesSorting:
     @pytest.mark.asyncio
     async def test_sort_by_score_descending(self):
         """Test sorting by score in descending order."""
-        from api.endpoints.articles import list_articles
+        from api.endpoints.content.articles import list_articles
 
         articles = [_make_mock_article(score=0.9)]
         pool = _make_mock_pool(articles, total=1)
@@ -317,7 +317,7 @@ class TestListArticlesEmptyResults:
     @pytest.mark.asyncio
     async def test_no_articles_returns_empty_list(self):
         """Test that zero articles returns an empty items list."""
-        from api.endpoints.articles import list_articles
+        from api.endpoints.content.articles import list_articles
 
         pool = _make_mock_pool([], total=0)
 
@@ -345,7 +345,7 @@ class TestGetArticleDetail:
     @pytest.mark.asyncio
     async def test_get_article_detail_returns_title_and_body(self):
         """Test that get_article returns full article detail."""
-        from api.endpoints.articles import get_article
+        from api.endpoints.content.articles import get_article
 
         article = _make_mock_article(
             article_id="12345678-1234-5678-1234-567812345678",
@@ -374,7 +374,7 @@ class TestGetArticleDetail:
     @pytest.mark.asyncio
     async def test_get_article_invalid_uuid_returns_400(self):
         """Test that invalid UUID format returns 400."""
-        from api.endpoints.articles import get_article
+        from api.endpoints.content.articles import get_article
 
         pool = MagicMock()
 
@@ -390,7 +390,7 @@ class TestGetArticleDetail:
     @pytest.mark.asyncio
     async def test_get_article_not_found_returns_404(self):
         """Test that non-existent article ID returns 404."""
-        from api.endpoints.articles import get_article
+        from api.endpoints.content.articles import get_article
 
         result_mock = MagicMock()
         result_mock.scalar_one_or_none.return_value = None
@@ -423,7 +423,7 @@ class TestArticlesEndpointHTTPLevel:
         from fastapi.testclient import TestClient
 
         from api.dependencies import get_relational_pool
-        from api.endpoints.articles import router
+        from api.endpoints.content.articles import router
 
         app = FastAPI()
         app.include_router(router)
@@ -442,7 +442,7 @@ class TestArticlesEndpointHTTPLevel:
         from fastapi.testclient import TestClient
 
         from api.dependencies import get_relational_pool
-        from api.endpoints.articles import router
+        from api.endpoints.content.articles import router
 
         app = FastAPI()
         app.include_router(router)

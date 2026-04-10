@@ -13,7 +13,7 @@ class TestSearchModels:
 
     def test_search_response_model(self) -> None:
         """Test SearchResponse model."""
-        from api.endpoints.search import SearchResponse
+        from api.endpoints.content.search import SearchResponse
 
         response = SearchResponse(
             query="test query",
@@ -35,7 +35,7 @@ class TestSearchModels:
 
     def test_drift_search_request_model(self) -> None:
         """Test DriftSearchRequest model."""
-        from api.endpoints.search import DriftSearchRequest
+        from api.endpoints.content.search import DriftSearchRequest
 
         request = DriftSearchRequest(
             query="test query",
@@ -50,7 +50,7 @@ class TestSearchModels:
 
     def test_drift_search_response_model(self) -> None:
         """Test DriftSearchResponse model."""
-        from api.endpoints.search import DriftSearchResponse
+        from api.endpoints.content.search import DriftSearchResponse
 
         response = DriftSearchResponse(
             query="test query",
@@ -70,7 +70,7 @@ class TestSearchModels:
 
     def test_causal_search_request_model(self) -> None:
         """Test CausalSearchRequest model."""
-        from api.endpoints.search import CausalSearchRequest
+        from api.endpoints.content.search import CausalSearchRequest
 
         request = CausalSearchRequest(
             query="cause and effect",
@@ -83,7 +83,7 @@ class TestSearchModels:
 
     def test_causal_search_response_model(self) -> None:
         """Test CausalSearchResponse model."""
-        from api.endpoints.search import CausalSearchResponse
+        from api.endpoints.content.search import CausalSearchResponse
 
         response = CausalSearchResponse(
             query="why did X happen?",
@@ -97,7 +97,7 @@ class TestSearchModels:
 
     def test_temporal_search_request_model(self) -> None:
         """Test TemporalSearchRequest model."""
-        from api.endpoints.search import TemporalSearchRequest
+        from api.endpoints.content.search import TemporalSearchRequest
 
         request = TemporalSearchRequest(
             query="recent events",
@@ -110,7 +110,7 @@ class TestSearchModels:
 
     def test_temporal_search_response_model(self) -> None:
         """Test TemporalSearchResponse model."""
-        from api.endpoints.search import TemporalSearchResponse
+        from api.endpoints.content.search import TemporalSearchResponse
 
         response = TemporalSearchResponse(
             query="when did X happen?",
@@ -128,13 +128,13 @@ class TestSearchRouter:
 
     def test_router_prefix(self) -> None:
         """Test router has correct prefix."""
-        from api.endpoints.search import router
+        from api.endpoints.content.search import router
 
         assert router.prefix == "/search"
 
     def test_router_tags(self) -> None:
         """Test router has correct tags."""
-        from api.endpoints.search import router
+        from api.endpoints.content.search import router
 
         assert "search" in router.tags
 
@@ -145,7 +145,7 @@ class TestSearchEndpoints:
     @pytest.mark.asyncio
     async def test_search_response_creation(self) -> None:
         """Test SearchResponse creation."""
-        from api.endpoints.search import SearchResponse
+        from api.endpoints.content.search import SearchResponse
 
         response = SearchResponse(
             query="test query",

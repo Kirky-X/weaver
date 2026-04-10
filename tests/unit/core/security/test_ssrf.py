@@ -3,7 +3,7 @@
 
 import pytest
 
-from core.security.ssrf import SSRFChecker, SSRFError
+from core.security.validation.ssrf import SSRFChecker, SSRFError
 
 
 class TestSSRFChecker:
