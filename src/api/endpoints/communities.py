@@ -400,91 +400,6 @@ async def list_communities(
         raise HTTPException(status_code=500, detail=f"Failed to list communities: {exc!s}")
 
 
-@router.get("/{community_id}", response_model=APIResponse[CommunityDetailResponse])
-async def get_community(
-    community_id: str,
-    _: str = Depends(verify_api_key),
-    pool: GraphPool = Depends(get_graph_pool),
-    pool_type: str = Depends(get_graph_pool_type),
-) -> APIResponse[CommunityDetailResponse]:
-    """Get detailed information about a specific community.
-
-    Args:
-        community_id: Community UUID.
-        _: Verified API key.
-        pool: GraphPool connection pool.
-
-    Returns:
-        Community details with entities and report.
-
-    """
-    repo = Neo4jCommunityRepo(pool, database_type=_get_db_type(pool_type))
-
-    try:
-        community = await repo.get_community(community_id)
-
-        if community is None:
-            raise HTTPException(status_code=404, detail="Community not found")
-
-        # Get entities
-        entities_query = """
-        MATCH (c:Community {id: $community_id})-[:HAS_ENTITY]->(e:Entity)
-        RETURN e.canonical_name AS name, e.type AS type
-        ORDER BY e.canonical_name
-        LIMIT 50
-        """
-        entities_result = await pool.execute_query(
-            entities_query,
-            {"community_id": community_id},
-        )
-        entities = [
-            {"name": r.get("name", ""), "type": r.get("type", "未知")} for r in entities_result
-        ]
-
-        # Get children
-        children_query = """
-        MATCH (c:Community {parent_id: $community_id})
-        RETURN c.id AS id
-        """
-        children_result = await pool.execute_query(
-            children_query,
-            {"community_id": community_id},
-        )
-        children_ids = [r.get("id", "") for r in children_result]
-
-        # Get report
-        report = await repo.get_report(community_id)
-        report_data = None
-        if report:
-            report_data = {
-                "summary": report.summary,
-                "rank": report.rank,
-                "key_entities": report.key_entities,
-            }
-
-        return success_response(
-            CommunityDetailResponse(
-                id=community.id,
-                title=community.title,
-                level=community.level,
-                entity_count=community.entity_count,
-                parent_id=community.parent_id,
-                children_ids=children_ids,
-                rank=community.rank,
-                period=community.period,
-                modularity=community.modularity,
-                entities=entities,
-                report=report_data,
-            )
-        )
-
-    except HTTPException:
-        raise
-    except Exception as exc:
-        log.error("get_community_failed", community_id=community_id, error=str(exc))
-        raise HTTPException(status_code=500, detail=f"Failed to get community: {exc!s}")
-
-
 # ── Health Check Endpoints ───────────────────────────────────────
 
 
@@ -716,6 +631,91 @@ async def repair_health(
     except Exception as exc:
         log.error("repair_health_failed", error=str(exc))
         raise HTTPException(status_code=500, detail=f"Repair failed: {exc!s}")
+
+
+@router.get("/{community_id}", response_model=APIResponse[CommunityDetailResponse])
+async def get_community(
+    community_id: str,
+    _: str = Depends(verify_api_key),
+    pool: GraphPool = Depends(get_graph_pool),
+    pool_type: str = Depends(get_graph_pool_type),
+) -> APIResponse[CommunityDetailResponse]:
+    """Get detailed information about a specific community.
+
+    Args:
+        community_id: Community UUID.
+        _: Verified API key.
+        pool: GraphPool connection pool.
+
+    Returns:
+        Community details with entities and report.
+
+    """
+    repo = Neo4jCommunityRepo(pool, database_type=_get_db_type(pool_type))
+
+    try:
+        community = await repo.get_community(community_id)
+
+        if community is None:
+            raise HTTPException(status_code=404, detail="Community not found")
+
+        # Get entities
+        entities_query = """
+        MATCH (c:Community {id: $community_id})-[:HAS_ENTITY]->(e:Entity)
+        RETURN e.canonical_name AS name, e.type AS type
+        ORDER BY e.canonical_name
+        LIMIT 50
+        """
+        entities_result = await pool.execute_query(
+            entities_query,
+            {"community_id": community_id},
+        )
+        entities = [
+            {"name": r.get("name", ""), "type": r.get("type", "未知")} for r in entities_result
+        ]
+
+        # Get children
+        children_query = """
+        MATCH (c:Community {parent_id: $community_id})
+        RETURN c.id AS id
+        """
+        children_result = await pool.execute_query(
+            children_query,
+            {"community_id": community_id},
+        )
+        children_ids = [r.get("id", "") for r in children_result]
+
+        # Get report
+        report = await repo.get_report(community_id)
+        report_data = None
+        if report:
+            report_data = {
+                "summary": report.summary,
+                "rank": report.rank,
+                "key_entities": report.key_entities,
+            }
+
+        return success_response(
+            CommunityDetailResponse(
+                id=community.id,
+                title=community.title,
+                level=community.level,
+                entity_count=community.entity_count,
+                parent_id=community.parent_id,
+                children_ids=children_ids,
+                rank=community.rank,
+                period=community.period,
+                modularity=community.modularity,
+                entities=entities,
+                report=report_data,
+            )
+        )
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log.error("get_community_failed", community_id=community_id, error=str(exc))
+        raise HTTPException(status_code=500, detail=f"Failed to get community: {exc!s}")
 
 
 # ── Legacy Redirects ─────────────────────────────────────────────

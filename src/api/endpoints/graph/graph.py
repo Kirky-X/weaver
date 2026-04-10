@@ -221,7 +221,7 @@ async def get_entity_relations(
 @router.get("/relations/search", response_model=APIResponse[list[RelatedEntityResult]])
 async def search_relations(
     entity: str = Query(..., description="Entity canonical name"),
-    entity_type: str = Query("组织机构", description="Entity type"),
+    entity_type: str | None = Query(None, description="Entity type (optional)"),
     relation_types: str | None = Query(None, description="Comma-separated relation types"),
     limit: int = Query(50, ge=1, le=200),
     _: str = Depends(verify_api_key),
