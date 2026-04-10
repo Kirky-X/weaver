@@ -416,28 +416,28 @@ curl -X GET "http://localhost:8000/api/v1/graph/articles/{article_id}/graph" \
 ### 图谱健康度
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/graph/metrics/health" \
+curl -X GET "http://localhost:8000/api/v1/graph/metrics?view=health" \
   -H "X-API-Key: your-api-key"
 ```
 
 ### 完整图谱指标
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/graph/metrics/full" \
+curl -X GET "http://localhost:8000/api/v1/graph/metrics?view=full" \
   -H "X-API-Key: your-api-key"
 ```
 
 ### 社区列表
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/graph/communities?limit=20" \
+curl -X GET "http://localhost:8000/api/v1/admin/communities?limit=20" \
   -H "X-API-Key: your-api-key"
 ```
 
 ### 社区详情
 
 ```bash
-curl -X GET "http://localhost:8000/api/v1/graph/communities/{community_id}" \
+curl -X GET "http://localhost:8000/api/v1/admin/communities/{community_id}" \
   -H "X-API-Key: your-api-key"
 ```
 

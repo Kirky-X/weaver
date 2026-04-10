@@ -717,8 +717,8 @@ curl -s $H "$API_BASE/admin/authorities" | python3 -m json.tool
 curl -s $H "$API_BASE/admin/llm-failures" | python3 -m json.tool
 # 预期: 200
 
-# GET /api/v1/admin/llm-usage/summary — LLM 使用摘要
-curl -s $H "$API_BASE/admin/llm-usage/summary" | python3 -m json.tool
+# GET /api/v1/admin/llm-usage?group_by=summary — LLM 使用摘要
+curl -s $H "$API_BASE/admin/llm-usage?group_by=summary" | python3 -m json.tool
 # 预期: 200
 ```
 
