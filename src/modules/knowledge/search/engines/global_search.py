@@ -72,6 +72,7 @@ class GlobalSearchEngine:
         default_max_tokens: int = 12000,
         max_communities: int = 10,
         hybrid_engine: HybridSearchEngine | None = None,
+        local_engine: Any = None,
     ) -> None:
         """Initialize global search engine.
 
@@ -81,11 +82,13 @@ class GlobalSearchEngine:
             default_max_tokens: Default max tokens for context.
             max_communities: Maximum communities to process.
             hybrid_engine: Optional hybrid search engine for enhanced retrieval.
+            local_engine: Optional local search engine for fallback when no relevant communities found.
         """
         self._llm = llm
         self._default_max_tokens = default_max_tokens
         self._max_communities = max_communities
         self._hybrid_engine = hybrid_engine
+        self._local = local_engine
         self._context_builder = context_builder
         # Extract pool from context_builder for DRIFT search compatibility
         self._pool = getattr(context_builder, "_pool", None)
@@ -134,6 +137,23 @@ class GlobalSearchEngine:
                             "hint": "run POST /api/v1/admin/communities/rebuild",
                         },
                     )
+
+                # Communities exist but none are relevant - fall back to local search
+                if self._local is not None:
+                    log.info("global_search_fallback_to_local", query=query)
+                    local_result = await self._local.search(query=query, use_llm=use_llm)
+                    if isinstance(local_result, dict):
+                        local_result["metadata"] = {
+                            **local_result.get("metadata", {}),
+                            "search_type": SearchMode.HYBRID.value,
+                            "fallback_from_global": True,
+                        }
+                        return local_result
+                    elif hasattr(local_result, "metadata"):
+                        local_result.metadata["search_type"] = SearchMode.HYBRID.value
+                        local_result.metadata["fallback_from_global"] = True
+                        return local_result
+
                 return SearchResult(
                     query=query,
                     answer="No relevant communities found for the query.",

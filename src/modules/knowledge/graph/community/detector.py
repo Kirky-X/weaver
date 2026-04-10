@@ -414,9 +414,18 @@ class CommunityDetector:
                 # Calculate rank based on entity count and connections
                 rank = len(entity_ids) / 10.0  # Normalize
 
+                # Generate meaningful title from top entities
+                if entity_ids:
+                    title_entities = entity_ids[:3]
+                    title = ", ".join(title_entities)
+                    if len(entity_ids) > 3:
+                        title += f" +{len(entity_ids) - 3} more"
+                else:
+                    title = f"Community {cluster_id}"
+
                 community = Community(
                     id=community_id,
-                    title=f"Community {cluster_id}",
+                    title=title,
                     level=level,
                     parent_id=parent_community_id,
                     entity_ids=entity_ids,

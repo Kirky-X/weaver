@@ -174,40 +174,73 @@ class CommunityHealthRepo:
             Dict with total_communities, avg_entity_count, max_level,
                  communities_with_reports, stale_report_count, empty_community_count.
         """
-        query = """
-        MATCH (c:Community)
-        WITH count(c) AS total,
-             avg(c.entity_count) AS avg_size,
-             max(c.level) AS max_level,
-             sum(CASE WHEN EXISTS((c)<-[:REPORTS_ON]-(:CommunityReport)) THEN 1 ELSE 0 END) AS with_report
-        OPTIONAL MATCH (r:CommunityReport)
-        WHERE r.stale = true
-        WITH total, avg_size, max_level, with_report, count(r) AS stale_reports
-        OPTIONAL MATCH (empty:Community)
-        WHERE NOT (empty)-[:HAS_ENTITY]->(:Entity) AND empty.level >= 0
-        WITH total, avg_size, max_level, with_report, stale_reports, count(empty) AS empty_count
-        RETURN total AS total_communities,
-               avg_size AS avg_entity_count,
-               max_level,
-               with_report AS communities_with_reports,
-               stale_reports AS stale_report_count,
-               empty_count AS empty_community_count
-        """
-
+        # LadybugDB compatible: simple queries instead of complex EXISTS/CASE WHEN
         try:
-            results = await self._pool.execute_query(query)
-            if results and results[0]:
-                return dict(results[0])
+            # Get total communities
+            total_result = await self._pool.execute_query(
+                "MATCH (c:Community) RETURN count(c) AS total_communities"
+            )
+            total = total_result[0].get("total_communities", 0) if total_result else 0
+
+            if total == 0:
+                return {
+                    "total_communities": 0,
+                    "avg_entity_count": 0.0,
+                    "max_level": 0,
+                    "communities_with_reports": 0,
+                    "stale_report_count": 0,
+                    "empty_community_count": 0,
+                }
+
+            # Get average size and max level
+            stats_result = await self._pool.execute_query("""
+                MATCH (c:Community)
+                RETURN avg(c.entity_count) AS avg_size,
+                       max(c.level) AS max_level
+            """)
+            stats = stats_result[0] if stats_result else {}
+            avg_size = stats.get("avg_size", 0.0) or 0.0
+            max_level = stats.get("max_level", 0) or 0
+
+            # Get communities with reports
+            with_reports_result = await self._pool.execute_query("""
+                MATCH (c:Community)<-[:REPORTS_ON]-(r:CommunityReport)
+                RETURN count(DISTINCT c) AS with_reports
+            """)
+            with_reports = (
+                with_reports_result[0].get("with_reports", 0) if with_reports_result else 0
+            )
+
+            # Get stale report count - LadybugDB CommunityReport has no stale field
+            # Return 0 as we can't track stale status without the field
+            stale_count = 0
+
+            # Get empty communities count
+            empty_result = await self._pool.execute_query("""
+                MATCH (c:Community)
+                WHERE c.level >= 0
+                OPTIONAL MATCH (c)-[:HAS_ENTITY]->(e:Entity)
+                WITH c, count(e) AS entity_count
+                WHERE entity_count = 0
+                RETURN count(c) AS empty_count
+            """)
+            empty_count = empty_result[0].get("empty_count", 0) if empty_result else 0
+
             return {
-                "total_communities": 0,
-                "avg_entity_count": 0.0,
-                "max_level": 0,
-                "communities_with_reports": 0,
-                "stale_report_count": 0,
-                "empty_community_count": 0,
+                "total_communities": total,
+                "avg_entity_count": avg_size,
+                "max_level": max_level,
+                "communities_with_reports": with_reports,
+                "stale_report_count": stale_count,
+                "empty_community_count": empty_count,
             }
+
         except Exception as exc:
-            log.error("get_overall_metrics_failed", error=str(exc))
+            import traceback
+
+            log.error(
+                "get_overall_metrics_failed", error=str(exc), traceback=traceback.format_exc()
+            )
             return {
                 "total_communities": 0,
                 "avg_entity_count": 0.0,
