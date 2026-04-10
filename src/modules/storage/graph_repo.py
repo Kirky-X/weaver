@@ -24,19 +24,49 @@ class GraphRepository:
     Handles entity and article graph operations using the QueryBuilder pattern
     to abstract Neo4j/LadybugDB syntax differences.
 
+    Supports automatic fallback: if the primary database (Neo4j) returns
+    empty results, queries the fallback (LadybugDB).
+
     Args:
-        pool: Graph database pool (Neo4j or LadybugDB).
-        query_builder: Database-specific query builder.
+        pool: Primary graph database pool (Neo4j or LadybugDB).
+        query_builder: Database-specific query builder for primary.
+        fallback_pool: Optional fallback pool (LadybugDB when Neo4j is primary).
+        fallback_query_builder: Optional query builder for fallback.
     """
 
-    def __init__(self, pool: GraphPool, query_builder: GraphQueryBuilder) -> None:
+    def __init__(
+        self,
+        pool: GraphPool,
+        query_builder: GraphQueryBuilder,
+        fallback_pool: GraphPool | None = None,
+        fallback_query_builder: GraphQueryBuilder | None = None,
+    ) -> None:
         self._pool = pool
         self._query_builder = query_builder
+        self._fallback_pool = fallback_pool
+        self._fallback_query_builder = fallback_query_builder
 
     @property
     def database_type(self) -> str:
         """Get the database type."""
         return self._query_builder.database_type.value
+
+    async def _execute_with_fallback(
+        self,
+        build_query_fn: Any,
+        params: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Execute query on primary, fallback if empty."""
+        query = build_query_fn(self._query_builder)
+        result = await self._pool.execute_query(query, params or {})
+        if result or self._fallback_query_builder is None:
+            return result
+        try:
+            fb_query = build_query_fn(self._fallback_query_builder)
+            return await self._fallback_pool.execute_query(fb_query, params or {})
+        except Exception as exc:
+            log.warning("graph_repo_fallback_failed", error=str(exc))
+            return result
 
     # ── Entity Operations ─────────────────────────────────────────────
 
@@ -49,17 +79,23 @@ class GraphRepository:
         Returns:
             Entity dict or None if not found.
         """
-        query = self._query_builder.build_get_entity_query()
-        result = await self._pool.execute_query(query, {"name": canonical_name})
+        result = await self._execute_with_fallback(
+            lambda qb: qb.build_get_entity_query(),
+            {"name": canonical_name},
+        )
         if result:
             record = result[0]
             updated_at = record.get("updated_at")
             if updated_at is not None:
-                # LadybugDB stores as INT64 timestamp, Neo4j as datetime
+                # LadybugDB stores as INT64 seconds, Neo4j as datetime
                 if isinstance(updated_at, int):
                     from datetime import UTC, datetime
 
-                    updated_at = datetime.fromtimestamp(updated_at / 1000, tz=UTC).isoformat()
+                    # Auto-detect: seconds (< 10^11) vs ms (> 10^12)
+                    if updated_at > 1_000_000_000_000:
+                        updated_at = datetime.fromtimestamp(updated_at / 1000, tz=UTC).isoformat()
+                    else:
+                        updated_at = datetime.fromtimestamp(updated_at, tz=UTC).isoformat()
                 elif hasattr(updated_at, "isoformat"):
                     updated_at = updated_at.isoformat()
                 else:
@@ -87,8 +123,10 @@ class GraphRepository:
         Returns:
             List of relationship dicts.
         """
-        query = self._query_builder.build_get_entity_relations_query()
-        result = await self._pool.execute_query(query, {"name": canonical_name, "limit": limit})
+        result = await self._execute_with_fallback(
+            lambda qb: qb.build_get_entity_relations_query(),
+            {"name": canonical_name, "limit": limit},
+        )
         relations = []
         for row in result:
             created_at = row.get("created_at")
@@ -96,7 +134,11 @@ class GraphRepository:
                 if isinstance(created_at, int):
                     from datetime import UTC, datetime
 
-                    created_at = datetime.fromtimestamp(created_at / 1000, tz=UTC).isoformat()
+                    # Auto-detect: seconds (< 10^11) vs ms (> 10^12)
+                    if created_at > 1_000_000_000_000:
+                        created_at = datetime.fromtimestamp(created_at / 1000, tz=UTC).isoformat()
+                    else:
+                        created_at = datetime.fromtimestamp(created_at, tz=UTC).isoformat()
                 elif hasattr(created_at, "isoformat"):
                     created_at = created_at.isoformat()
                 else:
@@ -123,18 +165,37 @@ class GraphRepository:
         Returns:
             List of entity dicts.
         """
-        query = self._query_builder.build_get_related_entities_query()
-        result = await self._pool.execute_query(query, {"name": canonical_name, "limit": limit})
+        result = await self._execute_with_fallback(
+            lambda qb: qb.build_get_related_entities_query(),
+            {"name": canonical_name, "limit": limit},
+        )
         entities = []
         for row in result:
+            # Handle timestamps (LadybugDB stores as INT64 seconds)
+            updated_at = row.get("updated_at")
+            created_at = row.get("created_at")
+            for ts_field, ts_val in [("updated_at", updated_at), ("created_at", created_at)]:
+                if ts_val is not None and isinstance(ts_val, int):
+                    from datetime import UTC, datetime
+
+                    if ts_val > 1_000_000_000_000:
+                        ts_val = datetime.fromtimestamp(ts_val / 1000, tz=UTC).isoformat()
+                    else:
+                        ts_val = datetime.fromtimestamp(ts_val, tz=UTC).isoformat()
+                    if ts_field == "updated_at":
+                        updated_at = ts_val
+                    else:
+                        created_at = ts_val
+
             entities.append(
                 {
                     "id": row.get("id") or "",
                     "canonical_name": row.get("canonical_name") or "",
                     "type": row.get("type") or "未知",
                     "aliases": row.get("aliases"),
-                    "description": None,
-                    "updated_at": None,
+                    "description": row.get("description"),
+                    "created_at": created_at,
+                    "updated_at": updated_at,
                 }
             )
         return entities
@@ -151,8 +212,10 @@ class GraphRepository:
         Returns:
             List of article dicts.
         """
-        query = self._query_builder.build_get_entity_articles_query()
-        result = await self._pool.execute_query(query, {"name": canonical_name, "limit": limit})
+        result = await self._execute_with_fallback(
+            lambda qb: qb.build_get_entity_articles_query(),
+            {"name": canonical_name, "limit": limit},
+        )
         articles = []
         for row in result:
             publish_time = row.get("publish_time")
@@ -160,7 +223,14 @@ class GraphRepository:
                 if isinstance(publish_time, int):
                     from datetime import UTC, datetime
 
-                    publish_time = datetime.fromtimestamp(publish_time / 1000, tz=UTC).isoformat()
+                    # LadybugDB stores publish_time as INT64 seconds (not ms)
+                    # Check if value looks like seconds (< 10^11) vs ms (> 10^12)
+                    if publish_time > 1_000_000_000_000:
+                        publish_time = datetime.fromtimestamp(
+                            publish_time / 1000, tz=UTC
+                        ).isoformat()
+                    else:
+                        publish_time = datetime.fromtimestamp(publish_time, tz=UTC).isoformat()
                 elif hasattr(publish_time, "isoformat"):
                     publish_time = publish_time.isoformat()
                 else:
@@ -187,8 +257,10 @@ class GraphRepository:
         Returns:
             Article dict or None if not found.
         """
-        query = self._query_builder.build_get_article_graph_query()
-        result = await self._pool.execute_query(query, {"id": article_id})
+        result = await self._execute_with_fallback(
+            lambda qb: qb.build_get_article_graph_query(),
+            {"id": article_id},
+        )
         if result:
             record = result[0]
             publish_time = record.get("publish_time")
@@ -221,18 +293,38 @@ class GraphRepository:
         Returns:
             List of entity dicts.
         """
-        query = self._query_builder.build_get_article_entities_query()
-        result = await self._pool.execute_query(query, {"id": article_id})
+        result = await self._execute_with_fallback(
+            lambda qb: qb.build_get_article_entities_query(),
+            {"id": article_id},
+        )
         entities = []
         for row in result:
+            # Handle timestamps (LadybugDB stores as INT64 seconds)
+            updated_at = row.get("updated_at")
+            created_at = row.get("created_at")
+            for ts_field in ["updated_at", "created_at"]:
+                ts = row.get(ts_field)
+                if ts is not None and isinstance(ts, int):
+                    from datetime import UTC, datetime
+
+                    if ts > 1_000_000_000_000:
+                        ts = datetime.fromtimestamp(ts / 1000, tz=UTC).isoformat()
+                    else:
+                        ts = datetime.fromtimestamp(ts, tz=UTC).isoformat()
+                    if ts_field == "updated_at":
+                        updated_at = ts
+                    else:
+                        created_at = ts
+
             entities.append(
                 {
                     "id": row.get("id") or "",
                     "canonical_name": row.get("canonical_name") or "",
                     "type": row.get("type") or "未知",
                     "aliases": row.get("aliases"),
-                    "description": None,
-                    "updated_at": None,
+                    "description": row.get("description"),
+                    "created_at": created_at,
+                    "updated_at": updated_at,
                 }
             )
         return entities
@@ -246,8 +338,10 @@ class GraphRepository:
         Returns:
             List of relationship dicts.
         """
-        query = self._query_builder.build_get_article_relationships_query()
-        result = await self._pool.execute_query(query, {"id": article_id})
+        result = await self._execute_with_fallback(
+            lambda qb: qb.build_get_article_relationships_query(),
+            {"id": article_id},
+        )
         relationships = []
         for row in result:
             created_at = row.get("created_at")
@@ -255,7 +349,11 @@ class GraphRepository:
                 if isinstance(created_at, int):
                     from datetime import UTC, datetime
 
-                    created_at = datetime.fromtimestamp(created_at / 1000, tz=UTC).isoformat()
+                    # Auto-detect: seconds (< 10^11) vs ms (> 10^12)
+                    if created_at > 1_000_000_000_000:
+                        created_at = datetime.fromtimestamp(created_at / 1000, tz=UTC).isoformat()
+                    else:
+                        created_at = datetime.fromtimestamp(created_at, tz=UTC).isoformat()
                 elif hasattr(created_at, "isoformat"):
                     created_at = created_at.isoformat()
                 else:
@@ -282,8 +380,10 @@ class GraphRepository:
         Returns:
             List of article dicts.
         """
-        query = self._query_builder.build_get_related_articles_query()
-        result = await self._pool.execute_query(query, {"id": article_id})
+        result = await self._execute_with_fallback(
+            lambda qb: qb.build_get_related_articles_query(),
+            {"id": article_id},
+        )
         articles = []
         for row in result:
             publish_time = row.get("publish_time")
@@ -291,7 +391,14 @@ class GraphRepository:
                 if isinstance(publish_time, int):
                     from datetime import UTC, datetime
 
-                    publish_time = datetime.fromtimestamp(publish_time / 1000, tz=UTC).isoformat()
+                    # LadybugDB stores publish_time as INT64 seconds (not ms)
+                    # Check if value looks like seconds (< 10^11) vs ms (> 10^12)
+                    if publish_time > 1_000_000_000_000:
+                        publish_time = datetime.fromtimestamp(
+                            publish_time / 1000, tz=UTC
+                        ).isoformat()
+                    else:
+                        publish_time = datetime.fromtimestamp(publish_time, tz=UTC).isoformat()
                 elif hasattr(publish_time, "isoformat"):
                     publish_time = publish_time.isoformat()
                 else:
@@ -319,8 +426,10 @@ class GraphRepository:
         Returns:
             List of relation type summaries.
         """
-        query = self._query_builder.build_get_relation_types_query()
-        result = await self._pool.execute_query(query, {"name": entity_name, "type": entity_type})
+        result = await self._execute_with_fallback(
+            lambda qb: qb.build_get_relation_types_query(),
+            {"name": entity_name, "type": entity_type},
+        )
         return [
             {
                 "relation_type": r["relation_type"],
@@ -333,7 +442,7 @@ class GraphRepository:
     async def find_by_relation_types(
         self,
         entity_name: str,
-        entity_type: str,
+        entity_type: str | None = None,
         relation_types: list[str] | None = None,
         limit: int = 50,
     ) -> list[dict[str, Any]]:
@@ -341,17 +450,27 @@ class GraphRepository:
 
         Args:
             entity_name: Entity canonical name.
-            entity_type: Entity type.
+            entity_type: Entity type (optional, matched by canonical_name only if None).
             relation_types: Optional list of relation types to filter.
             limit: Maximum number of results.
 
         Returns:
-            List of related entity dicts.
+            List of related entity dicts with computed co-occurrence weight.
         """
-        query = self._query_builder.build_find_by_relation_types_query(relation_types)
-        result = await self._pool.execute_query(
-            query, {"name": entity_name, "type": entity_type, "limit": limit}
+        params: dict[str, Any] = {"name": entity_name, "limit": limit}
+        if entity_type is not None:
+            params["type"] = entity_type
+        result = await self._execute_with_fallback(
+            lambda qb: qb.build_find_by_relation_types_query(relation_types, entity_type),
+            params,
         )
+
+        # Compute weight dynamically as co-occurrence article count
+        # Find articles that mention both the source entity and each target
+        weights = await self._compute_cooccurrence_weights(
+            entity_name, [r["target_name"] for r in result]
+        )
+
         return [
             {
                 "relation_type": r["relation_type"],
@@ -359,10 +478,64 @@ class GraphRepository:
                 "target_name": r["target_name"],
                 "target_type": r["target_type"],
                 "target_description": r.get("target_description"),
-                "weight": r.get("weight", 1.0),
+                "weight": weights.get(r["target_name"], r.get("weight", 1.0)),
             }
             for r in result
         ]
+
+    async def _compute_cooccurrence_weights(
+        self, source_name: str, target_names: list[str]
+    ) -> dict[str, float]:
+        """Compute co-occurrence weights as shared article counts.
+
+        Uses two-pass approach: get articles mentioning source, then check
+        which of those also mention each target. Works with LadybugDB.
+
+        Args:
+            source_name: Source entity canonical name.
+            target_names: List of target entity canonical names.
+
+        Returns:
+            Dict mapping target name to co-occurrence count.
+        """
+        if not target_names:
+            return {}
+
+        try:
+            # Get articles mentioning source entity
+            source_articles_query = """
+                MATCH (a:Article)-[:MENTIONS]->(src:Entity {canonical_name: $name})
+                RETURN DISTINCT a.pg_id AS article_id
+            """
+            source_result = await self._pool.execute_query(
+                source_articles_query, {"name": source_name}
+            )
+            if not source_result:
+                return {}
+
+            source_article_ids = {row["article_id"] for row in source_result}
+            if not source_article_ids:
+                return {}
+
+            # For each target, count shared articles
+            weights = {}
+            for target in target_names:
+                target_articles_query = """
+                    MATCH (a:Article)-[:MENTIONS]->(tgt:Entity {canonical_name: $target})
+                    RETURN DISTINCT a.pg_id AS article_id
+                """
+                target_result = await self._pool.execute_query(
+                    target_articles_query, {"target": target}
+                )
+                target_article_ids = {row["article_id"] for row in target_result}
+                shared = source_article_ids & target_article_ids
+                if shared:
+                    weights[target] = float(len(shared))
+
+            return weights
+        except Exception:
+            # Fallback: return empty, stored weight will be used
+            return {}
 
     # ── Visualization Operations ───────────────────────────────────────
 
@@ -375,8 +548,10 @@ class GraphRepository:
         Returns:
             List of node dicts with id, label, type, description, and degree.
         """
-        query = self._query_builder.build_visualization_nodes_query()
-        result = await self._pool.execute_query(query, {"limit": limit})
+        result = await self._execute_with_fallback(
+            lambda qb: qb.build_visualization_nodes_query(),
+            {"limit": limit},
+        )
         nodes = []
         for row in result:
             nodes.append(
@@ -402,9 +577,9 @@ class GraphRepository:
         Returns:
             List of edge dicts with source, target, relation_type, and weight.
         """
-        query = self._query_builder.build_visualization_edges_query()
-        result = await self._pool.execute_query(
-            query, {"node_ids": node_ids, "edge_limit": edge_limit}
+        result = await self._execute_with_fallback(
+            lambda qb: qb.build_visualization_edges_query(),
+            {"node_ids": node_ids, "edge_limit": edge_limit},
         )
         edges = []
         for row in result:
@@ -436,13 +611,13 @@ class GraphRepository:
         Returns:
             List of node dicts with id, label, type, and description.
         """
-        query = self._query_builder.build_subgraph_nodes_query(
-            hop_pattern, include_types is not None
-        )
         params: dict[str, Any] = {"center": center_entity}
         if include_types:
             params["include_types"] = include_types
-        result = await self._pool.execute_query(query, params)
+        result = await self._execute_with_fallback(
+            lambda qb: qb.build_subgraph_nodes_query(hop_pattern, include_types is not None),
+            params,
+        )
         nodes = []
         for row in result:
             entity_type = row.get("type") or "未知"
@@ -467,8 +642,10 @@ class GraphRepository:
         Returns:
             List of edge dicts with source, target, relation_type, and weight.
         """
-        query = self._query_builder.build_subgraph_edges_query()
-        result = await self._pool.execute_query(query, {"node_ids": node_ids})
+        result = await self._execute_with_fallback(
+            lambda qb: qb.build_subgraph_edges_query(),
+            {"node_ids": node_ids},
+        )
         edges = []
         for row in result:
             edges.append(

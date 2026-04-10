@@ -366,56 +366,58 @@ class LadybugEntityRepo:
     async def find_by_relation_types(
         self,
         canonical_name: str,
-        entity_type: str,
+        entity_type: str | None = None,
         relation_types: list[str] | None = None,
         limit: int = 50,
     ) -> list[dict[str, Any]]:
         """Find related entities by relation types."""
+        # Build type filter clause
+        if entity_type is not None:
+            entity_match = "e.canonical_name = $canonical_name AND e.type = $type"
+        else:
+            entity_match = "e.canonical_name = $canonical_name"
         if relation_types:
             # Query for specific relation types
             results = []
             for rt in relation_types:
-                query = """
-                MATCH (e:Entity {canonical_name: $canonical_name, type: $type})
-                      -[r:RELATED_TO {edge_type: $edge_type}]->(related)
+                query = f"""
+                MATCH (e:Entity)-[r:RELATED_TO {{edge_type: $edge_type}}]->(related)
+                WHERE {entity_match}
                 RETURN related.id AS neo4j_id,
                        related.id AS id,
                        related.canonical_name AS canonical_name,
                        related.type AS type,
-                       r.edge_type AS relation_type
+                       r.edge_type AS relation_type,
+                       r.weight AS weight
                 LIMIT $limit
                 """
-                result = await self._pool.execute_query(
-                    query,
-                    {
-                        "canonical_name": canonical_name,
-                        "type": entity_type,
-                        "edge_type": rt,
-                        "limit": limit,
-                    },
-                )
+                params: dict[str, Any] = {
+                    "canonical_name": canonical_name,
+                    "edge_type": rt,
+                    "limit": limit,
+                }
+                if entity_type is not None:
+                    params["type"] = entity_type
+                result = await self._pool.execute_query(query, params)
                 results.extend([dict(r) for r in result])
             return results[:limit]
         else:
             # Query for all relations
-            query = """
-            MATCH (e:Entity {canonical_name: $canonical_name, type: $type})
-                  -[r:RELATED_TO]->(related)
+            query = f"""
+            MATCH (e:Entity)-[r:RELATED_TO]->(related)
+            WHERE {entity_match}
             RETURN related.id AS neo4j_id,
                    related.id AS id,
                    related.canonical_name AS canonical_name,
                    related.type AS type,
-                   r.edge_type AS relation_type
+                   r.edge_type AS relation_type,
+                   r.weight AS weight
             LIMIT $limit
             """
-            result = await self._pool.execute_query(
-                query,
-                {
-                    "canonical_name": canonical_name,
-                    "type": entity_type,
-                    "limit": limit,
-                },
-            )
+            params = {"canonical_name": canonical_name, "limit": limit}
+            if entity_type is not None:
+                params["type"] = entity_type
+            result = await self._pool.execute_query(query, params)
             return [dict(r) for r in result]
 
     async def merge_entities_batch(

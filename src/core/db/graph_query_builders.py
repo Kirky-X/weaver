@@ -125,9 +125,10 @@ class GraphQueryBuilder(Protocol):
         """Build query to get relation types for an entity."""
         ...
 
-    def build_find_by_relation_types_query(self, relation_types: list[str] | None) -> str:
+    def build_find_by_relation_types_query(
+        self, relation_types: list[str] | None, entity_type: str | None = None
+    ) -> str:
         """Build query to find entities by relation types."""
-        ...
 
     # === Visualization Queries ===
 
@@ -325,35 +326,66 @@ class Neo4jQueryBuilder:
             ORDER BY target_count DESC
         """
 
-    def build_find_by_relation_types_query(self, relation_types: list[str] | None) -> str:
-        """Build Neo4j query to find entities by relation types."""
+    def build_find_by_relation_types_query(
+        self, relation_types: list[str] | None, entity_type: str | None = None
+    ) -> str:
+        """Build Neo4j query to find entities by relation types.
+
+        Weight is computed dynamically as co-occurrence article count.
+        When entity_type is None, matches only by canonical_name.
+        """
+        type_clause = (
+            "{canonical_name: $name, type: $type}"
+            if entity_type is not None
+            else "{canonical_name: $name}"
+        )
         if not relation_types:
-            return """
-                MATCH (e:Entity {canonical_name: $name, type: $type})-[r]-(other:Entity)
+            return f"""
+                MATCH (e:Entity {type_clause})-[r]-(other:Entity)
                 WHERE type(r) <> 'MENTIONS' AND type(r) <> 'FOLLOWED_BY'
                   AND NOT other.pruned = true
-                RETURN type(r) AS relation_type,
-                       CASE WHEN (e)-[r]->(other) THEN 'outgoing' ELSE 'incoming' END AS direction,
-                       other.canonical_name AS target_name,
-                       other.type AS target_type,
-                       other.description AS target_description,
-                       coalesce(r.weight, 1.0) AS weight
+                OPTIONAL MATCH (a:Article)-[:MENTIONS]->(e)
+                WHERE (a)-[:MENTIONS]->(other)
+                WITH type(r) AS relation_type,
+                     CASE WHEN (e)-[r]->(other) THEN 'outgoing' ELSE 'incoming' END AS direction,
+                     other.canonical_name AS target_name,
+                     other.type AS target_type,
+                     other.description AS target_description,
+                     coalesce(r.weight, 1.0) AS stored_weight,
+                     count(DISTINCT a) AS shared_articles
+                RETURN relation_type,
+                       direction,
+                       target_name,
+                       target_type,
+                       target_description,
+                       CASE WHEN shared_articles > 0 THEN shared_articles * 1.0
+                            ELSE stored_weight END AS weight
                 ORDER BY weight DESC
                 LIMIT $limit
             """
         else:
             type_filters = " OR ".join(f"type(r) = '{rt}'" for rt in relation_types)
             return f"""
-                MATCH (e:Entity {{canonical_name: $name, type: $type}})-[r]-(other:Entity)
+                MATCH (e:Entity {type_clause})-[r]-(other:Entity)
                 WHERE ({type_filters})
                   AND type(r) <> 'MENTIONS' AND type(r) <> 'FOLLOWED_BY'
                   AND NOT other.pruned = true
-                RETURN type(r) AS relation_type,
-                       CASE WHEN (e)-[r]->(other) THEN 'outgoing' ELSE 'incoming' END AS direction,
-                       other.canonical_name AS target_name,
-                       other.type AS target_type,
-                       other.description AS target_description,
-                       coalesce(r.weight, 1.0) AS weight
+                OPTIONAL MATCH (a:Article)-[:MENTIONS]->(e)
+                WHERE (a)-[:MENTIONS]->(other)
+                WITH type(r) AS relation_type,
+                     CASE WHEN (e)-[r]->(other) THEN 'outgoing' ELSE 'incoming' END AS direction,
+                     other.canonical_name AS target_name,
+                     other.type AS target_type,
+                     other.description AS target_description,
+                     coalesce(r.weight, 1.0) AS stored_weight,
+                     count(DISTINCT a) AS shared_articles
+                RETURN relation_type,
+                       direction,
+                       target_name,
+                       target_type,
+                       target_description,
+                       CASE WHEN shared_articles > 0 THEN shared_articles * 1.0
+                            ELSE stored_weight END AS weight
                 ORDER BY weight DESC
                 LIMIT $limit
             """
@@ -544,13 +576,19 @@ class LadybugQueryBuilder:
         """
 
     def build_get_related_entities_query(self) -> str:
-        """Build LadybugDB query to get entities mentioned in same articles."""
-        # LadybugDB Entity has no aliases field - return None for aliases
+        """Build LadybugDB query to get entities mentioned in same articles.
+
+        Note: LadybugDB MENTIONS goes FROM Article TO Entity, so we match
+        the reverse direction. Returns full entity data including
+        description and timestamps.
+        """
         return """
             MATCH (e:Entity {canonical_name: $name})-[:MENTIONS]-(a:Article)-[:MENTIONS]-(re:Entity)
             WHERE re.canonical_name <> $name
-            RETURN DISTINCT re.id as id, re.canonical_name as canonical_name,
-                   re.type as type, NULL as aliases
+            RETURN re.id as id, re.canonical_name as canonical_name,
+                   re.type as type, NULL as aliases,
+                   re.description as description,
+                   re.created_at as created_at, re.updated_at as updated_at
             LIMIT $limit
         """
 
@@ -577,12 +615,18 @@ class LadybugQueryBuilder:
         """
 
     def build_get_article_entities_query(self) -> str:
-        """Build LadybugDB query to get entities mentioned in an article."""
-        # LadybugDB Entity has no aliases field - return None for aliases
+        """Build LadybugDB query to get entities mentioned in an article.
+
+        Note: LadybugDB MENTIONS goes FROM Article TO Entity, so we match
+        the reverse direction. Returns entity fields including description
+        and timestamps for complete entity data.
+        """
         return """
             MATCH (a:Article {pg_id: $id})-[r:MENTIONS]->(e:Entity)
             RETURN e.id as id, e.canonical_name as canonical_name, e.type as type,
-                   NULL as aliases, r.role as role
+                   NULL as aliases, e.description as description,
+                   e.created_at as created_at, e.updated_at as updated_at,
+                   r.role as role
         """
 
     def build_get_article_relationships_query(self) -> str:
@@ -627,14 +671,21 @@ class LadybugQueryBuilder:
             ORDER BY target_count DESC
         """
 
-    def build_find_by_relation_types_query(self, relation_types: list[str] | None) -> str:
+    def build_find_by_relation_types_query(
+        self, relation_types: list[str] | None, entity_type: str | None = None
+    ) -> str:
         """Build LadybugDB query to find entities by relation types."""
         # LadybugDB: Use RELATED_TO with edge_type field
         # Note: LadybugDB doesn't support pattern matching in CASE WHEN,
         # so we return 'outgoing' as default direction
+        type_clause = (
+            "{canonical_name: $name, type: $type}"
+            if entity_type is not None
+            else "{canonical_name: $name}"
+        )
         if not relation_types:
-            return """
-                MATCH (e:Entity {canonical_name: $name, type: $type})-[r:RELATED_TO]-(other:Entity)
+            return f"""
+                MATCH (e:Entity {type_clause})-[r:RELATED_TO]-(other:Entity)
                 RETURN r.edge_type AS relation_type,
                        'outgoing' AS direction,
                        other.canonical_name AS target_name,
@@ -648,7 +699,7 @@ class LadybugQueryBuilder:
             # Filter by specific edge types
             edge_type_filters = " OR ".join(f"r.edge_type = '{rt}'" for rt in relation_types)
             return f"""
-                MATCH (e:Entity {{canonical_name: $name, type: $type}})-[r:RELATED_TO]-(other:Entity)
+                MATCH (e:Entity {type_clause})-[r:RELATED_TO]-(other:Entity)
                 WHERE ({edge_type_filters})
                 RETURN r.edge_type AS relation_type,
                        'outgoing' AS direction,

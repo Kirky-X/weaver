@@ -31,7 +31,7 @@ class LadybugPool:
         - GraphPool: Async graph database pool with query execution
     """
 
-    def __init__(self, db_path: str = "data/weaver_graph.ladybug"):
+    def __init__(self, db_path: str = "data/ladybug.db"):
         self._db_path = db_path
         self._db: ladybug.Database | None = None
         self._conn: ladybug.AsyncConnection | None = None
@@ -42,6 +42,12 @@ class LadybugPool:
         Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
 
         # Create Database and AsyncConnection
+        self._db = ladybug.Database(self._db_path)
+        self._conn = ladybug.AsyncConnection(self._db)
+
+    def startup_sync(self) -> None:
+        """Initialize the LadybugDB connection (sync version for fallback use)."""
+        Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
         self._db = ladybug.Database(self._db_path)
         self._conn = ladybug.AsyncConnection(self._db)
 

@@ -487,7 +487,7 @@ class Neo4jEntityRepo:
     async def find_by_relation_types(
         self,
         canonical_name: str,
-        entity_type: str,
+        entity_type: str | None = None,
         relation_types: list[str] | None = None,
         limit: int = 50,
     ) -> list[dict[str, Any]]:
@@ -498,7 +498,7 @@ class Neo4jEntityRepo:
 
         Args:
             canonical_name: The canonical name of the entity.
-            entity_type: The type of the entity.
+            entity_type: The type of the entity (optional).
             relation_types: Optional list of relationship type names to filter.
                 When *None* or empty all types are returned.
             limit: Maximum number of results.
@@ -508,9 +508,14 @@ class Neo4jEntityRepo:
             ``direction``, ``target_name``, ``target_type``,
             ``target_description`` and ``weight`` keys.
         """
+        type_clause = (
+            "{canonical_name: $name, type: $type}"
+            if entity_type is not None
+            else "{canonical_name: $name}"
+        )
         if not relation_types:
-            query = """
-            MATCH (e:Entity {canonical_name: $name, type: $type})-[r]-(other:Entity)
+            query = f"""
+            MATCH (e:Entity {type_clause})-[r]-(other:Entity)
             WHERE type(r) <> 'MENTIONS' AND type(r) <> 'FOLLOWED_BY'
               AND NOT other.pruned = true
             RETURN type(r) AS relation_type,
@@ -522,7 +527,9 @@ class Neo4jEntityRepo:
             ORDER BY weight DESC
             LIMIT $limit
             """
-            params = {"name": canonical_name, "type": entity_type, "limit": limit}
+            params: dict[str, Any] = {"name": canonical_name, "limit": limit}
+            if entity_type is not None:
+                params["type"] = entity_type
         else:
             # Validate all relation types
             for rt in relation_types:
@@ -533,7 +540,7 @@ class Neo4jEntityRepo:
             # Each type matches as undirected so we capture both directions.
             type_filters = " OR ".join(f"type(r) = '{rt}'" for rt in relation_types)
             query = f"""
-            MATCH (e:Entity {{canonical_name: $name, type: $type}})-[r]-(other:Entity)
+            MATCH (e:Entity {type_clause})-[r]-(other:Entity)
             WHERE ({type_filters})
               AND type(r) <> 'MENTIONS' AND type(r) <> 'FOLLOWED_BY'
               AND NOT other.pruned = true
@@ -546,7 +553,9 @@ class Neo4jEntityRepo:
             ORDER BY weight DESC
             LIMIT $limit
             """
-            params = {"name": canonical_name, "type": entity_type, "limit": limit}
+            params = {"name": canonical_name, "limit": limit}
+            if entity_type is not None:
+                params["type"] = entity_type
 
         result = await self._pool.execute_query(query, params)
         return [dict(record) for record in result]
