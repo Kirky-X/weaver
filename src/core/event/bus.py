@@ -13,11 +13,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 from blinker import Signal
+from opentelemetry import trace
 
 from core.llm.types import TokenUsage
-from core.observability.logging import get_logger
+from core.observability.logging import clear_task_context, get_logger, set_task_context
 
 log = get_logger("event_bus")
+tracer = trace.get_tracer("event_bus")
 
 
 # ── Event Definitions ────────────────────────────────────────
@@ -215,13 +217,32 @@ class EventBus:
 
     @staticmethod
     async def _safe_call(handler: EventHandler, event: BaseEvent) -> None:
-        """Call a handler with error isolation."""
-        try:
-            await handler(event)
-        except Exception as exc:
-            log.error(
-                "event_handler_failed",
-                handler=handler.__qualname__,
-                event_type=type(event).__name__,
-                error=str(exc),
-            )
+        """Call a handler with error isolation.
+
+        Creates OpenTelemetry span and sets task context for proper logging.
+        """
+        event_type_name = type(event).__name__
+        handler_name = handler.__qualname__
+
+        # Set task context for log filter (event_handler:{event_type})
+        set_task_context(f"{event_type_name}:{handler_name}", "event_handler")
+
+        # Create span for trace context
+        with tracer.start_as_current_span(f"event.{event_type_name}.{handler_name}") as span:
+            span.set_attribute("event_type", event_type_name)
+            span.set_attribute("handler", handler_name)
+
+            try:
+                await handler(event)
+            except Exception as exc:
+                log.error(
+                    "event_handler_failed",
+                    handler=handler_name,
+                    event_type=event_type_name,
+                    error=str(exc),
+                )
+                span.set_attribute("success", False)
+                span.set_attribute("error", str(exc))
+                span.record_exception(exc)
+            finally:
+                clear_task_context()
