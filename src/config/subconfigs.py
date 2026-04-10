@@ -345,7 +345,7 @@ class URLSecuritySettings(BaseModel):
 class EntitySettings(BaseModel):
     """Entity extraction configuration."""
 
-    disable_data_metrics_nodes: bool = True
+    disable_data_metrics_nodes: bool = False
 
 
 class HealthCheckSettings(BaseModel):

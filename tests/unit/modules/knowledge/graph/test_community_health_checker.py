@@ -105,16 +105,13 @@ class TestCommunityHealthRepo:
     @pytest.mark.asyncio
     async def test_get_overall_metrics(self, repo):
         """Test getting overall metrics."""
+        # get_overall_metrics makes 4 queries (stale_count is hardcoded to 0)
         repo._pool.execute_query = AsyncMock(
-            return_value=[
-                {
-                    "total_communities": 10,
-                    "avg_entity_count": 5.5,
-                    "max_level": 2,
-                    "communities_with_reports": 8,
-                    "stale_report_count": 2,
-                    "empty_community_count": 1,
-                }
+            side_effect=[
+                [{"total_communities": 10}],
+                [{"avg_size": 5.5, "max_level": 2}],
+                [{"with_reports": 8}],
+                [{"empty_count": 1}],
             ]
         )
         result = await repo.get_overall_metrics()

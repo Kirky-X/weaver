@@ -950,34 +950,29 @@ class TestCheckAndRun:
         recent_timestamp = datetime.now(timezone.utc) - timedelta(days=1)
         mock_graph_pool.execute_query = AsyncMock(
             side_effect=[
-                [{"total": 5}],  # community count
-                [{"total": 100}],  # current entity count
-                [{"previous_count": 100}],  # previous entity count (no change)
+                [{"total": 5}],  # community count (_get_community_count)
+                [{"total": 100}],  # current entity count (_check_entity_change)
+                [{"previous_count": 100}],  # previous entity count (_check_entity_change)
                 [
                     {
                         "last_full_rebuild": recent_timestamp,
                         "last_incremental": None,
                         "pending_count": 0,
                     }
-                ],  # stats
+                ],  # stats metadata (get_stats)
+                [{"total": 5}],  # stats community count (get_stats)
                 # Health check queries (all return healthy state)
                 [],  # find_empty_communities
                 [],  # find_entity_count_mismatches
                 [],  # find_missing_reports
                 [],  # find_stale_reports
                 [],  # find_hierarchy_breaks
-                [],  # _calculate_modularity edges
-                [],  # _get_community_assignments_for_modularity
-                [
-                    {
-                        "total_communities": 5,
-                        "avg_entity_count": 20.0,
-                        "max_level": 1,
-                        "communities_with_reports": 5,
-                        "stale_report_count": 0,
-                        "empty_community_count": 0,
-                    }
-                ],  # get_overall_metrics (healthy)
+                [],  # _calculate_modularity edges (returns None when empty, skips assignments query)
+                # get_overall_metrics fires 4 separate queries (stale_count is hardcoded 0)
+                [{"total_communities": 5}],  # query 1: total communities
+                [{"avg_size": 20.0, "max_level": 1}],  # query 2: avg size + max level
+                [{"with_reports": 5}],  # query 3: communities with reports
+                [{"empty_count": 0}],  # query 4: empty community count
             ]
         )
 
