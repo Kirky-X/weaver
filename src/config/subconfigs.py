@@ -71,7 +71,7 @@ class LadybugSettings(BaseModel):
     """
 
     enabled: bool = True
-    db_path: str = "data/weaver_graph.ladybug"
+    db_path: str = "data/ladybug.db"
 
 
 class RedisSettings(BaseModel):
@@ -345,7 +345,7 @@ class URLSecuritySettings(BaseModel):
 class EntitySettings(BaseModel):
     """Entity extraction configuration."""
 
-    disable_data_metrics_nodes: bool = False
+    disable_data_metrics_nodes: bool = True
 
 
 class HealthCheckSettings(BaseModel):
