@@ -594,8 +594,13 @@ class Pipeline:
                         await self._article_repo.mark_failed(
                             uuid.UUID(state["article_id"]), f"Neo4j error: {exc!s}"
                         )
-                    except Exception:
-                        pass
+                    except Exception as mark_exc:
+                        log.error(
+                            "mark_failed_after_neo4j_error_failed",
+                            article_id=state.get("article_id"),
+                            original_error=str(exc),
+                            mark_error=str(mark_exc),
+                        )
 
     async def _persist_batch(self, states: list[PipelineState]) -> None:
         """Persist batch of articles to Postgres and Neo4j.
@@ -712,8 +717,13 @@ class Pipeline:
                             await self._article_repo.mark_failed(
                                 uuid.UUID(state["article_id"]), f"PG error: {exc!s}"
                             )
-                        except Exception:
-                            pass
+                        except Exception as mark_exc:
+                            log.error(
+                                "mark_failed_after_pg_error_failed",
+                                article_id=state.get("article_id"),
+                                original_error=str(exc),
+                                mark_error=str(mark_exc),
+                            )
                 return
 
         if self._graph_writer:
@@ -743,8 +753,13 @@ class Pipeline:
                             await self._article_repo.mark_failed(
                                 uuid.UUID(state["article_id"]), f"Neo4j error: {exc!s}"
                             )
-                        except Exception:
-                            pass
+                        except Exception as mark_exc:
+                            log.error(
+                                "mark_failed_after_neo4j_persist_error_failed",
+                                article_id=state.get("article_id"),
+                                original_error=str(exc),
+                                mark_error=str(mark_exc),
+                            )
                     # Failure: increment failed and log progress
                     self._batch_failed += 1
                     self._log_progress(state["raw"].url)

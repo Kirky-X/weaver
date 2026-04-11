@@ -419,8 +419,13 @@ class BatchMergerNode:
                             uuid.UUID(state["article_id"]),
                             error_msg,
                         )
-                    except Exception:
-                        pass
+                    except Exception as mark_exc:
+                        log.error(
+                            "mark_failed_after_merge_error_failed",
+                            article_id=state.get("article_id"),
+                            original_error=error_msg,
+                            mark_error=str(mark_exc),
+                        )
             # Clean up article vectors written before this exception
             if vector_article_ids and self._vector_repo:
                 try:

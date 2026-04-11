@@ -757,8 +757,11 @@ class Neo4jCommunityRepo:
                 """,
                     {"community_id": community_id},
                 )
-            except Exception:
-                pass
+            except Exception as exc:
+                # Relationship may not exist, log but continue
+                log.debug(
+                    "delete_report_relation_skipped", community_id=community_id, error=str(exc)
+                )
             query = """
             MATCH (r:CommunityReport {community_id: $community_id})
             DELETE r

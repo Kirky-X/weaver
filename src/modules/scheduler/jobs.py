@@ -535,8 +535,12 @@ class SchedulerJobs:
                     )
                     try:
                         await self._article_repo.mark_failed(article.id, f"Retry error: {exc!s}")
-                    except Exception:
-                        pass
+                    except Exception as mark_exc:
+                        log.exception(
+                            "mark_failed_error",
+                            article_id=str(article.id),
+                            error=str(mark_exc),
+                        )
 
             # Update success rate in Redis if dynamic batching is enabled
             if self._settings.pipeline_retry_dynamic_batch and articles:
