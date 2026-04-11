@@ -57,10 +57,20 @@ def register_exception_handlers(app: FastAPI) -> None:
         if len(error_messages) > 3:
             message += f" (and {len(error_messages) - 3} more)"
 
+        # Convert errors to JSON-serializable format
+        serializable_errors = []
+        for error in errors:
+            serializable_error = {
+                "loc": [str(part) for part in error.get("loc", [])],
+                "msg": error.get("msg", "Validation error"),
+                "type": error.get("type", "value_error"),
+            }
+            serializable_errors.append(serializable_error)
+
         body = _build_error_response(
             code=ResponseCode.ERR_INVALID_PARAM,
             message=message,
-            details={"errors": errors},
+            details={"errors": serializable_errors},
         )
         return JSONResponse(status_code=422, content=body)
 
