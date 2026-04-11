@@ -151,8 +151,8 @@ class SubgraphExtractor:
             OPTIONAL MATCH (e)-[r1:RELATED_TO]-(n1:Entity)
             WITH e, collect(DISTINCT n1.canonical_name) AS hop1_nodes
 
-            // Unwind hop1 to get edges
-            UNWIND range(0, size(hop1_nodes)-1) AS idx
+            // Unwind hop1 to get edges (LadybugDB uses 1-based indexing)
+            UNWIND range(1, size(hop1_nodes)) AS idx
             WITH e.canonical_name AS center, hop1_nodes[idx] AS hop1
 
             // Get 1-hop edges

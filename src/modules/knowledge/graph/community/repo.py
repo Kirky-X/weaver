@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
 from datetime import UTC, datetime
@@ -163,7 +164,8 @@ class Neo4jCommunityRepo:
         Returns:
             The created community ID.
         """
-        children_ids_json = "[]" if not children_ids else str(children_ids)
+        children_ids_json = "[]" if not children_ids else json.dumps(children_ids)
+        children_ids_csv = "" if not children_ids else ",".join(children_ids)
         if self._database_type == GraphDatabaseType.LADYBUG:
             now = self._now_ts()
             query = """
@@ -204,7 +206,11 @@ class Neo4jCommunityRepo:
             "title": title,
             "level": level,
             "parent_id": parent_id,
-            "children_ids": children_ids_json,
+            "children_ids": (
+                children_ids_csv
+                if self._database_type == GraphDatabaseType.LADYBUG
+                else children_ids_json
+            ),
             "entity_count": entity_count,
             "rank": rank,
             "period": period or datetime.now(UTC).date().isoformat(),
@@ -332,34 +338,31 @@ class Neo4jCommunityRepo:
             True if deleted.
         """
         if self._database_type == GraphDatabaseType.LADYBUG:
-            # LadybugDB: No DETACH DELETE. Delete relationships first.
-            try:
-                await self._pool.execute_query(
-                    "MATCH (c:Community {id: $id})-[r:HAS_ENTITY]->() DELETE r",
-                    {"id": community_id},
-                )
-            except Exception as exc:
-                log.debug("delete_has_entity", error=str(exc))
-            try:
-                await self._pool.execute_query(
-                    "MATCH (c:Community {id: $id})-[r:PARENT_COMMUNITY]->() DELETE r",
-                    {"id": community_id},
-                )
-            except Exception as exc:
-                log.debug("delete_parent_rel", error=str(exc))
+            # LadybugDB: Cypher-style delete - check exists first, then delete
+            # Note: DELETE in LadybugDB doesn't return results
+            check_query = """
+            MATCH (c:Community {id: $id})
+            RETURN c.id AS id
+            """
+            exists = await self._pool.execute_query(check_query, {"id": community_id})
+            if not exists:
+                return False
+            # Delete
             query = """
             MATCH (c:Community {id: $id})
             DELETE c
-            RETURN count(c) AS deleted
             """
+            await self._pool.execute_query(query, {"id": community_id})
+            return True
         else:
+            # Neo4j: DETACH DELETE removes node and relationships
             query = """
             MATCH (c:Community {id: $id})
             DETACH DELETE c
             RETURN count(c) AS deleted
             """
-        result = await self._pool.execute_query(query, {"id": community_id})
-        return bool(result)
+            result = await self._pool.execute_query(query, {"id": community_id})
+            return bool(result)
 
     async def update_children(
         self,
@@ -375,19 +378,18 @@ class Neo4jCommunityRepo:
         Returns:
             True if updated.
         """
-        import json
-
         children_ids_json = json.dumps(children_ids)
+        children_ids_csv = ",".join(children_ids)
         if self._database_type == GraphDatabaseType.LADYBUG:
+            # LadybugDB: Cypher-style update (SET)
             query = """
             MATCH (c:Community {id: $id})
-            SET c.children_ids = $children_ids,
-                c.updated_at = $updated_at
+            SET c.children_ids = $children_ids, c.updated_at = $updated_at
             RETURN c.id AS id
             """
             params = {
                 "id": community_id,
-                "children_ids": children_ids_json,
+                "children_ids": children_ids_csv,
                 "updated_at": self._now_ts(),
             }
         else:
@@ -410,6 +412,38 @@ class Neo4jCommunityRepo:
         Returns:
             Community instance or None.
         """
+        if self._database_type == GraphDatabaseType.LADYBUG:
+            # LadybugDB: Cypher-style query (MATCH/RETURN)
+            query = """
+            MATCH (c:Community)
+            WHERE c.id = $community_id
+            RETURN c.id AS id,
+                   c.title AS title,
+                   c.level AS level,
+                   c.parent_id AS parent_id,
+                   c.children_ids AS children_ids,
+                   c.entity_count AS entity_count,
+                   c.rank AS rank,
+                   c.period AS period,
+                   c.modularity AS modularity,
+                   c.created_at AS created_at,
+                   c.updated_at AS updated_at
+            """
+            result = await self._pool.execute_query(query, {"community_id": community_id})
+            if result:
+                raw_data = dict(result[0])
+                # Parse children_ids: LadybugDB uses CSV format
+                children_ids_str = raw_data.get("children_ids", "")
+                if children_ids_str:
+                    raw_data["children_ids"] = children_ids_str.split(",")
+                else:
+                    raw_data["children_ids"] = []
+                # LadybugDB doesn't have HAS_ENTITY rel, use empty list
+                raw_data["entity_ids"] = []
+                return Community.from_neo4j(raw_data)
+            return None
+
+        # Neo4j: Cypher query
         query = """
         MATCH (c:Community {id: $community_id})
         OPTIONAL MATCH (c)-[:HAS_ENTITY]->(e:Entity)
@@ -433,8 +467,6 @@ class Neo4jCommunityRepo:
             # Parse children_ids JSON string if present
             children_ids_str = raw_data.get("children_ids", "[]")
             if isinstance(children_ids_str, str):
-                import json
-
                 try:
                     raw_data["children_ids"] = json.loads(children_ids_str)
                 except json.JSONDecodeError:

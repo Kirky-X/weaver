@@ -3,10 +3,73 @@
 
 import pytest
 
+from core.db.graph_query_builders import GraphDatabaseType
 from modules.knowledge.graph.community.detector import CommunityDetector
-from modules.knowledge.graph.community.models import Community
 from modules.knowledge.graph.community.repo import Neo4jCommunityRepo
 from modules.knowledge.graph.community.subgraph_extractor import SubgraphExtractor
+
+
+@pytest.fixture
+async def graph_test_data(graph_pool) -> None:
+    """Setup test entities and relationships in graph database.
+
+    Creates 4 entities with RELATED_TO relationships forming a chain:
+    Entity_A -> Entity_B -> Entity_C -> Entity_D
+    """
+    pool, db_type = graph_pool
+
+    # Create entities (LadybugDB requires id as primary key)
+    entities = ["Entity_A", "Entity_B", "Entity_C", "Entity_D"]
+    for name in entities:
+        await pool.execute_query(
+            """
+            CREATE (e:Entity {id: $id, canonical_name: $name})
+            """,
+            {"id": name, "name": name},
+        )
+
+    # Create relationships with weights
+    edges = [
+        ("Entity_A", "Entity_B", 1.0),
+        ("Entity_B", "Entity_C", 1.0),
+        ("Entity_C", "Entity_D", 1.0),
+    ]
+    for source, target, weight in edges:
+        await pool.execute_query(
+            """
+            MATCH (s:Entity {id: $source})
+            MATCH (t:Entity {id: $target})
+            CREATE (s)-[r:RELATED_TO {weight: $weight}]->(t)
+            """,
+            {"source": source, "target": target, "weight": weight},
+        )
+
+    yield
+
+    # Cleanup - simpler approach for LadybugDB compatibility
+    # Delete all RELATED_TO relationships between test entities
+    for source in ["Entity_A", "Entity_B", "Entity_C", "Entity_D"]:
+        for target in ["Entity_A", "Entity_B", "Entity_C", "Entity_D"]:
+            try:
+                await pool.execute_query(
+                    """
+                    MATCH (s:Entity {id: $source})-[r:RELATED_TO]->(t:Entity {id: $target})
+                    DELETE r
+                    """,
+                    {"source": source, "target": target},
+                )
+            except Exception:
+                pass  # Ignore if relationship doesn't exist
+
+    # Delete entities
+    for name in ["Entity_A", "Entity_B", "Entity_C", "Entity_D"]:
+        await pool.execute_query(
+            """
+            MATCH (e:Entity {id: $id})
+            DELETE e
+            """,
+            {"id": name},
+        )
 
 
 @pytest.mark.integration
@@ -14,20 +77,16 @@ class TestSubgraphExtractor:
     """Integration tests for subgraph extraction."""
 
     @pytest.fixture
-    def extractor(self, neo4j_pool) -> SubgraphExtractor:
+    def extractor(self, graph_pool) -> SubgraphExtractor:
         """Create SubgraphExtractor fixture."""
-        from core.db.graph_query_builders import GraphDatabaseType
+        pool, db_type = graph_pool
+        return SubgraphExtractor(pool, database_type=GraphDatabaseType(db_type))
 
-        return SubgraphExtractor(neo4j_pool, database_type=GraphDatabaseType.NEO4J)
-
-    async def test_extract_subgraph_returns_edges(self, extractor, neo4j_test_data) -> None:
+    async def test_extract_subgraph_returns_edges(self, extractor, graph_test_data) -> None:
         """Subgraph extraction returns edge tuples."""
-        # Setup: Create test entities and relationships
         entities = ["Entity_A", "Entity_B"]
-
         edges = await extractor.extract_subgraph(entities, max_hops=1)
 
-        # Should return list of edge tuples
         assert isinstance(edges, list)
         for edge in edges:
             assert len(edge) == 3  # (source, target, weight)
@@ -40,24 +99,18 @@ class TestSubgraphExtractor:
         edges = await extractor.extract_subgraph([], max_hops=2)
         assert edges == []
 
-    async def test_get_subgraph_entities_includes_centers(self, extractor) -> None:
+    async def test_get_subgraph_entities_includes_centers(self, extractor, graph_test_data) -> None:
         """Get subgraph entities includes center entities."""
         centers = ["Entity_A", "Entity_B"]
-
         entities = await extractor.get_subgraph_entities(centers, max_hops=1)
-
-        # Center entities should be included
         for center in centers:
             assert center in entities
 
-    async def test_extract_2hops_expands_neighbors(self, extractor, neo4j_test_data) -> None:
+    async def test_extract_2hops_expands_neighbors(self, extractor, graph_test_data) -> None:
         """2-hop extraction expands to neighbors' neighbors."""
         centers = ["Entity_A"]
-
         edges_1hop = await extractor.extract_subgraph(centers, max_hops=1)
         edges_2hop = await extractor.extract_subgraph(centers, max_hops=2)
-
-        # 2-hop should have more or equal edges than 1-hop
         assert len(edges_2hop) >= len(edges_1hop)
 
 
@@ -66,18 +119,17 @@ class TestCommunityDetectorIntegration:
     """Integration tests for CommunityDetector."""
 
     @pytest.fixture
-    def detector(self, neo4j_pool) -> CommunityDetector:
+    def detector(self, graph_pool) -> CommunityDetector:
         """Create CommunityDetector fixture."""
-        from core.db.graph_query_builders import GraphDatabaseType
-
+        pool, db_type = graph_pool
         return CommunityDetector(
-            pool=neo4j_pool,
+            pool=pool,
             max_cluster_size=10,
             default_seed=42,
-            database_type=GraphDatabaseType.NEO4J,
+            database_type=GraphDatabaseType(db_type),
         )
 
-    async def test_detect_communities_with_use_lcc(self, detector, neo4j_test_data) -> None:
+    async def test_detect_communities_with_use_lcc(self, detector, graph_test_data) -> None:
         """detect_communities respects use_lcc parameter."""
         result = await detector.detect_communities(
             max_cluster_size=10,
@@ -86,14 +138,12 @@ class TestCommunityDetectorIntegration:
             seed=42,
         )
 
-        # Result should have communities
         assert isinstance(result.communities, list)
-        # Each community should have children_ids
         for community in result.communities:
             assert hasattr(community, "children_ids")
             assert isinstance(community.children_ids, list)
 
-    async def test_detect_communities_without_use_lcc(self, detector, neo4j_test_data) -> None:
+    async def test_detect_communities_without_use_lcc(self, detector, graph_test_data) -> None:
         """detect_communities with use_lcc=False processes all components."""
         result = await detector.detect_communities(
             max_cluster_size=10,
@@ -101,49 +151,42 @@ class TestCommunityDetectorIntegration:
             iterations=1,
             seed=42,
         )
-
-        # Should still produce valid result
         assert result.total_communities >= 0
 
     async def test_rebuild_communities_persists_children_ids(
-        self, detector, neo4j_pool, neo4j_test_data
+        self, detector, graph_pool, graph_test_data
     ) -> None:
-        """rebuild_communities persists children_ids to Neo4j."""
-        repo = Neo4jCommunityRepo(neo4j_pool)
+        """rebuild_communities persists children_ids."""
+        pool, db_type = graph_pool
+        repo = Neo4jCommunityRepo(pool, database_type=GraphDatabaseType(db_type))
 
-        # Delete existing communities
         await repo.delete_all_communities()
+        result = await detector.rebuild_communities(max_cluster_size=10, seed=42)
 
-        # Run rebuild
-        result = await detector.rebuild_communities(
-            max_cluster_size=10,
-            seed=42,
-        )
-
-        # Retrieve a community and verify children_ids
         if result.communities:
             community = result.communities[0]
             retrieved = await repo.get_community(community.id)
-
             if retrieved:
-                # Should have children_ids field
                 assert retrieved.children_ids is not None
 
 
 @pytest.mark.integration
 class TestCommunityRepoIntegration:
-    """Integration tests for Neo4jCommunityRepo."""
+    """Integration tests for Neo4jCommunityRepo.
+
+    Tests basic CRUD operations without complex graph data.
+    Works with both Neo4j and LadybugDB.
+    """
 
     @pytest.fixture
-    def repo(self, neo4j_pool) -> Neo4jCommunityRepo:
+    def repo(self, graph_pool) -> Neo4jCommunityRepo:
         """Create repo fixture."""
-        from core.db.graph_query_builders import GraphDatabaseType
+        pool, db_type = graph_pool
+        return Neo4jCommunityRepo(pool, database_type=GraphDatabaseType(db_type))
 
-        return Neo4jCommunityRepo(neo4j_pool, database_type=GraphDatabaseType.NEO4J)
-
-    async def test_create_community_with_children_ids(self, repo) -> None:
-        """create_community stores children_ids."""
-        community_id = "test-community-children"
+    async def test_create_and_get_community(self, repo) -> None:
+        """create_community stores and retrieves community."""
+        community_id = "test-community-basic"
 
         await repo.create_community(
             community_id=community_id,
@@ -155,20 +198,18 @@ class TestCommunityRepoIntegration:
             rank=1.0,
         )
 
-        # Retrieve and verify
         community = await repo.get_community(community_id)
+        assert community is not None
+        assert community.id == community_id
+        assert community.title == "Test Community"
+        assert community.children_ids == ["child-1", "child-2"]
 
-        if community:
-            assert community.children_ids == ["child-1", "child-2"]
-
-        # Cleanup
         await repo.delete_community(community_id)
 
-    async def test_update_children(self, repo) -> None:
+    async def test_update_children_ids(self, repo) -> None:
         """update_children modifies children_ids."""
         community_id = "test-community-update"
 
-        # Create with empty children
         await repo.create_community(
             community_id=community_id,
             title="Test Community",
@@ -176,63 +217,29 @@ class TestCommunityRepoIntegration:
             children_ids=[],
         )
 
-        # Update children
         await repo.update_children(community_id, ["new-child-1", "new-child-2"])
 
-        # Verify update
         community = await repo.get_community(community_id)
+        assert community is not None
+        assert community.children_ids == ["new-child-1", "new-child-2"]
 
-        if community:
-            assert community.children_ids == ["new-child-1", "new-child-2"]
-
-        # Cleanup
         await repo.delete_community(community_id)
 
-    async def test_delete_community_removes_node(self, repo) -> None:
-        """delete_community removes community node."""
+    async def test_delete_community(self, repo) -> None:
+        """delete_community removes community."""
         community_id = "test-community-delete"
 
-        # Create
         await repo.create_community(
             community_id=community_id,
             title="Test Community",
             level=0,
         )
 
-        # Verify exists
         community = await repo.get_community(community_id)
         assert community is not None
 
-        # Delete
         result = await repo.delete_community(community_id)
         assert result is True
 
-        # Verify deleted
         community = await repo.get_community(community_id)
         assert community is None
-
-
-@pytest.fixture
-async def neo4j_test_data(neo4j_pool) -> None:
-    """Setup test entities and relationships in Neo4j."""
-    # Create test entities
-    query = """
-    MERGE (e1:Entity {canonical_name: 'Entity_A'})
-    MERGE (e2:Entity {canonical_name: 'Entity_B'})
-    MERGE (e3:Entity {canonical_name: 'Entity_C'})
-    MERGE (e4:Entity {canonical_name: 'Entity_D'})
-
-    MERGE (e1)-[r1:RELATED_TO {weight: 1.0}]->(e2)
-    MERGE (e2)-[r2:RELATED_TO {weight: 1.0}]->(e3)
-    MERGE (e3)-[r3:RELATED_TO {weight: 1.0}]->(e4)
-    """
-    await neo4j_pool.execute_query(query)
-
-    yield
-
-    # Cleanup
-    cleanup = """
-    MATCH (e:Entity) WHERE e.canonical_name IN ['Entity_A', 'Entity_B', 'Entity_C', 'Entity_D']
-    DETACH DELETE e
-    """
-    await neo4j_pool.execute_query(cleanup)
