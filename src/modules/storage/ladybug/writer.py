@@ -181,26 +181,48 @@ class LadybugWriter:
                     source_id = entity_name_to_id.get(source_name)
                     target_id = entity_name_to_id.get(target_name)
 
-                    # If not in cache, look up in database
+                    # If not in cache, look up in database or create if not exists
                     if not source_id:
                         source_ent = await self.entity_repo.find_entity_by_name(source_name)
                         if source_ent:
                             source_id = source_ent["id"]
                             entity_name_to_id[source_name] = source_id
+                        else:
+                            # Entity not found - create it (ensure existence for relation)
+                            source_id = await self.entity_repo.merge_entity(
+                                canonical_name=source_name,
+                                entity_type="未知",  # Default type for inferred entities
+                                description=None,
+                                tier=3,  # Lower tier for auto-created entities
+                            )
+                            entity_name_to_id[source_name] = source_id
+                            log.debug(
+                                "ladybug_entity_auto_created",
+                                name=source_name,
+                                entity_id=source_id,
+                                reason="relation_source_not_found",
+                            )
 
                     if not target_id:
                         target_ent = await self.entity_repo.find_entity_by_name(target_name)
                         if target_ent:
                             target_id = target_ent["id"]
                             entity_name_to_id[target_name] = target_id
-
-                    if not source_id or not target_id:
-                        log.warning(
-                            "ladybug_relation_entity_not_found",
-                            source=source_name,
-                            target=target_name,
-                        )
-                        continue
+                        else:
+                            # Entity not found - create it (ensure existence for relation)
+                            target_id = await self.entity_repo.merge_entity(
+                                canonical_name=target_name,
+                                entity_type="未知",  # Default type for inferred entities
+                                description=None,
+                                tier=3,  # Lower tier for auto-created entities
+                            )
+                            entity_name_to_id[target_name] = target_id
+                            log.debug(
+                                "ladybug_entity_auto_created",
+                                name=target_name,
+                                entity_id=target_id,
+                                reason="relation_target_not_found",
+                            )
 
                     # Normalize edge type
                     if self._relation_type_normalizer:

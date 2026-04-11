@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
+from core.db.graph_query_builders import GraphDatabaseType
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
 from core.observability.logging import get_logger
@@ -66,7 +67,13 @@ class CommunityReportGenerator:
         embedding_model: str | None = None,
     ) -> None:
         self._pool = pool
-        self._repo = Neo4jCommunityRepo(pool)
+        # Detect database type for LadybugDB compatibility
+        db_type = (
+            GraphDatabaseType.LADYBUG
+            if type(pool).__name__ == "LadybugPool"
+            else GraphDatabaseType.NEO4J
+        )
+        self._repo = Neo4jCommunityRepo(pool, database_type=db_type)
         self._llm = llm_client
         self._max_concurrent = max_concurrent
         self._embedding_model = embedding_model  # None 时使用 embed_default()

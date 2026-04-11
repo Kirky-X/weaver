@@ -347,6 +347,17 @@ class ArticleRepo:
             result = await session.execute(select(Article).where(Article.id == article_id))
             return result.scalar_one_or_none()
 
+    async def get_by_id(self, article_id: str | uuid.UUID) -> Article | None:
+        """Get an article by ID (alias for get).
+
+        Args:
+            article_id: The article UUID or string.
+
+        Returns:
+            Article instance or None if not found.
+        """
+        return await self.get(article_id)
+
     async def get_existing_urls(self, urls: list[str]) -> set[str]:
         """Check which URLs already exist in the database.
 

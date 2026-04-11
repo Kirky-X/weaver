@@ -31,6 +31,23 @@ DEFAULT_TTL_SECONDS = 7200
 METRICS = ("count", "input_tok", "output_tok", "total_tok", "latency_ms", "success", "failure")
 
 
+def _parse_timestamp(ts: datetime | str) -> datetime:
+    """Parse timestamp to datetime object.
+
+    Args:
+        ts: Either a datetime object or ISO format string.
+
+    Returns:
+        datetime object.
+    """
+    if isinstance(ts, datetime):
+        return ts
+    # Parse ISO format string
+    from datetime import datetime as dt
+
+    return dt.fromisoformat(ts)
+
+
 class LLMUsageBuffer:
     """LLM 用量事件缓存缓冲层。
 
@@ -93,8 +110,9 @@ class LLMUsageBuffer:
             event: LLM 用量事件
         """
         try:
-            # 计算当前小时的 bucket key
-            bucket_key = self._make_bucket_key(event.timestamp)
+            # Parse timestamp (handle both datetime and string)
+            dt = _parse_timestamp(event.timestamp)
+            bucket_key = self._make_bucket_key(dt)
 
             # 构建 field 前缀
             field_prefix = f"{event.label}::{event.call_point}"

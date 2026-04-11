@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 
 from core.observability.logging import get_logger
 
@@ -33,6 +34,10 @@ SPACY_TO_ENTITY_TYPE = {
     "MONEY": "数据指标",
     "LAW": "法规与政策",
 }
+
+
+# Maximum wheel file size (1GB) to prevent zip bomb attacks
+MAX_WHEEL_SIZE = 1 * 1024 * 1024 * 1024
 
 
 @dataclass
@@ -68,13 +73,79 @@ class SpacyExtractor:
         self._models: dict[str, object] = {}
         self._batch_size = batch_size
         self._n_process = n_process
+        self._temp_dirs: list[str] = []  # Track extracted wheel directories
+
+    def cleanup(self) -> None:
+        """Clean up temporary directories created during wheel extraction."""
+        import shutil
+
+        for d in self._temp_dirs:
+            shutil.rmtree(d, ignore_errors=True)
+        self._temp_dirs.clear()
+
+    def _extract_wheel_safely(self, wheel_path: str) -> str | None:
+        """Extract a wheel file safely with path traversal and size checks.
+
+        Args:
+            wheel_path: Path to the .whl file.
+
+        Returns:
+            Path to extracted directory, or None if extraction failed.
+        """
+        import shutil
+        import tempfile
+        import zipfile
+
+        wheel = Path(wheel_path)
+
+        # Zip bomb protection: check file size
+        wheel_size = wheel.stat().st_size
+        if wheel_size > MAX_WHEEL_SIZE:
+            log.warning(
+                "spacy_wheel_size_exceeded",
+                wheel_path=wheel_path,
+                size=wheel_size,
+                max_size=MAX_WHEEL_SIZE,
+            )
+            return None
+
+        # Create temp directory
+        extract_dir = tempfile.mkdtemp(prefix="spacy_model_")
+        extract_path = Path(extract_dir)
+
+        try:
+            with zipfile.ZipFile(wheel_path, "r") as zf:
+                # Path traversal protection: verify all members resolve within extract_dir
+                for member in zf.namelist():
+                    member_path = (extract_path / member).resolve()
+                    if not str(member_path).startswith(str(extract_path.resolve())):
+                        log.warning(
+                            "spacy_wheel_path_traversal",
+                            wheel_path=wheel_path,
+                            malicious_member=member,
+                        )
+                        return None
+
+                # Safe to extract
+                zf.extractall(extract_dir)
+
+            # Track for cleanup
+            self._temp_dirs.append(extract_dir)
+            return extract_dir
+
+        except (zipfile.BadZipFile, OSError) as e:
+            log.warning("spacy_wheel_extract_failed", wheel_path=wheel_path, error=str(e))
+            shutil.rmtree(extract_dir, ignore_errors=True)
+            return None
 
     def _load(self, model_name: str) -> object | None:
         """Load a spaCy model (cached).
 
         Supports loading from:
-        1. Local wheel file (via SPACY_ZH_MODEL_PATH env var for zh models)
-        2. Installed spaCy model name
+        1. Local wheel file (via SPACY_ZH_MODEL_PATH or SPACY_EN_MODEL_PATH env var)
+           - Extracts wheel safely to temp directory and loads from extracted path
+        2. Local model directory (already extracted)
+        3. Installed spaCy model name
 
         Args:
             model_name: Name of the spaCy model to load.
@@ -84,19 +155,65 @@ class SpacyExtractor:
         """
         import spacy
 
-        # Check for local wheel file path (for Chinese models)
+        # Determine env var based on model language
+        env_var = None
         if model_name.startswith("zh_core_web"):
-            local_path = os.getenv("SPACY_ZH_MODEL_PATH")
-            if local_path and os.path.exists(local_path):
-                try:
-                    # Load from wheel file directly
-                    nlp = spacy.load(local_path, exclude=["parser", "tagger", "lemmatizer"])
-                    log.info("spacy_model_loaded_from_local", path=local_path)
-                    return nlp
-                except (OSError, ValueError, ImportError) as e:
-                    log.warning("spacy_local_load_failed", path=local_path, error=str(e))
+            env_var = "SPACY_ZH_MODEL_PATH"
+        elif model_name.startswith("en_core_web"):
+            env_var = "SPACY_EN_MODEL_PATH"
 
-        # Fallback to installed model
+        # Check for local model path (wheel file or directory)
+        if env_var:
+            local_path = os.getenv(env_var)
+            if local_path:
+                path = Path(local_path)
+                if path.exists():
+                    # Case 1: .whl file - extract and load
+                    if path.suffix == ".whl" and path.is_file():
+                        extract_dir = self._extract_wheel_safely(local_path)
+                        if extract_dir:
+                            # Find the model directory inside extracted wheel
+                            # Wheel contains a directory named exactly like the model prefix
+                            model_prefix = model_name.split("-")[0]
+                            for name in os.listdir(extract_dir):
+                                if name == model_prefix or name.startswith(f"{model_prefix}-"):
+                                    model_dir = os.path.join(extract_dir, name)
+                                    if os.path.isdir(model_dir):
+                                        nlp = spacy.load(
+                                            model_dir,
+                                            exclude=["parser", "tagger", "lemmatizer"],
+                                        )
+                                        log.info(
+                                            "spacy_model_loaded_from_wheel",
+                                            wheel_path=local_path,
+                                            extracted_to=model_dir,
+                                        )
+                                        return nlp
+
+                            log.warning(
+                                "spacy_wheel_extract_no_model_dir",
+                                wheel_path=local_path,
+                                expected=model_prefix,
+                                contents=os.listdir(extract_dir),
+                            )
+
+                    # Case 2: Directory - load directly
+                    elif path.is_dir():
+                        try:
+                            nlp = spacy.load(
+                                local_path,
+                                exclude=["parser", "tagger", "lemmatizer"],
+                            )
+                            log.info("spacy_model_loaded_from_local", path=local_path)
+                            return nlp
+                        except (OSError, ValueError, ImportError) as e:
+                            log.info(
+                                "spacy_local_load_skipped",
+                                path=local_path,
+                                error=str(e),
+                            )
+
+        # Case 3: Fallback to installed model
         try:
             return spacy.load(model_name, exclude=["parser", "tagger", "lemmatizer"])
         except (OSError, ValueError, ImportError) as e:

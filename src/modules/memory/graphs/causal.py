@@ -3,6 +3,9 @@
 
 Manages CAUSES, ENABLES, and PREVENTS edges representing causal relationships
 between events. This is the core of MAGMA's causal reasoning capability.
+
+Supports both Neo4j and LadybugDB backends by detecting pool type
+and using appropriate query syntax.
 """
 
 from __future__ import annotations
@@ -21,20 +24,28 @@ class CausalGraphRepo(BaseGraphRepo):
 
     The Causal Graph enables "Why?" queries by storing LLM-inferred
     causal relationships between events.
+
+    Supports both Neo4j and LadybugDB backends.
     """
 
     def __init__(self, pool: Any, confidence_threshold: float = 0.7) -> None:
         """Initialize causal repository.
 
         Args:
-            pool: Neo4j connection pool.
+            pool: Neo4j or LadybugDB connection pool.
             confidence_threshold: Minimum confidence for storing edges.
         """
         super().__init__(pool)
         self._confidence_threshold = confidence_threshold
+        self._is_ladybug = type(pool).__name__ == "LadybugPool"
 
     async def ensure_constraints(self) -> None:
         """Create indexes for causal edges."""
+        if self._is_ladybug:
+            # LadybugDB doesn't support CREATE INDEX via Cypher
+            log.debug("causal_constraints_skip_ladybug")
+            return
+
         indexes = [
             """
             CREATE INDEX causal_source_idx IF NOT EXISTS
@@ -80,6 +91,23 @@ class CausalGraphRepo(BaseGraphRepo):
             )
             return False
 
+        if self._is_ladybug:
+            return await self._add_causal_edge_ladybug(
+                source_id, target_id, relation_type, confidence, evidence
+            )
+        return await self._add_causal_edge_neo4j(
+            source_id, target_id, relation_type, confidence, evidence
+        )
+
+    async def _add_causal_edge_neo4j(
+        self,
+        source_id: str,
+        target_id: str,
+        relation_type: CausalRelationType,
+        confidence: float,
+        evidence: str | None = None,
+    ) -> bool:
+        """Add causal edge using Neo4j-specific syntax with datetime()."""
         rel_type = relation_type.value
         query = f"""
         MATCH (source:EventNode {{id: $source_id}})
@@ -122,6 +150,55 @@ class CausalGraphRepo(BaseGraphRepo):
             )
             return False
 
+    async def _add_causal_edge_ladybug(
+        self,
+        source_id: str,
+        target_id: str,
+        relation_type: CausalRelationType,
+        confidence: float,
+        evidence: str | None = None,
+    ) -> bool:
+        """Add causal edge using LadybugDB-compatible syntax with INT64 timestamps."""
+        rel_type = relation_type.value
+        now = int(time.time())
+
+        query = f"""
+        MATCH (source:EventNode {{id: $source_id}})
+        MATCH (target:EventNode {{id: $target_id}})
+        CREATE (source)-[r:{rel_type}]->(target)
+        SET r.confidence = $confidence,
+            r.evidence = $evidence,
+            r.created_at = $created_at
+        RETURN r
+        """
+
+        params = {
+            "source_id": source_id,
+            "target_id": target_id,
+            "confidence": confidence,
+            "evidence": evidence,
+            "created_at": now,
+        }
+
+        try:
+            result = await self._pool.execute_query(query, params)
+            log.info(
+                "causal_edge_created",
+                source=source_id,
+                target=target_id,
+                type=rel_type,
+                confidence=confidence,
+            )
+            return bool(result)
+        except Exception as exc:
+            log.error(
+                "causal_edge_failed",
+                source=source_id,
+                target=target_id,
+                error=str(exc),
+            )
+            return False
+
     async def get_causal_chain(
         self,
         event_id: str,
@@ -136,13 +213,16 @@ class CausalGraphRepo(BaseGraphRepo):
         Returns:
             List of events in the causal chain.
         """
+        # LadybugDB uses event_time (INT64), Neo4j uses timestamp (datetime)
+        time_field = "event_time" if self._is_ladybug else "timestamp"
+
         query = f"""
         MATCH path = (cause:EventNode)-[:CAUSES|ENABLES*1..{max_depth}]->(effect:EventNode {{id: $event_id}})
         UNWIND nodes(path) AS node
         WITH DISTINCT node
         RETURN node.id AS id,
                node.content AS content,
-               node.timestamp AS timestamp
+               node.{time_field} AS timestamp
         """
 
         params = {"event_id": event_id}
@@ -157,11 +237,14 @@ class CausalGraphRepo(BaseGraphRepo):
         Returns:
             List of cause events with relationship metadata.
         """
-        query = """
-        MATCH (cause:EventNode)-[r:CAUSES|ENABLES]->(effect:EventNode {id: $event_id})
+        # LadybugDB uses event_time (INT64), Neo4j uses timestamp (datetime)
+        time_field = "event_time" if self._is_ladybug else "timestamp"
+
+        query = f"""
+        MATCH (cause:EventNode)-[r:CAUSES|ENABLES]->(effect:EventNode {{id: $event_id}})
         RETURN cause.id AS id,
                cause.content AS content,
-               cause.timestamp AS timestamp,
+               cause.{time_field} AS timestamp,
                type(r) AS relation_type,
                r.confidence AS confidence,
                r.evidence AS evidence
@@ -180,11 +263,14 @@ class CausalGraphRepo(BaseGraphRepo):
         Returns:
             List of effect events with relationship metadata.
         """
-        query = """
-        MATCH (cause:EventNode {id: $event_id})-[r:CAUSES|ENABLES]->(effect:EventNode)
+        # LadybugDB uses event_time (INT64), Neo4j uses timestamp (datetime)
+        time_field = "event_time" if self._is_ladybug else "timestamp"
+
+        query = f"""
+        MATCH (cause:EventNode {{id: $event_id}})-[r:CAUSES|ENABLES]->(effect:EventNode)
         RETURN effect.id AS id,
                effect.content AS content,
-               effect.timestamp AS timestamp,
+               effect.{time_field} AS timestamp,
                type(r) AS relation_type,
                r.confidence AS confidence,
                r.evidence AS evidence

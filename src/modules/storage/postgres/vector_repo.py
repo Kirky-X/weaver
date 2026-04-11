@@ -413,6 +413,7 @@ class VectorRepo:
         self,
         entities: list[tuple[str, list[float]]],
         use_temp_key: bool = False,
+        model_id: str = "text-embedding-3-large",
     ) -> None:
         """Upsert entity vectors by name.
 
@@ -420,26 +421,47 @@ class VectorRepo:
             entities: List of (entity_name, embedding) tuples.
             use_temp_key: If True, use "temp:{name}" as neo4j_id for temporary storage.
                           The actual UUID should be set later via update_entity_vectors_by_temp_keys.
+            model_id: Embedding model identifier.
         """
-        async with self._pool.session() as session:
-            for name, embedding in entities:
-                # Use temp key for deferred UUID assignment
-                key = f"temp:{name}" if use_temp_key else name
-                result = await session.execute(
-                    select(EntityVector).where(EntityVector.neo4j_id == key)
-                )
-                existing = result.scalar_one_or_none()
+        from core.db.query_builders import DatabaseType
 
-                if existing:
-                    existing.embedding = embedding
-                else:
-                    ev = EntityVector(
-                        neo4j_id=key,
-                        embedding=embedding,
+        # Check if using DuckDB (use query_builder approach)
+        if self._query_builder.database_type == DatabaseType.DUCKDB:
+            async with self._pool.session() as session:
+                for name, embedding in entities:
+                    key = f"temp:{name}" if use_temp_key else name
+                    formatted_emb = self._query_builder.format_embedding_param(embedding)
+                    query = text(self._query_builder.build_upsert_entity_vector_query())
+                    await session.execute(
+                        query,
+                        {
+                            "neo4j_id": key,
+                            "embedding": formatted_emb,
+                            "model_id": model_id,
+                        },
                     )
-                    session.add(ev)
+                await session.commit()
+        else:
+            # PostgreSQL: use ORM approach
+            async with self._pool.session() as session:
+                for name, embedding in entities:
+                    # Use temp key for deferred UUID assignment
+                    key = f"temp:{name}" if use_temp_key else name
+                    result = await session.execute(
+                        select(EntityVector).where(EntityVector.neo4j_id == key)
+                    )
+                    existing = result.scalar_one_or_none()
 
-            await session.commit()
+                    if existing:
+                        existing.embedding = embedding
+                    else:
+                        ev = EntityVector(
+                            neo4j_id=key,
+                            embedding=embedding,
+                        )
+                        session.add(ev)
+
+                await session.commit()
 
     async def upsert_entity_vector(self, neo4j_id: str, embedding: list[float]) -> None:
         """Upsert a single entity vector."""
