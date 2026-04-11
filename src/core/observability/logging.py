@@ -111,6 +111,8 @@ def redact_sensitive_data(message: str) -> str:
 def log_filter(record: Any) -> bool:
     """Filter and sanitize log records to remove sensitive data.
 
+    Also formats structured extra fields for output in the log message.
+
     Args:
         record: The loguru record to filter.
 
@@ -146,6 +148,17 @@ def log_filter(record: Any) -> bool:
             if isinstance(value, str):
                 record["extra"][key] = redact_sensitive_data(value)
 
+    # Format structured extra fields for output (excluding internal fields)
+    _INTERNAL_FIELDS = {"request_id", "trace_id", "component", "_format_extra"}
+    extra = record.get("extra", {})
+    structured_fields = {k: v for k, v in extra.items() if k not in _INTERNAL_FIELDS}
+    if structured_fields:
+        # Format as key=value pairs
+        formatted = " ".join(f"{k}={v}" for k, v in structured_fields.items())
+        record["extra"]["_format_extra"] = formatted
+    else:
+        record["extra"]["_format_extra"] = ""
+
     return True
 
 
@@ -170,7 +183,7 @@ def configure_logging(
     # Console output
     logger.add(
         sys.stderr,
-        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | <yellow>req={extra[request_id]}</yellow> <yellow>trace={extra[trace_id]}</yellow> - <level>{message}</level>",
+        format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | <yellow>req={extra[request_id]}</yellow> <yellow>trace={extra[trace_id]}</yellow> - <level>{message}</level> <dim>{extra[_format_extra]}</dim>",
         level=level,
         filter=log_filter,
     )
@@ -183,7 +196,7 @@ def configure_logging(
 
         logger.add(
             file_path,
-            format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | req={extra[request_id]} trace={extra[trace_id]} - {message}",
+            format="{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} | req={extra[request_id]} trace={extra[trace_id]} - {message} {extra[_format_extra]}",
             level=level,
             filter=log_filter,
             rotation=rotation,

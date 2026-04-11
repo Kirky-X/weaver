@@ -379,7 +379,15 @@ class CashewsRedisFallback:
         return count
 
     async def expire(self, name: str, seconds: int) -> bool:
-        if name in self._store:
+        """Set TTL for any data structure (key, hash, list, sorted set)."""
+        # Check all data structures
+        exists = (
+            name in self._store
+            or name in self._hashes
+            or name in self._lists
+            or name in self._sorted_sets
+        )
+        if exists:
             self._expiry[name] = time.monotonic() + seconds
             return True
         return False

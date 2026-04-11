@@ -264,6 +264,15 @@ class PgVectorQueryBuilder:
         """PostgreSQL ANY expression for array containment."""
         return f"{column} = ANY({param})"
 
+    def build_upsert_entity_vector_query(self) -> str:
+        """Build PostgreSQL upsert for entity vectors with ON CONFLICT."""
+        return """
+            INSERT INTO entity_vectors (neo4j_id, embedding, model_id)
+            VALUES (:neo4j_id, CAST(:embedding AS vector), :model_id)
+            ON CONFLICT (neo4j_id)
+            DO UPDATE SET embedding = EXCLUDED.embedding, model_id = EXCLUDED.model_id, updated_at = NOW()
+        """
+
 
 class DuckDBVectorQueryBuilder:
     """DuckDB implementation of VectorQueryBuilder."""
@@ -306,6 +315,16 @@ class DuckDBVectorQueryBuilder:
     def build_upsert_article_vector_batch_query(self, batch_size: int) -> str:
         """DuckDB doesn't support batch upsert efficiently."""
         raise NotImplementedError("DuckDB doesn't support batch upsert; use individual inserts")
+
+    def build_upsert_entity_vector_query(self) -> str:
+        """Build DuckDB upsert for entity vectors.
+
+        Uses INSERT OR REPLACE for DuckDB's native upsert mechanism.
+        """
+        return """
+            INSERT OR REPLACE INTO entity_vectors (neo4j_id, embedding, model_id)
+            VALUES (:neo4j_id, CAST(:embedding AS FLOAT[1024]), :model_id)
+        """
 
     def build_find_similar_articles_query(self, config: SimilarityQuery) -> str:
         """Build DuckDB cosine similarity search."""

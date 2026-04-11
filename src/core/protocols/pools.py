@@ -243,6 +243,19 @@ class CachePool(Protocol):
         """
         ...
 
+    async def hincrby(self, name: str, key: str, amount: int = 1) -> int:
+        """Increment a hash field by amount.
+
+        Args:
+            name: Hash name.
+            key: Field key.
+            amount: Amount to increment by (default 1).
+
+        Returns:
+            New value after increment.
+        """
+        ...
+
     # ── List Operations ───────────────────────────────────────────────
 
     async def lpush(self, name: str, *values: str) -> int:
