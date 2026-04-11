@@ -25,7 +25,6 @@ from container import get_settings
 from core.constants import PipelineTaskStatus
 from core.observability import metrics
 from core.protocols import CachePool, RelationalPool
-from core.security import URLValidationError, URLValidator
 from modules.ingestion import SourceScheduler
 from modules.storage import ArticleRepo
 
@@ -161,7 +160,7 @@ async def trigger_pipeline(
                 request.source_id, max_items=request.max_items, task_id=uuid.UUID(task_id)
             )
         else:
-            sources = scheduler._registry.list_sources(enabled_only=True)
+            sources = scheduler.list_enabled_sources()
             tasks = [
                 scheduler.trigger_now(
                     source.id, max_items=request.max_items, task_id=uuid.UUID(task_id)
@@ -359,18 +358,6 @@ async def get_queue_stats(
 # ── Single URL Processing ─────────────────────────────────────
 
 
-# URL validator instance (reused across requests)
-_url_validator: URLValidator | None = None
-
-
-def _get_url_validator() -> URLValidator:
-    """Get or create URL validator instance."""
-    global _url_validator
-    if _url_validator is None:
-        _url_validator = URLValidator()
-    return _url_validator
-
-
 async def _validate_url_for_processing(
     url: str,
     whitelist_mode: bool,
@@ -390,21 +377,59 @@ async def _validate_url_for_processing(
         HTTPException: If URL is invalid or blocked.
 
     """
-    validator = _get_url_validator()
+    # SSRF validation using basic URL parsing (no external dependencies needed)
+    from urllib.parse import urlparse
 
-    # SSRF validation
-    try:
-        await validator.validate(url)
-    except URLValidationError as e:
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
         raise HTTPException(
             status_code=403,
-            detail=f"SSRF risk: {e.message}",
-        ) from e
+            detail="URL must use http or https protocol",
+        )
+
+    # Block internal/private IP ranges using ipaddress module for proper validation
+    import ipaddress
+
+    hostname = parsed.hostname or ""
+
+    # First check simple string prefixes for obvious cases
+    blocked_prefixes = ("localhost", "127.", "0.", "::1", "169.254.")
+    if any(hostname.lower().startswith(prefix) for prefix in blocked_prefixes):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Access to internal host '{hostname}' is blocked",
+        )
+
+    # Try to parse as IP address and check if private/internal
+    try:
+        # Handle IPv6 brackets
+        ip_str = hostname.replace("[", "").replace("]", "")
+        ip_obj = ipaddress.ip_address(ip_str)
+
+        # Block private, loopback, link-local, and reserved addresses
+        if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_reserved:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Access to internal IP '{hostname}' is blocked",
+            )
+    except ValueError:
+        # Not an IP address, likely a domain name
+        # Check for numeric prefixes that could be IP-like
+        if hostname.replace(".", "").isdigit():
+            # All digits with dots - looks like IP, validate
+            try:
+                ip_obj = ipaddress.ip_address(hostname)
+                if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local:
+                    raise HTTPException(
+                        status_code=403,
+                        detail=f"Access to internal IP '{hostname}' is blocked",
+                    )
+            except ValueError:
+                pass
 
     # Whitelist validation
     if whitelist_mode:
         allowed_domains = settings.pipeline_url_endpoint.allowed_domains
-        parsed = urlparse(url)
         hostname = parsed.hostname or ""
 
         if not allowed_domains:
