@@ -29,6 +29,61 @@ from core.security.crypto.signing import (
     save_signed_json,
 )
 
+
+class RestrictedUnpickler(pickle.Unpickler):
+    """Secure unpickler that restricts allowed classes to prevent RCE.
+
+    Only allows unpickling of specific safe classes used in BM25 index.
+    """
+
+    ALLOWED_BUILTINS = frozenset(
+        [
+            "dict",
+            "list",
+            "tuple",
+            "set",
+            "frozenset",
+            "str",
+            "int",
+            "float",
+            "bool",
+            "bytes",
+            "NoneType",
+        ]
+    )
+    ALLOWED_COLLECTIONS = frozenset(["OrderedDict", "defaultdict"])
+
+    def find_class(self, module: str, name: str) -> Any:
+        """Override find_class to restrict allowed classes.
+
+        Args:
+            module: Module name from pickle stream.
+            name: Class name from pickle stream.
+
+        Returns:
+            The class if allowed.
+
+        Raises:
+            pickle.UnpicklingError: If class is not in allowed list.
+        """
+        # Allow built-in types
+        if module == "builtins" and name in self.ALLOWED_BUILTINS:
+            return super().find_class(module, name)
+
+        # Allow collections types
+        if module == "collections" and name in self.ALLOWED_COLLECTIONS:
+            return super().find_class(module, name)
+
+        # Allow BM25Document from this module
+        if name == "BM25Document":
+            return BM25Document
+
+        raise pickle.UnpicklingError(
+            f"Unsafe pickle: attempting to load {module}.{name} "
+            f"which is not in allowed classes list"
+        )
+
+
 log = get_logger("bm25_retriever")
 
 # Optional stemmer for English text
@@ -389,16 +444,21 @@ class BM25Retriever:
             raise
 
     def _load_legacy_pickle(self, legacy_path: Path) -> dict[str, Any]:
-        """Load legacy pickle index file.
+        """Load legacy pickle index file with security restrictions.
+
+        Uses RestrictedUnpickler to prevent arbitrary code execution.
 
         Args:
             legacy_path: Path to documents.pkl file.
 
         Returns:
             Index data dictionary.
+
+        Raises:
+            pickle.UnpicklingError: If pickle contains unsafe classes.
         """
         with open(legacy_path, "rb") as f:
-            data = pickle.load(f)  # noqa: S301 - legacy format migration
+            data = RestrictedUnpickler(f).load()
 
         # Convert to new format
         return {
