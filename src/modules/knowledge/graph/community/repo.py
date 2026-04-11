@@ -456,7 +456,12 @@ class Neo4jCommunityRepo:
                 title: $title,
                 summary: $summary,
                 full_content: $full_content,
-                created_at: $created_at
+                key_entities: $key_entities,
+                key_relationships: $key_relationships,
+                rank: $rank,
+                stale: false,
+                created_at: $created_at,
+                updated_at: $updated_at
             })
             CREATE (r)-[:REPORTS_ON]->(c)
             RETURN r.id AS id
@@ -467,7 +472,11 @@ class Neo4jCommunityRepo:
                 "title": title,
                 "summary": summary,
                 "full_content": full_content,
+                "key_entities": key_entities,
+                "key_relationships": key_relationships,
+                "rank": rank,
                 "created_at": now,
+                "updated_at": now,
             }
         else:
             query = """
@@ -513,14 +522,19 @@ class Neo4jCommunityRepo:
             CommunityReport or None.
         """
         if self._database_type == GraphDatabaseType.LADYBUG:
-            # LadybugDB: Fewer fields in schema
             query = """
             MATCH (r:CommunityReport {community_id: $community_id})
             RETURN r.id AS id,
                    r.community_id AS community_id,
                    r.title AS title,
                    r.summary AS summary,
-                   r.full_content AS full_content
+                   r.full_content AS full_content,
+                   r.key_entities AS key_entities,
+                   r.key_relationships AS key_relationships,
+                   r.rank AS rank,
+                   r.stale AS stale,
+                   r.created_at AS created_at,
+                   r.updated_at AS updated_at
             """
         else:
             query = """
@@ -659,6 +673,9 @@ class Neo4jCommunityRepo:
                        r.title AS title,
                        r.summary AS summary,
                        r.full_content AS full_content,
+                       r.key_entities AS key_entities,
+                       r.key_relationships AS key_relationships,
+                       r.rank AS rank,
                        score
                 ORDER BY score DESC
                 LIMIT $top_k
@@ -674,6 +691,9 @@ class Neo4jCommunityRepo:
                        r.title AS title,
                        r.summary AS summary,
                        r.full_content AS full_content,
+                       r.key_entities AS key_entities,
+                       r.key_relationships AS key_relationships,
+                       r.rank AS rank,
                        score
                 ORDER BY score DESC
                 LIMIT $top_k
