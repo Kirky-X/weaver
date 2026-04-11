@@ -54,6 +54,7 @@ dependencies = [
     "cashews>=7.5.0",
     "rich>=14.3.3",
     "typer>=0.24.1",
+    "pandas>=3.0.2",
 ]
 
 [project.optional-dependencies]
