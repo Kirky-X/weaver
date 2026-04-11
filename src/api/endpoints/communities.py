@@ -171,18 +171,21 @@ async def rebuild_communities(
     _: str = Depends(verify_api_key),
     pool: GraphPool = Depends(get_graph_pool),
     pool_type: str = Depends(get_graph_pool_type),
+    llm: Any = Depends(get_llm_client),
 ) -> APIResponse[RebuildResponse]:
     """Rebuild all communities from scratch.
 
     This endpoint:
     1. Deletes all existing communities
     2. Runs Hierarchical Leiden detection
-    3. Creates new Community nodes with HAS_ENTITY relationships
+    3. Generates LLM titles for communities
+    4. Creates new Community nodes with HAS_ENTITY relationships
 
     Args:
         request: Rebuild parameters.
         _: Verified API key.
         pool: GraphPool connection pool.
+        llm: LLM client for title generation.
 
     Returns:
         Rebuild statistics.
@@ -197,6 +200,7 @@ async def rebuild_communities(
         max_cluster_size=request.max_cluster_size,
         default_seed=request.seed,
         database_type=db_type,
+        llm_client=llm,
     )
 
     try:

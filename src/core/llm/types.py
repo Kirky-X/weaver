@@ -36,6 +36,7 @@ class CallPoint(str, Enum):
     SEARCH_LOCAL = "search_local"
     SEARCH_GLOBAL = "search_global"
     COMMUNITY_REPORT = "community_report"
+    COMMUNITY_TITLE = "community_title"
     CAUSAL_INFERENCE = "causal_inference"
     ENTITY_FACTS = "entity_facts"
     NARRATIVE_SYNTHESIS = "narrative_synthesis"

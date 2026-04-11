@@ -48,12 +48,14 @@ class CommunityDetector:
         max_cluster_size: int = 10,
         default_seed: int = 42,
         database_type: GraphDatabaseType = GraphDatabaseType.NEO4J,
+        llm_client: LLMClient | None = None,
     ) -> None:
         self._pool = pool
         self._repo = Neo4jCommunityRepo(pool, database_type=database_type)
         self._max_cluster_size = max_cluster_size
         self._default_seed = default_seed
         self._database_type = database_type
+        self._llm = llm_client
 
     async def detect_communities(
         self,
@@ -180,6 +182,10 @@ class CommunityDetector:
             max_cluster_size=max_cluster_size,
             seed=seed,
         )
+
+        # Generate LLM titles for communities
+        if self._llm:
+            await self._generate_community_titles(result.communities)
 
         # Persist to Neo4j
         await self._persist_communities(result.communities)
@@ -471,6 +477,51 @@ class CommunityDetector:
             community.children_ids = children_map.get(community.id, [])
 
         return communities
+
+    async def _generate_community_titles(self, communities: list[Community]) -> None:
+        """Use LLM to generate meaningful titles for communities.
+
+        Skips orphan communities (level < 0).
+
+        Args:
+            communities: List of communities to generate titles for.
+        """
+        from core.llm.types import CallPoint
+
+        prompt_loader = self._llm._prompts
+        system_prompt = prompt_loader.get("community_title", "system")
+        user_template = prompt_loader.get("community_title", "user")
+
+        for community in communities:
+            if community.level < 0 or not community.entity_ids:
+                continue
+
+            entities_text = ", ".join(community.entity_ids[:20])
+            user_content = user_template.format(entities=entities_text)
+
+            try:
+                title = await self._llm.call_at(
+                    call_point=CallPoint.COMMUNITY_TITLE,
+                    payload={
+                        "system_prompt": system_prompt,
+                        "user_content": user_content,
+                    },
+                )
+                if title and isinstance(title, str):
+                    title = title.strip().strip('"').strip("'")
+                    if title:
+                        community.title = title
+                        log.debug(
+                            "community_title_generated",
+                            community_id=community.id,
+                            title=title,
+                        )
+            except Exception as exc:
+                log.warning(
+                    "community_title_generation_failed",
+                    community_id=community.id,
+                    error=str(exc),
+                )
 
     def _create_orphan_community(self, orphan_entities: list[str]) -> Community:
         """Create a special community for orphan entities.
