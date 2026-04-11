@@ -48,6 +48,14 @@ class SourceScheduler:
         self._scheduler.shutdown(wait=False)
         log.info("source_scheduler_stopped")
 
+    def list_enabled_sources(self) -> list[SourceConfig]:
+        """Get list of all enabled source configurations.
+
+        Returns:
+            List of SourceConfig objects for enabled sources.
+        """
+        return self._registry.list_sources(enabled_only=True)
+
     def _schedule_source(self, source: SourceConfig) -> None:
         """Schedule periodic parsing for a single source."""
         self._scheduler.add_job(

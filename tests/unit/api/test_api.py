@@ -385,8 +385,7 @@ class TestPipelineEndpoint:
 
         mock_scheduler = MagicMock()
         mock_scheduler.trigger_now = AsyncMock()
-        mock_scheduler._registry = MagicMock()
-        mock_scheduler._registry.list_sources.return_value = [mock_source1, mock_source2]
+        mock_scheduler.list_enabled_sources.return_value = [mock_source1, mock_source2]
 
         request = TriggerRequest()
 
