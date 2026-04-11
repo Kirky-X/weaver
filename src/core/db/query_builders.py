@@ -7,6 +7,7 @@ for vector operations, supporting both PostgreSQL (pgvector) and DuckDB backends
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
@@ -20,6 +21,68 @@ class DatabaseType(str, Enum):
 
     POSTGRES = "postgres"
     DUCKDB = "duckdb"
+
+
+class VectorType(str, Enum):
+    """Allowed vector types for similarity queries."""
+
+    CONTENT = "content"
+    TITLE = "title"
+
+
+# SQL-safe identifier pattern (alphanumeric and underscore only)
+_SAFE_IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+
+
+def validate_sql_identifier(identifier: str) -> str:
+    """Validate that a string is a safe SQL identifier.
+
+    Args:
+        identifier: String to validate.
+
+    Returns:
+        The validated identifier.
+
+    Raises:
+        ValueError: If identifier contains unsafe characters.
+    """
+    if not _SAFE_IDENTIFIER_PATTERN.match(identifier):
+        raise ValueError(f"Invalid SQL identifier: {identifier}")
+    return identifier
+
+
+def validate_limit(limit: int) -> int:
+    """Validate limit is within safe bounds.
+
+    Args:
+        limit: Limit value to validate.
+
+    Returns:
+        The validated limit.
+
+    Raises:
+        ValueError: If limit is out of bounds.
+    """
+    if not 1 <= limit <= 1000:
+        raise ValueError(f"Invalid limit: {limit}, must be 1-1000")
+    return limit
+
+
+def validate_threshold(threshold: float) -> float:
+    """Validate threshold is within valid range.
+
+    Args:
+        threshold: Threshold value to validate.
+
+    Returns:
+        The validated threshold.
+
+    Raises:
+        ValueError: If threshold is out of range.
+    """
+    if not 0.0 <= threshold <= 1.0:
+        raise ValueError(f"Invalid threshold: {threshold}, must be 0.0-1.0")
+    return threshold
 
 
 @dataclass(frozen=True)
@@ -218,6 +281,11 @@ class PgVectorQueryBuilder:
 
     def build_find_similar_articles_query(self, config: SimilarityQuery) -> str:
         """Build pgvector cosine similarity search."""
+        # Validate inputs for security
+        validate_limit(config.limit)
+        validate_threshold(config.threshold)
+        VectorType(config.vector_type)  # Validate against enum
+
         similarity_expr = self.build_similarity_expression("av.embedding")
 
         # Build WHERE conditions based on filter flags
@@ -249,6 +317,10 @@ class PgVectorQueryBuilder:
 
     def build_find_similar_entities_query(self, config: EntitySimilarityQuery) -> str:
         """Build pgvector entity similarity search."""
+        # Validate inputs for security
+        validate_limit(config.limit)
+        validate_threshold(config.threshold)
+
         similarity_expr = self.build_similarity_expression("embedding")
         return f"""
             SELECT
@@ -328,6 +400,11 @@ class DuckDBVectorQueryBuilder:
 
     def build_find_similar_articles_query(self, config: SimilarityQuery) -> str:
         """Build DuckDB cosine similarity search."""
+        # Validate inputs for security
+        validate_limit(config.limit)
+        validate_threshold(config.threshold)
+        VectorType(config.vector_type)  # Validate against enum
+
         similarity_expr = self.build_similarity_expression("av.embedding")
 
         # Build WHERE conditions based on filter flags
@@ -359,6 +436,10 @@ class DuckDBVectorQueryBuilder:
 
     def build_find_similar_entities_query(self, config: EntitySimilarityQuery) -> str:
         """Build DuckDB entity similarity search."""
+        # Validate inputs for security
+        validate_limit(config.limit)
+        validate_threshold(config.threshold)
+
         similarity_expr = self.build_similarity_expression("embedding")
         return f"""
             SELECT
