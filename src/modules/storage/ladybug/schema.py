@@ -42,6 +42,7 @@ SCHEMA_QUERIES = [
         summary STRING,
         level INT64,
         parent_id STRING,
+        children_ids STRING,
         entity_count INT64,
         rank DOUBLE,
         period STRING,

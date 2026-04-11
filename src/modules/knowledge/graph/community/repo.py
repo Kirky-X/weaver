@@ -141,6 +141,7 @@ class Neo4jCommunityRepo:
         title: str,
         level: int,
         parent_id: str | None = None,
+        children_ids: list[str] | None = None,
         entity_count: int = 0,
         rank: float = 1.0,
         period: str | None = None,
@@ -153,6 +154,7 @@ class Neo4jCommunityRepo:
             title: Human-readable title.
             level: Hierarchy level.
             parent_id: Parent community ID.
+            children_ids: List of child community IDs.
             entity_count: Number of entities.
             rank: Importance ranking.
             period: Detection period (YYYY-MM-DD).
@@ -161,6 +163,7 @@ class Neo4jCommunityRepo:
         Returns:
             The created community ID.
         """
+        children_ids_json = "[]" if not children_ids else str(children_ids)
         if self._database_type == GraphDatabaseType.LADYBUG:
             now = self._now_ts()
             query = """
@@ -169,6 +172,7 @@ class Neo4jCommunityRepo:
                 title: $title,
                 level: $level,
                 parent_id: $parent_id,
+                children_ids: $children_ids,
                 entity_count: $entity_count,
                 rank: $rank,
                 period: $period,
@@ -185,6 +189,7 @@ class Neo4jCommunityRepo:
                 title: $title,
                 level: $level,
                 parent_id: $parent_id,
+                children_ids: $children_ids,
                 entity_count: $entity_count,
                 rank: $rank,
                 period: $period,
@@ -199,6 +204,7 @@ class Neo4jCommunityRepo:
             "title": title,
             "level": level,
             "parent_id": parent_id,
+            "children_ids": children_ids_json,
             "entity_count": entity_count,
             "rank": rank,
             "period": period or datetime.now(UTC).date().isoformat(),
@@ -316,6 +322,85 @@ class Neo4jCommunityRepo:
         )
         return bool(result)
 
+    async def delete_community(self, community_id: str) -> bool:
+        """Delete a single community and its relationships.
+
+        Args:
+            community_id: Community UUID to delete.
+
+        Returns:
+            True if deleted.
+        """
+        if self._database_type == GraphDatabaseType.LADYBUG:
+            # LadybugDB: No DETACH DELETE. Delete relationships first.
+            try:
+                await self._pool.execute_query(
+                    "MATCH (c:Community {id: $id})-[r:HAS_ENTITY]->() DELETE r",
+                    {"id": community_id},
+                )
+            except Exception as exc:
+                log.debug("delete_has_entity", error=str(exc))
+            try:
+                await self._pool.execute_query(
+                    "MATCH (c:Community {id: $id})-[r:PARENT_COMMUNITY]->() DELETE r",
+                    {"id": community_id},
+                )
+            except Exception as exc:
+                log.debug("delete_parent_rel", error=str(exc))
+            query = """
+            MATCH (c:Community {id: $id})
+            DELETE c
+            RETURN count(c) AS deleted
+            """
+        else:
+            query = """
+            MATCH (c:Community {id: $id})
+            DETACH DELETE c
+            RETURN count(c) AS deleted
+            """
+        result = await self._pool.execute_query(query, {"id": community_id})
+        return bool(result)
+
+    async def update_children(
+        self,
+        community_id: str,
+        children_ids: list[str],
+    ) -> bool:
+        """Update children_ids for a community.
+
+        Args:
+            community_id: Community UUID.
+            children_ids: List of child community IDs.
+
+        Returns:
+            True if updated.
+        """
+        import json
+
+        children_ids_json = json.dumps(children_ids)
+        if self._database_type == GraphDatabaseType.LADYBUG:
+            query = """
+            MATCH (c:Community {id: $id})
+            SET c.children_ids = $children_ids,
+                c.updated_at = $updated_at
+            RETURN c.id AS id
+            """
+            params = {
+                "id": community_id,
+                "children_ids": children_ids_json,
+                "updated_at": self._now_ts(),
+            }
+        else:
+            query = """
+            MATCH (c:Community {id: $id})
+            SET c.children_ids = $children_ids,
+                c.updated_at = datetime()
+            RETURN c.id AS id
+            """
+            params = {"id": community_id, "children_ids": children_ids_json}
+        result = await self._pool.execute_query(query, params)
+        return bool(result)
+
     async def get_community(self, community_id: str) -> Community | None:
         """Get a community by ID.
 
@@ -333,6 +418,7 @@ class Neo4jCommunityRepo:
                c.title AS title,
                c.level AS level,
                c.parent_id AS parent_id,
+               c.children_ids AS children_ids,
                c.entity_count AS entity_count,
                c.rank AS rank,
                c.period AS period,
@@ -343,7 +429,17 @@ class Neo4jCommunityRepo:
         """
         result = await self._pool.execute_query(query, {"community_id": community_id})
         if result:
-            return Community.from_neo4j(dict(result[0]))
+            raw_data = dict(result[0])
+            # Parse children_ids JSON string if present
+            children_ids_str = raw_data.get("children_ids", "[]")
+            if isinstance(children_ids_str, str):
+                import json
+
+                try:
+                    raw_data["children_ids"] = json.loads(children_ids_str)
+                except json.JSONDecodeError:
+                    raw_data["children_ids"] = []
+            return Community.from_neo4j(raw_data)
         return None
 
     async def list_communities(
@@ -522,6 +618,7 @@ class Neo4jCommunityRepo:
             CommunityReport or None.
         """
         if self._database_type == GraphDatabaseType.LADYBUG:
+            # LadybugDB: Use coalesce for properties that may not exist
             query = """
             MATCH (r:CommunityReport {community_id: $community_id})
             RETURN r.id AS id,
@@ -529,10 +626,10 @@ class Neo4jCommunityRepo:
                    r.title AS title,
                    r.summary AS summary,
                    r.full_content AS full_content,
-                   r.key_entities AS key_entities,
-                   r.key_relationships AS key_relationships,
-                   r.rank AS rank,
-                   r.stale AS stale,
+                   coalesce(r.key_entities, []) AS key_entities,
+                   coalesce(r.key_relationships, []) AS key_relationships,
+                   coalesce(r.rank, 1.0) AS rank,
+                   coalesce(r.stale, false) AS stale,
                    r.created_at AS created_at,
                    r.updated_at AS updated_at
             """
@@ -662,6 +759,7 @@ class Neo4jCommunityRepo:
         """
         if self._database_type == GraphDatabaseType.LADYBUG:
             # LadybugDB: No vector.similarity.cosine. Use array_cosine_similarity.
+            # Use coalesce for properties that may not exist.
             if level is not None:
                 cypher = """
                 MATCH (r:CommunityReport)-[:REPORTS_ON]->(c:Community)
@@ -673,9 +771,9 @@ class Neo4jCommunityRepo:
                        r.title AS title,
                        r.summary AS summary,
                        r.full_content AS full_content,
-                       r.key_entities AS key_entities,
-                       r.key_relationships AS key_relationships,
-                       r.rank AS rank,
+                       coalesce(r.key_entities, []) AS key_entities,
+                       coalesce(r.key_relationships, []) AS key_relationships,
+                       coalesce(r.rank, 1.0) AS rank,
                        score
                 ORDER BY score DESC
                 LIMIT $top_k
@@ -691,9 +789,9 @@ class Neo4jCommunityRepo:
                        r.title AS title,
                        r.summary AS summary,
                        r.full_content AS full_content,
-                       r.key_entities AS key_entities,
-                       r.key_relationships AS key_relationships,
-                       r.rank AS rank,
+                       coalesce(r.key_entities, []) AS key_entities,
+                       coalesce(r.key_relationships, []) AS key_relationships,
+                       coalesce(r.rank, 1.0) AS rank,
                        score
                 ORDER BY score DESC
                 LIMIT $top_k

@@ -21,6 +21,7 @@ class Community:
         title: Human-readable title for the community.
         level: Hierarchy level (0 = leaf/most granular, higher = more abstract).
         parent_id: ID of parent community in hierarchy (None for root).
+        children_ids: IDs of child communities in hierarchy (empty for leaf).
         entity_ids: List of entity IDs belonging to this community.
         entity_count: Number of entities in the community.
         relationship_ids: List of relationship IDs within the community.
@@ -35,6 +36,7 @@ class Community:
     title: str
     level: int
     parent_id: str | None = None
+    children_ids: list[str] = field(default_factory=list)
     entity_ids: list[str] = field(default_factory=list)
     entity_count: int = 0
     relationship_ids: list[str] = field(default_factory=list)
@@ -59,6 +61,7 @@ class Community:
             title=data.get("title", ""),
             level=data.get("level", 0),
             parent_id=data.get("parent_id"),
+            children_ids=data.get("children_ids", []),
             entity_ids=data.get("entity_ids", []),
             entity_count=data.get("entity_count", 0),
             relationship_ids=data.get("relationship_ids", []),

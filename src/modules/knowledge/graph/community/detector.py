@@ -59,6 +59,7 @@ class CommunityDetector:
         self,
         max_cluster_size: int | None = None,
         use_lcc: bool = True,
+        iterations: int = 1,
         seed: int | None = None,
     ) -> CommunityDetectionResult:
         """Run community detection on the knowledge graph.
@@ -66,6 +67,7 @@ class CommunityDetector:
         Args:
             max_cluster_size: Maximum size of leaf clusters.
             use_lcc: Whether to use largest connected component only.
+            iterations: Number of Leiden optimisation iterations.
             seed: Random seed for reproducibility.
 
         Returns:
@@ -79,6 +81,7 @@ class CommunityDetector:
             "community_detection_start",
             max_cluster_size=max_cluster_size,
             use_lcc=use_lcc,
+            iterations=iterations,
             seed=seed,
         )
 
@@ -102,6 +105,8 @@ class CommunityDetector:
         clusters = self._run_hierarchical_leiden(
             edges=edges,
             max_cluster_size=max_cluster_size,
+            use_lcc=use_lcc,
+            iterations=iterations,
             seed=seed,
         )
         log.info("community_detection_leiden_complete", cluster_count=len(clusters))
@@ -216,22 +221,31 @@ class CommunityDetector:
             """
         results = await self._pool.execute_query(query)
 
-        # Normalize edges (undirected) and deduplicate
-        edge_map: dict[tuple[str, str], float] = {}
-        for r in results:
-            source = r.get("source", "")
-            target = r.get("target", "")
-            weight = float(r.get("weight", 1.0))
+        if not results:
+            return []
 
-            # Normalize direction (smaller node first)
-            lo, hi = sorted([source, target])
-            key = (lo, hi)
+        # Vectorized edge normalization and deduplication using pandas
+        import pandas as pd
 
-            # Keep highest weight if duplicate
-            if key not in edge_map or weight > edge_map[key]:
-                edge_map[key] = weight
+        df = pd.DataFrame(results)
 
-        return [(s, t, w) for (s, t), w in edge_map.items()]
+        # Ensure required columns exist
+        if "source" not in df.columns or "target" not in df.columns:
+            return []
+
+        # Fill missing weights with default
+        df["weight"] = df.get("weight", pd.Series(1.0, index=df.index)).fillna(1.0)
+
+        # Normalize direction: smaller node name first (undirected graph)
+        df["lo"] = df[["source", "target"]].min(axis=1)
+        df["hi"] = df[["source", "target"]].max(axis=1)
+
+        # Sort by weight descending to keep highest weight for duplicates
+        df = df.sort_values("weight", ascending=False)
+        df = df.drop_duplicates(subset=["lo", "hi"], keep="first")
+
+        # Convert to list of tuples
+        return list(zip(df["lo"].tolist(), df["hi"].tolist(), df["weight"].tolist()))
 
     async def _get_orphan_entities(self) -> list[str]:
         """Get entities with no entity relationships.
@@ -265,12 +279,16 @@ class CommunityDetector:
         edges: list[tuple[str, str, float]],
         max_cluster_size: int,
         seed: int,
+        use_lcc: bool = True,
+        iterations: int = 1,
     ) -> list[HierarchicalCluster]:
         """Run Hierarchical Leiden using leidenalg + igraph.
 
         Args:
             edges: List of (source, target, weight) tuples.
             max_cluster_size: Maximum cluster size.
+            use_lcc: Whether to use largest connected component only.
+            iterations: Number of optimisation iterations.
             seed: Random seed.
 
         Returns:
@@ -289,6 +307,14 @@ class CommunityDetector:
         g.add_edges([(name_to_idx[s], name_to_idx[t]) for s, t, _ in edges])
         g.es["weight"] = [w for _, _, w in edges]
 
+        # LCC filtering: only process largest connected component
+        if use_lcc and g.vcount() > 0:
+            components = g.connected_components()
+            if len(components) > 1:
+                g = components.giant()
+                # Update node_names to only include LCC nodes
+                node_names = [node_names[i] for i in g.vs.indices]
+
         max_depth = 10
         clusters: list[HierarchicalCluster] = []
 
@@ -297,6 +323,7 @@ class CommunityDetector:
             names: list[str],
             max_size: int,
             rng_seed: int,
+            n_iterations: int,
             depth: int = 0,
             parent_cluster_id: int | None = None,
         ) -> None:
@@ -305,20 +332,17 @@ class CommunityDetector:
             if graph.vcount() == 0:
                 return
 
-            # Run Leiden partitioning
+            # Run Leiden partitioning using Optimiser for iteration control
+            optimiser = leidenalg.Optimiser()
+            optimiser.set_rng_seed(rng_seed)
+            optimiser.consider_comms = leidenalg.ALL_NEIGH_COMMS
+
             if "weight" in graph.edge_attributes():
-                partition = leidenalg.find_partition(
-                    graph,
-                    leidenalg.ModularityVertexPartition,
-                    weights="weight",
-                    seed=rng_seed,
-                )
+                partition = leidenalg.ModularityVertexPartition(graph, weights="weight")
             else:
-                partition = leidenalg.find_partition(
-                    graph,
-                    leidenalg.ModularityVertexPartition,
-                    seed=rng_seed,
-                )
+                partition = leidenalg.ModularityVertexPartition(graph)
+
+            optimiser.optimise_partition(partition, n_iterations=n_iterations)
 
             # Generate clusters from partition
             for node_idx, cluster_id in enumerate(partition.membership):
@@ -355,11 +379,12 @@ class CommunityDetector:
                             sub_names,
                             max_size,
                             rng_seed,
+                            n_iterations,
                             depth=depth + 1,
                             parent_cluster_id=cid,
                         )
 
-        _recursive_partition(g, node_names, max_cluster_size, seed)
+        _recursive_partition(g, node_names, max_cluster_size, seed, iterations)
         return clusters
 
     def _build_communities_from_clusters(
@@ -434,6 +459,16 @@ class CommunityDetector:
                     period=period,
                 )
                 communities.append(community)
+
+        # Build children_map (reverse of parent_id)
+        children_map: dict[str, list[str]] = defaultdict(list)
+        for community in communities:
+            if community.parent_id:
+                children_map[community.parent_id].append(community.id)
+
+        # Fill children_ids for each community
+        for community in communities:
+            community.children_ids = children_map.get(community.id, [])
 
         return communities
 
@@ -535,6 +570,7 @@ class CommunityDetector:
                     title=community.title,
                     level=community.level,
                     parent_id=community.parent_id,
+                    children_ids=community.children_ids,
                     entity_count=community.entity_count,
                     rank=community.rank,
                     period=community.period,
