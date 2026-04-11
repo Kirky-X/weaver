@@ -13,7 +13,7 @@ from pathlib import Path
 # Fix: allow `from api` style imports to resolve correctly regardless of CWD.
 sys.path.insert(0, str(Path(__file__).parent))
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
@@ -373,13 +373,16 @@ def create_app(container: Container | None = None) -> FastAPI:
 
     app.include_router(api_router)
 
-    @app.get("/health", response_model=APIResponse[dict])
-    async def health_check_endpoint() -> APIResponse[dict]:
-        """Health check endpoint with dependency checks."""
+    @app.get("/health")
+    async def health_check_endpoint() -> dict:
+        """Health check endpoint for load balancers.
+
+        Returns simplified status without exposing infrastructure details.
+        Detailed health info requires authentication via /api/v1/status.
+        """
         result = await health_check()
-        if result.status != "healthy":
-            raise HTTPException(status_code=503, detail=result.model_dump())
-        return success_response(result.model_dump())
+        # Return simplified response - only overall status
+        return {"status": result.status}
 
     @app.get("/api/v1/status", response_model=APIResponse[dict])
     async def system_status() -> APIResponse[dict]:
