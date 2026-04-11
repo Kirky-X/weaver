@@ -121,9 +121,8 @@ def _compute_modularity(
     for cluster in set(partitions.values()):
         internal = community_internal.get(cluster, 0.0)
         degree = community_degree.get(cluster, 0.0)
-        modularity += internal - (degree * degree) / (2 * total_weight)
+        modularity += internal / (2 * total_weight) - (degree / (2 * total_weight)) ** 2
 
-    modularity /= 2 * total_weight
     return modularity
 
 
