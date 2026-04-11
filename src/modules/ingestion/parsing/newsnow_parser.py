@@ -84,6 +84,12 @@ class NewsNowParser(BaseSourceParser):
             if not url:
                 continue
 
+            # Skip newsflash/list pages that contain multiple articles
+            # These are list pages, not individual article pages
+            if self._is_list_page(url):
+                log.debug("newsnow_skipping_list_page", url=url)
+                continue
+
             title = entry.get("title", "")
             if not title:
                 continue
@@ -134,6 +140,48 @@ class NewsNowParser(BaseSourceParser):
             return None
 
         return None
+
+    @staticmethod
+    def _is_list_page(url: str) -> bool:
+        """Check if URL is a list page (newsflash, category, etc.) rather than an article.
+
+        List pages contain multiple articles and should not be crawled as single articles.
+        Distinguishes between true list pages and individual items with numeric IDs.
+
+        Args:
+            url: URL to check.
+
+        Returns:
+            True if this is a list page that should be skipped.
+        """
+        # List page patterns - URLs ending with these (or followed by query params)
+        # are list pages, but URLs with numeric IDs after these are individual items
+        list_base_patterns = [
+            "/newsflashes",
+            "/newsflash",
+            "/list",
+            "/category",
+            "/tag",
+            "/archive",
+        ]
+
+        url_lower = url.lower()
+        # Remove query string for cleaner matching
+        path = url_lower.split("?")[0]
+
+        for pattern in list_base_patterns:
+            # Check if URL ends with the pattern (exact list page)
+            if path == pattern or path.endswith(pattern + "/"):
+                return True
+
+            # Check if pattern is followed by non-numeric segment (e.g., /category/tech)
+            import re
+
+            match = re.search(rf"{pattern}/([^/0-9][^/]*)", path)
+            if match:
+                return True
+
+        return False
 
     async def close(self) -> None:
         """Close resources."""
