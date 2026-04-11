@@ -8,8 +8,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.observability.logging import get_logger
 from modules.migration.exceptions import ValidationFailedError
 from modules.migration.models import NodeSchema, RelSchema
+
+log = get_logger("neo4j_target")
 
 
 class Neo4jTarget:
@@ -43,9 +46,9 @@ class Neo4jTarget:
                     CREATE CONSTRAINT IF NOT EXISTS FOR (n:`{schema.label}`)
                     REQUIRE n.`{schema.primary_key}` IS UNIQUE
                 """)
-            except Exception:
+            except Exception as exc:
                 # Constraint may already exist with different name
-                pass
+                log.debug("create_constraint_skipped", label=schema.label, error=str(exc))
 
             # Create index on primary key
             try:
@@ -53,8 +56,8 @@ class Neo4jTarget:
                     CREATE INDEX IF NOT EXISTS FOR (n:`{schema.label}`)
                     ON (n.`{schema.primary_key}`)
                 """)
-            except Exception:
-                pass
+            except Exception as exc:
+                log.debug("create_index_skipped", label=schema.label, error=str(exc))
 
     async def ensure_rel_schema(self, schemas: list[RelSchema]) -> None:
         """Ensure target relationship types can be created.
@@ -126,8 +129,8 @@ class Neo4jTarget:
                     },
                 )
                 written += 1
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("write_node_failed", node=str(node), error=str(exc))
 
         return written
 
@@ -181,8 +184,8 @@ class Neo4jTarget:
                     },
                 )
                 written += 1
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("write_node_failed", node=str(node), error=str(exc))
 
         return written
 

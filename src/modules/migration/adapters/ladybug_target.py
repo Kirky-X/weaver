@@ -9,8 +9,11 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from core.observability.logging import get_logger
 from modules.migration.exceptions import ValidationFailedError
 from modules.migration.models import NodeSchema, RelSchema
+
+log = get_logger("ladybug_target")
 
 
 class LadybugTarget:
@@ -63,8 +66,9 @@ class LadybugTarget:
                     CREATE INDEX IF NOT EXISTS idx_edges_{schema.type.lower()}
                     ON edges(type)
                 """)
-            except Exception:
-                pass
+            except Exception as exc:
+                # Index may already exist, log and continue
+                log.debug("create_edge_index_skipped", rel_type=schema.type, error=str(exc))
 
     async def write_nodes(self, label: str, nodes: list[dict[str, Any]]) -> int:
         """Write a batch of nodes.
@@ -110,8 +114,8 @@ class LadybugTarget:
                     },
                 )
                 written += 1
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("write_node_failed", node_id=str(node_id), label=label, error=str(exc))
 
         return written
 
@@ -166,8 +170,8 @@ class LadybugTarget:
                     },
                 )
                 written += 1
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning("write_node_failed", node_id=str(node_id), label=label, error=str(exc))
 
         return written
 
@@ -181,9 +185,10 @@ class LadybugTarget:
         Returns:
             True if verification passed.
         """
-        result = await self._pool.execute_query(f"""
-            SELECT COUNT(*) AS count FROM nodes WHERE label = '{label}'
-        """)
+        result = await self._pool.execute_query(
+            "SELECT COUNT(*) AS count FROM nodes WHERE label = $label",
+            {"label": label},
+        )
 
         actual = result[0].get("count", 0) if result else 0
 
@@ -206,9 +211,10 @@ class LadybugTarget:
         Returns:
             True if verification passed.
         """
-        result = await self._pool.execute_query(f"""
-            SELECT COUNT(*) AS count FROM edges WHERE type = '{rel_type}'
-        """)
+        result = await self._pool.execute_query(
+            "SELECT COUNT(*) AS count FROM edges WHERE type = $rel_type",
+            {"rel_type": rel_type},
+        )
 
         actual = result[0].get("count", 0) if result else 0
 
@@ -223,6 +229,7 @@ class LadybugTarget:
 
     async def clear_label(self, label: str) -> None:
         """Delete all nodes with a given label."""
-        await self._pool.execute_query(f"""
-            DELETE FROM nodes WHERE label = '{label}'
-        """)
+        await self._pool.execute_query(
+            "DELETE FROM nodes WHERE label = $label",
+            {"label": label},
+        )

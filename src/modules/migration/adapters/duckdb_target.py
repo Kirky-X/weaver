@@ -11,8 +11,11 @@ from typing import Any
 
 from sqlalchemy import text
 
+from core.observability.logging import get_logger
 from modules.migration.exceptions import ValidationFailedError
 from modules.migration.models import MigrationSchema
+
+log = get_logger("duckdb_target")
 
 
 class DuckDBTarget:
@@ -145,8 +148,13 @@ class DuckDBTarget:
                     try:
                         conn.execute(sql, row)
                         written += 1
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        log.warning(
+                            "write_row_failed",
+                            table=self._table_name,
+                            row=str(row)[:100],
+                            error=str(exc),
+                        )
             return written
 
         return await self._run_sync(_write_batch_sync)
