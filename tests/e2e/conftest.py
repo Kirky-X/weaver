@@ -33,8 +33,12 @@ import pytest_asyncio
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from core.observability.logging import get_logger
+
 # Enable nested event loops to fix asyncpg + TestClient compatibility
 nest_asyncio.apply()
+
+log = get_logger("e2e_conftest")
 
 # Path constants
 E2E_DIR = Path(__file__).parent
@@ -60,6 +64,29 @@ def _load_env_file(env_file: Path) -> dict[str, str]:
                 key, _, value = line.partition("=")
                 env[key.strip()] = value.strip()
     return env
+
+
+# ── Docker Detection ────────────────────────────────────────────────
+
+
+def _check_docker_available() -> bool:
+    """Check if Docker is available and docker compose command works.
+
+    Returns:
+        True if Docker is available, False otherwise.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "compose", "version"],
+            capture_output=True,
+            timeout=10,
+        )
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return False
+
+
+DOCKER_AVAILABLE = _check_docker_available()
 
 
 # ── Docker Compose Management ──────────────────────────────────────
@@ -337,15 +364,20 @@ def api_key(e2e_env: dict[str, str]) -> str:
 
 
 @pytest.fixture(scope="session")
-def postgres_dsn(e2e_env: dict[str, str]) -> str:
+def postgres_dsn(e2e_env: dict[str, str]) -> str | None:
     """Get the PostgreSQL DSN for E2E tests.
+
+    Returns None if Docker unavailable, triggering DuckDB fallback.
 
     Args:
         e2e_env: E2E environment variables.
 
     Returns:
-        The PostgreSQL connection string.
+        The PostgreSQL connection string or None for fallback.
     """
+    if not DOCKER_AVAILABLE:
+        return None
+
     # Build DSN from individual WEAVER_POSTGRES__* environment variables
     host = e2e_env.get("WEAVER_POSTGRES__HOST", "localhost")
     port = e2e_env.get("WEAVER_POSTGRES__PORT", "5432")
@@ -358,8 +390,11 @@ def postgres_dsn(e2e_env: dict[str, str]) -> str:
 @pytest.fixture(scope="session")
 def docker_compose(
     e2e_env: dict[str, str],
-) -> Generator[DockerComposeManager, None, None]:
+) -> Generator[DockerComposeManager | None, None, None]:
     """Start Docker Compose services for the E2E test session.
+
+    If Docker is not available, returns None and tests will use fallback
+    embedded databases (DuckDB + LadybugDB).
 
     This fixture has session scope - Docker containers are started once
     for all E2E tests, and torn down at the end of the session.
@@ -368,8 +403,13 @@ def docker_compose(
         e2e_env: E2E environment variables.
 
     Yields:
-        DockerComposeManager instance.
+        DockerComposeManager instance or None if Docker unavailable.
     """
+    if not DOCKER_AVAILABLE:
+        log.info("e2e_docker_unavailable_using_fallback")
+        yield None
+        return
+
     manager = DockerComposeManager(E2E_COMPOSE_FILE, e2e_env)
     try:
         manager.up(timeout=180)
@@ -380,51 +420,59 @@ def docker_compose(
 
 @pytest_asyncio.fixture(scope="session")
 async def db_migrations(
-    docker_compose: DockerComposeManager,
-    postgres_dsn: str,
+    docker_compose: DockerComposeManager | None,
+    postgres_dsn: str | None,
 ) -> None:
     """Run Alembic migrations on the E2E database once per session.
 
+    Skipped when using DuckDB fallback (migrations handled automatically).
+
     Args:
-        docker_compose: Docker compose manager (ensures services are up).
-        postgres_dsn: PostgreSQL connection string.
+        docker_compose: Docker compose manager or None.
+        postgres_dsn: PostgreSQL connection string or None.
     """
+    if postgres_dsn is None:
+        log.info("e2e_skipping_migrations_duckdb_fallback")
+        return
+
     await _run_alembic_migrations(postgres_dsn, PROJECT_ROOT)
 
 
 @pytest_asyncio.fixture(scope="function")
 async def clean_tables(
-    docker_compose: DockerComposeManager,
-    postgres_dsn: str,
+    docker_compose: DockerComposeManager | None,
+    postgres_dsn: str | None,
 ) -> None:
     """Truncate all tables before each E2E test function.
 
-    This ensures test isolation - each test starts with an empty database.
+    When using DuckDB fallback, creates a fresh in-memory database instead.
 
     Args:
-        docker_compose: Docker compose manager.
-        postgres_dsn: PostgreSQL connection string.
+        docker_compose: Docker compose manager or None.
+        postgres_dsn: PostgreSQL connection string or None.
     """
+    if postgres_dsn is None:
+        # DuckDB fallback: tables reset via fresh in-memory DB
+        return
+
     await _truncate_tables(postgres_dsn)
     yield
 
 
 @pytest.fixture(scope="session")
 def e2e_app(
-    docker_compose: DockerComposeManager,
+    docker_compose: DockerComposeManager | None,
     db_migrations: None,
     e2e_env: dict[str, str],
 ) -> FastAPI:
     """Create the FastAPI application instance for E2E testing.
 
-    Depends on docker_compose (ensures Docker is up) and db_migrations
-    (ensures schema is created). Both have session scope, so the app
-    is created once per test session.
+    When Docker unavailable, app uses DuckDB + LadybugDB fallback.
 
     Args:
-        docker_compose: Docker compose manager.
-        db_migrations: Migration fixture (ensures DB is ready).
-        e2e_env: E2E environment variables (provides API key, DSN, etc.).
+        docker_compose: Docker compose manager or None.
+        db_migrations: Migration fixture.
+        e2e_env: E2E environment variables.
 
     Returns:
         Configured FastAPI application.

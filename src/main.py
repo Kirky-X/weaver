@@ -373,16 +373,15 @@ def create_app(container: Container | None = None) -> FastAPI:
 
     app.include_router(api_router)
 
-    @app.get("/health")
-    async def health_check_endpoint() -> dict:
+    @app.get("/health", response_model=APIResponse[dict])
+    async def health_check_endpoint() -> APIResponse[dict]:
         """Health check endpoint for load balancers.
 
-        Returns simplified status without exposing infrastructure details.
+        Returns health status wrapped in APIResponse format.
         Detailed health info requires authentication via /api/v1/status.
         """
         result = await health_check()
-        # Return simplified response - only overall status
-        return {"status": result.status}
+        return success_response({"status": result.status, "checks": result.checks})
 
     @app.get("/api/v1/status", response_model=APIResponse[dict])
     async def system_status() -> APIResponse[dict]:

@@ -87,16 +87,16 @@ class TestCommunityDetectionWorkflow:
         # so we mock the class methods directly.
         with (
             patch(
-                "modules.knowledge.graph.community_repo.Neo4jCommunityRepo.list_communities",
+                "modules.knowledge.graph.community.repo.Neo4jCommunityRepo.list_communities",
                 new_callable=AsyncMock,
             ) as mock_list,
             patch(
-                "modules.knowledge.graph.community_repo.Neo4jCommunityRepo.count_communities",
+                "modules.knowledge.graph.community.repo.Neo4jCommunityRepo.count_communities",
                 new_callable=AsyncMock,
                 return_value=2,
             ) as mock_count,
             patch(
-                "modules.knowledge.graph.community_repo.Neo4jCommunityRepo.get_report",
+                "modules.knowledge.graph.community.repo.Neo4jCommunityRepo.get_report",
                 new_callable=AsyncMock,
                 return_value=None,
             ),
@@ -121,7 +121,7 @@ class TestCommunityDetectionWorkflow:
             ]
 
             list_response = client.get(
-                "/api/v1/graph/communities",
+                "/api/v1/admin/communities",
                 headers=auth_headers,
             )
 
@@ -151,12 +151,12 @@ class TestCommunityDetectionWorkflow:
 
         with (
             patch(
-                "modules.knowledge.graph.community_repo.Neo4jCommunityRepo.get_community",
+                "modules.knowledge.graph.community.repo.Neo4jCommunityRepo.get_community",
                 new_callable=AsyncMock,
                 return_value=mock_community,
             ),
             patch(
-                "modules.knowledge.graph.community_repo.Neo4jCommunityRepo.get_report",
+                "modules.knowledge.graph.community.repo.Neo4jCommunityRepo.get_report",
                 new_callable=AsyncMock,
                 return_value=None,
             ),
@@ -167,7 +167,7 @@ class TestCommunityDetectionWorkflow:
             ),
         ):
             get_response = client.get(
-                "/api/v1/graph/communities/comm-1",
+                "/api/v1/admin/communities/comm-1",
                 headers=auth_headers,
             )
 
@@ -185,12 +185,12 @@ class TestCommunityDetectionWorkflow:
     ) -> None:
         """Test getting non-existent community returns 404."""
         with patch(
-            "modules.knowledge.graph.community_repo.Neo4jCommunityRepo.get_community",
+            "modules.knowledge.graph.community.repo.Neo4jCommunityRepo.get_community",
             new_callable=AsyncMock,
             return_value=None,
         ):
             response = client.get(
-                "/api/v1/graph/communities/non-existent",
+                "/api/v1/admin/communities/non-existent",
                 headers=auth_headers,
             )
 
@@ -203,7 +203,7 @@ class TestCommunityDetectionWorkflow:
     ) -> None:
         """Test regenerating community report."""
         with patch(
-            "modules.knowledge.graph.community_report_generator.CommunityReportGenerator.regenerate_report",
+            "modules.knowledge.graph.community.report_generator.CommunityReportGenerator.regenerate_report",
             new_callable=AsyncMock,
         ) as mock_regenerate:
             from modules.knowledge.graph.community.report_generator import ReportGenerationResult
@@ -234,21 +234,21 @@ class TestCommunityMetricsWorkflow:
         """Test getting community-level metrics."""
         with (
             patch(
-                "modules.knowledge.graph.community_repo.Neo4jCommunityRepo.count_communities",
+                "modules.knowledge.graph.community.repo.Neo4jCommunityRepo.count_communities",
                 new_callable=AsyncMock,
                 return_value=10,
             ),
             patch(
-                "modules.knowledge.graph.community_repo.Neo4jCommunityRepo.get_community_metrics",
+                "modules.knowledge.graph.community.repo.Neo4jCommunityRepo.get_community_metrics",
                 new_callable=AsyncMock,
             ) as mock_metrics,
             patch(
-                "modules.knowledge.graph.community_repo.Neo4jCommunityRepo.get_level_distribution",
+                "modules.knowledge.graph.community.repo.Neo4jCommunityRepo.get_level_distribution",
                 new_callable=AsyncMock,
                 return_value=[{"level": 0, "count": 5}, {"level": 1, "count": 5}],
             ),
             patch(
-                "modules.knowledge.graph.community_repo.Neo4jCommunityRepo.list_communities",
+                "modules.knowledge.graph.community.repo.Neo4jCommunityRepo.list_communities",
                 new_callable=AsyncMock,
                 return_value=[],
             ),
@@ -261,8 +261,7 @@ class TestCommunityMetricsWorkflow:
             }
 
             response = client.get(
-                "/api/v1/graph/metrics",
-                params={"view": "community"},
+                "/api/v1/admin/communities/health",
                 headers=auth_headers,
             )
 
@@ -271,7 +270,7 @@ class TestCommunityMetricsWorkflow:
             # Response wrapped in APIResponse
             assert "data" in data
             assert "total_communities" in data["data"]
-            assert "health_score" in data["data"]
+            assert "score" in data["data"]
 
 
 @pytest.mark.e2e
