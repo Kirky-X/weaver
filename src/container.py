@@ -1278,15 +1278,21 @@ class Container:
         # Initialize database strategy with failover support
         await self.init_strategy()
 
-        # Only run migrations if using PostgreSQL
-        if self._strategy is not None and self._strategy.relational_type == "postgresql":
-            from core.db.initializer import initialize_database
+        # Run appropriate schema initialization based on database type
+        if self._strategy is not None:
+            if self._strategy.relational_type == "duckdb":
+                from modules.storage.duckdb.schema import initialize_duckdb_schema
 
-            await initialize_database(
-                self._settings.postgres.dsn,
-                alembic_ini_path=os.path.join(project_root, "alembic.ini"),
-                script_location=os.path.join(project_root, "src", "alembic"),
-            )
+                await initialize_duckdb_schema(self._strategy.relational_pool)
+                log.info("duckdb_schema_initialized")
+            elif self._strategy.relational_type == "postgresql":
+                from core.db.initializer import initialize_database
+
+                await initialize_database(
+                    self._settings.postgres.dsn,
+                    alembic_ini_path=os.path.join(project_root, "alembic.ini"),
+                    script_location=os.path.join(project_root, "src", "alembic"),
+                )
 
         await self.init_redis()
         await self.init_llm()

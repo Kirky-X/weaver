@@ -198,7 +198,7 @@ SCHEMA_QUERIES = [
     )""",
 ]
 
-# Sequences for BIGINT PK tables
+# Sequences for BIGINT PK tables (must be created before tables)
 SEQUENCE_QUERIES = [
     "CREATE SEQUENCE IF NOT EXISTS source_authorities_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS pending_sync_seq START 1",
@@ -219,7 +219,7 @@ async def initialize_duckdb_schema(pool) -> None:
     """
     log.info("duckdb_schema_initializing")
 
-    # Create sequences first
+    # Create sequences first (DuckDB requires sequences before tables using them)
     for query in SEQUENCE_QUERIES:
         try:
             async with pool.session_context() as session:
