@@ -174,10 +174,11 @@ class NewsNowParser(BaseSourceParser):
             if path == pattern or path.endswith(pattern + "/"):
                 return True
 
-            # Check if pattern is followed by non-numeric segment (e.g., /category/tech)
+            # Check if pattern is followed by any segment (list page with sub-path)
+            # This catches /category/tech, /newsflashes/123, /archive/2024, etc.
             import re
 
-            match = re.search(rf"{pattern}/([^/0-9][^/]*)", path)
+            match = re.search(rf"{pattern}/([^/]+)", path)
             if match:
                 return True
 
