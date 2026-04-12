@@ -50,7 +50,7 @@ class DataValidator:
                 result["errors"].append(f"DuckDB file not found: {self.duckdb_path}")
                 return result
 
-            conn = duckdb.connect(database=str(self.duckdb_path), read_only=True)
+            conn = duckdb.connect(database=str(self.duckdb_path))
 
             # Check sources table exists
             tables = conn.execute("SHOW TABLES").fetchdf()
@@ -108,7 +108,7 @@ class DataValidator:
                 result["errors"].append(f"DuckDB file not found: {self.duckdb_path}")
                 return result
 
-            conn = duckdb.connect(database=str(self.duckdb_path), read_only=True)
+            conn = duckdb.connect(database=str(self.duckdb_path))
 
             # Get expected article count
             expected_count = conn.execute("SELECT COUNT(*) FROM articles").fetchone()[0]
@@ -168,7 +168,7 @@ class DataValidator:
                 result["errors"].append(f"DuckDB file not found: {self.duckdb_path}")
                 return result
 
-            conn = duckdb.connect(database=str(self.duckdb_path), read_only=True)
+            conn = duckdb.connect(database=str(self.duckdb_path))
 
             # Query article from DuckDB
             row = conn.execute("SELECT * FROM articles WHERE id = ?", [article_id]).fetchone()
