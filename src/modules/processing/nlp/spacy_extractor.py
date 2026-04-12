@@ -173,22 +173,69 @@ class SpacyExtractor:
                         extract_dir = self._extract_wheel_safely(local_path)
                         if extract_dir:
                             # Find the model directory inside extracted wheel
-                            # Wheel contains a directory named exactly like the model prefix
+                            # Wheel contains:
+                            # - {model_name}.dist-info/ (metadata, NOT the model)
+                            # - {model_prefix}/ (actual model directory)
+                            # We need to find the actual model directory, not dist-info
                             model_prefix = model_name.split("-")[0]
                             for name in os.listdir(extract_dir):
-                                if name == model_prefix or name.startswith(f"{model_prefix}-"):
+                                # Skip dist-info directories - they're metadata, not the model
+                                if ".dist-info" in name:
+                                    continue
+                                # Check if this is the package directory (e.g., zh_core_web_lg)
+                                if name == model_prefix:
+                                    pkg_dir = os.path.join(extract_dir, name)
+                                    if os.path.isdir(pkg_dir):
+                                        # Wheel structure: pkg_dir/version_dir/ contains actual model
+                                        # e.g., zh_core_web_lg/zh_core_web_lg-3.8.0/config.cfg
+                                        for subname in os.listdir(pkg_dir):
+                                            # Skip non-directories and license files
+                                            if not os.path.isdir(os.path.join(pkg_dir, subname)):
+                                                continue
+                                            if subname in ("LICENSE", "LICENSES_SOURCES"):
+                                                continue
+                                            # Version directory: zh_core_web_lg-3.8.0
+                                            if subname == model_name or subname.startswith(
+                                                f"{model_prefix}-"
+                                            ):
+                                                model_dir = os.path.join(pkg_dir, subname)
+                                                # Verify it's a valid spacy model
+                                                cfg_path = os.path.join(model_dir, "config.cfg")
+                                                if os.path.exists(cfg_path):
+                                                    nlp = spacy.load(
+                                                        model_dir,
+                                                        exclude=[
+                                                            "parser",
+                                                            "tagger",
+                                                            "lemmatizer",
+                                                        ],
+                                                    )
+                                                    log.info(
+                                                        "spacy_model_loaded_from_wheel",
+                                                        wheel_path=local_path,
+                                                        extracted_to=model_dir,
+                                                    )
+                                                    return nlp
+                                # Also handle flat structure (model dir at root)
+                                elif name == model_name or name.startswith(f"{model_prefix}-"):
                                     model_dir = os.path.join(extract_dir, name)
                                     if os.path.isdir(model_dir):
-                                        nlp = spacy.load(
-                                            model_dir,
-                                            exclude=["parser", "tagger", "lemmatizer"],
-                                        )
-                                        log.info(
-                                            "spacy_model_loaded_from_wheel",
-                                            wheel_path=local_path,
-                                            extracted_to=model_dir,
-                                        )
-                                        return nlp
+                                        cfg_path = os.path.join(model_dir, "config.cfg")
+                                        if os.path.exists(cfg_path):
+                                            nlp = spacy.load(
+                                                model_dir,
+                                                exclude=[
+                                                    "parser",
+                                                    "tagger",
+                                                    "lemmatizer",
+                                                ],
+                                            )
+                                            log.info(
+                                                "spacy_model_loaded_from_wheel",
+                                                wheel_path=local_path,
+                                                extracted_to=model_dir,
+                                            )
+                                            return nlp
 
                             log.warning(
                                 "spacy_wheel_extract_no_model_dir",
