@@ -21,15 +21,15 @@ def configure_tracing(
     Args:
         service_name: The service name for tracing resource.
         endpoint: OTLP collector endpoint (e.g. http://localhost:4317).
-                  If None, defaults to http://localhost:4317.
+                  If None or empty, tracing export is disabled.
         console_export: If True, also export traces to console for debugging.
     """
     resource = Resource.create({"service.name": service_name})
     provider = TracerProvider(resource=resource)
 
     # Use OTLP exporter with configurable endpoint
-    otlp_endpoint = endpoint or "http://localhost:4317"
-    if otlp_endpoint:  # Only add if endpoint is provided
+    otlp_endpoint = endpoint or ""
+    if otlp_endpoint:  # Only add if endpoint is provided and non-empty
         provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter(endpoint=otlp_endpoint)))
 
     # Optional console exporter for debugging
