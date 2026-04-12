@@ -196,8 +196,8 @@ class CommunityDetector:
         """Extract entity relationships from graph database.
 
         Matches all relationship types except non-entity relationships
-        (HAS_ENTITY, MENTIONS, FOLLOWED_BY), covering both legacy RELATED_TO
-        and new semantic edge types (PARTNERS_WITH, REGULATES, etc.).
+        (HAS_ENTITY, MENTIONS, FOLLOWED_BY), covering generic RELATED_TO
+        and semantic edge types (PARTNERS_WITH, REGULATES, etc.).
 
         Returns:
             List of (source, target, weight) tuples.

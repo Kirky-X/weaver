@@ -16,8 +16,7 @@ from core.protocols import GraphPool
 log = get_logger("neo4j_entity_repo")
 
 # Valid Neo4j relationship type: uppercase letters, underscores, and digits
-# (must not start with a digit). Chinese characters are also allowed for
-# backward compatibility with legacy data.
+# (must not start with a digit). Chinese characters are also supported.
 _EDGE_TYPE_RE = re.compile(r"^[A-Z_\u4e00-\u9fff][A-Z_\u4e00-\u9fff0-9]*$")
 
 

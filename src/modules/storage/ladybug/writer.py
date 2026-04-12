@@ -151,28 +151,15 @@ class LadybugWriter:
                     )
 
         # Create entity relationships
-        # Support both formats:
-        # - Neo4jWriter format: {"source": "name", "target": "name", "relation_type": "..."}
-        # - Legacy format: {"from_entity": {...}, "to_entity": {...}}
+        # Format: {"source": "name", "target": "name", "relation_type": "..."}
         relations = state.get("relations", [])
         if relations:
             for rel in relations:
                 try:
-                    # Try Neo4jWriter format first (source/target)
                     source_name = rel.get("source")
                     target_name = rel.get("target")
                     edge_type = rel.get("relation_type", "RELATED_TO")
                     description = rel.get("description")
-
-                    # Fall back to legacy format (from_entity/to_entity)
-                    if not source_name:
-                        from_entity = rel.get("from_entity", {})
-                        source_name = from_entity.get("canonical_name") or from_entity.get(
-                            "name", ""
-                        )
-                    if not target_name:
-                        to_entity = rel.get("to_entity", {})
-                        target_name = to_entity.get("canonical_name") or to_entity.get("name", "")
 
                     if not source_name or not target_name:
                         continue

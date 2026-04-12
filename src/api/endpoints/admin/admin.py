@@ -320,15 +320,7 @@ async def get_llm_usage_unified(
 ) -> APIResponse[dict]:
     """Unified LLM usage statistics endpoint.
 
-    Replaces the 5 separate LLM usage endpoints with a single endpoint
-    that supports different grouping dimensions via the `group_by` parameter.
-
-    **Migration from deprecated endpoints:**
-    - `/admin/llm-usage` → `/admin/llm-usage?group_by=time`
-    - `/admin/llm-usage/summary` → `/admin/llm-usage?group_by=summary`
-    - `/admin/llm-usage/by-provider` → `/admin/llm-usage?group_by=provider`
-    - `/admin/llm-usage/by-model` → `/admin/llm-usage?group_by=model`
-    - `/admin/llm-usage/by-call-point` → `/admin/llm-usage?group_by=call_point`
+    Supports different grouping dimensions via the `group_by` parameter.
     """
     if group_by == "summary":
         summary = await repo.get_summary(

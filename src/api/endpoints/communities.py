@@ -720,21 +720,3 @@ async def get_community(
     except Exception as exc:
         log.error("get_community_failed", community_id=community_id, error=str(exc))
         raise HTTPException(status_code=500, detail=f"Failed to get community: {exc!s}")
-
-
-# ── Legacy Redirects ─────────────────────────────────────────────
-# Redirect old /graph/communities paths to /admin/communities
-
-_redirect_router = APIRouter(prefix="/graph/communities", tags=["_legacy_redirects"])
-
-
-@_redirect_router.get("")
-@_redirect_router.get("/{path:path}")
-async def redirect_graph_communities() -> None:
-    """301 redirect from old /graph/communities to /admin/communities."""
-    from fastapi.responses import RedirectResponse
-
-    return RedirectResponse(
-        url="/api/v1/admin/communities",
-        status_code=301,
-    )

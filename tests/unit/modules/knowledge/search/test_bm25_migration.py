@@ -1,12 +1,8 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Tests for BM25 index migration and signing verification.
-
-Task 9.4: Verify old index migration functionality
-"""
+"""Tests for BM25 index persistence and signing verification."""
 
 from __future__ import annotations
 
-import pickle
 import tempfile
 from pathlib import Path
 
@@ -136,7 +132,7 @@ class TestSignedJson:
 
 
 class TestBM25IndexMigration:
-    """Tests for BM25 index migration from legacy pickle format."""
+    """Tests for BM25 index persistence with signed JSON format."""
 
     def test_save_uses_signed_json(self) -> None:
         """Test that save produces signed JSON files."""
@@ -179,58 +175,6 @@ class TestBM25IndexMigration:
             retriever2.load()
 
             assert retriever2.get_document_count() == 2
-
-    def test_migrate_from_legacy_pickle(self) -> None:
-        """Test migration from legacy pickle format to signed JSON."""
-        key = SigningKey.generate()
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Create a legacy pickle file
-            legacy_data = {
-                "documents": [
-                    {
-                        "doc_id": "1",
-                        "title": "Legacy Title",
-                        "content": "Legacy content",
-                        "metadata": {},
-                    },
-                    {
-                        "doc_id": "2",
-                        "title": "Another",
-                        "content": "More content",
-                        "metadata": {"source": "test"},
-                    },
-                ],
-                "doc_id_to_idx": {"1": 0, "2": 1},
-                "language": "zh",
-                "k1": 1.5,
-                "b": 0.75,
-            }
-
-            legacy_path = Path(tmpdir) / "documents.pkl"
-            with open(legacy_path, "wb") as f:
-                pickle.dump(legacy_data, f)
-
-            # Also create a minimal bm25s index
-            import bm25s
-
-            corpus = [["legacy"], ["content"]]
-            retriever = bm25s.BM25()
-            retriever.index(corpus)
-            retriever.save(str(Path(tmpdir) / "bm25_index"))
-
-            # Load should detect and migrate
-            retriever = BM25Retriever(index_dir=tmpdir, signing_key=key)
-            retriever.load()
-
-            # Verify migration succeeded
-            assert retriever.get_document_count() == 2
-
-            # Verify new JSON file was created
-            json_path = Path(tmpdir) / "documents.json"
-            assert json_path.exists()
-
-            # Note: Legacy file is preserved as backup (not deleted)
 
     def test_tampered_index_raises_integrity_error(self) -> None:
         """Test that tampered index raises IntegrityError."""

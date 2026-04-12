@@ -8,7 +8,6 @@ from fastapi import APIRouter
 from api.endpoints import (
     admin_router,
     articles_router,
-    communities_redirect_router,
     communities_router,
     graph_metrics_router,
     graph_router,
@@ -29,4 +28,3 @@ api_router.include_router(graph_metrics_router)
 api_router.include_router(graph_visualization_router)
 api_router.include_router(admin_router)
 api_router.include_router(communities_router)
-api_router.include_router(communities_redirect_router)

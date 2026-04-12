@@ -8,7 +8,6 @@ This module provides high-performance BM25 text retrieval with:
 
 Security Note:
     Index files use JSON format with HMAC signature verification.
-    Legacy pickle format is detected and migrated automatically.
 """
 
 from __future__ import annotations
@@ -154,7 +153,6 @@ class BM25Retriever:
     # File names
     INDEX_FILE = "bm25_index"
     DOCUMENTS_FILE = "documents.json"
-    LEGACY_DOCUMENTS_FILE = "documents.pkl"
 
     def __init__(
         self,
@@ -377,12 +375,6 @@ class BM25Retriever:
 
         save_signed_json(data, save_dir / self.DOCUMENTS_FILE, self._signing_key)
 
-        # Remove legacy pickle file if it exists
-        legacy_path = save_dir / self.LEGACY_DOCUMENTS_FILE
-        if legacy_path.exists():
-            legacy_path.unlink()
-            log.info("bm25_legacy_file_removed", path=str(legacy_path))
-
         log.info("bm25_index_saved", path=str(save_dir))
 
     def load(self, path: str | None = None) -> None:
@@ -401,18 +393,11 @@ class BM25Retriever:
         # Load bm25s index
         self._retriever = bm25s.BM25.load(str(load_dir / self.INDEX_FILE), load_corpus=True)
 
-        # Try to load signed JSON first
+        # Load signed JSON
         json_path = load_dir / self.DOCUMENTS_FILE
-        legacy_path = load_dir / self.LEGACY_DOCUMENTS_FILE
 
         if json_path.exists():
             data = self._load_json_index(json_path)
-        elif legacy_path.exists():
-            # Migrate from legacy pickle format
-            log.warning("bm25_legacy_format_detected", migrating=str(json_path))
-            data = self._load_legacy_pickle(legacy_path)
-            # Save in new format
-            self._migrate_to_json(data, json_path)
         else:
             raise FileNotFoundError(f"No index files found in {load_dir}")
 
@@ -442,56 +427,6 @@ class BM25Retriever:
         except IntegrityError as e:
             log.error("bm25_index_integrity_error", path=str(json_path), error=str(e))
             raise
-
-    def _load_legacy_pickle(self, legacy_path: Path) -> dict[str, Any]:
-        """Load legacy pickle index file with security restrictions.
-
-        Uses RestrictedUnpickler to prevent arbitrary code execution.
-
-        Args:
-            legacy_path: Path to documents.pkl file.
-
-        Returns:
-            Index data dictionary.
-
-        Raises:
-            pickle.UnpicklingError: If pickle contains unsafe classes.
-        """
-        with open(legacy_path, "rb") as f:
-            data = RestrictedUnpickler(f).load()
-
-        # Convert to new format
-        return {
-            "documents": [
-                (
-                    {
-                        "doc_id": doc.doc_id,
-                        "title": doc.title,
-                        "content": doc.content,
-                        "metadata": doc.metadata,
-                    }
-                    if isinstance(doc, BM25Document)
-                    else doc
-                )
-                for doc in data.get("documents", [])
-            ],
-            "doc_id_to_idx": data.get("doc_id_to_idx", {}),
-            "language": data.get("language", "zh"),
-            "k1": data.get("k1", 1.5),
-            "b": data.get("b", 0.75),
-            "format_version": 1,  # v1 = legacy pickle
-        }
-
-    def _migrate_to_json(self, data: dict[str, Any], json_path: Path) -> None:
-        """Migrate index to JSON format.
-
-        Args:
-            data: Index data to migrate.
-            json_path: Target path for new JSON file.
-        """
-        data["format_version"] = 2
-        save_signed_json(data, json_path, self._signing_key)
-        log.info("bm25_index_migrated", path=str(json_path))
 
     def get_document_count(self) -> int:
         """Get the number of indexed documents."""

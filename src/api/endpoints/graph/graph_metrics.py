@@ -94,19 +94,6 @@ async def get_graph_metrics(
     - `distributions`: Entity/relationship type distributions
 
     Omit `include` to get all metrics (same as `include=all`).
-
-    **Migration from deprecated endpoints:**
-    - `/graph/metrics/health` → `/graph/metrics?view=health`
-    - `/graph/metrics/full` → `/graph/metrics?view=full`
-    - `/graph/metrics/community` → `/graph/metrics?view=community`
-    - `/graph/metrics/components` → `/graph/metrics?view=full&include=components`
-    - `/graph/metrics/orphans` → `/graph/metrics?view=full&include=orphans`
-    - `/graph/metrics/high-degree` → `/graph/metrics?view=full&include=high_degree`
-    - `/graph/metrics/modularity` → `/graph/metrics?view=full&include=modularity`
-    - `/graph/metrics/distributions` → `/graph/metrics?view=full&include=distributions`
-
-    **Removed views:**
-    - `community` view moved to `/admin/communities/health`
     """
     if view == "health":
         return await _get_health_view(graph_pool)
