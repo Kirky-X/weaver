@@ -17,8 +17,10 @@ from core.observability import get_logger
 from modules.knowledge.search import (
     GlobalSearchEngine,
     HybridSearchEngine,
+    IntentClassification,
     IntentRouter,
     LocalSearchEngine,
+    QueryIntent,
     RoutingConfig,
 )
 from modules.memory import IntentType, OutputMode
@@ -51,6 +53,10 @@ class SearchResponse(BaseModel):
 async def search_unified(
     request: Request,
     q: str = Query(..., description="Search query"),
+    mode: str | None = Query(
+        None,
+        description="Explicit search mode: 'local' for vector search, 'global' for community search, 'auto' for intent-based routing (default)",
+    ),
     community_level: int = Query(0, ge=0, le=10, description="Community level (global mode)"),
     threshold: float = Query(
         0.0, ge=0.0, le=1.0, description="Similarity threshold (articles mode)"
@@ -76,8 +82,13 @@ async def search_unified(
 ) -> APIResponse[SearchResponse]:
     """Unified search endpoint with MAGMA-inspired intent-aware routing.
 
-    **Intent-Aware Routing:** The system automatically classifies your query
-    to determine the best search strategy:
+    **Search Modes:**
+    - `mode=local`: Direct vector search for entity neighborhoods
+    - `mode=global`: Community-level search for broader context
+    - `mode=auto` (default): Intent-based automatic routing
+
+    **Intent-Aware Routing (when mode=auto):**
+    The system automatically classifies your query to determine the best search strategy:
 
     | Intent Type | Description | Search Strategy |
     |-------------|-------------|-----------------|
@@ -97,7 +108,11 @@ async def search_unified(
     # Validate enrich_entities (default to False)
     enrich = enrich_entities if isinstance(enrich_entities, bool) else False
 
-    # Initialize intent router for automatic routing
+    # Determine search mode
+    explicit_mode = mode.lower() if mode and isinstance(mode, str) else None
+    use_explicit_mode = explicit_mode in ("local", "global")
+
+    # Initialize intent router for automatic routing (when not using explicit mode)
     intent_router = IntentRouter(
         local_engine=local_engine,
         global_engine=global_engine,
@@ -105,22 +120,32 @@ async def search_unified(
         hybrid_engine=hybrid_engine,
         llm=llm,
         config=RoutingConfig(
-            enable_intent_routing=True,
+            enable_intent_routing=not use_explicit_mode,
             fallback_mode="local",
         ),
     )
 
-    # Classify query intent
-    classification = await intent_router._classifier.classify(q)
-
-    # Route to appropriate engine
+    # Get result based on mode
+    if use_explicit_mode:
+        # Explicit mode: bypass intent routing, call engines directly
+        if explicit_mode == "local":
+            engine_result = await local_engine.search(q)
+        else:  # global
+            engine_result = await global_engine.search(q, community_level=community_level)
+        classification = IntentClassification(
+            intent=QueryIntent.OPEN,
+            confidence=1.0,
+        )
+    else:
+        # Auto mode: use intent routing
+        classification = await intent_router._classifier.classify(q)
+        engine_result = await intent_router.route(q, classification)
     get_logger(__name__).info(
         "intent_routing",
         intent=classification.intent.value,
         output_mode=out_mode.value,
         enrich_entities=enrich,
     )
-    engine_result = await intent_router.route(q, classification)
 
     # Handle both dict and SearchResult object returns
     if isinstance(engine_result, dict):
@@ -143,6 +168,9 @@ async def search_unified(
     result_metadata["intent"] = classification.intent.value
     result_metadata["intent_confidence"] = classification.confidence
 
+    # Determine search_type for response
+    search_type = explicit_mode if use_explicit_mode else "auto"
+
     # Note: Narrative synthesis and entity aggregation are planned features.
     # When EntityAggregator and NarrativeSynthesizer are implemented:
     # - If enrich_entities=True: aggregate entity neighborhoods
@@ -155,7 +183,7 @@ async def search_unified(
             answer=result_answer,
             context_tokens=result_tokens,
             confidence=result_confidence,
-            search_type="auto",
+            search_type=search_type,
             entities=result_entities,
             sources=result_sources,
             metadata=result_metadata,

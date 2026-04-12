@@ -11,6 +11,7 @@ from modules.knowledge.search.engines.hybrid_search import (
 )
 from modules.knowledge.search.engines.local_search import LocalSearchEngine, SearchResult
 from modules.knowledge.search.intent.router import IntentRouter, RoutingConfig
+from modules.knowledge.search.intent.schemas import IntentClassification, QueryIntent
 
 __all__ = [
     "ContextBuilder",
@@ -18,10 +19,12 @@ __all__ = [
     "GlobalSearchEngine",
     "HybridSearchConfig",
     "HybridSearchEngine",
+    "IntentClassification",
     "IntentRouter",
     "LocalContextBuilder",
     "LocalSearchEngine",
     "MapReduceResult",
+    "QueryIntent",
     "RoutingConfig",
     "SearchResult",
 ]
