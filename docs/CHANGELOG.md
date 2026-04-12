@@ -1,190 +1,104 @@
-# 变更日志
+# Changelog
 
-所有显著的更改都将记录在此文件中。
+All notable changes to this project will be documented in this file.
 
-格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
-并且本项目遵循 [语义化版本](https://semver.org/lang/zh-CN/) 规范。
-
----
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
 ### Added
 
-- 新增 DRIFT 搜索功能，支持迭代式探索性搜索
-- 新增社区检测自动调度器
-- 新增关系类型种子数据脚本
-- 新增 `src/core/constants.py` 统一管理默认常量
-- 新增 `mget()`, `setex()` 方法到 RedisClient
-- 新增 `has_degraded_data()`, `get_degradation_summary()` 辅助函数
-- 新增 `dedup_redis_fallback_total` Prometheus 指标
+#### LLM Configuration
+
+- **LiveConfig Hot-Reload**: Integrated live configuration reload for LLM module, allowing `config/llm.toml` changes without service restart
+  - Atomic configuration swap with validation
+  - Automatic SmartRouter rebuild on config change
+  - File watcher using `watchfiles` library
+
+#### Search Capabilities
+
+- **Explicit Search Mode**: Added `mode` parameter to search endpoint supporting `local`, `global`, and `auto` (default) modes
+  - `local`: Direct vector search for entity neighborhoods
+  - `global`: Community-level search with Map-Reduce pattern
+  - `auto`: Intent-based automatic routing (existing behavior)
+
+#### Community Detection
+
+- **LLM-Powered Title Generation**: Automatic community title generation using LLM during community detection
+  - Uses dedicated `community_title` call point
+  - Configurable via `config/prompts/community_title.toml`
+  - Titles limited to 10 characters, extracted from entity themes
+
+#### Database & Storage
+
+- **EXCITED Sentiment Type**: Added new sentiment type for emotion analysis in `AnalyzeOutput`
+- **DuckDB Support**: Added DuckDB as database fallback with dedicated schema initialization
+- **E2E Testing**: Docker-less fallback support for E2E tests, enabling testing without container runtime
 
 ### Changed
 
-- 优化 GraphRAG 合并后的测试兼容性
-- 改进 LLM 配置管理器和队列管理器
-- 重构 `entity_resolver.py` — 184行方法拆分为7个清晰方法
-- 重构 `aggregator.py` — 提取辅助方法降低嵌套
-- 优化 embedding 缓存 — 使用 `mget()` 批量获取替代 N+1 查询
-- 改进 `Deduplicator` — 添加 Redis 健康检查与 DB fallback
+#### Architecture
 
-### Fixed
+- **Scripts Consolidation**: Merged `scripts` directory from 12 to 4 core scripts for better maintainability
+- **Legacy Code Removal**: Removed backward compatibility code for cleaner codebase
+- **Main Config Loading**: Replaced `toml` library with `tomllib` (Python 3.11+ standard library)
 
-- 修复存储层无效的 BaseRepository 导入
-- 修复 LLM 失败时降级数据标记缺失问题
-- 修复 Redis 缓存 N+1 查询性能问题
+#### API & Endpoints
 
----
+- **Health Check Simplification**: Simplified health check endpoint for load balancer compatibility
+- **Community Report Fields**: Extended community report query with `key_entities`, `key_relationships`, and `rank` attributes
+- **Public API**: Exposed `list_enabled_sources` as public API endpoint
 
-## [0.1.0] - 2024-01-15
+#### Performance & Optimization
 
-### Added
-
-#### 核心功能
-
-- **RSS 源管理**：支持订阅、调度、解析 RSS/Atom 源
-- **智能爬取**：自动选择 HTTPX 或 Playwright，支持动态页面渲染
-- **LLM 处理流水线**：分类、清洗、摘要、情感分析、实体提取
-- **知识图谱**：Neo4j 存储实体关系，支持图谱查询
-- **向量检索**：pgvector 支持语义相似度搜索
-- **可信度评估**：多维度信号聚合计算新闻可信度
-- **REST API**：FastAPI 提供完整 API 接口
-
-#### 搜索功能
-
-- **统一搜索端点**：自动路由到合适的搜索引擎
-- **本地搜索**：实体聚焦的图谱问答搜索
-- **全局搜索**：社区级聚合搜索（Map-Reduce 模式）
-- **混合文章搜索**：向量 + BM25 + 重排的混合检索
-- **DRIFT 搜索**：迭代式探索性搜索（实验性）
-
-#### 社区检测
-
-- **Hierarchical Leiden 算法**：发现知识图谱中的社区结构
-- **社区报告生成**：LLM 驱动的社区语义摘要
-- **社区指标**：模块度、层次结构、孤立实体统计
-- **自动触发机制**：基于实体变化阈值自动重建
-
-#### 数据一致性
-
-- **Saga 模式**：跨数据库（PostgreSQL + Neo4j）原子性批量持久化
-- **PersistStatus 状态机**：追踪文章持久化状态
-- **定期对账任务**：异步检查和修复数据不一致
-- **补偿事务**：Neo4j 失败时回滚 PostgreSQL
-
-#### 可观测性
-
-- **健康检查端点**：Kubernetes 探针支持
-- **Prometheus 指标**：HTTP、Circuit Breaker、数据库、Pipeline 指标
-- **OpenTelemetry 集成**：分布式追踪支持
-- **结构化日志**：Loguru 日志记录
-
-#### 安全特性
-
-- **SSRF 防护**：多层 URL 验证（协议、IP、主机名、重定向）
-- **API Key 认证**：请求头认证机制
-- **速率限制**：基于 Redis 的滑动窗口限流
-- **依赖注入**：FastAPI Depends 模式管理服务和生命周期
-
-#### 开发工具
-
-- **分层测试**：单元测试、集成测试、E2E 测试
-- **性能测试**：HNSW 向量索引性能基准
-- **代码质量工具**：Ruff、Black、isort、mypy、bandit
-- **数据库迁移**：Alembic 版本控制
-
-### Technical Details
-
-#### 技术栈
-
-- Python 3.12+
-- FastAPI 0.135+
-- PostgreSQL 15+ with pgvector
-- Neo4j 5+
-- Redis 7+
-- LangChain / LangGraph
-- spaCy NLP
-- Playwright
-
-#### 架构亮点
-
-- **依赖注入架构**：松耦合、高可测试性
-- **Circuit Breaker 线程安全设计**：asyncio.Lock 保护
-- **向量索引**：HNSW 索引优化相似性搜索
-- **Pipeline 编排**：LangGraph 状态机管理
-
----
-
-## 版本说明
-
-### 版本号规则
-
-版本号格式：`MAJOR.MINOR.PATCH`
-
-- **MAJOR**：不兼容的 API 更改
-- **MINOR**：向下兼容的功能添加
-- **PATCH**：向下兼容的问题修复
-
-### 变更类型说明
-
-- **Added**：新增功能
-- **Changed**：现有功能的变更
-- **Deprecated**：已弃用功能
-- **Removed**：已删除功能
-- **Fixed**：Bug 修复
-- **Security**：安全相关的修复
-
----
-
-## 如何更新此文件
-
-### 原则
-
-1. **记录显著的更改**：用户关心的功能、修复、变更
-2. **分类清晰**：使用标准变更类型标签
-3. **时间倒序**：最新的版本放在最前面
-4. **参考示例**：遵循 Keep a Changelog 的格式
-
-### 模板
-
-```markdown
-## [X.Y.Z] - YYYY-MM-DD
-
-### Added
-
-- 新增功能描述
-
-### Changed
-
-- 功能变更描述
+- **DuckDB Schema Initialization**: Optimized to single session mode for better performance
+- **Tracing Configuration**: Enhanced tracing config to support empty endpoint disabling
 
 ### Deprecated
 
-- 即将移除的功能
+- **LangChain/LangGraph**: Removed from dependencies (replaced by LiteLLM integration)
 
 ### Removed
 
-- 已移除的功能
+- **Legacy Compatibility Code**: Removed old backward compatibility layers
+- **Hardcoded Default Password**: Removed `"neo4j_password"` default from `Neo4jSettings`
 
 ### Fixed
 
-- Bug 修复描述
+#### Type Safety
 
-### Security
+- Fixed dataclass type annotations in `src/core/llm/types.py`: `list[str] = None` → `list[str] | None = None` for `RoutingConfig.fallbacks`, `ProviderConfig.models`, `GlobalConfig.defaults`, `GlobalConfig.call_points`
+- Fixed `sanitize_dict` return type annotation in `src/core/utils/sanitize.py`: `dict[str, str]` → `dict[str, Any]`
+- Fixed variable name conflict in `src/modules/migration/mapping_registry.py` causing type inference errors
 
-- 安全修复描述
-```
+#### Security
 
----
+- **BM25 Index Loading**: Added `RestrictedUnpickler` to prevent remote code execution when loading BM25 indices
+  - Only allows safe built-in types (dict, list, tuple, str, int, etc.)
+  - Blocks arbitrary class instantiation
+- **Vector Similarity Queries**: Added input validation for vector similarity query parameters
+- **SSRF Protection**: Enhanced SSRF protection with inline URL validation
+- **Migration Adapters**: Fixed SQL injection vulnerabilities and added detailed logging
+- **API Response Errors**: Made validation errors JSON-serializable in API responses
 
-## 相关链接
+#### Bug Fixes
 
-- [GitHub Releases](https://github.com/your-org/weaver/releases)
-- [Milestone](https://github.com/your-org/weaver/milestones)
+- **DuckDB Schema**: Fixed DuckDB schema initialization in container startup
+- **Newsnow Parser**: Corrected list page detection for numeric IDs (e.g., 36kr URLs)
+- **Community Repository**: Fixed community repo and Ladybug schema compatibility issues
+- **Spacy Package**: Fixed spacy wheel package extraction logic
+- **E2E Tests**: Fixed auth middleware settings retrieval and data validator logic
+- **Health Check**: Fixed health check endpoint test assertions
+- **Test Mocks**: Fixed test mock query count mismatch and configuration defaults
 
----
+#### Code Quality
 
-**Contributors**: 感谢所有为 Weaver 做出贡献的开发者！
+- Added debug logging to silent exception handlers in `src/modules/processing/pipeline/graph.py`
+- Enhanced error handling with detailed logging across migration adapters and core modules
 
-[Unreleased]: https://github.com/your-org/weaver/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/your-org/weaver/releases/tag/v0.1.0
+### Verified
+
+- All 856 tests pass
+- mypy type checking passes for modified files
+- ruff lint checks pass
+- No new hardcoded secrets detected

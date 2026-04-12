@@ -17,22 +17,41 @@
   - [DELETE /api/v1/sources/{source_id}](#delete-apiv1sourcessource_id)
 - [搜索端点](#搜索端点)
   - [GET /api/v1/search](#get-apiv1search)
+  - [POST /api/v1/search/drift](#post-apiv1searchdrift)
+  - [POST /api/v1/search/causal](#post-apiv1searchcausal)
+  - [POST /api/v1/search/temporal](#post-apiv1searchtemporal)
 - [Pipeline 端点](#pipeline-端点)
   - [POST /api/v1/pipeline/trigger](#post-apiv1pipelinetrigger)
   - [GET /api/v1/pipeline/tasks/{task_id}](#get-apiv1pipelinetaskstask_id)
   - [GET /api/v1/pipeline/queue/stats](#get-apiv1pipelinequeuestats)
+  - [POST /api/v1/pipeline/url](#post-apiv1pipelineurl)
 - [图谱端点](#图谱端点)
   - [GET /api/v1/graph/entities/{name}](#get-apiv1graphentitiesname)
   - [GET /api/v1/graph/articles/{article_id}/graph](#get-apiv1grapharticlesarticle_idgraph)
   - [GET /api/v1/graph/relations](#get-apiv1graphrelations)
   - [GET /api/v1/graph/relations/search](#get-apiv1graphrelationssearch)
-  - [GET /api/v1/graph/relation-types](#get-apiv1graphrelation-types)
   - [GET /api/v1/graph/metrics](#get-apiv1graphmetrics)
   - [GET /api/v1/graph/visualization](#get-apiv1graphvisualization)
   - [POST /api/v1/graph/visualization](#post-apiv1graphvisualization)
 - [社区管理端点](#社区管理端点)
   - [POST /api/v1/admin/communities/rebuild](#post-apiv1admincommunitiesrebuild)
+  - [POST /api/v1/admin/communities/reports/generate](#post-apiv1admincommunitiesreportsgenerate)
   - [POST /api/v1/admin/communities/{community_id}/report/regenerate](#post-apiv1admincommunitiescommunity_idreportregenerate)
+  - [GET /api/v1/admin/communities](#get-apiv1admincommunities)
+  - [GET /api/v1/admin/communities/{community_id}](#get-apiv1admincommunitiescommunity_id)
+  - [GET /api/v1/admin/communities/health](#get-apiv1admincommunitieshealth)
+  - [POST /api/v1/admin/communities/health/diagnose](#post-apiv1admincommunitieshealthdiagnose)
+  - [POST /api/v1/admin/communities/health/repair](#post-apiv1admincommunitieshealthrepair)
+- [源权威管理端点](#源权威管理端点)
+  - [GET /api/v1/admin/authorities](#get-apiv1adminauthorities)
+  - [PATCH /api/v1/admin/authorities/{host}](#patch-apiv1adminauthoritieshost)
+- [文章管理端点](#文章管理端点)
+  - [POST /api/v1/admin/articles/deduplicate](#post-apiv1adminarticlesdeduplicate)
+- [LLM 失败监控端点](#llm-失败监控端点)
+  - [GET /api/v1/admin/llm-failures](#get-apiv1adminllm-failures)
+  - [GET /api/v1/admin/llm-failures/stats](#get-apiv1adminllm-failuresstats)
+- [LLM 使用统计端点](#llm-使用统计端点)
+  - [GET /api/v1/admin/llm-usage](#get-apiv1adminllm-usage)
 - [DRIFT 搜索端点](#drift-搜索端点)
   - [POST /api/v1/search/drift](#post-apiv1searchdrift)
 - [健康检查端点](#健康检查端点)
@@ -1030,6 +1049,63 @@ X-API-Key: your-api-key
 
 ---
 
+### POST /api/v1/pipeline/url
+
+处理单个 URL，通过完整的 pipeline 进行抓取和处理。
+
+#### 请求
+
+```http
+POST /api/v1/pipeline/url HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+Content-Type: application/json
+
+{
+  "url": "https://example.com/article",
+  "whitelist_mode": false
+}
+```
+
+**请求字段：**
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `url` | string | 是 | - | 要处理的资讯网页URL |
+| `whitelist_mode` | boolean | 否 | false | 是否启用白名单模式 |
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "task_id": "550e8400-e29b-41d4-a716-446655440000",
+  "status": "queued",
+  "queued_at": "2024-01-15T10:30:00Z"
+}
+```
+
+#### 状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 200 OK | 任务已入队 |
+| 401 Unauthorized | API Key 无效或缺失 |
+| 403 Forbidden | URL 被阻止（SSRF防护或不在白名单） |
+| 500 Internal Server Error | Pipeline 触发失败 |
+
+**SSRF 防护：**
+
+系统实施以下 SSRF 防护措施：
+- 仅允许 HTTP/HTTPS 协议
+- 阻止私有IP地址段（10.x.x.x, 192.168.x.x, 172.16-31.x.x）
+- 阻止回环地址（127.0.0.1, localhost）
+- 阻止云元数据端点（169.254.169.254）
+- 白名单模式：仅允许配置的域名
+
+---
+
 ## 图谱端点
 
 ### GET /api/v1/graph/entities/{name}
@@ -1039,7 +1115,7 @@ X-API-Key: your-api-key
 #### 请求
 
 ```http
-GET /api/v1/graph/entities/雷军?limit=10 HTTP/1.1
+GET /api/v1/graph/entities/%E9%9B%B7%E5%86%9B?limit=10 HTTP/1.1
 Host: api.weaver.example.com
 X-API-Key: your-api-key
 ```
@@ -1230,37 +1306,6 @@ X-API-Key: your-api-key
     "target_type": "组织机构",
     "target_description": "美国半导体公司",
     "weight": 1.0
-  }
-]
-```
-
----
-
-### GET /api/v1/graph/relation-types
-
-列出所有活跃的关系类型及统计信息。
-
-#### 请求
-
-```http
-GET /api/v1/graph/relation-types HTTP/1.1
-Host: api.weaver.example.com
-X-API-Key: your-api-key
-```
-
-#### 响应
-
-**成功响应 (200 OK)**
-
-```json
-[
-  {
-    "name": "合作",
-    "name_en": "cooperation",
-    "category": "商业",
-    "is_symmetric": true,
-    "description": "表示两个实体之间的合作关系",
-    "alias_count": 3
   }
 ]
 ```
@@ -1488,6 +1533,30 @@ Content-Type: application/json
 
 ## 社区管理端点
 
+### 社区数据模型
+
+社区检测算法使用分层 Leiden 算法，返回的 Community 对象包含以下字段：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | string | 社区唯一标识符 (UUID) |
+| `title` | string | 社区人类可读标题 |
+| `level` | integer | 层级级别（0 = 最细粒度，越高越抽象） |
+| `parent_id` | string \| null | 父社区 ID（根社区为 null） |
+| `children_ids` | string[] | 子社区 ID 列表（叶子社区为空数组） |
+| `entity_count` | integer | 社区中实体数量 |
+| `rank` | float | 重要性排名分数（越高越重要） |
+| `period` | string \| null | 社区检测日期 (YYYY-MM-DD) |
+| `modularity` | float \| null | 该社区的模块度贡献 |
+| `has_report` | boolean | 是否有报告 |
+
+**层级结构说明**：
+
+- `parent_id` 和 `children_ids` 形成双向树结构
+- Level 0 是最细粒度的社区（叶子节点）
+- 更高级别是更抽象的社区（父节点）
+- 可通过 `children_ids` 直接获取子社区，无需额外查询
+
 ### POST /api/v1/admin/communities/rebuild
 
 手动触发社区重建。
@@ -1501,16 +1570,17 @@ X-API-Key: your-api-key
 Content-Type: application/json
 
 {
-  "force": false
+  "max_cluster_size": 10,
+  "seed": 42
 }
 ```
 
 **请求字段：**
 
-| 字段               | 类型    | 必填 | 默认值 | 说明                     |
-| ------------------ | ------- | ---- | ------ | ------------------------ |
-| `max_cluster_size` | integer | 否   | 10     | 最大社区规模（1-100）    |
-| `seed`             | integer | 否   | 42     | 随机种子（确保可重复性） |
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `max_cluster_size` | integer | 否 | 10 | 最大社区规模（1-100） |
+| `seed` | integer | 否 | 42 | 随机种子（确保可重复性） |
 
 #### 响应
 
@@ -1518,7 +1588,6 @@ Content-Type: application/json
 
 ```json
 {
-  "success": true,
   "status": "completed",
   "communities_created": 25,
   "entities_processed": 350,
@@ -1531,12 +1600,53 @@ Content-Type: application/json
 
 #### 状态码
 
-| 状态码           | 说明                           |
-| ---------------- | ------------------------------ |
-| 200 OK           | 社区重建完成                   |
-| 202 Accepted     | 社区重建任务已入队（异步模式） |
-| 401 Unauthorized | API Key 无效或缺失             |
-| 403 Forbidden    | 权限不足（需要 admin 角色）    |
+| 状态码 | 说明 |
+|--------|------|
+| 200 OK | 社区重建完成 |
+| 401 Unauthorized | API Key 无效或缺失 |
+| 500 Internal Server Error | 社区重建失败 |
+
+---
+
+### POST /api/v1/admin/communities/reports/generate
+
+为所有社区生成报告。
+
+#### 请求
+
+```http
+POST /api/v1/admin/communities/reports/generate?level=0&regenerate_stale=true HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+**查询参数：**
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `level` | integer | 否 | null | 社区层级过滤 |
+| `regenerate_stale` | boolean | 否 | true | 是否重新生成过时报告 |
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "total": 25,
+  "success": 23,
+  "failed": 2,
+  "failed_ids": ["comm-1", "comm-2"]
+}
+```
+
+#### 状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 200 OK | 报告生成完成 |
+| 401 Unauthorized | API Key 无效或缺失 |
+| 500 Internal Server Error | 报告生成失败 |
 
 ---
 
@@ -1558,23 +1668,877 @@ X-API-Key: your-api-key
 
 ```json
 {
-  "success": true,
+  "status": "completed",
   "community_id": "comm-1",
-  "report_id": "report-new-uuid",
-  "generated_at": "2024-01-15T12:00:00Z"
+  "report_id": "report-new-uuid"
 }
 ```
 
 #### 状态码
 
-| 状态码        | 说明             |
-| ------------- | ---------------- |
-| 200 OK        | 报告重新生成成功 |
-| 404 Not Found | 社区不存在       |
+| 状态码 | 说明 |
+|--------|------|
+| 200 OK | 报告重新生成成功 |
+| 404 Not Found | 社区不存在 |
+| 500 Internal Server Error | 报告重新生成失败 |
 
 ---
 
-## DRIFT 搜索端点
+### GET /api/v1/admin/communities
+
+获取社区列表，支持按层级过滤。
+
+#### 请求
+
+```http
+GET /api/v1/admin/communities?level=0&limit=20&offset=0 HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+**查询参数：**
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `level` | integer | 否 | null | 按社区层级过滤 |
+| `limit` | integer | 否 | 20 | 最大结果数（1-100） |
+| `offset` | integer | 否 | 0 | 结果偏移量 |
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "communities": [
+    {
+      "id": "comm-1",
+      "title": "AI研究",
+      "level": 0,
+      "entity_count": 25,
+      "parent_id": null,
+      "rank": 8.5,
+      "period": "2024-01-15",
+      "has_report": true
+    }
+  ],
+  "total": 25,
+  "level": 0
+}
+```
+
+#### 状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 200 OK | 成功返回社区列表 |
+| 401 Unauthorized | API Key 无效或缺失 |
+| 500 Internal Server Error | 获取社区列表失败 |
+
+---
+
+### GET /api/v1/admin/communities/{community_id}
+
+获取指定社区的详细信息。
+
+#### 请求
+
+```http
+GET /api/v1/admin/communities/comm-1 HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "id": "comm-1",
+  "title": "AI研究",
+  "level": 0,
+  "entity_count": 25,
+  "parent_id": null,
+  "children_ids": ["comm-10", "comm-11"],
+  "rank": 8.5,
+  "period": "2024-01-15",
+  "modularity": 0.42,
+  "entities": [
+    {"name": "OpenAI", "type": "组织机构"},
+    {"name": "GPT-4", "type": "技术"}
+  ],
+  "report": {
+    "summary": "AI研究社区主要关注...",
+    "rank": 8.5,
+    "key_entities": ["OpenAI", "Google", "DeepMind"]
+  }
+}
+```
+
+#### 状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 200 OK | 成功返回社区详情 |
+| 404 Not Found | 社区不存在 |
+| 500 Internal Server Error | 获取社区详情失败 |
+
+---
+
+### GET /api/v1/admin/communities/health
+
+获取社区健康状态概览。
+
+#### 请求
+
+```http
+GET /api/v1/admin/communities/health HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "status": "healthy",
+  "score": 85.0,
+  "total_communities": 25,
+  "communities_with_reports": 23,
+  "stale_reports": 2,
+  "empty_communities": 1,
+  "hierarchy_issues": 0,
+  "last_check_at": null
+}
+```
+
+**健康状态说明：**
+
+| 状态 | 分数范围 | 说明 |
+|------|----------|------|
+| `healthy` | 80-100 | 社区健康 |
+| `moderate` | 60-79 | 社区状态中等 |
+| `degraded` | 40-59 | 社区状态降级 |
+| `critical` | 0-39 | 社区状态严重 |
+
+#### 状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 200 OK | 成功返回健康状态 |
+| 401 Unauthorized | API Key 无效或缺失 |
+| 500 Internal Server Error | 健康检查失败 |
+
+---
+
+### POST /api/v1/admin/communities/health/diagnose
+
+执行全面的社区健康诊断。
+
+#### 请求
+
+```http
+POST /api/v1/admin/communities/health/diagnose HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "status": "moderate",
+  "score": 72.0,
+  "issues": [
+    {
+      "issue_type": "empty_community",
+      "severity": "warning",
+      "community_id": "comm-5",
+      "description": "社区为空",
+      "suggestion": "删除空社区或增加文章覆盖",
+      "auto_repairable": true
+    }
+  ],
+  "metrics": {
+    "total_communities": 25,
+    "total_entities": 500
+  },
+  "repair_suggestions": [
+    "删除空社区",
+    "重新生成过时报告"
+  ]
+}
+```
+
+#### 状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 200 OK | 成功返回诊断结果 |
+| 401 Unauthorized | API Key 无效或缺失 |
+| 500 Internal Server Error | 诊断失败 |
+
+---
+
+### POST /api/v1/admin/communities/health/repair
+
+自动修复社区健康问题。
+
+#### 请求
+
+```http
+POST /api/v1/admin/communities/health/repair HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+Content-Type: application/json
+
+{
+  "repair_types": ["empty_community", "stale_report"],
+  "dry_run": false
+}
+```
+
+**请求字段：**
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `repair_types` | array[string] | 否 | null | 指定修复类型，null表示所有可自动修复的 |
+| `dry_run` | boolean | 否 | false | 如果为true，仅计数而不实际修改 |
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "repaired": {
+    "empty_community": 3,
+    "stale_report": 2
+  },
+  "failed": {},
+  "duration_ms": 1500
+}
+```
+
+#### 状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 200 OK | 修复完成 |
+| 401 Unauthorized | API Key 无效或缺失 |
+| 500 Internal Server Error | 修复失败 |
+
+---
+
+## 源权威管理端点
+
+### GET /api/v1/admin/authorities
+
+获取源权威度列表，支持过滤需要审核的源。
+
+#### 请求
+
+```http
+GET /api/v1/admin/authorities?needs_review_only=false HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+**查询参数：**
+
+| 参数               | 类型    | 默认值  | 说明                                   |
+| ------------------ | ------- | ------- | -------------------------------------- |
+| `needs_review_only` | boolean | `false` | 如果为 true，仅返回需要审核的源权威度 |
+
+#### 响应
+
+**200 OK**
+
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "host": "xinhuanet.com",
+      "authority": 0.95,
+      "tier": 1,
+      "description": "国家级官方媒体",
+      "needs_review": false,
+      "auto_score": 0.92,
+      "updated_at": "2024-01-15T10:30:00Z"
+    },
+    {
+      "id": 2,
+      "host": "example-blog.com",
+      "authority": 0.65,
+      "tier": 3,
+      "description": null,
+      "needs_review": true,
+      "auto_score": 0.68,
+      "updated_at": "2024-01-14T08:20:00Z"
+    }
+  ]
+}
+```
+
+**响应字段说明：**
+
+| 字段           | 类型    | 说明                                 |
+| -------------- | ------- | ------------------------------------ |
+| `id`           | integer | 权威度记录 ID                        |
+| `host`         | string  | 源域名                               |
+| `authority`    | float   | 权威度评分 (0-1)                     |
+| `tier`         | integer | 层级 (1=高, 2=中, 3=低)              |
+| `description`  | string  | 描述信息 (可选)                      |
+| `needs_review` | boolean | 是否需要人工审核                     |
+| `auto_score`   | float   | 自动计算的权威度评分 (可选)          |
+| `updated_at`   | string  | 最后更新时间 (ISO 8601 格式)         |
+
+#### 状态码
+
+| 状态码           | 说明               |
+| ---------------- | ------------------ |
+| 200 OK           | 成功返回权威度列表 |
+| 401 Unauthorized | API Key 无效或缺失 |
+
+#### 使用示例
+
+**获取所有源权威度**
+
+```bash
+curl -X GET "http://localhost:8000/api/v1/admin/authorities" \
+  -H "X-API-Key: your-api-key"
+```
+
+**仅获取需要审核的源**
+
+```bash
+curl -X GET "http://localhost:8000/api/v1/admin/authorities?needs_review_only=true" \
+  -H "X-API-Key: your-api-key"
+```
+
+---
+
+### PATCH /api/v1/admin/authorities/{host}
+
+更新指定源域名的权威度评分。
+
+#### 请求
+
+```http
+PATCH /api/v1/admin/authorities/xinhuanet.com HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+Content-Type: application/json
+
+{
+  "authority": 0.98,
+  "tier": 1,
+  "description": "国家级官方媒体，高度可信"
+}
+```
+
+**路径参数：**
+
+| 参数   | 类型   | 说明     |
+| ------ | ------ | -------- |
+| `host` | string | 源域名   |
+
+**请求体：**
+
+```json
+{
+  "authority": 0.98,
+  "tier": 1,
+  "description": "国家级官方媒体，高度可信"
+}
+```
+
+| 字段          | 类型    | 必填 | 说明                         |
+| ------------- | ------- | ---- | ---------------------------- |
+| `authority`   | float   | 否   | 权威度评分 (0-1)             |
+| `tier`        | integer | 否   | 层级 (1=高, 2=中, 3=低)      |
+| `description` | string  | 否   | 描述信息                     |
+
+> **注意**: 至少需要提供一个字段进行更新。
+
+#### 响应
+
+**200 OK**
+
+```json
+{
+  "data": {
+    "host": "xinhuanet.com",
+    "authority": 0.98,
+    "tier": 1,
+    "description": "国家级官方媒体，高度可信"
+  }
+}
+```
+
+#### 状态码
+
+| 状态码               | 说明                   |
+| -------------------- | ---------------------- |
+| 200 OK               | 成功更新权威度         |
+| 400 Bad Request      | 未提供任何更新字段     |
+| 401 Unauthorized     | API Key 无效或缺失     |
+| 404 Not Found        | 源域名不存在           |
+
+#### 使用示例
+
+**更新权威度评分**
+
+```bash
+curl -X PATCH "http://localhost:8000/api/v1/admin/authorities/example-blog.com" \
+  -H "X-API-Key: your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "authority": 0.75,
+    "tier": 2
+  }'
+```
+
+**添加描述信息**
+
+```bash
+curl -X PATCH "http://localhost:8000/api/v1/admin/authorities/example-blog.com" \
+  -H "X-API-Key: your-api-key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "description": "个人技术博客，质量中等"
+  }'
+```
+
+---
+
+## 文章管理端点
+
+### POST /api/v1/admin/articles/deduplicate
+
+删除重复文章，保留每个 source_url 的最新文章。
+
+这是一个清理操作，用于处理由于 DuckDB 未强制唯一约束而导致的重复数据。
+
+#### 请求
+
+```http
+POST /api/v1/admin/articles/deduplicate HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "removed": 150,
+  "kept": 1500
+}
+```
+
+**响应字段说明：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `removed` | integer | 删除的重复文章数 |
+| `kept` | integer | 保留的文章数 |
+
+#### 状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 200 OK | 去重完成 |
+| 401 Unauthorized | API Key 无效或缺失 |
+| 503 Service Unavailable | 数据库未初始化 |
+
+---
+
+## LLM 失败监控端点
+
+### GET /api/v1/admin/llm-failures
+
+查询 LLM 调用失败记录，用于监控和调试。
+
+#### 请求
+
+```http
+GET /api/v1/admin/llm-failures?call_point=classifier&limit=50 HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+**查询参数：**
+
+| 参数         | 类型   | 默认值 | 说明                                              |
+| ------------ | ------ | ------ | ------------------------------------------------- |
+| `call_point` | string | -      | 按调用点过滤 (如: classifier, entity_extractor)   |
+| `status`     | string | -      | 按错误类型/状态过滤                               |
+| `since`      | string | -      | ISO 时间戳，仅返回此时间之后的记录                |
+| `limit`      | int    | 50     | 最大返回记录数 (1-200)                            |
+
+#### 响应
+
+**200 OK**
+
+```json
+{
+  "data": [
+    {
+      "id": 1234,
+      "call_point": "classifier",
+      "provider": "openai",
+      "error_type": "rate_limit_exceeded",
+      "error_message": "Rate limit exceeded: 500 requests per minute",
+      "status": "rate_limit_exceeded",
+      "article_id": "abc-123-def",
+      "task_id": "task-456",
+      "attempt": 2,
+      "fallback_tried": true,
+      "created_at": "2024-01-15T10:30:00Z"
+    }
+  ]
+}
+```
+
+**响应字段说明：**
+
+| 字段             | 类型    | 说明                                 |
+| ---------------- | ------- | ------------------------------------ |
+| `id`             | integer | 失败记录 ID                          |
+| `call_point`     | string  | 调用点 (classifier, entity_extractor 等) |
+| `provider`       | string  | LLM Provider 名称                    |
+| `error_type`     | string  | 错误类型                             |
+| `error_message`  | string  | 错误详情                             |
+| `status`         | string  | 错误状态 (与 error_type 相同)        |
+| `article_id`     | string  | 关联的文章 ID (可选)                 |
+| `task_id`        | string  | 任务 ID                              |
+| `attempt`        | integer | 重试次数                             |
+| `fallback_tried` | boolean | 是否尝试了 Fallback                  |
+| `created_at`     | string  | 创建时间 (ISO 8601 格式)             |
+
+#### 状态码
+
+| 状态码           | 说明               |
+| ---------------- | ------------------ |
+| 200 OK           | 成功返回失败记录   |
+| 400 Bad Request  | 参数错误           |
+| 401 Unauthorized | API Key 无效或缺失 |
+
+#### 使用示例
+
+**查询最近 50 条失败记录**
+
+```bash
+curl -X GET "http://localhost:8000/api/v1/admin/llm-failures?limit=50" \
+  -H "X-API-Key: your-api-key"
+```
+
+**查询特定调用点的失败记录**
+
+```bash
+curl -X GET "http://localhost:8000/api/v1/admin/llm-failures?call_point=entity_extractor&limit=100" \
+  -H "X-API-Key: your-api-key"
+```
+
+**查询最近 24 小时的失败记录**
+
+```bash
+curl -X GET "http://localhost:8000/api/v1/admin/llm-failures?since=2024-01-14T10:00:00Z&limit=100" \
+  -H "X-API-Key: your-api-key"
+```
+
+---
+
+### GET /api/v1/admin/llm-failures/stats
+
+获取 LLM 失败统计摘要，按调用点和错误类型分组。
+
+#### 请求
+
+```http
+GET /api/v1/admin/llm-failures/stats?since=2024-01-01T00:00:00Z HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+**查询参数：**
+
+| 参数    | 类型   | 默认值 | 说明                                   |
+| ------- | ------ | ------ | -------------------------------------- |
+| `since` | string | -      | ISO 时间戳，仅统计此时间之后的记录     |
+
+#### 响应
+
+**200 OK**
+
+```json
+{
+  "data": {
+    "total_failures": 134,
+    "by_call_point": {
+      "classifier": 45,
+      "entity_extractor": 38,
+      "credibility_checker": 28,
+      "embedding": 23
+    },
+    "by_status": {
+      "rate_limit_exceeded": 67,
+      "timeout": 34,
+      "invalid_response": 21,
+      "authentication_error": 12
+    },
+    "last_failure_at": "2024-01-15T10:30:00Z"
+  }
+}
+```
+
+**响应字段说明：**
+
+| 字段              | 类型   | 说明                                 |
+| ----------------- | ------ | ------------------------------------ |
+| `total_failures`  | int    | 总失败次数                           |
+| `by_call_point`   | object | 按调用点分组的失败次数               |
+| `by_status`       | object | 按错误类型分组的失败次数             |
+| `last_failure_at` | string | 最后一次失败时间 (ISO 8601 格式)     |
+
+#### 状态码
+
+| 状态码           | 说明               |
+| ---------------- | ------------------ |
+| 200 OK           | 成功返回统计摘要   |
+| 401 Unauthorized | API Key 无效或缺失 |
+
+#### 使用示例
+
+**查询总体统计**
+
+```bash
+curl -X GET "http://localhost:8000/api/v1/admin/llm-failures/stats" \
+  -H "X-API-Key: your-api-key"
+```
+
+**查询最近 7 天的统计**
+
+```bash
+curl -X GET "http://localhost:8000/api/v1/admin/llm-failures/stats?since=2024-01-08T00:00:00Z" \
+  -H "X-API-Key: your-api-key"
+```
+
+---
+
+## LLM 使用统计端点
+
+### GET /api/v1/admin/llm-usage
+
+统一 LLM 使用统计端点，支持多维度分组查询。
+
+#### 请求
+
+```http
+GET /api/v1/admin/llm-usage?from=2024-01-01T00:00:00Z&to=2024-01-31T23:59:59Z&group_by=summary HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+```
+
+**查询参数：**
+
+| 参数          | 类型     | 默认值    | 说明                                                         |
+| ------------- | -------- | --------- | ------------------------------------------------------------ |
+| `from`        | datetime | -         | 开始时间（ISO 格式，必填）                                   |
+| `to`          | datetime | -         | 结束时间（ISO 格式，必填）                                   |
+| `group_by`    | string   | `summary` | 分组维度：`summary`、`time`、`provider`、`model`、`call_point` |
+| `granularity` | string   | `hourly`  | 时间粒度（仅当 `group_by=time` 时有效）：`hourly`、`daily`、`monthly` |
+| `provider`    | string   | -         | 按 Provider 名称过滤                                         |
+| `model`       | string   | -         | 按模型名称过滤                                               |
+| `llm_type`    | string   | -         | 按 LLM 类型过滤：`chat`、`embedding`、`rerank`               |
+| `call_point`  | string   | -         | 按调用点过滤                                                 |
+
+**group_by 说明：**
+
+- `summary`（默认）：总体汇总，包含总调用次数、总 Token 数、成功率等
+- `time`：按时间分组，支持小时/日/月粒度
+- `provider`：按 Provider 分组（openai、anthropic、ollama 等）
+- `model`：按模型分组（gpt-4o、claude-sonnet-4 等）
+- `call_point`：按调用点分组（classifier、entity_extractor 等）
+
+#### 响应
+
+**summary 视图 (200 OK)**
+
+```json
+{
+  "group_by": "summary",
+  "total_calls": 15234,
+  "total_input_tokens": 2456789,
+  "total_output_tokens": 1234567,
+  "total_tokens": 3691356,
+  "avg_latency_ms": 1250.5,
+  "max_latency_ms": 3500.0,
+  "min_latency_ms": 200.0,
+  "success_rate": 0.9912,
+  "error_types": {
+    "rate_limit_exceeded": 67,
+    "timeout": 34
+  }
+}
+```
+
+**time 视图 (200 OK)**
+
+```json
+{
+  "group_by": "time",
+  "records": [
+    {
+      "time_bucket": "2024-01-15T10:00:00Z",
+      "label": "2024-01-15 10:00",
+      "call_point": "",
+      "llm_type": "",
+      "provider": "",
+      "model": "",
+      "call_count": 125,
+      "input_tokens": 25000,
+      "output_tokens": 12500,
+      "total_tokens": 37500,
+      "latency_avg_ms": 1200.5,
+      "success_count": 123,
+      "failure_count": 2
+    }
+  ],
+  "total": 1
+}
+```
+
+**provider 视图 (200 OK)**
+
+```json
+{
+  "group_by": "provider",
+  "records": [
+    {
+      "provider": "openai",
+      "call_count": 10000,
+      "input_tokens": 1500000,
+      "output_tokens": 800000,
+      "total_tokens": 2300000,
+      "avg_latency_ms": 1100.5,
+      "success_rate": 0.995
+    },
+    {
+      "provider": "anthropic",
+      "call_count": 5000,
+      "input_tokens": 900000,
+      "output_tokens": 400000,
+      "total_tokens": 1300000,
+      "avg_latency_ms": 1300.2,
+      "success_rate": 0.988
+    }
+  ]
+}
+```
+
+**model 视图 (200 OK)**
+
+```json
+{
+  "group_by": "model",
+  "records": [
+    {
+      "model": "gpt-4o",
+      "provider": "openai",
+      "call_count": 8000,
+      "input_tokens": 1200000,
+      "output_tokens": 600000,
+      "total_tokens": 1800000,
+      "avg_latency_ms": 1150.0,
+      "success_rate": 0.993
+    },
+    {
+      "model": "claude-sonnet-4-20250514",
+      "provider": "anthropic",
+      "call_count": 5000,
+      "input_tokens": 900000,
+      "output_tokens": 400000,
+      "total_tokens": 1300000,
+      "avg_latency_ms": 1250.0,
+      "success_rate": 0.988
+    }
+  ]
+}
+```
+
+**call_point 视图 (200 OK)**
+
+```json
+{
+  "group_by": "call_point",
+  "records": [
+    {
+      "call_point": "classifier",
+      "call_count": 3000,
+      "total_tokens": 600000,
+      "avg_latency_ms": 800.0,
+      "success_rate": 0.995
+    },
+    {
+      "call_point": "entity_extractor",
+      "call_count": 2500,
+      "total_tokens": 700000,
+      "avg_latency_ms": 1500.0,
+      "success_rate": 0.985
+    }
+  ]
+}
+```
+
+#### 状态码
+
+| 状态码           | 说明               |
+| ---------------- | ------------------ |
+| 200 OK           | 成功返回统计数据   |
+| 400 Bad Request  | 参数错误           |
+| 401 Unauthorized | API Key 无效或缺失 |
+
+#### 使用示例
+
+**查询总体汇总**
+
+```bash
+curl -X GET "http://localhost:8000/api/v1/admin/llm-usage?from=2024-01-01T00:00:00Z&to=2024-01-31T23:59:59Z&group_by=summary" \
+  -H "X-API-Key: your-api-key"
+```
+
+**按 Provider 分组查询**
+
+```bash
+curl -X GET "http://localhost:8000/api/v1/admin/llm-usage?from=2024-01-01T00:00:00Z&to=2024-01-31T23:59:59Z&group_by=provider" \
+  -H "X-API-Key: your-api-key"
+```
+
+**按调用点分组并过滤特定模型**
+
+```bash
+curl -X GET "http://localhost:8000/api/v1/admin/llm-usage?from=2024-01-01T00:00:00Z&to=2024-01-31T23:59:59Z&group_by=call_point&model=gpt-4o" \
+  -H "X-API-Key: your-api-key"
+```
+
+**按小时粒度查询时间趋势**
+
+```bash
+curl -X GET "http://localhost:8000/api/v1/admin/llm-usage?from=2024-01-15T00:00:00Z&to=2024-01-15T23:59:59Z&group_by=time&granularity=hourly" \
+  -H "X-API-Key: your-api-key"
+```
+
+---
 
 ### POST /api/v1/search/drift
 
@@ -1591,15 +2555,21 @@ X-API-Key: your-api-key
 Content-Type: application/json
 
 {
-  "query": "OpenAI 和 Google 在 AI 领域的竞争格局如何？"
+  "query": "OpenAI 和 Google 在 AI 领域的竞争格局如何？",
+  "primer_k": 3,
+  "max_follow_ups": 2,
+  "confidence_threshold": 0.7
 }
 ```
 
 **请求字段：**
 
-| 字段    | 类型   | 必填 | 说明     |
-| ------- | ------ | ---- | -------- |
-| `query` | string | 是   | 搜索查询 |
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|-------|------|------|--------|------|
+| `query` | string | 是 | - | 搜索查询 |
+| `primer_k` | integer | 否 | 3 | Primer 阶段检索的社区报告数量 |
+| `max_follow_ups` | integer | 否 | 2 | 最大 follow-up 迭代次数 |
+| `confidence_threshold` | float | 否 | 0.7 | 置信度阈值 (0.0-1.0) |
 
 #### 响应
 
@@ -1610,6 +2580,7 @@ Content-Type: application/json
   "query": "OpenAI 和 Google 在 AI 领域的竞争格局如何？",
   "answer": "OpenAI 和 Google 是 AI 领域两大主要竞争者。OpenAI 凭借 GPT 系列模型在生成式 AI 领域占据领先地位，而 Google 通过 Gemini 和 DeepMind 在多模态 AI 和科研领域保持竞争力...",
   "confidence": 0.82,
+  "search_type": "drift",
   "hierarchy": {
     "primer": {
       "answer": "初步答案：基于社区报告，OpenAI 和 Google 是...",
@@ -1643,18 +2614,19 @@ Content-Type: application/json
 
 **响应字段说明：**
 
-| 字段                   | 类型    | 说明                               |
-| ---------------------- | ------- | ---------------------------------- |
-| `query`                | string  | 原始查询                           |
-| `answer`               | string  | 最终聚合答案                       |
-| `confidence`           | float   | 置信度 (0.0-1.0)                   |
-| `hierarchy`            | object  | 层次化结果结构                     |
-| `hierarchy.primer`     | object  | Primer 阶段结果                    |
-| `hierarchy.follow_ups` | array   | Follow-up 阶段结果列表             |
-| `primer_communities`   | integer | Primer 阶段使用的社区数            |
-| `follow_up_iterations` | integer | Follow-up 迭代次数                 |
-| `total_llm_calls`      | integer | 总 LLM 调用次数                    |
-| `drift_mode`           | string  | 模式：`normal` 或 `fallback_local` |
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `query` | string | 原始查询 |
+| `answer` | string | 最终聚合答案 |
+| `confidence` | float | 置信度 (0.0-1.0) |
+| `search_type` | string | 搜索类型：`drift` |
+| `hierarchy` | object | 层次化结果结构 |
+| `hierarchy.primer` | object | Primer 阶段结果 |
+| `hierarchy.follow_ups` | array | Follow-up 阶段结果列表 |
+| `primer_communities` | integer | Primer 阶段使用的社区数 |
+| `follow_up_iterations` | integer | Follow-up 迭代次数 |
+| `total_llm_calls` | integer | 总 LLM 调用次数 |
+| `drift_mode` | string | 模式：`normal` 或 `fallback_local` |
 
 **DRIFT 搜索流程：**
 
@@ -1670,11 +2642,141 @@ Content-Type: application/json
 
 #### 状态码
 
-| 状态码           | 说明                       |
-| ---------------- | -------------------------- |
-| 200 OK           | 搜索成功                   |
-| 400 Bad Request  | 请求参数错误（缺少 query） |
-| 401 Unauthorized | API Key 无效或缺失         |
+| 状态码 | 说明 |
+|--------|------|
+| 200 OK | 搜索成功 |
+| 400 Bad Request | 请求参数错误（缺少 query） |
+| 401 Unauthorized | API Key 无效或缺失 |
+| 500 Internal Server Error | DRIFT 搜索失败 |
+| 503 Service Unavailable | Graph 或 LLM 服务不可用 |
+
+---
+
+### POST /api/v1/search/causal
+
+因果推理搜索，使用 MAGMA 多图架构。遍历因果链回答“为什么”问题。
+
+#### 请求
+
+```http
+POST /api/v1/search/causal HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+Content-Type: application/json
+
+{
+  "query": "为什么小米汽车销量增长这么快？",
+  "max_depth": 3,
+  "min_confidence": 0.7
+}
+```
+
+**请求字段：**
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `query` | string | 是 | - | 因果推理查询 |
+| `max_depth` | integer | 否 | 3 | 因果链遍历最大深度 |
+| `min_confidence` | float | 否 | 0.7 | 因果边的最小置信度 |
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "query": "为什么小米汽车销量增长这么快？",
+  "answer": "Found 3 related events in causal chain.",
+  "causal_chain": [
+    {
+      "id": "event-1",
+      "content": "小米宣布进军汽车市场",
+      "score": 0.85
+    },
+    {
+      "id": "event-2",
+      "content": "小米汽车SU7发布",
+      "score": 0.90
+    }
+  ],
+  "confidence": 0.875,
+  "metadata": {
+    "depth": 3
+  }
+}
+```
+
+#### 状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 200 OK | 搜索成功 |
+| 401 Unauthorized | API Key 无效或缺失 |
+| 500 Internal Server Error | 因果搜索失败 |
+| 503 Service Unavailable | Graph 服务不可用 |
+
+---
+
+### POST /api/v1/search/temporal
+
+时间推理搜索，使用 MAGMA 多图架构。按时间顺序检索事件回答“何时”问题。
+
+#### 请求
+
+```http
+POST /api/v1/search/temporal HTTP/1.1
+Host: api.weaver.example.com
+X-API-Key: your-api-key
+Content-Type: application/json
+
+{
+  "query": "2024年AI领域有哪些重大事件？",
+  "time_window_days": 7,
+  "limit": 10
+}
+```
+
+**请求字段：**
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `query` | string | 是 | - | 时间推理查询 |
+| `time_window_days` | integer | 否 | 7 | 时间窗口（天） |
+| `limit` | integer | 否 | 10 | 最大返回事件数 |
+
+#### 响应
+
+**成功响应 (200 OK)**
+
+```json
+{
+  "query": "2024年AI领域有哪些重大事件？",
+  "events": [
+    {
+      "id": "event-1",
+      "content": "GPT-4发布",
+      "timestamp": "2024-03-14T00:00:00Z"
+    }
+  ],
+  "time_range": {
+    "start": "2024-03-14T00:00:00Z",
+    "end": "2024-03-21T00:00:00Z",
+    "window_days": 7
+  },
+  "metadata": {
+    "limit": 10
+  }
+}
+```
+
+#### 状态码
+
+| 状态码 | 说明 |
+|--------|------|
+| 200 OK | 搜索成功 |
+| 401 Unauthorized | API Key 无效或缺失 |
+| 500 Internal Server Error | 时间搜索失败 |
+| 503 Service Unavailable | Graph 服务不可用 |
 
 ---
 
@@ -1793,11 +2895,10 @@ Content-Type: application/json
 ```http
 HTTP/1.1 401 Unauthorized
 Content-Type: application/json
-WWW-Authenticate: Bearer
 
 {
   "code": 2000,
-  "message": "未提供认证信息，请提供有效的 Bearer Token"
+  "message": "未提供 API Key，请在请求头中添加 X-API-Key"
 }
 ```
 
@@ -2023,11 +3124,16 @@ X-RateLimit-Reset: 1609459200
 
 ### 认证
 
-使用 **Bearer Token** 认证：
+使用 **API Key** 认证，在请求头中携带：
 
 ```http
-Authorization: Bearer <token>
+X-API-Key: your-api-key
 ```
+
+**安全要求**：
+- API Key 长度至少 32 字符（生产环境）
+- 使用常量时间比较防止时序攻击
+- 通过 `WEAVER_API__API_KEY` 环境变量配置
 
 ### 速率限制
 
@@ -2060,9 +3166,15 @@ API 版本通过 URL 前缀指定：
 
 Weaver API 遵循 RESTful 设计原则，提供：
 
-1. **健康检查端点** (`/health`)：监控服务及依赖项状态
-2. **监控指标端点** (`/metrics`)：Prometheus 格式的运行时指标
-3. **统一错误格式**：结构化的错误响应，便于客户端处理
-4. **完善的文档**：详细的请求/响应示例和状态码说明
+1. **系统状态端点** (`/api/v1/status`, `/api/v1/config`)：检查系统状态和配置
+2. **健康检查端点** (`/health`)：监控服务及依赖项状态
+3. **监控指标端点** (`/metrics`)：Prometheus 格式的运行时指标
+4. **内容管理**：文章、源、Pipeline 的完整 CRUD 操作
+5. **搜索功能**：统一搜索、DRIFT 搜索、因果搜索、时间搜索
+6. **知识图谱**：实体查询、关系搜索、图谱可视化、质量指标
+7. **社区管理**：社区重建、报告生成、健康检查、诊断和修复
+8. **管理功能**：源权威管理、LLM 失败监控、LLM 使用统计、文章去重
+9. **统一错误格式**：结构化的错误响应，便于客户端处理
+10. **完善的文档**：详细的请求/响应示例和状态码说明
 
 所有端点均支持高并发访问，并配备完善的监控和告警机制。

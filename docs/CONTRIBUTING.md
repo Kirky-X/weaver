@@ -121,10 +121,10 @@
 
 2. **安装依赖**
    ```bash
-   # 使用 uv (推荐)
-   uv sync
+   # 使用 uv (强烈推荐)
+   uv sync --group dev
 
-   # 或使用 pip
+   # 或使用 pip (不推荐)
    pip install -e ".[dev]"
    ```
 
@@ -152,6 +152,10 @@
 
 7. **验证安装**
    ```bash
+   # 运行单元测试和集成测试 (排除 e2e)
+   uv run pytest -m "not integration and not e2e" -v
+
+   # 或仅运行单元测试
    uv run pytest tests/unit/ -v
    ```
 
@@ -173,31 +177,42 @@ uv run python -m src.main
 
 我们使用以下工具确保代码质量：
 
-| 工具 | 用途 | 配置 |
-|------|------|------|
-| **Ruff** | 代码格式化和 Lint | `pyproject.toml` |
-| **Black** | 代码格式化 | `pyproject.toml` |
+| 工具 | 用途 | 配置位置 |
+|------|------|----------|
+| **Ruff** | 代码 Lint 和格式化 | `pyproject.toml` |
+| **Black** | 代码格式化 (与 Ruff 配合) | `pyproject.toml` |
 | **isort** | Import 排序 | `pyproject.toml` |
-| **mypy** | 静态类型检查 | `pyproject.toml` |
+| **mypy** | 静态类型检查 (部分启用) | `pyproject.toml` |
 | **bandit** | 安全漏洞扫描 | `pyproject.toml` |
+| **pre-commit** | Git 钩子自动化 | `.pre-commit-config.yaml` |
+| **commitizen** | 提交信息规范验证 | `pyproject.toml` |
 
 ### 运行代码检查
 
 ```bash
-# 格式化代码
-uv run ruff check --fix src/
-uv run black src/
-uv run isort src/
+# 使用 pre-commit hooks (推荐 - 自动运行所有检查)
+pre-commit run --all-files
 
-# 类型检查
+# 或手动运行各个工具
+
+# 格式化代码 (isort + black)
+uv run isort src/ tests/ scripts/
+uv run black src/ tests/ scripts/
+
+# Lint 检查并自动修复
+uv run ruff check --fix src/ tests/ scripts/
+
+# 类型检查 (mypy - 目前仅部分启用)
 uv run mypy src/
 
 # 安全扫描
-uv run bandit -r src/
+uv run bandit -r src/ -ll
 
 # 运行所有检查
 uv run ruff check src/ && uv run mypy src/ && uv run bandit -r src/
 ```
+
+> **注意**: 项目使用 Ruff 作为主要 Linter,Black 和 isort 作为格式化工具。Ruff 已内置 isort 功能，但为保持兼容性和双重保障，项目同时配置了独立的 isort 和 black。
 
 ### 代码风格指南
 
@@ -409,11 +424,10 @@ Closes #123
 
 在提交代码前，请确保：
 
-- [ ] 代码遵循项目代码风格
-- [ ] 所有测试通过
+- [ ] 运行 `pre-commit run --all-files` 通过所有检查
+- [ ] 所有测试通过 (`uv run pytest -m "not integration and not e2e"`)
 - [ ] 新增功能有测试覆盖
-- [ ] 类型检查通过
-- [ ] 安全扫描无高危问题
+- [ ] 提交信息符合 Conventional Commits 规范
 - [ ] 文档已更新（如需要）
 
 ---
@@ -428,9 +442,10 @@ Closes #123
    - 关联相关 Issue
 
 2. **自动化检查**
-   - CI 会运行测试
-   - 代码覆盖率检查
-   - Lint 检查
+   - CI 会运行测试套件
+   - 代码覆盖率检查 (要求 ≥80%)
+   - Pre-commit hooks 检查 (ruff, black, isort)
+   - 提交信息格式验证 (commitizen)
 
 3. **代码审查**
    - 至少需要 1 个审查者批准
@@ -470,6 +485,48 @@ Fixes # (issue)
 ## 截图（如适用）
 添加截图帮助理解更改。
 ```
+
+---
+
+## 测试
+
+### 测试结构
+
+项目包含 300+ 个测试文件,分为：
+
+- **单元测试** (`tests/unit/`) - 测试独立模块和函数
+- **集成测试** (`tests/integration/`) - 测试模块间交互
+- **端到端测试** (`tests/e2e/`) - 完整流程测试 (需要 Docker)
+
+### 运行测试
+
+```bash
+# 运行所有测试 (排除 integration 和 e2e)
+uv run pytest -m "not integration and not e2e" -v
+
+# 仅运行单元测试
+uv run pytest tests/unit/ -v
+
+# 运行特定标记的测试
+uv run pytest -m unit -v          # 仅单元测试
+uv run pytest -m integration -v   # 仅集成测试
+uv run pytest -m performance -v   # 性能测试
+
+# 运行测试并生成覆盖率报告
+uv run pytest --cov=src --cov-report=html --cov-report=term-missing
+
+# 并行运行测试 (使用 pytest-xdist)
+uv run pytest -n auto
+
+# 运行 E2E 测试 (需要 Docker)
+uv run pytest tests/e2e/ -v
+```
+
+### 覆盖率要求
+
+- **最低覆盖率**: 80% (`--cov-fail-under=80`)
+- **覆盖率报告**: HTML 和 XML 格式
+- **排除目录**: alembic, scripts, tests, 部分基础设施模块
 
 ---
 

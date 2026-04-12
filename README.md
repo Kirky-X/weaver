@@ -2,6 +2,10 @@
 
 <div align="center">
 
+<p align="center">
+  <strong>WEAVER - 智能新闻采集、分析与知识图谱构建平台</strong>
+</p>
+
 <p>
   <img src="https://img.shields.io/badge/python-3.12+-blue.svg" alt="Python 3.12+" style="display:inline; margin:0 4px">
   <img src="https://img.shields.io/badge/version-0.1.0-green.svg" alt="Version" style="display:inline; margin:0 4px">
@@ -9,9 +13,6 @@
   <img src="https://img.shields.io/badge/fastapi-0.135+-teal.svg" alt="FastAPI" style="display:inline; margin:0 4px">
 </p>
 
-<p align="center">
-  <strong>WEAVER - 智能新闻采集、分析与知识图谱构建平台</strong>
-</p>
 
 <p align="center">
   <a href="#features" style="color:#3B82F6">✨ 功能特性</a> •
@@ -21,18 +22,6 @@
   <a href="#scheduler-config" style="color:#3B82F6">📅 调度器配置</a> •
   <a href="#contributing" style="color:#3B82F6">🤝 参与贡献</a>
 </p>
-
-</div>
-
----
-
-<div align="center" style="padding: 32px; margin: 24px 0">
-
-### 🎯 智能新闻处理流水线
-
-| ✨ RSS 管理  |       🕷️ 智能爬取       |     🤖 LLM 处理      |    📊 知识图谱     |
-| :----------: | :---------------------: | :------------------: | :----------------: |
-| 订阅调度解析 | HTTPX/Crawl4AI 自动选择 | 分类清洗摘要情感分析 | Neo4j 实体关系存储 |
 
 </div>
 
@@ -78,28 +67,32 @@
 |  ✅  | **RSS 源管理**     | 订阅、调度、解析 RSS/Atom 源，支持增量抓取   |
 |  ✅  | **智能爬取**       | 自动选择 HTTPX 或 Crawl4AI，支持动态页面渲染 |
 |  ✅  | **LLM 处理流水线** | 分类、清洗、摘要、情感分析、实体提取         |
-|  ✅  | **知识图谱**       | Neo4j 存储实体关系，支持图谱查询             |
+|  ✅  | **知识图谱**       | Neo4j/LadybugDB 存储实体关系，支持图谱查询   |
 |  ✅  | **向量检索**       | pgvector 支持语义相似度搜索                  |
 |  ✅  | **可信度评估**     | 多维度信号聚合计算新闻可信度                 |
 |  ✅  | **REST API**       | FastAPI 提供完整 API 接口                    |
+|  ✅  | **Smart LLM Router** | 智能 LLM 路由 + Fallback + 使用统计      |
+|  ✅  | **Memory Service** | MAGMA 记忆集成，支持快速检索和因果推理     |
+|  ✅  | **事件驱动架构**   | Blinker 事件总线，组件松耦合通信           |
 
 </td>
 <td width="50%" style="vertical-align:top; padding: 16px">
 
 ### ⚡ 技术栈
 
-|     类别      | 技术                       |
-| :-----------: | -------------------------- |
-|    🐍 语言    | Python 3.12+               |
-|  🌐 Web 框架  | FastAPI + Uvicorn          |
-| 🐘 关系数据库 | PostgreSQL + pgvector      |
-|  🔵 图数据库  | Neo4j 5+                   |
-|    🔴 缓存    | Redis 7+                   |
-|  🕷️ 动态页面  | Crawl4AI                   |
-|  🤖 LLM 框架  | LiteLLM (统一 LLM 接口)    |
-|    📝 NLP     | spaCy                      |
-|  ⏰ 任务调度  | APScheduler                |
-|  📈 可观测性  | Prometheus + OpenTelemetry |
+|     类别      | 技术                                   |
+| :-----------: | -------------------------------------- |
+|    🐍 语言    | Python 3.12+                           |
+|  🌐 Web 框架  | FastAPI + Uvicorn                      |
+| 🐘 关系数据库 | PostgreSQL + pgvector / DuckDB (备选)  |
+|  🔵 图数据库  | Neo4j 5+ / LadybugDB (嵌入式备选)      |
+|    🔴 缓存    | Redis 7+ / Cashews (备选)              |
+|  🕷️ 动态页面  | Crawl4AI                               |
+|  🤖 LLM 框架  | LiteLLM (统一 LLM 接口 + Smart Router) |
+|    📝 NLP     | spaCy                                  |
+|  ⏰ 任务调度  | APScheduler                            |
+|  📈 可观测性  | Prometheus + OpenTelemetry             |
+|  🔔 事件总线  | Blinker (事件驱动架构)                 |
 
 </td>
 </tr>
@@ -114,9 +107,9 @@
 | 依赖       | 版本  | 说明                 |
 | ---------- | ----- | -------------------- |
 | Python     | 3.12+ | 运行环境             |
-| PostgreSQL | 15+   | 需安装 pgvector 扩展 |
-| Neo4j      | 5+    | 图数据库             |
-| Redis      | 7+    | 缓存与队列           |
+| PostgreSQL | 15+   | 需安装 pgvector 扩展 (或使用 DuckDB 作为备选) |
+| Neo4j      | 5+    | 图数据库 (或使用 LadybugDB 作为嵌入式备选) |
+| Redis      | 7+    | 缓存与队列 (或使用内置 Cashews 作为备选) |
 
 ### <span id="installation">🔧 安装</span>
 
@@ -129,9 +122,12 @@ cd weaver
 uv sync
 
 # 安装 spaCy 中文模型及依赖
-# 注意：zh_core_web_sm 需要 spacy-pkuseg 分词器依赖
+# 注意：zh_core_web_lg 需要 spacy-pkuseg 分词器依赖
 uv pip install "spacy-pkuseg>=0.0.27,<0.1.0"
-uv run python -m spacy download zh_core_web_sm
+uv run python -m spacy download zh_core_web_lg
+
+# 可选：安装英文模型
+uv run python -m spacy download en_core_web_sm
 
 # 可选：安装更精确的 transformer 模型（需要额外依赖）
 # uv pip install spacy-transformers
@@ -143,8 +139,9 @@ uv run python -m spacy download zh_core_web_sm
 
 | 模型              | 大小   | 依赖                         | 说明                   |
 | ----------------- | ------ | ---------------------------- | ---------------------- |
-| `zh_core_web_sm`  | ~40MB  | spacy-pkuseg                 | 推荐：轻量级，无需 GPU |
-| `zh_core_web_trf` | ~400MB | spacy-transformers + PyTorch | 精度更高，需要 GPU     |
+| `zh_core_web_lg`  | ~600MB | spacy-pkuseg                 | 推荐：标准版，精度更高 |
+| `zh_core_web_sm`  | ~40MB  | spacy-pkuseg                 | 轻量级，无需 GPU       |
+| `zh_core_web_trf` | ~400MB | spacy-transformers + PyTorch | 精度最高，需要 GPU     |
 | `en_core_web_sm`  | ~12MB  | -                            | 英文处理               |
 
 **实体类型映射**：
@@ -156,7 +153,6 @@ uv run python -m spacy download zh_core_web_sm
 - `LAW` → 法规与政策
 
 </details>
-```
 
 ### <span id="configuration">⚙️ 配置</span>
 
@@ -173,66 +169,64 @@ cp .env.example .env
 2. **配置环境变量**（`.env` 文件）：
 
 ```bash
-# PostgreSQL
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_DATABASE=weaver
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=your_password
+# PostgreSQL (使用双下划线分隔嵌套配置)
+WEAVER_POSTGRES__PASSWORD=your_secure_postgres_password
 
 # Neo4j
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=your_password
-NEO4J_ENABLED=true
+WEAVER_NEO4J__PASSWORD=your_secure_neo4j_password
+WEAVER_NEO4J__ENABLED=true
 
-# Redis
-REDIS_HOST=localhost
-REDIS_PORT=6379
-REDIS_DB=0
-REDIS_PASSWORD=  # 可选
+# Redis (可选,留空表示无密码)
+WEAVER_REDIS__PASSWORD=
 
-# API
-WEAVER_API__API_KEY=your-secure-api-key
+# API 认证 (生产环境至少 32 字符)
+WEAVER_API__API_KEY=your_secure_api_key_at_least_32_characters_long
 
 # LLM API Keys (供 llm.toml 引用)
-OPENAI_API_KEY=sk-xxx
-ANTHROPIC_API_KEY=sk-xxx
+WEAVER_LLM__PROVIDERS__AIPING__API_KEY=your_aiping_api_key
+WEAVER_LLM__PROVIDERS__DMX__API_KEY=your_dmx_api_key
 ```
 
-3. **配置 LLM 提供商**（`config/llm.toml`）：
+3. **配置 LLM 提供商**(`config/llm.toml`):
 
 ```toml
 [global]
-default_chat_provider = "openai"
-default_embedding_provider = "embedding"
-default_rerank_provider = "rerank"
+circuit_breaker_threshold = 5
+circuit_breaker_timeout = 60.0
+default_timeout = 120.0
 
 [providers.openai]
 type = "openai"
-model = "gpt-4o"
-api_key = "${OPENAI_API_KEY}"
 base_url = "https://api.openai.com/v1"
-rpm_limit = 60
-concurrency = 5
+api_key = "${OPENAI_API_KEY}"
+rpm_limit = 500
+concurrency = 10
 timeout = 120.0
-capabilities = ["chat", "streaming"]
+priority = 100
+weight = 100
 
-[providers.embedding]
-type = "embedding"
-model = "text-embedding-3-large"
-api_key = "${OPENAI_API_KEY}"
-base_url = "https://api.openai.com/v1"
-capabilities = ["embedding"]
+  [providers.openai.models.chat]
+  model_id = "gpt-4o"
+  temperature = 0.0
+  max_tokens = 4096
+  capabilities = ["chat", "vision"]
+
+  [providers.openai.models.embedding]
+  model_id = "text-embedding-3-large"
+  capabilities = ["embedding"]
 
 # 调用点路由配置
 [call-points.classifier]
 primary = "chat.openai.gpt-4o"
-fallbacks = []
+fallbacks = ["chat.anthropic.claude-sonnet-4-20250514"]
 
 [call-points.entity_extractor]
 primary = "chat.openai.gpt-4o"
-fallbacks = []
+fallbacks = ["chat.anthropic.claude-sonnet-4-20250514"]
+
+[call-points.embedding]
+primary = "embedding.openai.text-embedding-3-large"
+fallbacks = ["embedding.ollama.nomic-embed-text"]
 ```
 
 <details style="padding:16px; margin: 16px 0">
@@ -241,22 +235,23 @@ fallbacks = []
 | 配置项                                     | 类型   | 默认值                  | 描述                      |
 | ------------------------------------------ | ------ | ----------------------- | ------------------------- |
 | **PostgreSQL**                             |        |                         |                           |
-| `POSTGRES_HOST`                            | string | `localhost`             | 数据库主机                |
-| `POSTGRES_PORT`                            | int    | `5432`                  | 数据库端口                |
-| `POSTGRES_DATABASE`                        | string | `weaver`                | 数据库名称                |
-| `POSTGRES_USER`                            | string | `postgres`              | 用户名                    |
-| `POSTGRES_PASSWORD`                        | string | -                       | 密码（必须设置）          |
+| `host`                                     | string | `localhost`             | 数据库主机                |
+| `port`                                     | int    | `5432`                  | 数据库端口                |
+| `database`                                 | string | `weaver`                | 数据库名称                |
+| `user`                                     | string | `postgres`              | 用户名                    |
+| `WEAVER_POSTGRES__PASSWORD`                | string | -                       | 密码(环境变量,必须设置)   |
+| `pool_size`                                | int    | `20`                    | 连接池大小                |
 | **Neo4j**                                  |        |                         |                           |
-| `NEO4J_URI`                                | string | `bolt://localhost:7687` | 连接地址                  |
-| `NEO4J_USER`                               | string | `neo4j`                 | 用户名                    |
-| `NEO4J_PASSWORD`                           | string | -                       | 密码（必须设置）          |
-| `NEO4J_ENABLED`                            | bool   | `true`                  | 是否启用                  |
+| `uri`                                      | string | `bolt://localhost:7687` | 连接地址                  |
+| `user`                                     | string | `neo4j`                 | 用户名                    |
+| `WEAVER_NEO4J__PASSWORD`                   | string | -                       | 密码(环境变量,必须设置)   |
+| `enabled`                                  | bool   | `true`                  | 是否启用                  |
 | **Redis**                                  |        |                         |                           |
-| `REDIS_HOST`                               | string | `localhost`             | Redis 主机                |
-| `REDIS_PORT`                               | int    | `6379`                  | Redis 端口                |
-| `REDIS_DB`                                 | int    | `0`                     | 数据库编号                |
+| `host`                                     | string | `localhost`             | Redis 主机                |
+| `port`                                     | int    | `6379`                  | Redis 端口                |
+| `db`                                       | int    | `0`                     | 数据库编号                |
 | **API**                                    |        |                         |                           |
-| `WEAVER_API__API_KEY`                      | string | -                       | API 认证密钥              |
+| `WEAVER_API__API_KEY`                      | string | -                       | API 认证密钥(至少32字符)  |
 | **Fetcher**                                |        |                         |                           |
 | `crawl4ai_headless`                        | bool   | `true`                  | Crawl4AI 无头模式         |
 | `crawl4ai_stealth_enabled`                 | bool   | `true`                  | Crawl4AI 隐身模式         |
@@ -267,8 +262,6 @@ fallbacks = []
 | **Scheduler**                              |        |                         |                           |
 | `pipeline_retry_interval_minutes`          | int    | 15                      | Pipeline 重试间隔（分钟） |
 | `pipeline_retry_batch_size`                | int    | 20                      | Pipeline 重试批次大小     |
-| `pipeline_retry_dynamic_batch`             | bool   | false                   | 是否启用动态批次调整      |
-| `pipeline_retry_success_rate_threshold`    | float  | 0.8                     | 动态批次成功率阈值        |
 | **URL Security**                           |        |                         |                           |
 | `WEAVER_URL_SECURITY__ENABLED`             | bool   | `true`                  | 启用 URL 安全检查         |
 | `WEAVER_URL_SECURITY__URLHAUS_API_KEY`     | string | `""`                    | URLhaus API 密钥          |
@@ -455,6 +448,8 @@ X-API-Key: your-api-key
 | 端点                                  | 方法   | 描述                                             |
 | ------------------------------------- | ------ | ------------------------------------------------ |
 | `/health`                             | GET    | 健康检查（无需认证）                             |
+| `/api/v1/status`                      | GET    | 系统状态（需认证）                             |
+| `/api/v1/config`                      | GET    | 系统配置（需认证）                             |
 | `/api/v1/sources`                     | GET    | 获取源列表                                       |
 | `/api/v1/sources/{source_id}`         | GET    | 获取指定源                                       |
 | `/api/v1/sources`                     | POST   | 添加新源                                         |
@@ -463,23 +458,34 @@ X-API-Key: your-api-key
 | `/api/v1/pipeline/trigger`            | POST   | 触发 Pipeline 任务                               |
 | `/api/v1/pipeline/tasks/{task_id}`    | GET    | 获取任务状态                                     |
 | `/api/v1/pipeline/queue/stats`        | GET    | 获取队列统计                                     |
+| `/api/v1/pipeline/url`                | POST   | 处理单个 URL                                     |
 | `/api/v1/articles`                    | GET    | 查询文章列表（支持分页、过滤、排序）             |
 | `/api/v1/articles/{id}`               | GET    | 获取文章详情                                     |
 | `/api/v1/search`                      | GET    | 统一搜索（mode 参数路由：local/global/articles） |
 | `/api/v1/search/drift`                | POST   | DRIFT 迭代式探索搜索                             |
+| `/api/v1/search/causal`               | POST   | 因果关系搜索                                     |
+| `/api/v1/search/temporal`             | POST   | 时间推理搜索                                     |
 | `/api/v1/graph/entities/{name}`       | GET    | 查询实体及其关系                                 |
 | `/api/v1/graph/articles/{id}/graph`   | GET    | 获取文章的知识图谱                               |
-| `/api/v1/graph/metrics/health`        | GET    | 图谱健康度摘要                                   |
-| `/api/v1/graph/metrics/full`          | GET    | 图谱完整指标                                     |
-| `/api/v1/graph/metrics/components`    | GET    | 连通分量列表                                     |
-| `/api/v1/graph/metrics/orphans`       | GET    | 孤立实体列表                                     |
-| `/api/v1/graph/metrics/high-degree`   | GET    | 高度数实体列表                                   |
-| `/api/v1/graph/metrics/modularity`    | GET    | 模块度评分                                       |
-| `/api/v1/graph/metrics/distributions` | GET    | 类型分布统计                                     |
-| `/api/v1/graph/communities`           | GET    | 社区列表查询                                     |
-| `/api/v1/graph/communities/{id}`      | GET    | 社区详情                                         |
-| `/api/v1/admin/sources/authority`     | GET    | 获取源权威度                                     |
-| `/api/v1/admin/communities/rebuild`   | POST   | 手动触发社区重建                                 |
+| `/api/v1/graph/relations`             | GET    | 查询实体关系                                     |
+| `/api/v1/graph/relations/search`      | GET    | 搜索实体关系                                     |
+| `/api/v1/graph/metrics`               | GET    | 图谱指标（health/full/components/orphans/high-degree/modularity/distributions） |
+| `/api/v1/graph/visualization`         | GET    | 获取图谱可视化数据                               |
+| `/api/v1/graph/visualization`         | POST   | 获取子图数据                                     |
+| `/api/v1/admin/authorities`           | GET    | 获取源权威度列表                             |
+| `/api/v1/admin/authorities/{host}`    | PATCH  | 更新源权威度                                 |
+| `/api/v1/admin/llm-failures`          | GET    | LLM 失败记录查询                             |
+| `/api/v1/admin/llm-failures/stats`    | GET    | LLM 失败统计                                 |
+| `/api/v1/admin/llm-usage`             | GET    | LLM 使用统计（支持多维度分组查询）           |
+| `/api/v1/admin/articles/deduplicate`  | POST   | 文章去重                                     |
+| `/api/v1/admin/communities`           | GET    | 社区列表查询                                     |
+| `/api/v1/admin/communities/{id}`      | GET    | 社区详情                                         |
+| `/api/v1/admin/communities/rebuild`   | POST   | 重建社区                                     |
+| `/api/v1/admin/communities/health`    | GET    | 社区健康概览                                 |
+| `/api/v1/admin/communities/health/diagnose` | POST | 社区健康诊断                         |
+| `/api/v1/admin/communities/health/repair` | POST | 社区健康修复                         |
+| `/api/v1/admin/communities/reports/generate` | POST | 生成社区报告                 |
+| `/api/v1/admin/communities/{id}/report/regenerate` | POST | 重新生成社区报告       |
 | `/metrics`                            | GET    | Prometheus 指标                                  |
 
 <details style="padding:16px; margin: 16px 0">
@@ -561,12 +567,14 @@ flowchart LR
     A[Merged Article] --> B[ReVectorize]
     B --> C[Analyze]
     C --> D[Credibility]
-    D --> E[EntityExtractor]
+    D --> E[QualityScorer]
+    E --> F[EntityExtractor]
 ```
 
 - **ReVectorize**: 合并后重新生成向量
 - **Analyze**: 摘要、情感分析、关键数据提取
 - **Credibility**: 可信度评分
+- **QualityScorer**: 内容质量评分 (新增)
 - **EntityExtractor**: spaCy + LLM 实体提取
 
 ---
@@ -612,20 +620,24 @@ flowchart LR
 
 ## <span id="llm-callpoints">🤖 LLM 调用点</span>
 
-| 调用点              | 类型      | 说明         |
-| ------------------- | --------- | ------------ |
-| classifier          | CHAT      | 新闻分类     |
-| cleaner             | CHAT      | 内容清洗     |
-| categorizer         | CHAT      | 分类识别     |
-| merger              | CHAT      | 文章合并     |
-| analyze             | CHAT      | 摘要分析     |
-| credibility_checker | CHAT      | 可信度检查   |
-| entity_extractor    | CHAT      | 实体提取     |
-| entity_resolver     | CHAT      | 实体消歧     |
-| search_local        | CHAT      | 本地搜索问答 |
-| search_global       | CHAT      | 全局搜索问答 |
-| embedding           | EMBEDDING | 向量生成     |
-| rerank              | RERANK    | 重排序       |
+| 调用点                | 类型      | 说明             |
+| --------------------- | --------- | ---------------- |
+| classifier            | CHAT      | 新闻分类         |
+| cleaner               | CHAT      | 内容清洗         |
+| categorizer           | CHAT      | 分类识别         |
+| merger                | CHAT      | 文章合并         |
+| analyze               | CHAT      | 摘要分析         |
+| credibility_checker   | CHAT      | 可信度检查       |
+| quality_scorer        | CHAT      | 质量评分         |
+| entity_extractor      | CHAT      | 实体提取         |
+| entity_resolver       | CHAT      | 实体消歧         |
+| search_local          | CHAT      | 本地搜索问答     |
+| search_global         | CHAT      | 全局搜索问答     |
+| causal_inference      | CHAT      | 因果推理         |
+| community_report      | CHAT      | 社区报告生成     |
+| community_title       | CHAT      | 社区标题生成     |
+| embedding             | EMBEDDING | 向量生成         |
+| rerank                | RERANK    | 重排序           |
 
 ---
 
@@ -633,16 +645,24 @@ flowchart LR
 
 | 任务                          | 间隔      | 说明                                         |
 | ----------------------------- | --------- | -------------------------------------------- |
+| sync_pending_to_neo4j         | 10分钟    | 同步待处理记录到 Neo4j                       |
 | retry_neo4j_writes            | 10分钟    | 重试失败的 Neo4j 写入                        |
-| flush_retry_queue             | 30秒      | 刷新爬虫重试队列                             |
-| update_source_auto_scores     | 每天3点   | 更新源权威度                                 |
-| archive_old_neo4j_nodes       | 每周六2点 | 归档旧文章                                   |
-| cleanup_orphan_entity_vectors | 每周六3点 | 清理孤立向量                                 |
+| sync_neo4j_with_postgres      | 1小时     | 全量 Neo4j ↔ PostgreSQL 同步                |
+| consistency_check             | 每天 3:00 | 数据一致性检查                               |
+| cleanup_old_synced            | 每天 3:30 | 清理旧同步记录 (保留 7 天)                   |
+| llm_failure_cleanup           | 24小时    | 清理 LLM 失败记录 (保留 3 天)                |
+| llm_usage_raw_cleanup         | 6小时     | 清理 LLM 使用原始记录 (保留 2 天)            |
+| archive_old_neo4j_nodes       | 每周六 2:00 | 归档旧 Neo4j 节点 (90 天)                  |
+| cleanup_orphan_entity_vectors | 每周六 3:00 | 清理孤立实体向量                           |
 | retry_pipeline_processing     | 15分钟    | 重试失败的 Pipeline 处理                     |
-| sync_neo4j_with_postgres      | 1小时     | 同步 Neo4j 与 PostgreSQL 数据一致性          |
-| sync_phishtank_data           | 6小时     | 同步 PhishTank 钓鱼 URL 数据库               |
-| update_persist_status_metrics | 5分钟     | 更新持久化状态 Prometheus 指标（支撑告警）   |
+| flush_retry_queue             | 30秒      | 刷新爬虫重试队列                             |
+| llm_usage_aggregate           | 5分钟     | LLM 使用量 Redis → PostgreSQL 聚合           |
+| update_source_auto_scores     | 每天 3:00 | 更新源权威度                                 |
 | community_auto_check          | 30分钟    | 社区检测自动检查（基于实体变化阈值触发重建） |
+| community_health_check        | 6小时     | 社区健康检查和自动修复                       |
+| update_persist_status_metrics | 5分钟     | 更新持久化状态 Prometheus 指标（支撑告警）   |
+| memory_consolidation          | 30分钟    | Memory 慢路径整合 (条件性)                   |
+| startup_sync_pending_to_neo4j | 启动时    | 启动时立即执行一次同步                       |
 
 ---
 
@@ -654,9 +674,9 @@ Weaver 使用分层测试策略：
 
 | 层级     | 位置                 | 数量  | 特点                    |
 | -------- | -------------------- | ----- | ----------------------- |
-| 单元测试 | `tests/unit/`        | ~1150 | Mock 外部依赖，快速执行 |
-| 集成测试 | `tests/integration/` | ~22   | 测试多组件交互          |
-| E2E 测试 | `tests/e2e/`         | ~24   | 完整 API 流程，真实服务 |
+| 单元测试 | `tests/unit/`        | ~245  | Mock 外部依赖，快速执行 |
+| 集成测试 | `tests/integration/` | ~18   | 测试多组件交互          |
+| E2E 测试 | `tests/e2e/`         | ~16   | 完整 API 流程，真实服务 |
 | 性能测试 | `tests/performance/` | ~8    | HNSW 向量索引性能基准   |
 
 ### 运行测试

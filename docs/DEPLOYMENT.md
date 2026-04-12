@@ -18,10 +18,10 @@
 
 ### 必需服务
 
-- **PostgreSQL** 15+ (with pgvector extension)
-- **Neo4j** 5.x
-- **Redis** 7.x
-- **Python** 3.11+
+- **PostgreSQL** 16+ (with pgvector extension, 使用 pgvector/pgvector:pg16 镜像)
+- **Neo4j** 5.x (推荐使用 5.25)
+- **Redis** 7.x (推荐使用 7.2)
+- **Python** 3.12+
 
 ### 可选服务
 
@@ -39,9 +39,7 @@
 
 ```bash
 # 应用基础配置
-export APP_NAME=weaver
 export ENVIRONMENT=production  # production | development
-export DEBUG=false
 
 # API 配置
 export WEAVER_API__API_KEY=<your-secure-api-key>  # 最少 32 字符
@@ -51,61 +49,168 @@ export WEAVER_API__RATE_LIMIT=100/minute
 
 # 端口自动检测配置
 export WEAVER_API__PORT_AUTO_DETECT=true  # 启用端口自动检测
-export WEAVER_WRITE_PORT_ENV=false        # 是否写入 .env.weaver 文件 (默认 false)
 ```
 
 #### 数据库连接
 
+**推荐方式**: 在 `config/settings.toml` 中配置服务地址,在 `.env` 中配置密码。
+
 ```bash
-# PostgreSQL
-export POSTGRES_DSN=postgresql+asyncpg://user:password@host:5432/weaver
+# PostgreSQL 密码 (服务地址在 settings.toml 中配置)
+export WEAVER_POSTGRES__PASSWORD=your_secure_postgres_password
 
-# Neo4j
-export NEO4J_URI=bolt://neo4j-host:7689
-export NEO4J_USER=neo4j
-export NEO4J_PASSWORD=<secure-password>
+# Neo4j 密码 (服务地址在 settings.toml 中配置,生产环境必须设置)
+export WEAVER_NEO4J__PASSWORD=your_secure_neo4j_password
 
-# Redis
-export REDIS_URL=redis://redis-host:6379/0
+# Redis 密码 (可选,留空表示无密码)
+export WEAVER_REDIS__PASSWORD=
+```
+
+**对应的 settings.toml 配置**:
+
+```toml
+# config/settings.toml
+[postgres]
+host = "localhost"
+port = 5432
+database = "weaver"
+user = "postgres"
+pool_size = 20
+max_overflow = 10
+pool_timeout = 30.0
+
+[neo4j]
+uri = "bolt://localhost:7687"
+user = "neo4j"
+enabled = true
+
+[redis]
+host = "localhost"
+port = 6379
+db = 0
 ```
 
 #### LLM 配置
 
+**推荐方式**: 在 `config/llm.toml` 中配置 Provider 和模型,在 `.env` 中配置 API Key。
+
 ```bash
-# OpenAI
-export WEAVER_LLM__PROVIDERS__OPENAI__API_KEY=<your-openai-api-key>
-export WEAVER_LLM__PROVIDERS__OPENAI__BASE_URL=https://api.openai.com/v1
-export WEAVER_LLM__PROVIDERS__OPENAI__MODEL=gpt-4o
-export WEAVER_LLM__PROVIDERS__OPENAI__RPM_LIMIT=60
-export WEAVER_LLM__PROVIDERS__OPENAI__CONCURRENCY=5
+# LLM Provider API Keys (通过环境变量覆盖 llm.toml 中的配置)
+export WEAVER_LLM__PROVIDERS__AIPING__API_KEY=your_aiping_api_key
+export WEAVER_LLM__PROVIDERS__DMX__API_KEY=your_dmx_api_key
+# Ollama 不需要真实 API Key
+# export WEAVER_LLM__PROVIDERS__OLLAMA__API_KEY=ollama
 
-# Ollama (可选)
-export WEAVER_LLM__PROVIDERS__OLLAMA__BASE_URL=http://ollama-host:11434
-export WEAVER_LLM__PROVIDERS__OLLAMA__MODEL=qwen3.5:9b
-export WEAVER_LLM__PROVIDERS__OLLAMA__CONCURRENCY=3
+# 也可以使用标准的 API Key 环境变量 (在 llm.toml 中通过 ${VAR_NAME} 引用)
+# export OPENAI_API_KEY=your_openai_api_key
+# export ANTHROPIC_API_KEY=your_anthropic_api_key
+```
 
-# 搜索相关 CallPoints (可选配置，默认已在 settings.toml 中设置)
-# 如需覆盖，可通过环境变量设置:
-# export WEAVER_LLM__CALL_POINTS__SEARCH_LOCAL__PRIMARY=openai
-# export WEAVER_LLM__CALL_POINTS__SEARCH_LOCAL__FALLBACKS='["ollama"]'
-# export WEAVER_LLM__CALL_POINTS__SEARCH_GLOBAL__PRIMARY=openai
-# export WEAVER_LLM__CALL_POINTS__SEARCH_GLOBAL__FALLBACKS='["ollama"]'
+**对应的 llm.toml 配置**:
+
+```toml
+# config/llm.toml
+[global]
+circuit_breaker_threshold = 5
+circuit_breaker_timeout = 60.0
+default_timeout = 120.0
+
+[providers.openai]
+type = "openai"
+base_url = "https://api.openai.com/v1"
+api_key = "${OPENAI_API_KEY}"  # 会使用环境变量 OPENAI_API_KEY
+rpm_limit = 500
+concurrency = 10
+timeout = 120.0
+priority = 100
+weight = 100
+
+  [providers.openai.models.chat]
+  model_id = "gpt-4o"
+  temperature = 0.0
+  max_tokens = 4096
+  capabilities = ["chat", "vision"]
+
+  [providers.openai.models.embedding]
+  model_id = "text-embedding-3-large"
+  capabilities = ["embedding"]
+
+[providers.anthropic]
+type = "anthropic"
+base_url = ""
+api_key = "${ANTHROPIC_API_KEY}"
+rpm_limit = 60
+concurrency = 5
+timeout = 300.0
+priority = 100
+weight = 100
+
+  [providers.anthropic.models.chat]
+  model_id = "claude-sonnet-4-20250514"
+  temperature = 0.0
+  max_tokens = 4096
+  capabilities = ["chat", "vision"]
+
+# 调用点路由配置
+[call-points.classifier]
+primary = "chat.openai.gpt-4o"
+fallbacks = ["chat.anthropic.claude-sonnet-4-20250514"]
+
+[call-points.entity_extractor]
+primary = "chat.openai.gpt-4o"
+fallbacks = ["chat.anthropic.claude-sonnet-4-20250514"]
+
+[call-points.embedding]
+primary = "embedding.openai.text-embedding-3-large"
+fallbacks = ["embedding.ollama.nomic-embed-text"]
+```
+
+**Smart Router 配置 (可选)**:
+
+```toml
+# Smart Router 评分权重配置
+[routing.classifier]
+mode = "auto"  # auto | fast | best
+
+  [routing.classifier.weights]
+  editorial = 0.35      # 预设优先级
+  reliability = 0.25    # 历史成功率
+  cost = 0.15           # 预估成本
+  latency = 0.10        # 历史延迟
+
+  [routing.classifier.bandit]
+  enabled = true
+  exploration_weight = 0.15
+  warmup_calls = 3
+```
+
+**影子评估配置 (可选)**:
+
+```toml
+[eval]
+enabled = false
+sample_rate = 0.1
+target_call_points = ["classifier", "entity_extractor"]
+baseline_model = "chat.openai.gpt-4o"
+candidate_models = ["chat.anthropic.claude-sonnet-4-20250514"]
 ```
 
 #### 可观测性配置
 
 ```bash
-# OpenTelemetry 追踪
-export OBS_OTLP_ENDPOINT=http://otel-collector:4317
+# OpenTelemetry 追踪 (在 settings.toml 中配置)
+# config/settings.toml:
+# [observability]
+# otlp_endpoint = "http://localhost:4317"
 
-# 或使用完整变量名
+# 或通过环境变量覆盖
 export WEAVER_OBSERVABILITY__OTLP_ENDPOINT=http://otel-collector:4317
 ```
 
 #### HNSW 索引参数调优
 
 ```bash
-# HNSW 索引参数 (首次迁移时生效)
+# HNSW 索引参数 (在 01_initial 迁移时生效)
 export HNSW_M=16                      # 每个节点的最大连接数 (默认: 16)
 export HNSW_EF_CONSTRUCTION=64        # 构建时的候选列表大小 (默认: 64)
 ```
@@ -126,7 +231,7 @@ export HNSW_EF_CONSTRUCTION=64        # 构建时的候选列表大小 (默认: 
 
 ### Alembic 迁移工具
 
-Weaver 使用 Alembic 进行数据库版本管理。
+Weaver 使用 Alembic 进行数据库版本管理。迁移脚本位于 `src/alembic/versions/` 目录。
 
 #### 查看当前迁移状态
 
@@ -135,44 +240,46 @@ Weaver 使用 Alembic 进行数据库版本管理。
 cd /path/to/weaver
 
 # 查看当前版本
-alembic current
+uv run alembic current
 
 # 查看迁移历史
-alembic history
+uv run alembic history
 ```
 
 #### 执行数据库迁移
 
 ```bash
 # 执行所有待执行的迁移
-alembic upgrade head
+uv run alembic upgrade head
 
 # 执行到指定版本
-alembic upgrade <revision_id>
+uv run alembic upgrade <revision_id>
 ```
 
 #### 回滚迁移
 
 ```bash
 # 回滚一个版本
-alembic downgrade -1
+uv run alembic downgrade -1
 
 # 回滚到指定版本
-alembic downgrade <revision_id>
+uv run alembic downgrade <revision_id>
 
 # 回滚所有迁移
-alembic downgrade base
+uv run alembic downgrade base
 ```
 
 ### HNSW 索引迁移
 
-**重要迁移: `e283f4aed36a`**
+**重要迁移: `01_initial`**
 
 此迁移为 `article_vectors` 和 `entity_vectors` 表添加 HNSW 索引，显著提升向量相似性搜索性能。
 
 #### 执行前准备
 
 1. **评估数据规模**
+
+   如果是全新数据库，无需准备。如果是迁移现有数据：
 
    ```sql
    SELECT COUNT(*) FROM article_vectors;
@@ -200,12 +307,12 @@ alembic downgrade base
 
 ```bash
 # 使用默认参数
-alembic upgrade e283f4aed36a
+uv run alembic upgrade 01_initial
 
 # 或自定义参数 (推荐生产环境)
 export HNSW_M=32
 export HNSW_EF_CONSTRUCTION=128
-alembic upgrade e283f4aed36a
+uv run alembic upgrade 01_initial
 ```
 
 #### 验证索引创建
@@ -261,31 +368,42 @@ curl http://localhost:8000/health
 
 #### 成功响应 (HTTP 200)
 
+响应被包装在 `APIResponse` 格式中：
+
 ```json
 {
-  "status": "healthy",
-  "checks": {
-    "postgres": {
-      "status": "ok",
-      "latency_ms": 2.34
-    },
-    "neo4j": {
-      "status": "ok",
-      "latency_ms": 5.67
-    },
-    "redis": {
-      "status": "ok",
-      "latency_ms": 1.23
+  "code": 200,
+  "message": "success",
+  "data": {
+    "status": "healthy",
+    "checks": {
+      "postgres": {
+        "status": "ok",
+        "latency_ms": 2.34,
+        "error": null
+      },
+      "neo4j": {
+        "status": "ok",
+        "latency_ms": 5.67,
+        "error": null
+      },
+      "redis": {
+        "status": "ok",
+        "latency_ms": 1.23,
+        "error": null
+      }
     }
   }
 }
 ```
 
-#### 失败响应 (HTTP 503)
+#### 失败响应 (HTTP 200, 但 status 为 "unhealthy")
 
 ```json
 {
-  "detail": {
+  "code": 200,
+  "message": "success",
+  "data": {
     "status": "unhealthy",
     "checks": {
       "postgres": {
@@ -295,11 +413,13 @@ curl http://localhost:8000/health
       },
       "neo4j": {
         "status": "timeout",
-        "latency_ms": 5001.23
+        "latency_ms": 5001.23,
+        "error": null
       },
       "redis": {
         "status": "ok",
-        "latency_ms": 1.23
+        "latency_ms": 1.23,
+        "error": null
       }
     }
   }
@@ -361,11 +481,11 @@ readinessProbe:
   failureThreshold: 3
 ```
 
-**Docker Swarm 配置示例:**
+**Docker 配置示例:**
 
 ```yaml
 healthcheck:
-  test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+  test: ["CMD", "python", "-c", "import httpx, os; port=os.getenv('WEAVER_API__PORT', '8000'); r=httpx.get(f'http://localhost:{port}/health'); exit(0 if r.status_code == 200 else 1)"]
   interval: 30s
   timeout: 10s
   retries: 3
@@ -389,20 +509,45 @@ curl http://localhost:8000/metrics
 #### 响应格式
 
 ```
-# HELP circuit_breaker_state Current state of circuit breaker (0=closed, 1=open, 2=half_open)
+# HELP api_request_latency_seconds API 请求延迟
+# TYPE api_request_latency_seconds histogram
+api_request_latency_seconds_bucket{endpoint="/health",method="GET",status="200",le="0.01"} 45
+api_request_latency_seconds_bucket{endpoint="/health",method="GET",status="200",le="0.05"} 89
+
+# HELP api_request_total API 请求总数
+# TYPE api_request_total counter
+api_request_total{endpoint="/health",method="GET",status="200"} 1523
+
+# HELP llm_call_total LLM 调用次数
+# TYPE llm_call_total counter
+llm_call_total{call_point="classifier",provider="openai",status="success"} 856
+llm_call_total{call_point="classifier",provider="openai",status="error"} 12
+
+# HELP llm_call_latency_seconds LLM 调用延迟
+# TYPE llm_call_latency_seconds histogram
+llm_call_latency_seconds_bucket{call_point="classifier",provider="openai",le="0.1"} 234
+llm_call_latency_seconds_bucket{call_point="classifier",provider="openai",le="0.5"} 567
+
+# HELP health_check_status 健康检查状态 (1=ok, 0=error, -1=timeout, -2=unavailable)
+# TYPE health_check_status gauge
+health_check_status{service="postgres"} 1
+health_check_status{service="neo4j"} 1
+health_check_status{service="redis"} 1
+
+# HELP health_check_latency_seconds 健康检查延迟
+# TYPE health_check_latency_seconds histogram
+health_check_latency_seconds_bucket{service="postgres",le="0.001"} 123
+health_check_latency_seconds_bucket{service="postgres",le="0.005"} 456
+
+# HELP circuit_breaker_state 熔断器状态 (0=closed, 1=open, 2=half_open)
 # TYPE circuit_breaker_state gauge
 circuit_breaker_state{provider="openai"} 0
 circuit_breaker_state{provider="ollama"} 0
 
-# HELP llm_call_total Total LLM API calls
-# TYPE llm_call_total counter
-llm_call_total{provider="openai",status="success"} 1523
-llm_call_total{provider="openai",status="error"} 12
-
-# HELP api_request_latency_seconds API request latency in seconds
-# TYPE api_request_latency_seconds histogram
-api_request_latency_seconds_bucket{endpoint="/health",le="0.1"} 45
-api_request_latency_seconds_bucket{endpoint="/health",le="0.5"} 89
+# HELP db_pool_size 数据库连接池大小
+# TYPE db_pool_size gauge
+db_pool_size{pool="postgres"} 20
+db_pool_size{pool="neo4j"} 10
 ```
 
 #### Content-Type
@@ -539,7 +684,7 @@ curl -X POST http://admin:admin@grafana:3000/api/dashboards/db \
 #### 1. 配置 OTLP Endpoint
 
 ```bash
-export OBS_OTLP_ENDPOINT=http://otel-collector:4317
+export WEAVER_OBSERVABILITY__OTLP_ENDPOINT=http://otel-collector:4317
 ```
 
 #### 2. 部署 OpenTelemetry Collector
@@ -592,22 +737,24 @@ http://jaeger:16686
 
 #### 1. 健康检查失败
 
-**症状:** `/health` 返回 503
+**症状:** `/health` 返回的 `data.status` 为 `unhealthy`
 
-**诊断步骤:**
+> **注意**: `/health` 端点始终返回 HTTP 200 状态码。需要检查响应体中的 `data.status` 字段来判断服务健康状况。
+
+#### 诊断步骤:
 
 ```bash
 # 检查具体失败的依赖
-curl -s http://localhost:8000/health | jq '.checks'
+curl -s http://localhost:8000/health | jq '.data.checks'
 
 # 检查 PostgreSQL 连接
-psql $POSTGRES_DSN -c "SELECT 1"
+psql -h localhost -U postgres -d weaver -c "SELECT 1"
 
 # 检查 Neo4j 连接
-cypher-shell -a $NEO4J_URI -u $NEO4J_USER -p $NEO4J_PASSWORD "RETURN 1"
+cypher-shell -a bolt://localhost:7687 -u neo4j -p your_password "RETURN 1"
 
 # 检查 Redis 连接
-redis-cli -u $REDIS_URL ping
+redis-cli -h localhost -p 6379 ping
 ```
 
 **解决方案:**
@@ -625,13 +772,13 @@ redis-cli -u $REDIS_URL ping
 
 ```bash
 # 查看当前迁移状态
-alembic current
+uv run alembic current
 
 # 检查数据库连接
-alembic show current
+uv run alembic show current
 
 # 查看详细错误日志
-alembic upgrade head --sql
+uv run alembic upgrade head --sql
 ```
 
 **常见错误:**
@@ -643,7 +790,7 @@ alembic upgrade head --sql
 **回滚迁移:**
 
 ```bash
-alembic downgrade -1
+uv run alembic downgrade -1
 ```
 
 #### 3. HNSW 索引查询慢
@@ -707,7 +854,7 @@ docker logs prometheus
 
 ```bash
 # 检查环境变量
-echo $OBS_OTLP_ENDPOINT
+echo $WEAVER_OBSERVABILITY__OTLP_ENDPOINT
 
 # 测试 Collector 连接
 grpcurl otel-collector:4317 list
@@ -755,14 +902,17 @@ redis-cli info memory
 ### 生产环境检查清单
 
 - [ ] 所有默认密码已修改
-- [ ] API Key 长度 >= 32 字符
+- [ ] API Key 长度 >= 32 字符 (通过 `WEAVER_API__API_KEY` 设置)
+- [ ] Neo4j 密码已设置 (通过 `WEAVER_NEO4J__PASSWORD` 设置，生产环境必须)
+- [ ] PostgreSQL 密码已设置 (通过 `WEAVER_POSTGRES__PASSWORD` 设置)
 - [ ] 数据库连接使用 SSL/TLS
 - [ ] Neo4j 认证已启用
-- [ ] Redis 设置密码
+- [ ] Redis 设置密码 (可选)
 - [ ] 防火墙规则已配置
 - [ ] 定期备份数据库
 - [ ] 监控和告警已配置
 - [ ] 日志级别设置为 INFO 或 WARNING
+- [ ] URL 安全检查已启用 (`url_security.enabled = true`)
 
 ### 敏感信息保护
 
@@ -783,6 +933,7 @@ export $(cat .env | xargs)
 如遇到问题，请参考：
 
 - [监控文档](../monitoring/README.md)
-- [开发文档](../development/README.md)
-- [API 文档](../api/README.md)
+- [开发文档](../development/README.md) (如果存在)
+- [API 文档](../api/README.md) (如果存在)
+- [项目 README](../README.md)
 - 项目 Issues: https://github.com/your-org/weaver/issues
