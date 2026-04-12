@@ -3,6 +3,9 @@
 
 DuckDB doesn't support native async, so this implementation wraps a sync
 SQLAlchemy engine with asyncio.to_thread for async compatibility.
+
+For :memory: mode, all sessions share the same underlying connection
+to ensure they access the same in-memory database.
 """
 
 from __future__ import annotations
@@ -98,24 +101,34 @@ class DuckDBPool:
 
     Uses sync SQLAlchemy engine with asyncio.to_thread wrapper for async ops.
 
+    For :memory: databases, uses a single shared connection to ensure
+    all sessions see the same data (DuckDB :memory: is connection-isolated).
+
     Implements:
         - RelationalPool: Async SQL database pool with session management
     """
 
     def __init__(self, db_path: str = "data/weaver.duckdb"):
         self._db_path = db_path
+        self._is_memory = db_path == ":memory:"
         self._engine: Engine | None = None
         self._async_engine: AsyncEngine | None = None
+        # For :memory: mode, shared connection used by all sessions
+        self._shared_connection: Any = None
 
     async def startup(self) -> None:
         """Initialize the DuckDB engine."""
-        # Create data directory
-        Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
+        # Create data directory (only for file-based databases)
+        if not self._is_memory:
+            Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
 
-        # Create sync engine in thread pool to avoid blocking
+        # Standard DuckDB URL
+        db_url = f"duckdb:///{self._db_path}"
+
+        # Create sync engine
         def _create_engine() -> Engine:
             return create_engine(
-                f"duckdb:///{self._db_path}",
+                db_url,
                 echo=False,
                 future=True,
             )
@@ -123,8 +136,20 @@ class DuckDBPool:
         loop = asyncio.get_event_loop()
         self._engine = await loop.run_in_executor(None, _create_engine)
 
+        # For :memory:, create a single shared connection that all sessions will use
+        # This ensures all sessions see the same in-memory database
+        if self._is_memory:
+
+            def _get_connection():
+                return self._engine.connect()
+
+            self._shared_connection = await loop.run_in_executor(None, _get_connection)
+
     async def shutdown(self) -> None:
-        """Close the engine."""
+        """Close the engine and shared connection."""
+        if self._shared_connection is not None:
+            await asyncio.to_thread(self._shared_connection.close)
+            self._shared_connection = None
         if self._engine is not None:
             await asyncio.to_thread(self._engine.dispose)
             self._engine = None
@@ -141,12 +166,13 @@ class DuckDBPool:
         """
         if self._engine is None:
             raise RuntimeError("DuckDBPool not started")
-        # DuckDB doesn't have real AsyncEngine, return wrapper behavior
-        # Users should use session() or session_context() for proper async ops
         return self._async_engine  # type: ignore
 
     def session(self) -> _DuckDBAsyncSession:
         """Create a new async-compatible session.
+
+        For :memory: mode, all sessions share the same underlying connection
+        to ensure they access the same in-memory database.
 
         Returns:
             A new _DuckDBAsyncSession instance wrapping a sync Session.
@@ -156,7 +182,12 @@ class DuckDBPool:
         """
         if self._engine is None:
             raise RuntimeError("DuckDBPool not started")
-        sync_session = Session(self._engine, expire_on_commit=False)
+
+        # For :memory: mode, bind session to shared connection
+        if self._is_memory and self._shared_connection is not None:
+            sync_session = Session(bind=self._shared_connection, expire_on_commit=False)
+        else:
+            sync_session = Session(self._engine, expire_on_commit=False)
         return _DuckDBAsyncSession(sync_session)
 
     @asynccontextmanager

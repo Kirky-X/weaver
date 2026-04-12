@@ -329,6 +329,16 @@ def _create_e2e_app(e2e_env: dict[str, str]) -> FastAPI:
     os.environ.setdefault("ENVIRONMENT", "testing")
     os.environ.setdefault("DEBUG", "true")
 
+    # When Docker unavailable, force PostgreSQL/Neo4j to fail fast
+    # so create_strategy() immediately falls back to DuckDB/LadybugDB
+    if not DOCKER_AVAILABLE:
+        # Use invalid port to force immediate connection failure
+        os.environ["WEAVER_POSTGRES__PORT"] = "1"
+        os.environ["WEAVER_POSTGRES__POOL_TIMEOUT"] = "1.0"
+        # Force Neo4j connection failure too (will trigger LadybugDB fallback)
+        # Keep enabled=true but use invalid bolt port
+        os.environ["WEAVER_NEO4J__URI"] = "bolt://localhost:1"
+
     settings = Settings()
     # pydantic-settings caches env vars on first instantiation. Directly set the
     # api_key to ensure the E2E value is used regardless of caching.
