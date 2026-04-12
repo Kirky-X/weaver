@@ -1,0 +1,1 @@
+- generic [ref=e2]: "{\"code\":0,\"message\":\"success\",\"data\":{\"relational_pool_type\":\"duckdb\",\"graph_pool_type\":\"ladybug\",\"llm_enabled\":true,\"search_enabled\":true,\"graph_available\":true},\"timestamp\":\"2026-04-13T04:33:10.302164\"}"

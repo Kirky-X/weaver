@@ -1,0 +1,1 @@
+- generic [ref=e2]: "{\"code\":0,\"message\":\"success\",\"data\":{\"status\":\"running\",\"version\":\"0.1.0\",\"database\":{\"relational\":\"duckdb\",\"graph\":\"ladybug\",\"cache\":\"CashewsRedisFallback\"}},\"timestamp\":\"2026-04-13T04:33:06.721111\"}"
