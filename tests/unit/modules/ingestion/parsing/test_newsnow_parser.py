@@ -57,15 +57,15 @@ class TestNewsNowParserParse:
             "updatedTime": 1773685030059,
             "items": [
                 {
-                    "url": "https://www.36kr.com/newsflashes/3725628913449344",
+                    "url": "https://www.36kr.com/p/3725628913449344",
                     "title": "何小鹏：中美自动驾驶同处第一梯队",
-                    "id": "/newsflashes/3725628913449344",
+                    "id": "/p/3725628913449344",
                     "extra": {"date": 1773667031908},
                 },
                 {
-                    "url": "https://www.36kr.com/newsflashes/3725621545892483",
+                    "url": "https://www.36kr.com/article/3725621545892483",
                     "title": "热门中概股美股盘前集体走强",
-                    "id": "/newsflashes/3725621545892483",
+                    "id": "/article/3725621545892483",
                     "extra": {"date": 1773667031908},
                 },
             ],
@@ -81,7 +81,7 @@ class TestNewsNowParserParse:
 
         assert len(items) == 2
         assert items[0].title == "何小鹏：中美自动驾驶同处第一梯队"
-        assert items[0].url == "https://www.36kr.com/newsflashes/3725628913449344"
+        assert items[0].url == "https://www.36kr.com/p/3725628913449344"
         assert items[0].source == "36氪"
         assert items[0].source_host == "www.36kr.com"
 
