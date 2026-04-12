@@ -120,6 +120,7 @@ class PersistStatus(str, enum.Enum):
 class EmotionType(str, enum.Enum):
     OPTIMISTIC = "乐观"
     INSPIRED = "振奋"
+    EXCITED = "兴奋"
     EXPECTANT = "期待"
     CALM = "平静"
     OBJECTIVE = "客观"
