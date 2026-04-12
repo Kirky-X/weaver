@@ -1,30 +1,22 @@
 #!/usr/bin/env python
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Unified pipeline test script via HTTP API.
+"""Unified pipeline management script.
 
-Supports multiple test modes:
-  - newsnow: Test NewsNow data ingestion
-  - rss: Test RSS feed ingestion
-  - strategy: Test database failover strategy
-
-All interactions are performed through HTTP API endpoints.
-No backward compatibility with old scripts.
+Combines pipeline testing, pending article processing, and incomplete article reprocessing.
 
 Usage:
-    # NewsNow mode (default)
-    uv run scripts/test_pipeline.py --mode newsnow --max-items 5
+    # Test modes
+    uv run scripts/pipeline.py test --mode newsnow --max-items 5
+    uv run scripts/pipeline.py test --mode rss --source solidot --max-items 2
+    uv run scripts/pipeline.py test --mode strategy
+    uv run scripts/pipeline.py test --mode all --clear-db
 
-    # NewsNow with custom source
-    uv run scripts/test_pipeline.py --mode newsnow --source-id hupu --max-items 5
+    # Process pending articles
+    uv run scripts/pipeline.py process-pending
 
-    # RSS mode
-    uv run scripts/test_pipeline.py --mode rss --source solidot --max-items 2
-
-    # Strategy mode (test database failover)
-    uv run scripts/test_pipeline.py --mode strategy
-
-    # With database cleanup
-    uv run scripts/test_pipeline.py --clear-db --max-items 3
+    # Reprocess incomplete articles
+    uv run scripts/pipeline.py reprocess --incomplete
+    uv run scripts/pipeline.py reprocess --article-id <uuid>
 """
 
 from __future__ import annotations
@@ -35,6 +27,7 @@ import contextlib
 import os
 import sys
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -119,24 +112,13 @@ class PipelineAPIClient:
         return {"X-API-Key": self.api_key}
 
     async def create_source(self, config: dict[str, Any]) -> dict[str, Any]:
-        """Create a data source via API.
-
-        Args:
-            config: Source configuration.
-
-        Returns:
-            Created source data.
-
-        Raises:
-            httpx.HTTPStatusError: If request fails.
-        """
+        """Create a data source via API."""
         url = f"{self.base_url}/api/v1/sources"
         response = await self._client.post(url, json=config, headers=self._headers())
 
         if response.status_code == 201:
             return response.json()["data"]
         elif response.status_code == 409:
-            # Source already exists, get it
             source_id = config["id"]
             return await self.get_source(source_id)
         else:
@@ -144,14 +126,7 @@ class PipelineAPIClient:
             return {}
 
     async def get_source(self, source_id: str) -> dict[str, Any]:
-        """Get a source by ID.
-
-        Args:
-            source_id: Source identifier.
-
-        Returns:
-            Source data.
-        """
+        """Get a source by ID."""
         url = f"{self.base_url}/api/v1/sources/{source_id}"
         response = await self._client.get(url, headers=self._headers())
         response.raise_for_status()
@@ -162,15 +137,7 @@ class PipelineAPIClient:
         source_id: str,
         max_items: int | None = None,
     ) -> str:
-        """Trigger pipeline for a source.
-
-        Args:
-            source_id: Source identifier.
-            max_items: Maximum items to process.
-
-        Returns:
-            Task ID.
-        """
+        """Trigger pipeline for a source."""
         url = f"{self.base_url}/api/v1/pipeline/trigger"
         payload: dict[str, Any] = {
             "source_id": source_id,
@@ -184,14 +151,7 @@ class PipelineAPIClient:
         return response.json()["data"]["task_id"]
 
     async def get_task_status(self, task_id: str) -> TaskStatus:
-        """Get pipeline task status.
-
-        Args:
-            task_id: Task identifier.
-
-        Returns:
-            Task status.
-        """
+        """Get pipeline task status."""
         url = f"{self.base_url}/api/v1/pipeline/tasks/{task_id}"
         response = await self._client.get(url, headers=self._headers())
         response.raise_for_status()
@@ -215,19 +175,7 @@ class PipelineAPIClient:
         timeout: float = 300.0,
         poll_interval: float = 5.0,
     ) -> TaskStatus:
-        """Wait for task completion.
-
-        Args:
-            task_id: Task identifier.
-            timeout: Maximum wait time in seconds.
-            poll_interval: Polling interval in seconds.
-
-        Returns:
-            Final task status.
-
-        Raises:
-            TimeoutError: If task doesn't complete in time.
-        """
+        """Wait for task completion."""
         start_time = time.time()
 
         while time.time() - start_time < timeout:
@@ -251,15 +199,7 @@ class PipelineAPIClient:
         page: int = 1,
         page_size: int = 20,
     ) -> dict[str, Any]:
-        """List articles.
-
-        Args:
-            page: Page number.
-            page_size: Items per page.
-
-        Returns:
-            Articles list with total count.
-        """
+        """List articles."""
         url = f"{self.base_url}/api/v1/articles"
         params = {"page": page, "page_size": page_size}
         response = await self._client.get(url, params=params, headers=self._headers())
@@ -292,16 +232,19 @@ RSS_SOURCES: dict[str, dict[str, Any]] = {
         "url": "https://www.solidot.org/index.rss",
         "name": "Solidot",
         "credibility": 0.70,
+        "tier": 2,
     },
     "cnbeta": {
         "url": "https://plink.anyfeeder.com/cnbeta",
         "name": "CNBeta",
         "credibility": 0.70,
+        "tier": 2,
     },
     "huxiu": {
         "url": "https://plink.anyfeeder.com/huxiu",
         "name": "Huxiu",
         "credibility": 0.70,
+        "tier": 2,
     },
 }
 
@@ -332,6 +275,7 @@ def build_rss_source_config(source: str) -> dict[str, Any]:
         "enabled": True,
         "interval_minutes": 30,
         "credibility": src["credibility"],
+        "tier": src["tier"],
     }
 
 
@@ -351,15 +295,7 @@ class ServerContext:
 
 
 async def start_server(port: int = 8000, container: Any = None) -> tuple[Any, asyncio.Task]:
-    """Start the FastAPI server.
-
-    Args:
-        port: Server port.
-        container: Container instance.
-
-    Returns:
-        Tuple of (server, task).
-    """
+    """Start the FastAPI server."""
     import uvicorn
 
     from main import create_app
@@ -382,11 +318,7 @@ async def start_server(port: int = 8000, container: Any = None) -> tuple[Any, as
 
 
 async def setup_strategy_mode() -> ServerContext:
-    """Setup strategy mode with fallback databases.
-
-    Returns:
-        Server context with strategy info.
-    """
+    """Setup strategy mode with fallback databases."""
     import container as container_module
     from config.settings import Settings
     from container import Container
@@ -416,11 +348,7 @@ async def setup_strategy_mode() -> ServerContext:
 
 
 async def setup_normal_mode() -> ServerContext:
-    """Setup normal mode with fallback databases.
-
-    Returns:
-        Server context with strategy info.
-    """
+    """Setup normal mode with fallback databases."""
     import container as container_module
     from config.settings import Settings
     from container import Container
@@ -446,12 +374,7 @@ async def setup_normal_mode() -> ServerContext:
 
 
 async def shutdown_server(server: Any, container: Any) -> None:
-    """Shutdown server and container.
-
-    Args:
-        server: Uvicorn server instance.
-        container: Container instance.
-    """
+    """Shutdown server and container."""
     server.should_exit = True
     await asyncio.sleep(1)
     await container.shutdown()
@@ -463,13 +386,7 @@ async def shutdown_server(server: Any, container: Any) -> None:
 
 
 async def clear_databases(server_ctx: ServerContext) -> None:
-    """Clear all data from test databases.
-
-    Note: This operation bypasses API, as there's no cleanup endpoint.
-
-    Args:
-        server_ctx: Server context with database pools.
-    """
+    """Clear all data from test databases."""
     import sqlalchemy
 
     phase_header("PHASE: Clear Databases")
@@ -524,17 +441,7 @@ async def run_all_sources(
     max_items: int | None = None,
     clear_db: bool = False,
 ) -> TestResult:
-    """Run ALL sources (RSS + NewsNow) with configurable item limits.
-
-    Args:
-        client: API client.
-        timeout: Per-pipeline timeout.
-        max_items: Maximum items per source (None = unlimited).
-        clear_db: Whether to clear DB first (handled by caller).
-
-    Returns:
-        Test result with aggregate stats.
-    """
+    """Run ALL sources (RSS + NewsNow) with configurable item limits."""
 
     phase_header("PHASE 1: Source Discovery & Creation")
 
@@ -618,10 +525,10 @@ async def run_all_sources(
             failed_tasks.append((source_id, str(e)))
             step(f"{source_id}", False, f"TIMEOUT: {e}")
 
-    # Wait for LLM processing to complete (pipeline trigger only waits for crawl)
+    # Wait for LLM processing to complete
     phase_header("PHASE 3b: Waiting for LLM Processing")
     llm_start = time.time()
-    llm_timeout = timeout  # Use same timeout for LLM wait
+    llm_timeout = timeout
     while time.time() - llm_start < llm_timeout:
         articles = await client.list_articles(page=1, page_size=1)
         total = articles.get("total", 0)
@@ -676,17 +583,7 @@ async def run_newsnow_test(
     max_items: int,
     timeout: int,
 ) -> TestResult:
-    """Run NewsNow mode test.
-
-    Args:
-        client: API client.
-        source_id: NewsNow source ID.
-        max_items: Maximum items to process.
-        timeout: Pipeline timeout.
-
-    Returns:
-        Test result.
-    """
+    """Run NewsNow mode test."""
     phase_header("PHASE 1: Source Creation")
     source_config = build_newsnow_source_config(source_id)
     source = await client.create_source(source_config)
@@ -725,17 +622,7 @@ async def run_rss_test(
     max_items: int,
     timeout: int,
 ) -> TestResult:
-    """Run RSS mode test.
-
-    Args:
-        client: API client.
-        source: RSS source name.
-        max_items: Maximum items to process.
-        timeout: Pipeline timeout.
-
-    Returns:
-        Test result.
-    """
+    """Run RSS mode test."""
     phase_header("PHASE 1: Source Creation")
     source_config = build_rss_source_config(source)
     created = await client.create_source(source_config)
@@ -775,18 +662,7 @@ async def run_strategy_test(
     timeout: int,
     server_ctx: ServerContext,
 ) -> TestResult:
-    """Run Strategy mode test.
-
-    Args:
-        client: API client.
-        source_id: NewsNow source ID.
-        max_items: Maximum items to process.
-        timeout: Pipeline timeout.
-        server_ctx: Server context with strategy info.
-
-    Returns:
-        Test result.
-    """
+    """Run Strategy mode test."""
     # Verify fallback databases
     phase_header("PHASE 1: Strategy Verification")
     step(
@@ -844,12 +720,12 @@ async def run_strategy_test(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Main Entry Point
+# Pipeline Test Command
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-async def main(args: argparse.Namespace) -> int:
-    """Main entry point."""
+async def cmd_test(args: argparse.Namespace) -> int:
+    """Run pipeline test."""
     print("=" * 60)
     print(f"  Pipeline Test: {args.mode.upper()} mode")
     print("=" * 60)
@@ -935,71 +811,312 @@ async def main(args: argparse.Namespace) -> int:
         print("Done.")
 
 
-if __name__ == "__main__":
+# ─────────────────────────────────────────────────────────────────────────────
+# Process Pending Articles Command
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def cmd_process_pending(args: argparse.Namespace) -> int:
+    """Process all pending articles and sync to LadybugDB."""
+    from config.settings import Settings
+    from container import Container
+    from core.db.models import PersistStatus
+    from core.observability.logging import get_logger
+
+    log = get_logger("process_pending")
+
+    settings = Settings()
+    container = Container().configure(settings)
+    await container.startup()
+
+    # Get services
+    article_repo = container.article_repo()
+    graph_writer = container.graph_writer()
+    vector_repo = container.vector_repo()
+    pipeline = container.pipeline()
+    relational_pool = container.relational_pool()
+
+    # Get pending articles
+    async with relational_pool.session() as session:
+        from sqlalchemy import text
+
+        result = await session.execute(text("""
+            SELECT CAST(id AS VARCHAR) as id, title
+            FROM articles
+            WHERE persist_status = 'pending'
+            ORDER BY created_at
+        """))
+        rows = result.fetchall()
+
+    print(f"找到 {len(rows)} 篇待处理文章")
+
+    processed_count = 0
+
+    for row in rows:
+        article_id = row[0]
+        title = row[1]
+
+        print(f"\n处理文章: {title[:50]}...")
+
+        try:
+            # Use pipeline's process_article_phase3 method
+            state = await pipeline.process_article_phase3(
+                article_id=article_id, force_reprocess=True
+            )
+
+            print(f"  ✓ Phase3 完成")
+
+            # Manual persist steps
+            if not state.get("terminal"):
+                article_id_uuid = uuid.UUID(article_id)
+                await article_repo.upsert(state)
+                await article_repo.update_persist_status(article_id_uuid, PersistStatus.PG_DONE)
+                print(f"  ✓ PG 持久化完成")
+
+                # Write to LadybugDB
+                if graph_writer:
+                    neo4j_ids = await graph_writer.write(state)
+                    state["neo4j_ids"] = neo4j_ids
+                    await article_repo.update_persist_status(
+                        article_id_uuid, PersistStatus.NEO4J_DONE
+                    )
+                    print(f"  ✓ Neo4j/LadybugDB 持久化完成")
+
+                # Upsert vectors
+                if vector_repo and "vectors" in state:
+                    vectors = state["vectors"]
+                    if isinstance(vectors, dict) and "title" in vectors and "content" in vectors:
+                        await vector_repo.upsert_article_vectors(
+                            article_id=article_id_uuid,
+                            title_embedding=vectors.get("title"),
+                            content_embedding=vectors.get("content"),
+                            model_id=vectors.get("model_id", "unknown"),
+                        )
+                        print(f"  ✓ 向量持久化完成")
+
+            processed_count += 1
+
+        except Exception as exc:
+            print(f"  ✗ 处理失败: {exc}")
+            log.error("process_pending_failed", article_id=article_id, error=str(exc))
+
+    await container.shutdown()
+
+    print(f"\n处理完成: {processed_count}/{len(rows)} 篇")
+    return 0 if processed_count > 0 else 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Reprocess Incomplete Articles Command
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def cmd_reprocess(args: argparse.Namespace) -> int:
+    """Reprocess articles with incomplete LLM fields."""
+    from sqlalchemy import case, func, select
+
+    from config.settings import Settings
+    from container import Container, set_container, set_settings
+    from modules.ingestion.domain.models import ArticleRaw
+    from modules.storage import ArticleRepo
+
+    # Load settings and create container
+    settings = Settings()
+    container = Container().configure(settings)
+    set_container(container)
+    set_settings(settings)
+
+    # Initialize strategy and LLM
+    await container.init_strategy()
+    await container.init_llm()
+    pipeline = await container.init_pipeline()
+    relational_pool = container.relational_pool()
+    article_repo = ArticleRepo(relational_pool)
+
+    # Find incomplete articles
+    print("Finding incomplete articles...")
+    async with relational_pool.session() as session:
+        from core.db.models import Article
+
+        if args.article_id:
+            # Reprocess specific article
+            result = await session.execute(select(Article).where(Article.id == args.article_id))
+            articles_db = result.scalars().all()
+        elif args.incomplete:
+            # Reprocess all incomplete articles
+            result = await session.execute(
+                select(Article)
+                .where(Article.credibility_score.is_(None) | Article.quality_score.is_(None))
+                .order_by(Article.created_at.desc())
+            )
+            articles_db = result.scalars().all()
+        else:
+            print("Error: Specify --incomplete or --article-id")
+            return 1
+
+    if not articles_db:
+        print("No incomplete articles found")
+        return 1
+
+    print(f"Found {len(articles_db)} incomplete articles")
+
+    # Convert to ArticleRaw objects
+    articles = []
+    article_ids = []
+    for article in articles_db:
+        if not article.body:
+            print(f"Skipping article {article.id} - no body")
+            continue
+
+        raw = ArticleRaw(
+            url=article.source_url,
+            title=article.title or "",
+            body=article.body,
+            source=article.source_host or "reprocess",
+            source_host=article.source_host or "",
+            publish_time=article.publish_time,
+        )
+        articles.append(raw)
+        article_ids.append(article.id)
+        print(f"Prepared: {article.title[:50] if article.title else 'N/A'}...")
+
+    if not articles:
+        print("No articles to process (all have empty body)")
+        return 1
+
+    print(f"\nProcessing {len(articles)} articles through pipeline...")
+
+    # Process through pipeline
+    task_id = uuid.uuid4()
+    states = await pipeline.process_batch(articles, article_ids=article_ids, task_id=task_id)
+
+    # Report results
+    completed = sum(1 for s in states if not s.get("terminal"))
+    failed = sum(1 for s in states if s.get("terminal"))
+
+    print(f"\nResults: {completed} completed, {failed} failed")
+
+    # Verify final state
+    async with relational_pool.session() as session:
+        result = await session.execute(
+            select(
+                func.count(Article.id).label("total"),
+                func.sum(case((Article.credibility_score.is_not(None), 1), else_=0)).label(
+                    "cred_complete"
+                ),
+                func.sum(case((Article.quality_score.is_not(None), 1), else_=0)).label(
+                    "qual_complete"
+                ),
+            )
+        )
+        row = result.one()
+        print(
+            f"Final state: {int(row.cred_complete or 0)}/{row.total} have credibility_score, "
+            f"{int(row.qual_complete or 0)}/{row.total} have quality_score"
+        )
+
+    return 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Main Entry Point
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def main() -> int:
+    """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Unified pipeline test script via HTTP API",
+        description="Unified pipeline management script",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-    # All sources, all items (recommended for full data import)
-    uv run scripts/test_pipeline.py --mode all --clear-db
+    # Test modes
+    uv run scripts/pipeline.py test --mode newsnow --max-items 5
+    uv run scripts/pipeline.py test --mode rss --source solidot
+    uv run scripts/pipeline.py test --mode all --clear-db
+    uv run scripts/pipeline.py test --mode strategy
 
-    # NewsNow mode (default)
-    uv run scripts/test_pipeline.py --mode newsnow --max-items 5
+    # Process pending articles
+    uv run scripts/pipeline.py process-pending
 
-    # NewsNow with custom source
-    uv run scripts/test_pipeline.py --mode newsnow --source-id hupu --max-items 5
-
-    # RSS mode
-    uv run scripts/test_pipeline.py --mode rss --source solidot --max-items 2
-
-    # Strategy mode (test database failover)
-    uv run scripts/test_pipeline.py --mode strategy
-
-    # With database cleanup
-    uv run scripts/test_pipeline.py --clear-db --max-items 3
+    # Reprocess incomplete articles
+    uv run scripts/pipeline.py reprocess --incomplete
+    uv run scripts/pipeline.py reprocess --article-id <uuid>
         """,
     )
-    parser.add_argument(
+
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # Test subcommand
+    test_parser = subparsers.add_parser("test", help="Run pipeline tests")
+    test_parser.add_argument(
         "--mode",
         choices=["newsnow", "rss", "strategy", "all"],
         default="newsnow",
-        help="Test mode: newsnow, rss, strategy, or all (default: newsnow)",
+        help="Test mode (default: newsnow)",
     )
-    parser.add_argument(
+    test_parser.add_argument(
         "--source",
         default="solidot",
         help="RSS source name for rss mode (default: solidot)",
     )
-    parser.add_argument(
+    test_parser.add_argument(
         "--source-id",
         default="36kr",
         help="NewsNow source ID for newsnow mode (default: 36kr)",
     )
-    parser.add_argument(
+    test_parser.add_argument(
         "--max-items",
         type=int,
         default=5,
         help="Maximum items to process (default: 5)",
     )
-    parser.add_argument(
+    test_parser.add_argument(
         "--clear-db",
         action="store_true",
         help="Clear databases before testing",
     )
-    parser.add_argument(
+    test_parser.add_argument(
         "--timeout",
         type=int,
         default=300,
         help="Pipeline timeout in seconds (default: 300)",
     )
-    parser.add_argument(
+    test_parser.add_argument(
         "--port",
         type=int,
         default=8000,
         help="API server port (default: 8000)",
     )
 
+    # Process-pending subcommand
+    subparsers.add_parser("process-pending", help="Process pending articles")
+
+    # Reprocess subcommand
+    reprocess_parser = subparsers.add_parser("reprocess", help="Reprocess incomplete articles")
+    reprocess_parser.add_argument(
+        "--incomplete",
+        action="store_true",
+        help="Reprocess all incomplete articles",
+    )
+    reprocess_parser.add_argument(
+        "--article-id",
+        type=str,
+        help="Reprocess specific article by ID",
+    )
+
     args = parser.parse_args()
-    exit_code = asyncio.run(main(args))
-    sys.exit(exit_code)
+
+    if args.command == "test":
+        return asyncio.run(cmd_test(args))
+    elif args.command == "process-pending":
+        return asyncio.run(cmd_process_pending(args))
+    elif args.command == "reprocess":
+        return asyncio.run(cmd_reprocess(args))
+    else:
+        parser.print_help()
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

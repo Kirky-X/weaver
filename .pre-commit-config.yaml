@@ -127,7 +127,7 @@ repos:
     hooks:
       - id: check-logging-usage
         name: check-logging-usage (禁止 logging.getLogger)
-        entry: python scripts/check_logging_usage.py
+        entry: python scripts/tools.py check-logging
         language: system
         types: [python]
         files: ^src/|^tests/|^scripts/
