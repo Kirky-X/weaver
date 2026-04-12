@@ -26,7 +26,7 @@ EXPOSE 8000
 
 # Health check (uses default port 8000 or WEAVER_API__PORT env var)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD python -c "import requests, os; port=os.getenv('WEAVER_API__PORT', '8000'); requests.get(f'http://localhost:{port}/health')" || exit 1
+  CMD python -c "import httpx, os; port=os.getenv('WEAVER_API__PORT', '8000'); r=httpx.get(f'http://localhost:{port}/health'); exit(0 if r.status_code == 200 else 1)" || exit 1
 
 # Run the application
 ENV PYTHONPATH=/app/src
