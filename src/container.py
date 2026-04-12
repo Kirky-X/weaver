@@ -264,6 +264,20 @@ class Container:
             )
             log.info("llm_smart_router_initialized")
 
+            # Initialize LiveConfig for hot-reload
+            from pathlib import Path
+
+            from core.llm.config.live_config import LiveConfig
+
+            # Get project root (container.py is in src/)
+            project_root = Path(__file__).parent.parent
+            llm_toml_path = project_root / "config" / "llm.toml"
+
+            self._live_config = LiveConfig(
+                config_path=llm_toml_path,
+            )
+            log.info("llm_live_config_initialized", path=str(llm_toml_path))
+
             # Build EvalRunner if enabled
             eval_cfg = self._settings.llm.eval_config
             if eval_cfg and eval_cfg.enabled:
@@ -1276,23 +1290,18 @@ class Container:
         project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
         # Initialize database strategy with failover support
+        # Note: DuckDB schema is initialized in create_strategy during fallback
         await self.init_strategy()
 
-        # Run appropriate schema initialization based on database type
-        if self._strategy is not None:
-            if self._strategy.relational_type == "duckdb":
-                from modules.storage.duckdb.schema import initialize_duckdb_schema
+        # Only run PostgreSQL migrations (DuckDB schema handled in create_strategy)
+        if self._strategy is not None and self._strategy.relational_type == "postgresql":
+            from core.db.initializer import initialize_database
 
-                await initialize_duckdb_schema(self._strategy.relational_pool)
-                log.info("duckdb_schema_initialized")
-            elif self._strategy.relational_type == "postgresql":
-                from core.db.initializer import initialize_database
-
-                await initialize_database(
-                    self._settings.postgres.dsn,
-                    alembic_ini_path=os.path.join(project_root, "alembic.ini"),
-                    script_location=os.path.join(project_root, "src", "alembic"),
-                )
+            await initialize_database(
+                self._settings.postgres.dsn,
+                alembic_ini_path=os.path.join(project_root, "alembic.ini"),
+                script_location=os.path.join(project_root, "src", "alembic"),
+            )
 
         await self.init_redis()
         await self.init_llm()
@@ -1384,6 +1393,14 @@ class Container:
         # Setup unified scheduler (replaces all threads + duplicate scheduler)
         self._setup_scheduler()
 
+        # Start LiveConfig watcher for hot-reload
+        if self._live_config:
+            try:
+                await self._live_config.start(on_reload=self._on_llm_config_reload)
+                log.info("live_config_watcher_started")
+            except Exception as e:
+                log.warning("live_config_watcher_start_failed", error=str(e))
+
         log.info("container_started")
 
     async def shutdown(self) -> None:
@@ -1420,6 +1437,14 @@ class Container:
             except Exception as e:
                 log.warning("llm_queue_manager_shutdown_error", error=str(e))
 
+        # Stop LiveConfig watcher
+        if self._live_config:
+            try:
+                await self._live_config.stop()
+                log.info("live_config_watcher_stopped")
+            except Exception as e:
+                log.warning("live_config_watcher_stop_error", error=str(e))
+
         # Shutdown pools
         if self._smart_fetcher:
             await self._smart_fetcher.close()
@@ -1438,6 +1463,44 @@ class Container:
                 log.info("graph_pool_shutdown", type=self._strategy.graph_type)
 
         log.info("container_shutdown_complete")
+
+    async def _on_llm_config_reload(self, new_config: Any) -> None:
+        """Handle LLM configuration hot-reload.
+
+        Called by LiveConfig when config/llm.toml changes.
+        Atomically swaps the in-memory configuration and updates
+        SmartRouter with new settings.
+
+        Args:
+            new_config: The new LLMSettings instance.
+        """
+        try:
+            log.info("llm_config_reload_starting")
+
+            # Update the settings reference
+            self._settings.llm = new_config
+
+            # Rebuild SmartRouter with new config
+            if self._smart_router and self._llm_experience:
+                from core.llm.routing.smart_router import SmartRouter
+
+                # Get current circuit breakers from existing router
+                circuit_breakers = self._smart_router._circuit_breakers
+
+                self._smart_router = SmartRouter(
+                    settings=new_config,
+                    experience=self._llm_experience,
+                    circuit_breakers=circuit_breakers,
+                )
+
+                # Update LLMClient reference
+                if self._llm_client:
+                    self._llm_client._smart_router = self._smart_router
+
+                log.info("llm_config_reload_complete")
+        except Exception as e:
+            log.error("llm_config_reload_failed", error=str(e))
+            # LiveConfig will keep the previous valid config
 
 
 # Global container instance with thread-safe access
