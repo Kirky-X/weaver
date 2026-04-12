@@ -650,7 +650,7 @@ class Neo4jCommunityRepo:
             CommunityReport or None.
         """
         if self._database_type == GraphDatabaseType.LADYBUG:
-            # LadybugDB: Use coalesce for properties that may not exist
+            # LadybugDB: No coalesce support, handle nulls in Python
             query = """
             MATCH (r:CommunityReport {community_id: $community_id})
             RETURN r.id AS id,
@@ -658,10 +658,10 @@ class Neo4jCommunityRepo:
                    r.title AS title,
                    r.summary AS summary,
                    r.full_content AS full_content,
-                   coalesce(r.key_entities, []) AS key_entities,
-                   coalesce(r.key_relationships, []) AS key_relationships,
-                   coalesce(r.rank, 1.0) AS rank,
-                   coalesce(r.stale, false) AS stale,
+                   r.key_entities AS key_entities,
+                   r.key_relationships AS key_relationships,
+                   r.rank AS rank,
+                   r.stale AS stale,
                    r.created_at AS created_at,
                    r.updated_at AS updated_at
             """

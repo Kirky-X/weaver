@@ -59,8 +59,13 @@ SCHEMA_QUERIES = [
         title STRING,
         summary STRING,
         full_content STRING,
+        key_entities STRING,
+        key_relationships STRING,
+        rank DOUBLE,
+        stale BOOLEAN,
         full_content_embedding FLOAT[1024],
-        created_at INT64
+        created_at INT64,
+        updated_at INT64
     )
     """,
     # EventNode node table
