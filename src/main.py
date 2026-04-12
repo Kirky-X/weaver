@@ -390,11 +390,12 @@ def create_app(container: Container | None = None) -> FastAPI:
 
         Returns overall system status including database types and processing stats.
         """
-        import toml
+        import tomllib
 
         version = "unknown"
         try:
-            pyproject = toml.load("pyproject.toml")
+            with open("pyproject.toml", "rb") as f:
+                pyproject = tomllib.load(f)
             version = pyproject.get("project", {}).get("version", "unknown")
         except Exception:
             pass
