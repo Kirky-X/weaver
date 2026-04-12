@@ -30,43 +30,22 @@ from data_validator import DataValidator
 RECORDER = APIResponseRecorder(output_dir="temp/api_responses")
 VALIDATOR = DataValidator(data_dir="data")
 
-# Test configuration
-API_KEY = os.environ.get("WEAVER_API__API_KEY", "test-api-key")
+# Test configuration - load from test_env.env like conftest.py
+# This ensures consistent API key across all E2E tests
+E2E_ENV_FILE = Path(__file__).parent / "test_env.env"
+
+
+def _load_api_key() -> str:
+    """Load API key from test_env.env file."""
+    if E2E_ENV_FILE.exists():
+        for line in E2E_ENV_FILE.read_text().splitlines():
+            if line.startswith("WEAVER_API__API_KEY="):
+                return line.split("=", 1)[1].strip()
+    return os.environ.get("WEAVER_API__API_KEY", "test-api-key")
+
+
+API_KEY = _load_api_key()
 AUTH_HEADERS = {"X-API-Key": API_KEY}
-
-
-def create_app_for_testing():
-    """Create FastAPI app for testing with DuckDB/Ladybug backend.
-
-    Returns:
-        Configured FastAPI application.
-    """
-    from config.settings import Settings
-    from container import Container
-    from main import create_app
-
-    # Set environment for testing
-    os.environ.setdefault("ENVIRONMENT", "testing")
-    os.environ.setdefault("DEBUG", "true")
-
-    settings = Settings()
-    settings.api.api_key = API_KEY
-    container = Container().configure(settings)
-
-    return create_app(container)
-
-
-@pytest.fixture(scope="module")
-def app():
-    """Create test application."""
-    return create_app_for_testing()
-
-
-@pytest.fixture(scope="module")
-def client(app):
-    """Create test client."""
-    with TestClient(app) as c:
-        yield c
 
 
 # ── Helper Functions ──────────────────────────────────────────────────
@@ -830,14 +809,14 @@ def generate_report(request):
     def finalize():
         # Export summary
         summary = RECORDER.export_summary()
-        print(f"\n\n{'='*60}")
+        print(f"\n\n{'=' * 60}")
         print("API 测试完成")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
         print(f"总调用次数: {summary['total_calls']}")
         print(f"按端点分布: {summary['by_endpoint']}")
         print(f"按状态码: {summary['by_status']}")
         print(f"平均响应时间: {summary['avg_duration_ms']}ms")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         # Generate validation report
         report = VALIDATOR.generate_report("temp/api_validation_report.md")
