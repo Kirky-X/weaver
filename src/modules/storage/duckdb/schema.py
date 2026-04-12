@@ -216,29 +216,42 @@ async def initialize_duckdb_schema(pool) -> None:
 
     Args:
         pool: DuckDBPool instance.
+
+    Note:
+        Uses a single session for all operations because DuckDB :memory:
+        creates a separate database for each connection. All schema operations
+        must happen in the same session/connection.
     """
     log.info("duckdb_schema_initializing")
 
-    # Create sequences first (DuckDB requires sequences before tables using them)
-    for query in SEQUENCE_QUERIES:
-        try:
-            async with pool.session_context() as session:
+    # Use single session for all operations (DuckDB :memory: isolation)
+    session = pool.session()
+    try:
+        # Create sequences first
+        for query in SEQUENCE_QUERIES:
+            try:
                 await session.execute(text(query))
-        except Exception as exc:
-            log.warning("duckdb_sequence_create_failed", error=str(exc))
+            except Exception as exc:
+                log.warning("duckdb_sequence_create_failed", error=str(exc))
 
-    # Create tables
-    for query in SCHEMA_QUERIES:
-        try:
-            async with pool.session_context() as session:
+        # Create tables
+        for query in SCHEMA_QUERIES:
+            try:
                 await session.execute(text(query))
-        except Exception as exc:
-            log.warning("duckdb_table_create_failed", error=str(exc))
+            except Exception as exc:
+                log.warning("duckdb_table_create_failed", error=str(exc))
 
-    log.info("duckdb_schema_initialized")
+        # Seed relation types if empty (in same session)
+        await _seed_relation_types(session)
 
-    # Seed relation types if empty
-    await _seed_relation_types(pool)
+        await session.commit()
+        log.info("duckdb_schema_initialized")
+    except Exception as exc:
+        await session.rollback()
+        log.error("duckdb_schema_init_failed", error=str(exc))
+        raise
+    finally:
+        await session.close()
 
 
 # ── Seed Data ────────────────────────────────────────────────────────
@@ -406,41 +419,43 @@ _RELATION_TYPE_SEEDS: list[dict] = [
 ]
 
 
-async def _seed_relation_types(pool) -> None:
-    """Insert seed relation types if the table is empty."""
-    async with pool.session_context() as session:
-        result = await session.execute(text("SELECT COUNT(*) FROM relation_types"))
-        count = result.scalar()
+async def _seed_relation_types(session) -> None:
+    """Insert seed relation types if the table is empty.
 
-        if count > 0:
-            log.debug("relation_types_already_seeded", count=count)
-            return
+    Args:
+        session: Database session (must be same session used for schema creation).
+    """
+    result = await session.execute(text("SELECT COUNT(*) FROM relation_types"))
+    count = result.scalar()
 
-        for rt in _RELATION_TYPE_SEEDS:
-            # Make a copy to avoid mutating the original seed data
-            rt_copy = rt.copy()
-            aliases = rt_copy.pop("aliases")
+    if count > 0:
+        log.debug("relation_types_already_seeded", count=count)
+        return
+
+    for rt in _RELATION_TYPE_SEEDS:
+        # Make a copy to avoid mutating the original seed data
+        rt_copy = rt.copy()
+        aliases = rt_copy.pop("aliases")
+        await session.execute(
+            text("""
+                INSERT INTO relation_types (name, name_en, category, is_symmetric, sort_order, description, is_active)
+                VALUES (:name, :name_en, :category, :is_symmetric, :sort_order, :description, true)
+            """),
+            rt_copy,
+        )
+        # Get the inserted id
+        result = await session.execute(
+            text("SELECT id FROM relation_types WHERE name_en = :name_en"),
+            {"name_en": rt_copy["name_en"]},
+        )
+        type_id = result.scalar()
+
+        for alias in aliases:
             await session.execute(
-                text("""
-                    INSERT INTO relation_types (name, name_en, category, is_symmetric, sort_order, description, is_active)
-                    VALUES (:name, :name_en, :category, :is_symmetric, :sort_order, :description, true)
-                """),
-                rt_copy,
+                text(
+                    "INSERT INTO relation_type_aliases (relation_type_id, alias) VALUES (:rt_id, :alias)"
+                ),
+                {"rt_id": type_id, "alias": alias},
             )
-            # Get the inserted id
-            result = await session.execute(
-                text("SELECT id FROM relation_types WHERE name_en = :name_en"),
-                {"name_en": rt_copy["name_en"]},
-            )
-            type_id = result.scalar()
 
-            for alias in aliases:
-                await session.execute(
-                    text(
-                        "INSERT INTO relation_type_aliases (relation_type_id, alias) VALUES (:rt_id, :alias)"
-                    ),
-                    {"rt_id": type_id, "alias": alias},
-                )
-
-        await session.commit()
-        log.info("relation_types_seeded", count=len(_RELATION_TYPE_SEEDS))
+    log.info("relation_types_seeded", count=len(_RELATION_TYPE_SEEDS))
