@@ -521,13 +521,15 @@ async def clear_databases(server_ctx: ServerContext) -> None:
 async def run_all_sources(
     client: PipelineAPIClient,
     timeout: int,
+    max_items: int | None = None,
     clear_db: bool = False,
 ) -> TestResult:
-    """Run ALL sources (RSS + NewsNow) with no item limits.
+    """Run ALL sources (RSS + NewsNow) with configurable item limits.
 
     Args:
         client: API client.
         timeout: Per-pipeline timeout.
+        max_items: Maximum items per source (None = unlimited).
         clear_db: Whether to clear DB first (handled by caller).
 
     Returns:
@@ -573,14 +575,14 @@ async def run_all_sources(
             details={"skipped": skipped_sources},
         )
 
-    phase_header("PHASE 2: Pipeline Execution (unlimited items)")
+    phase_header(f"PHASE 2: Pipeline Execution (max_items={max_items or 'unlimited'})")
 
     # Trigger all pipelines sequentially
     task_map: list[tuple[str, str]] = []  # (source_id, task_id)
     failed_pipelines: list[tuple[str, str]] = []
     for source_id in created_source_ids:
         try:
-            task_id = await client.trigger_pipeline(source_id, max_items=None)
+            task_id = await client.trigger_pipeline(source_id, max_items=max_items)
             task_map.append((source_id, task_id))
             step(f"Pipeline triggered: {source_id}", True, f"task_id: {task_id[:8]}...")
         except Exception as e:
@@ -615,6 +617,34 @@ async def run_all_sources(
         except TimeoutError as e:
             failed_tasks.append((source_id, str(e)))
             step(f"{source_id}", False, f"TIMEOUT: {e}")
+
+    # Wait for LLM processing to complete (pipeline trigger only waits for crawl)
+    phase_header("PHASE 3b: Waiting for LLM Processing")
+    llm_start = time.time()
+    llm_timeout = timeout  # Use same timeout for LLM wait
+    while time.time() - llm_start < llm_timeout:
+        articles = await client.list_articles(page=1, page_size=1)
+        total = articles.get("total", 0)
+        if total == 0:
+            await asyncio.sleep(5)
+            continue
+
+        # Count incomplete articles via articles API
+        all_articles = await client.list_articles(page=1, page_size=min(total, 200))
+        items = all_articles.get("items", [])
+        incomplete = sum(1 for a in items if a.get("credibility_score") is None and a.get("body"))
+        if incomplete == 0:
+            step(
+                "LLM processing complete",
+                True,
+                f"all {total} articles processed",
+            )
+            break
+        elapsed = int(time.time() - llm_start)
+        print(f"    Waiting... {incomplete} articles still processing ({elapsed}s elapsed)")
+        await asyncio.sleep(10)
+    else:
+        print(f"    WARNING: LLM processing did not complete within {llm_timeout}s")
 
     phase_header("PHASE 4: Final Verification")
 
@@ -868,7 +898,12 @@ async def main(args: argparse.Namespace) -> int:
                 client, args.source_id, args.max_items, args.timeout, server_ctx
             )
         elif args.mode == "all":
-            result = await run_all_sources(client, timeout=args.timeout, clear_db=args.clear_db)
+            result = await run_all_sources(
+                client,
+                timeout=args.timeout,
+                max_items=args.max_items,
+                clear_db=args.clear_db,
+            )
         else:
             print(f"Unknown mode: {args.mode}")
             return 1
