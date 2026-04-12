@@ -429,12 +429,13 @@ class TestLLMUsageAPIEndpoints:
         assert "data" in data
 
     def test_get_llm_usage_summary_endpoint(self, client):
-        """Test GET /admin/llm-usage/summary endpoint with real database."""
+        """Test GET /admin/llm-usage endpoint with group_by=summary."""
         response = client.get(
-            "/admin/llm-usage/summary",
+            "/admin/llm-usage",
             params={
                 "from": "2024-01-01T00:00:00Z",
                 "to": "2030-01-31T23:59:59Z",
+                "group_by": "summary",
             },
         )
 
