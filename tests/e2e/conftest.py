@@ -343,8 +343,15 @@ def _create_e2e_app(e2e_env: dict[str, str]) -> FastAPI:
     # pydantic-settings caches env vars on first instantiation. Directly set the
     # api_key to ensure the E2E value is used regardless of caching.
     settings.api.api_key = e2e_env.get("WEAVER_API__API_KEY", settings.api.api_key)
-    container = Container().configure(settings)
-    return create_app(container)
+
+    # Set global settings instance so auth middleware's get_settings() returns
+    # the E2E-configured settings (auth uses from container import get_settings)
+    import container
+
+    container._settings_instance = settings
+
+    container_obj = Container().configure(settings)
+    return create_app(container_obj)
 
 
 # ── Pytest Fixtures ────────────────────────────────────────────────
