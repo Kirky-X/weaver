@@ -590,6 +590,16 @@ class Container:
             coalesce=True,
         )
 
+        # ── PhishTank Sync ──
+        scheduler.add_job(
+            jobs.sync_phishtank_data,
+            IntervalTrigger(hours=settings.sync_phishtank_interval_hours),
+            id="sync_phishtank_data",
+            name="Sync PhishTank phishing URL data",
+            max_instances=1,
+            coalesce=True,
+        )
+
         # ── Source Scoring ──
         scheduler.add_job(
             jobs.update_source_auto_scores,

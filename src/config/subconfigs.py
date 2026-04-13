@@ -257,6 +257,9 @@ class SchedulerSettings(BaseModel):
     # Knowledge Graph
     community_check_interval_minutes: int = 30
 
+    # PhishTank Sync
+    sync_phishtank_interval_hours: int = 6
+
 
 class FetcherSettings(BaseModel):
     """Fetcher settings."""
