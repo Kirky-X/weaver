@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from core.security.validation.ssrf import SSRFError
 from modules.ingestion.fetching.crawl4ai_fetcher import Crawl4AIFetcher
 
 
@@ -121,3 +122,93 @@ class TestCrawl4AIFetcherClose:
 
         # Should not raise
         await fetcher.close()
+
+
+class TestCrawl4AIFetcherSSRFProtection:
+    """Test Crawl4AIFetcher SSRF protection."""
+
+    @pytest.fixture
+    def mock_crawl_result(self):
+        """Create mock CrawlResult."""
+        result = MagicMock()
+        result.success = True
+        result.status_code = 200
+        result.html = "<html><body>Test content</body></html>"
+        result.response_headers = {"content-type": "text/html"}
+        result.error_message = None
+        return result
+
+    @pytest.mark.asyncio
+    async def test_fetch_safe_url_allowed(self, mock_crawl_result):
+        """Test that safe external URLs are allowed."""
+        fetcher = Crawl4AIFetcher()
+
+        with patch.object(fetcher, "_ensure_initialized", new_callable=AsyncMock):
+            fetcher._crawler = MagicMock()
+            fetcher._crawler.arun = AsyncMock(return_value=mock_crawl_result)
+            fetcher._initialized = True
+
+            # Safe external URL should work
+            status, html, headers = await fetcher.fetch("https://example.com/article")
+
+            assert status == 200
+            assert html == "<html><body>Test content</body></html>"
+
+    @pytest.mark.asyncio
+    async def test_fetch_internal_ip_blocked(self):
+        """Test that internal IP addresses are blocked."""
+        fetcher = Crawl4AIFetcher()
+
+        with pytest.raises(SSRFError):
+            await fetcher.fetch("http://10.0.0.1/internal")
+
+    @pytest.mark.asyncio
+    async def test_fetch_localhost_blocked(self):
+        """Test that localhost addresses are blocked."""
+        fetcher = Crawl4AIFetcher()
+
+        with pytest.raises(SSRFError):
+            await fetcher.fetch("http://localhost/admin")
+
+    @pytest.mark.asyncio
+    async def test_fetch_127_0_0_1_blocked(self):
+        """Test that 127.0.0.1 addresses are blocked."""
+        fetcher = Crawl4AIFetcher()
+
+        with pytest.raises(SSRFError):
+            await fetcher.fetch("http://127.0.0.1:8000/config")
+
+    @pytest.mark.asyncio
+    async def test_fetch_metadata_endpoint_blocked(self):
+        """Test that cloud metadata endpoints are blocked."""
+        fetcher = Crawl4AIFetcher()
+
+        # AWS metadata endpoint
+        with pytest.raises(SSRFError):
+            await fetcher.fetch("http://169.254.169.254/latest/meta-data/")
+
+    @pytest.mark.asyncio
+    async def test_fetch_non_http_protocol_blocked(self):
+        """Test that non-HTTP protocols are blocked."""
+        fetcher = Crawl4AIFetcher()
+
+        with pytest.raises(SSRFError):
+            await fetcher.fetch("file:///etc/passwd")
+
+    @pytest.mark.asyncio
+    async def test_ssrf_check_before_crawler_init(self, mock_crawl_result):
+        """Test that SSRF check happens before crawler initialization."""
+        fetcher = Crawl4AIFetcher()
+
+        # Mock the crawler methods - they should NOT be called
+        with patch.object(fetcher, "_ensure_initialized", new_callable=AsyncMock) as mock_init:
+            fetcher._crawler = MagicMock()
+            fetcher._crawler.arun = AsyncMock(return_value=mock_crawl_result)
+            fetcher._initialized = True
+
+            # Internal IP should trigger SSRF error without calling _ensure_initialized
+            with pytest.raises(SSRFError):
+                await fetcher.fetch("http://192.168.1.1/internal")
+
+            # _ensure_initialized should NOT have been called
+            mock_init.assert_not_called()

@@ -1138,17 +1138,29 @@ class TestSystemConfigEndpoint:
 
     @pytest.mark.asyncio
     async def test_config_endpoint_response_structure(self):
-        """Test system_config endpoint returns correct response structure."""
+        """Test system_config endpoint returns correct response structure.
+
+        Requires admin API key authentication.
+        """
         from main import create_app
 
         app = create_app()
-        # The config endpoint may fail with 503 if dependencies aren't initialized,
-        # but the route should exist and be callable
+        # The config endpoint requires admin API key authentication
         from httpx import ASGITransport, AsyncClient
+
+        # Get settings for API key
+        from container import get_settings
+
+        settings = get_settings()
 
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
-            response = await client.get("/api/v1/config")
+            # Use admin API key if configured, otherwise regular key (dev mode)
+            api_key = settings.api.admin_api_key or settings.api.get_api_key()
+            response = await client.get(
+                "/api/v1/config",
+                headers={"X-API-Key": api_key},
+            )
             # Either 200 (if deps initialized) or 503 (if not) — both are valid
             assert response.status_code in (200, 503)
 
