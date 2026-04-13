@@ -38,7 +38,15 @@ class PostgresTarget:
 
         Args:
             schema: Schema definition for the table.
+
+        Raises:
+            InvalidIdentifierError: If table or column names fail validation.
         """
+        # Validate identifiers against whitelist to prevent injection
+        validate_sql_identifier(schema.table, "table")
+        for col in schema.columns:
+            validate_sql_identifier(col.name, "column")
+
         async with self._engine.begin() as conn:
             # Check if table exists
             exists_result = await conn.execute(
@@ -127,12 +135,20 @@ class PostgresTarget:
 
         Returns:
             Number of rows successfully written.
+
+        Raises:
+            InvalidIdentifierError: If table or column names fail validation.
         """
         if not rows:
             return 0
 
+        # Validate identifiers against whitelist to prevent injection
+        validate_sql_identifier(table, "table")
+
         # Get column names from first row
         columns = list(rows[0].keys())
+        for col in columns:
+            validate_sql_identifier(col, "column")
         col_names = ", ".join(f'"{c}"' for c in columns)
         placeholders = ", ".join(f":{c}" for c in columns)
 
@@ -175,7 +191,13 @@ class PostgresTarget:
 
         Returns:
             True if verification passed.
+
+        Raises:
+            InvalidIdentifierError: If table name fails validation.
         """
+        # Validate table name against whitelist
+        validate_sql_identifier(table, "table")
+
         async with self._engine.connect() as conn:
             result = await conn.execute(text(f'SELECT COUNT(*) FROM "{table}"'))
             actual_count = result.scalar() or 0
@@ -190,6 +212,16 @@ class PostgresTarget:
             return True
 
     async def truncate(self, table: str) -> None:
-        """Truncate a table (for clean migration restart)."""
+        """Truncate a table (for clean migration restart).
+
+        Args:
+            table: Table name to truncate.
+
+        Raises:
+            InvalidIdentifierError: If table name fails validation.
+        """
+        # Validate table name against whitelist
+        validate_sql_identifier(table, "table")
+
         async with self._engine.begin() as conn:
             await conn.execute(text(f'TRUNCATE TABLE "{table}" CASCADE'))

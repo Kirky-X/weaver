@@ -46,7 +46,14 @@ class DuckDBTarget:
 
         Args:
             schema: Schema definition for the table.
+
+        Raises:
+            InvalidIdentifierError: If table or column names fail validation.
         """
+        # Validate identifiers against whitelist to prevent injection
+        validate_sql_identifier(schema.table, "table")
+        for col in schema.columns:
+            validate_sql_identifier(col.name, "column")
 
         def _ensure_schema_sync() -> None:
             with self._engine.begin() as conn:
@@ -126,11 +133,18 @@ class DuckDBTarget:
 
         Returns:
             Number of rows successfully written.
+
+        Raises:
+            InvalidIdentifierError: If table or column names fail validation.
         """
         if not rows:
             return 0
 
+        # Validate identifiers against whitelist to prevent injection
+        validate_sql_identifier(table, "table")
         columns = list(rows[0].keys())
+        for col in columns:
+            validate_sql_identifier(col, "column")
         col_names = ", ".join(f'"{c}"' for c in columns)
         placeholders = ", ".join(f":{c}" for c in columns)
 
@@ -168,7 +182,12 @@ class DuckDBTarget:
 
         Returns:
             True if verification passed.
+
+        Raises:
+            InvalidIdentifierError: If table name fails validation.
         """
+        # Validate table name against whitelist
+        validate_sql_identifier(table, "table")
 
         def _verify_sync() -> int:
             with self._engine.connect() as conn:
@@ -187,7 +206,16 @@ class DuckDBTarget:
         return True
 
     async def truncate(self, table: str) -> None:
-        """Truncate a table (for clean migration restart)."""
+        """Truncate a table (for clean migration restart).
+
+        Args:
+            table: Table name to truncate.
+
+        Raises:
+            InvalidIdentifierError: If table name fails validation.
+        """
+        # Validate table name against whitelist
+        validate_sql_identifier(table, "table")
 
         def _truncate_sync() -> None:
             with self._engine.begin() as conn:
