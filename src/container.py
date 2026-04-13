@@ -786,7 +786,7 @@ class Container:
 
         Returns GraphRepository with the appropriate QueryBuilder for
         the current graph database (Neo4j or LadybugDB).
-        When Neo4j is primary, LadybugDB is used as fallback pool.
+        When Neo4j is primary, LadybugDB is configured as lazy fallback.
 
         Raises:
             RuntimeError: If graph database is not available.
@@ -801,20 +801,22 @@ class Container:
 
             query_builder = create_graph_query_builder(self._strategy.graph_type)
 
-            # When Neo4j is primary, use LadybugDB as fallback
-            fallback_pool = None
+            # When Neo4j is primary, configure LadybugDB as lazy fallback
+            # (only initialize when actually needed, not at startup)
+            fallback_pool_factory = None
             fallback_query_builder = None
             if self._strategy.graph_type == "neo4j":
                 from core.db.ladybug_pool import LadybugPool
 
-                # Use the pipeline's LadybugDB path where data is actually written
-                ladybug_pool = LadybugPool(db_path=self._settings.ladybug.db_path)
-                ladybug_pool.startup_sync()
-                fallback_pool = ladybug_pool
+                # Factory function for lazy initialization
+                def _create_ladybug_fallback() -> LadybugPool:
+                    return LadybugPool(db_path=self._settings.ladybug.db_path)
+
+                fallback_pool_factory = _create_ladybug_fallback
                 fallback_query_builder = create_graph_query_builder("ladybug")
 
             self._graph_repo = GraphRepository(
-                graph_pool, query_builder, fallback_pool, fallback_query_builder
+                graph_pool, query_builder, fallback_pool_factory, fallback_query_builder
             )
         return self._graph_repo
 
@@ -904,11 +906,11 @@ class Container:
             from modules.knowledge.search.context.local_context import LocalContextBuilder
 
             local_builder = LocalContextBuilder(
-                neo4j_pool=graph_pool,
+                graph_pool=graph_pool,
                 default_max_tokens=8000,
             )
             global_builder = GlobalContextBuilder(
-                neo4j_pool=graph_pool,
+                graph_pool=graph_pool,
                 default_max_tokens=12000,
                 llm_client=self._llm_client,
             )
