@@ -17,6 +17,9 @@ Usage:
     # Reprocess incomplete articles
     uv run scripts/pipeline.py reprocess --incomplete
     uv run scripts/pipeline.py reprocess --article-id <uuid>
+
+Note: To limit physical memory to 24GB, run with:
+    systemd-run --scope -p MemoryMax=24G uv run scripts/pipeline.py ...
 """
 
 from __future__ import annotations
@@ -214,16 +217,9 @@ class PipelineAPIClient:
 
 KNOWN_NEWSNOW_SOURCES: list[str] = [
     "36kr",
-    "huxiu",
-    "36kr_bao",
-    "cnbeta",
     "solidot",
     "ithome",
     "hupu",
-    "geekpark",
-    "tmtpost",
-    "pingwest",
-    "ifanr",
 ]
 
 
@@ -311,9 +307,26 @@ async def start_server(port: int = 8000, container: Any = None) -> tuple[Any, as
     server = uvicorn.Server(config)
     task = asyncio.create_task(server.serve())
 
-    # Wait for server to start
-    await asyncio.sleep(3)
+    # Wait for server to be ready (poll health endpoint)
+    import httpx
 
+    base_url = f"http://127.0.0.1:{port}"
+    client = httpx.AsyncClient(timeout=5.0)
+
+    max_attempts = 30
+    poll_interval = 0.5
+
+    for _attempt in range(max_attempts):
+        try:
+            response = await client.get(f"{base_url}/health")
+            if response.status_code == 200:
+                break
+        except (httpx.ConnectError, httpx.ReadError):
+            await asyncio.sleep(poll_interval)
+    else:
+        raise RuntimeError(f"Server failed to start within {max_attempts * poll_interval}s")
+
+    await client.aclose()
     return server, task
 
 
