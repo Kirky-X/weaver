@@ -324,8 +324,9 @@ class GlobalSearchEngine:
                     title=comm.get("title", "Unknown"),
                     summary=comm.get("summary", ""),
                     entity_count=comm.get("entity_count", 0),
-                    rank=comm.get("rank", 1.0),
-                    similarity_score=comm.get("similarity_score", comm.get("rank", 1.0) / 10.0),
+                    rank=comm.get("rank") or 1.0,
+                    similarity_score=comm.get("similarity_score")
+                    or (comm.get("rank") or 1.0) / 10.0,
                     full_content=comm.get("full_content"),
                     key_entities=comm.get("key_entities", []),
                     entities=entities,
