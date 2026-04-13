@@ -763,49 +763,6 @@ class TestGetIncompleteArticles:
         assert call_args is not None
 
 
-class TestRetryManager:
-    """Test RetryManager class."""
-
-    @pytest.fixture
-    def retry_manager(self):
-        """Create RetryManager instance."""
-        from modules.scheduler.jobs import RetryManager
-
-        return RetryManager(MagicMock())
-
-    @pytest.mark.asyncio
-    async def test_add_to_retry(self, retry_manager):
-        """Test adding item to retry queue."""
-        retry_manager._cache.zadd = AsyncMock(return_value=1)
-
-        await retry_manager.add_to_retry(
-            host="example.com",
-            item='{"url": "test"}',
-            retry_at=datetime.now(UTC) + timedelta(minutes=5),
-        )
-
-        retry_manager._cache.zadd.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_get_retry_items(self, retry_manager):
-        """Test getting retry items."""
-        retry_manager._cache.zrangebyscore = AsyncMock(return_value=[b"item1", b"item2"])
-
-        items = await retry_manager.get_retry_items("example.com")
-
-        assert len(items) == 2
-        retry_manager._cache.zrangebyscore.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_remove_from_retry(self, retry_manager):
-        """Test removing items from retry queue."""
-        retry_manager._cache.zrem = AsyncMock(return_value=2)
-
-        await retry_manager.remove_from_retry("example.com", "item1", "item2")
-
-        retry_manager._cache.zrem.assert_called_once()
-
-
 class TestSyncPendingToNeo4j:
     """Test sync_pending_to_neo4j job."""
 

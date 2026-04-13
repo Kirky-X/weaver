@@ -866,28 +866,3 @@ class SchedulerJobs:
         except Exception as exc:
             log.error("sync_phishtank_data_failed", error=str(exc))
             return False
-
-
-class RetryManager:
-    """Manages retry queues for failed crawl operations."""
-
-    def __init__(self, cache: CachePool) -> None:
-        self._cache = cache
-
-    async def add_to_retry(self, host: str, item: str, retry_at: datetime) -> None:
-        """Add an item to the retry queue for a host."""
-        key = f"crawl:retry:{host}"
-        score = retry_at.timestamp()
-        await self._cache.zadd(key, {item: score})
-
-    async def get_retry_items(self, host: str) -> list[str]:
-        """Get all items ready for retry for a host."""
-        key = f"crawl:retry:{host}"
-        now = datetime.now(UTC).timestamp()
-        return await self._cache.zrangebyscore(key, "-inf", now)
-
-    async def remove_from_retry(self, host: str, *items: str) -> None:
-        """Remove items from retry queue."""
-        key = f"crawl:retry:{host}"
-        if items:
-            await self._cache.zrem(key, *items)
