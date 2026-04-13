@@ -1,7 +1,11 @@
 """Unified storage adapters - Re-exports all storage interfaces and implementations."""
 
 # Base protocols
-from modules.storage.base import ArticleRepository, EntityRepository, VectorRepository
+from core.protocols.repositories import (
+    ArticleRepository,
+    EntityRepository,
+    VectorRepository,
+)
 
 # Database-specific repos
 from modules.storage.duckdb import (
