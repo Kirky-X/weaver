@@ -333,6 +333,14 @@ class Neo4jQueryBuilder:
 
         Weight is computed dynamically as co-occurrence article count.
         When entity_type is None, matches only by canonical_name.
+
+        Args:
+            relation_types: Optional list of edge types to filter. Each type
+                is validated against whitelist pattern before use.
+            entity_type: Optional entity type filter.
+
+        Returns:
+            Cypher query string with parameterized values.
         """
         type_clause = (
             "{canonical_name: $name, type: $type}"
@@ -364,7 +372,10 @@ class Neo4jQueryBuilder:
                 LIMIT $limit
             """
         else:
-            type_filters = " OR ".join(f"type(r) = '{rt}'" for rt in relation_types)
+            # Validate edge types against whitelist to prevent injection
+            validated_types = validate_relation_types(relation_types)
+            # Build safe filter using validated identifiers
+            type_filters = " OR ".join(f"type(r) = '{rt}'" for rt in validated_types)
             return f"""
                 MATCH (e:Entity {type_clause})-[r]-(other:Entity)
                 WHERE ({type_filters})
@@ -697,7 +708,9 @@ class LadybugQueryBuilder:
             """
         else:
             # Filter by specific edge types
-            edge_type_filters = " OR ".join(f"r.edge_type = '{rt}'" for rt in relation_types)
+            # Validate edge types against whitelist to prevent injection
+            validated_types = validate_relation_types(relation_types)
+            edge_type_filters = " OR ".join(f"r.edge_type = '{rt}'" for rt in validated_types)
             return f"""
                 MATCH (e:Entity {type_clause})-[r:RELATED_TO]-(other:Entity)
                 WHERE ({edge_type_filters})
