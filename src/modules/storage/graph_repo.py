@@ -30,7 +30,7 @@ class GraphRepository:
     Args:
         pool: Primary graph database pool (Neo4j or LadybugDB).
         query_builder: Database-specific query builder for primary.
-        fallback_pool: Optional fallback pool (LadybugDB when Neo4j is primary).
+        fallback_pool_factory: Optional factory function for lazy fallback pool creation.
         fallback_query_builder: Optional query builder for fallback.
     """
 
@@ -38,18 +38,28 @@ class GraphRepository:
         self,
         pool: GraphPool,
         query_builder: GraphQueryBuilder,
-        fallback_pool: GraphPool | None = None,
+        fallback_pool_factory: callable | None = None,
         fallback_query_builder: GraphQueryBuilder | None = None,
     ) -> None:
         self._pool = pool
         self._query_builder = query_builder
-        self._fallback_pool = fallback_pool
+        self._fallback_pool_factory = fallback_pool_factory
         self._fallback_query_builder = fallback_query_builder
+        self._fallback_pool: GraphPool | None = None  # Lazy-initialized
 
     @property
     def database_type(self) -> str:
         """Get the database type."""
         return self._query_builder.database_type.value
+
+    async def _get_fallback_pool(self) -> GraphPool | None:
+        """Get or lazily initialize the fallback pool."""
+        if self._fallback_pool is None and self._fallback_pool_factory is not None:
+            pool = self._fallback_pool_factory()
+            await pool.startup()
+            self._fallback_pool = pool
+            log.info("graph_repo_fallback_initialized")
+        return self._fallback_pool
 
     async def _execute_with_fallback(
         self,
@@ -62,8 +72,11 @@ class GraphRepository:
         if result or self._fallback_query_builder is None:
             return result
         try:
+            fallback_pool = await self._get_fallback_pool()
+            if fallback_pool is None:
+                return result
             fb_query = build_query_fn(self._fallback_query_builder)
-            return await self._fallback_pool.execute_query(fb_query, params or {})
+            return await fallback_pool.execute_query(fb_query, params or {})
         except Exception as exc:
             log.warning("graph_repo_fallback_failed", error=str(exc))
             return result

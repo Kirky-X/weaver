@@ -31,8 +31,20 @@ class LadybugPool:
         - GraphPool: Async graph database pool with query execution
     """
 
-    def __init__(self, db_path: str = "data/ladybug.db"):
+    # Default max database size: 1GB (must be power of 2 for LadybugDB)
+    DEFAULT_MAX_DB_SIZE = 1 * 1024 * 1024 * 1024  # 1GB = 2^30
+    # Default buffer pool size: 256MB (controls mmap allocation)
+    DEFAULT_BUFFER_POOL_SIZE = 256 * 1024 * 1024  # 256MB
+
+    def __init__(
+        self,
+        db_path: str = "data/ladybug.db",
+        max_db_size: int | None = None,
+        buffer_pool_size: int | None = None,
+    ):
         self._db_path = db_path
+        self._max_db_size = max_db_size or self.DEFAULT_MAX_DB_SIZE
+        self._buffer_pool_size = buffer_pool_size or self.DEFAULT_BUFFER_POOL_SIZE
         self._db: ladybug.Database | None = None
         self._conn: ladybug.AsyncConnection | None = None
 
@@ -41,14 +53,22 @@ class LadybugPool:
         # Create data directory
         Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
 
-        # Create Database and AsyncConnection
-        self._db = ladybug.Database(self._db_path)
+        # Create Database and AsyncConnection with size limits
+        self._db = ladybug.Database(
+            self._db_path,
+            max_db_size=self._max_db_size,
+            buffer_pool_size=self._buffer_pool_size,
+        )
         self._conn = ladybug.AsyncConnection(self._db)
 
     def startup_sync(self) -> None:
         """Initialize the LadybugDB connection (sync version for fallback use)."""
         Path(self._db_path).parent.mkdir(parents=True, exist_ok=True)
-        self._db = ladybug.Database(self._db_path)
+        self._db = ladybug.Database(
+            self._db_path,
+            max_db_size=self._max_db_size,
+            buffer_pool_size=self._buffer_pool_size,
+        )
         self._conn = ladybug.AsyncConnection(self._db)
 
     async def shutdown(self) -> None:
