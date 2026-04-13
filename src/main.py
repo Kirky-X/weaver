@@ -13,7 +13,7 @@ from pathlib import Path
 # Fix: allow `from api` style imports to resolve correctly regardless of CWD.
 sys.path.insert(0, str(Path(__file__).parent))
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
@@ -23,6 +23,7 @@ from slowapi.errors import RateLimitExceeded
 from api.endpoints import _deps as deps
 from api.endpoints.health import health_check
 from api.middleware.api_response import register_exception_handlers
+from api.middleware.auth import verify_admin_api_key, verify_api_key, verify_api_key_optional
 from api.middleware.rate_limit import limiter
 from api.middleware.request_context import RequestContextMiddleware
 from api.router import api_router
@@ -384,8 +385,10 @@ def create_app(container: Container | None = None) -> FastAPI:
         return success_response({"status": result.status, "checks": result.checks})
 
     @app.get("/api/v1/status", response_model=APIResponse[dict])
-    async def system_status() -> APIResponse[dict]:
-        """System status endpoint.
+    async def system_status(
+        _: str = Depends(verify_api_key),
+    ) -> APIResponse[dict]:
+        """System status endpoint (requires authentication).
 
         Returns overall system status including database types and processing stats.
         """
@@ -418,10 +421,13 @@ def create_app(container: Container | None = None) -> FastAPI:
         )
 
     @app.get("/api/v1/config", response_model=APIResponse[dict])
-    async def system_config() -> APIResponse[dict]:
-        """System configuration endpoint.
+    async def system_config(
+        _: str = Depends(verify_admin_api_key),
+    ) -> APIResponse[dict]:
+        """System configuration endpoint (requires admin authentication).
 
         Returns current configuration including available features.
+        This endpoint contains sensitive information and requires admin API key.
         """
         from api.endpoints._deps import Endpoints
 
@@ -436,8 +442,13 @@ def create_app(container: Container | None = None) -> FastAPI:
         )
 
     @app.get("/metrics")
-    async def metrics_endpoint() -> PlainTextResponse:
-        """Prometheus metrics endpoint."""
+    async def metrics_endpoint(
+        _: str | None = Depends(verify_api_key_optional),
+    ) -> PlainTextResponse:
+        """Prometheus metrics endpoint (optional authentication).
+
+        Authentication required if WEAVER__API__REQUIRE_AUTH_FOR_METRICS=true.
+        """
         return PlainTextResponse(
             content=generate_latest(),
             media_type=CONTENT_TYPE_LATEST,

@@ -100,11 +100,13 @@ class APISettings(BaseModel):
     """
 
     api_key: str = ""  # Empty default - get_api_key() will generate if not set
+    admin_api_key: str = ""  # Optional admin key for sensitive endpoints
     rate_limit: str = "100/minute"
     host: str = "127.0.0.1"  # Default to localhost for security
     port: int = 8000
     port_auto_detect: bool = True  # Enable automatic port detection
     port_max_attempts: int = 100  # Maximum port search attempts
+    require_auth_for_metrics: bool = False  # Optional auth for Prometheus metrics endpoint
 
     def get_api_key(self) -> str:
         """Get API key, generating one if not set."""
@@ -143,6 +145,21 @@ class APISettings(BaseModel):
                 raise ValueError("API key must be at least 32 characters in production.")
             warnings.append(
                 f"API key length ({len(actual_key)}) is less than recommended 32 characters."
+            )
+
+        # Validate admin API key if configured
+        if self.admin_api_key and len(self.admin_api_key) < 32:
+            if environment == "production":
+                raise ValueError("Admin API key must be at least 32 characters in production.")
+            warnings.append(
+                f"Admin API key length ({len(self.admin_api_key)}) is less than recommended 32 characters."
+            )
+
+        # Warn if admin key not configured in production
+        if not self.admin_api_key and environment == "production":
+            warnings.append(
+                "Admin API key not configured. Sensitive endpoints (/config) will require regular API key. "
+                "Set WEAVER__API__ADMIN_API_KEY for proper admin access control."
             )
 
         return warnings
