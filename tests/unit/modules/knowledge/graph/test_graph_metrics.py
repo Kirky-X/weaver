@@ -666,7 +666,7 @@ class TestGraphQualityMetricsDistributions:
                     {"type": "组织", "count": 30},
                     {"type": "地点", "count": 20},
                 ]
-            if "r.edge_type" in query:
+            if "rel_type" in query or "type(r)" in query:
                 return [
                     {"type": "合作", "count": 100},
                     {"type": "竞争", "count": 50},
