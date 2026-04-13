@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from core.observability.logging import get_logger
 from core.observability.metrics import MetricsCollector
+from core.security.validation.ssrf import SSRFChecker, SSRFError
 from modules.ingestion.fetching.base import BaseFetcher
 
 if TYPE_CHECKING:
@@ -20,6 +21,9 @@ class Crawl4AIFetcher(BaseFetcher):
 
     Uses crawl4ai's AsyncWebCrawler with stealth mode to fetch
     pages that require JavaScript rendering.
+
+    Includes SSRF protection - all URLs are validated against
+    internal IP ranges and malicious URL patterns before fetching.
 
     Args:
         headless: Run browser in headless mode (default True).
@@ -41,6 +45,7 @@ class Crawl4AIFetcher(BaseFetcher):
         self._timeout = timeout
         self._crawler: AsyncWebCrawler | None = None
         self._initialized = False
+        self._ssrf_checker = SSRFChecker()
 
     async def _ensure_initialized(self) -> None:
         """Lazy initialization of the crawler."""
@@ -70,7 +75,9 @@ class Crawl4AIFetcher(BaseFetcher):
     async def fetch(
         self, url: str, headers: dict[str, str] | None = None
     ) -> tuple[int, str, dict[str, str]]:
-        """Fetch content via crawl4ai.
+        """Fetch content via crawl4ai with SSRF protection.
+
+        All URLs are validated against SSRF patterns before fetching.
 
         Args:
             url: The URL to fetch.
@@ -80,10 +87,22 @@ class Crawl4AIFetcher(BaseFetcher):
             Tuple of (status_code, html_content, response_headers).
 
         Raises:
+            SSRFError: If URL fails SSRF validation (internal IP, malicious pattern).
             RuntimeError: If crawler initialization fails.
             Exception: If crawl fails.
         """
         import time
+
+        # SSRF validation: check URL before fetching
+        try:
+            await self._ssrf_checker.validate(url)
+        except SSRFError as e:
+            log.warning(
+                "crawl4ai_ssrf_blocked",
+                url=url,
+                reason=e.message,
+            )
+            raise
 
         await self._ensure_initialized()
 
