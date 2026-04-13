@@ -14,7 +14,7 @@ multiple security checkers in a pipeline:
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from config.settings import URLSecuritySettings
 from core.observability import get_logger
@@ -25,7 +25,9 @@ from core.security.validation.malicious_url.phishtank_sync import PhishTankSync
 from core.security.validation.malicious_url.ssl_verifier import SSLVerifier
 from core.security.validation.malicious_url.urlhaus_client import URLhausClient
 from core.security.validation.ssrf import SSRFChecker, SSRFError
-from modules.ingestion import HttpxFetcher
+
+if TYPE_CHECKING:
+    from modules.ingestion import HttpxFetcher
 
 log = get_logger("security.validator")
 
@@ -85,7 +87,7 @@ class URLValidator:
     def __init__(
         self,
         config: URLValidatorConfig,
-        fetcher: HttpxFetcher,
+        fetcher: "HttpxFetcher",
         redis_client: Any = None,
     ) -> None:
         """Initialize URL validator.
