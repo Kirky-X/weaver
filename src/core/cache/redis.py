@@ -127,6 +127,23 @@ class RedisClient:
         """Get all fields and values in a hash."""
         return await self.client.hgetall(name)
 
+    async def hincrby(self, name: str, key: str, amount: int = 1) -> int:
+        """Increment a hash field by amount.
+
+        Args:
+            name: Hash name.
+            key: Field key.
+            amount: Amount to increment (default 1).
+
+        Returns:
+            New value after increment.
+        """
+        return await self.client.hincrby(name, key, amount)
+
+    async def hdel(self, name: str, *keys: str) -> int:
+        """Delete hash fields."""
+        return await self.client.hdel(name, *keys)
+
     async def hexists_many(self, name: str, keys: list[str]) -> list[bool]:
         """Check if multiple hash fields exist using pipeline."""
         pipe = self.client.pipeline()
