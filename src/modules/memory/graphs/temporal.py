@@ -1,7 +1,7 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Temporal Graph Repository.
 
-Manages FOLLOWED_BY edges representing chronological ordering of events.
+Manages EVENT_FOLLOWED_BY edges representing chronological ordering of events.
 This is the immutable temporal backbone of MAGMA's memory system.
 """
 
@@ -67,7 +67,7 @@ class TemporalGraphRepo(BaseGraphRepo):
         """Append an event to the temporal chain.
 
         Creates the EventNode and links it to the previous event
-        in the chain via FOLLOWED_BY relationship.
+        in the chain via EVENT_FOLLOWED_BY relationship.
 
         Args:
             event: The event node to append.
@@ -94,13 +94,13 @@ class TemporalGraphRepo(BaseGraphRepo):
 
         // Find the most recent event (if any)
         OPTIONAL MATCH (prev:EventNode)
-        WHERE NOT (prev)-[:FOLLOWED_BY]->(:EventNode)
+        WHERE NOT (prev)-[:EVENT_FOLLOWED_BY]->(:EventNode)
           AND prev.timestamp < datetime($timestamp)
 
-        // Create FOLLOWED_BY relationship
+        // Create EVENT_FOLLOWED_BY relationship
         WITH e, prev
         FOREACH (_ IN CASE WHEN prev IS NOT NULL THEN [1] ELSE [] END |
-            CREATE (prev)-[r:FOLLOWED_BY {
+            CREATE (prev)-[r:EVENT_FOLLOWED_BY {
                 time_gap_hours: duration.between(prev.timestamp, datetime($timestamp)).hours
             }]->(e)
         )
@@ -147,7 +147,7 @@ class TemporalGraphRepo(BaseGraphRepo):
         # Find the most recent event
         find_prev_query = """
         MATCH (prev:EventNode)
-        WHERE NOT (prev)-[:FOLLOWED_BY]->(:EventNode)
+        WHERE NOT (prev)-[:EVENT_FOLLOWED_BY]->(:EventNode)
         RETURN prev.id AS prev_id, prev.event_time AS prev_time
         ORDER BY prev.event_time DESC
         LIMIT 1
@@ -180,7 +180,7 @@ class TemporalGraphRepo(BaseGraphRepo):
         try:
             await self._pool.execute_query(create_query, create_params)
 
-            # Create FOLLOWED_BY relationship if there was a previous event
+            # Create EVENT_FOLLOWED_BY relationship if there was a previous event
             if prev_result and prev_result[0].get("prev_id"):
                 prev_id = prev_result[0]["prev_id"]
                 prev_time = prev_result[0].get("prev_time", event_time)
@@ -189,7 +189,7 @@ class TemporalGraphRepo(BaseGraphRepo):
                 link_query = """
                 MATCH (prev:EventNode {id: $prev_id})
                 MATCH (curr:EventNode {id: $curr_id})
-                CREATE (prev)-[r:FOLLOWED_BY {time_gap_hours: $time_gap}]->(curr)
+                CREATE (prev)-[r:EVENT_FOLLOWED_BY {time_gap_hours: $time_gap}]->(curr)
                 """
                 await self._pool.execute_query(
                     link_query,
@@ -261,7 +261,7 @@ class TemporalGraphRepo(BaseGraphRepo):
         MATCH (center:EventNode {{id: $event_id}})
 
         // Get preceding events
-        OPTIONAL MATCH (prev:EventNode)-[:FOLLOWED_BY*1..{before}]->(center)
+        OPTIONAL MATCH (prev:EventNode)-[:EVENT_FOLLOWED_BY*1..{before}]->(center)
         WITH center, collect(DISTINCT {{
             id: prev.id,
             content: prev.content,
@@ -270,7 +270,7 @@ class TemporalGraphRepo(BaseGraphRepo):
         }}) AS prev_neighbors
 
         // Get following events
-        OPTIONAL MATCH (center)-[:FOLLOWED_BY*1..{after}]->(next:EventNode)
+        OPTIONAL MATCH (center)-[:EVENT_FOLLOWED_BY*1..{after}]->(next:EventNode)
         WITH prev_neighbors, collect(DISTINCT {{
             id: next.id,
             content: next.content,

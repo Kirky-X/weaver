@@ -95,6 +95,33 @@ SCHEMA_QUERIES = [
         time_gap_hours DOUBLE
     )
     """,
+    # EVENT_FOLLOWED_BY relationship - EventNode followed by EventNode
+    """
+    CREATE REL TABLE IF NOT EXISTS EVENT_FOLLOWED_BY (
+        FROM EventNode TO EventNode,
+        time_gap_hours DOUBLE
+    )
+    """,
+    # CAUSES relationship - EventNode causes EventNode
+    """
+    CREATE REL TABLE IF NOT EXISTS CAUSES (
+        FROM EventNode TO EventNode,
+        confidence DOUBLE
+    )
+    """,
+    # ENABLES relationship - EventNode enables EventNode
+    """
+    CREATE REL TABLE IF NOT EXISTS ENABLES (
+        FROM EventNode TO EventNode,
+        strength DOUBLE
+    )
+    """,
+    # PREVENTS relationship - EventNode prevents EventNode
+    """
+    CREATE REL TABLE IF NOT EXISTS PREVENTS (
+        FROM EventNode TO EventNode
+    )
+    """,
     # RELATED_TO relationship - Entity related to Entity (for dynamic edge types)
     """
     CREATE REL TABLE IF NOT EXISTS RELATED_TO (

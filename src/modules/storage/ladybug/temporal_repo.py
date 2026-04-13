@@ -55,7 +55,7 @@ class LadybugTemporalRepo:
         """Append an event to the temporal chain.
 
         Creates the EventNode and links it to the previous event
-        in the chain via FOLLOWED_BY relationship.
+        in the chain via EVENT_FOLLOWED_BY relationship.
 
         Args:
             event_id: Optional event ID (auto-generated if not provided).
@@ -86,7 +86,7 @@ class LadybugTemporalRepo:
         # Find the most recent event
         find_prev_query = """
         MATCH (prev:EventNode)
-        WHERE NOT (prev)-[:FOLLOWED_BY]->(:EventNode)
+        WHERE NOT (prev)-[:EVENT_FOLLOWED_BY]->(:EventNode)
         RETURN prev.id AS prev_id, prev.event_time AS prev_time
         ORDER BY prev.event_time DESC
         LIMIT 1
@@ -117,7 +117,7 @@ class LadybugTemporalRepo:
         try:
             await self._pool.execute_query(create_query, create_params)
 
-            # Create FOLLOWED_BY relationship if there was a previous event
+            # Create EVENT_FOLLOWED_BY relationship if there was a previous event
             if prev_result and prev_result[0].get("prev_id"):
                 prev_id = prev_result[0]["prev_id"]
                 prev_time = prev_result[0].get("prev_time", timestamp)
@@ -126,7 +126,7 @@ class LadybugTemporalRepo:
                 link_query = """
                 MATCH (prev:EventNode {id: $prev_id})
                 MATCH (curr:EventNode {id: $curr_id})
-                CREATE (prev)-[r:FOLLOWED_BY {time_gap_hours: $time_gap}]->(curr)
+                CREATE (prev)-[r:EVENT_FOLLOWED_BY {time_gap_hours: $time_gap}]->(curr)
                 """
                 await self._pool.execute_query(
                     link_query,
@@ -196,7 +196,7 @@ class LadybugTemporalRepo:
         # Get preceding events
         if before > 0:
             prev_query = f"""
-            MATCH (prev:EventNode)-[:FOLLOWED_BY*1..{before}]->(curr:EventNode {{id: $event_id}})
+            MATCH (prev:EventNode)-[:EVENT_FOLLOWED_BY*1..{before}]->(curr:EventNode {{id: $event_id}})
             RETURN DISTINCT prev.id AS id,
                    prev.event_type AS event_type,
                    prev.name AS name,
@@ -214,7 +214,7 @@ class LadybugTemporalRepo:
         # Get following events
         if after > 0:
             next_query = f"""
-            MATCH (curr:EventNode {{id: $event_id}})-[:FOLLOWED_BY*1..{after}]->(next:EventNode)
+            MATCH (curr:EventNode {{id: $event_id}})-[:EVENT_FOLLOWED_BY*1..{after}]->(next:EventNode)
             RETURN DISTINCT next.id AS id,
                    next.event_type AS event_type,
                    next.name AS name,
