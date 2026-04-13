@@ -154,11 +154,16 @@ class NewsNowParser(BaseSourceParser):
         Returns:
             True if this is a list page that should be skipped.
         """
-        # List page patterns - URLs ending with these (or followed by query params)
-        # are list pages, but URLs with numeric IDs after these are individual items
-        list_base_patterns = [
+        # Patterns where numeric IDs are individual articles (not list pages)
+        # e.g., /newsflashes/3765005718012416 is a single flash article
+        numeric_article_patterns = [
             "/newsflashes",
             "/newsflash",
+        ]
+
+        # Patterns that are always list pages (even with numeric segments like years)
+        # e.g., /archive/2024, /category/tech, /tag/ai are all list pages
+        list_page_patterns = [
             "/list",
             "/category",
             "/tag",
@@ -169,15 +174,27 @@ class NewsNowParser(BaseSourceParser):
         # Remove query string for cleaner matching
         path = url_lower.split("?")[0]
 
-        for pattern in list_base_patterns:
-            # Check if URL ends with the pattern (exact list page)
-            if path == pattern or path.endswith(pattern + "/"):
+        import re
+
+        # Check numeric article patterns - these are individual articles with numeric IDs
+        for pattern in numeric_article_patterns:
+            # Exact match (list page): /newsflashes or /newsflashes/
+            if path.endswith(pattern) or path.endswith(pattern + "/"):
                 return True
+            # Numeric ID (individual article): /newsflashes/3765005718012416
+            match = re.search(rf"{pattern}/(\d+)$", path)
+            if match:
+                return False  # This is an individual article, not a list page
+            # Non-numeric segment (list page): /newsflashes/something
+            match = re.search(rf"{pattern}/([^/]+)", path)
+            if match and not match.group(1).isdigit():
+                return True  # Non-numeric segment means list page
 
-            # Check if pattern is followed by any segment (list page with sub-path)
-            # This catches /category/tech, /newsflashes/123, /archive/2024, etc.
-            import re
-
+        # Check list page patterns - these are always list pages
+        for pattern in list_page_patterns:
+            # Exact match or any segment after = list page
+            if path.endswith(pattern) or path.endswith(pattern + "/"):
+                return True
             match = re.search(rf"{pattern}/([^/]+)", path)
             if match:
                 return True
