@@ -194,7 +194,8 @@ class GraphQualityMetrics:
             "articles": "MATCH (a:Article) RETURN count(a) AS count",
             "relationships": (
                 """
-                MATCH ()-[r:RELATED_TO]->()
+                MATCH ()-[r]->()
+                WHERE type(r) IN ['RELATED_TO', 'MENTIONS', 'HAS_ENTITY']
                 RETURN count(r) AS count
             """
             ),
@@ -241,11 +242,14 @@ class GraphQualityMetrics:
     ) -> None:
         """Calculate degree distribution and optionally high-degree entities."""
         # Always compute average degree (cheap query)
+        # Note: degree counts Entity-to-Entity relationships only, excluding MENTIONS
+        # (Article-to-Entity) which is tracked separately as mention_count
         if metrics.total_entities > 0:
             all_degree_query = """
             MATCH (e:Entity)
-            OPTIONAL MATCH (e)-[r_out:RELATED_TO]->()
-            OPTIONAL MATCH ()-[r_in:RELATED_TO]->(e)
+            OPTIONAL MATCH (e)-[r_out]->(other)
+            WHERE other:Entity
+            OPTIONAL MATCH (other2:Entity)-[r_in]->(e)
             WITH e, count(DISTINCT r_out) + count(DISTINCT r_in) AS degree
             RETURN avg(degree) AS avg_degree
             """
@@ -260,10 +264,12 @@ class GraphQualityMetrics:
         if not include_high_degree:
             return
 
+        # Note: degree counts Entity-to-Entity relationships only, excluding MENTIONS
         degree_query = """
         MATCH (e:Entity)
-        OPTIONAL MATCH (e)-[r_out:RELATED_TO]->()
-        OPTIONAL MATCH ()-[r_in:RELATED_TO]->(e)
+        OPTIONAL MATCH (e)-[r_out]->(other)
+        WHERE other:Entity
+        OPTIONAL MATCH (other2:Entity)-[r_in]->(e)
         OPTIONAL MATCH ()-[m:MENTIONS]->(e)
         WITH e,
              count(DISTINCT r_out) AS out_degree,
@@ -304,19 +310,6 @@ class GraphQualityMetrics:
                     )
 
             metrics.high_degree_entities = high_degree_entities
-
-            if metrics.total_entities > 0:
-                all_degree_query = """
-                MATCH (e:Entity)
-                OPTIONAL MATCH (e)-[r_out:RELATED_TO]->()
-                OPTIONAL MATCH ()-[r_in:RELATED_TO]->(e)
-                WITH e, count(DISTINCT r_out) + count(DISTINCT r_in) AS degree
-                RETURN avg(degree) AS avg_degree
-                """
-                avg_result = await self._pool.execute_query(all_degree_query)
-                if avg_result:
-                    metrics.average_degree = avg_result[0].get("avg_degree", 0.0) or 0.0
-
         except Exception as exc:
             log.warning("metrics_degree_calculation_failed", error=str(exc))
 
@@ -375,11 +368,16 @@ class GraphQualityMetrics:
         ORDER BY count DESC
         """
 
-        # LadybugDB uses edge_type property; Neo4j uses dynamic relation types
-        # For RELATED_TO table, we use edge_type for both
+        # Count all relationship types:
+        # - Dynamic types like MENTIONS, HAS_ENTITY use type(r)
+        # - RELATED_TO uses edge_type property for semantic type names
         rel_type_query = """
-        MATCH ()-[r:RELATED_TO]->()
-        RETURN r.edge_type AS type, count(r) AS count
+        MATCH ()-[r]->()
+        WITH CASE
+            WHEN type(r) = 'RELATED_TO' AND r.edge_type IS NOT NULL THEN r.edge_type
+            ELSE type(r)
+        END AS rel_type
+        RETURN rel_type AS type, count(*) AS count
         ORDER BY count DESC
         LIMIT 20
         """
