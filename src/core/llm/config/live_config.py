@@ -136,7 +136,7 @@ class LiveConfig:
                 async for changes in awatch(
                     self._path,
                     stop_event=asyncio.Event() if not self._running else None,
-                    debounce_ms=500,
+                    debounce=500,
                     step=500,
                 ):
                     if not self._running:
