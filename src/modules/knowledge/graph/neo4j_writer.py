@@ -139,6 +139,8 @@ class Neo4jWriter:
             return []
 
         entity_name_to_id: dict[str, str] = {}
+        # Map original names (and aliases) to canonical names for relation resolution
+        original_to_canonical: dict[str, str] = {}
 
         entity_data = []
         alias_data = []
@@ -153,6 +155,9 @@ class Neo4jWriter:
                 continue
 
             canonical_name = await self._resolve_canonical_name(name, entity_type)
+
+            # Build mapping from original name to canonical name
+            original_to_canonical[name] = canonical_name
 
             entity_data.append(
                 {
@@ -234,7 +239,7 @@ class Neo4jWriter:
 
         relations = state.get("relations", [])
         if relations and entity_name_to_id:
-            await self._write_entity_relations(relations, entity_name_to_id)
+            await self._write_entity_relations(relations, entity_name_to_id, original_to_canonical)
 
         return entity_ids
 
@@ -242,6 +247,7 @@ class Neo4jWriter:
         self,
         relations: list[dict[str, Any]],
         entity_name_to_id: dict[str, str],
+        original_to_canonical: dict[str, str] | None = None,
     ) -> int:
         """Write entity-to-entity relationships to Neo4j.
 
@@ -252,6 +258,7 @@ class Neo4jWriter:
         Args:
             relations: List of relation dicts from entity extractor.
             entity_name_to_id: Mapping from entity canonical name to Neo4j ID.
+            original_to_canonical: Mapping from original entity name to canonical name.
 
         Returns:
             Number of relations created.
@@ -283,8 +290,12 @@ class Neo4jWriter:
                 except Exception as exc:
                     log.warning("relation_normalization_failed", error=str(exc))
 
-            source_id = entity_name_to_id.get(source_name)
-            target_id = entity_name_to_id.get(target_name)
+            # Resolve original names to canonical names before lookup
+            source_canonical = (original_to_canonical or {}).get(source_name, source_name)
+            target_canonical = (original_to_canonical or {}).get(target_name, target_name)
+
+            source_id = entity_name_to_id.get(source_canonical)
+            target_id = entity_name_to_id.get(target_canonical)
 
             if not source_id or not target_id:
                 log.debug(
