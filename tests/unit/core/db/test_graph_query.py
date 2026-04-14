@@ -238,7 +238,7 @@ class TestNeo4jQueryBuilder:
         config = CommunitySearchConfig(level=1, query="test", limit=10)
         result = builder.build_community_search_query(config)
         assert "MATCH (c:Community)" in result
-        assert "c.level = $level" in result
+        assert "c.level >= $level" in result
         assert "toLower(c.title) CONTAINS $query" in result
         assert "toLower(c.summary) CONTAINS $query" in result
         assert "ORDER BY c.rank DESC" in result
@@ -247,7 +247,7 @@ class TestNeo4jQueryBuilder:
         config = CommunitySearchConfig(level=2, query="", limit=15)
         result = builder.build_community_search_query(config)
         assert "MATCH (c:Community)" in result
-        assert "c.level = $level" in result
+        assert "c.level >= $level" in result
         assert "CONTAINS" not in result
         assert "ORDER BY c.rank DESC" in result
 
@@ -268,7 +268,7 @@ class TestNeo4jQueryBuilder:
     def test_build_communities_exist_query_with_level(self, builder: Neo4jQueryBuilder) -> None:
         result = builder.build_communities_exist_query(1)
         assert "MATCH (c:Community)" in result
-        assert "c.level = $level" in result
+        assert "c.level >= $level" in result
         assert "RETURN count(c) AS count" in result
 
     def test_build_communities_exist_query_without_level(self, builder: Neo4jQueryBuilder) -> None:
@@ -366,7 +366,7 @@ class TestLadybugQueryBuilder:
         config = CommunitySearchConfig(level=1, query="test", limit=10)
         result = builder.build_community_search_query(config)
         assert "MATCH (c:Community)" in result
-        assert "c.level = $level" in result
+        assert "c.level >= $level" in result
         assert "LOWER(c.title) CONTAINS $query" in result
         assert "$limit" in result
 
@@ -374,7 +374,7 @@ class TestLadybugQueryBuilder:
         config = CommunitySearchConfig(level=2, query="", limit=15)
         result = builder.build_community_search_query(config)
         assert "MATCH (c:Community)" in result
-        assert "c.level = $level" in result
+        assert "c.level >= $level" in result
         assert "CONTAINS" not in result
         assert "$limit" in result
 
@@ -397,7 +397,7 @@ class TestLadybugQueryBuilder:
     def test_build_communities_exist_query_with_level(self, builder: LadybugQueryBuilder) -> None:
         result = builder.build_communities_exist_query(1)
         assert "MATCH (c:Community)" in result
-        assert "c.level = $level" in result
+        assert "c.level >= $level" in result
         assert "RETURN count(c) AS count" in result
 
     def test_build_communities_exist_query_without_level(
