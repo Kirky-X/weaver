@@ -18,6 +18,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.helpers import assert_api_response
+
 
 @pytest.mark.e2e
 class TestArticleProcessingFlow:
@@ -35,10 +37,8 @@ class TestArticleProcessingFlow:
             params={"limit": 10, "offset": 0},
         )
 
-        assert response.status_code == 200, f"Article list failed: {response.text}"
-
-        data = response.json()
-        assert "data" in data, "Response should contain 'data' field"
+        data = assert_api_response(response)
+        assert "articles" in data.get("data", {})
 
     def test_article_detail_endpoint(
         self,
@@ -52,9 +52,8 @@ class TestArticleProcessingFlow:
             params={"limit": 1},
         )
 
-        assert list_response.status_code == 200
-        data = list_response.json()
-        articles = data.get("data", {}).get("articles", [])
+        list_data = assert_api_response(list_response)
+        articles = list_data.get("data", {}).get("articles", [])
 
         if len(articles) == 0:
             pytest.skip("No articles available for detail test")
@@ -66,10 +65,7 @@ class TestArticleProcessingFlow:
             headers=auth_headers,
         )
 
-        assert detail_response.status_code == 200, f"Article detail failed: {detail_response.text}"
-
-        detail_data = detail_response.json()
-        assert "data" in detail_data
+        detail_data = assert_api_response(detail_response)
         assert detail_data["data"]["id"] == article_id
 
 

@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import pytest
 
+from tests.helpers import assert_api_response
+
 
 @pytest.mark.e2e
 class TestArticlesEndpoint:
@@ -20,11 +22,7 @@ class TestArticlesEndpoint:
             "/api/v1/articles",
             headers=auth_headers,
         )
-        assert response.status_code == 200
-        data = response.json()
-        # API returns APIResponse wrapper: {code, message, data, timestamp}
-        assert data["code"] == 0
-        assert "data" in data
+        data = assert_api_response(response, expected_code=0)
         items_data = data["data"]
         assert "items" in items_data
         assert len(items_data["items"]) == 0
@@ -40,10 +38,7 @@ class TestArticlesEndpoint:
             params={"page": 1, "page_size": 10},
             headers=auth_headers,
         )
-        assert response.status_code == 200
-        data = response.json()
-        # API returns APIResponse wrapper: {code, message, data, timestamp}
-        assert data["code"] == 0
+        data = assert_api_response(response, expected_code=0)
         items_data = data["data"]
         assert "items" in items_data
         assert len(items_data["items"]) <= 10
@@ -59,8 +54,8 @@ class TestArticlesEndpoint:
             params={"category": "technology"},
             headers=auth_headers,
         )
-        assert response.status_code == 200
         # Should not error on category filter
+        assert_api_response(response)
 
     def test_get_article_not_found(
         self,

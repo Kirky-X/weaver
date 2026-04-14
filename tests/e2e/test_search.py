@@ -10,6 +10,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from tests.helpers import assert_api_response
+
 
 @pytest.mark.e2e
 class TestSearchEndpointE2E:
@@ -27,9 +29,7 @@ class TestSearchEndpointE2E:
             headers=auth_headers,
         )
 
-        assert response.status_code == 200
-        data = response.json()
-        assert "data" in data
+        data = assert_api_response(response)
         assert data["data"]["search_type"] == "local"
 
     def test_search_global_mode(
@@ -44,9 +44,7 @@ class TestSearchEndpointE2E:
             headers=auth_headers,
         )
 
-        assert response.status_code == 200
-        data = response.json()
-        assert "data" in data
+        data = assert_api_response(response)
         assert data["data"]["search_type"] == "global"
 
     def test_search_articles_mode_requires_llm(
