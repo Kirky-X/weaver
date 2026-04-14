@@ -111,13 +111,18 @@ class SourceAuthorityRepo:
             return list(result.scalars().all())
 
     async def update_auto_score(self, host: str, auto_score: float) -> None:
-        """Update auto-computed authority score."""
+        """Update auto-computed authority score.
+
+        Also clears needs_review flag since auto-computed scores
+        represent system's assessment, not requiring human review.
+        """
         async with self._pool.session() as session:
             await session.execute(
                 update(SourceAuthority)
                 .where(SourceAuthority.host == host)
                 .values(
                     auto_score=auto_score,
+                    needs_review=False,
                     updated_at=datetime.now(UTC),
                 )
             )

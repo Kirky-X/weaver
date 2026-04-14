@@ -109,7 +109,11 @@ class GraphRepository:
                         updated_at = datetime.fromtimestamp(updated_at / 1000, tz=UTC).isoformat()
                     else:
                         updated_at = datetime.fromtimestamp(updated_at, tz=UTC).isoformat()
+                elif hasattr(updated_at, "iso_format"):
+                    # Neo4j time.DateTime
+                    updated_at = updated_at.iso_format()
                 elif hasattr(updated_at, "isoformat"):
+                    # Python datetime
                     updated_at = updated_at.isoformat()
                 else:
                     updated_at = str(updated_at)
@@ -184,17 +188,23 @@ class GraphRepository:
         )
         entities = []
         for row in result:
-            # Handle timestamps (LadybugDB stores as INT64 seconds)
+            # Handle timestamps: Neo4j DateTime → str, LadybugDB INT64 → str
             updated_at = row.get("updated_at")
             created_at = row.get("created_at")
             for ts_field, ts_val in [("updated_at", updated_at), ("created_at", created_at)]:
-                if ts_val is not None and isinstance(ts_val, int):
-                    from datetime import UTC, datetime
+                if ts_val is not None:
+                    if hasattr(ts_val, "iso_format"):
+                        # Neo4j time.DateTime object
+                        ts_val = ts_val.iso_format()
+                    elif isinstance(ts_val, int):
+                        from datetime import UTC, datetime
 
-                    if ts_val > 1_000_000_000_000:
-                        ts_val = datetime.fromtimestamp(ts_val / 1000, tz=UTC).isoformat()
-                    else:
-                        ts_val = datetime.fromtimestamp(ts_val, tz=UTC).isoformat()
+                        if ts_val > 1_000_000_000_000:
+                            ts_val = datetime.fromtimestamp(ts_val / 1000, tz=UTC).isoformat()
+                        else:
+                            ts_val = datetime.fromtimestamp(ts_val, tz=UTC).isoformat()
+                    elif not isinstance(ts_val, str):
+                        ts_val = str(ts_val)
                     if ts_field == "updated_at":
                         updated_at = ts_val
                     else:

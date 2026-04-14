@@ -17,6 +17,7 @@ SCHEMA_QUERIES = [
         id STRING PRIMARY KEY,
         canonical_name STRING,
         type STRING,
+        aliases STRING[],
         description STRING,
         tier INT64,
         created_at INT64,
