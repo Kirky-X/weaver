@@ -56,11 +56,11 @@ class IntentClassifier:
         """
         try:
             response = await self._llm.call(
+                label="chat.aiping.GLM-4-9B-0414",
                 call_point=CallPoint.SEARCH_LOCAL,
                 payload={
-                    "query": query,
-                    "context": INTENT_CLASSIFICATION_PROMPT,
-                    "phase": "intent_classification",
+                    "system_prompt": "You are a query intent classifier. Return valid JSON only.",
+                    "user_content": f"{INTENT_CLASSIFICATION_PROMPT}\n\nQuery: {query}",
                 },
             )
 

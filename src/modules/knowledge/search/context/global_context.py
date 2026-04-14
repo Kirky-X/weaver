@@ -151,7 +151,8 @@ class GlobalContextBuilder(ContextBuilder):
             True if communities exist.
         """
         if level is not None:
-            cypher = "MATCH (c:Community) WHERE c.level = $level RETURN count(c) AS count"
+            # Use >= to find communities at or above the specified level
+            cypher = "MATCH (c:Community) WHERE c.level >= $level RETURN count(c) AS count"
             result = await self._pool.execute_query(cypher, {"level": level})
         else:
             cypher = "MATCH (c:Community) RETURN count(c) AS count"
@@ -230,7 +231,7 @@ class GlobalContextBuilder(ContextBuilder):
             # Search for similar community reports
             cypher = """
             MATCH (r:CommunityReport)-[:REPORTS_ON]->(c:Community)
-            WHERE c.level = $level AND r.full_content_embedding IS NOT NULL
+            WHERE c.level >= $level AND r.full_content_embedding IS NOT NULL
             WITH c, r, vector.similarity.cosine(r.full_content_embedding, $embedding) AS score
             WHERE score > 0.3
             RETURN c.id AS id,
@@ -293,7 +294,7 @@ class GlobalContextBuilder(ContextBuilder):
         # Try exact match first
         cypher = """
         MATCH (c:Community)
-        WHERE c.level = $level
+        WHERE c.level >= $level
           AND (toLower(c.title) CONTAINS $query
                OR toLower(c.summary) CONTAINS $query)
         RETURN c.id AS id,
@@ -319,7 +320,7 @@ class GlobalContextBuilder(ContextBuilder):
         # Fall back to top communities by rank (no query filter)
         cypher_fallback = """
         MATCH (c:Community)
-        WHERE c.level = $level
+        WHERE c.level >= $level
         RETURN c.id AS id,
                c.title AS title,
                c.summary AS summary,

@@ -208,14 +208,13 @@ class GlobalSearchEngine:
                 async with semaphore:
                     map_prompt = self._build_map_prompt(query, community)
                     response = await self._llm.call(
+                        label="chat.aiping.GLM-4-9B-0414",
                         call_point=CallPoint.SEARCH_GLOBAL,
                         payload={
-                            "query": query,
-                            "context": map_prompt,
-                            "phase": "map",
-                            "community_index": idx,
-                            "community_title": community.title,
-                            "community_weight": community.similarity_score,
+                            "system_prompt": (
+                                "You are a helpful AI assistant analyzing community reports to answer questions. Provide concise, factual answers based on the given context."
+                            ),
+                            "user_content": map_prompt,
                         },
                     )
                     answer = response if isinstance(response, str) else str(response)
@@ -243,13 +242,13 @@ class GlobalSearchEngine:
             )
 
             final_response = await self._llm.call(
+                label="chat.aiping.GLM-4-9B-0414",
                 call_point=CallPoint.SEARCH_GLOBAL,
                 payload={
-                    "query": query,
-                    "intermediate_answers": intermediate_answers,
-                    "context": reduce_prompt,
-                    "phase": "reduce",
-                    "community_weights": community_weights,
+                    "system_prompt": (
+                        "You are a helpful AI assistant synthesizing multiple community perspectives into a unified answer. Provide a comprehensive, balanced response."
+                    ),
+                    "user_content": reduce_prompt,
                 },
             )
 
@@ -513,8 +512,14 @@ Comprehensive Answer:"""
 
         try:
             response = await self._llm.call(
+                label="chat.aiping.GLM-4-9B-0414",
                 call_point=CallPoint.SEARCH_GLOBAL,
-                payload={"query": query, "context": prompt},
+                payload={
+                    "system_prompt": (
+                        "You are a helpful AI assistant. Answer questions based on the given context."
+                    ),
+                    "user_content": prompt,
+                },
             )
 
             answer = response if isinstance(response, str) else str(response)
