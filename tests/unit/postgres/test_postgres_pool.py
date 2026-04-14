@@ -12,6 +12,22 @@ import pytest
 class TestPostgresPool:
     """Tests for PostgreSQL connection pool."""
 
+    @pytest.fixture
+    def mock_engine_setup(self):
+        """Create a mock engine with proper setup."""
+        mock_engine = AsyncMock()
+        mock_engine.dispose = AsyncMock()
+
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock()
+
+        mock_connect_cm = MagicMock()
+        mock_connect_cm.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_connect_cm.__aexit__ = AsyncMock(return_value=None)
+        mock_engine.connect = MagicMock(return_value=mock_connect_cm)
+
+        return mock_engine
+
     @pytest.mark.asyncio
     async def test_pool_creation(self) -> None:
         """Test PostgreSQL pool creation and initialization."""
@@ -29,30 +45,21 @@ class TestPostgresPool:
         assert pool._engine is None  # Engine created on startup
 
     @pytest.mark.asyncio
-    async def test_pool_startup_success(self) -> None:
+    async def test_pool_startup_success(self, mock_engine_setup) -> None:
         """Test successful pool startup."""
         from core.db import PostgresPool
 
-        # Create mock engine
-        mock_engine = AsyncMock()
-        mock_engine.dispose = AsyncMock()
-
-        # Mock the connect context manager
-        mock_conn = AsyncMock()
-        mock_conn.execute = AsyncMock()
-
-        mock_connect_cm = MagicMock()
-        mock_connect_cm.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_connect_cm.__aexit__ = AsyncMock(return_value=None)
-        mock_engine.connect = MagicMock(return_value=mock_connect_cm)
+        mock_engine = mock_engine_setup
 
         with patch("core.db.postgres.create_async_engine", return_value=mock_engine):
-            pool = PostgresPool(dsn="postgresql+asyncpg://user:pass@localhost:5432/testdb")
+            # Mock event listening to avoid SQLAlchemy event system issues
+            with patch("sqlalchemy.event.listen"):
+                pool = PostgresPool(dsn="postgresql+asyncpg://user:pass@localhost:5432/testdb")
 
-            await pool.startup()
+                await pool.startup()
 
-            assert pool._engine == mock_engine
-            assert pool._session_factory is not None
+                assert pool._engine == mock_engine
+                assert pool._session_factory is not None
 
     @pytest.mark.asyncio
     async def test_pool_startup_failure(self) -> None:
@@ -68,50 +75,35 @@ class TestPostgresPool:
                 await pool.startup()
 
     @pytest.mark.asyncio
-    async def test_pool_shutdown(self) -> None:
+    async def test_pool_shutdown(self, mock_engine_setup) -> None:
         """Test closing the connection pool."""
         from core.db import PostgresPool
 
-        mock_engine = AsyncMock()
-        mock_engine.dispose = AsyncMock()
-
-        mock_conn = AsyncMock()
-        mock_conn.execute = AsyncMock()
-
-        mock_connect_cm = MagicMock()
-        mock_connect_cm.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_connect_cm.__aexit__ = AsyncMock(return_value=None)
-        mock_engine.connect = MagicMock(return_value=mock_connect_cm)
+        mock_engine = mock_engine_setup
 
         with patch("core.db.postgres.create_async_engine", return_value=mock_engine):
-            pool = PostgresPool(dsn="postgresql+asyncpg://user:pass@localhost:5432/testdb")
+            with patch("sqlalchemy.event.listen"):
+                pool = PostgresPool(dsn="postgresql+asyncpg://user:pass@localhost:5432/testdb")
 
-            await pool.startup()
-            await pool.shutdown()
+                await pool.startup()
+                await pool.shutdown()
 
-            mock_engine.dispose.assert_called_once()
+                mock_engine.dispose.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_pool_engine_property(self) -> None:
+    async def test_pool_engine_property(self, mock_engine_setup) -> None:
         """Test accessing the engine property."""
         from core.db import PostgresPool
 
-        mock_engine = AsyncMock()
-
-        mock_conn = AsyncMock()
-        mock_conn.execute = AsyncMock()
-
-        mock_connect_cm = MagicMock()
-        mock_connect_cm.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_connect_cm.__aexit__ = AsyncMock(return_value=None)
-        mock_engine.connect = MagicMock(return_value=mock_connect_cm)
+        mock_engine = mock_engine_setup
 
         with patch("core.db.postgres.create_async_engine", return_value=mock_engine):
-            pool = PostgresPool(dsn="postgresql+asyncpg://user:pass@localhost:5432/testdb")
+            with patch("sqlalchemy.event.listen"):
+                pool = PostgresPool(dsn="postgresql+asyncpg://user:pass@localhost:5432/testdb")
 
-            await pool.startup()
-            result = pool.engine
-            assert result == mock_engine
+                await pool.startup()
+                result = pool.engine
+                assert result == mock_engine
 
     @pytest.mark.asyncio
     async def test_pool_engine_not_initialized(self) -> None:
@@ -131,12 +123,11 @@ class TestPostgresPool:
 class TestPostgresTransactions:
     """Tests for PostgreSQL transaction handling."""
 
-    @pytest.mark.asyncio
-    async def test_session_creation(self) -> None:
-        """Test session creation from pool."""
-        from core.db import PostgresPool
-
+    @pytest.fixture
+    def mock_engine_setup(self):
+        """Create a mock engine with proper setup."""
         mock_engine = AsyncMock()
+        mock_engine.dispose = AsyncMock()
 
         mock_conn = AsyncMock()
         mock_conn.execute = AsyncMock()
@@ -146,87 +137,98 @@ class TestPostgresTransactions:
         mock_connect_cm.__aexit__ = AsyncMock(return_value=None)
         mock_engine.connect = MagicMock(return_value=mock_connect_cm)
 
+        return mock_engine
+
+    @pytest.mark.asyncio
+    async def test_session_creation(self, mock_engine_setup) -> None:
+        """Test session creation from pool."""
+        from core.db import PostgresPool
+
+        mock_engine = mock_engine_setup
+
         with patch("core.db.postgres.create_async_engine", return_value=mock_engine):
-            pool = PostgresPool(dsn="postgresql+asyncpg://user:pass@localhost:5432/testdb")
+            with patch("sqlalchemy.event.listen"):
+                pool = PostgresPool(dsn="postgresql+asyncpg://user:pass@localhost:5432/testdb")
 
-            await pool.startup()
+                await pool.startup()
 
-            # Verify session factory was created
-            assert pool._session_factory is not None
+                # Verify session factory was created
+                assert pool._session_factory is not None
 
-            # Create a session (should work without errors)
-            session = pool.session()
-            assert session is not None
+                # Create a session (should work without errors)
+                session = pool.session()
+                assert session is not None
 
 
 class TestPostgresErrorHandling:
     """Tests for PostgreSQL error handling."""
 
+    @pytest.fixture
+    def mock_engine_setup(self):
+        """Create a mock engine with proper setup."""
+        mock_engine = AsyncMock()
+        mock_engine.dispose = AsyncMock()
+
+        mock_conn = AsyncMock()
+        mock_conn.execute = AsyncMock()
+
+        mock_connect_cm = MagicMock()
+        mock_connect_cm.__aenter__ = AsyncMock(return_value=mock_conn)
+        mock_connect_cm.__aexit__ = AsyncMock(return_value=None)
+        mock_engine.connect = MagicMock(return_value=mock_connect_cm)
+
+        return mock_engine
+
     @pytest.mark.asyncio
-    async def test_connection_timeout(self) -> None:
+    async def test_connection_timeout(self, mock_engine_setup) -> None:
         """Test handling connection timeout during startup."""
         from core.db import PostgresPool
 
-        mock_engine = AsyncMock()
-        mock_engine.dispose = AsyncMock()
-
+        mock_engine = mock_engine_setup
         # Mock connection to fail with timeout
-        mock_conn = AsyncMock()
-        mock_conn.execute.side_effect = ConnectionError("Connection timeout")
-
-        mock_connect_cm = MagicMock()
-        mock_connect_cm.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_connect_cm.__aexit__ = AsyncMock(return_value=None)
-        mock_engine.connect = MagicMock(return_value=mock_connect_cm)
+        mock_engine.connect.return_value.__aenter__.return_value.execute.side_effect = (
+            ConnectionError("Connection timeout")
+        )
 
         with patch("core.db.postgres.create_async_engine", return_value=mock_engine):
-            pool = PostgresPool(dsn="postgresql+asyncpg://user:pass@localhost:5432/testdb")
+            with patch("sqlalchemy.event.listen"):
+                pool = PostgresPool(dsn="postgresql+asyncpg://user:pass@localhost:5432/testdb")
 
-            with pytest.raises(ConnectionError, match="timeout"):
-                await pool.startup()
+                with pytest.raises(ConnectionError, match="timeout"):
+                    await pool.startup()
 
     @pytest.mark.asyncio
-    async def test_invalid_credentials(self) -> None:
+    async def test_invalid_credentials(self, mock_engine_setup) -> None:
         """Test handling invalid credentials."""
         from core.db import PostgresPool
 
-        mock_engine = AsyncMock()
-        mock_engine.dispose = AsyncMock()
-
+        mock_engine = mock_engine_setup
         # Mock authentication failure
-        mock_conn = AsyncMock()
-        mock_conn.execute.side_effect = ConnectionError("password authentication failed")
-
-        mock_connect_cm = MagicMock()
-        mock_connect_cm.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_connect_cm.__aexit__ = AsyncMock(return_value=None)
-        mock_engine.connect = MagicMock(return_value=mock_connect_cm)
+        mock_engine.connect.return_value.__aenter__.return_value.execute.side_effect = (
+            ConnectionError("password authentication failed")
+        )
 
         with patch("core.db.postgres.create_async_engine", return_value=mock_engine):
-            pool = PostgresPool(dsn="postgresql+asyncpg://user:wrongpass@localhost:5432/testdb")
+            with patch("sqlalchemy.event.listen"):
+                pool = PostgresPool(dsn="postgresql+asyncpg://user:wrongpass@localhost:5432/testdb")
 
-            with pytest.raises(ConnectionError, match="password authentication failed"):
-                await pool.startup()
+                with pytest.raises(ConnectionError, match="password authentication failed"):
+                    await pool.startup()
 
     @pytest.mark.asyncio
-    async def test_database_not_exists(self) -> None:
+    async def test_database_not_exists(self, mock_engine_setup) -> None:
         """Test handling non-existent database."""
         from core.db import PostgresPool
 
-        mock_engine = AsyncMock()
-        mock_engine.dispose = AsyncMock()
-
+        mock_engine = mock_engine_setup
         # Mock database not exists error
-        mock_conn = AsyncMock()
-        mock_conn.execute.side_effect = ConnectionError('database "nonexistent" does not exist')
-
-        mock_connect_cm = MagicMock()
-        mock_connect_cm.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_connect_cm.__aexit__ = AsyncMock(return_value=None)
-        mock_engine.connect = MagicMock(return_value=mock_connect_cm)
+        mock_engine.connect.return_value.__aenter__.return_value.execute.side_effect = (
+            ConnectionError('database "nonexistent" does not exist')
+        )
 
         with patch("core.db.postgres.create_async_engine", return_value=mock_engine):
-            pool = PostgresPool(dsn="postgresql+asyncpg://user:pass@localhost:5432/nonexistent")
+            with patch("sqlalchemy.event.listen"):
+                pool = PostgresPool(dsn="postgresql+asyncpg://user:pass@localhost:5432/nonexistent")
 
-            with pytest.raises(ConnectionError, match='database "nonexistent" does not exist'):
-                await pool.startup()
+                with pytest.raises(ConnectionError, match='database "nonexistent" does not exist'):
+                    await pool.startup()

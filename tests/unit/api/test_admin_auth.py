@@ -263,7 +263,8 @@ class TestAdminEndpointDeduplicate:
 
         # Make session work as async context manager
         async_session = MagicMock()
-        async_session.execute = MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))
+        async_session.execute = AsyncMock(return_value=MagicMock(all=MagicMock(return_value=[])))
+        async_session.commit = AsyncMock()
         mock_session.__aenter__ = AsyncMock(return_value=async_session)
         mock_session.__aexit__ = AsyncMock(return_value=None)
         mock_pool.session = MagicMock(return_value=mock_session)
