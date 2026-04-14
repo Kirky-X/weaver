@@ -1,17 +1,12 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """SQLAlchemy event listeners for performance monitoring."""
 
-from __future__ import annotations
-
 import time
-from typing import TYPE_CHECKING
 
 from sqlalchemy import event
+from sqlalchemy.engine import Connection
 
 from core.observability import get_logger
-
-if TYPE_CHECKING:
-    from sqlalchemy.engine import Connection
 
 log = get_logger(__name__)
 

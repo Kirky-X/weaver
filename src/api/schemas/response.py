@@ -131,11 +131,20 @@ class ResponseCode:
 # ── 响应构造工具函数 ───────────────────────────────────────────────
 
 
-def success_response[T](data: T) -> APIResponse[T]:
-    """Construct a success response."""
+def success_response[T](data: T, message: str | None = None) -> APIResponse[T]:
+    """Construct a success response.
+
+    Args:
+        data: Response data.
+        message: Optional custom message (defaults to "success").
+
+    Returns:
+        APIResponse with success status.
+
+    """
     return APIResponse(
         code=ResponseCode.SUCCESS,
-        message="success",
+        message=message or "success",
         data=data,
     )
 

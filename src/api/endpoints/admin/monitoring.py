@@ -19,10 +19,10 @@ from sqlalchemy import text
 from api.dependencies import get_container
 from api.middleware.auth import verify_admin_api_key
 from api.schemas.response import APIResponse, success_response
+from core.db.postgres import PostgresPool
 
 if TYPE_CHECKING:
     from container import Container
-    from core.db.postgres import PostgresPool
 
 router = APIRouter(prefix="/monitoring", tags=["monitoring"])
 
