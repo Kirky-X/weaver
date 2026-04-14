@@ -34,28 +34,6 @@ class TestPipelineConstants:
 class TestPipelineInit:
     """Test Pipeline initialization."""
 
-    @pytest.fixture
-    def mock_llm(self):
-        """Mock LLM client."""
-        return MagicMock()
-
-    @pytest.fixture
-    def mock_budget(self):
-        """Mock token budget manager."""
-        return MagicMock()
-
-    @pytest.fixture
-    def mock_prompt_loader(self):
-        """Mock prompt loader."""
-        loader = MagicMock()
-        loader.get_version = MagicMock(return_value="1.0.0")
-        return loader
-
-    @pytest.fixture
-    def mock_event_bus(self):
-        """Mock event bus."""
-        return MagicMock()
-
     def test_init_basic(self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus):
         """Test basic initialization."""
         pipeline = Pipeline(
@@ -161,8 +139,8 @@ class TestPipelineProcessBatch:
     """Test process_batch method."""
 
     @pytest.fixture
-    def mock_llm(self):
-        """Mock LLM client."""
+    def mock_llm_for_batch(self):
+        """Mock LLM client with complex call_at behavior for batch tests."""
         from core.llm import CallPoint
 
         llm = MagicMock()
@@ -205,49 +183,54 @@ class TestPipelineProcessBatch:
         return llm
 
     @pytest.fixture
-    def mock_budget(self):
-        """Mock token budget manager."""
+    def mock_budget_for_batch(self):
+        """Mock token budget manager for batch tests."""
         budget = MagicMock()
         budget.truncate = MagicMock(return_value="truncated text")
         return budget
 
     @pytest.fixture
-    def mock_prompt_loader(self):
-        """Mock prompt loader."""
+    def mock_prompt_loader_for_batch(self):
+        """Mock prompt loader for batch tests."""
         loader = MagicMock()
         loader.get_version = MagicMock(return_value="1.0.0")
         return loader
 
     @pytest.fixture
-    def mock_event_bus(self):
-        """Mock event bus."""
+    def mock_event_bus_for_batch(self):
+        """Mock event bus for batch tests."""
         bus = MagicMock()
         bus.publish = AsyncMock()
         return bus
 
     @pytest.fixture
-    def mock_source_auth_repo(self):
-        """Mock source authority repo."""
+    def mock_source_auth_repo_for_batch(self):
+        """Mock source authority repo for batch tests."""
         repo = MagicMock()
         repo.get_or_create = AsyncMock(return_value=MagicMock(authority=0.8))
         return repo
 
     @pytest.fixture
-    def pipeline(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus, mock_source_auth_repo
+    def pipeline_for_batch(
+        self,
+        mock_llm_for_batch,
+        mock_budget_for_batch,
+        mock_prompt_loader_for_batch,
+        mock_event_bus_for_batch,
+        mock_source_auth_repo_for_batch,
     ):
-        """Create Pipeline instance with mocks."""
+        """Create Pipeline instance with mocks for batch tests."""
         return Pipeline(
-            llm=mock_llm,
-            budget=mock_budget,
-            prompt_loader=mock_prompt_loader,
-            event_bus=mock_event_bus,
-            source_auth_repo=mock_source_auth_repo,
+            llm=mock_llm_for_batch,
+            budget=mock_budget_for_batch,
+            prompt_loader=mock_prompt_loader_for_batch,
+            event_bus=mock_event_bus_for_batch,
+            source_auth_repo=mock_source_auth_repo_for_batch,
         )
 
     @pytest.fixture
-    def sample_article_raw(self):
-        """Create sample ArticleRaw."""
+    def sample_article_raw_for_batch(self):
+        """Create sample ArticleRaw for batch tests."""
         return ArticleRaw(
             url="https://example.com/test-article",
             title="Test Article Title",
@@ -258,17 +241,21 @@ class TestPipelineProcessBatch:
         )
 
     @pytest.mark.asyncio
-    async def test_process_batch_not_accepting(self, pipeline, sample_article_raw):
+    async def test_process_batch_not_accepting(
+        self, pipeline_for_batch, sample_article_raw_for_batch
+    ):
         """Test process_batch raises when not accepting."""
-        await pipeline.stop_accepting()
+        await pipeline_for_batch.stop_accepting()
 
         with pytest.raises(RuntimeError, match="not accepting"):
-            await pipeline.process_batch([sample_article_raw])
+            await pipeline_for_batch.process_batch([sample_article_raw_for_batch])
 
     @pytest.mark.asyncio
-    async def test_process_batch_single_article(self, pipeline, sample_article_raw):
+    async def test_process_batch_single_article(
+        self, pipeline_for_batch, sample_article_raw_for_batch
+    ):
         """Test processing a single article."""
-        results = await pipeline.process_batch([sample_article_raw])
+        results = await pipeline_for_batch.process_batch([sample_article_raw_for_batch])
 
         assert len(results) == 1
         assert "raw" in results[0]
@@ -292,9 +279,9 @@ class TestPipelineProcessBatch:
         assert len(results) == 3
 
     @pytest.mark.asyncio
-    async def test_process_batch_empty(self, pipeline):
+    async def test_process_batch_empty(self, pipeline_for_batch):
         """Test processing empty batch."""
-        results = await pipeline.process_batch([])
+        results = await pipeline_for_batch.process_batch([])
 
         assert len(results) == 0
 
@@ -303,8 +290,8 @@ class TestPipelinePhase1:
     """Test _phase1_per_article method."""
 
     @pytest.fixture
-    def mock_llm(self):
-        """Mock LLM client."""
+    def mock_llm_for_phase1(self):
+        """Mock LLM client for phase1 tests."""
         from core.llm import CallPoint
 
         llm = MagicMock()
@@ -327,31 +314,33 @@ class TestPipelinePhase1:
         return llm
 
     @pytest.fixture
-    def mock_budget(self):
-        """Mock token budget manager."""
+    def mock_budget_for_phase1(self):
+        """Mock token budget manager for phase1 tests."""
         budget = MagicMock()
         budget.truncate = MagicMock(return_value="truncated text")
         return budget
 
     @pytest.fixture
-    def mock_prompt_loader(self):
-        """Mock prompt loader."""
+    def mock_prompt_loader_for_phase1(self):
+        """Mock prompt loader for phase1 tests."""
         loader = MagicMock()
         loader.get_version = MagicMock(return_value="1.0.0")
         return loader
 
     @pytest.fixture
-    def pipeline(self, mock_llm, mock_budget, mock_prompt_loader):
-        """Create Pipeline instance."""
+    def pipeline_for_phase1(
+        self, mock_llm_for_phase1, mock_budget_for_phase1, mock_prompt_loader_for_phase1
+    ):
+        """Create Pipeline instance for phase1 tests."""
         return Pipeline(
-            llm=mock_llm,
-            budget=mock_budget,
-            prompt_loader=mock_prompt_loader,
+            llm=mock_llm_for_phase1,
+            budget=mock_budget_for_phase1,
+            prompt_loader=mock_prompt_loader_for_phase1,
             event_bus=MagicMock(),
         )
 
     @pytest.mark.asyncio
-    async def test_phase1_processes_all_nodes(self, pipeline):
+    async def test_phase1_processes_all_nodes(self, pipeline_for_phase1):
         """Test phase1 processes classifier, cleaner, categorizer, vectorize."""
         raw = MagicMock()
         raw.title = "Test"
@@ -359,7 +348,7 @@ class TestPipelinePhase1:
         raw.url = "https://example.com/test"
 
         state = PipelineState(raw=raw)
-        result = await pipeline._phase1_per_article(state)
+        result = await pipeline_for_phase1._phase1_per_article(state)
 
         assert "is_news" in result
         assert "cleaned" in result
@@ -367,7 +356,7 @@ class TestPipelinePhase1:
         assert "vectors" in result
 
     @pytest.mark.asyncio
-    async def test_phase1_stops_on_terminal_after_classifier(self, pipeline):
+    async def test_phase1_stops_on_terminal_after_classifier(self, pipeline_for_phase1):
         """Test phase1 processes classifier then stops when terminal is set."""
         raw = MagicMock()
         raw.title = "Test"
@@ -376,7 +365,7 @@ class TestPipelinePhase1:
 
         state = PipelineState(raw=raw)
 
-        result = await pipeline._phase1_per_article(state)
+        result = await pipeline_for_phase1._phase1_per_article(state)
 
         assert result.get("is_news") is True
         assert result.get("cleaned") is not None
@@ -387,8 +376,8 @@ class TestPipelinePhase3:
     """Test _phase3_per_article method."""
 
     @pytest.fixture
-    def mock_llm(self):
-        """Mock LLM client."""
+    def mock_llm_for_phase3(self):
+        """Mock LLM client for phase3 tests."""
         from core.llm import CallPoint
 
         llm = MagicMock()
@@ -423,44 +412,49 @@ class TestPipelinePhase3:
         return llm
 
     @pytest.fixture
-    def mock_budget(self):
-        """Mock token budget manager."""
+    def mock_budget_for_phase3(self):
+        """Mock token budget manager for phase3 tests."""
         budget = MagicMock()
         budget.truncate = MagicMock(return_value="truncated text")
         return budget
 
     @pytest.fixture
-    def mock_prompt_loader(self):
-        """Mock prompt loader."""
+    def mock_prompt_loader_for_phase3(self):
+        """Mock prompt loader for phase3 tests."""
         loader = MagicMock()
         loader.get_version = MagicMock(return_value="1.0.0")
         return loader
 
     @pytest.fixture
-    def mock_event_bus(self):
-        """Mock event bus."""
+    def mock_event_bus_for_phase3(self):
+        """Mock event bus for phase3 tests."""
         bus = MagicMock()
         bus.publish = AsyncMock()
         return bus
 
     @pytest.fixture
-    def mock_source_auth_repo(self):
-        """Mock source authority repo."""
+    def mock_source_auth_repo_for_phase3(self):
+        """Mock source authority repo for phase3 tests."""
         repo = MagicMock()
         repo.get_or_create = AsyncMock(return_value=MagicMock(authority=0.8))
         return repo
 
     @pytest.fixture
-    def pipeline(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus, mock_source_auth_repo
+    def pipeline_for_phase3(
+        self,
+        mock_llm_for_phase3,
+        mock_budget_for_phase3,
+        mock_prompt_loader_for_phase3,
+        mock_event_bus_for_phase3,
+        mock_source_auth_repo_for_phase3,
     ):
-        """Create Pipeline instance."""
+        """Create Pipeline instance for phase3 tests."""
         return Pipeline(
-            llm=mock_llm,
-            budget=mock_budget,
-            prompt_loader=mock_prompt_loader,
-            event_bus=mock_event_bus,
-            source_auth_repo=mock_source_auth_repo,
+            llm=mock_llm_for_phase3,
+            budget=mock_budget_for_phase3,
+            prompt_loader=mock_prompt_loader_for_phase3,
+            event_bus=mock_event_bus_for_phase3,
+            source_auth_repo=mock_source_auth_repo_for_phase3,
         )
 
     @pytest.mark.asyncio
