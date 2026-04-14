@@ -103,9 +103,9 @@ async def relational_pool():
     await pool.shutdown()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def mock_redis():
-    """Mock Redis client for testing - module scoped for performance."""
+    """Mock Redis client for testing."""
     from tests.helpers import create_mock_redis_client
 
     return create_mock_redis_client()

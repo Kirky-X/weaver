@@ -171,6 +171,41 @@ def assert_dict_contains(expected: dict[str, Any], actual: dict[str, Any]) -> No
         ), f"Value mismatch for key '{key}': expected {value}, got {actual[key]}"
 
 
+def assert_api_response(
+    response,
+    expected_status: int = 200,
+    has_data: bool = True,
+    expected_code: int | None = None,
+) -> dict[str, Any]:
+    """Standardized API response assertion helper.
+
+    Args:
+        response: FastAPI TestClient response
+        expected_status: Expected HTTP status code
+        has_data: Whether response should contain 'data' field (False for errors)
+        expected_code: Expected business logic code (optional)
+
+    Returns:
+        Parsed JSON response data
+    """
+    assert (
+        response.status_code == expected_status
+    ), f"Expected status {expected_status}, got {response.status_code}: {response.text}"
+    data = response.json()
+
+    # Handle error responses (4xx, 5xx)
+    if expected_status >= 400:
+        assert "detail" in data, f"Error response missing 'detail' field: {data}"
+    elif has_data:
+        assert "data" in data, f"Response missing 'data' field: {data}"
+
+    if expected_code is not None:
+        assert (
+            data.get("code") == expected_code
+        ), f"Expected code {expected_code}, got {data.get('code')}"
+    return data
+
+
 def assert_datetime_close(
     dt1: datetime,
     dt2: datetime,

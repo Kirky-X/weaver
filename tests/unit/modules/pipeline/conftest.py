@@ -52,3 +52,9 @@ def mock_event_bus():
     bus = MagicMock()
     bus.publish = AsyncMock()
     return bus
+
+
+@pytest.fixture
+def sample_article_raw(sample_raw):
+    """Alias for sample_raw for backward compatibility with root conftest.py."""
+    return sample_raw
