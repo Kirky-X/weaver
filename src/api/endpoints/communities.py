@@ -73,7 +73,7 @@ class CommunityResponse(BaseModel):
     id: str
     title: str | None = None
     level: int
-    entity_count: int
+    entity_count: int | None = None  # Allow None when not computed
     parent_id: str | None
     rank: float | None = None
     period: str | None
@@ -86,7 +86,7 @@ class CommunityDetailResponse(BaseModel):
     id: str
     title: str | None = None
     level: int
-    entity_count: int
+    entity_count: int | None = None  # Allow None when not computed
     parent_id: str | None
     children_ids: list[str] = Field(default_factory=list)
     rank: float | None = None

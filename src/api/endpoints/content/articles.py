@@ -60,7 +60,6 @@ class ArticleDetailResponse(BaseModel):
     primary_emotion: str | None
     credibility_score: float | None
     source_credibility: float | None
-    cross_verification: float | None
     content_check_score: float | None
     publish_time: datetime | None
     created_at: datetime
@@ -96,9 +95,6 @@ def _article_to_dict(article: Article) -> dict[str, Any]:
         ),
         "source_credibility": (
             float(article.source_credibility) if article.source_credibility else None
-        ),
-        "cross_verification": (
-            float(article.cross_verification) if article.cross_verification else None
         ),
         "content_check_score": (
             float(article.content_check_score) if article.content_check_score else None
