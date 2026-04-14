@@ -68,11 +68,6 @@ class PipelineStage(str, enum.Enum):
     PERSIST = "persist"
 
 
-# Alias for PipelineStage (node level) - for semantic clarity
-PipelineStageType = PipelineStage
-"""Pipeline stage type (node level) - alias for PipelineStage."""
-
-
 # ── API Response Status Constants ──────────────────────────────
 
 
@@ -137,8 +132,8 @@ class LLMProvider(str, enum.Enum):
 # ── Pipeline State Constants (Data Level) ───────────────────────
 
 
-class PipelineState(str, enum.Enum):
-    """Pipeline state (data level) - represents processing stages of article data."""
+class ArticleProcessingState(str, enum.Enum):
+    """Article processing state (data level) - represents processing stages of article data."""
 
     RAW = "raw"
     CLASSIFIED = "classified"
@@ -150,6 +145,10 @@ class PipelineState(str, enum.Enum):
     PERSISTED = "persisted"
     FAILED = "failed"
     DONE = "done"
+
+
+# Backward compatibility alias
+PipelineState = ArticleProcessingState
 
 
 # ── Graph Health Status Constants ───────────────────────────────

@@ -42,7 +42,7 @@ __all__ = [
     "SigningKey",
     "SigningKeyError",
     "URLRisk",
-    "URLValidationError",
+    "URLValidationError",  # Backward compatibility alias
     "URLValidator",
     "URLValidatorConfig",
     "ValidationResult",
