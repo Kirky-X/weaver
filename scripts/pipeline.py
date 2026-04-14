@@ -41,6 +41,24 @@ import httpx
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Server startup/shutdown constants
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Server startup polling defaults
+SERVER_STARTUP_TIMEOUT = 5.0  # HTTP client timeout in seconds
+SERVER_STARTUP_MAX_ATTEMPTS = 30
+SERVER_STARTUP_POLL_INTERVAL = 0.5  # seconds
+
+# Server shutdown delay
+SERVER_SHUTDOWN_DELAY = 1.0  # seconds
+
+# Sentinel values for forcing fallback databases
+FALLBACK_POSTGRES_HOST = "nonexistent.invalid"
+FALLBACK_NEO4J_URI = "bolt://nonexistent.invalid:7687"
+FALLBACK_REDIS_HOST = "nonexistent.invalid"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Phase indicators
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -311,10 +329,10 @@ async def start_server(port: int = 8000, container: Any = None) -> tuple[Any, as
     import httpx
 
     base_url = f"http://127.0.0.1:{port}"
-    client = httpx.AsyncClient(timeout=5.0)
+    client = httpx.AsyncClient(timeout=SERVER_STARTUP_TIMEOUT)
 
-    max_attempts = 30
-    poll_interval = 0.5
+    max_attempts = SERVER_STARTUP_MAX_ATTEMPTS
+    poll_interval = SERVER_STARTUP_POLL_INTERVAL
 
     for _attempt in range(max_attempts):
         try:
@@ -337,9 +355,9 @@ async def setup_strategy_mode() -> ServerContext:
     from container import Container
 
     # Force fallback databases by setting invalid hosts
-    os.environ["POSTGRES_HOST"] = "nonexistent.invalid"
-    os.environ["NEO4J_URI"] = "bolt://nonexistent.invalid:7687"
-    os.environ["REDIS_HOST"] = "nonexistent.invalid"
+    os.environ["POSTGRES_HOST"] = FALLBACK_POSTGRES_HOST
+    os.environ["NEO4J_URI"] = FALLBACK_NEO4J_URI
+    os.environ["REDIS_HOST"] = FALLBACK_REDIS_HOST
 
     print("  Forcing fallback databases (DuckDB + LadybugDB + CashewsRedis)")
 
@@ -389,7 +407,7 @@ async def setup_normal_mode() -> ServerContext:
 async def shutdown_server(server: Any, container: Any) -> None:
     """Shutdown server and container."""
     server.should_exit = True
-    await asyncio.sleep(1)
+    await asyncio.sleep(SERVER_SHUTDOWN_DELAY)
     await container.shutdown()
 
 
