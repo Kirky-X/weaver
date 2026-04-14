@@ -247,3 +247,107 @@ class AsyncIteratorMock:
         item = self.items[self.index]
         self.index += 1
         return item
+
+
+def create_mock_graph_data(
+    entity_count: int = 10,
+    relationship_count: int = 20,
+    entity_types: list[str] | None = None,
+) -> dict:
+    """Create mock graph data for testing visualization endpoints.
+
+    Args:
+        entity_count: Number of entities to create
+        relationship_count: Number of relationships to create
+        entity_types: List of entity types to use (default: ["PERSON", "ORG", "GPE"])
+
+    Returns:
+        Dictionary with 'entities' and 'relationships' lists
+    """
+    if entity_types is None:
+        entity_types = ["PERSON", "ORG", "GPE"]
+
+    entities = []
+    for i in range(entity_count):
+        entity_type = entity_types[i % len(entity_types)]
+        entities.append(
+            {
+                "id": f"entity_{i}",
+                "type": entity_type,
+                "name": f"{entity_type}_{i}",
+                "properties": {"score": 0.9 - (i * 0.05)},
+            }
+        )
+
+    relationships = []
+    for i in range(relationship_count):
+        relationships.append(
+            {
+                "id": f"rel_{i}",
+                "type": "RELATED_TO" if i % 2 == 0 else "MENTIONED_IN",
+                "source": f"entity_{i % entity_count}",
+                "target": f"entity_{(i + 1) % entity_count}",
+                "properties": {"weight": 0.8 - (i * 0.03)},
+            }
+        )
+
+    return {"entities": entities, "relationships": relationships}
+
+
+def assert_graph_response(
+    response,
+    expected_status: int = 200,
+    expected_entities: int | None = None,
+    expected_relationships: int | None = None,
+) -> dict:
+    """Assert graph API response structure and return data.
+
+    Args:
+        response: FastAPI TestClient response
+        expected_status: Expected HTTP status code
+        expected_entities: Expected number of entities (optional)
+        expected_relationships: Expected number of relationships (optional)
+
+    Returns:
+        Parsed JSON response data
+    """
+    data = assert_api_response(response, expected_status=expected_status)
+
+    if expected_status == 200:
+        assert "data" in data, "Response missing 'data' field"
+        graph_data = data["data"]
+
+        if expected_entities is not None:
+            assert (
+                len(graph_data.get("entities", [])) == expected_entities
+            ), f"Expected {expected_entities} entities, got {len(graph_data.get('entities', []))}"
+
+        if expected_relationships is not None:
+            assert (
+                len(graph_data.get("relationships", [])) == expected_relationships
+            ), f"Expected {expected_relationships} relationships, got {len(graph_data.get('relationships', []))}"
+
+    return data
+
+
+def create_admin_action_test_data(
+    action: str,
+    params: dict | None = None,
+    expected_status: int = 200,
+) -> dict:
+    """Create test data for admin action endpoints.
+
+    Args:
+        action: Admin action name (e.g., 'backup', 'restore')
+        params: Action parameters (optional)
+        expected_status: Expected HTTP status code
+
+    Returns:
+        Dictionary with action test data
+    """
+    return {
+        "action": action,
+        "params": params or {},
+        "expected_status": expected_status,
+        "endpoint": f"/api/v1/admin/actions/{action}",
+    }
