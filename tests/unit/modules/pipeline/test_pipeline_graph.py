@@ -261,7 +261,7 @@ class TestPipelineProcessBatch:
         assert "raw" in results[0]
 
     @pytest.mark.asyncio
-    async def test_process_batch_multiple_articles(self, pipeline):
+    async def test_process_batch_multiple_articles(self, pipeline_for_batch):
         """Test processing multiple articles."""
         articles = [
             ArticleRaw(
@@ -274,7 +274,7 @@ class TestPipelineProcessBatch:
             for i in range(3)
         ]
 
-        results = await pipeline.process_batch(articles)
+        results = await pipeline_for_batch.process_batch(articles)
 
         assert len(results) == 3
 
