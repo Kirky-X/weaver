@@ -352,7 +352,7 @@ class Neo4jQueryBuilder(GraphQueryBuilder):
         if config.query:
             return """
             MATCH (c:Community)
-            WHERE c.level = $level
+            WHERE c.level >= $level
               AND (toLower(c.title) CONTAINS $query
                    OR toLower(c.summary) CONTAINS $query)
             RETURN c.id AS id,
@@ -366,7 +366,7 @@ class Neo4jQueryBuilder(GraphQueryBuilder):
 
         return """
         MATCH (c:Community)
-        WHERE c.level = $level
+        WHERE c.level >= $level
         RETURN c.id AS id,
                c.title AS title,
                c.summary AS summary,
@@ -421,7 +421,8 @@ class Neo4jQueryBuilder(GraphQueryBuilder):
 
     def build_communities_exist_query(self, level: int | None) -> str:
         if level is not None:
-            return "MATCH (c:Community) WHERE c.level = $level RETURN count(c) AS count"
+            # Use >= to find communities at or above the specified level
+            return "MATCH (c:Community) WHERE c.level >= $level RETURN count(c) AS count"
         return "MATCH (c:Community) RETURN count(c) AS count"
 
 
@@ -542,7 +543,7 @@ class LadybugQueryBuilder(GraphQueryBuilder):
         if config.query:
             return """
             MATCH (c:Community)
-            WHERE c.level = $level
+            WHERE c.level >= $level
               AND (LOWER(c.title) CONTAINS $query
                    OR LOWER(c.summary) CONTAINS $query)
             RETURN c.id AS id,
@@ -555,7 +556,7 @@ class LadybugQueryBuilder(GraphQueryBuilder):
 
         return """
         MATCH (c:Community)
-        WHERE c.level = $level
+        WHERE c.level >= $level
         RETURN c.id AS id,
                c.title AS title,
                c.summary AS summary,
@@ -607,7 +608,8 @@ class LadybugQueryBuilder(GraphQueryBuilder):
 
     def build_communities_exist_query(self, level: int | None) -> str:
         if level is not None:
-            return "MATCH (c:Community) WHERE c.level = $level RETURN count(c) AS count"
+            # Use >= to find communities at or above the specified level
+            return "MATCH (c:Community) WHERE c.level >= $level RETURN count(c) AS count"
         return "MATCH (c:Community) RETURN count(c) AS count"
 
 

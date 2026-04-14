@@ -236,9 +236,11 @@ class Neo4jQueryBuilder:
     # === Entity Repository Queries ===
 
     def build_get_entity_query(self) -> str:
-        """Build Neo4j query to get entity by canonical name and type."""
+        """Build Neo4j query to get entity by canonical name or alias."""
+        # Support lookup by canonical_name OR alias
         return """
-            MATCH (e:Entity {canonical_name: $name})
+            MATCH (e:Entity)
+            WHERE e.canonical_name = $name OR $name IN e.aliases
             RETURN e.id as id, e.canonical_name as canonical_name, e.type as type,
                    e.aliases as aliases, e.description as description,
                    e.updated_at as updated_at
@@ -246,9 +248,15 @@ class Neo4jQueryBuilder:
 
     def build_get_entity_relations_query(self) -> str:
         """Build Neo4j query to get entity relationships."""
+        # Support lookup by canonical_name OR alias
+        # Use untyped pattern -[r]-> to match all semantic relationships
+        # Exclude system metadata relations (MENTIONS, FOLLOWED_BY)
         return """
-            MATCH (e:Entity {canonical_name: $name})-[r:RELATED_TO]->(target:Entity)
-            RETURN target.canonical_name as target, r.relation_type as relation_type,
+            MATCH (e:Entity)
+            WHERE e.canonical_name = $name OR $name IN e.aliases
+            MATCH (e)-[r]->(target:Entity)
+            WHERE type(r) <> 'MENTIONS' AND type(r) <> 'FOLLOWED_BY'
+            RETURN target.canonical_name as target, type(r) as relation_type,
                    r.source_article_id as source_article_id, r.created_at as created_at
             ORDER BY r.created_at DESC
             LIMIT $limit
@@ -256,18 +264,26 @@ class Neo4jQueryBuilder:
 
     def build_get_related_entities_query(self) -> str:
         """Build Neo4j query to get entities mentioned in same articles."""
+        # Support lookup by canonical_name OR alias
         return """
-            MATCH (e:Entity {canonical_name: $name})-[:MENTIONS]-(a:Article)-[:MENTIONS]-(re:Entity)
-            WHERE re.canonical_name <> $name
+            MATCH (e:Entity)
+            WHERE e.canonical_name = $name OR $name IN e.aliases
+            MATCH (e)-[:MENTIONS]-(a:Article)-[:MENTIONS]-(re:Entity)
+            WHERE re.canonical_name <> e.canonical_name
             RETURN DISTINCT re.id as id, re.canonical_name as canonical_name,
-                   re.type as type, re.aliases as aliases
+                   re.type as type, re.aliases as aliases,
+                   re.description as description, re.created_at as created_at,
+                   re.updated_at as updated_at
             LIMIT $limit
         """
 
     def build_get_entity_articles_query(self) -> str:
         """Build Neo4j query to get articles mentioning an entity."""
+        # Support lookup by canonical_name OR alias
         return """
-            MATCH (e:Entity {canonical_name: $name})-[:MENTIONS]->(a:Article)
+            MATCH (e:Entity)
+            WHERE e.canonical_name = $name OR $name IN e.aliases
+            MATCH (e)-[:MENTIONS]->(a:Article)
             RETURN a.pg_id as id, a.title as title, a.category as category,
                    a.publish_time as publish_time, a.score as score
             ORDER BY a.publish_time DESC
@@ -317,7 +333,7 @@ class Neo4jQueryBuilder:
         return """
             MATCH (e:Entity {canonical_name: $name, type: $type})-[r]-(other:Entity)
             WHERE type(r) <> 'MENTIONS' AND type(r) <> 'FOLLOWED_BY'
-              AND NOT other.pruned = true
+              AND (other.pruned IS NULL OR NOT other.pruned)
             RETURN type(r) AS relation_type,
                    count(DISTINCT other) AS target_count,
                    head(collect(DISTINCT
@@ -351,7 +367,7 @@ class Neo4jQueryBuilder:
             return f"""
                 MATCH (e:Entity {type_clause})-[r]-(other:Entity)
                 WHERE type(r) <> 'MENTIONS' AND type(r) <> 'FOLLOWED_BY'
-                  AND NOT other.pruned = true
+                  AND (other.pruned IS NULL OR NOT other.pruned)
                 OPTIONAL MATCH (a:Article)-[:MENTIONS]->(e)
                 WHERE (a)-[:MENTIONS]->(other)
                 WITH type(r) AS relation_type,
@@ -566,20 +582,28 @@ class LadybugQueryBuilder:
     # === Entity Repository Queries ===
 
     def build_get_entity_query(self) -> str:
-        """Build LadybugDB query to get entity by canonical name and type."""
-        # LadybugDB Entity has no aliases field - return None for aliases
+        """Build LadybugDB query to get entity by canonical name or alias."""
+        # Support lookup by canonical_name OR alias
+        # LadybugDB uses array_contains for LIST type
         return """
-            MATCH (e:Entity {canonical_name: $name})
+            MATCH (e:Entity)
+            WHERE e.canonical_name = $name OR array_contains(e.aliases, $name)
             RETURN e.id as id, e.canonical_name as canonical_name, e.type as type,
-                   NULL as aliases, e.description as description,
+                   e.aliases as aliases, e.description as description,
                    e.updated_at as updated_at
         """
 
     def build_get_entity_relations_query(self) -> str:
         """Build LadybugDB query to get entity relationships."""
-        # LadybugDB RELATED_TO has edge_type, not relation_type; no source_article_id
+        # Support lookup by canonical_name OR alias
+        # Use untyped pattern -[r]-> to match all semantic relationships
+        # LadybugDB stores relationship type as edge_type property
+        # Exclude MENTIONS (metadata relation, not domain semantics)
         return """
-            MATCH (e:Entity {canonical_name: $name})-[r:RELATED_TO]->(target:Entity)
+            MATCH (e:Entity)
+            WHERE e.canonical_name = $name OR array_contains(e.aliases, $name)
+            MATCH (e)-[r]->(target:Entity)
+            WHERE type(r) <> 'MENTIONS'
             RETURN target.canonical_name as target, r.edge_type as relation_type,
                    NULL as source_article_id, r.created_at as created_at
             ORDER BY r.created_at DESC
@@ -593,11 +617,14 @@ class LadybugQueryBuilder:
         the reverse direction. Returns full entity data including
         description and timestamps.
         """
+        # Support lookup by canonical_name OR alias
         return """
-            MATCH (e:Entity {canonical_name: $name})-[:MENTIONS]-(a:Article)-[:MENTIONS]-(re:Entity)
-            WHERE re.canonical_name <> $name
+            MATCH (e:Entity)
+            WHERE e.canonical_name = $name OR array_contains(e.aliases, $name)
+            MATCH (e)-[:MENTIONS]-(a:Article)-[:MENTIONS]-(re:Entity)
+            WHERE re.canonical_name <> e.canonical_name
             RETURN re.id as id, re.canonical_name as canonical_name,
-                   re.type as type, NULL as aliases,
+                   re.type as type, re.aliases as aliases,
                    re.description as description,
                    re.created_at as created_at, re.updated_at as updated_at
             LIMIT $limit
@@ -609,8 +636,11 @@ class LadybugQueryBuilder:
         Note: LadybugDB MENTIONS goes FROM Article TO Entity, so we match
         the reverse direction.
         """
+        # Support lookup by canonical_name OR alias
         return """
-            MATCH (a:Article)-[:MENTIONS]->(e:Entity {canonical_name: $name})
+            MATCH (e:Entity)
+            WHERE e.canonical_name = $name OR array_contains(e.aliases, $name)
+            MATCH (a:Article)-[:MENTIONS]->(e)
             RETURN a.pg_id as id, a.title as title, a.category as category,
                    a.publish_time as publish_time, a.score as score
             ORDER BY a.publish_time DESC
