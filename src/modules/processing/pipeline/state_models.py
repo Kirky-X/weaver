@@ -19,7 +19,7 @@ from typing import Any, Self
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from core.constants import PipelineState
+from core.constants import ArticleProcessingState
 from modules.ingestion.domain.models import ArticleRaw
 
 
@@ -136,7 +136,7 @@ class ValidatedPipelineState(BaseModel):
     prompt_versions: dict[str, str] = Field(default_factory=dict)
 
     # Internal tracking
-    _current_stage: PipelineState = PipelineState.RAW
+    _current_stage: ArticleProcessingState = ArticleProcessingState.RAW
 
     @field_validator("category")
     @classmethod

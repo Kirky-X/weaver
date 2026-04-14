@@ -128,7 +128,3 @@ class PipelineSettings(BaseSettings):
             init_settings,  # Programmatic overrides
             TomlConfigSettingsSource(settings_cls),  # TOML file
         )
-
-
-# Backward compatibility alias
-PipelineConfig = PipelineSettings

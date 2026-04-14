@@ -208,23 +208,3 @@ class LLMSettings(BaseSettings):
     def get_providers(self) -> list[ProviderConfig]:
         """Get list of ProviderConfig for backward compatibility with LLMClient."""
         return list(self.providers.values())
-
-
-# Convenience function for backward compatibility
-def load_llm_config(config_path: str | None = None) -> tuple[list[ProviderConfig], GlobalConfig]:
-    """Load LLM configuration from TOML file.
-
-    Args:
-        config_path: Optional path to config file (ignored, uses pydantic-settings).
-
-    Returns:
-        Tuple of (providers list, global config) for backward compatibility.
-    """
-    settings = LLMSettings()
-    log.info(
-        "llm_config_loaded",
-        providers=len(settings.providers),
-        defaults=len(settings.defaults),
-        call_points=len(settings.call_points),
-    )
-    return settings.get_providers(), settings.get_global_config()

@@ -38,7 +38,7 @@ from modules.knowledge.search import (
     HybridSearchEngine,
     LocalSearchEngine,
 )
-from modules.processing import Pipeline
+from modules.processing.pipeline.graph import Pipeline
 from modules.storage.duckdb import DuckDBLLMUsageRepo
 from modules.storage.neo4j import Neo4jArticleRepo, Neo4jEntityRepo
 from modules.storage.postgres import ArticleRepo, PendingSyncRepo, SourceAuthorityRepo, VectorRepo
@@ -189,7 +189,7 @@ class Container:
             "postgres" or "duckdb".
         """
         if self._strategy is None:
-            return "postgres"  # Default
+            raise RuntimeError("Database strategy not initialized. Call init_strategy() first.")
         return self._strategy.relational_type
 
     @property
@@ -1039,15 +1039,21 @@ class Container:
 
             # Get settings
             memory_settings = self._settings.memory
+            temporal_settings = self._settings.temporal_memory
 
             # Create config from settings
             config = MemoryServiceConfig(
                 fast_path_enabled=memory_settings.fast_path_enabled,
                 slow_path_enabled=memory_settings.slow_path_enabled,
                 causal_confidence_threshold=memory_settings.causal_confidence_threshold,
+                consolidation_batch_size=memory_settings.consolidation_batch_size,
                 max_traversal_depth=memory_settings.max_traversal_depth,
                 beam_width=memory_settings.beam_width,
                 token_budget=memory_settings.token_budget,
+                why_anchor_limit=temporal_settings.why_anchor_limit,
+                when_anchor_limit=temporal_settings.when_anchor_limit,
+                default_anchor_limit=temporal_settings.default_anchor_limit,
+                event_lookup_limit=temporal_settings.event_lookup_limit,
             )
 
             # Create intent classifier

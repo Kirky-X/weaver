@@ -62,6 +62,7 @@ class EntityResolver:
     SIMILARITY_THRESHOLD = 0.85
     MAX_MERGE_RETRIES = 3
     HIGH_CONFIDENCE_THRESHOLD = 0.9
+    RESOLUTION_CANDIDATE_LIMIT = 10
 
     def __init__(
         self,
@@ -209,7 +210,7 @@ class EntityResolver:
         similar = await self._vector_repo.find_similar_entities(
             embedding=embedding,
             threshold=self.SIMILARITY_THRESHOLD,
-            limit=10,
+            limit=self.RESOLUTION_CANDIDATE_LIMIT,
         )
 
         if not similar:

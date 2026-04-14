@@ -91,7 +91,7 @@ class SchedulerJobs:
                         Article.updated_at < threshold,
                     )
                 )
-                .limit(100)
+                .limit(self._settings.consistency_check_batch_size)
             )  # Process in batches
 
             result = await session.execute(stmt)
@@ -331,7 +331,9 @@ class SchedulerJobs:
             orphan_cleaned = await self._graph_writer.article_repo.count_articles_without_mentions()
 
             # 3. Detect enrichment gaps (NEO4J_DONE but NULL enrichment fields)
-            incomplete = await self._article_repo.get_incomplete_articles(limit=100)
+            incomplete = await self._article_repo.get_incomplete_articles(
+                limit=self._settings.consistency_check_batch_size
+            )
             reverted_count = 0
             for article in incomplete:
                 log.warning(
@@ -617,7 +619,9 @@ class SchedulerJobs:
             log.info("sync_pending_using_ladybug_fallback")
 
         try:
-            pending_records = await self._pending_sync_repo.get_pending(limit=100)
+            pending_records = await self._pending_sync_repo.get_pending(
+                limit=self._settings.sync_pending_batch_size
+            )
 
             if not pending_records:
                 log.info("sync_pending_to_neo4j_no_items")

@@ -20,6 +20,9 @@ if TYPE_CHECKING:
 
 log = get_logger("community_report_generator")
 
+# Safety limit: maximum number of communities to process per level
+MAX_COMMUNITIES_PER_LEVEL = 10000
+
 
 class CommunityReportOutput(BaseModel):
     """LLM output model for community report."""
@@ -184,7 +187,9 @@ class CommunityReportGenerator:
         log.info("batch_report_generation_start", level=level)
 
         # Get all communities
-        communities = await self._repo.list_communities(level=level, limit=10000)
+        communities = await self._repo.list_communities(
+            level=level, limit=MAX_COMMUNITIES_PER_LEVEL
+        )
 
         # Filter out communities that already have reports (unless stale)
         to_generate: list[str] = []

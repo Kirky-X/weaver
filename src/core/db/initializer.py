@@ -23,6 +23,10 @@ REQUIRED_TABLES = [
     "source_authorities",
 ]
 
+# Initialization timeouts and delays
+PER_CONNECTION_TIMEOUT = 5.0
+INIT_RETRY_DELAY = 2.0
+
 
 class DatabaseInitError(Exception):
     """Exception raised when database initialization fails.
@@ -203,7 +207,7 @@ async def wait_for_postgres(parsed: ParsedDSN, timeout: float = 30.0) -> None:
                 user=parsed.user,
                 password=parsed.password,
                 database="postgres",
-                timeout=5.0,
+                timeout=PER_CONNECTION_TIMEOUT,
             )
             await conn.close()
             log.info("postgres_available", host=parsed.host, port=parsed.port)
@@ -219,9 +223,9 @@ async def wait_for_postgres(parsed: ParsedDSN, timeout: float = 30.0) -> None:
                 host=parsed.host,
                 port=parsed.port,
                 error=str(e),
-                retry_in=2,
+                retry_in=INIT_RETRY_DELAY,
             )
-            await asyncio.sleep(2)
+            await asyncio.sleep(INIT_RETRY_DELAY)
 
 
 def _run_migrations_sync(alembic_ini_path: str, script_location: str, dsn: str) -> None:

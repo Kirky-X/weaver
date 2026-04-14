@@ -11,6 +11,11 @@ Features:
 - Full and incremental migration modes
 - Custom mapping rules via YAML configuration
 - FastAPI routes + Typer CLI dual entry points
+
+公开 API:
+- MigrationEngine: 迁移引擎
+- MigrationConfig: 迁移配置
+- MigrationResult: 迁移结果
 """
 
 from __future__ import annotations

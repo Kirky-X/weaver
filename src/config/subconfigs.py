@@ -84,6 +84,7 @@ class RedisSettings(BaseModel):
     port: int = 6379
     db: int = 0
     password: str = ""  # Set via WEAVER__REDIS__PASSWORD (optional)
+    scan_count: int = 100  # Default Redis SCAN batch size
 
     @property
     def url(self) -> str:
@@ -107,6 +108,7 @@ class APISettings(BaseModel):
     port_auto_detect: bool = True  # Enable automatic port detection
     port_max_attempts: int = 100  # Maximum port search attempts
     require_auth_for_metrics: bool = False  # Optional auth for Prometheus metrics endpoint
+    shutdown_timeout: float = 30.0  # Pipeline drain timeout during shutdown
 
     def get_api_key(self) -> str:
         """Get API key, generating one if not set."""
@@ -244,6 +246,10 @@ class SchedulerSettings(BaseModel):
     cleanup_orphan_vectors_cron_day_of_week: str = "sat"
     cleanup_orphan_vectors_cron_hour: int = 3
 
+    # Batch sizes for sync jobs
+    consistency_check_batch_size: int = 100  # For get_incomplete_articles
+    sync_pending_batch_size: int = 100  # For get_pending sync
+
     # Aggregation
     llm_usage_aggregate_interval_minutes: int = 5
     llm_usage_redis_buffer_ttl_seconds: int = 7200
@@ -324,6 +330,11 @@ class MemorySettings(BaseModel):
     consolidation_interval_minutes: int = 30
     causal_confidence_threshold: float = 0.7
     consolidation_batch_size: int = 10
+    # Temporal chain query limits for adaptive search
+    temporal_chain_why_limit: int = 5  # WHY query anchor limit
+    temporal_chain_when_limit: int = 3  # WHEN query anchor limit
+    temporal_chain_default_limit: int = 3  # Default anchor limit
+    temporal_chain_event_lookup_limit: int = 1000  # Event data lookup limit
     max_traversal_depth: int = 5
     beam_width: int = 10
     token_budget: int = 4000
@@ -363,9 +374,10 @@ class URLSecuritySettings(BaseModel):
 
 
 class EntitySettings(BaseModel):
-    """Entity extraction configuration."""
+    """Entity extraction and resolution configuration."""
 
     disable_data_metrics_nodes: bool = False
+    resolution_candidate_limit: int = 10  # Vector search candidate limit for entity resolution
 
 
 class HealthCheckSettings(BaseModel):
@@ -403,8 +415,24 @@ class TemporalInferenceSettings(BaseModel):
     auto_anchor: bool = True
 
 
+class TemporalMemorySettings(BaseModel):
+    """Temporal memory query limits for adaptive search."""
+
+    why_anchor_limit: int = 5
+    when_anchor_limit: int = 3
+    default_anchor_limit: int = 3
+    event_lookup_limit: int = 1000
+
+
 class PipelineUrlEndpointSettings(BaseModel):
     """Single URL pipeline processing endpoint configuration."""
 
     whitelist_enabled: bool = False
     allowed_domains: list[str] = Field(default_factory=list)
+
+
+class PipelineProcessSettings(BaseModel):
+    """Pipeline processing configuration."""
+
+    merge_cross_query_limit: int = 20  # Cross-query similar articles limit
+    drain_timeout: float = 30.0  # Pipeline drain timeout

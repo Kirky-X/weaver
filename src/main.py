@@ -151,7 +151,10 @@ async def _graceful_shutdown(app: FastAPI) -> None:
     # 2. Wait for current tasks to complete (with timeout)
     try:
         if hasattr(container, "pipeline"):
-            await asyncio.wait_for(container.pipeline().drain(), timeout=30.0)
+            await asyncio.wait_for(
+                container.pipeline().drain(),
+                timeout=container.settings.api.shutdown_timeout,
+            )
             log.info("pipeline_drained")
     except TimeoutError:
         log.warning("pipeline_drain_timeout")

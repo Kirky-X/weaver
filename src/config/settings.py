@@ -48,6 +48,7 @@ from config.subconfigs import (
     MemorySettings,
     Neo4jSettings,
     ObservabilitySettings,
+    PipelineProcessSettings,
     PipelineUrlEndpointSettings,
     PostgresSettings,
     PromptSettings,
@@ -56,6 +57,7 @@ from config.subconfigs import (
     SearchSettings,
     SpacySettings,
     TemporalInferenceSettings,
+    TemporalMemorySettings,
     URLSecuritySettings,
 )
 from core.llm.config.config import LLMSettings
@@ -107,13 +109,15 @@ class Settings(BaseSettings):
     prompt: PromptSettings = Field(default_factory=PromptSettings)
     intent_routing: IntentRoutingSettings = Field(default_factory=IntentRoutingSettings)
     temporal_inference: TemporalInferenceSettings = Field(default_factory=TemporalInferenceSettings)
+    temporal_memory: TemporalMemorySettings = Field(default_factory=TemporalMemorySettings)
     pipeline_url_endpoint: PipelineUrlEndpointSettings = Field(
         default_factory=PipelineUrlEndpointSettings
     )
-
-    # LLM and Pipeline configurations (loaded from separate TOML files)
-    llm: LLMSettings = Field(default_factory=LLMSettings)
     pipeline: PipelineSettings = Field(default_factory=PipelineSettings)
+    pipeline_process: PipelineProcessSettings = Field(default_factory=PipelineProcessSettings)
+
+    # LLM configuration (loaded from separate TOML file)
+    llm: LLMSettings = Field(default_factory=LLMSettings)
 
     @classmethod
     def settings_customise_sources(

@@ -12,10 +12,13 @@ This module provides the core infrastructure including:
 - resilience: Circuit breaker and retry patterns
 - utils: Utility functions
 
-Example usage:
-    from core.db import PostgresPool, Neo4jPool
-    from core.cache import RedisClient
-    from core.observability import get_logger
+公开 API:
+- PostgresPool: PostgreSQL 连接池
+- Neo4jPool: Neo4j 连接池
+- RedisClient: Redis 缓存客户端
+- EventBus: 事件总线
+- PromptLoader: Prompt 模板加载器
+- CircuitBreaker: 熔断器
 """
 
 from core.cache import RedisClient

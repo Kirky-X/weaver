@@ -97,9 +97,14 @@ class MemoryServiceConfig:
     fast_path_enabled: bool = True
     slow_path_enabled: bool = True
     causal_confidence_threshold: float = 0.7
+    consolidation_batch_size: int = 10
     max_traversal_depth: int = 5
     beam_width: int = 10
     token_budget: int = 4000
+    why_anchor_limit: int = 5
+    when_anchor_limit: int = 3
+    default_anchor_limit: int = 3
+    event_lookup_limit: int = 1000
 
 
 class EmbeddingServiceProtocol(Protocol):
@@ -186,6 +191,10 @@ class MemoryIntegrationService:
             max_depth=self._config.max_traversal_depth,
             beam_width=self._config.beam_width,
             token_budget=self._config.token_budget,
+            why_anchor_limit=self._config.why_anchor_limit,
+            when_anchor_limit=self._config.when_anchor_limit,
+            default_anchor_limit=self._config.default_anchor_limit,
+            event_lookup_limit=self._config.event_lookup_limit,
         )
 
         # Store for retrieval components
@@ -265,14 +274,14 @@ class MemoryIntegrationService:
 
         return await self._fast_path.ingest(state)
 
-    async def consolidate(self, batch_size: int = 10) -> list[ConsolidationResult]:
+    async def consolidate(self, batch_size: int | None = None) -> list[ConsolidationResult]:
         """Run slow path consolidation (Slow Path).
 
         Processes pending events from the consolidation queue,
         inferring causal relationships using LLM.
 
         Args:
-            batch_size: Maximum number of events to process.
+            batch_size: Maximum number of events to process. Defaults to config value.
 
         Returns:
             List of ConsolidationResults for processed events.
@@ -281,7 +290,10 @@ class MemoryIntegrationService:
             log.debug("slow_path_disabled")
             return []
 
-        return await self._slow_path.process_batch(batch_size)
+        effective_batch_size = (
+            batch_size if batch_size is not None else self._config.consolidation_batch_size
+        )
+        return await self._slow_path.process_batch(effective_batch_size)
 
     async def search(
         self,

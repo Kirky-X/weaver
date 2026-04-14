@@ -28,7 +28,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from config.settings import Settings
 
-from core.constants import Defaults, LLMProvider
+from core.constants import LLMProvider
 from core.observability import get_logger
 
 log = get_logger("env_validator")
@@ -161,8 +161,8 @@ class EnvironmentValidator:
         start_time = time.monotonic()
         result = ValidationResult(service="PostgreSQL", healthy=False)
 
-        max_retries = 3
-        retry_delay = 2.0
+        max_retries = self._settings.health_check.max_retries
+        retry_delay = self._settings.health_check.retry_delay_seconds
 
         for attempt in range(max_retries):
             try:
@@ -223,8 +223,8 @@ class EnvironmentValidator:
         start_time = time.monotonic()
         result = ValidationResult(service="Neo4j", healthy=False)
 
-        max_retries = 3
-        retry_delay = 2.0
+        max_retries = self._settings.health_check.max_retries
+        retry_delay = self._settings.health_check.retry_delay_seconds
 
         for attempt in range(max_retries):
             try:
@@ -276,8 +276,8 @@ class EnvironmentValidator:
         start_time = time.monotonic()
         result = ValidationResult(service="Redis", healthy=False)
 
-        max_retries = 3
-        retry_delay = 2.0
+        max_retries = self._settings.health_check.max_retries
+        retry_delay = self._settings.health_check.retry_delay_seconds
 
         for attempt in range(max_retries):
             try:
@@ -350,8 +350,9 @@ class EnvironmentValidator:
         result.details.append(f"Provider: {provider_type} ({primary_name})")
         result.details.append(f"Model: {model}")
 
-        max_retries = 3
-        retry_delay = 2.0
+        max_retries = self._settings.health_check.max_retries
+        retry_delay = self._settings.health_check.retry_delay_seconds
+        timeout = self._settings.health_check.timeout_seconds
 
         for attempt in range(max_retries):
             try:
@@ -362,7 +363,7 @@ class EnvironmentValidator:
                         self._cache.set(cache_key, result)
                         return result
 
-                    async with httpx.AsyncClient(timeout=10.0) as client:
+                    async with httpx.AsyncClient(timeout=timeout) as client:
                         response = await client.get(
                             f"{base_url}/models",
                             headers={"Authorization": f"Bearer {api_key}"},
@@ -387,7 +388,7 @@ class EnvironmentValidator:
                         result.suggestions.append("Check API key and base URL")
 
                 elif provider_type == LLMProvider.OLLAMA.value:
-                    async with httpx.AsyncClient(timeout=10.0) as client:
+                    async with httpx.AsyncClient(timeout=timeout) as client:
                         response = await client.get(f"{base_url}/api/tags")
 
                         if response.status_code == 200:
@@ -410,7 +411,7 @@ class EnvironmentValidator:
                         result.details.append(f"✗ Server returned status {response.status_code}")
 
                 elif provider_type == LLMProvider.ANTHROPIC.value:
-                    async with httpx.AsyncClient(timeout=10.0) as client:
+                    async with httpx.AsyncClient(timeout=timeout) as client:
                         response = await client.get(base_url, follow_redirects=True)
                         result.details.append(f"✓ Provider accessible at {base_url}")
                         result.details.append(f"✓ Model {model} configured")
@@ -467,8 +468,9 @@ class EnvironmentValidator:
         base_url = provider_config.get("base_url", "")
         api_key = provider_config.get("api_key", "")
 
-        max_retries = 3
-        retry_delay = 2.0
+        max_retries = self._settings.health_check.max_retries
+        retry_delay = self._settings.health_check.retry_delay_seconds
+        timeout = self._settings.health_check.timeout_seconds
 
         for attempt in range(max_retries):
             try:
@@ -478,7 +480,7 @@ class EnvironmentValidator:
                         result.suggestions.append("Set API key for embedding provider")
                         return result
 
-                    async with httpx.AsyncClient(timeout=Defaults.TIMEOUT_SECONDS) as client:
+                    async with httpx.AsyncClient(timeout=timeout) as client:
                         response = await client.post(
                             f"{base_url}/embeddings",
                             headers={
@@ -498,7 +500,7 @@ class EnvironmentValidator:
                         result.suggestions.append("Check embedding model name")
 
                 elif provider_type == LLMProvider.OLLAMA.value:
-                    async with httpx.AsyncClient(timeout=Defaults.TIMEOUT_SECONDS) as client:
+                    async with httpx.AsyncClient(timeout=timeout) as client:
                         response = await client.post(
                             f"{base_url}/api/embeddings",
                             json={"model": embedding_model, "prompt": "test"},

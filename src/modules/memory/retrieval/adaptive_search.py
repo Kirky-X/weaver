@@ -53,6 +53,10 @@ class AdaptiveSearchEngine:
         beam_width: int = 10,
         token_budget: int = 4000,
         decay_factor: float = 0.9,
+        why_anchor_limit: int = 5,
+        when_anchor_limit: int = 3,
+        default_anchor_limit: int = 3,
+        event_lookup_limit: int = 1000,
     ) -> None:
         """Initialize the adaptive search engine.
 
@@ -65,6 +69,10 @@ class AdaptiveSearchEngine:
             beam_width: Number of candidates to keep at each step.
             token_budget: Maximum tokens for retrieved context.
             decay_factor: Decay factor for cumulative scores.
+            why_anchor_limit: Max anchors for WHY intent.
+            when_anchor_limit: Max anchors for WHEN intent.
+            default_anchor_limit: Max anchors for default intent.
+            event_lookup_limit: Max events to lookup by ID.
         """
         self._temporal_repo = temporal_repo
         self._causal_repo = causal_repo
@@ -74,6 +82,10 @@ class AdaptiveSearchEngine:
         self._beam_width = beam_width
         self._token_budget = token_budget
         self._decay_factor = decay_factor
+        self._why_anchor_limit = why_anchor_limit
+        self._when_anchor_limit = when_anchor_limit
+        self._default_anchor_limit = default_anchor_limit
+        self._event_lookup_limit = event_lookup_limit
 
     async def search(
         self,
@@ -152,16 +164,16 @@ class AdaptiveSearchEngine:
         """
         # For WHY queries, look for recent events with causal chains
         if intent == IntentType.WHY:
-            events = await self._temporal_repo.get_temporal_chain(limit=5)
+            events = await self._temporal_repo.get_temporal_chain(limit=self._why_anchor_limit)
             return [e["id"] for e in events if e.get("id")]
 
         # For WHEN queries, use temporal ordering
         if intent == IntentType.WHEN:
-            events = await self._temporal_repo.get_temporal_chain(limit=3)
+            events = await self._temporal_repo.get_temporal_chain(limit=self._when_anchor_limit)
             return [e["id"] for e in events if e.get("id")]
 
         # Default: get recent events
-        events = await self._temporal_repo.get_temporal_chain(limit=3)
+        events = await self._temporal_repo.get_temporal_chain(limit=self._default_anchor_limit)
         return [e["id"] for e in events if e.get("id")]
 
     async def _beam_search(
@@ -252,7 +264,7 @@ class AdaptiveSearchEngine:
             Event data dictionary or None.
         """
         # Try temporal repo first
-        events = await self._temporal_repo.get_temporal_chain(limit=1000)
+        events = await self._temporal_repo.get_temporal_chain(limit=self._event_lookup_limit)
         for event in events:
             if event.get("id") == event_id:
                 return event

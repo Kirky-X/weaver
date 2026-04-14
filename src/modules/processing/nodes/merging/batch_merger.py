@@ -88,6 +88,7 @@ class BatchMergerNode:
 
     SIMILARITY_THRESHOLD = 0.80
     BATCH_SIMILARITY_LIMIT = 50
+    CROSS_QUERY_LIMIT = 20
 
     def __init__(
         self,
@@ -247,7 +248,7 @@ class BatchMergerNode:
                 embedding=state["vectors"]["content"],
                 category=state.get("category"),
                 threshold=self.SIMILARITY_THRESHOLD,
-                limit=20,
+                limit=self.CROSS_QUERY_LIMIT,
             )
             for hit in hits:
                 uf.add(hit.article_id)

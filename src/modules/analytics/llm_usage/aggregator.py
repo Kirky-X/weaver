@@ -23,6 +23,9 @@ log = get_logger("llm_usage_aggregator")
 # Redis key prefix for LLM usage buffer (from RedisKeys.LLM_USAGE_PREFIX)
 REDIS_KEY_PREFIX = RedisKeys.LLM_USAGE_PREFIX.rstrip(":")
 
+# Batch size for Redis SCAN operations
+REDIS_SCAN_BATCH_SIZE = 100
+
 
 async def flush_usage_buffer(
     cache: CachePool,
@@ -60,7 +63,7 @@ async def flush_usage_buffer(
         cursor, keys = await cache.scan(
             cursor=cursor,
             match=f"{REDIS_KEY_PREFIX}:*",
-            count=100,
+            count=REDIS_SCAN_BATCH_SIZE,
         )
         # Filter out current hour
         keys_to_process.extend(k for k in keys if k != current_hour_key)

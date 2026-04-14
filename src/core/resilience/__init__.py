@@ -1,8 +1,14 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Core resilience module - Circuit breaker and retry patterns."""
+"""Core resilience module - Circuit breaker and retry patterns.
+
+公开 API:
+- CircuitBreaker: 熔断器
+- CBState: 熔断器状态
+- retry_db, retry_llm, retry_network: 重试装饰器
+"""
 
 from core.llm.utils.json_parser import OutputParserException
-from core.resilience.circuit_breaker import CircuitBreaker
+from core.resilience.circuit_breaker import CBState, CircuitBreaker
 from core.resilience.retry import (
     retry_db,
     retry_llm,
@@ -13,6 +19,7 @@ from core.resilience.retry import (
 )
 
 __all__ = [
+    "CBState",
     "CircuitBreaker",
     "OutputParserException",
     "retry_db",

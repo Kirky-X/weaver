@@ -5,6 +5,16 @@ Consolidates graph_store and search modules:
 - Entity resolution and relation normalization
 - Community detection and reporting
 - Multiple search modes (Local/Global/DRIFT/Hybrid)
+
+公开 API:
+- Neo4jWriter: Neo4j 图数据库写入器
+- EntityResolver: 实体解析器
+- RelationTypeNormalizer: 关系类型标准化器
+- GlobalSearchEngine: 全局搜索引擎
+- LocalSearchEngine: 本地搜索引擎
+- HybridSearchEngine: 混合搜索引擎
+- CommunityDetector: 社区检测器
+- IncrementalCommunityUpdater: 增量社区更新器
 """
 
 # Graph operations
@@ -30,22 +40,20 @@ from modules.knowledge.search import (
 from modules.knowledge.search.engines.hybrid_search import HybridSearchEngine
 
 __all__ = [
-    # Community
+    # Graph operations
     "CommunityDetector",
     "CommunityReportGenerator",
+    # Search operations
     "ContextBuilder",
     "EntityResolver",
     "GlobalContextBuilder",
     "GlobalSearchEngine",
-    # Metrics
     "GraphMetrics",
     "HybridSearchEngine",
     "IncrementalCommunityUpdater",
     "LocalContextBuilder",
-    # Search
     "LocalSearchEngine",
     "NameNormalizer",
-    # Graph operations
     "Neo4jWriter",
     "RelationTypeNormalizer",
 ]

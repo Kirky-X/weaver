@@ -6,6 +6,3 @@ from modules.ingestion.crawling.crawler import Crawler
 __all__ = [
     "Crawler",
 ]
-
-# Note: For backward compatibility, ArticleRaw is available from domain module:
-# from modules.ingestion.domain.models import ArticleRaw
