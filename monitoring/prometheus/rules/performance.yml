@@ -1,0 +1,131 @@
+groups:
+  - name: weaver_performance_alerts
+    interval: 30s
+    rules:
+      # API 响应时间告警
+      - alert: WeaverAPISlowP95
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "API P95 响应时间超过 500ms"
+          description: >
+            端点 {{ $labels.path }} 的 P95 响应时间为 {{ $value | humanizeDuration }}，
+            超过阈值 500ms。
+            实例: {{ $labels.instance }}
+
+      - alert: WeaverAPISlowP99
+        expr: histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m])) > 1.0
+        for: 3m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "API P99 响应时间超过 1000ms"
+          description: >
+            端点 {{ $labels.path }} 的 P99 响应时间为 {{ $value | humanizeDuration }}，
+            超过阈值 1000ms。
+            实例: {{ $labels.instance }}
+
+      # 数据库查询告警
+      - alert: WeaverDatabaseSlowQueries
+        expr: rate(slow_queries_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "数据库慢查询频率过高"
+          description: >
+            过去 5 分钟内平均每秒 {{ $value | humanize }} 个慢查询，
+            超过阈值 0.1/s。
+            阈值: {{ $labels.threshold_ms }}ms
+
+      - alert: WeaverDatabaseQueryDurationP95
+        expr: histogram_quantile(0.95, rate(database_query_duration_seconds_bucket[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "数据库查询 P95 响应时间超过 50ms"
+          description: >
+            数据库查询 P95 响应时间为 {{ $value | humanizeDuration }}，
+            超过阈值 50ms。
+
+      # 错误率告警
+      - alert: WeaverHighErrorRate
+        expr: >
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+          /
+          sum(rate(http_requests_total[5m]))
+          > 0.05
+        for: 3m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "API 错误率超过 5%"
+          description: >
+            当前 5xx 错误率为 {{ $value | humanizePercentage }}，
+            超过阈值 5%。
+
+      # 连接池告警
+      - alert: WeaverConnectionPoolExhausted
+        expr: >
+          weaver_db_pool_checked_out
+          /
+          weaver_db_pool_size
+          > 0.9
+        for: 2m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "数据库连接池使用率超过 90%"
+          description: >
+            连接池使用率为 {{ $value | humanizePercentage }}，
+            可能导致请求排队。
+
+  - name: weaver_infrastructure_alerts
+    interval: 1m
+    rules:
+      # 应用存活告警
+      - alert: WeaverInstanceDown
+        expr: up{job="weaver"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Weaver 实例宕机"
+          description: >
+            Weaver 实例 {{ $labels.instance }} 已停止响应超过 1 分钟。
+
+      # 内存使用告警
+      - alert: WeaverHighMemoryUsage
+        expr: process_resident_memory_bytes{job="weaver"} > 1e9
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Weaver 内存使用超过 1GB"
+          description: >
+            进程内存使用为 {{ $value | humanize1024 }}B，
+            可能影响性能。
+
+      # 磁盘空间告警（如果启用）
+      - alert: WeaverDiskSpaceLow
+        expr: node_filesystem_avail_bytes{mountpoint="/"} < 1e9
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "磁盘空间不足"
+          description: >
+            可用磁盘空间为 {{ $value | humanize1024 }}B，
+            低于 1GB 阈值。

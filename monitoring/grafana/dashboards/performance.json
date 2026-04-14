@@ -1,0 +1,172 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": "-- Grafana --",
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "gnetId": null,
+  "graphTooltip": 0,
+  "id": 1,
+  "links": [],
+  "panels": [
+    {
+      "title": "API P50/P95/P99 响应时间",
+      "type": "graph",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket[5m]))",
+          "legendFormat": "P50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
+          "legendFormat": "P95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))",
+          "legendFormat": "P99",
+          "refId": "C"
+        }
+      ],
+      "yaxes": [
+        {"format": "s", "label": "Response Time"},
+        {"format": "short"}
+      ],
+      "thresholds": [
+        {"value": 0.5, "colorMode": "warning", "line": true},
+        {"value": 1.0, "colorMode": "critical", "line": true}
+      ]
+    },
+    {
+      "title": "HTTP 请求率",
+      "type": "graph",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total[5m])) by (status)",
+          "legendFormat": "{{status}}",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {"format": "reqps", "label": "Requests/sec"},
+        {"format": "short"}
+      ]
+    },
+    {
+      "title": "数据库查询 P50/P95",
+      "type": "graph",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, rate(database_query_duration_seconds_bucket[5m]))",
+          "legendFormat": "P50",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, rate(database_query_duration_seconds_bucket[5m]))",
+          "legendFormat": "P95",
+          "refId": "B"
+        }
+      ],
+      "yaxes": [
+        {"format": "s", "label": "Query Time"},
+        {"format": "short"}
+      ],
+      "thresholds": [
+        {"value": 0.05, "colorMode": "warning", "line": true}
+      ]
+    },
+    {
+      "title": "慢查询频率",
+      "type": "graph",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [
+        {
+          "expr": "rate(slow_queries_total[5m])",
+          "legendFormat": "Slow Queries/sec (threshold: {{threshold_ms}}ms)",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {"format": "ops", "label": "Queries/sec"},
+        {"format": "short"}
+      ]
+    },
+    {
+      "title": "API 错误率",
+      "type": "graph",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m]))",
+          "legendFormat": "5xx Error Rate",
+          "refId": "A"
+        }
+      ],
+      "yaxes": [
+        {"format": "percentunit", "label": "Error Rate"},
+        {"format": "short"}
+      ],
+      "thresholds": [
+        {"value": 0.05, "colorMode": "critical", "line": true}
+      ]
+    },
+    {
+      "title": "按端点分的 P95 响应时间",
+      "type": "table",
+      "datasource": "Prometheus",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "{{method}} {{path}}",
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {"Time": true},
+            "renameByName": {
+              "Value": "P95 (s)",
+              "method": "Method",
+              "path": "Endpoint"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 27,
+  "style": "dark",
+  "tags": ["weaver", "performance"],
+  "templating": {
+    "list": []
+  },
+  "time": {"from": "now-1h", "to": "now"},
+  "timepicker": {},
+  "timezone": "",
+  "title": "Weaver Performance Monitoring",
+  "uid": "weaver-performance",
+  "version": 1
+}

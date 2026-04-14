@@ -71,4 +71,14 @@ class PerformanceMonitoringMiddleware(BaseHTTPMiddleware):
         # Add timing header for client-side monitoring
         response.headers["X-Response-Time-Ms"] = str(round(duration_ms, 2))
 
+        # Record Prometheus metrics
+        from api.middleware.prometheus_metrics import record_http_request
+
+        record_http_request(
+            method=request.method,
+            path=request.url.path,
+            status_code=response.status_code,
+            duration_seconds=duration_ms / 1000,
+        )
+
         return response

@@ -984,6 +984,74 @@ def cmd_check_logging(args: argparse.Namespace) -> int:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Monitoring Tools
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def cmd_monitor(args: argparse.Namespace) -> int:
+    """Run database monitoring checks.
+
+    Args:
+        args: Parsed command-line arguments.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    from sqlalchemy import text
+
+    from container import Container
+
+    if args.check_indexes:
+        print("\n🔍 Checking for unused database indexes...")
+
+        container = Container().configure()
+        pool = container.relational_pool()
+
+        if container.relational_pool_type != "postgres":
+            print("⚠️  Index monitoring only available for PostgreSQL")
+            return 0
+
+        async with pool.session() as session:
+            result = await session.execute(
+                text("""
+                    SELECT
+                        schemaname || '.' || relname AS table,
+                        indexrelname AS index,
+                        idx_scan AS scans,
+                        pg_size_pretty(pg_relation_size(indexrelid)) AS size
+                    FROM pg_stat_user_indexes
+                    WHERE idx_scan < :threshold
+                    ORDER BY idx_scan ASC
+                """),
+                {"threshold": args.threshold},
+            )
+
+            unused = [dict(row._mapping) for row in result]
+
+            if unused:
+                print(
+                    f"\n⚠️  Found {len(unused)} potentially unused indexes (scans < {args.threshold}):"
+                )
+                for idx in unused:
+                    print(
+                        f"  - {idx['table']}.{idx['index']} (scans: {idx['scans']}, size: {idx['size']})"
+                    )
+                print(
+                    f"\n💡 Consider removing these indexes to save disk space and improve write performance."
+                )
+            else:
+                print(f"\n✅ All indexes are being used effectively (scans >= {args.threshold})")
+
+        return 0
+
+    # Default: print help
+    print("Usage:")
+    print("  uv run scripts/tools.py monitor --check-indexes")
+    print("  uv run scripts/tools.py monitor --check-indexes --threshold 20")
+    return 0
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Main Entry Point
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1094,6 +1162,22 @@ Examples:
         help="Print fix hints for violations",
     )
 
+    # Monitor subcommand
+    monitor_parser = subparsers.add_parser(
+        "monitor", help="Database performance monitoring and index analysis"
+    )
+    monitor_parser.add_argument(
+        "--check-indexes",
+        action="store_true",
+        help="Check for unused database indexes",
+    )
+    monitor_parser.add_argument(
+        "--threshold",
+        type=int,
+        default=10,
+        help="Minimum index scan count to consider used (default: 10)",
+    )
+
     args = parser.parse_args()
 
     if args.command == "evaluate":
@@ -1110,6 +1194,8 @@ Examples:
         return asyncio.run(cmd_seed(args))
     elif args.command == "check-logging":
         return cmd_check_logging(args)
+    elif args.command == "monitor":
+        return asyncio.run(cmd_monitor(args))
     else:
         parser.print_help()
         return 1
