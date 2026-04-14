@@ -192,6 +192,7 @@ def upgrade() -> None:
     )
     op.create_index("idx_articles_primary_emotion", "articles", ["primary_emotion"])
     op.create_index("idx_articles_merged_into", "articles", ["merged_into"])
+    op.create_index("idx_articles_source_url", "articles", ["source_url"])  # URL deduplication
     op.create_index(
         "idx_articles_category_publish",
         "articles",

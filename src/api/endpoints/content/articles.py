@@ -167,7 +167,12 @@ async def list_articles(
         for f in filters:
             query = query.where(f)
 
-        count_query = select(func.count()).select_from(query.subquery())
+        # Performance fix: Optimize count query
+        # Before: SELECT count(*) FROM (SELECT * FROM articles WHERE ...) subquery
+        # After: SELECT count(*) FROM articles WHERE ... (direct count with same filters)
+        count_query = select(func.count(Article.id))
+        for f in filters:
+            count_query = count_query.where(f)
         count_result = await session.execute(count_query)
         total = count_result.scalar() or 0
 

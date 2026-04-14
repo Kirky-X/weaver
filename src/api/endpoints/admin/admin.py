@@ -645,7 +645,7 @@ async def refresh_auto_scores(
         Number of sources updated.
 
     """
-    from sqlalchemy import select
+    from sqlalchemy import func, select
 
     from core.db.models import Article
 
@@ -662,25 +662,37 @@ async def refresh_auto_scores(
         result = await session.execute(stmt)
         hosts = [row[0] for row in result if row[0]]
 
-        for host in hosts:
-            try:
-                # Calculate average credibility score for this source
-                avg_stmt = select(Article).where(
-                    Article.source_host == host,
-                    Article.credibility_score.isnot(None),
+        if not hosts:
+            return success_response(
+                AutoScoreRefreshResponse(
+                    sources_updated=0,
+                    triggered_at=datetime.now(UTC).isoformat(),
                 )
-                articles_result = await session.execute(avg_stmt)
-                articles = articles_result.scalars().all()
+            )
 
-                if articles:
-                    avg_score = sum(float(a.credibility_score or 0) for a in articles) / len(
-                        articles
-                    )
+        # Performance fix: Use single aggregate query instead of N+1 queries
+        # Before: N queries (one per host)
+        # After: 1 query with GROUP BY
+        avg_stmt = (
+            select(
+                Article.source_host,
+                func.avg(Article.credibility_score).label("avg_credibility"),
+            )
+            .where(
+                Article.source_host.in_(hosts),
+                Article.credibility_score.isnot(None),
+            )
+            .group_by(Article.source_host)
+        )
 
-                    # Update source authority auto_score
-                    await repo.update_auto_score(host, float(avg_score))
-                    update_count += 1
+        avg_result = await session.execute(avg_stmt)
+        credibility_by_host = {row[0]: float(row[1]) for row in avg_result}
 
+        # Update all sources in batch
+        for host, avg_score in credibility_by_host.items():
+            try:
+                await repo.update_auto_score(host, avg_score)
+                update_count += 1
             except Exception as exc:
                 log.warning("auto_score_update_failed", host=host, error=str(exc))
 
