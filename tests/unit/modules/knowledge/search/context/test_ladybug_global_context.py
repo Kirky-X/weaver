@@ -17,9 +17,8 @@ from modules.knowledge.search.context.ladybug_global_context import (
 class TestLadybugGlobalContextBuilderInit:
     """Test LadybugGlobalContextBuilder initialization."""
 
-    def test_should_initialize_with_default_parameters(self) -> None:
+    def test_should_initialize_with_default_parameters(self, mock_pool) -> None:
         """Test initialization with default parameters."""
-        mock_pool = AsyncMock()
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
         assert builder._pool is mock_pool
@@ -29,9 +28,8 @@ class TestLadybugGlobalContextBuilderInit:
         assert builder._fallback_enabled is True
         assert builder._query_builder is not None
 
-    def test_should_initialize_with_custom_parameters(self) -> None:
+    def test_should_initialize_with_custom_parameters(self, mock_pool) -> None:
         """Test initialization with custom parameters."""
-        mock_pool = AsyncMock()
         mock_llm = AsyncMock()
         mock_token_encoder = Mock()
 
@@ -53,9 +51,8 @@ class TestLadybugGlobalContextBuilderInit:
         assert builder._llm_client is mock_llm
         assert builder._fallback_enabled is False
 
-    def test_should_create_query_builder_for_ladybug(self) -> None:
+    def test_should_create_query_builder_for_ladybug(self, mock_pool) -> None:
         """Test that query builder is created for ladybug type."""
-        mock_pool = AsyncMock()
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
         # Verify query builder exists and is for ladybug
@@ -67,9 +64,8 @@ class TestBuildContext:
     """Test build() method - main context building logic."""
 
     @pytest.mark.asyncio
-    async def test_should_build_context_with_simple_query(self) -> None:
+    async def test_should_build_context_with_simple_query(self, mock_pool) -> None:
         """Test building context for a simple query."""
-        mock_pool = AsyncMock()
         # Return empty communities - need to mock all search attempts including fallback
         mock_pool.execute_query = AsyncMock(
             side_effect=[
@@ -89,9 +85,8 @@ class TestBuildContext:
         assert len(context.sections) >= 1
 
     @pytest.mark.asyncio
-    async def test_should_handle_empty_query(self) -> None:
+    async def test_should_handle_empty_query(self, mock_pool) -> None:
         """Test handling empty query string."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 [],  # text search returns empty
@@ -107,9 +102,8 @@ class TestBuildContext:
         assert context.query == ""
 
     @pytest.mark.asyncio
-    async def test_should_handle_no_communities_exist(self) -> None:
+    async def test_should_handle_no_communities_exist(self, mock_pool) -> None:
         """Test when no communities exist in database."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 [],  # text search
@@ -128,9 +122,8 @@ class TestBuildContext:
         assert context.metadata["hint"] == "run POST /api/v1/admin/communities/rebuild"
 
     @pytest.mark.asyncio
-    async def test_should_build_context_with_communities(self) -> None:
+    async def test_should_build_context_with_communities(self, mock_pool) -> None:
         """Test building context when communities are found."""
-        mock_pool = AsyncMock()
         # Use valid UUID format for community IDs
         mock_pool.execute_query = AsyncMock(
             side_effect=[
@@ -183,9 +176,8 @@ class TestBuildContext:
         assert len(communities_section) == 1
 
     @pytest.mark.asyncio
-    async def test_should_build_context_with_custom_max_tokens(self) -> None:
+    async def test_should_build_context_with_custom_max_tokens(self, mock_pool) -> None:
         """Test building context with custom max tokens."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
@@ -194,9 +186,8 @@ class TestBuildContext:
         assert context.max_tokens == 5000
 
     @pytest.mark.asyncio
-    async def test_should_build_context_with_community_level(self) -> None:
+    async def test_should_build_context_with_community_level(self, mock_pool) -> None:
         """Test building context with specific community level."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 [],  # text search
@@ -210,9 +201,8 @@ class TestBuildContext:
         assert context.metadata["community_level"] == 2
 
     @pytest.mark.asyncio
-    async def test_should_add_key_entities_section(self) -> None:
+    async def test_should_add_key_entities_section(self, mock_pool) -> None:
         """Test that key entities are added to context."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 # communities with valid UUID
@@ -250,9 +240,8 @@ class TestBuildContext:
         assert entities_section[0].metadata["entity_count"] == 2
 
     @pytest.mark.asyncio
-    async def test_should_add_cross_community_relationships(self) -> None:
+    async def test_should_add_cross_community_relationships(self, mock_pool) -> None:
         """Test that cross-community relationships are added."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 # 2 communities with valid UUIDs
@@ -293,9 +282,8 @@ class TestBuildContext:
         assert rels_section[0].metadata["connection_count"] == 1
 
     @pytest.mark.asyncio
-    async def test_should_handle_query_error_gracefully(self) -> None:
+    async def test_should_handle_query_error_gracefully(self, mock_pool) -> None:
         """Test handling database query error gracefully."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(side_effect=Exception("Database connection failed"))
 
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
@@ -314,9 +302,8 @@ class TestFindRelevantCommunities:
     """Test _find_relevant_communities() method."""
 
     @pytest.mark.asyncio
-    async def test_should_use_vector_search_when_llm_available(self) -> None:
+    async def test_should_use_vector_search_when_llm_available(self, mock_pool) -> None:
         """Test vector search is attempted when LLM client is available."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         mock_llm = AsyncMock()
@@ -335,9 +322,8 @@ class TestFindRelevantCommunities:
         mock_llm.embed_default.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_should_skip_vector_search_without_llm(self) -> None:
+    async def test_should_skip_vector_search_without_llm(self, mock_pool) -> None:
         """Test vector search is skipped when no LLM client."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
@@ -349,9 +335,8 @@ class TestFindRelevantCommunities:
         assert method in ["text_search", "none"]
 
     @pytest.mark.asyncio
-    async def test_should_fallback_to_text_search(self) -> None:
+    async def test_should_fallback_to_text_search(self, mock_pool) -> None:
         """Test fallback to text search when vector search fails."""
-        mock_pool = AsyncMock()
         # First call (vector->text) returns empty, second call (text) returns results
         mock_pool.execute_query = AsyncMock(
             side_effect=[
@@ -371,9 +356,8 @@ class TestFindRelevantCommunities:
         assert used_fallback is False
 
     @pytest.mark.asyncio
-    async def test_should_use_entity_article_fallback(self) -> None:
+    async def test_should_use_entity_article_fallback(self, mock_pool) -> None:
         """Test entity-article fallback when no communities found."""
-        mock_pool = AsyncMock()
         # Text search fails, fallback query succeeds
         mock_pool.execute_query = AsyncMock(
             side_effect=[
@@ -407,9 +391,8 @@ class TestFindRelevantCommunities:
         assert communities[0]["id"] == "fallback:article-1"
 
     @pytest.mark.asyncio
-    async def test_should_return_empty_when_no_results(self) -> None:
+    async def test_should_return_empty_when_no_results(self, mock_pool) -> None:
         """Test returning empty when all search methods fail."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         builder = LadybugGlobalContextBuilder(
@@ -425,9 +408,8 @@ class TestFindRelevantCommunities:
         assert method == "none"
 
     @pytest.mark.asyncio
-    async def test_should_disable_fallback_when_configured(self) -> None:
+    async def test_should_disable_fallback_when_configured(self, mock_pool) -> None:
         """Test that fallback is skipped when disabled."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         builder = LadybugGlobalContextBuilder(
@@ -447,9 +429,8 @@ class TestVectorSearchCommunities:
     """Test _vector_search_communities() method."""
 
     @pytest.mark.asyncio
-    async def test_should_return_empty_without_llm_client(self) -> None:
+    async def test_should_return_empty_without_llm_client(self, mock_pool) -> None:
         """Test vector search returns empty without LLM client."""
-        mock_pool = AsyncMock()
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
         result = await builder._vector_search_communities("test", level=0)
@@ -457,9 +438,8 @@ class TestVectorSearchCommunities:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_should_handle_embedding_generation_failure(self) -> None:
+    async def test_should_handle_embedding_generation_failure(self, mock_pool) -> None:
         """Test handling embedding generation failure."""
-        mock_pool = AsyncMock()
         mock_llm = AsyncMock()
         mock_llm.embed_default = AsyncMock(side_effect=Exception("Embedding API error"))
 
@@ -474,9 +454,8 @@ class TestVectorSearchCommunities:
         assert isinstance(result, list)
 
     @pytest.mark.asyncio
-    async def test_should_handle_empty_embedding(self) -> None:
+    async def test_should_handle_empty_embedding(self, mock_pool) -> None:
         """Test handling empty embedding result."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         mock_llm = AsyncMock()
@@ -492,9 +471,8 @@ class TestVectorSearchCommunities:
         assert isinstance(result, list)
 
     @pytest.mark.asyncio
-    async def test_should_fallback_to_text_search_for_ladybugdb(self) -> None:
+    async def test_should_fallback_to_text_search_for_ladybugdb(self, mock_pool) -> None:
         """Test that LadybugDB falls back to text search (no native vector)."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             return_value=[{"id": "comm-1", "title": "Tech", "summary": "Tech", "rank": 0.8}]
         )
@@ -517,9 +495,8 @@ class TestTextSearchCommunities:
     """Test _text_search_communities() method."""
 
     @pytest.mark.asyncio
-    async def test_should_search_with_query(self) -> None:
+    async def test_should_search_with_query(self, mock_pool) -> None:
         """Test text search with query string."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             return_value=[
                 {
@@ -545,9 +522,8 @@ class TestTextSearchCommunities:
         mock_pool.execute_query.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_should_fallback_to_top_communities(self) -> None:
+    async def test_should_fallback_to_top_communities(self, mock_pool) -> None:
         """Test fallback to top communities by rank when text search fails."""
-        mock_pool = AsyncMock()
         # First query fails, second (fallback) succeeds
         mock_pool.execute_query = AsyncMock(
             side_effect=[
@@ -565,9 +541,8 @@ class TestTextSearchCommunities:
         assert result[0]["title"] == "Top Community"
 
     @pytest.mark.asyncio
-    async def test_should_handle_both_queries_failing(self) -> None:
+    async def test_should_handle_both_queries_failing(self, mock_pool) -> None:
         """Test handling both text search and fallback failing."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 Exception("Text search failed"),
@@ -581,9 +556,8 @@ class TestTextSearchCommunities:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_should_respect_max_communities_limit(self) -> None:
+    async def test_should_respect_max_communities_limit(self, mock_pool) -> None:
         """Test that max_communities limit is respected."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             return_value=[
                 {
@@ -607,9 +581,8 @@ class TestFindEntityArticleFallback:
     """Test _find_entity_article_fallback() method."""
 
     @pytest.mark.asyncio
-    async def test_should_return_empty_for_empty_query(self) -> None:
+    async def test_should_return_empty_for_empty_query(self, mock_pool) -> None:
         """Test returning empty for empty query."""
-        mock_pool = AsyncMock()
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
         result = await builder._find_entity_article_fallback("")
@@ -617,9 +590,8 @@ class TestFindEntityArticleFallback:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_should_return_empty_for_whitespace_query(self) -> None:
+    async def test_should_return_empty_for_whitespace_query(self, mock_pool) -> None:
         """Test returning empty for whitespace-only query."""
-        mock_pool = AsyncMock()
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
         result = await builder._find_entity_article_fallback("   ")
@@ -627,9 +599,8 @@ class TestFindEntityArticleFallback:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_should_build_fallback_results(self) -> None:
+    async def test_should_build_fallback_results(self, mock_pool) -> None:
         """Test building fallback results from entity-article matches."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             return_value=[
                 {
@@ -652,9 +623,8 @@ class TestFindEntityArticleFallback:
         assert result[0]["rank"] == 0.95
 
     @pytest.mark.asyncio
-    async def test_should_handle_fallback_query_error(self) -> None:
+    async def test_should_handle_fallback_query_error(self, mock_pool) -> None:
         """Test handling fallback query error."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(side_effect=Exception("Query failed"))
 
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
@@ -663,9 +633,8 @@ class TestFindEntityArticleFallback:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_should_handle_empty_fallback_results(self) -> None:
+    async def test_should_handle_empty_fallback_results(self, mock_pool) -> None:
         """Test handling empty fallback results."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
@@ -678,9 +647,8 @@ class TestGetKeyEntities:
     """Test _get_key_entities() method."""
 
     @pytest.mark.asyncio
-    async def test_should_return_empty_for_empty_communities(self) -> None:
+    async def test_should_return_empty_for_empty_communities(self, mock_pool) -> None:
         """Test returning empty for empty communities list."""
-        mock_pool = AsyncMock()
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
         result = await builder._get_key_entities([])
@@ -688,9 +656,8 @@ class TestGetKeyEntities:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_should_return_empty_for_communities_without_ids(self) -> None:
+    async def test_should_return_empty_for_communities_without_ids(self, mock_pool) -> None:
         """Test returning empty for communities without IDs."""
-        mock_pool = AsyncMock()
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
         result = await builder._get_key_entities(
@@ -703,9 +670,8 @@ class TestGetKeyEntities:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_should_get_entities_for_valid_communities(self) -> None:
+    async def test_should_get_entities_for_valid_communities(self, mock_pool) -> None:
         """Test getting entities for communities with valid IDs."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             return_value=[
                 {"canonical_name": "Entity1", "type": "TYPE1", "description": "Desc1"},
@@ -725,9 +691,8 @@ class TestGetKeyEntities:
         mock_pool.execute_query.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_should_handle_query_error(self) -> None:
+    async def test_should_handle_query_error(self, mock_pool) -> None:
         """Test handling query error gracefully."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(side_effect=Exception("Database error"))
 
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
@@ -738,9 +703,8 @@ class TestGetKeyEntities:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_should_filter_communities_without_ids(self) -> None:
+    async def test_should_filter_communities_without_ids(self, mock_pool) -> None:
         """Test filtering communities without IDs."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
@@ -760,9 +724,8 @@ class TestGetCrossCommunityRelationships:
     """Test _get_cross_community_relationships() method."""
 
     @pytest.mark.asyncio
-    async def test_should_return_empty_for_single_community(self) -> None:
+    async def test_should_return_empty_for_single_community(self, mock_pool) -> None:
         """Test returning empty for single community (no cross-community possible)."""
-        mock_pool = AsyncMock()
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
         result = await builder._get_cross_community_relationships(
@@ -773,9 +736,8 @@ class TestGetCrossCommunityRelationships:
         mock_pool.execute_query.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_should_return_empty_for_empty_list(self) -> None:
+    async def test_should_return_empty_for_empty_list(self, mock_pool) -> None:
         """Test returning empty for empty communities list."""
-        mock_pool = AsyncMock()
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
         result = await builder._get_cross_community_relationships([])
@@ -783,9 +745,8 @@ class TestGetCrossCommunityRelationships:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_should_query_for_multiple_communities(self) -> None:
+    async def test_should_query_for_multiple_communities(self, mock_pool) -> None:
         """Test querying cross-community relationships for multiple communities."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             return_value=[
                 {
@@ -810,9 +771,8 @@ class TestGetCrossCommunityRelationships:
         mock_pool.execute_query.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_should_handle_query_error(self) -> None:
+    async def test_should_handle_query_error(self, mock_pool) -> None:
         """Test handling query error gracefully."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(side_effect=Exception("Query failed"))
 
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
@@ -826,9 +786,8 @@ class TestGetCrossCommunityRelationships:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_should_filter_communities_without_ids(self) -> None:
+    async def test_should_filter_communities_without_ids(self, mock_pool) -> None:
         """Test filtering communities without IDs in query."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
@@ -846,9 +805,8 @@ class TestGetCrossCommunityRelationships:
 class TestFormatCommunitiesSection:
     """Test _format_communities_section() method."""
 
-    def test_should_format_single_community(self) -> None:
+    def test_should_format_single_community(self, mock_pool) -> None:
         """Test formatting single community."""
-        mock_pool = AsyncMock()
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
         communities = [
@@ -865,9 +823,8 @@ class TestFormatCommunitiesSection:
         assert "Entities: 15" in result
         assert "Artificial Intelligence" in result
 
-    def test_should_format_multiple_communities(self) -> None:
+    def test_should_format_multiple_communities(self, mock_pool) -> None:
         """Test formatting multiple communities."""
-        mock_pool = AsyncMock()
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
         communities = [
@@ -882,9 +839,8 @@ class TestFormatCommunitiesSection:
         assert "Entities: 10" in result
         assert "Entities: 20" in result
 
-    def test_should_handle_missing_fields(self) -> None:
+    def test_should_handle_missing_fields(self, mock_pool) -> None:
         """Test handling communities with missing fields."""
-        mock_pool = AsyncMock()
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
         communities = [
@@ -898,9 +854,8 @@ class TestFormatCommunitiesSection:
         assert "### Community 2" in result  # Default title
         assert "Entities: 0" in result  # Default entity_count
 
-    def test_should_truncate_long_summaries(self) -> None:
+    def test_should_truncate_long_summaries(self, mock_pool) -> None:
         """Test truncating long community summaries."""
-        mock_pool = AsyncMock()
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
         long_summary = "A" * 500
@@ -911,9 +866,8 @@ class TestFormatCommunitiesSection:
         # Should be truncated to ~200 tokens
         assert len(result) < len(long_summary) + 100
 
-    def test_should_handle_empty_summary(self) -> None:
+    def test_should_handle_empty_summary(self, mock_pool) -> None:
         """Test handling empty summary."""
-        mock_pool = AsyncMock()
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
         communities = [{"title": "No Summary", "summary": "", "entity_count": 1}]
@@ -927,9 +881,8 @@ class TestFormatCommunitiesSection:
 class TestFormatEntitiesSection:
     """Test _format_entities_section() method."""
 
-    def test_should_format_single_entity(self) -> None:
+    def test_should_format_single_entity(self, mock_pool) -> None:
         """Test formatting single entity."""
-        mock_pool = AsyncMock()
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
         entities = [
@@ -946,9 +899,8 @@ class TestFormatEntitiesSection:
         assert "LANGUAGE" in result
         assert "Programming language" in result
 
-    def test_should_format_multiple_entities(self) -> None:
+    def test_should_format_multiple_entities(self, mock_pool) -> None:
         """Test formatting multiple entities."""
-        mock_pool = AsyncMock()
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
         entities = [
@@ -961,9 +913,8 @@ class TestFormatEntitiesSection:
         assert "Python" in result
         assert "Rust" in result
 
-    def test_should_handle_empty_entities_list(self) -> None:
+    def test_should_handle_empty_entities_list(self, mock_pool) -> None:
         """Test handling empty entities list."""
-        mock_pool = AsyncMock()
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
         result = builder._format_entities_section([])
@@ -974,9 +925,8 @@ class TestFormatEntitiesSection:
 class TestFormatCrossCommunitySection:
     """Test _format_cross_community_section() method."""
 
-    def test_should_format_single_connection(self) -> None:
+    def test_should_format_single_connection(self, mock_pool) -> None:
         """Test formatting single cross-community connection."""
-        mock_pool = AsyncMock()
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
         connections = [
@@ -997,9 +947,8 @@ class TestFormatCrossCommunitySection:
         assert "Research" in result
         assert "INFLUENCES" in result
 
-    def test_should_format_multiple_connections(self) -> None:
+    def test_should_format_multiple_connections(self, mock_pool) -> None:
         """Test formatting multiple connections."""
-        mock_pool = AsyncMock()
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
         connections = [
@@ -1025,9 +974,8 @@ class TestFormatCrossCommunitySection:
         assert "Math" in result
         assert result.count("- [") == 2
 
-    def test_should_handle_missing_fields(self) -> None:
+    def test_should_handle_missing_fields(self, mock_pool) -> None:
         """Test handling connections with missing fields."""
-        mock_pool = AsyncMock()
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
         connections = [
@@ -1040,9 +988,8 @@ class TestFormatCrossCommunitySection:
         assert "Tech" in result
         assert "Unknown" in result  # Default for missing fields
 
-    def test_should_handle_empty_connections_list(self) -> None:
+    def test_should_handle_empty_connections_list(self, mock_pool) -> None:
         """Test handling empty connections list."""
-        mock_pool = AsyncMock()
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
         result = builder._format_cross_community_section([])
@@ -1054,9 +1001,8 @@ class TestHasAnyCommunities:
     """Test _has_any_communities() method."""
 
     @pytest.mark.asyncio
-    async def test_should_return_true_when_communities_exist(self) -> None:
+    async def test_should_return_true_when_communities_exist(self, mock_pool) -> None:
         """Test returning True when communities exist."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(return_value=[{"count": 5}])
 
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
@@ -1065,9 +1011,8 @@ class TestHasAnyCommunities:
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_should_return_false_when_no_communities(self) -> None:
+    async def test_should_return_false_when_no_communities(self, mock_pool) -> None:
         """Test returning False when no communities exist."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(return_value=[{"count": 0}])
 
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
@@ -1076,9 +1021,8 @@ class TestHasAnyCommunities:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_should_handle_query_error(self) -> None:
+    async def test_should_handle_query_error(self, mock_pool) -> None:
         """Test handling query error gracefully."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(side_effect=Exception("Database error"))
 
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
@@ -1087,9 +1031,8 @@ class TestHasAnyCommunities:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_should_handle_empty_result(self) -> None:
+    async def test_should_handle_empty_result(self, mock_pool) -> None:
         """Test handling empty query result."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
@@ -1098,9 +1041,8 @@ class TestHasAnyCommunities:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_should_handle_missing_count_field(self) -> None:
+    async def test_should_handle_missing_count_field(self, mock_pool) -> None:
         """Test handling result without count field."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(return_value=[{"other_field": 5}])
 
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
@@ -1109,9 +1051,8 @@ class TestHasAnyCommunities:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_should_handle_type_error(self) -> None:
+    async def test_should_handle_type_error(self, mock_pool) -> None:
         """Test handling type error gracefully."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(return_value=None)
 
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
@@ -1124,9 +1065,8 @@ class TestEdgeCases:
     """Test edge cases and boundary conditions."""
 
     @pytest.mark.asyncio
-    async def test_should_handle_special_characters_in_query(self) -> None:
+    async def test_should_handle_special_characters_in_query(self, mock_pool) -> None:
         """Test handling special characters in query."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 [],  # text search
@@ -1140,9 +1080,8 @@ class TestEdgeCases:
         assert isinstance(context, SearchContext)
 
     @pytest.mark.asyncio
-    async def test_should_handle_unicode_query(self) -> None:
+    async def test_should_handle_unicode_query(self, mock_pool) -> None:
         """Test handling unicode/Chinese characters in query."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 [],  # text search
@@ -1156,9 +1095,8 @@ class TestEdgeCases:
         assert isinstance(context, SearchContext)
 
     @pytest.mark.asyncio
-    async def test_should_handle_very_long_query(self) -> None:
+    async def test_should_handle_very_long_query(self, mock_pool) -> None:
         """Test handling very long query string."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 [],  # text search
@@ -1173,9 +1111,8 @@ class TestEdgeCases:
         assert isinstance(context, SearchContext)
 
     @pytest.mark.asyncio
-    async def test_should_handle_large_number_of_communities(self) -> None:
+    async def test_should_handle_large_number_of_communities(self, mock_pool) -> None:
         """Test handling large number of communities."""
-        mock_pool = AsyncMock()
         # Simulate many communities with valid UUIDs
         mock_pool.execute_query = AsyncMock(
             side_effect=[
@@ -1200,9 +1137,8 @@ class TestEdgeCases:
         assert context.metadata["total_communities"] > 0
 
     @pytest.mark.asyncio
-    async def test_should_handle_concurrent_calls(self) -> None:
+    async def test_should_handle_concurrent_calls(self, mock_pool) -> None:
         """Test handling concurrent build calls."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 [],  # text search
@@ -1232,9 +1168,8 @@ class TestMetadataTracking:
     """Test metadata tracking in SearchContext."""
 
     @pytest.mark.asyncio
-    async def test_should_track_search_method(self) -> None:
+    async def test_should_track_search_method(self, mock_pool) -> None:
         """Test that search method is tracked in metadata."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 [
@@ -1257,14 +1192,13 @@ class TestMetadataTracking:
         assert context.metadata["search_method"] == "text_search"
 
     @pytest.mark.asyncio
-    async def test_should_track_fallback_usage(self) -> None:
+    async def test_should_track_fallback_usage(self, mock_pool) -> None:
         """Test that fallback usage is tracked in metadata."""
         # Note: When fallback is used, community IDs have format "fallback:article_id"
         # which are not valid UUIDs. This causes _get_key_entities to raise an error
         # (UUID validation happens before the try-except block).
         # For this test, we'll mock _get_key_entities to avoid the error.
 
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 [],  # text search
@@ -1296,9 +1230,8 @@ class TestMetadataTracking:
         assert context.metadata.get("search_method") == "entity_article_fallback"
 
     @pytest.mark.asyncio
-    async def test_should_track_community_count(self) -> None:
+    async def test_should_track_community_count(self, mock_pool) -> None:
         """Test that community count is tracked."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 [
@@ -1326,9 +1259,8 @@ class TestMetadataTracking:
         assert context.metadata["total_communities"] == 2
 
     @pytest.mark.asyncio
-    async def test_should_track_community_level(self) -> None:
+    async def test_should_track_community_level(self, mock_pool) -> None:
         """Test that community level is tracked."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 [],

@@ -24,22 +24,7 @@ class TestEvalCompareRepoInit:
 class TestEvalCompareRepoInsertRaw:
     """Test insert_raw method."""
 
-    @pytest.fixture
-    def mock_pool(self):
-        """Create mock relational pool."""
-        pool = MagicMock()
-        session = MagicMock()
-        session.__aenter__ = AsyncMock(return_value=session)
-        session.__aexit__ = AsyncMock(return_value=None)
-        session.add = MagicMock()
-        session.commit = AsyncMock()
-        pool.session = MagicMock(return_value=session)
-        return pool
-
-    @pytest.fixture
-    def repo(self, mock_pool):
-        """Create repo with mock pool."""
-        return EvalCompareRepo(pool=mock_pool)
+    # Uses conftest.py fixtures: mock_relational_pool, repo, sample_event
 
     @pytest.fixture
     def sample_event(self):
@@ -58,31 +43,31 @@ class TestEvalCompareRepoInsertRaw:
     @pytest.mark.asyncio
     async def test_insert_raw_creates_record(
         self,
-        repo: EvalCompareRepo,
-        mock_pool: MagicMock,
-        sample_event: LLMCompareEvent,
+        repo,
+        mock_relational_pool,
+        sample_event,
     ):
         """Test insert_raw creates LLMCompareHourly record."""
         await repo.insert_raw(sample_event)
 
         # Should call session.add
-        mock_pool.session.return_value.add.assert_called_once()
+        mock_relational_pool.session.return_value.add.assert_called_once()
 
         # Should commit
-        mock_pool.session.return_value.commit.assert_called_once()
+        mock_relational_pool.session.return_value.commit.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_insert_raw_truncates_time_to_hour(
         self,
-        repo: EvalCompareRepo,
-        mock_pool: MagicMock,
-        sample_event: LLMCompareEvent,
+        repo,
+        mock_relational_pool,
+        sample_event,
     ):
         """Test insert_raw truncates timestamp to hour bucket."""
         await repo.insert_raw(sample_event)
 
         # Get the added record
-        added_record = mock_pool.session.return_value.add.call_args[0][0]
+        added_record = mock_relational_pool.session.return_value.add.call_args[0][0]
 
         # Time should be truncated to hour
         expected_time = datetime(2026, 4, 14, 10, 0, 0, tzinfo=UTC)
@@ -91,14 +76,14 @@ class TestEvalCompareRepoInsertRaw:
     @pytest.mark.asyncio
     async def test_insert_raw_populates_all_fields(
         self,
-        repo: EvalCompareRepo,
-        mock_pool: MagicMock,
-        sample_event: LLMCompareEvent,
+        repo,
+        mock_relational_pool,
+        sample_event,
     ):
         """Test insert_raw populates all record fields."""
         await repo.insert_raw(sample_event)
 
-        added_record = mock_pool.session.return_value.add.call_args[0][0]
+        added_record = mock_relational_pool.session.return_value.add.call_args[0][0]
 
         assert added_record.call_point == "classifier"
         assert added_record.primary_model == "gpt-4"
@@ -112,8 +97,8 @@ class TestEvalCompareRepoInsertRaw:
     @pytest.mark.asyncio
     async def test_insert_raw_success_false(
         self,
-        repo: EvalCompareRepo,
-        mock_pool: MagicMock,
+        repo,
+        mock_relational_pool,
     ):
         """Test insert_raw with failed models."""
         event = LLMCompareEvent(
@@ -129,7 +114,7 @@ class TestEvalCompareRepoInsertRaw:
 
         await repo.insert_raw(event)
 
-        added_record = mock_pool.session.return_value.add.call_args[0][0]
+        added_record = mock_relational_pool.session.return_value.add.call_args[0][0]
 
         assert added_record.primary_success_count == 0
         assert added_record.candidate_success_count == 0
@@ -138,28 +123,13 @@ class TestEvalCompareRepoInsertRaw:
 class TestEvalCompareRepoUpsertHourly:
     """Test upsert_hourly method."""
 
-    @pytest.fixture
-    def mock_pool(self):
-        """Create mock relational pool."""
-        pool = MagicMock()
-        session = MagicMock()
-        session.__aenter__ = AsyncMock(return_value=session)
-        session.__aexit__ = AsyncMock(return_value=None)
-        session.execute = AsyncMock()
-        session.commit = AsyncMock()
-        pool.session = MagicMock(return_value=session)
-        return pool
-
-    @pytest.fixture
-    def repo(self, mock_pool):
-        """Create repo with mock pool."""
-        return EvalCompareRepo(pool=mock_pool)
+    # Uses conftest.py fixtures: mock_relational_pool, repo
 
     @pytest.mark.asyncio
     async def test_upsert_hourly_executes_insert(
         self,
-        repo: EvalCompareRepo,
-        mock_pool: MagicMock,
+        repo,
+        mock_relational_pool,
     ):
         """Test upsert_hourly executes insert statement."""
         time_bucket = datetime(2026, 4, 14, 10, 0, 0, tzinfo=UTC)
@@ -177,16 +147,16 @@ class TestEvalCompareRepoUpsertHourly:
         )
 
         # Should execute statement
-        mock_pool.session.return_value.execute.assert_called_once()
+        mock_relational_pool.session.return_value.execute.assert_called_once()
 
         # Should commit
-        mock_pool.session.return_value.commit.assert_called_once()
+        mock_relational_pool.session.return_value.commit.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_upsert_hourly_with_zero_counts(
         self,
-        repo: EvalCompareRepo,
-        mock_pool: MagicMock,
+        repo,
+        mock_relational_pool,
     ):
         """Test upsert_hourly with zero counts."""
         time_bucket = datetime(2026, 4, 14, 10, 0, 0, tzinfo=UTC)
@@ -204,14 +174,14 @@ class TestEvalCompareRepoUpsertHourly:
         )
 
         # Should still execute and commit
-        mock_pool.session.return_value.execute.assert_called_once()
-        mock_pool.session.return_value.commit.assert_called_once()
+        mock_relational_pool.session.return_value.execute.assert_called_once()
+        mock_relational_pool.session.return_value.commit.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_upsert_hourly_large_values(
         self,
-        repo: EvalCompareRepo,
-        mock_pool: MagicMock,
+        repo,
+        mock_relational_pool,
     ):
         """Test upsert_hourly with large values."""
         time_bucket = datetime(2026, 4, 14, 10, 0, 0, tzinfo=UTC)
@@ -228,39 +198,24 @@ class TestEvalCompareRepoUpsertHourly:
             candidate_success_count=900000,
         )
 
-        mock_pool.session.return_value.execute.assert_called_once()
+        mock_relational_pool.session.return_value.execute.assert_called_once()
 
 
 class TestEvalCompareRepoGetComparisonStats:
     """Test get_comparison_stats method."""
 
-    @pytest.fixture
-    def mock_pool(self):
-        """Create mock relational pool."""
-        pool = MagicMock()
-        session = MagicMock()
-        session.__aenter__ = AsyncMock(return_value=session)
-        session.__aexit__ = AsyncMock(return_value=None)
-        session.execute = AsyncMock()
-        session.commit = AsyncMock()
-        pool.session = MagicMock(return_value=session)
-        return pool
-
-    @pytest.fixture
-    def repo(self, mock_pool):
-        """Create repo with mock pool."""
-        return EvalCompareRepo(pool=mock_pool)
+    # Uses conftest.py fixtures: mock_relational_pool, repo
 
     @pytest.mark.asyncio
     async def test_get_comparison_stats_returns_list(
         self,
-        repo: EvalCompareRepo,
-        mock_pool: MagicMock,
+        repo,
+        mock_relational_pool,
     ):
         """Test get_comparison_stats returns list."""
         mock_result = MagicMock()
         mock_result.all.return_value = []
-        mock_pool.session.return_value.execute.return_value = mock_result
+        mock_relational_pool.session.return_value.execute.return_value = mock_result
 
         start_time = datetime(2026, 4, 14, 0, 0, 0, tzinfo=UTC)
         end_time = datetime(2026, 4, 15, 0, 0, 0, tzinfo=UTC)
@@ -276,8 +231,8 @@ class TestEvalCompareRepoGetComparisonStats:
     @pytest.mark.asyncio
     async def test_get_comparison_stats_with_data(
         self,
-        repo: EvalCompareRepo,
-        mock_pool: MagicMock,
+        repo,
+        mock_relational_pool,
     ):
         """Test get_comparison_stats returns proper data structure."""
         # Mock row data
@@ -292,7 +247,7 @@ class TestEvalCompareRepoGetComparisonStats:
 
         mock_result = MagicMock()
         mock_result.all.return_value = [mock_row]
-        mock_pool.session.return_value.execute.return_value = mock_result
+        mock_relational_pool.session.return_value.execute.return_value = mock_result
 
         start_time = datetime(2026, 4, 14, 0, 0, 0, tzinfo=UTC)
         end_time = datetime(2026, 4, 15, 0, 0, 0, tzinfo=UTC)
@@ -317,8 +272,8 @@ class TestEvalCompareRepoGetComparisonStats:
     @pytest.mark.asyncio
     async def test_get_comparison_stats_success_rate_calculation(
         self,
-        repo: EvalCompareRepo,
-        mock_pool: MagicMock,
+        repo,
+        mock_relational_pool,
     ):
         """Test success rate calculation."""
         mock_row = MagicMock()
@@ -332,7 +287,7 @@ class TestEvalCompareRepoGetComparisonStats:
 
         mock_result = MagicMock()
         mock_result.all.return_value = [mock_row]
-        mock_pool.session.return_value.execute.return_value = mock_result
+        mock_relational_pool.session.return_value.execute.return_value = mock_result
 
         start_time = datetime(2026, 4, 14, 0, 0, 0, tzinfo=UTC)
         end_time = datetime(2026, 4, 15, 0, 0, 0, tzinfo=UTC)
@@ -350,13 +305,13 @@ class TestEvalCompareRepoGetComparisonStats:
     @pytest.mark.asyncio
     async def test_get_comparison_stats_empty_result(
         self,
-        repo: EvalCompareRepo,
-        mock_pool: MagicMock,
+        repo,
+        mock_relational_pool,
     ):
         """Test get_comparison_stats with no data."""
         mock_result = MagicMock()
         mock_result.all.return_value = []
-        mock_pool.session.return_value.execute.return_value = mock_result
+        mock_relational_pool.session.return_value.execute.return_value = mock_result
 
         start_time = datetime(2026, 4, 14, 0, 0, 0, tzinfo=UTC)
         end_time = datetime(2026, 4, 15, 0, 0, 0, tzinfo=UTC)
@@ -372,8 +327,8 @@ class TestEvalCompareRepoGetComparisonStats:
     @pytest.mark.asyncio
     async def test_get_comparison_stats_null_handling(
         self,
-        repo: EvalCompareRepo,
-        mock_pool: MagicMock,
+        repo,
+        mock_relational_pool,
     ):
         """Test get_comparison_stats handles null values."""
         mock_row = MagicMock()
@@ -387,7 +342,7 @@ class TestEvalCompareRepoGetComparisonStats:
 
         mock_result = MagicMock()
         mock_result.all.return_value = [mock_row]
-        mock_pool.session.return_value.execute.return_value = mock_result
+        mock_relational_pool.session.return_value.execute.return_value = mock_result
 
         start_time = datetime(2026, 4, 14, 0, 0, 0, tzinfo=UTC)
         end_time = datetime(2026, 4, 15, 0, 0, 0, tzinfo=UTC)
@@ -406,8 +361,8 @@ class TestEvalCompareRepoGetComparisonStats:
     @pytest.mark.asyncio
     async def test_get_comparison_stats_multiple_rows(
         self,
-        repo: EvalCompareRepo,
-        mock_pool: MagicMock,
+        repo,
+        mock_relational_pool,
     ):
         """Test get_comparison_stats with multiple result rows."""
         mock_row1 = MagicMock()
@@ -430,7 +385,7 @@ class TestEvalCompareRepoGetComparisonStats:
 
         mock_result = MagicMock()
         mock_result.all.return_value = [mock_row1, mock_row2]
-        mock_pool.session.return_value.execute.return_value = mock_result
+        mock_relational_pool.session.return_value.execute.return_value = mock_result
 
         start_time = datetime(2026, 4, 14, 0, 0, 0, tzinfo=UTC)
         end_time = datetime(2026, 4, 15, 0, 0, 0, tzinfo=UTC)
@@ -449,65 +404,48 @@ class TestEvalCompareRepoGetComparisonStats:
 class TestEvalCompareRepoCleanupOlderThan:
     """Test cleanup_older_than method."""
 
-    @pytest.fixture
-    def mock_pool(self):
-        """Create mock relational pool."""
-        pool = MagicMock()
-        session = MagicMock()
-        session.__aenter__ = AsyncMock(return_value=session)
-        session.__aexit__ = AsyncMock(return_value=None)
-        session.execute = AsyncMock()
-        session.commit = AsyncMock()
-        pool.session = MagicMock(return_value=session)
-        return pool
-
-    @pytest.fixture
-    def repo(self, mock_pool):
-        """Create repo with mock pool."""
-        return EvalCompareRepo(pool=mock_pool)
+    # Uses conftest.py fixtures: mock_relational_pool, repo
 
     @pytest.mark.asyncio
     async def test_cleanup_older_than_deletes_records(
         self,
-        repo: EvalCompareRepo,
-        mock_pool: MagicMock,
+        repo,
+        mock_relational_pool,
     ):
         """Test cleanup_older_than deletes old records."""
         mock_result = MagicMock()
         mock_result.rowcount = 50
-        mock_pool.session.return_value.execute.return_value = mock_result
+        mock_relational_pool.session.return_value.execute.return_value = mock_result
 
         removed = await repo.cleanup_older_than(days=7)
 
         # Should execute delete
-        mock_pool.session.return_value.execute.assert_called_once()
-        mock_pool.session.return_value.commit.assert_called_once()
+        mock_relational_pool.session.return_value.execute.assert_called_once()
+        mock_relational_pool.session.return_value.commit.assert_called_once()
         assert removed == 50
 
     @pytest.mark.asyncio
-    async def test_cleanup_older_than_default_days(
-        self, repo: EvalCompareRepo, mock_pool: MagicMock
-    ):
+    async def test_cleanup_older_than_default_days(self, repo, mock_relational_pool):
         """Test cleanup_older_than uses default 7 days."""
         mock_result = MagicMock()
         mock_result.rowcount = 10
-        mock_pool.session.return_value.execute.return_value = mock_result
+        mock_relational_pool.session.return_value.execute.return_value = mock_result
 
         await repo.cleanup_older_than()
 
         # Should use default 7 days
-        mock_pool.session.return_value.execute.assert_called_once()
+        mock_relational_pool.session.return_value.execute.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_cleanup_older_than_custom_days(
         self,
-        repo: EvalCompareRepo,
-        mock_pool: MagicMock,
+        repo,
+        mock_relational_pool,
     ):
         """Test cleanup_older_than with custom days parameter."""
         mock_result = MagicMock()
         mock_result.rowcount = 100
-        mock_pool.session.return_value.execute.return_value = mock_result
+        mock_relational_pool.session.return_value.execute.return_value = mock_result
 
         removed = await repo.cleanup_older_than(days=30)
 
@@ -516,13 +454,13 @@ class TestEvalCompareRepoCleanupOlderThan:
     @pytest.mark.asyncio
     async def test_cleanup_older_than_zero_days(
         self,
-        repo: EvalCompareRepo,
-        mock_pool: MagicMock,
+        repo,
+        mock_relational_pool,
     ):
         """Test cleanup_older_than with zero days (delete everything)."""
         mock_result = MagicMock()
         mock_result.rowcount = 1000
-        mock_pool.session.return_value.execute.return_value = mock_result
+        mock_relational_pool.session.return_value.execute.return_value = mock_result
 
         removed = await repo.cleanup_older_than(days=0)
 
@@ -531,13 +469,13 @@ class TestEvalCompareRepoCleanupOlderThan:
     @pytest.mark.asyncio
     async def test_cleanup_older_than_no_records(
         self,
-        repo: EvalCompareRepo,
-        mock_pool: MagicMock,
+        repo,
+        mock_relational_pool,
     ):
         """Test cleanup_older_than when no records to delete."""
         mock_result = MagicMock()
         mock_result.rowcount = 0
-        mock_pool.session.return_value.execute.return_value = mock_result
+        mock_relational_pool.session.return_value.execute.return_value = mock_result
 
         removed = await repo.cleanup_older_than(days=7)
 
@@ -546,13 +484,13 @@ class TestEvalCompareRepoCleanupOlderThan:
     @pytest.mark.asyncio
     async def test_cleanup_older_than_logs_result(
         self,
-        repo: EvalCompareRepo,
-        mock_pool: MagicMock,
+        repo,
+        mock_relational_pool,
     ):
         """Test cleanup_older_than logs the cleanup result."""
         mock_result = MagicMock()
         mock_result.rowcount = 25
-        mock_pool.session.return_value.execute.return_value = mock_result
+        mock_relational_pool.session.return_value.execute.return_value = mock_result
 
         with patch("modules.analytics.llm_compare.repo.log") as mock_log:
             await repo.cleanup_older_than(days=14)

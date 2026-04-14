@@ -13,28 +13,32 @@ from modules.migration.api.dependencies import (
 from modules.migration.models import MigrationConfig, MigrationResult
 
 
+# Module-level fixtures (shared by all test classes)
+@pytest.fixture
+def mock_container():
+    """Create a mock container."""
+    return Mock()
+
+
+@pytest.fixture
+def service(mock_container):
+    """Create a MigrationService instance with mocked container."""
+    return MigrationService(container=mock_container)
+
+
+@pytest.fixture
+def mock_config():
+    """Create a mock migration config."""
+    return MigrationConfig(
+        source_db="postgres",
+        target_db="duckdb",
+        tables=["users", "orders"],
+        batch_size=1000,
+    )
+
+
 class TestMigrationService:
     """Test MigrationService class."""
-
-    @pytest.fixture
-    def mock_container(self):
-        """Create a mock container."""
-        return Mock()
-
-    @pytest.fixture
-    def service(self, mock_container):
-        """Create a MigrationService instance with mocked container."""
-        return MigrationService(container=mock_container)
-
-    @pytest.fixture
-    def mock_config(self):
-        """Create a mock migration config."""
-        return MigrationConfig(
-            source_db="postgres",
-            target_db="duckdb",
-            tables=["users", "orders"],
-            batch_size=1000,
-        )
 
     def test_should_create_task(self, service, mock_config):
         """Test creating migration task."""
@@ -403,15 +407,7 @@ class TestGetMigrationService:
 class TestMigrationServiceEdgeCases:
     """Test edge cases and boundary conditions."""
 
-    @pytest.fixture
-    def mock_container(self):
-        """Create a mock container."""
-        return Mock()
-
-    @pytest.fixture
-    def service(self, mock_container):
-        """Create a MigrationService instance."""
-        return MigrationService(container=mock_container)
+    # Uses module-level fixtures: mock_container, service
 
     def test_should_handle_rapid_task_creation(self, service):
         """Test creating many tasks rapidly."""

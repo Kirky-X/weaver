@@ -17,9 +17,8 @@ from modules.knowledge.search.context.ladybug_local_context import (
 class TestLadybugLocalContextBuilderInit:
     """Test LadybugLocalContextBuilder initialization."""
 
-    def test_should_initialize_with_default_parameters(self) -> None:
+    def test_should_initialize_with_default_parameters(self, mock_pool) -> None:
         """Test initialization with default parameters."""
-        mock_pool = AsyncMock()
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
 
         assert builder._pool is mock_pool
@@ -30,9 +29,8 @@ class TestLadybugLocalContextBuilderInit:
         assert builder._default_max_tokens == 8000
         assert builder._query_builder is not None
 
-    def test_should_initialize_with_custom_parameters(self) -> None:
+    def test_should_initialize_with_custom_parameters(self, mock_pool) -> None:
         """Test initialization with custom parameters."""
-        mock_pool = AsyncMock()
         mock_token_encoder = Mock()
 
         builder = LadybugLocalContextBuilder(
@@ -51,9 +49,8 @@ class TestLadybugLocalContextBuilderInit:
         assert builder._max_relationships == 100
         assert builder._max_hops == 3
 
-    def test_should_create_query_builder_for_ladybug(self) -> None:
+    def test_should_create_query_builder_for_ladybug(self, mock_pool) -> None:
         """Test that query builder is created for ladybug type."""
-        mock_pool = AsyncMock()
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
 
         assert builder._query_builder is not None
@@ -64,9 +61,8 @@ class TestBuildContext:
     """Test build() method - main context building logic."""
 
     @pytest.mark.asyncio
-    async def test_should_build_context_with_query_and_entities(self) -> None:
+    async def test_should_build_context_with_query_and_entities(self, mock_pool) -> None:
         """Test building context with query that finds entities."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 [{"name": "Entity1"}, {"name": "Entity2"}],  # _find_query_entities
@@ -119,9 +115,8 @@ class TestBuildContext:
         assert len(context.sections) >= 4  # entities, related, relationships, articles
 
     @pytest.mark.asyncio
-    async def test_should_build_context_with_explicit_entity_names(self) -> None:
+    async def test_should_build_context_with_explicit_entity_names(self, mock_pool) -> None:
         """Test building context with explicit entity names (skip query search)."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 # _get_entities_with_details
@@ -151,9 +146,8 @@ class TestBuildContext:
         assert len(entities_section) == 1
 
     @pytest.mark.asyncio
-    async def test_should_handle_no_entities_found(self) -> None:
+    async def test_should_handle_no_entities_found(self, mock_pool) -> None:
         """Test handling when no entities are found."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
@@ -165,10 +159,8 @@ class TestBuildContext:
         assert "No relevant entities" in context.sections[0].content
 
     @pytest.mark.asyncio
-    async def test_should_handle_empty_entity_names_list(self) -> None:
+    async def test_should_handle_empty_entity_names_list(self, mock_pool) -> None:
         """Test handling empty entity names list."""
-        mock_pool = AsyncMock()
-
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
         context = await builder.build(query="test", entity_names=[])
 
@@ -177,9 +169,8 @@ class TestBuildContext:
         assert context.sections[0].name == "No Entities Found"
 
     @pytest.mark.asyncio
-    async def test_should_handle_custom_max_tokens(self) -> None:
+    async def test_should_handle_custom_max_tokens(self, mock_pool) -> None:
         """Test building context with custom max tokens."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 [],  # _find_query_entities
@@ -192,9 +183,8 @@ class TestBuildContext:
         assert context.max_tokens == 5000
 
     @pytest.mark.asyncio
-    async def test_should_filter_by_relation_types(self) -> None:
+    async def test_should_filter_by_relation_types(self, mock_pool) -> None:
         """Test filtering by relation types."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 # _get_entities_with_details
@@ -219,9 +209,8 @@ class TestBuildContext:
         assert context.metadata["filtered_relation_types"] == ["RELATED_TO", "DEPENDS_ON"]
 
     @pytest.mark.asyncio
-    async def test_should_track_metadata(self) -> None:
+    async def test_should_track_metadata(self, mock_pool) -> None:
         """Test that metadata is properly tracked."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 # _get_entities_with_details
@@ -248,9 +237,8 @@ class TestBuildContext:
         assert context.metadata["total_relationships"] == 2
 
     @pytest.mark.asyncio
-    async def test_should_handle_query_error_gracefully(self) -> None:
+    async def test_should_handle_query_error_gracefully(self, mock_pool) -> None:
         """Test handling database query error gracefully."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(side_effect=Exception("Database connection failed"))
 
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
@@ -262,9 +250,8 @@ class TestBuildContext:
         assert context.sections[0].name == "No Entities Found"
 
     @pytest.mark.asyncio
-    async def test_should_skip_sections_when_empty(self) -> None:
+    async def test_should_skip_sections_when_empty(self, mock_pool) -> None:
         """Test that empty sections are not added."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 # _get_entities_with_details
@@ -290,9 +277,8 @@ class TestFindQueryEntities:
     """Test _find_query_entities() method."""
 
     @pytest.mark.asyncio
-    async def test_should_find_entities_from_query(self) -> None:
+    async def test_should_find_entities_from_query(self, mock_pool) -> None:
         """Test finding entities mentioned in query."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             return_value=[
                 {"name": "Python"},
@@ -309,9 +295,8 @@ class TestFindQueryEntities:
         mock_pool.execute_query.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_should_handle_empty_query_result(self) -> None:
+    async def test_should_handle_empty_query_result(self, mock_pool) -> None:
         """Test handling empty query result."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
@@ -320,9 +305,8 @@ class TestFindQueryEntities:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_should_handle_query_error(self) -> None:
+    async def test_should_handle_query_error(self, mock_pool) -> None:
         """Test handling query error gracefully."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(side_effect=Exception("Query failed"))
 
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
@@ -331,9 +315,8 @@ class TestFindQueryEntities:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_should_filter_out_empty_names(self) -> None:
+    async def test_should_filter_out_empty_names(self, mock_pool) -> None:
         """Test filtering out entities with empty names."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             return_value=[
                 {"name": "Valid Entity"},
@@ -349,9 +332,8 @@ class TestFindQueryEntities:
         assert result == ["Valid Entity"]
 
     @pytest.mark.asyncio
-    async def test_should_respect_max_entities_limit(self) -> None:
+    async def test_should_respect_max_entities_limit(self, mock_pool) -> None:
         """Test that max_entities limit is used in query."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool, max_entities=10)
@@ -369,9 +351,8 @@ class TestGetEntitiesWithDetails:
     """Test _get_entities_with_details() method."""
 
     @pytest.mark.asyncio
-    async def test_should_get_entities_with_details(self) -> None:
+    async def test_should_get_entities_with_details(self, mock_pool) -> None:
         """Test getting detailed entity information."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             return_value=[
                 {
@@ -398,10 +379,8 @@ class TestGetEntitiesWithDetails:
         mock_pool.execute_query.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_should_handle_empty_entity_names(self) -> None:
+    async def test_should_handle_empty_entity_names(self, mock_pool) -> None:
         """Test handling empty entity names list."""
-        mock_pool = AsyncMock()
-
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
         result = await builder._get_entities_with_details([])
 
@@ -409,9 +388,8 @@ class TestGetEntitiesWithDetails:
         mock_pool.execute_query.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_should_handle_query_error(self) -> None:
+    async def test_should_handle_query_error(self, mock_pool) -> None:
         """Test handling query error gracefully."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(side_effect=Exception("Database error"))
 
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
@@ -420,9 +398,8 @@ class TestGetEntitiesWithDetails:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_should_respect_max_entities_limit(self) -> None:
+    async def test_should_respect_max_entities_limit(self, mock_pool) -> None:
         """Test that max_entities limit is used."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool, max_entities=15)
@@ -436,9 +413,8 @@ class TestGetRelatedEntities:
     """Test _get_related_entities() method."""
 
     @pytest.mark.asyncio
-    async def test_should_get_related_entities(self) -> None:
+    async def test_should_get_related_entities(self, mock_pool) -> None:
         """Test getting related entities."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             return_value=[
                 {
@@ -461,10 +437,8 @@ class TestGetRelatedEntities:
         mock_pool.execute_query.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_should_handle_empty_entity_names(self) -> None:
+    async def test_should_handle_empty_entity_names(self, mock_pool) -> None:
         """Test handling empty entity names list."""
-        mock_pool = AsyncMock()
-
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
         result = await builder._get_related_entities([])
 
@@ -472,9 +446,8 @@ class TestGetRelatedEntities:
         mock_pool.execute_query.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_should_filter_by_relation_types(self) -> None:
+    async def test_should_filter_by_relation_types(self, mock_pool) -> None:
         """Test filtering by relation types."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
@@ -486,9 +459,8 @@ class TestGetRelatedEntities:
         mock_pool.execute_query.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_should_handle_query_error(self) -> None:
+    async def test_should_handle_query_error(self, mock_pool) -> None:
         """Test handling query error gracefully."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(side_effect=Exception("Query failed"))
 
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
@@ -497,9 +469,8 @@ class TestGetRelatedEntities:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_should_use_max_hops_configuration(self) -> None:
+    async def test_should_use_max_hops_configuration(self, mock_pool) -> None:
         """Test that max_hops configuration is used."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool, max_hops=3)
@@ -509,9 +480,8 @@ class TestGetRelatedEntities:
         assert builder._max_hops == 3
 
     @pytest.mark.asyncio
-    async def test_should_respect_max_entities_limit(self) -> None:
+    async def test_should_respect_max_entities_limit(self, mock_pool) -> None:
         """Test that max_entities limit is used."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool, max_entities=25)
@@ -524,9 +494,8 @@ class TestGetRelationships:
     """Test _get_relationships() method."""
 
     @pytest.mark.asyncio
-    async def test_should_get_relationships(self) -> None:
+    async def test_should_get_relationships(self, mock_pool) -> None:
         """Test getting relationships."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             return_value=[
                 {
@@ -550,10 +519,8 @@ class TestGetRelationships:
         mock_pool.execute_query.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_should_handle_empty_entity_names(self) -> None:
+    async def test_should_handle_empty_entity_names(self, mock_pool) -> None:
         """Test handling empty entity names list."""
-        mock_pool = AsyncMock()
-
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
         result = await builder._get_relationships([])
 
@@ -561,9 +528,8 @@ class TestGetRelationships:
         mock_pool.execute_query.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_should_filter_by_relation_types(self) -> None:
+    async def test_should_filter_by_relation_types(self, mock_pool) -> None:
         """Test filtering relationships by relation types."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
@@ -572,9 +538,8 @@ class TestGetRelationships:
         mock_pool.execute_query.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_should_handle_query_error(self) -> None:
+    async def test_should_handle_query_error(self, mock_pool) -> None:
         """Test handling query error gracefully."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(side_effect=Exception("Database error"))
 
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
@@ -583,9 +548,8 @@ class TestGetRelationships:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_should_respect_max_relationships_limit(self) -> None:
+    async def test_should_respect_max_relationships_limit(self, mock_pool) -> None:
         """Test that max_relationships limit is used."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool, max_relationships=75)
@@ -598,9 +562,8 @@ class TestGetRelatedArticles:
     """Test _get_related_articles() method."""
 
     @pytest.mark.asyncio
-    async def test_should_get_related_articles(self) -> None:
+    async def test_should_get_related_articles(self, mock_pool) -> None:
         """Test getting related articles."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             return_value=[
                 {
@@ -623,10 +586,8 @@ class TestGetRelatedArticles:
         mock_pool.execute_query.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_should_handle_empty_entity_names(self) -> None:
+    async def test_should_handle_empty_entity_names(self, mock_pool) -> None:
         """Test handling empty entity names list."""
-        mock_pool = AsyncMock()
-
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
         result = await builder._get_related_articles([])
 
@@ -634,9 +595,8 @@ class TestGetRelatedArticles:
         mock_pool.execute_query.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_should_handle_query_error(self) -> None:
+    async def test_should_handle_query_error(self, mock_pool) -> None:
         """Test handling query error gracefully."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(side_effect=Exception("Query failed"))
 
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
@@ -645,9 +605,8 @@ class TestGetRelatedArticles:
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_should_use_default_limit(self) -> None:
+    async def test_should_use_default_limit(self, mock_pool) -> None:
         """Test that default limit is used."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
@@ -660,9 +619,8 @@ class TestGetRelatedArticles:
 class TestFormatEntitiesSection:
     """Test _format_entities_section() method."""
 
-    def test_should_format_single_entity(self) -> None:
+    def test_should_format_single_entity(self, mock_pool) -> None:
         """Test formatting single entity."""
-        mock_pool = AsyncMock()
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
 
         entities = [
@@ -679,9 +637,8 @@ class TestFormatEntitiesSection:
         assert "LANGUAGE" in result
         assert "Programming language" in result
 
-    def test_should_format_multiple_entities(self) -> None:
+    def test_should_format_multiple_entities(self, mock_pool) -> None:
         """Test formatting multiple entities."""
-        mock_pool = AsyncMock()
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
 
         entities = [
@@ -694,18 +651,16 @@ class TestFormatEntitiesSection:
         assert "Python" in result
         assert "Rust" in result
 
-    def test_should_handle_empty_entities_list(self) -> None:
+    def test_should_handle_empty_entities_list(self, mock_pool) -> None:
         """Test handling empty entities list."""
-        mock_pool = AsyncMock()
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
 
         result = builder._format_entities_section([])
 
         assert result == ""
 
-    def test_should_handle_missing_fields(self) -> None:
+    def test_should_handle_missing_fields(self, mock_pool) -> None:
         """Test handling entities with missing fields."""
-        mock_pool = AsyncMock()
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
 
         entities = [
@@ -719,9 +674,8 @@ class TestFormatEntitiesSection:
         # Should handle missing fields gracefully
         assert isinstance(result, str)
 
-    def test_should_exclude_description_when_configured(self) -> None:
+    def test_should_exclude_description_when_configured(self, mock_pool) -> None:
         """Test excluding description from formatting."""
-        mock_pool = AsyncMock()
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
 
         entities = [
@@ -743,9 +697,8 @@ class TestFormatEntitiesSection:
 class TestFormatRelationshipsSection:
     """Test _format_relationships_section() method."""
 
-    def test_should_format_single_relationship(self) -> None:
+    def test_should_format_single_relationship(self, mock_pool) -> None:
         """Test formatting single relationship."""
-        mock_pool = AsyncMock()
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
 
         relationships = [
@@ -764,9 +717,8 @@ class TestFormatRelationshipsSection:
         assert "--[" in result
         assert "]-->" in result
 
-    def test_should_format_multiple_relationships(self) -> None:
+    def test_should_format_multiple_relationships(self, mock_pool) -> None:
         """Test formatting multiple relationships."""
-        mock_pool = AsyncMock()
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
 
         relationships = [
@@ -781,9 +733,8 @@ class TestFormatRelationshipsSection:
         assert "B" in result
         assert "C" in result
 
-    def test_should_handle_missing_fields(self) -> None:
+    def test_should_handle_missing_fields(self, mock_pool) -> None:
         """Test handling relationships with missing fields."""
-        mock_pool = AsyncMock()
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
 
         relationships = [
@@ -798,9 +749,8 @@ class TestFormatRelationshipsSection:
         assert "Unknown" in result
         assert "Only Source" in result
 
-    def test_should_handle_empty_relationships_list(self) -> None:
+    def test_should_handle_empty_relationships_list(self, mock_pool) -> None:
         """Test handling empty relationships list."""
-        mock_pool = AsyncMock()
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
 
         result = builder._format_relationships_section([])
@@ -811,9 +761,8 @@ class TestFormatRelationshipsSection:
 class TestFormatArticlesSection:
     """Test _format_articles_section() method."""
 
-    def test_should_format_single_article(self) -> None:
+    def test_should_format_single_article(self, mock_pool) -> None:
         """Test formatting single article."""
-        mock_pool = AsyncMock()
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
 
         articles = [
@@ -828,9 +777,8 @@ class TestFormatArticlesSection:
         assert "AI Revolution" in result
         assert "comprehensive article" in result
 
-    def test_should_format_multiple_articles(self) -> None:
+    def test_should_format_multiple_articles(self, mock_pool) -> None:
         """Test formatting multiple articles."""
-        mock_pool = AsyncMock()
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
 
         articles = [
@@ -843,9 +791,8 @@ class TestFormatArticlesSection:
         assert "Article 1" in result
         assert "Article 2" in result
 
-    def test_should_handle_missing_summary(self) -> None:
+    def test_should_handle_missing_summary(self, mock_pool) -> None:
         """Test handling articles without summary."""
-        mock_pool = AsyncMock()
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
 
         articles = [
@@ -856,18 +803,16 @@ class TestFormatArticlesSection:
 
         assert "No Summary Article" in result
 
-    def test_should_handle_empty_articles_list(self) -> None:
+    def test_should_handle_empty_articles_list(self, mock_pool) -> None:
         """Test handling empty articles list."""
-        mock_pool = AsyncMock()
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
 
         result = builder._format_articles_section([])
 
         assert result == ""
 
-    def test_should_truncate_long_summaries(self) -> None:
+    def test_should_truncate_long_summaries(self, mock_pool) -> None:
         """Test truncating long article summaries."""
-        mock_pool = AsyncMock()
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
 
         long_summary = "A" * 500
@@ -878,9 +823,8 @@ class TestFormatArticlesSection:
         # Should be truncated
         assert len(result) < len(long_summary) + 100
 
-    def test_should_handle_missing_title(self) -> None:
+    def test_should_handle_missing_title(self, mock_pool) -> None:
         """Test handling articles without title."""
-        mock_pool = AsyncMock()
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
 
         articles = [
@@ -897,9 +841,8 @@ class TestEdgeCases:
     """Test edge cases and boundary conditions."""
 
     @pytest.mark.asyncio
-    async def test_should_handle_special_characters_in_query(self) -> None:
+    async def test_should_handle_special_characters_in_query(self, mock_pool) -> None:
         """Test handling special characters in query."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 [],  # _find_query_entities
@@ -912,9 +855,8 @@ class TestEdgeCases:
         assert isinstance(context, SearchContext)
 
     @pytest.mark.asyncio
-    async def test_should_handle_unicode_query(self) -> None:
+    async def test_should_handle_unicode_query(self, mock_pool) -> None:
         """Test handling unicode/Chinese characters in query."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 [],  # _find_query_entities
@@ -927,9 +869,8 @@ class TestEdgeCases:
         assert isinstance(context, SearchContext)
 
     @pytest.mark.asyncio
-    async def test_should_handle_very_long_query(self) -> None:
+    async def test_should_handle_very_long_query(self, mock_pool) -> None:
         """Test handling very long query string."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 [],  # _find_query_entities
@@ -943,9 +884,8 @@ class TestEdgeCases:
         assert isinstance(context, SearchContext)
 
     @pytest.mark.asyncio
-    async def test_should_handle_concurrent_calls(self) -> None:
+    async def test_should_handle_concurrent_calls(self, mock_pool) -> None:
         """Test handling concurrent build calls."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 [{"name": "Entity1"}],  # _find_query_entities
@@ -975,9 +915,8 @@ class TestEdgeCases:
         assert results[2].query == "query3"
 
     @pytest.mark.asyncio
-    async def test_should_handle_large_number_of_entities(self) -> None:
+    async def test_should_handle_large_number_of_entities(self, mock_pool) -> None:
         """Test handling large number of entities."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 # _get_entities_with_details - 50 entities
@@ -1010,9 +949,8 @@ class TestContextSectionPriority:
     """Test context section priority ordering."""
 
     @pytest.mark.asyncio
-    async def test_should_add_sections_with_correct_priorities(self) -> None:
+    async def test_should_add_sections_with_correct_priorities(self, mock_pool) -> None:
         """Test that sections are added with correct priorities."""
-        mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 # _get_entities_with_details
