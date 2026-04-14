@@ -458,7 +458,7 @@ class TestPipelinePhase3:
         )
 
     @pytest.mark.asyncio
-    async def test_phase3_processes_all_nodes(self, pipeline):
+    async def test_phase3_processes_all_nodes(self, pipeline_for_phase3):
         """Test phase3 processes re_vectorize, analyze, credibility, entity_extractor."""
         raw = MagicMock()
         raw.title = "Test"
@@ -470,25 +470,30 @@ class TestPipelinePhase3:
         state["cleaned"] = {"title": "Title", "body": "Body"}
         state["category"] = "科技"
 
-        result = await pipeline._phase3_per_article(state)
+        result = await pipeline_for_phase3._phase3_per_article(state)
 
         assert "vectors" in result
         assert "summary_info" in result
         assert "credibility" in result
 
     @pytest.mark.asyncio
-    async def test_phase3_skips_terminal(self, pipeline):
+    async def test_phase3_skips_terminal(self, pipeline_for_phase3):
         """Test phase3 skips terminal articles."""
         state = PipelineState(raw=MagicMock())
         state["terminal"] = True
 
-        result = await pipeline._phase3_per_article(state)
+        result = await pipeline_for_phase3._phase3_per_article(state)
 
         assert result.get("terminal") is True
 
     @pytest.mark.asyncio
     async def test_phase3_terminal_runs_enrichment_skips_revectorize(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus, mock_source_auth_repo
+        self,
+        mock_llm_for_phase3,
+        mock_budget_for_phase3,
+        mock_prompt_loader_for_phase3,
+        mock_event_bus_for_phase3,
+        mock_source_auth_repo_for_phase3,
     ):
         """Test terminal article: re_vectorize skipped, but analyze/quality/credibility/entity run."""
 
@@ -496,11 +501,11 @@ class TestPipelinePhase3:
             return dict(s)
 
         pipeline = Pipeline(
-            llm=mock_llm,
-            budget=mock_budget,
-            prompt_loader=mock_prompt_loader,
-            event_bus=mock_event_bus,
-            source_auth_repo=mock_source_auth_repo,
+            llm=mock_llm_for_phase3,
+            budget=mock_budget_for_phase3,
+            prompt_loader=mock_prompt_loader_for_phase3,
+            event_bus=mock_event_bus_for_phase3,
+            source_auth_repo=mock_source_auth_repo_for_phase3,
         )
         pipeline._re_vectorize = MagicMock(execute=AsyncMock(side_effect=node_execute))
         pipeline._analyze = MagicMock(execute=AsyncMock(side_effect=node_execute))
@@ -534,7 +539,12 @@ class TestPipelinePhase3:
 
     @pytest.mark.asyncio
     async def test_phase3_non_terminal_runs_all_nodes(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus, mock_source_auth_repo
+        self,
+        mock_llm_for_phase3,
+        mock_budget_for_phase3,
+        mock_prompt_loader_for_phase3,
+        mock_event_bus_for_phase3,
+        mock_source_auth_repo_for_phase3,
     ):
         """Test non-terminal article: all Phase 3 nodes run including re_vectorize."""
 
@@ -542,11 +552,11 @@ class TestPipelinePhase3:
             return dict(s)
 
         pipeline = Pipeline(
-            llm=mock_llm,
-            budget=mock_budget,
-            prompt_loader=mock_prompt_loader,
-            event_bus=mock_event_bus,
-            source_auth_repo=mock_source_auth_repo,
+            llm=mock_llm_for_phase3,
+            budget=mock_budget_for_phase3,
+            prompt_loader=mock_prompt_loader_for_phase3,
+            event_bus=mock_event_bus_for_phase3,
+            source_auth_repo=mock_source_auth_repo_for_phase3,
         )
         pipeline._re_vectorize = MagicMock(execute=AsyncMock(side_effect=node_execute))
         pipeline._analyze = MagicMock(execute=AsyncMock(side_effect=node_execute))
@@ -576,12 +586,12 @@ class TestPipelinePhase3:
         pipeline._entity_extractor.execute.assert_awaited_once()
 
     @pytest.mark.asyncio
-    async def test_phase3_skips_merged(self, pipeline):
+    async def test_phase3_skips_merged(self, pipeline_for_phase3):
         """Test phase3 skips merged articles."""
         state = PipelineState(raw=MagicMock())
         state["is_merged"] = True
 
-        result = await pipeline._phase3_per_article(state)
+        result = await pipeline_for_phase3._phase3_per_article(state)
 
         assert result.get("is_merged") is True
 

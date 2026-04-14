@@ -351,7 +351,9 @@ class TestDependencyErrorHandling:
 
         # Reset all to None
         Endpoints._relational_pool = None
+        Endpoints._relational_pool_type = None
         Endpoints._graph_pool = None
+        Endpoints._graph_pool_type = None
         Endpoints._cache = None
         Endpoints._llm = None
         Endpoints._local_engine = None
