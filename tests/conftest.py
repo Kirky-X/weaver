@@ -17,8 +17,11 @@ _env_file = Path(__file__).parent.parent / ".env"
 if _env_file.exists():
     load_dotenv(_env_file, override=True)
 
+# Set test-specific environment variables
+os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "true")
+
 # Ensure spaCy models are available for tests
-from core.nlp.spacy_manager import SpacyModelConfig, SpacyModelManager
+from core.nlp import SpacyModelConfig, SpacyModelManager
 
 _local_paths = {
     "zh_core_web_lg": "/home/dev/projects/weaver/temp/zh_core_web_lg-3.8.0-py3-none-any.whl",
@@ -33,7 +36,7 @@ _spacy_config = SpacyModelConfig(
 _spacy_manager = SpacyModelManager(_spacy_config)
 _spacy_manager.check_and_install()
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 log = get_logger(__name__)
 
@@ -90,7 +93,7 @@ def event_loop():
 @pytest_asyncio.fixture(scope="session")
 async def relational_pool():
     """Create relational database pool for integration tests."""
-    from core.db.postgres import PostgresPool
+    from core.db import PostgresPool
 
     dsn = os.getenv("POSTGRES_DSN", "postgresql+asyncpg://postgres:postgres@localhost:5432/weaver")
     pool = PostgresPool(dsn)
@@ -200,7 +203,7 @@ def sample_article_raw():
 @pytest.fixture
 def sample_article():
     """Sample Article model for testing."""
-    from core.db.models import Article
+    from core.db import Article
 
     article = MagicMock(spec=Article)
     article.id = uuid.uuid4()
@@ -274,7 +277,7 @@ def mock_settings():
 @pytest.fixture
 def mock_circuit_breaker():
     """Mock circuit breaker for testing."""
-    from core.resilience.circuit_breaker import CBState, CircuitBreaker
+    from core.resilience import CBState, CircuitBreaker
 
     cb = MagicMock(spec=CircuitBreaker)
     cb.state = CBState.CLOSED
