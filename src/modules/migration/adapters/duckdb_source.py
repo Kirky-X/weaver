@@ -12,6 +12,7 @@ from typing import Any
 
 from sqlalchemy import text
 
+from core.db.query_builders import validate_sql_identifier
 from modules.migration.models import ColumnDef, MigrationSchema
 
 
@@ -166,6 +167,10 @@ class DuckDBSource:
         Yields:
             Lists of row dictionaries.
         """
+        # Validate identifiers once before use (not in loop)
+        validate_sql_identifier(table)
+        validate_sql_identifier(key)
+
         last_value = since
 
         while True:

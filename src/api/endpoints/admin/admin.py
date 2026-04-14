@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from api.dependencies import get_container, get_source_authority_repo
 from api.endpoints._deps import Endpoints
-from api.middleware.auth import verify_api_key
+from api.middleware.auth import verify_admin_api_key, verify_api_key
 from api.schemas.response import APIResponse, success_response
 from core.observability import get_logger
 from modules.storage import SourceAuthorityRepo
@@ -140,7 +140,7 @@ async def list_authorities(
 async def update_authority(
     host: str,
     request: UpdateAuthorityRequest,
-    _: str = Depends(verify_api_key),
+    _: str = Depends(verify_admin_api_key),  # Security: write operation requires admin
     repo: SourceAuthorityRepo = Depends(get_source_authority_repo),
 ) -> APIResponse[UpdateAuthorityResponse]:
     """Update authority score for a source host.
@@ -467,7 +467,7 @@ class DeduplicateResponse(BaseModel):
 
 @router.post("/articles/deduplicate", response_model=APIResponse[DeduplicateResponse])
 async def deduplicate_articles(
-    _: str = Depends(verify_api_key),
+    _: str = Depends(verify_admin_api_key),  # Security: write operation requires admin
 ) -> APIResponse[DeduplicateResponse]:
     """Remove duplicate articles, keeping the most recent one per source_url.
 
@@ -583,7 +583,7 @@ class ConsolidationResult(BaseModel):
 )
 async def trigger_consolidation(
     batch_size: int = Query(10, ge=1, le=100),
-    _: str = Depends(verify_api_key),
+    _: str = Depends(verify_admin_api_key),  # Security: write operation requires admin
     container: Any = Depends(get_container),
 ) -> APIResponse[ConsolidationResult]:
     """Manually trigger memory consolidation (slow path).
@@ -629,7 +629,7 @@ class AutoScoreRefreshResponse(BaseModel):
     response_model=APIResponse[AutoScoreRefreshResponse],
 )
 async def refresh_auto_scores(
-    _: str = Depends(verify_api_key),
+    _: str = Depends(verify_admin_api_key),  # Security: write operation requires admin
     container: Any = Depends(get_container),
 ) -> APIResponse[AutoScoreRefreshResponse]:
     """Manually trigger source auto_score recalculation.
@@ -686,7 +686,8 @@ async def refresh_auto_scores(
         )
 
         avg_result = await session.execute(avg_stmt)
-        credibility_by_host = {row[0]: float(row[1]) for row in avg_result}
+        # Filter out NULL hosts to avoid issues with dirty data
+        credibility_by_host = {row[0]: float(row[1]) for row in avg_result if row[0] is not None}
 
         # Update all sources in batch
         for host, avg_score in credibility_by_host.items():

@@ -345,14 +345,49 @@ def create_app(container: Container | None = None) -> FastAPI:
         lifespan=lifespan,
     )
 
-    cors_origins = os.environ.get(
-        "CORS_ORIGINS", "http://localhost:3000,http://localhost:8080,http://127.0.0.1:3000"
-    ).split(",")
+    # CORS configuration - security fix for credentials + multiple origins
+    environment = os.environ.get("ENVIRONMENT", "development")
+    cors_origins_env = os.environ.get("CORS_ORIGINS", "")
+
+    if environment == "production":
+        if cors_origins_env:
+            cors_origins = [
+                origin.strip() for origin in cors_origins_env.split(",") if origin.strip()
+            ]
+            if len(cors_origins) > 1:
+                log.warning(
+                    "cors_multiple_origins_production",
+                    message="Multiple CORS origins with credentials in production. "
+                    "Only first origin will be used for security.",
+                    origins_count=len(cors_origins),
+                )
+                cors_origins = cors_origins[:1]
+            allow_credentials = True
+        else:
+            # No explicit origins in production - warn and disable CORS
+            cors_origins = []
+            allow_credentials = False
+            log.warning(
+                "cors_no_origins_production",
+                message="CORS_ORIGINS not set in production. CORS will be disabled. "
+                "Frontend requests will fail unless served from same origin.",
+            )
+    else:
+        # Development: allow multiple origins with credentials
+        cors_origins = [
+            origin.strip()
+            for origin in (
+                cors_origins_env
+                or "http://localhost:3000,http://localhost:8080,http://127.0.0.1:3000"
+            ).split(",")
+            if origin.strip()
+        ]
+        allow_credentials = True
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
-        allow_credentials=True,
+        allow_credentials=allow_credentials,
         allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
         allow_headers=["Authorization", "Content-Type", "X-API-Key"],
     )
