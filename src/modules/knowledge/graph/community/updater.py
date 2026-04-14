@@ -563,8 +563,11 @@ class IncrementalCommunityUpdater:
         # Step 4: Run clustering to get new assignments
         new_assignments = await self._cluster_communities(node_ids, edges)
 
-        # Step 5: Write diff
-        diff_result = await self._write_diff(old_assignments, new_assignments)
+        # Step 4.5: Delete affected communities to prevent duplicate accumulation
+        await self._delete_communities_by_ids(affected_communities)
+
+        # Step 5: Write new assignments (creates fresh communities)
+        diff_result = await self._write_new_assignments(new_assignments)
         result.entities_reassigned = diff_result["reassigned"]
         result.communities_created = diff_result["created"]
         result.communities_emptied = diff_result["emptied"]
@@ -1282,6 +1285,94 @@ class IncrementalCommunityUpdater:
             await self._pool.execute_query(query)
         except Exception as exc:
             log.warning("delete_all_communities_failed", error=str(exc))
+
+    async def _delete_communities_by_ids(self, community_ids: list[str]) -> None:
+        """Delete specific communities by their IDs to prevent duplicate accumulation.
+
+        Args:
+            community_ids: List of community IDs to delete.
+        """
+        if not community_ids:
+            return
+
+        query = """
+        UNWIND $ids AS cid
+        MATCH (c:Community {id: cid})
+        DETACH DELETE c
+        """
+
+        try:
+            await self._pool.execute_query(query, {"ids": community_ids})
+            log.debug(
+                "deleted_affected_communities",
+                count=len(community_ids),
+            )
+        except Exception as exc:
+            log.warning(
+                "delete_communities_by_ids_failed",
+                count=len(community_ids),
+                error=str(exc),
+            )
+
+    async def _write_new_assignments(
+        self,
+        new_assignments: dict[str, str],
+    ) -> dict[str, int]:
+        """Write new community assignments after clearing old ones.
+
+        Unlike _write_diff which compares old vs new, this simply
+        creates fresh communities for all new assignments.
+
+        Args:
+            new_assignments: Dict mapping node_id to community_id.
+
+        Returns:
+            Dict with created and reassigned counts.
+        """
+        created_communities: set[str] = set()
+        reassigned = 0
+
+        for node_id, community_id in new_assignments.items():
+            try:
+                query = """
+                MERGE (c:Community {id: $community_id})
+                ON CREATE SET
+                    c.created_at = datetime(),
+                    c.level = 0,
+                    c.entity_count = 0
+                WITH c
+                MATCH (e)
+                WHERE elementId(e) = $node_id
+                MERGE (c)-[r:HAS_ENTITY]->(e)
+                WITH c, count(r) AS added
+                SET c.entity_count = c.entity_count + added
+                """
+                await self._pool.execute_query(
+                    query,
+                    {"community_id": community_id, "node_id": node_id},
+                )
+                created_communities.add(community_id)
+                reassigned += 1
+            except Exception as exc:
+                log.warning(
+                    "write_new_assignment_failed",
+                    node_id=node_id,
+                    community_id=community_id,
+                    error=str(exc),
+                )
+
+        log.debug(
+            "write_new_assignments_complete",
+            communities_created=len(created_communities),
+            entities_assigned=reassigned,
+        )
+
+        return {
+            "created": len(created_communities),
+            "reassigned": reassigned,
+            "emptied": 0,
+            "entity_count_changes": {},
+        }
 
     async def _calculate_modularity(self) -> float | None:
         """Calculate current graph modularity.
