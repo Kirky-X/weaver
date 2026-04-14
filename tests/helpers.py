@@ -351,3 +351,83 @@ def create_admin_action_test_data(
         "expected_status": expected_status,
         "endpoint": f"/api/v1/admin/actions/{action}",
     }
+
+
+def create_mock_migration_config(
+    source_type: str = "postgres",
+    target_type: str = "ladybug",
+    batch_size: int = 5000,
+    tables: list[str] | None = None,
+) -> dict:
+    """Create mock migration configuration for testing.
+
+    Args:
+        source_type: Source database type (default: 'postgres')
+        target_type: Target database type (default: 'ladybug')
+        batch_size: Batch size for migration (default: 5000)
+        tables: List of tables to migrate (default: empty list)
+
+    Returns:
+        Dictionary with migration configuration
+    """
+    return {
+        "source_db": source_type,
+        "target_db": target_type,
+        "batch_size": batch_size,
+        "tables": tables or [],
+        "incremental_key": None,
+        "incremental_since": None,
+        "mapping_file": None,
+        "strict_mode": False,
+    }
+
+
+def assert_migration_response(
+    response,
+    expected_status: int = 200,
+    expected_task_id: bool = True,
+) -> dict:
+    """Assert migration API response structure and return data.
+
+    Args:
+        response: FastAPI TestClient response
+        expected_status: Expected HTTP status code
+        expected_task_id: Whether to assert task_id field presence
+
+    Returns:
+        Parsed JSON response data
+    """
+    data = assert_api_response(response, expected_status=expected_status)
+
+    if expected_status == 200 and expected_task_id:
+        assert "task_id" in data, "Response missing 'task_id' field"
+        assert "status" in data, "Response missing 'status' field"
+        assert "message" in data, "Response missing 'message' field"
+
+    return data
+
+
+def create_migration_request_data(
+    source_db: str = "postgres",
+    target_db: str = "duckdb",
+    batch_size: int = 5000,
+    **kwargs,
+) -> dict:
+    """Create migration request test data with validation.
+
+    Args:
+        source_db: Source database type (default: 'postgres')
+        target_db: Target database type (default: 'duckdb')
+        batch_size: Batch size for migration (default: 5000)
+        **kwargs: Additional fields to include in request data
+
+    Returns:
+        Dictionary with migration request data
+    """
+    data = {
+        "source_db": source_db,
+        "target_db": target_db,
+        "batch_size": batch_size,
+    }
+    data.update(kwargs)
+    return data
