@@ -1013,6 +1013,7 @@ class Container:
 
     # ── Memory Service ───────────────────────────────────────────
 
+    @property
     def memory_service(self) -> Any | None:
         """Get memory integration service (or None if unavailable)."""
         return self._memory_service
@@ -1070,7 +1071,7 @@ class Container:
             self._memory_service = MemoryIntegrationService(
                 graph_pool=self.graph_pool(),
                 llm_client=self._llm_client,
-                redis_client=self._redis_client,
+                cache=self._redis_client,  # Fixed: was 'redis_client', should be 'cache'
                 embedding_service=embedding_service,
                 intent_classifier=intent_classifier,
                 config=config,
