@@ -113,7 +113,12 @@ class BatchMergerNode:
             Modified states with merge information.
         """
         start_time = time.perf_counter()
-        active_states = [s for s in states if not s.get("terminal")]
+        # Filter out terminal states AND states without vectors (incomplete articles)
+        active_states = [
+            s
+            for s in states
+            if not s.get("terminal") and s.get("vectors") and s["vectors"].get("content")
+        ]
         if not active_states:
             return states
 
