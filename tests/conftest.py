@@ -106,26 +106,9 @@ async def relational_pool():
 @pytest.fixture(scope="module")
 def mock_redis():
     """Mock Redis client for testing - module scoped for performance."""
-    redis = MagicMock()
-    redis.client = MagicMock()
-    redis.client.get = AsyncMock(return_value=None)
-    redis.client.set = AsyncMock(return_value=True)
-    redis.client.lpush = AsyncMock(return_value=1)
-    redis.client.llen = AsyncMock(return_value=0)
-    redis.client.hset = AsyncMock(return_value=1)
-    redis.client.hget = AsyncMock(return_value=None)
-    redis.client.hgetall = AsyncMock(return_value={})
-    redis.client.hdel = AsyncMock(return_value=1)
-    redis.client.delete = AsyncMock(return_value=1)
-    redis.client.expire = AsyncMock(return_value=True)
-    redis.client.incr = AsyncMock(return_value=1)
-    redis.client.decr = AsyncMock(return_value=0)
-    redis.client.zadd = AsyncMock(return_value=1)
-    redis.client.zrange = AsyncMock(return_value=[])
-    redis.client.zrem = AsyncMock(return_value=1)
-    redis.client.eval = AsyncMock(return_value=1)
-    redis.client.ping = AsyncMock(return_value=True)
-    return redis
+    from tests.helpers import create_mock_redis_client
+
+    return create_mock_redis_client()
 
 
 @pytest.fixture(scope="module")

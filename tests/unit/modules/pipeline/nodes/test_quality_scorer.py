@@ -9,42 +9,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from core.llm.validation.output_validator import QualityScorerOutput
-from modules.ingestion.domain.models import ArticleRaw
 from modules.processing.nodes.quality.quality_scorer import QualityScorerNode
 from modules.processing.pipeline.state import PipelineState
-
-
-@pytest.fixture
-def sample_raw():
-    return ArticleRaw(
-        url="https://example.com/test-article",
-        title="Test Article Title",
-        body="Test article body content.",
-        source="test_source",
-        publish_time=datetime.now(UTC),
-        source_host="example.com",
-    )
-
-
-@pytest.fixture
-def mock_llm():
-    return AsyncMock()
-
-
-@pytest.fixture
-def mock_budget():
-    budget = MagicMock()
-    budget.truncate = MagicMock(
-        side_effect=lambda text, cp: text[:2000] if len(text) > 2000 else text
-    )
-    return budget
-
-
-@pytest.fixture
-def mock_prompt_loader():
-    loader = MagicMock()
-    loader.get_version = MagicMock(return_value="1.0.0")
-    return loader
 
 
 class TestQualityScorerNodeBasic:

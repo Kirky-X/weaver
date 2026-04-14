@@ -9,42 +9,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from core.llm.validation.output_validator import CleanerContent, CleanerEntity, CleanerOutput
-from modules.ingestion.domain.models import ArticleRaw
 from modules.processing.nodes.quality.cleaner import CleanerNode
 from modules.processing.pipeline.state import PipelineState
-
-
-@pytest.fixture
-def sample_raw():
-    return ArticleRaw(
-        url="https://example.com/test-article",
-        title="Original Title",
-        body="Original body content with some noise.",
-        source="test_source",
-        publish_time=datetime.now(UTC),
-        source_host="example.com",
-    )
-
-
-@pytest.fixture
-def mock_llm():
-    return AsyncMock()
-
-
-@pytest.fixture
-def mock_budget():
-    budget = MagicMock()
-    budget.truncate = MagicMock(
-        side_effect=lambda text, cp: text[:2000] if len(text) > 2000 else text
-    )
-    return budget
-
-
-@pytest.fixture
-def mock_prompt_loader():
-    loader = MagicMock()
-    loader.get_version = MagicMock(return_value="2.0.0")
-    return loader
 
 
 @pytest.fixture

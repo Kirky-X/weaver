@@ -8,26 +8,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from modules.ingestion.domain.models import ArticleRaw
 from modules.processing.nodes.vectorization.re_vectorize import ReVectorizeNode
 from modules.processing.pipeline.state import PipelineState
-
-
-@pytest.fixture
-def sample_raw():
-    return ArticleRaw(
-        url="https://example.com/test-article",
-        title="Test Article Title",
-        body="Test article body content for embedding.",
-        source="test_source",
-        publish_time=datetime.now(UTC),
-        source_host="example.com",
-    )
-
-
-@pytest.fixture
-def mock_llm():
-    return AsyncMock()
 
 
 class TestReVectorizeNodeBasic:
