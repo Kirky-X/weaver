@@ -57,6 +57,7 @@ class TestCleanerNodeBasic:
     ):
         """Should record prompt version in state."""
         mock_llm.call_at = AsyncMock(return_value=sample_cleaner_output)
+        mock_prompt_loader.get_version = MagicMock(return_value="2.0.0")
         node = CleanerNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
 
@@ -236,8 +237,8 @@ class TestCleanerNodeErrorHandling:
         result = await node.execute(state)
 
         assert "cleaned" in result
-        assert result["cleaned"]["title"] == "Original Title"
-        assert result["cleaned"]["body"] == "Original body content with some noise."
+        assert result["cleaned"]["title"] == sample_raw.title
+        assert result["cleaned"]["body"] == sample_raw.body
         assert result["tags"] == []
         assert result["cleaner_entities"] == []
 
