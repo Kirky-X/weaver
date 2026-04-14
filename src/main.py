@@ -388,7 +388,7 @@ def create_app(container: Container | None = None) -> FastAPI:
         CORSMiddleware,
         allow_origins=cors_origins,
         allow_credentials=allow_credentials,
-        allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-API-Key"],
     )
 
@@ -398,6 +398,11 @@ def create_app(container: Container | None = None) -> FastAPI:
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(HTTPLoggingMiddleware)  # HTTP request/response logging
     app.add_middleware(RequestContextMiddleware)  # Request ID for logging (innermost)
+
+    # Performance monitoring middleware (BaseHTTPMiddleware)
+    from api.middleware.performance import PerformanceMonitoringMiddleware
+
+    app.add_middleware(PerformanceMonitoringMiddleware)
 
     # Register centralized exception handlers
     register_exception_handlers(app)

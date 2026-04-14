@@ -70,6 +70,23 @@ class PostgresPool:
             },
             echo=False,
         )
+
+        # Register performance monitoring event listeners
+        from sqlalchemy import event as sqlalchemy_event
+
+        from core.db.events import after_cursor_execute, before_cursor_execute
+
+        sqlalchemy_event.listen(
+            self._engine.sync_engine,
+            "before_cursor_execute",
+            before_cursor_execute,
+        )
+        sqlalchemy_event.listen(
+            self._engine.sync_engine,
+            "after_cursor_execute",
+            after_cursor_execute,
+        )
+
         self._session_factory = async_sessionmaker(
             bind=self._engine,
             class_=AsyncSession,

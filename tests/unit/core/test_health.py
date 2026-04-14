@@ -212,10 +212,15 @@ class TestHealthCheck:
 
         yield
 
-        # Reset after test
+        # Reset after test - ensure complete cleanup
         Endpoints._relational_pool = None
         Endpoints._graph_pool = None
         Endpoints._cache = None
+        # Also reset type attributes if they exist
+        if hasattr(Endpoints, "_relational_pool_type"):
+            Endpoints._relational_pool_type = None
+        if hasattr(Endpoints, "_graph_pool_type"):
+            Endpoints._graph_pool_type = None
 
     @pytest.fixture
     def mock_relational_pool(self):
@@ -472,11 +477,21 @@ class TestGlobalPoolSetters:
     @pytest.fixture(autouse=True)
     def cleanup_endpoints(self):
         """自动清理 Endpoints 状态,每个测试后执行"""
-        yield  # 运行测试
-        # 清理 - 确保测试间隔离
+        # Reset before test
         Endpoints._relational_pool = None
         Endpoints._graph_pool = None
         Endpoints._cache = None
+
+        yield  # 运行测试
+
+        # Reset after test - ensure complete cleanup
+        Endpoints._relational_pool = None
+        Endpoints._graph_pool = None
+        Endpoints._cache = None
+        if hasattr(Endpoints, "_relational_pool_type"):
+            Endpoints._relational_pool_type = None
+        if hasattr(Endpoints, "_graph_pool_type"):
+            Endpoints._graph_pool_type = None
 
     def test_set_relational_pool(self, cleanup_endpoints):
         """Test setting relational pool via Endpoints."""
