@@ -8,7 +8,7 @@ import pytest
 
 def test_persist_status_has_processing():
     """验证 PersistStatus 包含 PROCESSING 状态"""
-    from core.db.models import PersistStatus
+    from core.db import PersistStatus
 
     assert hasattr(PersistStatus, "PROCESSING"), "PersistStatus should have PROCESSING attribute"
     assert (
@@ -18,7 +18,7 @@ def test_persist_status_has_processing():
 
 def test_article_has_processing_fields():
     """验证 Article 模型包含进度跟踪字段"""
-    from core.db.models import Article
+    from core.db import Article
 
     # Check if the model has the expected columns by inspecting __table__
     column_names = [col.name for col in Article.__table__.columns]
@@ -83,7 +83,7 @@ def test_pipeline_has_stage_tracking():
 
 def test_scheduler_jobs_has_retry_method():
     """验证 SchedulerJobs 有 retry_pipeline_processing 方法"""
-    from modules.scheduler.jobs import SchedulerJobs
+    from modules.scheduler import SchedulerJobs
 
     assert hasattr(
         SchedulerJobs, "retry_pipeline_processing"

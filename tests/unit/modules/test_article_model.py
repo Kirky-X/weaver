@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import uuid
 
-from core.db.models import Article, PersistStatus
+from core.db import Article, PersistStatus
 
 
 class TestArticleTaskIdField:

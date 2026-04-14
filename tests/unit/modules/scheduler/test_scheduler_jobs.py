@@ -12,7 +12,7 @@ class TestSchedulerJobsInit:
 
     def test_init_with_all_dependencies(self):
         """Test initialization with all dependencies."""
-        from modules.scheduler.jobs import SchedulerJobs
+        from modules.scheduler import SchedulerJobs
 
         mock_postgres = MagicMock()
         mock_redis = MagicMock()
@@ -41,7 +41,7 @@ class TestSchedulerJobsInit:
 
     def test_init_with_pipeline(self):
         """Test initialization with pipeline."""
-        from modules.scheduler.jobs import SchedulerJobs
+        from modules.scheduler import SchedulerJobs
 
         mock_pipeline = MagicMock()
         jobs = SchedulerJobs(
@@ -64,7 +64,7 @@ class TestRetryNeo4jWrites:
     @pytest.fixture
     def scheduler_jobs(self):
         """Create SchedulerJobs instance."""
-        from modules.scheduler.jobs import SchedulerJobs
+        from modules.scheduler import SchedulerJobs
 
         return SchedulerJobs(
             relational_pool=MagicMock(),
@@ -98,7 +98,7 @@ class TestRetryNeo4jWrites:
     @pytest.mark.asyncio
     async def test_retry_neo4j_writes_success(self, scheduler_jobs):
         """Test successful retry of Neo4j writes."""
-        from core.db.models import Article, PersistStatus
+        from core.db import Article, PersistStatus
 
         mock_article = MagicMock(spec=Article)
         mock_article.id = MagicMock()
@@ -130,7 +130,7 @@ class TestRetryNeo4jWrites:
     @pytest.mark.asyncio
     async def test_retry_neo4j_writes_failure(self, scheduler_jobs):
         """Test handling of Neo4j write failure."""
-        from core.db.models import Article, PersistStatus
+        from core.db import Article, PersistStatus
 
         mock_article = MagicMock(spec=Article)
         mock_article.id = MagicMock()
@@ -163,7 +163,7 @@ class TestRetryNeo4jWrites:
         import uuid
         from datetime import UTC, datetime
 
-        from core.db.models import Article, PersistStatus
+        from core.db import Article, PersistStatus
 
         mock_article = MagicMock(spec=Article)
         mock_article.id = uuid.uuid4()
@@ -216,7 +216,7 @@ class TestFlushRetryQueue:
     @pytest.fixture
     def scheduler_jobs(self):
         """Create SchedulerJobs instance."""
-        from modules.scheduler.jobs import SchedulerJobs
+        from modules.scheduler import SchedulerJobs
 
         return SchedulerJobs(
             relational_pool=MagicMock(),
@@ -283,7 +283,7 @@ class TestUpdateSourceAutoScores:
     @pytest.fixture
     def scheduler_jobs(self):
         """Create SchedulerJobs instance."""
-        from modules.scheduler.jobs import SchedulerJobs
+        from modules.scheduler import SchedulerJobs
 
         return SchedulerJobs(
             relational_pool=MagicMock(),
@@ -350,7 +350,7 @@ class TestArchiveOldNeo4jNodes:
     @pytest.fixture
     def scheduler_jobs(self):
         """Create SchedulerJobs instance."""
-        from modules.scheduler.jobs import SchedulerJobs
+        from modules.scheduler import SchedulerJobs
 
         return SchedulerJobs(
             relational_pool=MagicMock(),
@@ -388,7 +388,7 @@ class TestCleanupOrphanEntityVectors:
     @pytest.fixture
     def scheduler_jobs(self):
         """Create SchedulerJobs instance."""
-        from modules.scheduler.jobs import SchedulerJobs
+        from modules.scheduler import SchedulerJobs
 
         return SchedulerJobs(
             relational_pool=MagicMock(),
@@ -425,7 +425,7 @@ class TestRetryPipelineProcessing:
     @pytest.fixture
     def scheduler_jobs_with_pipeline(self):
         """Create SchedulerJobs instance with pipeline."""
-        from modules.scheduler.jobs import SchedulerJobs
+        from modules.scheduler import SchedulerJobs
 
         return SchedulerJobs(
             relational_pool=MagicMock(),
@@ -441,7 +441,7 @@ class TestRetryPipelineProcessing:
     @pytest.fixture
     def scheduler_jobs_no_pipeline(self):
         """Create SchedulerJobs instance without pipeline."""
-        from modules.scheduler.jobs import SchedulerJobs
+        from modules.scheduler import SchedulerJobs
 
         return SchedulerJobs(
             relational_pool=MagicMock(),
@@ -496,7 +496,7 @@ class TestReconstructState:
     @pytest.fixture
     def scheduler_jobs(self):
         """Create SchedulerJobs instance."""
-        from modules.scheduler.jobs import SchedulerJobs
+        from modules.scheduler import SchedulerJobs
 
         return SchedulerJobs(
             relational_pool=MagicMock(),
@@ -511,7 +511,7 @@ class TestReconstructState:
     @pytest.mark.asyncio
     async def test_reconstruct_state(self, scheduler_jobs):
         """Test state reconstruction from article."""
-        from core.db.models import Article
+        from core.db import Article
 
         mock_article = MagicMock(spec=Article)
         mock_article.id = MagicMock()
@@ -539,7 +539,7 @@ class TestSyncNeo4jWithPostgres:
     @pytest.fixture
     def scheduler_jobs(self):
         """Create SchedulerJobs instance."""
-        from modules.scheduler.jobs import SchedulerJobs
+        from modules.scheduler import SchedulerJobs
 
         return SchedulerJobs(
             relational_pool=MagicMock(),
@@ -606,7 +606,7 @@ class TestSyncNeo4jWithPostgres:
         """Test enrichment gaps are reverted to PG_DONE."""
         import uuid
 
-        from core.db.models import Article, PersistStatus
+        from core.db import Article, PersistStatus
 
         pg_id = str(uuid.uuid4())
         scheduler_jobs._article_repo.get_all_article_ids = AsyncMock(return_value={pg_id})
@@ -769,7 +769,7 @@ class TestSyncPendingToNeo4j:
     @pytest.fixture
     def scheduler_jobs(self):
         """Create SchedulerJobs instance."""
-        from modules.scheduler.jobs import SchedulerJobs
+        from modules.scheduler import SchedulerJobs
 
         return SchedulerJobs(
             relational_pool=MagicMock(),
@@ -857,7 +857,7 @@ class TestConsistencyCheck:
     @pytest.fixture
     def scheduler_jobs(self):
         """Create SchedulerJobs instance."""
-        from modules.scheduler.jobs import SchedulerJobs
+        from modules.scheduler import SchedulerJobs
 
         return SchedulerJobs(
             relational_pool=MagicMock(),
@@ -945,7 +945,7 @@ class TestCleanupOldSynced:
     @pytest.fixture
     def scheduler_jobs(self):
         """Create SchedulerJobs instance."""
-        from modules.scheduler.jobs import SchedulerJobs
+        from modules.scheduler import SchedulerJobs
 
         return SchedulerJobs(
             relational_pool=MagicMock(),
@@ -984,7 +984,7 @@ class TestLLMFailureCleanup:
 
     @pytest.fixture
     def scheduler_jobs(self):
-        from modules.scheduler.jobs import SchedulerJobs
+        from modules.scheduler import SchedulerJobs
 
         mock_llm_failure_repo = MagicMock()
         mock_llm_failure_repo.cleanup_older_than = AsyncMock(return_value=5)
@@ -1007,7 +1007,7 @@ class TestLLMFailureCleanup:
 
     @pytest.mark.asyncio
     async def test_llm_failure_cleanup_no_repo(self):
-        from modules.scheduler.jobs import SchedulerJobs
+        from modules.scheduler import SchedulerJobs
 
         jobs = SchedulerJobs(
             relational_pool=MagicMock(),
@@ -1028,7 +1028,7 @@ class TestLLMUsageRawCleanup:
 
     @pytest.fixture
     def scheduler_jobs(self):
-        from modules.scheduler.jobs import SchedulerJobs
+        from modules.scheduler import SchedulerJobs
 
         return SchedulerJobs(
             relational_pool=MagicMock(),
@@ -1058,7 +1058,7 @@ class TestAggregateLLMUsage:
 
     @pytest.fixture
     def scheduler_jobs(self):
-        from modules.scheduler.jobs import SchedulerJobs
+        from modules.scheduler import SchedulerJobs
 
         return SchedulerJobs(
             relational_pool=MagicMock(),

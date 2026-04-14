@@ -83,7 +83,7 @@ class TestEventBus:
     @pytest.mark.asyncio
     async def test_event_bus_publish_subscribe(self):
         """Test event bus publish and subscribe."""
-        from core.event.bus import BaseEvent, EventBus
+        from core.event import BaseEvent, EventBus
 
         bus = EventBus()
         received_events = []
@@ -102,7 +102,7 @@ class TestEventBus:
     @pytest.mark.asyncio
     async def test_event_bus_no_handlers(self):
         """Test event bus handles no handlers gracefully."""
-        from core.event.bus import BaseEvent, EventBus
+        from core.event import BaseEvent, EventBus
 
         bus = EventBus()
         event = BaseEvent()
@@ -116,7 +116,7 @@ class TestLLMTypes:
 
     def test_llm_task_creation(self):
         """Test LLMTask can be created."""
-        from core.llm.types import CallPoint, LLMTask, LLMType
+        from core.llm import CallPoint, LLMTask, LLMType
 
         task = LLMTask(
             call_point=CallPoint.CLASSIFIER,
@@ -128,7 +128,7 @@ class TestLLMTypes:
 
     def test_call_point_enum(self):
         """Test CallPoint enum values."""
-        from core.llm.types import CallPoint
+        from core.llm import CallPoint
 
         assert CallPoint.CLASSIFIER.value == "classifier"
         assert CallPoint.CLEANER.value == "cleaner"
@@ -140,7 +140,7 @@ class TestCircuitBreaker:
 
     def test_circuit_breaker_initial_state(self):
         """Test circuit breaker starts in closed state."""
-        from core.resilience.circuit_breaker import CBState, CircuitBreaker
+        from core.resilience import CBState, CircuitBreaker
 
         cb = CircuitBreaker(
             threshold=3,
@@ -150,7 +150,7 @@ class TestCircuitBreaker:
 
     async def test_circuit_breaker_record_success(self):
         """Test circuit breaker records success."""
-        from core.resilience.circuit_breaker import CBState, CircuitBreaker
+        from core.resilience import CBState, CircuitBreaker
 
         cb = CircuitBreaker(
             threshold=3,
@@ -161,7 +161,7 @@ class TestCircuitBreaker:
 
     async def test_circuit_breaker_record_failure(self):
         """Test circuit breaker records failure."""
-        from core.resilience.circuit_breaker import CircuitBreaker
+        from core.resilience import CircuitBreaker
 
         cb = CircuitBreaker(
             threshold=3,

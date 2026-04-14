@@ -11,9 +11,9 @@ import uuid
 import pytest
 from sqlalchemy import text
 
-from core.event.bus import EventBus
-from core.llm.types import TokenUsage
-from core.net.port_finder import PortFinder
+from core.event import EventBus
+from core.llm import TokenUsage
+from core.net import PortFinder
 from modules.analytics.llm_usage.buffer import LLMUsageBuffer
 from modules.analytics.llm_usage.repo import LLMUsageRepo
 from modules.storage.postgres.vector_repo import VectorRepo
@@ -31,7 +31,7 @@ class TestLLMUsagePipelineIntegration:
         # Insert a raw usage record
         from datetime import UTC, datetime
 
-        from core.db.models import LLMUsageRaw
+        from core.db import LLMUsageRaw
 
         raw = LLMUsageRaw(
             label=f"test_{unique_id}",
@@ -72,7 +72,7 @@ class TestLLMUsagePipelineIntegration:
     async def test_llm_failure_tracking_integration(self, relational_pool, event_bus, unique_id):
         """Test LLM failures are tracked and queryable."""
         pool, _ = relational_pool
-        from core.event.bus import LLMFailureEvent
+        from core.event import LLMFailureEvent
         from modules.analytics.llm_failure.repo import LLMFailureRepo
 
         repo = LLMFailureRepo(pool)
@@ -122,7 +122,7 @@ class TestVectorRepoIntegration:
     @pytest.mark.asyncio
     async def test_vector_search_integration(self, relational_pool, unique_id):
         """Test vector search returns relevant results with fallback database."""
-        from core.db.query_builders import create_vector_query_builder
+        from core.db import create_vector_query_builder
 
         pool, db_type = relational_pool
         query_builder = create_vector_query_builder(db_type)

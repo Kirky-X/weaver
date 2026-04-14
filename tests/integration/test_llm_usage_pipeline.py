@@ -13,9 +13,9 @@ from fastapi.testclient import TestClient
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy import text
 
-from core.db.models import LLMUsageRaw
-from core.event.bus import EventBus, LLMUsageEvent
-from core.llm.types import TokenUsage
+from core.db import LLMUsageRaw
+from core.event import EventBus, LLMUsageEvent
+from core.llm import TokenUsage
 from modules.analytics.llm_usage.buffer import LLMUsageBuffer
 from modules.analytics.llm_usage.repo import LLMUsageRepo
 
@@ -500,7 +500,7 @@ class TestLLMTokenPrometheusMetrics:
 
     def test_llm_token_metrics_increment_on_event(self, metrics_client):
         """Test LLM token metrics increment when LLMUsageEvent is processed."""
-        from core.observability.metrics import metrics
+        from core.observability import metrics
 
         # Record some token usage
         metrics.llm_token_input_total.labels(
@@ -563,7 +563,7 @@ class TestPrometheusMetricsIntegration:
     @pytest.mark.asyncio
     async def test_event_handler_updates_prometheus_metrics(self, event_bus):
         """Test LLMUsageEvent handler updates Prometheus metrics."""
-        from core.observability.metrics import metrics
+        from core.observability import metrics
 
         # Create and publish event
         event = LLMUsageEvent(

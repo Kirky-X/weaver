@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.event.bus import EventBus, MemoryIngestEvent
+from core.event import EventBus, MemoryIngestEvent
 
 
 @pytest.fixture

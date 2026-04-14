@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.event.bus import LLMCompareEvent
+from core.event import LLMCompareEvent
+from core.llm import EvalConfig, Label, TokenUsage
 from core.llm.evaluation.eval_runner import EvalRunner, EvalRunnerConfig
-from core.llm.types import EvalConfig, Label, TokenUsage
 
 
 @pytest.fixture

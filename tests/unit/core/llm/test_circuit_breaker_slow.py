@@ -3,11 +3,11 @@
 
 import pytest
 
+from core.llm import CircuitState
 from core.llm.resilience.circuit_breaker import (
     CircuitOpenError,
     ProviderCircuitBreaker,
 )
-from core.llm.types import CircuitState
 
 
 class TestCircuitBreakerSlowTracking:

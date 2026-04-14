@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.db.models import Article
+from core.db import Article
 from modules.ingestion.domain.models import ArticleRaw
 from modules.storage import ArticleRepo
 

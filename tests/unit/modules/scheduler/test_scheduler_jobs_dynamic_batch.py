@@ -11,7 +11,7 @@ from config.settings import SchedulerSettings
 @pytest.fixture
 def scheduler_jobs_with_settings():
     """Create SchedulerJobs instance with custom settings."""
-    from modules.scheduler.jobs import SchedulerJobs
+    from modules.scheduler import SchedulerJobs
 
     return SchedulerJobs(
         relational_pool=MagicMock(),
@@ -33,7 +33,7 @@ def scheduler_jobs_with_settings():
 @pytest.fixture
 def scheduler_jobs_no_dynamic():
     """Create SchedulerJobs instance with dynamic batching disabled."""
-    from modules.scheduler.jobs import SchedulerJobs
+    from modules.scheduler import SchedulerJobs
 
     return SchedulerJobs(
         relational_pool=MagicMock(),
@@ -57,7 +57,7 @@ class TestGetRecentSuccessRate:
     @pytest.fixture
     def scheduler_jobs(self):
         """Create SchedulerJobs instance."""
-        from modules.scheduler.jobs import SchedulerJobs
+        from modules.scheduler import SchedulerJobs
 
         return SchedulerJobs(
             relational_pool=MagicMock(),

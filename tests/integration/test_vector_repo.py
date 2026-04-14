@@ -6,7 +6,7 @@ import uuid
 import pytest
 from sqlalchemy import text
 
-from core.db.query_builders import create_vector_query_builder
+from core.db import create_vector_query_builder
 from modules.storage.postgres.vector_repo import SimilarArticle, SimilarEntity, VectorRepo
 
 

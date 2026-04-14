@@ -15,7 +15,7 @@ class TestPostgresPool:
     @pytest.mark.asyncio
     async def test_pool_creation(self) -> None:
         """Test PostgreSQL pool creation and initialization."""
-        from core.db.postgres import PostgresPool
+        from core.db import PostgresPool
 
         pool = PostgresPool(
             dsn="postgresql+asyncpg://user:pass@localhost:5432/testdb",
@@ -31,7 +31,7 @@ class TestPostgresPool:
     @pytest.mark.asyncio
     async def test_pool_startup_success(self) -> None:
         """Test successful pool startup."""
-        from core.db.postgres import PostgresPool
+        from core.db import PostgresPool
 
         # Create mock engine
         mock_engine = AsyncMock()
@@ -57,7 +57,7 @@ class TestPostgresPool:
     @pytest.mark.asyncio
     async def test_pool_startup_failure(self) -> None:
         """Test pool startup failure."""
-        from core.db.postgres import PostgresPool
+        from core.db import PostgresPool
 
         with patch("core.db.postgres.create_async_engine") as mock_create:
             mock_create.side_effect = ConnectionError("Connection refused")
@@ -70,7 +70,7 @@ class TestPostgresPool:
     @pytest.mark.asyncio
     async def test_pool_shutdown(self) -> None:
         """Test closing the connection pool."""
-        from core.db.postgres import PostgresPool
+        from core.db import PostgresPool
 
         mock_engine = AsyncMock()
         mock_engine.dispose = AsyncMock()
@@ -94,7 +94,7 @@ class TestPostgresPool:
     @pytest.mark.asyncio
     async def test_pool_engine_property(self) -> None:
         """Test accessing the engine property."""
-        from core.db.postgres import PostgresPool
+        from core.db import PostgresPool
 
         mock_engine = AsyncMock()
 
@@ -116,7 +116,7 @@ class TestPostgresPool:
     @pytest.mark.asyncio
     async def test_pool_engine_not_initialized(self) -> None:
         """Test accessing engine before initialization."""
-        from core.db.postgres import PostgresPool
+        from core.db import PostgresPool
 
         pool = PostgresPool(dsn="postgresql+asyncpg://user:pass@localhost:5432/testdb")
 
@@ -134,7 +134,7 @@ class TestPostgresTransactions:
     @pytest.mark.asyncio
     async def test_session_creation(self) -> None:
         """Test session creation from pool."""
-        from core.db.postgres import PostgresPool
+        from core.db import PostgresPool
 
         mock_engine = AsyncMock()
 
@@ -165,7 +165,7 @@ class TestPostgresErrorHandling:
     @pytest.mark.asyncio
     async def test_connection_timeout(self) -> None:
         """Test handling connection timeout during startup."""
-        from core.db.postgres import PostgresPool
+        from core.db import PostgresPool
 
         mock_engine = AsyncMock()
         mock_engine.dispose = AsyncMock()
@@ -188,7 +188,7 @@ class TestPostgresErrorHandling:
     @pytest.mark.asyncio
     async def test_invalid_credentials(self) -> None:
         """Test handling invalid credentials."""
-        from core.db.postgres import PostgresPool
+        from core.db import PostgresPool
 
         mock_engine = AsyncMock()
         mock_engine.dispose = AsyncMock()
@@ -211,7 +211,7 @@ class TestPostgresErrorHandling:
     @pytest.mark.asyncio
     async def test_database_not_exists(self) -> None:
         """Test handling non-existent database."""
-        from core.db.postgres import PostgresPool
+        from core.db import PostgresPool
 
         mock_engine = AsyncMock()
         mock_engine.dispose = AsyncMock()

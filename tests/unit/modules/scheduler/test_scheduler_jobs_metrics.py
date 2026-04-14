@@ -13,7 +13,7 @@ class TestRetryPipelineMetrics:
     @pytest.fixture
     def scheduler_jobs(self):
         """Create SchedulerJobs instance with pipeline."""
-        from modules.scheduler.jobs import SchedulerJobs
+        from modules.scheduler import SchedulerJobs
 
         return SchedulerJobs(
             relational_pool=MagicMock(),
@@ -29,7 +29,7 @@ class TestRetryPipelineMetrics:
     @pytest.fixture(autouse=True)
     def clear_metrics_registry(self):
         """Clear Prometheus registry before and after each test."""
-        from core.observability.metrics import metrics
+        from core.observability import metrics
 
         # Store original metrics
         original_retry_total = metrics.pipeline_retry_total
@@ -44,7 +44,7 @@ class TestRetryPipelineMetrics:
     @pytest.mark.asyncio
     async def test_retry_pipeline_emits_started_and_completed_metrics(self, scheduler_jobs):
         """Test that pipeline_retry_total metrics are emitted at start and end."""
-        from core.observability.metrics import metrics
+        from core.observability import metrics
 
         # Setup mocks
         scheduler_jobs._article_repo.get_pending = AsyncMock(return_value=[])
@@ -67,7 +67,7 @@ class TestRetryPipelineMetrics:
     @pytest.mark.asyncio
     async def test_retry_pipeline_emits_pending_success_metric(self, scheduler_jobs):
         """Test that pipeline_retry_success_total is emitted for pending articles."""
-        from core.observability.metrics import metrics
+        from core.observability import metrics
 
         mock_article = MagicMock()
         mock_article.id = MagicMock()
@@ -93,7 +93,7 @@ class TestRetryPipelineMetrics:
     @pytest.mark.asyncio
     async def test_retry_pipeline_emits_stuck_success_metric(self, scheduler_jobs):
         """Test that pipeline_retry_success_total is emitted for stuck articles."""
-        from core.observability.metrics import metrics
+        from core.observability import metrics
 
         mock_article = MagicMock()
         mock_article.id = MagicMock()
@@ -119,7 +119,7 @@ class TestRetryPipelineMetrics:
     @pytest.mark.asyncio
     async def test_retry_pipeline_emits_failed_success_metric(self, scheduler_jobs):
         """Test that pipeline_retry_success_total is emitted for failed articles."""
-        from core.observability.metrics import metrics
+        from core.observability import metrics
 
         mock_article = MagicMock()
         mock_article.id = MagicMock()
@@ -145,7 +145,7 @@ class TestRetryPipelineMetrics:
     @pytest.mark.asyncio
     async def test_retry_pipeline_emits_multiple_success_metrics(self, scheduler_jobs):
         """Test that multiple success metrics are emitted correctly."""
-        from core.observability.metrics import metrics
+        from core.observability import metrics
 
         mock_article1 = MagicMock()
         mock_article1.id = MagicMock()
@@ -182,7 +182,7 @@ class TestRetryPipelineMetrics:
     @pytest.mark.asyncio
     async def test_retry_pipeline_no_items_still_emits_metrics(self, scheduler_jobs):
         """Test that metrics are emitted even when no items are retried."""
-        from core.observability.metrics import metrics
+        from core.observability import metrics
 
         scheduler_jobs._article_repo.get_pending = AsyncMock(return_value=[])
         scheduler_jobs._article_repo.get_stuck_articles = AsyncMock(return_value=[])
@@ -203,7 +203,7 @@ class TestRetryPipelineMetrics:
     @pytest.mark.asyncio
     async def test_retry_pipeline_no_pipeline_no_metrics(self, scheduler_jobs):
         """Test that no metrics are emitted when pipeline is not configured."""
-        from modules.scheduler.jobs import SchedulerJobs
+        from modules.scheduler import SchedulerJobs
 
         jobs_no_pipeline = SchedulerJobs(
             relational_pool=MagicMock(),
@@ -216,7 +216,7 @@ class TestRetryPipelineMetrics:
             pipeline=None,
         )
 
-        from core.observability.metrics import metrics
+        from core.observability import metrics
 
         started_before = metrics.pipeline_retry_total.labels(status="started")._value._value
 

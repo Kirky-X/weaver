@@ -44,7 +44,7 @@ def get_redis_url():
 async def check_postgres_available() -> bool:
     """Check if PostgreSQL is available."""
     try:
-        from core.db.postgres import PostgresPool
+        from core.db import PostgresPool
 
         dsn = get_postgres_dsn()
         pool = PostgresPool(dsn)
@@ -109,7 +109,7 @@ async def redis_client():
 @pytest.fixture
 def event_bus():
     """Create a real EventBus for integration tests."""
-    from core.event.bus import EventBus
+    from core.event import EventBus
 
     return EventBus()
 
@@ -132,7 +132,7 @@ async def relational_pool():
     """
     # Try PostgreSQL first
     if await check_postgres_available():
-        from core.db.postgres import PostgresPool
+        from core.db import PostgresPool
 
         dsn = get_postgres_dsn()
         pool = PostgresPool(dsn)
@@ -259,7 +259,7 @@ async def database_strategy(relational_pool, graph_pool):
 @pytest.fixture
 async def optional_relational_pool():
     """Optional relational database pool - returns None if not available."""
-    from core.db.postgres import PostgresPool
+    from core.db import PostgresPool
 
     if not await check_postgres_available():
         yield None

@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.db.query_builders import PgVectorQueryBuilder
+from core.db import PgVectorQueryBuilder
 from modules.storage.postgres.vector_repo import SimilarArticle, SimilarEntity, VectorRepo
 
 

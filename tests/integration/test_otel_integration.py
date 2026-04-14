@@ -35,7 +35,7 @@ class TestTracingInitialization:
 
     def test_configure_tracing_with_default_endpoint(self, monkeypatch):
         """Test tracing configuration with default endpoint."""
-        from core.observability.tracing import configure_tracing
+        from core.observability import configure_tracing
 
         # Prevent E2E env vars from affecting this test
         monkeypatch.delenv("WEAVER_OBSERVABILITY__OTLP_ENDPOINT", raising=False)
@@ -64,7 +64,7 @@ class TestTracingInitialization:
 
     def test_configure_tracing_with_custom_endpoint(self):
         """Test tracing configuration with custom OTLP endpoint."""
-        from core.observability.tracing import configure_tracing
+        from core.observability import configure_tracing
 
         # Reset global tracer provider
         trace._TRACER_PROVIDER = None
@@ -90,7 +90,7 @@ class TestTracingInitialization:
 
     def test_get_tracer_returns_valid_tracer(self):
         """Test that get_tracer returns a valid tracer instance."""
-        from core.observability.tracing import configure_tracing, get_tracer
+        from core.observability import configure_tracing, get_tracer
 
         # Reset global tracer provider
         trace._TRACER_PROVIDER = None
@@ -402,7 +402,7 @@ class TestTracingWithApplicationLifecycle:
     def test_tracing_in_application_startup(self):
         """Test that tracing is initialized during application startup."""
         from config.settings import Settings
-        from core.observability.tracing import configure_tracing
+        from core.observability import configure_tracing
 
         # Reset global tracer provider
         trace._TRACER_PROVIDER = None
@@ -432,7 +432,7 @@ class TestTracingWithApplicationLifecycle:
 
     def test_tracer_provider_cleanup(self):
         """Test that tracer provider can be properly shut down."""
-        from core.observability.tracing import configure_tracing
+        from core.observability import configure_tracing
 
         # Reset global tracer provider
         trace._TRACER_PROVIDER = None

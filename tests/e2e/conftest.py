@@ -33,7 +33,7 @@ import pytest_asyncio
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 # Enable nested event loops to fix asyncpg + TestClient compatibility
 nest_asyncio.apply()

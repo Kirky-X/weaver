@@ -1,8 +1,9 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Tests for scheduler setup in main.py."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 class TestSchedulerConfig:
@@ -10,7 +11,7 @@ class TestSchedulerConfig:
 
     def test_scheduler_settings_has_pipeline_retry_interval(self):
         """Verify SchedulerSettings has pipeline_retry_interval_minutes field."""
-        from config.settings import Settings, SchedulerSettings
+        from config.settings import SchedulerSettings, Settings
 
         # Check the class has the field
         assert hasattr(SchedulerSettings, "model_fields")

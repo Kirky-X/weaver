@@ -7,7 +7,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from core.nlp.spacy_manager import SpacyModelConfig, SpacyModelManager
+from core.nlp import SpacyModelConfig, SpacyModelManager
 
 
 class TestSpacyModelConfig:

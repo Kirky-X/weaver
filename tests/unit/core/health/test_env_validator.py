@@ -262,6 +262,13 @@ def _create_mock_settings():
     settings.llm.providers = {}
     settings.llm.embedding_provider = "openai"
     settings.llm.embedding_model = "text-embedding-3-small"
+
+    # Health check settings (now used by env_validator)
+    settings.health_check = MagicMock()
+    settings.health_check.max_retries = 3
+    settings.health_check.retry_delay_seconds = 2.0
+    settings.health_check.timeout_seconds = 5.0
+
     return settings
 
 

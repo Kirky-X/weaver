@@ -7,7 +7,7 @@ import asyncio
 
 import pytest
 
-from modules.scheduler.wrapper import scheduled_task
+from modules.scheduler import scheduled_task
 
 
 @pytest.mark.asyncio

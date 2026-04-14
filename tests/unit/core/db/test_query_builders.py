@@ -3,7 +3,7 @@
 
 import pytest
 
-from core.db.query_builders import (
+from core.db import (
     DatabaseType,
     DuckDBVectorQueryBuilder,
     EntitySimilarityQuery,

@@ -6,7 +6,7 @@ import uuid
 import pytest
 from sqlalchemy import text
 
-from core.db.query_builders import create_vector_query_builder
+from core.db import create_vector_query_builder
 from modules.storage.postgres.pending_sync_repo import PendingSyncRepo
 
 
@@ -258,7 +258,7 @@ class TestSyncPendingToNeo4j:
     ):
         """Test sync_pending_to_neo4j returns 0 when no pending records."""
         from modules.knowledge.graph.neo4j_writer import Neo4jWriter
-        from modules.scheduler.jobs import SchedulerJobs
+        from modules.scheduler import SchedulerJobs
         from modules.storage.postgres.article_repo import ArticleRepo
         from modules.storage.postgres.vector_repo import VectorRepo
 
@@ -291,7 +291,7 @@ class TestConsistencyCheck:
     async def test_consistency_check_with_real_services(self, relational_pool, graph_pool):
         """Test consistency_check with fallback databases."""
         from modules.knowledge.graph.neo4j_writer import Neo4jWriter
-        from modules.scheduler.jobs import SchedulerJobs
+        from modules.scheduler import SchedulerJobs
         from modules.storage.postgres.article_repo import ArticleRepo
         from modules.storage.postgres.vector_repo import VectorRepo
 

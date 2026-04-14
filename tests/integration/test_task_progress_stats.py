@@ -11,7 +11,7 @@ import uuid
 import pytest
 from sqlalchemy import delete, select
 
-from core.db.models import Article, PersistStatus
+from core.db import Article, PersistStatus
 
 
 class TestTaskProgressStats:

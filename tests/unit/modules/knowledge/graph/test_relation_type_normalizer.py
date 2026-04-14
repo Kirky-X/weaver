@@ -7,7 +7,7 @@ from uuid import uuid4
 
 import pytest
 
-from core.db.models import RelationType, RelationTypeAlias, UnknownRelationType
+from core.db import RelationType, RelationTypeAlias, UnknownRelationType
 from modules.knowledge.graph.relation_type_normalizer import (
     NormalizedRelation,
     RelationTypeNormalizer,

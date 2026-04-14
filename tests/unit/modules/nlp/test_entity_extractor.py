@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.llm.types import CallPoint
+from core.llm import CallPoint
 from core.llm.validation.output_validator import EntityExtractorOutput
 from modules.ingestion.domain.models import ArticleRaw
 from modules.processing.nodes.extraction.entity_extractor import EntityExtractorNode

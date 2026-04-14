@@ -13,8 +13,8 @@ from api.endpoints.health import (
     health_check,
 )
 from core.cache.redis import RedisClient
+from core.db import PostgresPool
 from core.db.neo4j import Neo4jPool
-from core.db.postgres import PostgresPool
 
 
 class TestCheckPostgresHealth:

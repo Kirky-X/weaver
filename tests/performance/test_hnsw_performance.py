@@ -10,8 +10,7 @@ import numpy as np
 import pytest
 from sqlalchemy import text
 
-from core.db.postgres import PostgresPool
-from core.db.query_builders import create_vector_query_builder
+from core.db import PostgresPool, create_vector_query_builder
 from modules.storage.postgres.vector_repo import VectorRepo
 
 

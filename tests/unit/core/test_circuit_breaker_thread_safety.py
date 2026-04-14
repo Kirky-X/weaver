@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-from core.resilience.circuit_breaker import CBState, CircuitBreaker
+from core.resilience import CBState, CircuitBreaker
 
 
 class TestCircuitBreakerThreadSafety:

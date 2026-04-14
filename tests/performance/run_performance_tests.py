@@ -21,7 +21,7 @@ import uuid
 import numpy as np
 from sqlalchemy import text
 
-from core.db.postgres import PostgresPool
+from core.db import PostgresPool
 from modules.storage.postgres.vector_repo import VectorRepo
 
 

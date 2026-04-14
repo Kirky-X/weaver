@@ -3,7 +3,7 @@
 
 import pytest
 
-from core.db.models import PersistStatus
+from core.db import PersistStatus
 from core.exceptions import InvalidStateTransitionError
 
 

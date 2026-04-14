@@ -27,7 +27,7 @@ def _make_mock_article(
     updated_at=None,
 ):
     """Create a mock Article ORM object."""
-    from core.db.models import PersistStatus
+    from core.db import PersistStatus
 
     article = MagicMock()
     article.id = id

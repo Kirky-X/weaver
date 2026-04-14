@@ -11,7 +11,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
-from core.event.bus import EventBus, LLMFailureEvent
+from core.event import EventBus, LLMFailureEvent
 from modules.analytics.llm_failure.repo import LLMFailureRepo
 
 

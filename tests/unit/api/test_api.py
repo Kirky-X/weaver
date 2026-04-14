@@ -586,7 +586,7 @@ class TestArticlesEndpoint:
     def test_article_to_dict(self):
         """Test _article_to_dict conversion function."""
         from api.endpoints.content.articles import _article_to_dict
-        from core.db.models import Article, CategoryType, EmotionType
+        from core.db import Article, CategoryType, EmotionType
 
         article = MagicMock(spec=Article)
         article.id = uuid.UUID("12345678-1234-5678-1234-567812345678")
@@ -1170,14 +1170,14 @@ class TestMetricsEndpoint:
 
     def test_metrics_collector_exists(self):
         """Test metrics collector is available."""
-        from core.observability.metrics import MetricsCollector, metrics
+        from core.observability import MetricsCollector, metrics
 
         assert MetricsCollector is not None
         assert metrics is not None
 
     def test_metrics_has_counters(self):
         """Test metrics has expected counters."""
-        from core.observability.metrics import metrics
+        from core.observability import metrics
 
         assert hasattr(metrics, "llm_call_total")
         assert hasattr(metrics, "fallback_total")
@@ -1185,13 +1185,13 @@ class TestMetricsEndpoint:
 
     def test_metrics_has_gauges(self):
         """Test metrics has expected gauges."""
-        from core.observability.metrics import metrics
+        from core.observability import metrics
 
         assert hasattr(metrics, "pipeline_queue_depth")
 
     def test_metrics_has_histograms(self):
         """Test metrics has expected histograms."""
-        from core.observability.metrics import metrics
+        from core.observability import metrics
 
         assert hasattr(metrics, "llm_call_latency")
         assert hasattr(metrics, "pipeline_stage_latency")

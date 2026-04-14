@@ -163,7 +163,7 @@ class TestPipelineProcessBatch:
     @pytest.fixture
     def mock_llm(self):
         """Mock LLM client."""
-        from core.llm.types import CallPoint
+        from core.llm import CallPoint
 
         llm = MagicMock()
 
@@ -305,7 +305,7 @@ class TestPipelinePhase1:
     @pytest.fixture
     def mock_llm(self):
         """Mock LLM client."""
-        from core.llm.types import CallPoint
+        from core.llm import CallPoint
 
         llm = MagicMock()
 
@@ -389,7 +389,7 @@ class TestPipelinePhase3:
     @pytest.fixture
     def mock_llm(self):
         """Mock LLM client."""
-        from core.llm.types import CallPoint
+        from core.llm import CallPoint
 
         llm = MagicMock()
 

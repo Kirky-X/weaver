@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 import asyncpg
 import pytest
 
-from core.db.initializer import (
+from core.db import (
     REQUIRED_TABLES,
     ParsedDSN,
     check_database_exists,

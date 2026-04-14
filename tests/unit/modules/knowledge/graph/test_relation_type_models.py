@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy import select
 
-from core.db.models import RelationType, RelationTypeAlias, UnknownRelationType
+from core.db import RelationType, RelationTypeAlias, UnknownRelationType
 
 
 class TestRelationTypeModel:

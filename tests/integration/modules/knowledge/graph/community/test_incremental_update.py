@@ -3,7 +3,7 @@
 
 import pytest
 
-from core.db.graph_query_builders import GraphDatabaseType
+from core.db import GraphDatabaseType
 from modules.knowledge.graph.community.detector import CommunityDetector
 from modules.knowledge.graph.community.repo import Neo4jCommunityRepo
 from modules.knowledge.graph.community.subgraph_extractor import SubgraphExtractor

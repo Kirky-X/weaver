@@ -7,8 +7,8 @@ import socket
 
 import pytest
 
+from core.net import PortFinder
 from core.net.errors import PortExhaustionError
-from core.net.port_finder import PortFinder
 
 
 class TestIsPortAvailable:

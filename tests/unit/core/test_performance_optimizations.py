@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.db.query_builders import PgVectorQueryBuilder
+from core.db import PgVectorQueryBuilder
 
 
 def _make_vector_repo(mock_pool: MagicMock):
@@ -286,7 +286,7 @@ class TestConnectionPoolStats:
     @pytest.mark.asyncio
     async def test_pool_handles_concurrent_sessions(self):
         """Pool should handle many concurrent session requests."""
-        from core.db.postgres import PostgresPool
+        from core.db import PostgresPool
 
         # Create a mock engine that simulates connection behavior
         mock_engine = MagicMock()
@@ -315,7 +315,7 @@ class TestConnectionPoolStats:
     @pytest.mark.asyncio
     async def test_pool_stats_when_not_started(self):
         """Pool stats should return zeros when pool not started."""
-        from core.db.postgres import PostgresPool
+        from core.db import PostgresPool
 
         pool = PostgresPool(dsn="postgresql://user:pass@localhost/db")
 
@@ -329,7 +329,7 @@ class TestConnectionPoolStats:
     @pytest.mark.asyncio
     async def test_pool_utilization_calculation(self):
         """Pool utilization should be calculated correctly."""
-        from core.db.postgres import PostgresPool
+        from core.db import PostgresPool
 
         mock_engine = MagicMock()
         mock_pool = MagicMock()

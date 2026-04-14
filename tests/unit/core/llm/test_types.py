@@ -3,7 +3,7 @@
 
 import pytest
 
-from core.llm.types import (
+from core.llm import (
     Capability,
     Label,
     LLMType,

@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.event.bus import EventBus, LLMUsageEvent
+from core.event import EventBus, LLMUsageEvent
+from core.llm import TokenUsage
 from core.llm.evaluation.experience import ExperienceStore
-from core.llm.types import TokenUsage
 
 
 @pytest.fixture

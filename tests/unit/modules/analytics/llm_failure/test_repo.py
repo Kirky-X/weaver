@@ -27,7 +27,7 @@ class TestAnalyticsLLMFailureRepoRecord:
         """Test record() with valid UUID."""
         from uuid import uuid4
 
-        from core.event.bus import LLMFailureEvent
+        from core.event import LLMFailureEvent
 
         article_id = str(uuid4())
         event = LLMFailureEvent(
@@ -54,7 +54,7 @@ class TestAnalyticsLLMFailureRepoRecord:
     @pytest.mark.asyncio
     async def test_record_with_invalid_uuid(self, repo, mock_pool):
         """Test record() with invalid UUID string."""
-        from core.event.bus import LLMFailureEvent
+        from core.event import LLMFailureEvent
 
         event = LLMFailureEvent(
             call_point="analyzer",
@@ -80,7 +80,7 @@ class TestAnalyticsLLMFailureRepoRecord:
     @pytest.mark.asyncio
     async def test_record_with_none_article_id(self, repo, mock_pool):
         """Test record() with None article_id."""
-        from core.event.bus import LLMFailureEvent
+        from core.event import LLMFailureEvent
 
         event = LLMFailureEvent(
             call_point="cleaner",
@@ -120,7 +120,7 @@ class TestAnalyticsLLMFailureRepoQuery:
     @pytest.mark.asyncio
     async def test_query_with_filters(self, repo, mock_pool):
         """Test query() with filters."""
-        from core.db.models import LLMFailure
+        from core.db import LLMFailure
 
         mock_failure = MagicMock(spec=LLMFailure)
         mock_failure.call_point = "classifier"

@@ -5,7 +5,7 @@ import os
 
 import pytest
 
-from core.db.initializer import (
+from core.db import (
     check_database_exists,
     initialize_database,
     parse_dsn,
@@ -16,7 +16,7 @@ from core.db.initializer import (
 async def _check_postgres_available() -> bool:
     """Check if PostgreSQL is available."""
     try:
-        from core.db.postgres import PostgresPool
+        from core.db import PostgresPool
 
         dsn = (
             f"postgresql+asyncpg://"

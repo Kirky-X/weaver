@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.resilience.circuit_breaker import CBState
+from core.resilience import CBState
 from modules.ingestion.fetching.exceptions import CircuitOpenError
 from modules.ingestion.fetching.smart_fetcher import (
     MIN_CONTENT_LENGTH,

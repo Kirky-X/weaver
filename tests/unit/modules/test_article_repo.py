@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.db.models import Article, PersistStatus
+from core.db import Article, PersistStatus
 from core.exceptions import InvalidStateTransitionError
 from modules.storage.postgres.article_repo import (
     STATE_TO_ARTICLE_FIELDS,

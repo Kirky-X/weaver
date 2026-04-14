@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.db.models import LLMFailure
-from core.event.bus import LLMFailureEvent
+from core.db import LLMFailure
+from core.event import LLMFailureEvent
 from modules.analytics.llm_failure.repo import LLMFailureRepo
 
 
