@@ -286,3 +286,15 @@ class TemporalGraphRepo(BaseGraphRepo):
         params = {"event_id": event_id}
         result = await self._pool.execute_query(query, params)
         return [r.get("neighbor", r) for r in result]
+
+    async def count_events(self) -> int:
+        """Count total EventNodes in the temporal graph.
+
+        Returns:
+            Total count of EventNode nodes.
+        """
+        query = "MATCH (e:EventNode) RETURN count(e) as count"
+        result = await self._pool.execute_query(query, {})
+        if result and len(result) > 0:
+            return int(result[0].get("count", 0))
+        return 0

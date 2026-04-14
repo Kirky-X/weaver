@@ -14,6 +14,7 @@ Operations performed:
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any, Protocol
 
 from core.observability.logging import get_logger
@@ -171,19 +172,36 @@ class StructuralConsolidationWorker:
             List of inferred causal edges.
         """
         try:
+            # Build prompt for causal inference
+            events_str = json.dumps(neighborhood, indent=2, ensure_ascii=False)
+            prompt = f"""分析以下事件列表，推断中心事件 {center_id} 与邻居事件之间的因果关系。
+
+中心事件ID: {center_id}
+
+邻居事件列表:
+{events_str}
+
+返回 JSON 格式的因果关系列表:
+{"causal_edges": [{"source_id": "...", "target_id": "...", "relation_type": "CAUSES|ENABLES|PREVENTS", "confidence": 0.0-1.0, "evidence": "..."}]}
+
+注意:
+1. confidence 表示因果关系的可信度 (0.0-1.0)
+2. relation_type 必须是 CAUSES, ENABLES, 或 PREVENTS
+3. evidence 是支持该因果关系的证据描述"""
+
             response = await self._llm.call(
+                label="chat.aiping.GLM-4-9B-0414",
                 call_point="CAUSAL_INFERENCE",
                 payload={
-                    "center_id": center_id,
-                    "events": neighborhood,
-                    "phase": "causal_inference",
+                    "system_prompt": (
+                        "You are a causal relationship inference assistant. Analyze events and identify causal connections. Return valid JSON only."
+                    ),
+                    "user_content": prompt,
                 },
             )
 
             # Parse LLM response
             if isinstance(response, str):
-                import json
-
                 result = json.loads(response)
             else:
                 result = response
