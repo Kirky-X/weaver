@@ -45,7 +45,33 @@ class TestGetContainer:
 class TestEndpointsDependencyRegistry:
     """Tests for Endpoints class dependency registry."""
 
-    def test_get_relational_pool_returns_when_set(self):
+    @pytest.fixture(autouse=True)
+    def cleanup_endpoints(self):
+        """自动清理 Endpoints 状态,每个测试后执行"""
+        from api.endpoints._deps import Endpoints
+
+        yield  # 运行测试
+        # 清理 - 确保测试间隔离
+        Endpoints._relational_pool = None
+        Endpoints._relational_pool_type = None
+        Endpoints._graph_pool = None
+        Endpoints._graph_pool_type = None
+        Endpoints._cache = None
+        Endpoints._llm = None
+        Endpoints._local_engine = None
+        Endpoints._global_engine = None
+        Endpoints._hybrid_engine = None
+        Endpoints._vector_repo = None
+        Endpoints._graph_repo = None
+        Endpoints._scheduler = None
+        Endpoints._source_config_repo = None
+        Endpoints._source_authority_repo = None
+        Endpoints._llm_failure_repo = None
+        Endpoints._llm_usage_repo = None
+        Endpoints._pipeline_service = None
+        Endpoints._task_registry = None
+
+    def test_get_relational_pool_returns_when_set(self, cleanup_endpoints):
         """Test get_relational_pool returns pool when set."""
         from api.endpoints._deps import Endpoints
 
@@ -53,10 +79,8 @@ class TestEndpointsDependencyRegistry:
         Endpoints._relational_pool = mock_pool
         result = Endpoints.get_relational_pool()
         assert result == mock_pool
-        # Cleanup
-        Endpoints._relational_pool = None
 
-    def test_get_relational_pool_raises_when_not_set(self):
+    def test_get_relational_pool_raises_when_not_set(self, cleanup_endpoints):
         """Test get_relational_pool raises HTTPException when not set."""
         from api.endpoints._deps import Endpoints
 
@@ -65,7 +89,7 @@ class TestEndpointsDependencyRegistry:
             Endpoints.get_relational_pool()
         assert exc_info.value.status_code == 503
 
-    def test_get_graph_pool_returns_when_set(self):
+    def test_get_graph_pool_returns_when_set(self, cleanup_endpoints):
         """Test get_graph_pool returns pool when set."""
         from api.endpoints._deps import Endpoints
 
@@ -73,10 +97,8 @@ class TestEndpointsDependencyRegistry:
         Endpoints._graph_pool = mock_pool
         result = Endpoints.get_graph_pool()
         assert result == mock_pool
-        # Cleanup
-        Endpoints._graph_pool = None
 
-    def test_get_graph_pool_raises_when_not_set(self):
+    def test_get_graph_pool_raises_when_not_set(self, cleanup_endpoints):
         """Test get_graph_pool raises HTTPException when not set."""
         from api.endpoints._deps import Endpoints
 
@@ -85,7 +107,7 @@ class TestEndpointsDependencyRegistry:
             Endpoints.get_graph_pool()
         assert exc_info.value.status_code == 503
 
-    def test_get_cache_returns_when_set(self):
+    def test_get_cache_returns_when_set(self, cleanup_endpoints):
         """Test get_cache returns client when set."""
         from api.endpoints._deps import Endpoints
 
@@ -93,10 +115,8 @@ class TestEndpointsDependencyRegistry:
         Endpoints._cache = mock_cache
         result = Endpoints.get_cache()
         assert result == mock_cache
-        # Cleanup
-        Endpoints._cache = None
 
-    def test_get_cache_raises_when_not_set(self):
+    def test_get_cache_raises_when_not_set(self, cleanup_endpoints):
         """Test get_cache raises HTTPException when not set."""
         from api.endpoints._deps import Endpoints
 
@@ -105,7 +125,7 @@ class TestEndpointsDependencyRegistry:
             Endpoints.get_cache()
         assert exc_info.value.status_code == 503
 
-    def test_get_llm_returns_when_set(self):
+    def test_get_llm_returns_when_set(self, cleanup_endpoints):
         """Test get_llm returns client when set."""
         from api.endpoints._deps import Endpoints
 
@@ -113,10 +133,8 @@ class TestEndpointsDependencyRegistry:
         Endpoints._llm = mock_llm
         result = Endpoints.get_llm()
         assert result == mock_llm
-        # Cleanup
-        Endpoints._llm = None
 
-    def test_get_llm_raises_when_not_set(self):
+    def test_get_llm_raises_when_not_set(self, cleanup_endpoints):
         """Test get_llm raises HTTPException when not set."""
         from api.endpoints._deps import Endpoints
 
@@ -125,7 +143,7 @@ class TestEndpointsDependencyRegistry:
             Endpoints.get_llm()
         assert exc_info.value.status_code == 503
 
-    def test_get_vector_repo_returns_when_set(self):
+    def test_get_vector_repo_returns_when_set(self, cleanup_endpoints):
         """Test get_vector_repo returns repo when set."""
         from api.endpoints._deps import Endpoints
 
@@ -133,10 +151,8 @@ class TestEndpointsDependencyRegistry:
         Endpoints._vector_repo = mock_repo
         result = Endpoints.get_vector_repo()
         assert result == mock_repo
-        # Cleanup
-        Endpoints._vector_repo = None
 
-    def test_get_vector_repo_raises_when_not_set(self):
+    def test_get_vector_repo_raises_when_not_set(self, cleanup_endpoints):
         """Test get_vector_repo raises HTTPException when not set."""
         from api.endpoints._deps import Endpoints
 
@@ -145,7 +161,7 @@ class TestEndpointsDependencyRegistry:
             Endpoints.get_vector_repo()
         assert exc_info.value.status_code == 503
 
-    def test_get_scheduler_returns_when_set(self):
+    def test_get_scheduler_returns_when_set(self, cleanup_endpoints):
         """Test get_scheduler returns scheduler when set."""
         from api.endpoints._deps import Endpoints
 
@@ -153,10 +169,8 @@ class TestEndpointsDependencyRegistry:
         Endpoints._scheduler = mock_scheduler
         result = Endpoints.get_scheduler()
         assert result == mock_scheduler
-        # Cleanup
-        Endpoints._scheduler = None
 
-    def test_get_scheduler_raises_when_not_set(self):
+    def test_get_scheduler_raises_when_not_set(self, cleanup_endpoints):
         """Test get_scheduler raises HTTPException when not set."""
         from api.endpoints._deps import Endpoints
 
@@ -165,7 +179,7 @@ class TestEndpointsDependencyRegistry:
             Endpoints.get_scheduler()
         assert exc_info.value.status_code == 503
 
-    def test_get_source_config_repo_returns_when_set(self):
+    def test_get_source_config_repo_returns_when_set(self, cleanup_endpoints):
         """Test get_source_config_repo returns repo when set."""
         from api.endpoints._deps import Endpoints
 
@@ -173,10 +187,8 @@ class TestEndpointsDependencyRegistry:
         Endpoints._source_config_repo = mock_repo
         result = Endpoints.get_source_config_repo()
         assert result == mock_repo
-        # Cleanup
-        Endpoints._source_config_repo = None
 
-    def test_get_source_config_repo_raises_when_not_set(self):
+    def test_get_source_config_repo_raises_when_not_set(self, cleanup_endpoints):
         """Test get_source_config_repo raises HTTPException when not set."""
         from api.endpoints._deps import Endpoints
 
@@ -185,7 +197,7 @@ class TestEndpointsDependencyRegistry:
             Endpoints.get_source_config_repo()
         assert exc_info.value.status_code == 503
 
-    def test_get_source_authority_repo_returns_when_set(self):
+    def test_get_source_authority_repo_returns_when_set(self, cleanup_endpoints):
         """Test get_source_authority_repo returns repo when set."""
         from api.endpoints._deps import Endpoints
 
@@ -193,10 +205,8 @@ class TestEndpointsDependencyRegistry:
         Endpoints._source_authority_repo = mock_repo
         result = Endpoints.get_source_authority_repo()
         assert result == mock_repo
-        # Cleanup
-        Endpoints._source_authority_repo = None
 
-    def test_get_source_authority_repo_raises_when_not_set(self):
+    def test_get_source_authority_repo_raises_when_not_set(self, cleanup_endpoints):
         """Test get_source_authority_repo raises HTTPException when not set."""
         from api.endpoints._deps import Endpoints
 
@@ -345,7 +355,33 @@ class TestTypeAliases:
 class TestDependencyErrorHandling:
     """Tests for dependency error handling."""
 
-    def test_dependency_raises_503_on_uninitialized(self):
+    @pytest.fixture(autouse=True)
+    def cleanup_endpoints(self):
+        """自动清理 Endpoints 状态,每个测试后执行"""
+        from api.endpoints._deps import Endpoints
+
+        yield  # 运行测试
+        # 清理 - 确保测试间隔离
+        Endpoints._relational_pool = None
+        Endpoints._relational_pool_type = None
+        Endpoints._graph_pool = None
+        Endpoints._graph_pool_type = None
+        Endpoints._cache = None
+        Endpoints._llm = None
+        Endpoints._local_engine = None
+        Endpoints._global_engine = None
+        Endpoints._hybrid_engine = None
+        Endpoints._vector_repo = None
+        Endpoints._graph_repo = None
+        Endpoints._scheduler = None
+        Endpoints._source_config_repo = None
+        Endpoints._source_authority_repo = None
+        Endpoints._llm_failure_repo = None
+        Endpoints._llm_usage_repo = None
+        Endpoints._pipeline_service = None
+        Endpoints._task_registry = None
+
+    def test_dependency_raises_503_on_uninitialized(self, cleanup_endpoints):
         """Test all dependencies raise 503 when not initialized."""
         from api.endpoints._deps import Endpoints
 
@@ -392,7 +428,16 @@ class TestDependencyErrorHandling:
 class TestPipelineServiceDependency:
     """Tests for pipeline_service dependency."""
 
-    def test_get_pipeline_service_returns_when_set(self):
+    @pytest.fixture(autouse=True)
+    def cleanup_endpoints(self):
+        """自动清理 Endpoints 状态,每个测试后执行"""
+        from api.endpoints._deps import Endpoints
+
+        yield  # 运行测试
+        # 清理 - 确保测试间隔离
+        Endpoints._pipeline_service = None
+
+    def test_get_pipeline_service_returns_when_set(self, cleanup_endpoints):
         """Test get_pipeline_service returns service when set."""
         from api.endpoints._deps import Endpoints
 
@@ -400,10 +445,8 @@ class TestPipelineServiceDependency:
         Endpoints._pipeline_service = mock_service
         result = Endpoints.get_pipeline_service()
         assert result == mock_service
-        # Cleanup
-        Endpoints._pipeline_service = None
 
-    def test_get_pipeline_service_raises_when_not_set(self):
+    def test_get_pipeline_service_raises_when_not_set(self, cleanup_endpoints):
         """Test get_pipeline_service raises HTTPException when not set."""
         from api.endpoints._deps import Endpoints
 
@@ -426,7 +469,16 @@ class TestPipelineServiceDependency:
 class TestTaskRegistryDependency:
     """Tests for task_registry dependency."""
 
-    def test_get_task_registry_returns_when_set(self):
+    @pytest.fixture(autouse=True)
+    def cleanup_endpoints(self):
+        """自动清理 Endpoints 状态,每个测试后执行"""
+        from api.endpoints._deps import Endpoints
+
+        yield  # 运行测试
+        # 清理 - 确保测试间隔离
+        Endpoints._task_registry = None
+
+    def test_get_task_registry_returns_when_set(self, cleanup_endpoints):
         """Test get_task_registry returns registry when set."""
         from api.endpoints._deps import Endpoints
 
@@ -434,10 +486,8 @@ class TestTaskRegistryDependency:
         Endpoints._task_registry = mock_registry
         result = Endpoints.get_task_registry()
         assert result == mock_registry
-        # Cleanup
-        Endpoints._task_registry = None
 
-    def test_get_task_registry_raises_when_not_set(self):
+    def test_get_task_registry_raises_when_not_set(self, cleanup_endpoints):
         """Test get_task_registry raises HTTPException when not set."""
         from api.endpoints._deps import Endpoints
 

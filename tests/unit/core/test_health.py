@@ -469,37 +469,37 @@ class TestHealthCheck:
 class TestGlobalPoolSetters:
     """Tests for Endpoints class pool management."""
 
-    def test_set_relational_pool(self):
+    @pytest.fixture(autouse=True)
+    def cleanup_endpoints(self):
+        """自动清理 Endpoints 状态,每个测试后执行"""
+        yield  # 运行测试
+        # 清理 - 确保测试间隔离
+        Endpoints._relational_pool = None
+        Endpoints._graph_pool = None
+        Endpoints._cache = None
+
+    def test_set_relational_pool(self, cleanup_endpoints):
         """Test setting relational pool via Endpoints."""
         mock_pool = MagicMock(spec=PostgresPool)
         Endpoints._relational_pool = mock_pool
 
         assert Endpoints._relational_pool is mock_pool
 
-        # Cleanup
-        Endpoints._relational_pool = None
-
-    def test_set_graph_pool(self):
+    def test_set_graph_pool(self, cleanup_endpoints):
         """Test setting graph pool via Endpoints."""
         mock_pool = MagicMock(spec=Neo4jPool)
         Endpoints._graph_pool = mock_pool
 
         assert Endpoints._graph_pool is mock_pool
 
-        # Cleanup
-        Endpoints._graph_pool = None
-
-    def test_set_redis_client(self):
+    def test_set_redis_client(self, cleanup_endpoints):
         """Test setting Redis client via Endpoints."""
         mock_client = MagicMock(spec=RedisClient)
         Endpoints._cache = mock_client
 
         assert Endpoints._cache is mock_client
 
-        # Cleanup
-        Endpoints._cache = None
-
-    def test_set_pools_to_none(self):
+    def test_set_pools_to_none(self, cleanup_endpoints):
         """Test setting pool references to None."""
         # First set to mock
         Endpoints._relational_pool = MagicMock(spec=PostgresPool)
