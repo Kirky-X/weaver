@@ -199,28 +199,55 @@ class TestCheckRedisHealth:
         assert result["latency_ms"] < 100
 
 
+@pytest.mark.xdist_group(name="endpoints_deps")
+@pytest.mark.xdist_group(name="endpoints_deps")
 class TestHealthCheck:
     """Tests for aggregated health check."""
 
     @pytest.fixture(autouse=True)
     def reset_global_pools(self):
         """Reset Endpoints pool references before and after each test."""
-        # Reset before test
+        # Reset before test - ALL attributes
         Endpoints._relational_pool = None
+        Endpoints._relational_pool_type = None
         Endpoints._graph_pool = None
+        Endpoints._graph_pool_type = None
         Endpoints._cache = None
+        Endpoints._llm = None
+        Endpoints._local_engine = None
+        Endpoints._global_engine = None
+        Endpoints._hybrid_engine = None
+        Endpoints._vector_repo = None
+        Endpoints._graph_repo = None
+        Endpoints._scheduler = None
+        Endpoints._source_config_repo = None
+        Endpoints._source_authority_repo = None
+        Endpoints._llm_failure_repo = None
+        Endpoints._llm_usage_repo = None
+        Endpoints._pipeline_service = None
+        Endpoints._task_registry = None
 
         yield
 
         # Reset after test - ensure complete cleanup
         Endpoints._relational_pool = None
+        Endpoints._relational_pool_type = None
         Endpoints._graph_pool = None
+        Endpoints._graph_pool_type = None
         Endpoints._cache = None
-        # Also reset type attributes if they exist
-        if hasattr(Endpoints, "_relational_pool_type"):
-            Endpoints._relational_pool_type = None
-        if hasattr(Endpoints, "_graph_pool_type"):
-            Endpoints._graph_pool_type = None
+        Endpoints._llm = None
+        Endpoints._local_engine = None
+        Endpoints._global_engine = None
+        Endpoints._hybrid_engine = None
+        Endpoints._vector_repo = None
+        Endpoints._graph_repo = None
+        Endpoints._scheduler = None
+        Endpoints._source_config_repo = None
+        Endpoints._source_authority_repo = None
+        Endpoints._llm_failure_repo = None
+        Endpoints._llm_usage_repo = None
+        Endpoints._pipeline_service = None
+        Endpoints._task_registry = None
 
     @pytest.fixture
     def mock_relational_pool(self):
