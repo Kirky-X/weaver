@@ -72,20 +72,9 @@ class PostgresPool:
         )
 
         # Register performance monitoring event listeners
-        from sqlalchemy import event as sqlalchemy_event
+        from core.db.events import register_engine_events
 
-        from core.db.events import after_cursor_execute, before_cursor_execute
-
-        sqlalchemy_event.listen(
-            self._engine.sync_engine,
-            "before_cursor_execute",
-            before_cursor_execute,
-        )
-        sqlalchemy_event.listen(
-            self._engine.sync_engine,
-            "after_cursor_execute",
-            after_cursor_execute,
-        )
+        register_engine_events(self._engine.sync_engine)
 
         self._session_factory = async_sessionmaker(
             bind=self._engine,
@@ -184,7 +173,7 @@ class PostgresPool:
             "overflow": pool.overflow(),  # type: ignore[attr-defined]
             "checked_in": pool.checkedin(),  # type: ignore[attr-defined]
             "checked_out": pool.checkedout(),  # type: ignore[attr-defined]
-            "overflow_invalid": pool.overflow_invalid(),  # type: ignore[attr-defined]
+            "overflow_invalid": getattr(pool, "overflow_invalid", lambda: 0)(),  # type: ignore[attr-defined]
         }
 
         total_capacity = self._pool_size + self._max_overflow

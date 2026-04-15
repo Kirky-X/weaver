@@ -1,5 +1,11 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""SQLAlchemy event listeners for performance monitoring."""
+"""SQLAlchemy event listeners for performance monitoring.
+
+IMPORTANT: These listeners should NOT be registered at module import time
+using @event.listens_for decorators, as that interferes with SQLAlchemy's
+asyncpg dialect version detection on PostgreSQL 16+. Instead, register
+them dynamically via engine events in PostgresPool.startup().
+"""
 
 import time
 
@@ -14,7 +20,12 @@ log = get_logger(__name__)
 DEFAULT_SLOW_QUERY_THRESHOLD_MS = 100
 
 
-@event.listens_for(Connection, "before_cursor_execute")
+# NOTE: Removed global @event.listens_for decorators to avoid
+# interfering with asyncpg dialect initialization. These listeners
+# are now registered dynamically in PostgresPool.startup().
+# See: https://github.com/sqlalchemy/sqlalchemy/issues/13078
+
+
 def before_cursor_execute(
     conn: Connection,
     cursor,
@@ -37,7 +48,6 @@ def before_cursor_execute(
     log.debug("query_start", statement=statement[:100])
 
 
-@event.listens_for(Connection, "after_cursor_execute")
 def after_cursor_execute(
     conn: Connection,
     cursor,
@@ -73,3 +83,13 @@ def after_cursor_execute(
             statement=statement[:200],
             parameters=str(parameters)[:100] if parameters else None,
         )
+
+
+def register_engine_events(engine) -> None:
+    """Register event listeners on a SQLAlchemy engine.
+
+    Args:
+        engine: SQLAlchemy engine (sync or async engine's sync_engine).
+    """
+    event.listen(engine, "before_cursor_execute", before_cursor_execute)
+    event.listen(engine, "after_cursor_execute", after_cursor_execute)
