@@ -137,6 +137,16 @@ class GraphQualityMetrics:
         """
         self._pool = pool
         self._query_builder = query_builder or create_graph_query_builder(db_type)
+        self._db_type = db_type
+
+    def _get_type_expr(self, var: str = "r") -> str:
+        """Get relationship type expression based on database type.
+
+        LadybugDB stores type as edge_type property, Neo4j uses type() function.
+        """
+        if self._db_type == "ladybug":
+            return f"{var}.edge_type"
+        return f"type({var})"
 
     async def calculate_all_metrics(
         self,
@@ -189,13 +199,14 @@ class GraphQualityMetrics:
         include_orphans: bool = True,
     ) -> None:
         """Calculate basic entity and relationship counts."""
+        type_expr = self._get_type_expr("r")
         queries: dict[str, str] = {
             "entities": "MATCH (e:Entity) RETURN count(e) AS count",
             "articles": "MATCH (a:Article) RETURN count(a) AS count",
             "relationships": (
-                """
+                f"""
                 MATCH ()-[r]->()
-                WHERE type(r) IN ['RELATED_TO', 'MENTIONS', 'HAS_ENTITY']
+                WHERE {type_expr} IN ['RELATED_TO', 'MENTIONS', 'HAS_ENTITY']
                 RETURN count(r) AS count
             """
             ),
@@ -362,6 +373,8 @@ class GraphQualityMetrics:
 
     async def _calculate_distributions(self, metrics: GraphMetrics) -> None:
         """Calculate entity and relationship type distributions."""
+        type_expr = self._get_type_expr("r")
+
         entity_type_query = """
         MATCH (e:Entity)
         RETURN e.type AS type, count(e) AS count
@@ -371,11 +384,12 @@ class GraphQualityMetrics:
         # Count all relationship types:
         # - Dynamic types like MENTIONS, HAS_ENTITY use type(r)
         # - RELATED_TO uses edge_type property for semantic type names
-        rel_type_query = """
+        # LadybugDB: use r.edge_type for type expression
+        rel_type_query = f"""
         MATCH ()-[r]->()
         WITH CASE
-            WHEN type(r) = 'RELATED_TO' AND r.edge_type IS NOT NULL THEN r.edge_type
-            ELSE type(r)
+            WHEN {type_expr} = 'RELATED_TO' AND r.edge_type IS NOT NULL THEN r.edge_type
+            ELSE {type_expr}
         END AS rel_type
         RETURN rel_type AS type, count(*) AS count
         ORDER BY count DESC
