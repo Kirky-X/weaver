@@ -23,14 +23,19 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 
 
 class StageConfig(BaseModel):
-    """Configuration for a single pipeline stage."""
+    """Configuration for a single pipeline stage.
+
+    Note: timeout, retry, retry_delay are reserved for future per-stage
+    resilience. Currently not consumed by Pipeline — nodes use the shared
+    LLM retry/circuit-breaker in core.resilience instead.
+    """
 
     name: str = ""
     class_path: str = ""
     enabled: bool = True
-    timeout: int = 60
-    retry: int = 3
-    retry_delay: int = 5
+    timeout: int = 60  # reserved: per-stage timeout (seconds)
+    retry: int = 3  # reserved: per-stage retry count
+    retry_delay: int = 5  # reserved: delay between retries (seconds)
     params: dict[str, Any] = {}
 
 

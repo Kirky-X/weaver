@@ -288,22 +288,30 @@ class Pipeline:
             )
 
             # Phase 3: Per-article post-merge nodes (concurrent)
+            pre_phase3_states = list(states)
             phase3_tasks = [self._phase3_per_article(state) for state in states]
             phase3_results = await asyncio.gather(*phase3_tasks, return_exceptions=True)
-            # Handle errors gracefully - keep original state for failed articles
+            # Handle errors gracefully - preserve original state for failed articles
             states = []
             for i, result in enumerate(phase3_results):
                 if isinstance(result, Exception):
                     log.error(
-                        f"phase3_task_failed: {type(result).__name__}: {result}",
+                        "phase3_task_failed",
                         article_index=i,
+                        error=str(result),
+                        error_type=type(result).__name__,
                     )
                     log.debug(
-                        f"phase3_traceback: {traceback.format_exception(type(result), result, result.__traceback__)}"
+                        "phase3_traceback",
+                        trace="".join(
+                            traceback.format_exception(type(result), result, result.__traceback__)
+                        ),
                     )
-                    # For phase3 failures, we keep the state but mark error
-                    # The article may still have partial results from earlier phases
-                    states.append({"terminal": False, "phase3_error": str(result)})
+                    # Preserve pre-phase3 state so Phase 1/2 results are not lost
+                    original = pre_phase3_states[i]
+                    original["terminal"] = False
+                    original["phase3_error"] = str(result)
+                    states.append(original)
                 else:
                     states.append(result)
 
