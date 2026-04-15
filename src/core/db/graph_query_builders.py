@@ -832,7 +832,7 @@ class LadybugQueryBuilder:
     def build_subgraph_edges_query(self) -> str:
         """Build LadybugDB query to get edges for subgraph visualization.
 
-        Note: LadybugDB RELATED_TO uses edge_type field, not relation_type.
+        Note: Uses type(r) for dynamic relation type detection.
         """
         return """
         MATCH (e1:Entity)-[r]->(e2:Entity)

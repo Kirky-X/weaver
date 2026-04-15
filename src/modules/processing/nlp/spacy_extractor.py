@@ -82,9 +82,9 @@ class SpacyExtractor:
             batch_size: Batch size for nlp.pipe() processing.
             n_process: Number of processes for parallel processing.
             zh_model_path: Path to Chinese model (wheel file or directory).
-                          Priority: config > env var SPACY_ZH_MODEL_PATH.
+                          Loaded from configuration file (settings.toml).
             en_model_path: Path to English model (wheel file or directory).
-                          Priority: config > env var SPACY_EN_MODEL_PATH.
+                          Loaded from configuration file (settings.toml).
         """
         self._models: dict[str, object] = {}
         self._batch_size = batch_size
