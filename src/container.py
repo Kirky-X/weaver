@@ -849,7 +849,9 @@ class Container:
         if self._strategy is None or self._strategy.graph_type != "neo4j":
             return None
         if self._community_updater is None:
-            self._community_updater = IncrementalCommunityUpdater(pool=self.graph_pool())
+            self._community_updater = IncrementalCommunityUpdater(
+                pool=self.graph_pool(), llm_client=self.llm()
+            )
         return self._community_updater
 
     # ── Vector Repository ─────────────────────────────────────────
@@ -1234,6 +1236,7 @@ class Container:
                 budget=budget,
                 prompt_loader=self._prompt_loader,
                 event_bus=self._event_bus,
+                settings=self._settings,
                 spacy=spacy_extractor,
                 vector_repo=self.vector_repo(),
                 article_repo=self.article_repo(),

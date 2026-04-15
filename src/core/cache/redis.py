@@ -242,6 +242,18 @@ class RedisClient:
             return 0
         return await self.client.delete(*keys)
 
+    async def expire(self, name: str, seconds: int) -> bool:
+        """Set expiration time for a key.
+
+        Args:
+            name: Key to set expiration on.
+            seconds: Time to live in seconds.
+
+        Returns:
+            True if timeout was set, False if key doesn't exist.
+        """
+        return await self.client.expire(name, seconds)
+
     def pipeline(self) -> Any:
         """Return a pipeline for batch operations."""
         return self.client.pipeline()
