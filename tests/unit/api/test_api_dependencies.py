@@ -42,6 +42,7 @@ class TestGetContainer:
             container_module._container = original
 
 
+@pytest.mark.xdist_group(name="endpoints_deps")
 class TestEndpointsDependencyRegistry:
     """Tests for Endpoints class dependency registry."""
 
@@ -216,107 +217,145 @@ class TestEndpointsDependencyRegistry:
         assert exc_info.value.status_code == 503
 
 
+@pytest.mark.xdist_group(name="endpoints_deps")
 class TestDependencyFunctions:
     """Tests for dependency functions in api/dependencies.py."""
+
+    @pytest.fixture(autouse=True)
+    def cleanup_endpoints(self):
+        """自动清理 Endpoints 状态,每个测试后执行"""
+        from api.endpoints._deps import Endpoints
+
+        yield  # 运行测试
+        # 清理 - 确保测试间隔离
+        Endpoints._relational_pool = None
+        Endpoints._relational_pool_type = None
+        Endpoints._graph_pool = None
+        Endpoints._graph_pool_type = None
+        Endpoints._cache = None
+        Endpoints._llm = None
+        Endpoints._local_engine = None
+        Endpoints._global_engine = None
+        Endpoints._hybrid_engine = None
+        Endpoints._vector_repo = None
+        Endpoints._graph_repo = None
+        Endpoints._scheduler = None
+        Endpoints._source_config_repo = None
+        Endpoints._source_authority_repo = None
+        Endpoints._llm_failure_repo = None
+        Endpoints._llm_usage_repo = None
+        Endpoints._pipeline_service = None
+        Endpoints._task_registry = None
 
     def test_get_relational_pool_delegates_to_endpoints(self):
         """Test get_relational_pool delegates to Endpoints."""
         from api.dependencies import get_relational_pool
+        from api.endpoints._deps import Endpoints
 
         mock_pool = MagicMock()
-        with patch("api.dependencies.Endpoints.get_relational_pool", return_value=mock_pool):
-            result = get_relational_pool()
-            assert result == mock_pool
+        Endpoints._relational_pool = mock_pool
+        result = get_relational_pool()
+        assert result == mock_pool
 
     def test_get_cache_client_delegates_to_endpoints(self):
         """Test get_cache_client delegates to Endpoints."""
         from api.dependencies import get_cache_client
+        from api.endpoints._deps import Endpoints
 
         mock_cache = MagicMock()
-        with patch("api.dependencies.Endpoints.get_cache", return_value=mock_cache):
-            result = get_cache_client()
-            assert result == mock_cache
+        Endpoints._cache = mock_cache
+        result = get_cache_client()
+        assert result == mock_cache
 
     def test_get_graph_pool_delegates_to_endpoints(self):
         """Test get_graph_pool delegates to Endpoints."""
         from api.dependencies import get_graph_pool
+        from api.endpoints._deps import Endpoints
 
         mock_pool = MagicMock()
-        with patch("api.dependencies.Endpoints.get_graph_pool", return_value=mock_pool):
-            result = get_graph_pool()
-            assert result == mock_pool
+        Endpoints._graph_pool = mock_pool
+        result = get_graph_pool()
+        assert result == mock_pool
 
     def test_get_llm_client_delegates_to_endpoints(self):
         """Test get_llm_client delegates to Endpoints."""
         from api.dependencies import get_llm_client
+        from api.endpoints._deps import Endpoints
 
         mock_llm = MagicMock()
-        with patch("api.dependencies.Endpoints.get_llm", return_value=mock_llm):
-            result = get_llm_client()
-            assert result == mock_llm
+        Endpoints._llm = mock_llm
+        result = get_llm_client()
+        assert result == mock_llm
 
     def test_get_vector_repo_delegates_to_endpoints(self):
         """Test get_vector_repo delegates to Endpoints."""
         from api.dependencies import get_vector_repo
+        from api.endpoints._deps import Endpoints
 
         mock_repo = MagicMock()
-        with patch("api.dependencies.Endpoints.get_vector_repo", return_value=mock_repo):
-            result = get_vector_repo()
-            assert result == mock_repo
+        Endpoints._vector_repo = mock_repo
+        result = get_vector_repo()
+        assert result == mock_repo
 
     def test_get_local_search_engine_delegates_to_endpoints(self):
         """Test get_local_search_engine delegates to Endpoints."""
         from api.dependencies import get_local_search_engine
+        from api.endpoints._deps import Endpoints
 
         mock_engine = MagicMock()
-        with patch("api.dependencies.Endpoints.get_local_engine", return_value=mock_engine):
-            result = get_local_search_engine()
-            assert result == mock_engine
+        Endpoints._local_engine = mock_engine
+        result = get_local_search_engine()
+        assert result == mock_engine
 
     def test_get_global_search_engine_delegates_to_endpoints(self):
         """Test get_global_search_engine delegates to Endpoints."""
         from api.dependencies import get_global_search_engine
+        from api.endpoints._deps import Endpoints
 
         mock_engine = MagicMock()
-        with patch("api.dependencies.Endpoints.get_global_engine", return_value=mock_engine):
-            result = get_global_search_engine()
-            assert result == mock_engine
+        Endpoints._global_engine = mock_engine
+        result = get_global_search_engine()
+        assert result == mock_engine
 
     def test_get_hybrid_search_engine_delegates_to_endpoints(self):
         """Test get_hybrid_search_engine delegates to Endpoints."""
         from api.dependencies import get_hybrid_search_engine
+        from api.endpoints._deps import Endpoints
 
         mock_engine = MagicMock()
-        with patch("api.dependencies.Endpoints.get_hybrid_engine", return_value=mock_engine):
-            result = get_hybrid_search_engine()
-            assert result == mock_engine
+        Endpoints._hybrid_engine = mock_engine
+        result = get_hybrid_search_engine()
+        assert result == mock_engine
 
     def test_get_source_scheduler_delegates_to_endpoints(self):
         """Test get_source_scheduler delegates to Endpoints."""
         from api.dependencies import get_source_scheduler
+        from api.endpoints._deps import Endpoints
 
         mock_scheduler = MagicMock()
-        with patch("api.dependencies.Endpoints.get_scheduler", return_value=mock_scheduler):
-            result = get_source_scheduler()
-            assert result == mock_scheduler
+        Endpoints._scheduler = mock_scheduler
+        result = get_source_scheduler()
+        assert result == mock_scheduler
 
     def test_get_source_config_repo_delegates_to_endpoints(self):
         """Test get_source_config_repo delegates to Endpoints."""
         from api.dependencies import get_source_config_repo
+        from api.endpoints._deps import Endpoints
 
         mock_repo = MagicMock()
-        with patch("api.dependencies.Endpoints.get_source_config_repo", return_value=mock_repo):
-            result = get_source_config_repo()
-            assert result == mock_repo
+        Endpoints._source_config_repo = mock_repo
+        result = get_source_config_repo()
+        assert result == mock_repo
 
     def test_get_source_authority_repo_delegates_to_endpoints(self):
         """Test get_source_authority_repo delegates to Endpoints."""
         from api.dependencies import get_source_authority_repo
+        from api.endpoints._deps import Endpoints
 
         mock_repo = MagicMock()
-        with patch("api.dependencies.Endpoints.get_source_authority_repo", return_value=mock_repo):
-            result = get_source_authority_repo()
-            assert result == mock_repo
+        Endpoints._source_authority_repo = mock_repo
+        result = get_source_authority_repo()
+        assert result == mock_repo
 
 
 class TestTypeAliases:
@@ -352,6 +391,7 @@ class TestTypeAliases:
         assert SourceAuthorityRepoDep is not None
 
 
+@pytest.mark.xdist_group(name="endpoints_deps")
 class TestDependencyErrorHandling:
     """Tests for dependency error handling."""
 
@@ -425,6 +465,7 @@ class TestDependencyErrorHandling:
             assert exc_info.value.status_code == 503
 
 
+@pytest.mark.xdist_group(name="endpoints_deps")
 class TestPipelineServiceDependency:
     """Tests for pipeline_service dependency."""
 
@@ -433,8 +474,12 @@ class TestPipelineServiceDependency:
         """自动清理 Endpoints 状态,每个测试后执行"""
         from api.endpoints._deps import Endpoints
 
+        # 清理before测试
+        Endpoints._pipeline_service = None
+
         yield  # 运行测试
-        # 清理 - 确保测试间隔离
+
+        # 清理after测试 - 确保测试间隔离
         Endpoints._pipeline_service = None
 
     def test_get_pipeline_service_returns_when_set(self):
@@ -459,13 +504,15 @@ class TestPipelineServiceDependency:
     def test_get_pipeline_service_delegates_to_endpoints(self):
         """Test get_pipeline_service dependency delegates to Endpoints."""
         from api.dependencies import get_pipeline_service
+        from api.endpoints._deps import Endpoints
 
         mock_service = MagicMock()
-        with patch("api.dependencies.Endpoints.get_pipeline_service", return_value=mock_service):
-            result = get_pipeline_service()
-            assert result == mock_service
+        Endpoints._pipeline_service = mock_service
+        result = get_pipeline_service()
+        assert result == mock_service
 
 
+@pytest.mark.xdist_group(name="endpoints_deps")
 class TestTaskRegistryDependency:
     """Tests for task_registry dependency."""
 
@@ -474,8 +521,12 @@ class TestTaskRegistryDependency:
         """自动清理 Endpoints 状态,每个测试后执行"""
         from api.endpoints._deps import Endpoints
 
+        # 清理before测试
+        Endpoints._task_registry = None
+
         yield  # 运行测试
-        # 清理 - 确保测试间隔离
+
+        # 清理after测试 - 确保测试间隔离
         Endpoints._task_registry = None
 
     def test_get_task_registry_returns_when_set(self):
@@ -500,13 +551,15 @@ class TestTaskRegistryDependency:
     def test_get_task_registry_delegates_to_endpoints(self):
         """Test get_task_registry dependency delegates to Endpoints."""
         from api.dependencies import get_task_registry
+        from api.endpoints._deps import Endpoints
 
         mock_registry = MagicMock()
-        with patch("api.dependencies.Endpoints.get_task_registry", return_value=mock_registry):
-            result = get_task_registry()
-            assert result == mock_registry
+        Endpoints._task_registry = mock_registry
+        result = get_task_registry()
+        assert result == mock_registry
 
 
+@pytest.mark.xdist_group(name="endpoints_deps")
 class TestNewTypeAliases:
     """Tests for newly added dependency type aliases."""
 

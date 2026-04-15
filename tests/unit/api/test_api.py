@@ -1114,8 +1114,57 @@ class TestRouter:
         assert api_router.prefix == "/api/v1"
 
 
+@pytest.mark.xdist_group(name="endpoints_deps")
+@pytest.mark.xdist_group(name="endpoints_deps")
 class TestSystemConfigEndpoint:
     """Tests for /api/v1/config endpoint."""
+
+    @pytest.fixture(autouse=True)
+    def cleanup_endpoints(self):
+        """Reset Endpoints state before and after each test."""
+        from api.endpoints._deps import Endpoints
+
+        # Reset before test
+        Endpoints._relational_pool = None
+        Endpoints._relational_pool_type = None
+        Endpoints._graph_pool = None
+        Endpoints._graph_pool_type = None
+        Endpoints._cache = None
+        Endpoints._llm = None
+        Endpoints._local_engine = None
+        Endpoints._global_engine = None
+        Endpoints._hybrid_engine = None
+        Endpoints._vector_repo = None
+        Endpoints._graph_repo = None
+        Endpoints._scheduler = None
+        Endpoints._source_config_repo = None
+        Endpoints._source_authority_repo = None
+        Endpoints._llm_failure_repo = None
+        Endpoints._llm_usage_repo = None
+        Endpoints._pipeline_service = None
+        Endpoints._task_registry = None
+
+        yield
+
+        # Reset after test
+        Endpoints._relational_pool = None
+        Endpoints._relational_pool_type = None
+        Endpoints._graph_pool = None
+        Endpoints._graph_pool_type = None
+        Endpoints._cache = None
+        Endpoints._llm = None
+        Endpoints._local_engine = None
+        Endpoints._global_engine = None
+        Endpoints._hybrid_engine = None
+        Endpoints._vector_repo = None
+        Endpoints._graph_repo = None
+        Endpoints._scheduler = None
+        Endpoints._source_config_repo = None
+        Endpoints._source_authority_repo = None
+        Endpoints._llm_failure_repo = None
+        Endpoints._llm_usage_repo = None
+        Endpoints._pipeline_service = None
+        Endpoints._task_registry = None
 
     def test_config_endpoint_calls_correct_methods(self):
         """Test that system_config uses existing Endpoints methods (not broken ones)."""

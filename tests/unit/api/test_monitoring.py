@@ -50,7 +50,9 @@ def mock_container():
 @pytest.fixture
 def mock_pool():
     """Create mock database pool."""
-    pool = MagicMock()
+    from core.db.postgres import PostgresPool
+
+    pool = MagicMock(spec=PostgresPool)
     session = MagicMock()
     session.__aenter__ = AsyncMock(return_value=session)
     session.__aexit__ = AsyncMock(return_value=None)
@@ -76,8 +78,9 @@ def app(mock_container, mock_pool):
     from api.dependencies import get_container
     from api.middleware.auth import verify_admin_api_key
 
+    # Fix: relational_pool should be a method that returns mock_pool
+    mock_container.relational_pool = MagicMock(return_value=mock_pool)
     app.dependency_overrides[get_container] = lambda: mock_container
-    mock_container.relational_pool = lambda: mock_pool
 
     # Mock auth - will be overridden in tests
     app.dependency_overrides[verify_admin_api_key] = lambda: "test-admin-key"
@@ -92,6 +95,7 @@ def client(app):
         yield test_client
 
 
+@pytest.mark.xdist_group(name="monitoring")
 class TestDatabaseMonitoringAuth:
     """Test authentication for monitoring endpoints."""
 
@@ -157,6 +161,7 @@ class TestDatabaseMonitoringAuth:
             assert response.status_code == 401
 
 
+@pytest.mark.xdist_group(name="monitoring")
 class TestIndexUsageEndpoint:
     """Test /admin/monitoring/database/indexes endpoint."""
 
@@ -198,6 +203,7 @@ class TestIndexUsageEndpoint:
             assert data["code"] == 0  # 0 means success
 
 
+@pytest.mark.xdist_group(name="monitoring")
 class TestTableStatsEndpoint:
     """Test /admin/monitoring/database/tables endpoint."""
 
@@ -239,6 +245,7 @@ class TestTableStatsEndpoint:
             assert data["code"] == 0  # 0 means success
 
 
+@pytest.mark.xdist_group(name="monitoring")
 class TestPoolStatsEndpoint:
     """Test /admin/monitoring/database/pool endpoint."""
 
@@ -276,6 +283,7 @@ class TestPoolStatsEndpoint:
             # Response might have different structure, just check it's successful
 
 
+@pytest.mark.xdist_group(name="monitoring")
 class TestSlowQueriesEndpoint:
     """Test /admin/monitoring/database/slow-queries endpoint."""
 
