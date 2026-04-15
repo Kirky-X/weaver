@@ -71,7 +71,8 @@ class TestNPlusOneQueryFix:
                 ),
                 patch("api.endpoints.admin.admin.get_container", return_value=mock_container),
             ):
-                response = await refresh_auto_scores(mock_container)
+                # First param is API key result, second is container
+                response = await refresh_auto_scores("valid-admin-key", mock_container)
 
             # Verify execute was called exactly 2 times:
             # 1. Get distinct hosts
@@ -267,7 +268,8 @@ class TestGroupByNULLFilter:
                 ),
                 patch("api.endpoints.admin.admin.get_container", return_value=mock_container),
             ):
-                response = await refresh_auto_scores(mock_container)
+                # First param is API key result, second is container
+                response = await refresh_auto_scores("valid-admin-key", mock_container)
 
             # Verify that update_auto_score was NOT called with None
             for call_args in mock_repo.update_auto_score.call_args_list:

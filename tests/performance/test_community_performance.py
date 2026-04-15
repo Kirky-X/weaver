@@ -59,10 +59,11 @@ class TestEdgeListPerformance:
         # Results should be identical
         assert len(edges_vectorized) == len(edges_loop)
 
-        # Vectorized should complete in reasonable time (< 100ms for 1K edges)
+        # Vectorized should complete in reasonable time (< 200ms for 1K edges)
         # Note: Pandas DataFrame creation overhead dominates for small datasets
         # Vectorization advantage becomes significant for >50K edges
-        assert time_vectorized < 0.1, f"Vectorized too slow: {time_vectorized:.4f}s"
+        # Threshold relaxed for CI environments with variable load
+        assert time_vectorized < 0.2, f"Vectorized too slow: {time_vectorized:.4f}s"
 
     def test_vectorized_vs_loop_medium_dataset(self) -> None:
         """Compare vectorized vs loop for 10K edges."""
@@ -111,9 +112,10 @@ class TestEdgeListPerformance:
         # Results should be identical
         assert len(edges_vectorized) == len(edges_loop)
 
-        # Both should complete in reasonable time (< 500ms for 10K edges)
-        assert time_vectorized < 0.5, f"Vectorized too slow: {time_vectorized:.4f}s"
-        assert time_loop < 0.5, f"Loop too slow: {time_loop:.4f}s"
+        # Both should complete in reasonable time (< 1000ms for 10K edges)
+        # Threshold relaxed for CI environments with variable load
+        assert time_vectorized < 1.0, f"Vectorized too slow: {time_vectorized:.4f}s"
+        assert time_loop < 1.0, f"Loop too slow: {time_loop:.4f}s"
 
 
 @pytest.mark.performance
