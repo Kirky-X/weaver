@@ -25,7 +25,7 @@ from modules.knowledge.search.rerankers.flashrank_reranker import FlashrankReran
 from modules.knowledge.search.rerankers.mmr_reranker import MMRReranker
 from modules.knowledge.search.retrievers.bm25_retriever import BM25Retriever
 
-log = get_logger("hybrid_search")
+log = get_logger(__name__)
 
 
 @dataclass

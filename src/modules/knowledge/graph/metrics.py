@@ -15,7 +15,7 @@ from core.observability.logging import get_logger
 if TYPE_CHECKING:
     from core.protocols import GraphPool
 
-log = get_logger("graph.metrics")
+log = get_logger(__name__)
 
 
 def _dfs_component(start: str, adjacency: dict[str, set[str]], visited: set[str]) -> set[str]:

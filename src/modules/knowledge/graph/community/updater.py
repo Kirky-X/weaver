@@ -36,7 +36,7 @@ from modules.knowledge.graph.community.health.models import (
 )
 from modules.knowledge.graph.community.repair_service import CommunityRepairService
 
-log = get_logger("incremental_community_updater")
+log = get_logger(__name__)
 
 
 @dataclass

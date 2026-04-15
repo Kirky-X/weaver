@@ -15,7 +15,7 @@ from .schemas import IntentClassification, QueryIntent
 if TYPE_CHECKING:
     from modules.storage.postgres.vector_repo import VectorRepo
 
-log = get_logger("search.intent.router")
+log = get_logger(__name__)
 
 
 @dataclass

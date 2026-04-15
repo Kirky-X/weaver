@@ -22,7 +22,7 @@ from modules.knowledge.graph.community.health.models import (
 if TYPE_CHECKING:
     from core.protocols import GraphPool
 
-log = get_logger("community_repair_service")
+log = get_logger(__name__)
 
 
 class CommunityRepairService:

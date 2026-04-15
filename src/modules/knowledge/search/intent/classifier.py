@@ -3,11 +3,12 @@
 
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
+from core.llm.utils.json_parser import parse_llm_json
 from core.observability.logging import get_logger
 
 from .schemas import IntentClassification, QueryIntent, TemporalSignal
 
-log = get_logger("search.intent.classifier")
+log = get_logger(__name__)
 
 INTENT_CLASSIFICATION_PROMPT = """你是一个查询意图分类器。分析用户的搜索查询，识别其主要意图类型。
 
@@ -64,13 +65,8 @@ class IntentClassifier:
                 },
             )
 
-            # Parse LLM JSON response
-            if isinstance(response, str):
-                import json
-
-                result = json.loads(response)
-            else:
-                result = response
+            # Parse LLM JSON response — robust extraction
+            result = parse_llm_json(response)
 
             intent_str = result.get("intent", "OPEN").lower()
             try:

@@ -18,7 +18,7 @@ from core.observability.logging import get_logger
 if TYPE_CHECKING:
     from modules.knowledge.search.engines.hybrid_search import HybridSearchEngine
 
-log = get_logger("search.local_engine")
+log = get_logger(__name__)
 
 
 @dataclass

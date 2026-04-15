@@ -19,7 +19,7 @@ from typing import Any, Generic, TypeVar
 
 from core.observability.logging import get_logger
 
-log = get_logger("rrf_fusion")
+log = get_logger(__name__)
 
 T = TypeVar("T")
 

@@ -16,7 +16,7 @@ from modules.knowledge.graph.community.models import Community, CommunityReport
 if TYPE_CHECKING:
     from core.protocols import GraphPool
 
-log = get_logger("community_repo")
+log = get_logger(__name__)
 
 
 class Neo4jCommunityRepo:

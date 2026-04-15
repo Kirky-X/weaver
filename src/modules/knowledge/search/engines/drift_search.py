@@ -18,7 +18,7 @@ from core.llm.types import CallPoint
 from core.observability.logging import get_logger
 from modules.knowledge.search.engines.local_search import LocalSearchEngine
 
-log = get_logger("search.drift_engine")
+log = get_logger(__name__)
 
 
 @dataclass

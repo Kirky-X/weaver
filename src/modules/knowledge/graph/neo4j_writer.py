@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from core.protocols import GraphPool
     from modules.knowledge.graph.relation_type_normalizer import RelationTypeNormalizer
 
-log = get_logger("graph_writer")
+log = get_logger(__name__)
 
 
 class Neo4jWriter:

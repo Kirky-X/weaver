@@ -16,6 +16,7 @@ from tenacity import (
 )
 
 from core.llm.client import LLMClient
+from core.llm.utils.json_parser import parse_llm_json
 from core.observability.logging import get_logger
 from core.protocols import EntityRepository, VectorRepository
 from modules.knowledge.graph.name_normalizer import (
@@ -26,7 +27,7 @@ from modules.knowledge.graph.resolution_rules import (
     MatchType,
 )
 
-log = get_logger("entity_resolver")
+log = get_logger(__name__)
 
 
 class ConstraintError(Exception):
@@ -540,14 +541,8 @@ Consider:
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
             )
-            import re
-
-            import json_repair
-
             content = result.content if hasattr(result, "content") else str(result)
-            json_match = re.search(r"\{.*\}", content, re.DOTALL)
-            if json_match:
-                return json_repair.loads(json_match.group())
+            return parse_llm_json(content)
         except Exception as e:
             log.warning("llm_dedupe_failed", error=str(e))
 

@@ -20,7 +20,7 @@ from modules.knowledge.search.engines.local_search import SearchResult
 if TYPE_CHECKING:
     from modules.knowledge.search.engines.hybrid_search import HybridSearchEngine
 
-log = get_logger("search.global_engine")
+log = get_logger(__name__)
 
 
 @dataclass

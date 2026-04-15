@@ -24,7 +24,7 @@ from modules.knowledge.graph.community.repo import Neo4jCommunityRepo
 if TYPE_CHECKING:
     from core.protocols import GraphPool
 
-log = get_logger("community_detector")
+log = get_logger(__name__)
 
 
 class CommunityDetector:

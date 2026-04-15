@@ -18,7 +18,7 @@ from modules.knowledge.graph.community.repo import Neo4jCommunityRepo
 if TYPE_CHECKING:
     from core.protocols import GraphPool
 
-log = get_logger("community_report_generator")
+log = get_logger(__name__)
 
 # Safety limit: maximum number of communities to process per level
 MAX_COMMUNITIES_PER_LEVEL = 10000

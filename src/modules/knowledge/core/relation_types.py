@@ -17,7 +17,7 @@ from sqlalchemy import select, update
 from core.db.models import RelationType, UnknownRelationType
 from core.observability.logging import get_logger
 
-log = get_logger("relation_type_normalizer")
+log = get_logger(__name__)
 
 
 @dataclass

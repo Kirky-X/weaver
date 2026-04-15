@@ -19,7 +19,7 @@ from modules.knowledge.search.context.builder import ContextBuilder, SearchConte
 if TYPE_CHECKING:
     from core.protocols import GraphPool
 
-log = get_logger("search.local_context")
+log = get_logger(__name__)
 
 
 class LocalContextBuilder(ContextBuilder):

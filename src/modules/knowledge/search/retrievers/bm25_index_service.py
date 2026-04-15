@@ -22,7 +22,7 @@ from modules.knowledge.search.retrievers.bm25_retriever import BM25Document, BM2
 if TYPE_CHECKING:
     from core.protocols import RelationalPool
 
-log = get_logger("bm25_index_service")
+log = get_logger(__name__)
 
 
 class BM25IndexService:

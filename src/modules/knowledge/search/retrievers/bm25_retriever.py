@@ -83,7 +83,7 @@ class RestrictedUnpickler(pickle.Unpickler):
         )
 
 
-log = get_logger("bm25_retriever")
+log = get_logger(__name__)
 
 # Optional stemmer for English text
 try:

@@ -23,7 +23,7 @@ from typing import Any
 
 from core.observability.logging import get_logger
 
-log = get_logger("mmr_reranker")
+log = get_logger(__name__)
 
 
 @dataclass

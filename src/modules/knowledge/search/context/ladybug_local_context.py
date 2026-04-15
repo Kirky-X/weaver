@@ -23,7 +23,7 @@ from core.observability.logging import get_logger
 from core.protocols import GraphPool
 from modules.knowledge.search.context.builder import ContextBuilder, SearchContext
 
-log = get_logger("search.ladybug_local_context")
+log = get_logger(__name__)
 
 
 class LadybugLocalContextBuilder(ContextBuilder):
