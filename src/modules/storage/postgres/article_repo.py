@@ -559,9 +559,11 @@ class ArticleRepo:
         # A typical article body is hundreds of characters; error pages are < 200 chars.
         MIN_BODY_LENGTH = 200
         effective_body = raw.body
+        body_source = "full"
         if len(effective_body) < MIN_BODY_LENGTH and raw.description:
             effective_body = raw.description
-            log.debug(
+            body_source = "description"
+            log.info(
                 "body_too_short_using_description",
                 url=raw.url,
                 body_len=len(raw.body),
@@ -589,6 +591,7 @@ class ArticleRepo:
                 body=effective_body,
                 is_news=True,
                 persist_status=PersistStatus.PENDING,
+                prompt_versions={"body_source": body_source} if body_source != "full" else None,
             )
             article.task_id = task_id
             if raw.publish_time:
