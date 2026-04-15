@@ -483,8 +483,15 @@ async def search_temporal(
         # Get temporal chain
         events = await temporal_repo.get_temporal_chain(limit=body.limit)
 
+        # Convert neo4j.time.DateTime to ISO string for JSON serialization
+        for event in events:
+            ts = event.get("timestamp")
+            if ts is not None and hasattr(ts, "isoformat"):
+                event["timestamp"] = ts.isoformat()
+
         # Build time range
         timestamps = [e.get("timestamp") for e in events if e.get("timestamp")]
+        # Convert timestamps to strings for comparison
         time_range = {
             "start": min(timestamps) if timestamps else None,
             "end": max(timestamps) if timestamps else None,
