@@ -47,7 +47,7 @@ class RedisClient:
     async def shutdown(self) -> None:
         """Close the Redis connection pool."""
         if self._redis:
-            await self._redis.close()
+            await self._redis.aclose()
             log.info("redis_client_closed")
 
     async def ping(self) -> bool:
