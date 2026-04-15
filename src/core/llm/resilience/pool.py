@@ -18,7 +18,7 @@ from core.resilience.retry import retry_llm
 if TYPE_CHECKING:
     from core.event.bus import EventBus
 
-log = get_logger("provider_pool")
+log = get_logger(__name__)
 
 
 class AllProvidersFailedError(Exception):

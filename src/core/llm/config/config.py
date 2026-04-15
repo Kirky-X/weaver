@@ -24,7 +24,7 @@ from core.llm.types import (
 )
 from core.observability.logging import get_logger
 
-log = get_logger("llm_config")
+log = get_logger(__name__)
 
 # Project root for config file paths
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent

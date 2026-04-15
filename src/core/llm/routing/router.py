@@ -6,7 +6,7 @@ from __future__ import annotations
 from core.llm.types import GlobalConfig, Label, LLMType, RoutingConfig
 from core.observability.logging import get_logger
 
-log = get_logger("label_router")
+log = get_logger(__name__)
 
 
 class LabelRouter:

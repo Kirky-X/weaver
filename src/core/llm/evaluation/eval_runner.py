@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from core.event.bus import EventBus
     from core.llm.client import LLMClient
 
-log = get_logger("eval_runner")
+log = get_logger(__name__)
 
 
 @dataclass

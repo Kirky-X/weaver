@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from core.llm.routing.smart_router import SmartRouter
     from core.prompt.loader import PromptLoader
 
-log = get_logger("llm_client")
+log = get_logger(__name__)
 
 T = TypeVar("T", bound=BaseModel)
 

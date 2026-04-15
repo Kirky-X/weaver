@@ -17,7 +17,7 @@ from pybreaker import CircuitBreaker as PyBreaker, CircuitBreakerError as PyCirc
 from core.llm.types import CircuitState
 from core.observability.logging import get_logger
 
-log = get_logger("circuit_breaker")
+log = get_logger(__name__)
 
 
 class CircuitOpenError(Exception):

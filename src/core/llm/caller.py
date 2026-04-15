@@ -14,7 +14,7 @@ from openai import AsyncOpenAI
 from core.llm.types import Label, LLMResponse, LLMType, TokenUsage
 from core.observability.logging import get_logger
 
-log = get_logger("litellm_caller")
+log = get_logger(__name__)
 
 # LiteLLM原生支持的rerank provider类型
 LITELLM_RERANK_PROVIDERS = frozenset({"cohere", "huggingface", "jina", "infinity"})

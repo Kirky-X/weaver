@@ -17,7 +17,7 @@ from core.event.bus import EventBus, LLMUsageEvent
 from core.llm.types import ExperienceData
 from core.observability.logging import get_logger
 
-log = get_logger("experience_store")
+log = get_logger(__name__)
 
 
 @dataclass

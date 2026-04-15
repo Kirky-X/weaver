@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from core.llm.evaluation.experience import ExperienceStore
     from core.llm.resilience.circuit_breaker import ProviderCircuitBreaker
 
-log = get_logger("model_selector")
+log = get_logger(__name__)
 
 
 # Default weights per routing mode
