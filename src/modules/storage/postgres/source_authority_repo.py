@@ -11,7 +11,7 @@ from core.db.models import SourceAuthority
 from core.observability.logging import get_logger
 from core.protocols import RelationalPool
 
-log = get_logger("source_authority_repo")
+log = get_logger(__name__)
 
 
 class SourceAuthorityRepo:

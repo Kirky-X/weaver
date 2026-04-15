@@ -11,7 +11,7 @@ from sqlalchemy import text
 
 from core.observability.logging import get_logger
 
-log = get_logger("duckdb_schema")
+log = get_logger(__name__)
 
 # Schema queries ordered by dependency (no FK in DuckDB, but logical order)
 SCHEMA_QUERIES = [

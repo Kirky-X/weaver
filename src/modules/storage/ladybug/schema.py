@@ -7,7 +7,7 @@ Uses CREATE NODE TABLE and CREATE REL TABLE syntax.
 
 from core.observability.logging import get_logger
 
-log = get_logger("ladybug_schema")
+log = get_logger(__name__)
 
 # Schema queries for LadybugDB
 SCHEMA_QUERIES = [

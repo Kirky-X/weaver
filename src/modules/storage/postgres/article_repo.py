@@ -17,7 +17,7 @@ from core.protocols import RelationalPool
 from modules.ingestion.deduplication.deduplicator import Deduplicator
 from modules.processing.pipeline.state import PipelineState
 
-log = get_logger("article_repo")
+log = get_logger(__name__)
 
 
 # Field mapping: state key -> (article_attr, extractor function)

@@ -13,7 +13,7 @@ from core.db.models import PendingSync
 from core.observability.logging import get_logger
 from core.protocols import RelationalPool
 
-log = get_logger("pending_sync_repo")
+log = get_logger(__name__)
 
 
 class PendingSyncRepo:

@@ -13,7 +13,7 @@ from neo4j.exceptions import ConstraintError
 from core.observability.logging import get_logger
 from core.protocols import GraphPool
 
-log = get_logger("neo4j_entity_repo")
+log = get_logger(__name__)
 
 # Valid Neo4j relationship type: uppercase letters, underscores, and digits
 # (must not start with a digit). Chinese characters are also supported.

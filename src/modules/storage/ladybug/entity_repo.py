@@ -18,7 +18,7 @@ from typing import Any
 from core.observability.logging import get_logger
 from core.protocols import GraphPool
 
-log = get_logger("ladybug_entity_repo")
+log = get_logger(__name__)
 
 # Valid edge type: uppercase letters, underscores, and digits
 _EDGE_TYPE_RE = re.compile(r"^[A-Z_一-鿿][A-Z_一-鿿0-9]*$")

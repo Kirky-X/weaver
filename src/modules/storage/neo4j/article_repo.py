@@ -9,7 +9,7 @@ from typing import Any
 from core.observability.logging import get_logger
 from core.protocols import GraphPool
 
-log = get_logger("neo4j_article_repo")
+log = get_logger(__name__)
 
 
 class Neo4jArticleRepo:

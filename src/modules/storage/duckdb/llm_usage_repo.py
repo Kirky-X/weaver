@@ -19,7 +19,7 @@ from core.observability.logging import get_logger
 if TYPE_CHECKING:
     from core.db.duckdb_pool import DuckDBPool
 
-log = get_logger("duckdb_llm_usage_repo")
+log = get_logger(__name__)
 
 
 class DuckDBLLMUsageRepo:

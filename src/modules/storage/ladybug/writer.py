@@ -13,7 +13,7 @@ from core.observability.logging import get_logger
 from modules.storage.ladybug.article_repo import LadybugArticleRepo
 from modules.storage.ladybug.entity_repo import LadybugEntityRepo
 
-log = get_logger("ladybug_writer")
+log = get_logger(__name__)
 
 # Global write lock for LadybugDB (only one write transaction at a time)
 _write_lock = asyncio.Lock()

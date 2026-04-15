@@ -16,7 +16,7 @@ from typing import Any
 from core.observability.logging import get_logger
 from core.protocols import GraphPool
 
-log = get_logger("ladybug_temporal_repo")
+log = get_logger(__name__)
 
 
 class LadybugTemporalRepo:
