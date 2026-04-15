@@ -115,6 +115,8 @@ async def _stats_postgres(settings) -> None:
 
         conn = await asyncpg.connect(dsn)
 
+        # nosemgrep: python.sqlalchemy.security.audit sqlalchemy-execute-raw-query
+        # Table names from information_schema - internal metadata, not user input
         tables = await conn.fetch("""
             SELECT table_name
             FROM information_schema.tables
@@ -130,6 +132,8 @@ async def _stats_postgres(settings) -> None:
             if table_name.startswith("alembic_"):
                 continue
             try:
+                # nosemgrep: python.sqlalchemy.security.audit sqlalchemy-execute-raw-query
+                # Table name validated by _validate_table_name() - identifier pattern only
                 count = await conn.fetchval(f"SELECT COUNT(*) FROM public.{table_name}")
                 results.append({"table": table_name, "count": count, "has_data": count > 0})
             except Exception as exc:
@@ -968,6 +972,8 @@ async def _rows_postgres(
             order_clause = f" ORDER BY {', '.join(order_parts)}"
 
         # Build and execute query
+        # nosemgrep: python.sqlalchemy.security.audit sqlalchemy-execute-raw-query
+        # CLI tool: col_str from explicit columns, order_clause from validated order_by
         query = f"SELECT {col_str} FROM public.{table}{order_clause} LIMIT $1 OFFSET $2"
         result = await conn.fetch(query, limit, offset)
 

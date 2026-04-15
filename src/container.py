@@ -993,13 +993,13 @@ class Container:
         try:
             from modules.knowledge.search.retrievers.bm25_index_service import BM25IndexService
 
-            bm25_retriever = None
-            if self._hybrid_engine is not None:
-                bm25_retriever = self._hybrid_engine._bm25_retriever
+            # Trigger hybrid engine initialization (lazy load)
+            hybrid_engine = self.hybrid_search_engine()
+            bm25_retriever = hybrid_engine._bm25_retriever if hybrid_engine else None
 
             if bm25_retriever is not None:
                 self._bm25_index_service = BM25IndexService(
-                    postgres_pool=self.relational_pool(),
+                    relational_pool=self.relational_pool(),
                     bm25_retriever=bm25_retriever,
                 )
 
@@ -1229,7 +1229,10 @@ class Container:
             else:
                 log.info("event_bus_reused_in_pipeline", event_bus_id=id(self._event_bus))
             budget = TokenBudgetManager()
-            spacy_extractor = SpacyExtractor()
+            spacy_extractor = SpacyExtractor(
+                zh_model_path=self._settings.spacy.zh_model_path,
+                en_model_path=self._settings.spacy.en_model_path,
+            )
 
             self._pipeline = Pipeline(
                 llm=self._llm_client,

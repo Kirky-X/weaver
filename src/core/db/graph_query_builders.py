@@ -382,7 +382,8 @@ class Neo4jQueryBuilder:
                        target_name,
                        target_type,
                        target_description,
-                       CASE WHEN shared_articles > 0 THEN shared_articles * 1.0
+                       CASE WHEN stored_weight > 1.0 THEN stored_weight
+                            WHEN shared_articles > 0 THEN shared_articles * 1.0
                             ELSE stored_weight END AS weight
                 ORDER BY weight DESC
                 LIMIT $limit
@@ -411,7 +412,8 @@ class Neo4jQueryBuilder:
                        target_name,
                        target_type,
                        target_description,
-                       CASE WHEN shared_articles > 0 THEN shared_articles * 1.0
+                       CASE WHEN stored_weight > 1.0 THEN stored_weight
+                            WHEN shared_articles > 0 THEN shared_articles * 1.0
                             ELSE stored_weight END AS weight
                 ORDER BY weight DESC
                 LIMIT $limit
@@ -448,13 +450,13 @@ class Neo4jQueryBuilder:
         """Build Neo4j query to get nodes for subgraph extraction."""
         if include_types:
             return f"""
-            MATCH path = (center:Entity {{canonical_name: $center}})-[:RELATED_TO{hop_pattern}]-(related:Entity)
+            MATCH path = (center:Entity {{canonical_name: $center}})-[r{hop_pattern}]-(related:Entity)
             WHERE related.type IN $include_types
             WITH collect(DISTINCT related) AS related_nodes
             MATCH (center:Entity {{canonical_name: $center}})
             WITH center + related_nodes AS all_nodes
             UNWIND all_nodes AS node
-            MATCH (node)-[r:RELATED_TO]-(other)
+            MATCH (node)-[r]-(other:Entity)
             WHERE other IN all_nodes
             RETURN DISTINCT node.canonical_name AS id,
                    node.canonical_name AS label,
@@ -464,12 +466,12 @@ class Neo4jQueryBuilder:
             """
         else:
             return f"""
-            MATCH path = (center:Entity {{canonical_name: $center}})-[:RELATED_TO{hop_pattern}]-(related:Entity)
+            MATCH path = (center:Entity {{canonical_name: $center}})-[r{hop_pattern}]-(related:Entity)
             WITH collect(DISTINCT related) AS related_nodes
             MATCH (center:Entity {{canonical_name: $center}})
             WITH center + related_nodes AS all_nodes
             UNWIND all_nodes AS node
-            MATCH (node)-[r:RELATED_TO]-(other)
+            MATCH (node)-[r]-(other:Entity)
             WHERE other IN all_nodes
             RETURN DISTINCT node.canonical_name AS id,
                    node.canonical_name AS label,
@@ -481,11 +483,11 @@ class Neo4jQueryBuilder:
     def build_subgraph_edges_query(self) -> str:
         """Build Neo4j query to get edges for subgraph visualization."""
         return """
-        MATCH (e1:Entity)-[r:RELATED_TO]->(e2:Entity)
+        MATCH (e1:Entity)-[r]->(e2:Entity)
         WHERE e1.canonical_name IN $node_ids AND e2.canonical_name IN $node_ids
         RETURN e1.canonical_name AS source,
                e2.canonical_name AS target,
-               r.relation_type AS relation_type,
+               type(r) AS relation_type,
                r.weight AS weight
         LIMIT 500
         """
@@ -797,13 +799,13 @@ class LadybugQueryBuilder:
         """
         if include_types:
             return f"""
-            MATCH path = (center:Entity {{canonical_name: $center}})-[:RELATED_TO{hop_pattern}]-(related:Entity)
+            MATCH path = (center:Entity {{canonical_name: $center}})-[r{hop_pattern}]-(related:Entity)
             WHERE related.type IN $include_types
             WITH collect(DISTINCT related) AS related_nodes
             MATCH (center:Entity {{canonical_name: $center}})
             WITH center + related_nodes AS all_nodes
             UNWIND all_nodes AS node
-            MATCH (node)-[r:RELATED_TO]-(other)
+            MATCH (node)-[r]-(other:Entity)
             WHERE other IN all_nodes
             RETURN DISTINCT node.canonical_name AS id,
                    node.canonical_name AS label,
@@ -813,12 +815,12 @@ class LadybugQueryBuilder:
             """
         else:
             return f"""
-            MATCH path = (center:Entity {{canonical_name: $center}})-[:RELATED_TO{hop_pattern}]-(related:Entity)
+            MATCH path = (center:Entity {{canonical_name: $center}})-[r{hop_pattern}]-(related:Entity)
             WITH collect(DISTINCT related) AS related_nodes
             MATCH (center:Entity {{canonical_name: $center}})
             WITH center + related_nodes AS all_nodes
             UNWIND all_nodes AS node
-            MATCH (node)-[r:RELATED_TO]-(other)
+            MATCH (node)-[r]-(other:Entity)
             WHERE other IN all_nodes
             RETURN DISTINCT node.canonical_name AS id,
                    node.canonical_name AS label,
@@ -833,11 +835,11 @@ class LadybugQueryBuilder:
         Note: LadybugDB RELATED_TO uses edge_type field, not relation_type.
         """
         return """
-        MATCH (e1:Entity)-[r:RELATED_TO]->(e2:Entity)
+        MATCH (e1:Entity)-[r]->(e2:Entity)
         WHERE e1.canonical_name IN $node_ids AND e2.canonical_name IN $node_ids
         RETURN e1.canonical_name AS source,
                e2.canonical_name AS target,
-               r.edge_type AS relation_type,
+               type(r) AS relation_type,
                r.weight AS weight
         LIMIT 500
         """

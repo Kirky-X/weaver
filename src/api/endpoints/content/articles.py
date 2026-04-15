@@ -15,6 +15,7 @@ from api.dependencies import get_relational_pool
 from api.middleware.auth import verify_api_key
 from api.middleware.rate_limit import limiter
 from api.schemas.response import APIResponse, success_response
+from api.schemas.types import RoundedFloatOpt
 from core.db import Article, CategoryType
 from core.observability import get_logger
 from core.protocols import RelationalPool
@@ -54,13 +55,13 @@ class ArticleDetailResponse(BaseModel):
     subjects: list[str] | None
     key_data: list[str] | None
     impact: str | None
-    score: float | None
+    score: RoundedFloatOpt
     sentiment: str | None
-    sentiment_score: float | None
+    sentiment_score: RoundedFloatOpt
     primary_emotion: str | None
-    credibility_score: float | None
-    source_credibility: float | None
-    content_check_score: float | None
+    credibility_score: RoundedFloatOpt
+    source_credibility: RoundedFloatOpt
+    content_check_score: RoundedFloatOpt
     publish_time: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -86,18 +87,20 @@ def _article_to_dict(article: Article) -> dict[str, Any]:
         "subjects": article.subjects,
         "key_data": article.key_data,
         "impact": article.impact,
-        "score": float(article.score) if article.score else None,
+        "score": round(float(article.score), 2) if article.score else None,
         "sentiment": article.sentiment,
-        "sentiment_score": float(article.sentiment_score) if article.sentiment_score else None,
+        "sentiment_score": (
+            round(float(article.sentiment_score), 2) if article.sentiment_score else None
+        ),
         "primary_emotion": article.primary_emotion.value if article.primary_emotion else None,
         "credibility_score": (
-            float(article.credibility_score) if article.credibility_score else None
+            round(float(article.credibility_score), 2) if article.credibility_score else None
         ),
         "source_credibility": (
-            float(article.source_credibility) if article.source_credibility else None
+            round(float(article.source_credibility), 2) if article.source_credibility else None
         ),
         "content_check_score": (
-            float(article.content_check_score) if article.content_check_score else None
+            round(float(article.content_check_score), 2) if article.content_check_score else None
         ),
         "publish_time": article.publish_time.isoformat() if article.publish_time else None,
         "created_at": article.created_at.isoformat(),
@@ -170,6 +173,8 @@ async def list_articles(
         # Performance fix: Optimize count query
         # Before: SELECT count(*) FROM (SELECT * FROM articles WHERE ...) subquery
         # After: SELECT count(*) FROM articles WHERE ... (direct count with same filters)
+        # nosemgrep: python.sqlalchemy.security.audit sqlalchemy-object-attribute-access
+        # SQLAlchemy ORM select() with explicit column - not raw SQL string interpolation
         count_query = select(func.count(Article.id))
         for f in filters:
             count_query = count_query.where(f)
@@ -184,6 +189,8 @@ async def list_articles(
         if sort_by not in ALLOWED_SORT_COLUMNS:
             sort_by = "publish_time"
 
+        # nosemgrep: python.lang.security.audit.dangerous-getattr-usage.dangerous-getattr-usage
+        # Safe: sort_by validated against ALLOWED_SORT_COLUMNS whitelist above
         sort_column = getattr(Article, sort_by, Article.publish_time)
         if sort_order == "desc":
             query = query.order_by(desc(sort_column))

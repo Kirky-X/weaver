@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from api.dependencies import get_graph_repo
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
+from api.schemas.types import RoundedFloatOpt
 
 if TYPE_CHECKING:
     from modules.storage.graph_repo import GraphRepository
@@ -50,7 +51,7 @@ class EdgeResponse(BaseModel):
     source: str
     target: str
     relation_type: str
-    weight: float | None = None
+    weight: RoundedFloatOpt = None
     properties: dict[str, Any] = Field(default_factory=dict)
 
 

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from api.dependencies import get_graph_pool, get_graph_pool_type, get_llm_client
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
+from api.schemas.types import RoundedFloat, RoundedFloatOpt
 from core.constants import ProcessingStatus
 from core.db import GraphDatabaseType
 from core.observability import get_logger
@@ -53,9 +54,9 @@ class RebuildResponse(BaseModel):
     communities_created: int
     entities_processed: int
     levels: int
-    modularity: float
+    modularity: RoundedFloat
     orphan_count: int
-    execution_time_ms: float
+    execution_time_ms: RoundedFloat
 
 
 class ReportGenerateResponse(BaseModel):
@@ -75,7 +76,7 @@ class CommunityResponse(BaseModel):
     level: int
     entity_count: int | None = None  # Allow None when not computed
     parent_id: str | None
-    rank: float | None = None
+    rank: RoundedFloatOpt = None
     period: str | None
     has_report: bool = False
 
@@ -89,9 +90,9 @@ class CommunityDetailResponse(BaseModel):
     entity_count: int | None = None  # Allow None when not computed
     parent_id: str | None
     children_ids: list[str] = Field(default_factory=list)
-    rank: float | None = None
+    rank: RoundedFloatOpt = None
     period: str | None
-    modularity: float | None
+    modularity: RoundedFloatOpt
     entities: list[dict[str, str]] = Field(default_factory=list)
     report: dict[str, Any] | None = None
 
@@ -111,7 +112,7 @@ class HealthOverviewResponse(BaseModel):
     """Response model for community health overview."""
 
     status: str
-    score: float
+    score: RoundedFloat
     total_communities: int
     communities_with_reports: int
     stale_reports: int
@@ -135,7 +136,7 @@ class DiagnoseResponse(BaseModel):
     """Response model for full health diagnosis."""
 
     status: str
-    score: float
+    score: RoundedFloat
     issues: list[IssueDetail]
     metrics: dict[str, Any]
     repair_suggestions: list[str]
@@ -159,7 +160,7 @@ class RepairResponse(BaseModel):
 
     repaired: dict[str, int]
     failed: dict[str, list[str]]
-    duration_ms: float
+    duration_ms: RoundedFloat
 
 
 # ── Endpoints ───────────────────────────────────────────

@@ -494,6 +494,8 @@ class GraphRepository:
             entity_name, [r["target_name"] for r in result]
         )
 
+        # Use stored weight when it's been computed (weight > 1.0),
+        # otherwise fall back to co-occurrence calculation for default 1.0 weights
         return [
             {
                 "relation_type": r["relation_type"],
@@ -501,7 +503,11 @@ class GraphRepository:
                 "target_name": r["target_name"],
                 "target_type": r["target_type"],
                 "target_description": r.get("target_description"),
-                "weight": weights.get(r["target_name"], r.get("weight", 1.0)),
+                "weight": (
+                    r.get("weight", 1.0)
+                    if r.get("weight", 1.0) > 1.0
+                    else weights.get(r["target_name"], r.get("weight", 1.0))
+                ),
             }
             for r in result
         ]

@@ -118,7 +118,7 @@ class Pipeline:
             llm,
             budget,
             prompt_loader,
-            spacy or SpacyExtractor(),
+            spacy or self._create_spacy_extractor(settings),
             settings,
             vector_repo,
             relation_type_normalizer=relation_type_normalizer,
@@ -134,6 +134,16 @@ class Pipeline:
         self._batch_total: int = 0
         self._batch_completed: int = 0
         self._batch_failed: int = 0
+
+    @staticmethod
+    def _create_spacy_extractor(settings: Settings | None) -> SpacyExtractor:
+        """Create SpacyExtractor with settings if available."""
+        if settings is not None:
+            return SpacyExtractor(
+                zh_model_path=settings.spacy.zh_model_path,
+                en_model_path=settings.spacy.en_model_path,
+            )
+        return SpacyExtractor()
 
     async def _update_processing_stage(self, state: PipelineState, stage: str) -> None:
         """Update the processing stage in the database.

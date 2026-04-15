@@ -13,6 +13,7 @@ from api.dependencies import get_container, get_source_authority_repo
 from api.endpoints._deps import Endpoints
 from api.middleware.auth import verify_admin_api_key, verify_api_key
 from api.schemas.response import APIResponse, success_response
+from api.schemas.types import RoundedFloat, RoundedFloatOpt
 from core.observability import get_logger
 from modules.storage import SourceAuthorityRepo
 
@@ -42,18 +43,18 @@ class AuthorityResponse(BaseModel):
 
     id: int
     host: str
-    authority: float
+    authority: RoundedFloat
     tier: int
     description: str | None
     needs_review: bool
-    auto_score: float | None
+    auto_score: RoundedFloatOpt
     updated_at: str
 
 
 class UpdateAuthorityRequest(BaseModel):
     """Request model for updating authority."""
 
-    authority: float | None = Field(None, ge=0, le=1)
+    authority: RoundedFloatOpt = Field(None, ge=0, le=1)
     tier: int | None = Field(None, ge=1, le=5)
     description: str | None = None
 
@@ -62,7 +63,7 @@ class UpdateAuthorityResponse(BaseModel):
     """Response for authority update."""
 
     host: str
-    authority: float | None
+    authority: RoundedFloatOpt
     tier: int | None
     description: str | None
 

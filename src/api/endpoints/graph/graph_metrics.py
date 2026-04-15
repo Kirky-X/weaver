@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from api.dependencies import get_cache_client, get_graph_pool
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
+from api.schemas.types import RoundedFloat, RoundedFloatOpt
 from core.observability import get_logger
 from core.protocols import GraphPool
 from modules.knowledge.graph import GraphQualityMetrics
@@ -30,15 +31,17 @@ GRAPH_METRICS_CACHE_TTL = 300  # 5 minutes
 class HealthSummaryResponse(BaseModel):
     """Response model for graph health summary."""
 
-    health_score: float = Field(..., ge=0, le=100, description="Overall health score (0-100)")
+    health_score: RoundedFloat = Field(
+        ..., ge=0, le=100, description="Overall health score (0-100)"
+    )
     status: str = Field(..., description="Health status: healthy, moderate, degraded, critical")
     entity_count: int = Field(..., ge=0, description="Total number of entities")
     relationship_count: int = Field(..., ge=0, description="Total number of relationships")
-    orphan_ratio: float = Field(..., ge=0, le=1, description="Ratio of orphan entities")
-    connectedness: float = Field(
+    orphan_ratio: RoundedFloat = Field(..., ge=0, le=1, description="Ratio of orphan entities")
+    connectedness: RoundedFloat = Field(
         ..., ge=0, le=1, description="Ratio of entities in largest component"
     )
-    average_degree: float = Field(..., ge=0, description="Average entity degree")
+    average_degree: RoundedFloat = Field(..., ge=0, description="Average entity degree")
     recommendations: list[str] = Field(default_factory=list, description="Health recommendations")
 
 
@@ -51,8 +54,8 @@ class GraphMetricsResponse(BaseModel):
     total_mentions: int = Field(..., ge=0)
     connected_components: int = Field(..., ge=0)
     largest_component_size: int = Field(..., ge=0)
-    average_degree: float = Field(..., ge=0)
-    modularity_score: float | None = Field(None, ge=-1, le=1)
+    average_degree: RoundedFloat = Field(..., ge=0)
+    modularity_score: RoundedFloatOpt = Field(None, ge=-1, le=1)
     orphan_entities: int = Field(..., ge=0)
     high_degree_entities: list[dict[str, Any]] = Field(default_factory=list)
     entity_type_distribution: dict[str, int] = Field(default_factory=dict)

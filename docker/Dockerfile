@@ -5,6 +5,10 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
 WORKDIR /app
 
+# Create non-root user for security
+# nosemgrep: dockerfile.best-practice.user.use-user-alias - appuser created before USER directive
+RUN useradd --create-home --shell /bin/bash appuser
+
 # Copy project files
 COPY pyproject.toml uv.lock ./
 COPY README.md ./
@@ -20,6 +24,12 @@ RUN uv run python -m spacy download zh_core_web_trf \
 
 # Install Playwright browsers
 RUN uv run playwright install chromium --with-deps
+
+# Set ownership to appuser for all files
+RUN chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
 
 # Expose port
 EXPOSE 8000

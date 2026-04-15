@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from api.dependencies import get_graph_repo
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
+from api.schemas.types import RoundedFloat, RoundedFloatOpt
 from modules.storage.graph_repo import GraphRepository
 
 router = APIRouter(prefix="/graph", tags=["graph"])
@@ -56,7 +57,7 @@ class ArticleGraphNode(BaseModel):
     title: str
     category: str | None
     publish_time: str | None
-    score: float | None
+    score: RoundedFloatOpt
 
 
 class ArticleGraphRelationship(BaseModel):
@@ -93,7 +94,7 @@ class RelatedEntityResult(BaseModel):
     target_name: str
     target_type: str
     target_description: str | None = None
-    weight: float = 1.0
+    weight: RoundedFloat = 1.0
 
 
 # ── Endpoints ───────────────────────────────────────────────────

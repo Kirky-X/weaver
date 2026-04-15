@@ -7,6 +7,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from api.schemas.types import RoundedFloat
+
 
 class LLMUsageRecord(BaseModel):
     """Single LLM usage record with aggregated metrics."""
@@ -21,9 +23,9 @@ class LLMUsageRecord(BaseModel):
     input_tokens: int = Field(description="Total input tokens")
     output_tokens: int = Field(description="Total output tokens")
     total_tokens: int = Field(description="Total tokens")
-    latency_avg_ms: float = Field(description="Average latency in milliseconds")
-    latency_min_ms: float = Field(description="Minimum latency in milliseconds")
-    latency_max_ms: float = Field(description="Maximum latency in milliseconds")
+    latency_avg_ms: RoundedFloat = Field(description="Average latency in milliseconds")
+    latency_min_ms: RoundedFloat = Field(description="Minimum latency in milliseconds")
+    latency_max_ms: RoundedFloat = Field(description="Maximum latency in milliseconds")
     success_count: int = Field(description="Number of successful calls")
     failure_count: int = Field(description="Number of failed calls")
 
@@ -42,10 +44,10 @@ class LLMUsageSummary(BaseModel):
     total_input_tokens: int = Field(description="Total input tokens")
     total_output_tokens: int = Field(description="Total output tokens")
     total_tokens: int = Field(description="Total tokens")
-    avg_latency_ms: float = Field(description="Average latency in milliseconds")
-    max_latency_ms: float = Field(default=0.0, description="Maximum latency in milliseconds")
-    min_latency_ms: float = Field(default=0.0, description="Minimum latency in milliseconds")
-    success_rate: float = Field(description="Success rate (0.0 to 1.0)")
+    avg_latency_ms: RoundedFloat = Field(description="Average latency in milliseconds")
+    max_latency_ms: RoundedFloat = Field(default=0.0, description="Maximum latency in milliseconds")
+    min_latency_ms: RoundedFloat = Field(default=0.0, description="Minimum latency in milliseconds")
+    success_rate: RoundedFloat = Field(description="Success rate (0.0 to 1.0)")
     error_types: dict[str, int] = Field(
         default_factory=dict,
         description="Error type breakdown",
@@ -60,8 +62,8 @@ class LLMUsageByProvider(BaseModel):
     input_tokens: int = Field(default=0, description="Total input tokens")
     output_tokens: int = Field(default=0, description="Total output tokens")
     total_tokens: int = Field(description="Total tokens")
-    avg_latency_ms: float = Field(default=0.0, description="Average latency in milliseconds")
-    success_rate: float = Field(default=1.0, description="Success rate (0.0 to 1.0)")
+    avg_latency_ms: RoundedFloat = Field(default=0.0, description="Average latency in milliseconds")
+    success_rate: RoundedFloat = Field(default=1.0, description="Success rate (0.0 to 1.0)")
 
 
 class LLMUsageByModel(BaseModel):
@@ -73,8 +75,8 @@ class LLMUsageByModel(BaseModel):
     input_tokens: int = Field(default=0, description="Total input tokens")
     output_tokens: int = Field(default=0, description="Total output tokens")
     total_tokens: int = Field(description="Total tokens")
-    avg_latency_ms: float = Field(default=0.0, description="Average latency in milliseconds")
-    success_rate: float = Field(default=1.0, description="Success rate (0.0 to 1.0)")
+    avg_latency_ms: RoundedFloat = Field(default=0.0, description="Average latency in milliseconds")
+    success_rate: RoundedFloat = Field(default=1.0, description="Success rate (0.0 to 1.0)")
 
 
 class LLMUsageByCallPoint(BaseModel):
@@ -83,5 +85,5 @@ class LLMUsageByCallPoint(BaseModel):
     call_point: str = Field(description="Call point identifier")
     call_count: int = Field(description="Total number of calls")
     total_tokens: int = Field(description="Total tokens")
-    avg_latency_ms: float = Field(default=0.0, description="Average latency in milliseconds")
-    success_rate: float = Field(default=1.0, description="Success rate (0.0 to 1.0)")
+    avg_latency_ms: RoundedFloat = Field(default=0.0, description="Average latency in milliseconds")
+    success_rate: RoundedFloat = Field(default=1.0, description="Success rate (0.0 to 1.0)")

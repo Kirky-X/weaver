@@ -187,37 +187,48 @@ class GlobalSearchEngine:
                     },
                 )
 
-            # Sort communities by similarity score (weight)
+            # Sort communities by similarity score (weight) and limit to top 3
+            # to avoid excessive LLM calls causing timeouts
             sorted_communities = sorted(
                 communities,
                 key=lambda c: c.similarity_score,
                 reverse=True,
-            )
+            )[
+                :3
+            ]  # Limit to top 3 communities for faster response
 
             intermediate_answers = []
             total_tokens = 0
             community_weights = []
 
-            # Parallel LLM calls with semaphore for rate limiting
-            semaphore = asyncio.Semaphore(5)  # Limit concurrent LLM calls
+            # Parallel LLM calls with semaphore for rate limiting and timeout
+            semaphore = asyncio.Semaphore(3)  # Reduced concurrent LLM calls
 
             async def process_community(
                 idx: int, community: CommunityContext
             ) -> tuple[int, str, dict[str, Any], int]:
-                """Process a single community with semaphore."""
+                """Process a single community with semaphore and timeout."""
                 async with semaphore:
                     map_prompt = self._build_map_prompt(query, community)
-                    response = await self._llm.call(
-                        label="chat.aiping.GLM-4-9B-0414",
-                        call_point=CallPoint.SEARCH_GLOBAL,
-                        payload={
-                            "system_prompt": (
-                                "You are a helpful AI assistant analyzing community reports to answer questions. Provide concise, factual answers based on the given context."
+                    try:
+                        # Add timeout to individual LLM call
+                        response = await asyncio.wait_for(
+                            self._llm.call(
+                                label="chat.aiping.GLM-4-9B-0414",
+                                call_point=CallPoint.SEARCH_GLOBAL,
+                                payload={
+                                    "system_prompt": (
+                                        "You are a helpful AI assistant analyzing community reports to answer questions. Provide concise, factual answers based on the given context."
+                                    ),
+                                    "user_content": map_prompt,
+                                },
                             ),
-                            "user_content": map_prompt,
-                        },
-                    )
-                    answer = response if isinstance(response, str) else str(response)
+                            timeout=15.0,  # 15 second timeout per community
+                        )
+                        answer = response if isinstance(response, str) else str(response)
+                    except TimeoutError:
+                        log.warning("community_llm_timeout", community_id=community.id)
+                        answer = f"[Timeout processing community: {community.title}]"
                     weight_info = {
                         "community_id": community.id,
                         "title": community.title,
@@ -226,10 +237,39 @@ class GlobalSearchEngine:
                     tokens = len(map_prompt) // 4
                     return idx, answer, weight_info, tokens
 
-            # Execute all LLM calls in parallel
-            results = await asyncio.gather(
-                *[process_community(i, c) for i, c in enumerate(sorted_communities)]
-            )
+            # Execute all LLM calls in parallel with overall timeout
+            try:
+                results = await asyncio.wait_for(
+                    asyncio.gather(
+                        *[process_community(i, c) for i, c in enumerate(sorted_communities)]
+                    ),
+                    timeout=30.0,  # 30 second overall timeout for Map phase
+                )
+            except TimeoutError:
+                log.warning("global_search_map_timeout", query=query[:50])
+                # Fallback: return simple context-based answer without LLM synthesis
+                fallback_answer = "\n\n".join(
+                    f"**{c.title}**\n{c.summary or c.full_content or 'No summary available'}"
+                    for c in sorted_communities[:3]
+                )
+                return SearchResult(
+                    query=query,
+                    answer=fallback_answer,
+                    context_tokens=sum(
+                        len(c.full_content or c.summary or "") // 4 for c in sorted_communities
+                    ),
+                    sources=[],
+                    entities=list(
+                        set(e for c in sorted_communities if c.key_entities for e in c.key_entities)
+                    ),
+                    confidence=0.5,
+                    metadata={
+                        "search_type": SearchMode.GLOBAL.value,
+                        "communities": len(sorted_communities),
+                        "llm_used": False,
+                        "timeout_fallback": True,
+                    },
+                )
 
             # Sort results by original index and extract data
             for idx, answer, weight_info, tokens in sorted(results, key=lambda r: r[0]):

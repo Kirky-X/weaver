@@ -12,6 +12,7 @@ from api.endpoints import _deps as deps
 from api.middleware.auth import verify_api_key
 from api.middleware.rate_limit import limiter
 from api.schemas.response import APIResponse, success_response
+from api.schemas.types import RoundedFloat
 from core.llm import LLMClient
 from core.observability import get_logger
 from modules.knowledge.search import (
@@ -38,7 +39,7 @@ class SearchResponse(BaseModel):
     query: str
     answer: str
     context_tokens: int
-    confidence: float
+    confidence: RoundedFloat
     search_type: str
     entities: list[str]
     sources: list[dict[str, Any]]
@@ -110,7 +111,7 @@ async def search_unified(
 
     # Determine search mode
     explicit_mode = mode.lower() if mode and isinstance(mode, str) else None
-    use_explicit_mode = explicit_mode in ("local", "global")
+    use_explicit_mode = explicit_mode in ("local", "global", "articles")
 
     # Initialize intent router for automatic routing (when not using explicit mode)
     intent_router = IntentRouter(
@@ -130,6 +131,17 @@ async def search_unified(
         # Explicit mode: bypass intent routing, call engines directly
         if explicit_mode == "local":
             engine_result = await local_engine.search(q)
+        elif explicit_mode == "articles":
+            # Articles mode: direct vector search on articles
+            engine_result = await _search_articles_direct(
+                query=q,
+                vector_repo=vector_repo,
+                hybrid_engine=hybrid_engine,
+                threshold=threshold,
+                limit=limit,
+                category=category,
+                use_hybrid=use_hybrid,
+            )
         else:  # global
             engine_result = await global_engine.search(q, community_level=community_level)
         classification = IntentClassification(
@@ -191,6 +203,115 @@ async def search_unified(
     )
 
 
+# ── Articles Direct Search Helper ─────────────────────────────────────
+
+
+async def _search_articles_direct(
+    query: str,
+    vector_repo: VectorRepo,
+    hybrid_engine: HybridSearchEngine | None,
+    threshold: float = 0.0,
+    limit: int = 20,
+    category: str | None = None,
+    use_hybrid: bool = True,
+) -> dict[str, Any]:
+    """Direct article search using vector similarity.
+
+    Args:
+        query: Search query.
+        vector_repo: Vector repository for article embeddings.
+        hybrid_engine: Optional hybrid search engine for BM25 + vector fusion.
+        threshold: Similarity threshold for filtering.
+        limit: Maximum results to return.
+        category: Optional category filter.
+        use_hybrid: Whether to use hybrid search (BM25 + vector).
+
+    Returns:
+        Dictionary with search results.
+
+    """
+    log = get_logger(__name__)
+
+    try:
+        if use_hybrid and hybrid_engine is not None:
+            # Use hybrid search for better recall
+            results = await hybrid_engine.search(
+                query=query,
+                limit=limit,
+            )
+            search_method = "hybrid"
+        else:
+            # Pure vector search
+            results = await vector_repo.search_similar(
+                query=query,
+                limit=limit,
+                threshold=threshold,
+            )
+            search_method = "vector"
+
+        # Filter by category if specified
+        if category and results:
+            results = [r for r in results if r.get("category") == category]
+
+        # Format results
+        sources = [
+            {
+                "id": r.get("id"),
+                "title": r.get("title"),
+                "score": round(r.get("score", 0.0), 2),
+                "summary": r.get("summary", "")[:200] if r.get("summary") else "",
+            }
+            for r in results
+        ]
+
+        # Extract entities from results
+        entities = []
+        for r in results:
+            if r.get("entities"):
+                entities.extend(r["entities"])
+        entities = list(set(entities))[:20]
+
+        # Calculate confidence based on result quality
+        if not results:
+            confidence = 0.0
+        else:
+            avg_score = sum(r.get("score", 0.0) for r in results) / len(results)
+            confidence = round(min(1.0, avg_score * 2), 2)  # Scale to 0-1
+
+        log.info(
+            "articles_direct_search",
+            query=query[:50],
+            results=len(results),
+            method=search_method,
+        )
+
+        return {
+            "answer": f"Found {len(results)} articles matching '{query}'.",
+            "context_tokens": sum(len(r.get("content", "")) // 4 for r in results),
+            "confidence": confidence,
+            "entities": entities,
+            "sources": sources,
+            "metadata": {
+                "search_type": "articles",
+                "search_method": search_method,
+                "article_count": len(results),
+                "threshold": threshold,
+                "hybrid_used": use_hybrid and hybrid_engine is not None,
+            },
+        }
+
+    except Exception as exc:
+        log.error("articles_direct_search_failed", error=str(exc))
+        return {
+            "answer": f"Search failed: {exc!s}",
+            "context_tokens": 0,
+            "confidence": 0.0,
+            "entities": [],
+            "sources": [],
+            "metadata": {"error": str(exc)},
+        }
+
+
 # ── DRIFT Search Endpoint ─────────────────────────────────────
 
 
@@ -200,7 +321,7 @@ class DriftSearchRequest(BaseModel):
     query: str
     primer_k: int = 3
     max_follow_ups: int = 2
-    confidence_threshold: float = 0.7
+    confidence_threshold: RoundedFloat = 0.7
 
 
 class DriftSearchResponse(BaseModel):
@@ -208,7 +329,7 @@ class DriftSearchResponse(BaseModel):
 
     query: str
     answer: str
-    confidence: float
+    confidence: RoundedFloat
     search_type: str = "drift"
     hierarchy: dict[str, Any]
     primer_communities: int
@@ -312,7 +433,7 @@ class CausalSearchRequest(BaseModel):
     max_depth: int = 3
     """Maximum depth for causal chain traversal."""
 
-    min_confidence: float = 0.7
+    min_confidence: RoundedFloat = 0.7
     """Minimum confidence for causal edges."""
 
 
@@ -322,7 +443,7 @@ class CausalSearchResponse(BaseModel):
     query: str
     answer: str
     causal_chain: list[dict[str, Any]]
-    confidence: float
+    confidence: RoundedFloat
     metadata: dict[str, Any]
 
 
@@ -354,6 +475,7 @@ async def search_causal(
     request: Request,
     body: CausalSearchRequest,
     _: str = Depends(verify_api_key),
+    llm: LLMClient = Depends(deps.Endpoints.get_llm),
 ) -> APIResponse[CausalSearchResponse]:
     """Causal reasoning search using MAGMA multi-graph architecture.
 
@@ -367,6 +489,7 @@ async def search_causal(
     Args:
         body: Causal search request with query and parameters.
         _: Verified API key.
+        llm: LLM client for embedding and intent classification.
 
     Returns:
         Causal chain with explanations and confidence scores.
@@ -390,32 +513,35 @@ async def search_causal(
             confidence_threshold=body.min_confidence,
         )
 
-        # Create mock services for adaptive search
-        class MockEmbeddingService:
+        # Create real services for adaptive search
+        class RealEmbeddingService:
+            """Real embedding service using LLM client."""
+
             async def embed(self, text: str) -> list[float]:
-                return [0.1] * 384
+                embeddings = await llm.embed_default([text])
+                return embeddings[0] if embeddings and embeddings[0] else [0.0] * 384
 
-        class MockIntentClassifier:
+        class RealIntentClassifier:
+            """Real intent classifier using LLM."""
+
             async def classify(self, query: str):
-                from modules.memory.core.graph_types import IntentType
+                from modules.knowledge.search.intent.classifier import IntentClassifier
 
-                class Result:
-                    intent = IntentType.WHY
-
-                return Result()
+                classifier = IntentClassifier(llm=llm)
+                return await classifier.classify(query)
 
         engine = AdaptiveSearchEngine(
             temporal_repo=temporal_repo,
             causal_repo=causal_repo,
-            embedding_service=MockEmbeddingService(),
-            intent_classifier=MockIntentClassifier(),
+            embedding_service=RealEmbeddingService(),
+            intent_classifier=RealIntentClassifier(),
             max_depth=body.max_depth,
         )
 
         # Execute search
         results = await engine.search(
             query=body.query,
-            intent=IntentType.WHY if "IntentType" in dir() else None,
+            intent=IntentType.WHY,
         )
 
         # Build causal chain from results

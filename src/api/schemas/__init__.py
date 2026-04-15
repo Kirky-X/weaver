@@ -17,6 +17,7 @@ from api.schemas.response import (
     error_response,
     success_response,
 )
+from api.schemas.types import RoundedFloat, RoundedFloatOpt
 
 __all__ = [
     # Response models
@@ -31,6 +32,9 @@ __all__ = [
     "LLMUsageSummary",
     "PaginatedResponse",
     "ResponseCode",
+    # Type definitions
+    "RoundedFloat",
+    "RoundedFloatOpt",
     "error_response",
     "success_response",
 ]

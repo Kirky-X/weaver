@@ -104,7 +104,10 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
         article_repo = ArticleRepo(postgres_pool)
 
         # Build pipeline with graph_writer=None (we only read from Neo4j, never write)
-        spacy_extractor = SpacyExtractor()
+        spacy_extractor = SpacyExtractor(
+            zh_model_path=settings.spacy.zh_model_path,
+            en_model_path=settings.spacy.en_model_path,
+        )
         pipeline = Pipeline(
             llm=llm_client,
             budget=TokenBudgetManager(),

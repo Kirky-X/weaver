@@ -354,6 +354,9 @@ class SpacySettings(BaseModel):
     strict_mode: bool = True
     models: list[str] = Field(default_factory=lambda: ["zh_core_web_lg", "en_core_web_sm"])
     local_paths: dict[str, str] = Field(default_factory=dict)
+    # Local model paths for runtime loading (wheel file or directory)
+    zh_model_path: str | None = None
+    en_model_path: str | None = None
 
 
 class URLSecuritySettings(BaseModel):
