@@ -14,7 +14,7 @@ from core.event.bus import LLMFailureEvent
 from core.observability.logging import get_logger
 from core.protocols import RelationalPool
 
-log = get_logger("llm_failure_repo")
+log = get_logger(__name__)
 
 
 class LLMFailureRepo:

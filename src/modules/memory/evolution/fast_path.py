@@ -24,7 +24,7 @@ from modules.memory.core.event_node import EventNode
 if TYPE_CHECKING:
     from modules.memory.graphs.temporal import TemporalGraphRepo
 
-log = get_logger("synaptic_ingestion")
+log = get_logger(__name__)
 
 
 class ConsolidationQueueProtocol(Protocol):

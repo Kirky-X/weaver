@@ -24,7 +24,7 @@ from modules.storage import ArticleRepo, PendingSyncRepo, SourceAuthorityRepo, V
 if TYPE_CHECKING:
     from core.protocols import CachePool, RelationalPool
 
-log = get_logger("scheduler_jobs")
+log = get_logger(__name__)
 
 
 class SchedulerJobs:

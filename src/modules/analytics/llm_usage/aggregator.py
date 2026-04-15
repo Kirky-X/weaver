@@ -18,7 +18,7 @@ from core.observability.logging import get_logger
 if TYPE_CHECKING:
     from core.protocols import CachePool, RelationalPool
 
-log = get_logger("llm_usage_aggregator")
+log = get_logger(__name__)
 
 # Redis key prefix for LLM usage buffer (from RedisKeys.LLM_USAGE_PREFIX)
 REDIS_KEY_PREFIX = RedisKeys.LLM_USAGE_PREFIX.rstrip(":")

@@ -12,7 +12,7 @@ from core.observability.logging import get_logger
 from modules.migration.exceptions import ValidationFailedError
 from modules.migration.models import NodeSchema, RelSchema
 
-log = get_logger("neo4j_target")
+log = get_logger(__name__)
 
 
 class Neo4jTarget:

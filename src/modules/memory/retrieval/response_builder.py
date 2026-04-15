@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from modules.memory.retrieval.entity_aggregator import EntityAggregator
     from modules.memory.retrieval.narrative_synthesizer import NarrativeSynthesizer
 
-log = get_logger("search_response_builder")
+log = get_logger(__name__)
 
 
 class SearchResponseBuilder:

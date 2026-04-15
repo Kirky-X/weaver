@@ -39,7 +39,7 @@ from modules.processing.nlp.spacy_extractor import SpacyExtractor  # noqa: E402
 from modules.processing.pipeline.graph import Pipeline  # noqa: E402
 from modules.processing.pipeline.state import PipelineState  # noqa: E402
 
-log = get_logger("repair_articles")
+log = get_logger(__name__)
 
 
 async def _init_minimal_container():

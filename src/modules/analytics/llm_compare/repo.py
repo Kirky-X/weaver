@@ -16,7 +16,7 @@ from core.observability.logging import get_logger
 if TYPE_CHECKING:
     from core.protocols import RelationalPool
 
-log = get_logger("eval_compare_repo")
+log = get_logger(__name__)
 
 
 class EvalCompareRepo:

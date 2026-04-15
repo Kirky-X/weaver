@@ -18,7 +18,7 @@ from core.observability.logging import get_logger
 if TYPE_CHECKING:
     from core.protocols import CachePool
 
-log = get_logger("eval_compare_buffer")
+log = get_logger(__name__)
 
 # Redis key prefix
 REDIS_KEY_PREFIX = "llm:compare"

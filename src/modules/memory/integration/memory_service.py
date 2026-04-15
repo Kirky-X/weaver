@@ -34,7 +34,7 @@ if TYPE_CHECKING:
     from core.protocols import CachePool, GraphPool
     from modules.knowledge.search.intent.classifier import IntentClassifier
 
-log = get_logger("memory_service")
+log = get_logger(__name__)
 
 
 # Mapping from QueryIntent (knowledge search) to IntentType (memory system)

@@ -27,7 +27,7 @@ from modules.migration.mapping_registry import MappingRegistry
 from modules.migration.models import MigrationConfig, MigrationProgress, MigrationResult
 from modules.migration.progress import MigrationProgressDisplay
 
-log = get_logger("migration_engine")
+log = get_logger(__name__)
 
 SUPPORTED_RELATIONAL_DBS = ["postgres", "duckdb"]
 SUPPORTED_GRAPH_DBS = ["neo4j", "ladybug"]

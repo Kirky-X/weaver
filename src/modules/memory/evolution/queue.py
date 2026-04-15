@@ -10,7 +10,7 @@ from __future__ import annotations
 from core.observability.logging import get_logger
 from core.protocols import CachePool
 
-log = get_logger("consolidation_queue")
+log = get_logger(__name__)
 
 
 class ConsolidationQueue:

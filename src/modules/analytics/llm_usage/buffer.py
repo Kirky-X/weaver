@@ -21,7 +21,7 @@ from core.observability.logging import get_logger
 if TYPE_CHECKING:
     from core.protocols import CachePool
 
-log = get_logger("llm_usage_buffer")
+log = get_logger(__name__)
 
 # Redis key 前缀
 REDIS_KEY_PREFIX = "llm:usage"

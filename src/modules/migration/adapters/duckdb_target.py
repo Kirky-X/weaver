@@ -15,7 +15,7 @@ from core.observability.logging import get_logger
 from modules.migration.exceptions import ValidationFailedError
 from modules.migration.models import MigrationSchema
 
-log = get_logger("duckdb_target")
+log = get_logger(__name__)
 
 
 class DuckDBTarget:

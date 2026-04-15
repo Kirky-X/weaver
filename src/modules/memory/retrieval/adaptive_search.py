@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from modules.memory.graphs.causal import CausalGraphRepo
     from modules.memory.graphs.temporal import TemporalGraphRepo
 
-log = get_logger("adaptive_search")
+log = get_logger(__name__)
 
 
 class EmbeddingServiceProtocol(Protocol):

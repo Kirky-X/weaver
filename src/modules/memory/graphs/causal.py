@@ -16,7 +16,7 @@ from core.observability.logging import get_logger
 from modules.memory.core.graph_types import CausalRelationType
 from modules.memory.graphs.base import BaseGraphRepo
 
-log = get_logger("causal_repo")
+log = get_logger(__name__)
 
 
 class CausalGraphRepo(BaseGraphRepo):

@@ -17,7 +17,7 @@ from core.observability.logging import get_logger
 if TYPE_CHECKING:
     from core.protocols import RelationalPool
 
-log = get_logger("llm_usage_repo")
+log = get_logger(__name__)
 
 
 class LLMUsageRepo:
@@ -617,6 +617,8 @@ class LLMUsageRepo:
             select(
                 LLMUsageRaw.provider,
                 func.count().label("call_count"),
+                func.sum(LLMUsageRaw.input_tokens).label("input_tokens"),
+                func.sum(LLMUsageRaw.output_tokens).label("output_tokens"),
                 func.sum(LLMUsageRaw.total_tokens).label("total_tokens"),
                 func.avg(LLMUsageRaw.latency_ms).label("avg_latency_ms"),
                 func.sum(cast(LLMUsageRaw.success, Integer)).label("success_count"),
@@ -634,6 +636,8 @@ class LLMUsageRepo:
             {
                 "provider": row.provider,
                 "call_count": row.call_count or 0,
+                "input_tokens": row.input_tokens or 0,
+                "output_tokens": row.output_tokens or 0,
                 "total_tokens": row.total_tokens or 0,
                 "avg_latency_ms": float(row.avg_latency_ms or 0),
                 "success_rate": (row.success_count or 0) / (row.call_count or 1),
@@ -675,6 +679,8 @@ class LLMUsageRepo:
                 LLMUsageRaw.model,
                 LLMUsageRaw.provider,
                 func.count().label("call_count"),
+                func.sum(LLMUsageRaw.input_tokens).label("input_tokens"),
+                func.sum(LLMUsageRaw.output_tokens).label("output_tokens"),
                 func.sum(LLMUsageRaw.total_tokens).label("total_tokens"),
                 func.avg(LLMUsageRaw.latency_ms).label("avg_latency_ms"),
                 func.sum(cast(LLMUsageRaw.success, Integer)).label("success_count"),
@@ -693,6 +699,8 @@ class LLMUsageRepo:
                 "model": row.model,
                 "provider": row.provider,
                 "call_count": row.call_count or 0,
+                "input_tokens": row.input_tokens or 0,
+                "output_tokens": row.output_tokens or 0,
                 "total_tokens": row.total_tokens or 0,
                 "avg_latency_ms": float(row.avg_latency_ms or 0),
                 "success_rate": (row.success_count or 0) / (row.call_count or 1),

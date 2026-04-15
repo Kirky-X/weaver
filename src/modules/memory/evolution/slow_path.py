@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
     from .queue import ConsolidationQueue
 
-log = get_logger("consolidation_worker")
+log = get_logger(__name__)
 
 
 class LLMClientProtocol(Protocol):

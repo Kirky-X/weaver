@@ -18,7 +18,7 @@ from modules.memory.core.graph_types import (
 if TYPE_CHECKING:
     from core.llm.client import LLMClient
 
-log = get_logger("entity_aggregator")
+log = get_logger(__name__)
 
 
 class EntityGraphRepoProtocol(Protocol):

@@ -7,6 +7,7 @@ This is the immutable temporal backbone of MAGMA's memory system.
 
 from __future__ import annotations
 
+import json
 import time
 from typing import Any
 
@@ -14,7 +15,7 @@ from core.observability.logging import get_logger
 from modules.memory.core.event_node import EventNode
 from modules.memory.graphs.base import BaseGraphRepo
 
-log = get_logger("temporal_repo")
+log = get_logger(__name__)
 
 
 class TemporalGraphRepo(BaseGraphRepo):
@@ -88,7 +89,7 @@ class TemporalGraphRepo(BaseGraphRepo):
             e.content = $content,
             e.timestamp = datetime($timestamp),
             e.created_at = datetime(),
-            e += $attributes
+            e.attributes = $attributes
         ON MATCH SET
             e.updated_at = datetime()
 
@@ -115,7 +116,7 @@ class TemporalGraphRepo(BaseGraphRepo):
             "id": event.id,
             "content": event.content,
             "timestamp": event.timestamp.isoformat() if event.timestamp else None,
-            "attributes": event.attributes,
+            "attributes": json.dumps(event.attributes) if event.attributes else None,
         }
 
         try:
@@ -239,7 +240,19 @@ class TemporalGraphRepo(BaseGraphRepo):
         """
 
         params = {"limit": limit, "offset": offset}
-        return await self._pool.execute_query(query, params)
+        results = await self._pool.execute_query(query, params)
+
+        # Parse JSON string attributes back to dict
+        import json
+
+        for record in results:
+            attr = record.get("attributes")
+            if isinstance(attr, str):
+                try:
+                    record["attributes"] = json.loads(attr)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        return results
 
     async def get_neighbors(
         self,
