@@ -436,11 +436,20 @@ class TestModelPathConfiguration:
         called_model = mock_load.call_args_list[0][0][0]
         assert called_model.startswith(expected_prefix)
 
+    @patch("os.listdir")
+    @patch("os.path.isdir")
+    @patch("os.path.join")
     @patch("modules.processing.nlp.spacy_extractor.SpacyExtractor._extract_wheel_safely")
     @patch("modules.processing.nlp.spacy_extractor.Path")
     @patch("spacy.load")
     def test_load_uses_zh_config_path_when_provided(
-        self, mock_spacy_load: MagicMock, mock_path_cls: MagicMock, mock_extract: MagicMock
+        self,
+        mock_spacy_load: MagicMock,
+        mock_path_cls: MagicMock,
+        mock_extract: MagicMock,
+        mock_path_join: MagicMock,
+        mock_isdir: MagicMock,
+        mock_listdir: MagicMock,
     ) -> None:
         """Test that _load method uses zh_model_path when loading Chinese model."""
         # Mock Path instance
@@ -453,6 +462,22 @@ class TestModelPathConfiguration:
 
         # Mock _extract_wheel_safely to return a directory
         mock_extract.return_value = "/tmp/extracted_model"
+
+        # Mock os.listdir to return directory structure
+        # First call: list /tmp/extracted_model -> returns ['zh_core_web_lg-3.8.0.dist-info', 'zh_core_web_lg']
+        # Second call: list /tmp/extracted_model/zh_core_web_lg -> returns ['zh_core_web_lg-3.8.0']
+        # Third call (in warning log): list /tmp/extracted_model again
+        mock_listdir.side_effect = [
+            ["zh_core_web_lg-3.8.0.dist-info", "zh_core_web_lg"],
+            ["zh_core_web_lg-3.8.0"],
+            ["zh_core_web_lg-3.8.0.dist-info", "zh_core_web_lg"],  # For warning log
+        ]
+
+        # Mock os.path.isdir to return True for directories
+        mock_isdir.return_value = True
+
+        # Mock os.path.join to return proper paths
+        mock_path_join.side_effect = lambda *args: "/".join(args)
 
         # Mock spacy.load to succeed
         mock_nlp = MockNLP(entities=[])
