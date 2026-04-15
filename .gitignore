@@ -47,6 +47,7 @@ llm.md
 coverage.json
 
 # IDE/Tool directories
+.idea/
 .iflow/
 .opencode/
 .qoder/
