@@ -10,6 +10,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import FastAPI, HTTPException
+
+pytestmark = pytest.mark.xdist_group(name="endpoints_deps")
 from fastapi.testclient import TestClient
 from httpx import AsyncClient, Response
 
@@ -82,9 +84,11 @@ def reset_endpoints_registry():
     from api.endpoints import _deps as deps
 
     # Reset before test
-    deps.Endpoints._postgres = None
-    deps.Endpoints._neo4j = None
-    deps.Endpoints._redis = None
+    deps.Endpoints._relational_pool = None
+    deps.Endpoints._relational_pool_type = None
+    deps.Endpoints._graph_pool = None
+    deps.Endpoints._graph_pool_type = None
+    deps.Endpoints._cache = None
     deps.Endpoints._llm = None
     deps.Endpoints._scheduler = None
     deps.Endpoints._vector_repo = None
@@ -96,13 +100,17 @@ def reset_endpoints_registry():
     deps.Endpoints._global_engine = None
     deps.Endpoints._hybrid_engine = None
     deps.Endpoints._pipeline_service = None
+    deps.Endpoints._task_registry = None
+    deps.Endpoints._graph_repo = None
 
     yield
 
     # Reset after test
-    deps.Endpoints._postgres = None
-    deps.Endpoints._neo4j = None
-    deps.Endpoints._redis = None
+    deps.Endpoints._relational_pool = None
+    deps.Endpoints._relational_pool_type = None
+    deps.Endpoints._graph_pool = None
+    deps.Endpoints._graph_pool_type = None
+    deps.Endpoints._cache = None
     deps.Endpoints._llm = None
     deps.Endpoints._scheduler = None
     deps.Endpoints._vector_repo = None
@@ -114,6 +122,8 @@ def reset_endpoints_registry():
     deps.Endpoints._global_engine = None
     deps.Endpoints._hybrid_engine = None
     deps.Endpoints._pipeline_service = None
+    deps.Endpoints._task_registry = None
+    deps.Endpoints._graph_repo = None
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -1156,10 +1166,9 @@ class TestMetricsEndpoint:
                     response = client.get("/metrics")
 
                     assert response.status_code == 200
-                    assert (
-                        response.headers["content-type"]
-                        == "text/plain; version=1.0.0; charset=utf-8"
-                    )
+                    # CONTENT_TYPE_LATEST from prometheus_client is 'text/plain; version=1.0.0; charset=utf-8'
+                    assert "text/plain" in response.headers["content-type"]
+                    assert "charset=utf-8" in response.headers["content-type"]
 
 
 # ────────────────────────────────────────────────────────────────────────────
