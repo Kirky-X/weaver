@@ -7,7 +7,7 @@ from core.llm.client import LLMClient
 from core.observability.logging import get_logger
 from modules.processing.pipeline.state import PipelineState
 
-log = get_logger("node.vectorize")
+log = get_logger(__name__)
 
 
 class VectorizeNode:

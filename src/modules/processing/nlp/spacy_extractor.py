@@ -9,7 +9,7 @@ from pathlib import Path
 
 from core.observability.logging import get_logger
 
-log = get_logger("spacy_extractor")
+log = get_logger(__name__)
 
 MODEL_MAP = {
     # zh_core_web_lg is preferred over zh_core_web_trf because:

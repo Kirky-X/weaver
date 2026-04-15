@@ -11,7 +11,7 @@ from core.observability.logging import get_logger
 from core.prompt.loader import PromptLoader
 from modules.processing.pipeline.state import PipelineState
 
-log = get_logger("node.cleaner")
+log = get_logger(__name__)
 
 
 class CleanerNode:

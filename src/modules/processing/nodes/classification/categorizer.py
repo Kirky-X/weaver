@@ -10,7 +10,7 @@ from core.observability.logging import get_logger
 from core.prompt.loader import PromptLoader
 from modules.processing.pipeline.state import PipelineState
 
-log = get_logger("node.categorizer")
+log = get_logger(__name__)
 
 # Category mapping: English -> Chinese
 CATEGORY_MAP = {

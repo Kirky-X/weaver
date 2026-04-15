@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from core.protocols import ArticleRepository, VectorRepository
     from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
-log = get_logger("node.batch_merger")
+log = get_logger(__name__)
 
 
 class UnionFind:

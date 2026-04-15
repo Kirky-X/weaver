@@ -9,7 +9,7 @@ from typing import Any
 from core.observability.logging import get_logger
 from modules.processing.pipeline.state import PipelineState
 
-log = get_logger("node.checkpoint_cleanup")
+log = get_logger(__name__)
 
 
 class CheckpointCleanupNode:

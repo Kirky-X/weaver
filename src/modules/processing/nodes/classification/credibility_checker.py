@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from modules.ingestion.scheduling.source_config_repo import SourceConfigRepo
     from modules.storage import SourceAuthorityRepo
 
-log = get_logger("node.credibility_checker")
+log = get_logger(__name__)
 
 
 class CredibilityCheckerNode:

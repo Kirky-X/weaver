@@ -13,7 +13,7 @@ from core.prompt.loader import PromptLoader
 from modules.processing.nodes.classification.categorizer import normalize_emotion
 from modules.processing.pipeline.state import PipelineState
 
-log = get_logger("node.analyze")
+log = get_logger(__name__)
 
 
 class AnalyzeNode:

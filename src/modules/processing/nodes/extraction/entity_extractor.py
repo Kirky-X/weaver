@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from config.settings import Settings
     from modules.knowledge.graph.relation_type_normalizer import RelationTypeNormalizer
 
-log = get_logger("node.entity_extractor")
+log = get_logger(__name__)
 
 # Default relation types when normalizer is not available
 _DEFAULT_RELATION_TYPES = """

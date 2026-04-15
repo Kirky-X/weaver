@@ -36,7 +36,7 @@ from modules.processing.pipeline.state import PipelineState
 if TYPE_CHECKING:
     from config.settings import Settings
 
-log = get_logger("pipeline")
+log = get_logger(__name__)
 
 # Processing stages
 PHASE1_STAGES = {
