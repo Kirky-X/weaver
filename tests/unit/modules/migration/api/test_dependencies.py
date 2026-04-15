@@ -511,7 +511,7 @@ class TestMigrationServiceEdgeCases:
 
             import asyncio
 
-            asyncio.get_event_loop().run_until_complete(service.run_migration(task_id))
+            asyncio.run(service.run_migration(task_id))
 
         # Task should still exist in history
         assert task_id in service._tasks

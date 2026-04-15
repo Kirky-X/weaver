@@ -3,19 +3,12 @@
 
 from __future__ import annotations
 
-import sys
 from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-
-# Mock the container dependency before importing routes
-mock_container_module = Mock()
-sys.modules["api.endpoints"] = mock_container_module
-sys.modules["api.endpoints._deps"] = mock_container_module
-mock_container_module.get_container = Mock()
 
 from modules.migration.api.routes import router
 from tests.helpers import (
