@@ -35,7 +35,7 @@ from core.observability import get_logger
 from core.observability.logging import configure_logging
 from core.observability.tracing import configure_tracing, instrument_fastapi
 
-log = get_logger("main")
+log = get_logger(__name__)
 configure_logging(debug=os.environ.get("DEBUG", "").lower() in ("true", "1", "yes"))
 
 

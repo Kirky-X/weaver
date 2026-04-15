@@ -14,9 +14,13 @@ from __future__ import annotations
 
 import os
 import secrets
+from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
+
+# Project root directory (subconfigs.py is in src/config/)
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 class PostgresSettings(BaseModel):
@@ -119,7 +123,7 @@ class APISettings(BaseModel):
         generated = secrets.token_urlsafe(32)
         from core.observability.logging import get_logger
 
-        log = get_logger("config.settings")
+        log = get_logger(__name__)
         log.info(
             "api_key_generated",
             message="Generated random API key (set WEAVER__API__API_KEY environment variable to override)",
@@ -196,7 +200,7 @@ class APISettings(BaseModel):
         except Exception as e:
             from core.observability.logging import get_logger
 
-            log = get_logger("config.settings")
+            log = get_logger(__name__)
             log.error(
                 "port_resolution_failed",
                 host=self.host,
@@ -394,7 +398,7 @@ class HealthCheckSettings(BaseModel):
 class PromptSettings(BaseModel):
     """Prompt loading settings."""
 
-    dir: str = "config/prompts"
+    dir: str = str(_PROJECT_ROOT / "config" / "prompts")
 
 
 class IntentRoutingSettings(BaseModel):

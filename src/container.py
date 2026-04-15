@@ -43,7 +43,7 @@ from modules.storage.duckdb import DuckDBLLMUsageRepo
 from modules.storage.neo4j import Neo4jArticleRepo, Neo4jEntityRepo
 from modules.storage.postgres import ArticleRepo, PendingSyncRepo, SourceAuthorityRepo, VectorRepo
 
-log = get_logger("container")
+log = get_logger(__name__)
 
 
 async def _handle_llm_failure_async(event: LLMFailureEvent, repo: Any) -> None:
@@ -850,7 +850,7 @@ class Container:
             return None
         if self._community_updater is None:
             self._community_updater = IncrementalCommunityUpdater(
-                pool=self.graph_pool(), llm_client=self.llm()
+                pool=self.graph_pool(), llm_client=self.llm_client()
             )
         return self._community_updater
 
