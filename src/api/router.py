@@ -12,6 +12,7 @@ from api.endpoints import (
     graph_metrics_router,
     graph_router,
     graph_visualization_router,
+    monitoring_router,
     pipeline_router,
     search_router,
     sources_router,
@@ -28,3 +29,4 @@ api_router.include_router(graph_metrics_router)
 api_router.include_router(graph_visualization_router)
 api_router.include_router(admin_router)
 api_router.include_router(communities_router)
+api_router.include_router(monitoring_router)

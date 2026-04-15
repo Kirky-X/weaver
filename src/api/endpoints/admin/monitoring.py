@@ -81,7 +81,7 @@ async def get_index_usage(
     pool = container.relational_pool()
 
     # Only works with PostgreSQL
-    if container.relational_pool_type != "postgres":
+    if container.relational_pool_type != "postgresql":
         return success_response(
             [],
             message="Index statistics only available for PostgreSQL",
@@ -195,7 +195,7 @@ async def get_pool_stats(
     pool = container.relational_pool()
 
     # Get pool statistics from SQLAlchemy
-    if container.relational_pool_type == "postgres":
+    if container.relational_pool_type == "postgresql":
         assert isinstance(pool, PostgresPool)
         engine = pool._engine
         if engine is None:

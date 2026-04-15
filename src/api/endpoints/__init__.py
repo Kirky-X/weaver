@@ -17,6 +17,7 @@ Example usage:
 """
 
 from api.endpoints.admin import router as admin_router
+from api.endpoints.admin.monitoring import router as monitoring_router
 from api.endpoints.communities import router as communities_router
 from api.endpoints.content.articles import router as articles_router
 from api.endpoints.content.pipeline import router as pipeline_router
@@ -33,6 +34,7 @@ __all__ = [
     "graph_metrics_router",
     "graph_router",
     "graph_visualization_router",
+    "monitoring_router",
     "pipeline_router",
     "search_router",
     "sources_router",
