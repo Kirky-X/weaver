@@ -14,7 +14,7 @@ from modules.ingestion.domain.models import NewsItem, SourceConfig
 from modules.ingestion.fetching.base import BaseFetcher
 from modules.ingestion.parsing.base import BaseSourceParser
 
-log = get_logger("rss_parser")
+log = get_logger(__name__)
 
 # Pattern to extract biz and mid from HTML content (e.g. content:encoded).
 _WECHAT_BIZ_MID_RE = re.compile(r'(?:biz|__biz)=([^&"\'<>]+)', re.IGNORECASE)

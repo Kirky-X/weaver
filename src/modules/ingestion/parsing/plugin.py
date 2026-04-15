@@ -38,7 +38,7 @@ from core.observability.logging import get_logger
 if TYPE_CHECKING:
     from modules.ingestion.parsing.base import BaseSourceParser
 
-log = get_logger("source_plugin")
+log = get_logger(__name__)
 
 
 @dataclass

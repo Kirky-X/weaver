@@ -15,7 +15,7 @@ from modules.ingestion.fetching.base import BaseFetcher
 if TYPE_CHECKING:
     from core.security import URLValidator
 
-log = get_logger("httpx_fetcher")
+log = get_logger(__name__)
 
 
 class RedirectBlockedError(Exception):

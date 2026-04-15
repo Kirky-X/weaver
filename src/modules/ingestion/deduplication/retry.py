@@ -15,7 +15,7 @@ from core.observability.logging import get_logger
 if TYPE_CHECKING:
     from core.protocols import CachePool
 
-log = get_logger("retry_queue")
+log = get_logger(__name__)
 
 
 class RetryQueue:

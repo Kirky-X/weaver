@@ -19,7 +19,7 @@ from core.observability.metrics import metrics
 if TYPE_CHECKING:
     from core.protocols import CachePool
 
-log = get_logger("simhash_dedup")
+log = get_logger(__name__)
 
 
 @dataclass

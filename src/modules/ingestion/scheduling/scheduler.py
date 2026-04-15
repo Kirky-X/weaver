@@ -14,7 +14,7 @@ from core.observability.logging import get_logger
 from modules.ingestion.domain.models import NewsItem, SourceConfig
 from modules.ingestion.parsing.registry import SourceRegistry
 
-log = get_logger("source_scheduler")
+log = get_logger(__name__)
 
 
 class SourceScheduler:

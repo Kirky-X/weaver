@@ -13,7 +13,7 @@ from modules.ingestion.fetching.base import BaseFetcher
 if TYPE_CHECKING:
     from crawl4ai import AsyncWebCrawler
 
-log = get_logger("crawl4ai_fetcher")
+log = get_logger(__name__)
 
 
 class Crawl4AIFetcher(BaseFetcher):

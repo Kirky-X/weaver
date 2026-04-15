@@ -16,7 +16,7 @@ from modules.ingestion.domain.models import SourceConfig
 if TYPE_CHECKING:
     from core.protocols import RelationalPool
 
-log = get_logger("source_config_repo")
+log = get_logger(__name__)
 
 
 class SourceConfigRepo:

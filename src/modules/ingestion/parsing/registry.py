@@ -37,7 +37,7 @@ from modules.ingestion.parsing.rss_parser import RSSParser
 if TYPE_CHECKING:
     from modules.ingestion.parsing.plugin import PluginMetadata
 
-log = get_logger("source_registry")
+log = get_logger(__name__)
 
 
 class SourceRegistry:

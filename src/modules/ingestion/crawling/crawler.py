@@ -14,7 +14,7 @@ from modules.ingestion.domain.models import ArticleRaw, NewsItem
 from modules.ingestion.fetching.base import BaseFetcher
 from modules.ingestion.fetching.exceptions import FetchError
 
-log = get_logger("crawler")
+log = get_logger(__name__)
 
 GLOBAL_MAX_CONCURRENCY = 32
 

@@ -13,7 +13,7 @@ from modules.ingestion.fetching.exceptions import FetchError
 from modules.processing.pipeline.graph import Pipeline
 from modules.storage import ArticleRepo
 
-log = get_logger("discovery_processor")
+log = get_logger(__name__)
 
 
 class DiscoveryProcessor:

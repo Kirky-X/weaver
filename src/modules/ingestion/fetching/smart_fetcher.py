@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from core.security import URLValidator
     from modules.ingestion.fetching.rate_limiter import HostRateLimiter
 
-log = get_logger("smart_fetcher")
+log = get_logger(__name__)
 
 # Minimum content length to consider a page valid
 MIN_CONTENT_LENGTH = 500

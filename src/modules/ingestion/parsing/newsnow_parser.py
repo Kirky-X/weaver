@@ -13,7 +13,7 @@ from modules.ingestion.domain.models import NewsItem, SourceConfig
 from modules.ingestion.fetching.base import BaseFetcher
 from modules.ingestion.parsing.base import BaseSourceParser
 
-log = get_logger("newsnow_parser")
+log = get_logger(__name__)
 
 
 class NewsNowParser(BaseSourceParser):

@@ -14,7 +14,7 @@ from core.observability.metrics import metrics
 if TYPE_CHECKING:
     from core.protocols import CachePool
 
-log = get_logger("deduplicator")
+log = get_logger(__name__)
 
 
 class Deduplicator:
