@@ -71,7 +71,10 @@ class ArticleDetailResponse(BaseModel):
 
 
 def _article_to_dict(article: Article) -> dict[str, Any]:
-    """Convert Article model to dictionary."""
+    """Convert Article model to dictionary.
+
+    Note: Float fields are serialized via RoundedFloatOpt in response models.
+    """
     return {
         "id": str(article.id),
         "source_url": article.source_url,
@@ -87,20 +90,18 @@ def _article_to_dict(article: Article) -> dict[str, Any]:
         "subjects": article.subjects,
         "key_data": article.key_data,
         "impact": article.impact,
-        "score": round(float(article.score), 2) if article.score else None,
+        "score": float(article.score) if article.score else None,
         "sentiment": article.sentiment,
-        "sentiment_score": (
-            round(float(article.sentiment_score), 2) if article.sentiment_score else None
-        ),
+        "sentiment_score": float(article.sentiment_score) if article.sentiment_score else None,
         "primary_emotion": article.primary_emotion.value if article.primary_emotion else None,
         "credibility_score": (
-            round(float(article.credibility_score), 2) if article.credibility_score else None
+            float(article.credibility_score) if article.credibility_score else None
         ),
         "source_credibility": (
-            round(float(article.source_credibility), 2) if article.source_credibility else None
+            float(article.source_credibility) if article.source_credibility else None
         ),
         "content_check_score": (
-            round(float(article.content_check_score), 2) if article.content_check_score else None
+            float(article.content_check_score) if article.content_check_score else None
         ),
         "publish_time": article.publish_time.isoformat() if article.publish_time else None,
         "created_at": article.created_at.isoformat(),

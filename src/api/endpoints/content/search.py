@@ -258,7 +258,7 @@ async def _search_articles_direct(
             {
                 "id": r.get("id"),
                 "title": r.get("title"),
-                "score": round(r.get("score", 0.0), 2),
+                "score": r.get("score", 0.0),
                 "summary": r.get("summary", "")[:200] if r.get("summary") else "",
             }
             for r in results
@@ -276,7 +276,7 @@ async def _search_articles_direct(
             confidence = 0.0
         else:
             avg_score = sum(r.get("score", 0.0) for r in results) / len(results)
-            confidence = round(min(1.0, avg_score * 2), 2)  # Scale to 0-1
+            confidence = min(1.0, avg_score * 2)  # Scale to 0-1
 
         log.info(
             "articles_direct_search",
