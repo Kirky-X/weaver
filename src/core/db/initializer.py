@@ -14,7 +14,7 @@ from alembic.config import Config
 
 from core.observability.logging import get_logger
 
-log = get_logger("db_initializer")
+log = get_logger(__name__)
 
 REQUIRED_TABLES = [
     "articles",

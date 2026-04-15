@@ -18,7 +18,7 @@ from opentelemetry import trace
 from core.llm.types import TokenUsage
 from core.observability.logging import clear_task_context, get_logger, set_task_context
 
-log = get_logger("event_bus")
+log = get_logger(__name__)
 tracer = trace.get_tracer("event_bus")
 
 

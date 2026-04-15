@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import (
 from core.observability.logging import get_logger
 from core.observability.metrics import MetricsCollector
 
-log = get_logger("postgres")
+log = get_logger(__name__)
 
 
 class PostgresPool:

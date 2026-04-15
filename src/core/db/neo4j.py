@@ -10,7 +10,7 @@ from neo4j import AsyncDriver, AsyncGraphDatabase
 
 from core.observability.logging import get_logger
 
-log = get_logger("neo4j")
+log = get_logger(__name__)
 
 
 class Neo4jPool:

@@ -17,7 +17,7 @@ from core.protocols import GraphPool, RelationalPool
 if TYPE_CHECKING:
     from config.settings import DuckDBSettings, LadybugSettings, Neo4jSettings, PostgresSettings
 
-log = get_logger("database_strategy")
+log = get_logger(__name__)
 
 
 @dataclass(frozen=True)

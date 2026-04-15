@@ -11,7 +11,7 @@ from redis.asyncio import ConnectionPool, Redis
 from core.observability.logging import get_logger
 from core.utils.sanitize import sanitize_dsn
 
-log = get_logger("redis")
+log = get_logger(__name__)
 
 
 class RedisClient:
