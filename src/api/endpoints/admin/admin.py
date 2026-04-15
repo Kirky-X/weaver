@@ -19,7 +19,7 @@ from modules.storage import SourceAuthorityRepo
 if TYPE_CHECKING:
     from modules.analytics import LLMFailureRepo, LLMUsageRepo
 
-log = get_logger("admin_api")
+log = get_logger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 

@@ -15,7 +15,7 @@ from core.observability import get_logger
 from core.protocols import GraphPool
 from modules.knowledge.graph import GraphQualityMetrics
 
-log = get_logger("graph_metrics")
+log = get_logger(__name__)
 
 router = APIRouter(prefix="/graph/metrics", tags=["graph-metrics"])
 

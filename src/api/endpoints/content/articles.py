@@ -19,7 +19,7 @@ from core.db import Article, CategoryType
 from core.observability import get_logger
 from core.protocols import RelationalPool
 
-log = get_logger("articles_api")
+log = get_logger(__name__)
 
 router = APIRouter(prefix="/articles", tags=["articles"])
 

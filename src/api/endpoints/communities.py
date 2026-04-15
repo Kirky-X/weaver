@@ -25,7 +25,7 @@ from modules.knowledge.graph import (
     ReportGenerationResult,
 )
 
-log = get_logger("community_api")
+log = get_logger(__name__)
 
 
 def _get_db_type(pool_type: str) -> GraphDatabaseType:

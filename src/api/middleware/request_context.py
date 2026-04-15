@@ -10,7 +10,7 @@ from typing import Any
 from core.observability import get_logger
 from core.observability.logging import _context_vars
 
-log = get_logger("request_context")
+log = get_logger(__name__)
 
 # Request-scoped context
 _request_id: ContextVar[str | None] = ContextVar("request_id", default=None)

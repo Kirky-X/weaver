@@ -140,7 +140,7 @@ async def get_table_stats(
     """
     pool = container.relational_pool()
 
-    if container.relational_pool_type != "postgres":
+    if container.relational_pool_type != "postgresql":
         return success_response(
             [],
             message="Table statistics only available for PostgreSQL",
@@ -152,12 +152,13 @@ async def get_table_stats(
         result = await session.execute(
             text("""
                 SELECT
-                    schemaname || '.' || relname AS table,
-                    n_live_tup AS rows,
+                    t.schemaname || '.' || t.relname AS table,
+                    t.n_live_tup AS rows,
                     pg_size_pretty(pg_total_relation_size(c.oid)) AS size,
                     pg_size_pretty(pg_indexes_size(c.oid)) AS index_size
                 FROM pg_stat_user_tables t
-                JOIN pg_class c ON c.relname = t.relname
+                JOIN pg_namespace n ON n.nspname = t.schemaname
+                JOIN pg_class c ON c.relname = t.relname AND c.relnamespace = n.oid
                 ORDER BY pg_total_relation_size(c.oid) DESC
                 LIMIT :limit
             """),
@@ -202,14 +203,13 @@ async def get_pool_stats(
             return success_response(PoolStats(pool_size=0, checked_in=0, checked_out=0, overflow=0))
 
         pool_obj = engine.sync_engine.pool
-        status = pool_obj.status()
 
         return success_response(
             PoolStats(
-                pool_size=status.size,
-                checked_in=status.checkedin,
-                checked_out=status.checkedout,
-                overflow=status.overflow,
+                pool_size=pool_obj.size(),
+                checked_in=pool_obj.checkedin(),
+                checked_out=pool_obj.checkedout(),
+                overflow=pool_obj.overflow(),
             )
         )
 
@@ -241,7 +241,7 @@ async def get_slow_queries(
     """
     pool = container.relational_pool()
 
-    if container.relational_pool_type != "postgres":
+    if container.relational_pool_type != "postgresql":
         return success_response(
             {"slow_queries": []},
             message="Slow query statistics only available for PostgreSQL",
