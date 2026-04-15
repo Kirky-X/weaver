@@ -182,7 +182,7 @@ class StructuralConsolidationWorker:
 {events_str}
 
 返回 JSON 格式的因果关系列表:
-{"causal_edges": [{"source_id": "...", "target_id": "...", "relation_type": "CAUSES|ENABLES|PREVENTS", "confidence": 0.0-1.0, "evidence": "..."}]}
+{{"causal_edges": [{{"source_id": "...", "target_id": "...", "relation_type": "CAUSES|ENABLES|PREVENTS", "confidence": 0.0-1.0, "evidence": "..."}}]}}
 
 注意:
 1. confidence 表示因果关系的可信度 (0.0-1.0)
@@ -190,7 +190,6 @@ class StructuralConsolidationWorker:
 3. evidence 是支持该因果关系的证据描述"""
 
             response = await self._llm.call(
-                label="chat.aiping.GLM-4-9B-0414",
                 call_point="CAUSAL_INFERENCE",
                 payload={
                     "system_prompt": (
