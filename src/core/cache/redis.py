@@ -327,13 +327,31 @@ class _CashewsPipeline:
 
 
 class _CashewsScript:
-    """No-op Lua script stub — cashews does not support Lua eval."""
+    """Placeholder for Lua script execution — not supported by cashews.
+
+    The cashews library does not support Lua script evaluation via EVAL/EVALSHA.
+    This class provides interface compatibility but will raise NotImplementedError
+    if actually called. Use a real Redis connection for Lua script functionality.
+    """
 
     def __init__(self, _script: str) -> None:
-        pass
+        """Store the script (unused, as cashews cannot execute Lua scripts).
+
+        Args:
+            _script: Lua script content (ignored).
+        """
+        self._script = _script
 
     async def __call__(self, *keys: str, args: list[str] | None = None) -> Any:
-        return None
+        """Raise NotImplementedError as Lua scripts cannot be executed.
+
+        Raises:
+            NotImplementedError: Always raised because cashews does not support Lua eval.
+        """
+        raise NotImplementedError(
+            "Lua script execution is not supported by cashews. "
+            "Use a real Redis connection for this functionality."
+        )
 
 
 class CashewsRedisFallback:
@@ -535,7 +553,18 @@ class CashewsRedisFallback:
         return _CashewsPipeline(self)
 
     def register_script(self, script: str) -> _CashewsScript:
-        """Return a no-op script stub (cashews has no Lua support)."""
+        """Return a placeholder script object (cashews has no Lua support).
+
+        The returned object implements the script interface but will raise
+        NotImplementedError when called. This maintains API compatibility
+        while clearly indicating the limitation.
+
+        Args:
+            script: Lua script content.
+
+        Returns:
+            A placeholder _CashewsScript object that will raise NotImplementedError on execution.
+        """
         return _CashewsScript(script)
 
     # ── Internal helpers ───────────────────────────────────────

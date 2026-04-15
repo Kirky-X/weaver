@@ -162,7 +162,7 @@ class GlobalContextBuilder(ContextBuilder):
             if result and result[0].get("count", 0) > 0:
                 return True
         except (TypeError, KeyError):
-            # Handle case where result is MagicMock or has unexpected structure
+            # Handle unexpected result structure or malformed data
             pass
         return False
 

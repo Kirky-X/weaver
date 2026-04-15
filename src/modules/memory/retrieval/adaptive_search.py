@@ -226,7 +226,7 @@ class AdaptiveSearchEngine:
                     if neighbor_id in visited:
                         continue
 
-                    # Create mock EventNode for scoring
+                    # Create placeholder EventNode with minimal data for scoring
                     neighbor_event = EventNode(
                         id=neighbor_id,
                         content="",
