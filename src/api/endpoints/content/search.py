@@ -249,33 +249,44 @@ async def _search_articles_direct(
             )
             search_method = "vector"
 
-        # Filter by category if specified
+        # Filter by category if specified (using metadata if available)
         if category and results:
-            results = [r for r in results if r.get("category") == category]
+            results = [r for r in results if getattr(r, "metadata", {}).get("category") == category]
 
-        # Format results
+        # Debug: Log actual score values
+        if results:
+            log.debug(
+                "search_scores_debug",
+                first_result_type=type(results[0]).__name__,
+                first_score=getattr(results[0], "score", None),
+                first_rrf_score=getattr(results[0], "rrf_score", None),
+                first_metadata=getattr(results[0], "metadata", {}),
+            )
+
+        # Format results - handle HybridSearchResult dataclass
         sources = [
             {
-                "id": r.get("id"),
-                "title": r.get("title"),
-                "score": r.get("score", 0.0),
-                "summary": r.get("summary", "")[:200] if r.get("summary") else "",
+                "id": getattr(r, "doc_id", ""),
+                "title": getattr(r, "title", ""),
+                "score": getattr(r, "score", 0.0),
+                "summary": getattr(r, "content", "")[:200] if getattr(r, "content", "") else "",
             }
             for r in results
         ]
 
-        # Extract entities from results
+        # Extract entities from results metadata
         entities = []
         for r in results:
-            if r.get("entities"):
-                entities.extend(r["entities"])
+            meta = getattr(r, "metadata", {})
+            if meta.get("entities"):
+                entities.extend(meta["entities"])
         entities = list(set(entities))[:20]
 
         # Calculate confidence based on result quality
         if not results:
             confidence = 0.0
         else:
-            avg_score = sum(r.get("score", 0.0) for r in results) / len(results)
+            avg_score = sum(getattr(r, "score", 0.0) for r in results) / len(results)
             confidence = min(1.0, avg_score * 2)  # Scale to 0-1
 
         log.info(
@@ -287,7 +298,7 @@ async def _search_articles_direct(
 
         return {
             "answer": f"Found {len(results)} articles matching '{query}'.",
-            "context_tokens": sum(len(r.get("content", "")) // 4 for r in results),
+            "context_tokens": sum(len(getattr(r, "content", "")) // 4 for r in results),
             "confidence": confidence,
             "entities": entities,
             "sources": sources,
