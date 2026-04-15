@@ -172,7 +172,7 @@ class HybridSearchEngine:
         query: str,
         embedding: list[float] | None,
         limit: int,
-    ) -> tuple[list[tuple[str, float]], list[tuple[str, float]]]:
+    ) -> tuple[list[tuple[str, float]], list[dict[str, Any]]]:
         """Execute parallel retrieval from multiple sources.
 
         Args:
@@ -181,7 +181,7 @@ class HybridSearchEngine:
             limit: Number of results per source.
 
         Returns:
-            Tuple of (vector_results, bm25_results).
+            Tuple of (vector_results as tuples, bm25_results as dicts).
         """
         tasks = []
 
@@ -239,7 +239,7 @@ class HybridSearchEngine:
         self,
         query: str,
         limit: int,
-    ) -> list[tuple[str, float]]:
+    ) -> list[dict[str, Any]]:
         """Execute BM25 lexical search.
 
         Args:
@@ -247,7 +247,7 @@ class HybridSearchEngine:
             limit: Number of results.
 
         Returns:
-            List of (doc_id, score) tuples.
+            List of dicts with doc_id, score, title, content, metadata.
         """
         if not self._bm25_retriever:
             return []
@@ -259,7 +259,16 @@ class HybridSearchEngine:
                 None,
                 lambda: self._bm25_retriever.retrieve(query, top_k=limit),
             )
-            return [(r.doc_id, r.score) for r in results]
+            return [
+                {
+                    "doc_id": r.doc_id,
+                    "score": r.score,
+                    "title": r.title,
+                    "content": r.content,
+                    "metadata": r.metadata,
+                }
+                for r in results
+            ]
         except Exception as exc:
             log.error("bm25_search_error", error=str(exc))
             return []
@@ -271,23 +280,25 @@ class HybridSearchEngine:
     def _fuse_results(
         self,
         vector_results: list[tuple[str, float]],
-        bm25_results: list[tuple[str, float]],
+        bm25_results: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
         """Fuse results using Reciprocal Rank Fusion.
 
         Args:
-            vector_results: Vector search results.
-            bm25_results: BM25 search results.
+            vector_results: Vector search results as (doc_id, score) tuples.
+            bm25_results: BM25 search results as dicts with full info.
 
         Returns:
-            Fused results with RRF scores.
+            Fused results with RRF scores and preserved content.
         """
-        # Prepare results lists with weights
+        # Prepare results lists for RRF (need tuples)
         results_list = []
         if vector_results:
             results_list.append(vector_results)
         if bm25_results:
-            results_list.append(bm25_results)
+            # Convert BM25 dicts to tuples for RRF
+            bm25_tuples = [(r["doc_id"], r["score"]) for r in bm25_results]
+            results_list.append(bm25_tuples)
 
         if not results_list:
             return []
@@ -300,7 +311,10 @@ class HybridSearchEngine:
 
         # Track source ranks
         vector_rank_map = {doc_id: rank for rank, (doc_id, _) in enumerate(vector_results, 1)}
-        bm25_rank_map = {doc_id: rank for rank, (doc_id, _) in enumerate(bm25_results, 1)}
+        bm25_rank_map = {doc_id: rank for rank, (doc_id, _) in enumerate(bm25_tuples, 1)}
+
+        # Build BM25 info map for content lookup
+        bm25_info_map = {r["doc_id"]: r for r in bm25_results}
 
         return [
             {
@@ -308,6 +322,10 @@ class HybridSearchEngine:
                 "rrf_score": score,
                 "vector_rank": vector_rank_map.get(doc_id),
                 "bm25_rank": bm25_rank_map.get(doc_id),
+                # Preserve BM25 content info
+                "title": bm25_info_map.get(doc_id, {}).get("title", ""),
+                "content": bm25_info_map.get(doc_id, {}).get("content", ""),
+                "metadata": bm25_info_map.get(doc_id, {}).get("metadata", {}),
             }
             for doc_id, score in fused
         ]
