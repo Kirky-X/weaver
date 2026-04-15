@@ -1,0 +1,207 @@
+# Weaver Settings Configuration Template
+# ============================================================
+# Copy this file to config/settings.toml and adjust values as needed.
+# Secrets (passwords, API keys) should be set in .env file.
+# Environment variables take precedence over TOML values.
+# ============================================================
+
+# ============================================================
+# Database Configuration
+# ============================================================
+
+[postgres]
+# PostgreSQL connection settings
+host = "localhost"                      # Database server hostname
+port = 5432                            # Database server port
+database = "weaver"                    # Database name
+user = "postgres"                      # Database username
+# password: Set via POSTGRES_PASSWORD environment variable
+pool_size = 20                         # Initial connection pool size
+max_overflow = 10                      # Maximum overflow connections
+pool_timeout = 30.0                    # Connection acquisition timeout (seconds)
+
+[neo4j]
+# Neo4j graph database connection settings
+uri = "bolt://localhost:7687"         # Neo4j bolt connection URI
+user = "neo4j"                         # Neo4j username
+# password: Set via NEO4J_PASSWORD environment variable
+enabled = true                         # Enable/disable Neo4j connection
+
+[redis]
+# Redis cache connection settings
+host = "localhost"                     # Redis server hostname
+port = 6379                            # Redis server port
+db = 0                                 # Redis database number (0-15)
+# password: Set via REDIS_PASSWORD environment variable (optional)
+
+# ============================================================
+# LLM Configuration
+# ============================================================
+
+[llm]
+# See config/llm.toml for full LLM provider and call-point configuration
+# These fields are simplified references for quick lookups
+embedding_provider = "your_embedding_provider"   # Provider name for embeddings
+embedding_model = "your_embedding_model"         # Embedding model name
+rerank_provider = "your_rerank_provider"        # Provider name for reranking
+rerank_model = "your_rerank_model"              # Reranking model name
+
+# ============================================================
+# Fetcher Configuration (Web Crawler)
+# ============================================================
+
+[fetcher]
+# HTTP fetcher and crawler settings
+default_per_host_concurrency = 2         # Max concurrent requests per host
+global_max_concurrency = 32             # Max total concurrent requests
+httpx_timeout = 15.0                  # HTTP request timeout (seconds)
+user_agent = "Mozilla/5.0 (compatible; NewsBot/1.0)"  # Default HTTP User-Agent
+
+# Stealth mode settings (for browser automation to evade detection)
+stealth_enabled = true                  # Enable stealth browser mode
+stealth_user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"  # Browser User-Agent
+stealth_viewport_width = 1920          # Browser viewport width (pixels)
+stealth_viewport_height = 1080         # Browser viewport height (pixels)
+stealth_locale = "zh-CN"               # Browser locale (language-country code)
+stealth_timezone = "Asia/Shanghai"     # Browser timezone
+stealth_random_delay_min = 0.5         # Min random delay between requests (seconds)
+stealth_random_delay_max = 2.0         # Max random delay between requests (seconds)
+
+# Rate limiting
+rate_limit_enabled = true               # Enable per-host rate limiting
+rate_limit_delay_min = 1.0            # Min delay between requests to same host (seconds)
+rate_limit_delay_max = 3.0            # Max delay between requests to same host (seconds)
+
+# Circuit breaker (prevents cascading failures)
+circuit_breaker_enabled = true         # Enable circuit breaker pattern
+circuit_breaker_threshold = 5          # Consecutive failures before opening circuit
+circuit_breaker_timeout = 60.0          # Cooldown period before half-open (seconds)
+
+# ============================================================
+# API Server Configuration
+# ============================================================
+
+[api]
+# API server settings
+# api_key: Set via WEAVER_API__API_KEY environment variable
+rate_limit = "100/minute"               # Global API rate limit
+host = "0.0.0.0"                       # Bind address (0.0.0.0 for all interfaces)
+port = 8000                             # HTTP port
+port_auto_detect = false                # Disable automatic port detection and .env.weaver generation
+
+# ============================================================
+# Scheduler Configuration
+# ============================================================
+
+[scheduler]
+# ── Global ──────────────────────────────────────────
+enabled = true                                    # Master switch for all APScheduler jobs
+misfire_grace_time_seconds = 300                  # Grace period for missed executions
+job_timeout_seconds = 600                         # Max execution time per job
+
+# ── Data Sync ───────────────────────────────────────
+crawl_interval_minutes = 30                       # Crawl interval (used by SourceScheduler)
+neo4j_retry_interval_minutes = 10                 # Neo4j retry interval
+sync_pending_to_neo4j_interval_minutes = 10       # Sync pending records to Neo4j
+retry_neo4j_writes_interval_minutes = 10          # Retry failed Neo4j writes
+sync_neo4j_with_postgres_interval_hours = 1       # Full Neo4j↔PostgreSQL sync
+consistency_check_cron_hour = 3                   # Consistency check hour (24h format)
+consistency_check_cron_minute = 0                 # Consistency check minute
+
+# ── Pipeline Retry ──────────────────────────────────
+retry_flush_interval_seconds = 30                 # Crawl retry queue flush interval
+pipeline_retry_interval_minutes = 15              # Pipeline retry check interval
+pipeline_retry_batch_size = 20                    # Max articles per retry batch
+pipeline_retry_dynamic_batch = false              # Enable dynamic batch sizing
+pipeline_retry_success_rate_threshold = 0.8       # Success rate for batch increase
+pipeline_retry_stuck_timeout_minutes = 30         # Timeout to consider article stuck
+pipeline_retry_max_retries = 3                    # Max retry attempts per article
+
+# ── Cleanup ─────────────────────────────────────────
+cleanup_old_synced_days = 7                       # Days to retain synced records
+cleanup_old_synced_cron_hour = 3                  # Cleanup hour
+cleanup_old_synced_cron_minute = 30               # Cleanup minute
+llm_failure_cleanup_interval_hours = 24           # LLM failure record cleanup interval
+llm_failure_cleanup_retention_days = 3            # LLM failure record retention
+llm_usage_raw_cleanup_interval_hours = 6          # LLM usage raw record cleanup interval
+llm_usage_raw_retention_days = 2                  # LLM usage raw record retention
+archive_old_neo4j_nodes_cron_day_of_week = "sat"  # Archive old Neo4j nodes day
+archive_old_neo4j_nodes_cron_hour = 2             # Archive old Neo4j nodes hour
+archive_old_neo4j_days = 90                       # Neo4j article archival age
+cleanup_orphan_vectors_cron_day_of_week = "sat"   # Orphan vector cleanup day
+cleanup_orphan_vectors_cron_hour = 3              # Orphan vector cleanup hour
+
+# ── Aggregation ─────────────────────────────────────
+llm_usage_aggregate_interval_minutes = 5          # LLM usage Redis→PG flush interval
+llm_usage_redis_buffer_ttl_seconds = 7200         # Redis buffer TTL (2h)
+
+# ── Metrics ─────────────────────────────────────────
+persist_status_metrics_interval_minutes = 5        # Prometheus metrics refresh interval
+
+# ── Source Scoring ──────────────────────────────────
+source_auto_score_cron_hour = 3                   # Source authority score update hour
+
+# ── Knowledge Graph ─────────────────────────────────
+community_check_interval_minutes = 30             # Community detection check interval
+
+# ============================================================
+# Search Configuration
+# ============================================================
+
+[search]
+# Search enhancement settings
+hybrid_enabled = true                   # Enable hybrid search (vector + keyword)
+rerank_enabled = true                  # Enable cross-encoder reranking
+rerank_model = "tiny"                 # Flashrank model variant (tiny/small/medium/multilingual)
+mmr_enabled = false                   # Enable Maximal Marginal Relevance for diversity
+mmr_lambda = 0.7                      # MMR balance (0-1, higher favors relevance over diversity)
+bm25_rebuild_interval = 300            # BM25 index rebuild interval (seconds)
+temporal_decay_enabled = false        # Enable time-based scoring boost for recent documents
+temporal_decay_half_life_days = 30.0  # Time for decay to reach 50% (days)
+
+# ============================================================
+# Deduplication Configuration
+# ============================================================
+
+[dedup]
+# Article deduplication settings
+enable_simhash_dedup = true            # Enable SimHash-based title deduplication
+simhash_hamming_threshold = 3           # Max Hamming distance for duplicate detection (0-64, lower = stricter)
+
+# ============================================================
+# Observability Configuration
+# ============================================================
+
+[observability]
+# Telemetry and monitoring settings
+# OTLP collector endpoint for OpenTelemetry tracing
+otlp_endpoint = "http://localhost:4317" # OpenTelemetry collector URL (empty to disable)
+
+# ============================================================
+# Entity Configuration
+# ============================================================
+
+[entity]
+disable_data_metrics_nodes = true        # 过滤"数据指标"类型实体 (CARDINAL/PERCENT/MONEY)，避免提取数值类无效实体
+
+# ============================================================
+# spaCy Configuration
+# ============================================================
+
+[spacy]
+# spaCy model detection and installation settings
+force_install = false                  # Auto-install missing models at startup
+strict_mode = true                     # Fail startup if installation fails (when force_install=true)
+models = ["zh_core_web_lg", "en_core_web_sm"]  # Models to check/install
+
+# Local wheel file paths for offline installation (optional)
+# [spacy.local_paths]
+# zh_core_web_lg = "/path/to/zh_core_web_lg-3.7.0-py3-none-any.whl"
+# en_core_web_sm = "/path/to/en_core_web_sm-3.7.0-py3-none-any.whl"
+
+# Local model paths for runtime loading (optional, overrides env vars)
+# Uncomment and set paths if using local spaCy models
+# Chinese model path (wheel file or directory), higher priority than SPACY_ZH_MODEL_PATH env var
+# zh_model_path = "/path/to/zh_core_web_lg-3.7.0-py3-none-any.whl"
+# English model path (wheel file or directory), higher priority than SPACY_EN_MODEL_PATH env var
+# en_model_path = "/path/to/en_core_web_sm-3.7.0-py3-none-any.whl"

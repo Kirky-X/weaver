@@ -437,7 +437,7 @@ class TestModelPathConfiguration:
         assert called_model.startswith(expected_prefix)
 
     @patch("modules.processing.nlp.spacy_extractor.SpacyExtractor._extract_wheel_safely")
-    @patch("pathlib.Path")
+    @patch("modules.processing.nlp.spacy_extractor.Path")
     @patch("spacy.load")
     def test_load_uses_zh_config_path_when_provided(
         self, mock_spacy_load: MagicMock, mock_path_cls: MagicMock, mock_extract: MagicMock
