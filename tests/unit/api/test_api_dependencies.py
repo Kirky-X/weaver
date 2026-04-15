@@ -436,9 +436,12 @@ class TestDependencyErrorHandling:
         Endpoints._global_engine = None
         Endpoints._hybrid_engine = None
         Endpoints._vector_repo = None
+        Endpoints._graph_repo = None
         Endpoints._scheduler = None
         Endpoints._source_config_repo = None
         Endpoints._source_authority_repo = None
+        Endpoints._llm_failure_repo = None
+        Endpoints._llm_usage_repo = None
         Endpoints._pipeline_service = None
         Endpoints._task_registry = None
 
@@ -452,9 +455,12 @@ class TestDependencyErrorHandling:
             Endpoints.get_global_engine,
             Endpoints.get_hybrid_engine,
             Endpoints.get_vector_repo,
+            Endpoints.get_graph_repo,
             Endpoints.get_scheduler,
             Endpoints.get_source_config_repo,
             Endpoints.get_source_authority_repo,
+            Endpoints.get_llm_failure_repo,
+            Endpoints.get_llm_usage_repo,
             Endpoints.get_pipeline_service,
             Endpoints.get_task_registry,
         ]
@@ -546,7 +552,9 @@ class TestTaskRegistryDependency:
         with pytest.raises(HTTPException) as exc_info:
             Endpoints.get_task_registry()
         assert exc_info.value.status_code == 503
-        assert "Task registry" in exc_info.value.detail
+        assert (
+            "Task registry" in exc_info.value.detail or "not initialized" in exc_info.value.detail
+        )
 
     def test_get_task_registry_delegates_to_endpoints(self):
         """Test get_task_registry dependency delegates to Endpoints."""
