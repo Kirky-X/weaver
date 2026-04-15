@@ -253,16 +253,6 @@ async def _search_articles_direct(
         if category and results:
             results = [r for r in results if getattr(r, "metadata", {}).get("category") == category]
 
-        # Debug: Log actual score values
-        if results:
-            log.debug(
-                "search_scores_debug",
-                first_result_type=type(results[0]).__name__,
-                first_score=getattr(results[0], "score", None),
-                first_rrf_score=getattr(results[0], "rrf_score", None),
-                first_metadata=getattr(results[0], "metadata", {}),
-            )
-
         # Format results - handle HybridSearchResult dataclass
         sources = [
             {

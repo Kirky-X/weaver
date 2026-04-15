@@ -463,21 +463,11 @@ class HybridSearchEngine:
         Returns:
             List of HybridSearchResult objects.
         """
-        # Debug: Log first result's score values
-        if results:
-            log.debug(
-                "to_hybrid_results_debug",
-                first_result_keys=list(results[0].keys()),
-                first_rrf_score=results[0].get("rrf_score"),
-                first_rerank_score=results[0].get("rerank_score"),
-                first_score_computed=results[0].get("rerank_score")
-                or results[0].get("rrf_score", 0.0),
-            )
-
         return [
             HybridSearchResult(
                 doc_id=r.get("doc_id", ""),
-                score=r.get("rerank_score", r.get("rrf_score", 0.0)),
+                # Use rerank_score if present and > 0, else rrf_score
+                score=r.get("rerank_score") if r.get("rerank_score") else r.get("rrf_score", 0.0),
                 title=r.get("title", ""),
                 content=r.get("content", ""),
                 source=SearchMode.HYBRID.value,
