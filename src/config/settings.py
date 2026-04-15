@@ -35,8 +35,11 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
+from core.llm.config.config import LLMSettings
+from modules.processing.pipeline.config import PipelineSettings
+
 # Import sub-configurations
-from config.subconfigs import (
+from src.config.subconfigs import (
     APISettings,
     DedupSettings,
     DuckDBSettings,
@@ -60,8 +63,6 @@ from config.subconfigs import (
     TemporalMemorySettings,
     URLSecuritySettings,
 )
-from core.llm.config.config import LLMSettings
-from modules.processing.pipeline.config import PipelineSettings
 
 # Load environment variables from .env file
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
