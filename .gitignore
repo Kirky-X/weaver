@@ -51,6 +51,7 @@ coverage.json
 .iflow/
 .opencode/
 .qoder/
+.remember/
 
 # Documentation files
 AGENTS.md
