@@ -984,6 +984,132 @@ def cmd_check_logging(args: argparse.Namespace) -> int:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Community Tools
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def cmd_regenerate_titles(args: argparse.Namespace) -> int:
+    """Regenerate community titles using LLM.
+
+    Args:
+        args: Parsed command-line arguments.
+
+    Returns:
+        Exit code (0 for success, 1 for failure).
+    """
+    from config.settings import Settings
+    from container import Container
+    from core.llm.types import CallPoint
+
+    print("🔍 Initializing container...")
+    settings = Settings()
+
+    # Ensure prompts path is relative to project root
+    project_root = Path(__file__).parent.parent
+    os.chdir(project_root)
+
+    container = Container().configure(settings)
+
+    # Initialize database strategy
+    await container.init_strategy()
+
+    # Check graph pool
+    graph_pool = container.graph_pool()
+    if graph_pool is None:
+        print("❌ Neo4j graph pool not available. This command requires Neo4j.")
+        return 1
+
+    # Initialize LLM client
+    llm = await container.init_llm()
+    if llm is None:
+        print("❌ LLM client not available.")
+        return 1
+
+    print("📊 Fetching communities from Neo4j...")
+
+    # Query all communities with their entity_ids
+    query = """
+    MATCH (c:Community)
+    WHERE c.level >= 0  // Skip orphan communities
+    OPTIONAL MATCH (c)-[:HAS_ENTITY]->(e:Entity)
+    RETURN c.id AS id,
+           c.title AS current_title,
+           c.level AS level,
+           c.entity_count AS entity_count,
+           collect(e.canonical_name) AS entity_ids
+    ORDER BY level DESC, entity_count DESC
+    """
+
+    communities = await graph_pool.execute_query(query)
+
+    if not communities:
+        print("✅ No communities found to regenerate.")
+        return 0
+
+    print(f"📋 Found {len(communities)} communities to process")
+
+    # Get prompt templates
+    prompt_loader = llm._prompts
+    system_prompt = prompt_loader.get("community_title", "system")
+    user_template = prompt_loader.get("community_title", "user")
+
+    success_count = 0
+    error_count = 0
+
+    for comm in communities:
+        community_id = comm["id"]
+        current_title = comm["current_title"]
+        level = comm["level"]
+        entity_ids = comm["entity_ids"] or []
+
+        if not entity_ids:
+            print(f"  ⏭️  Skipping {community_id} (no entities)")
+            continue
+
+        print(f"  🔄 [{level}] {current_title[:40]}... ({len(entity_ids)} entities)")
+
+        # Generate new title via LLM
+        entities_text = ", ".join(entity_ids[:20])
+        user_content = user_template.format(entities=entities_text)
+
+        try:
+            new_title = await llm.call_at(
+                call_point=CallPoint.COMMUNITY_TITLE,
+                payload={
+                    "system_prompt": system_prompt,
+                    "user_content": user_content,
+                },
+            )
+
+            if new_title and isinstance(new_title, str):
+                new_title = new_title.strip().strip('"').strip("'")
+                if new_title:
+                    # Update title in Neo4j
+                    update_query = """
+                    MATCH (c:Community {id: $id})
+                    SET c.title = $title, c.updated_at = datetime()
+                    """
+                    await graph_pool.execute_query(
+                        update_query, {"id": community_id, "title": new_title}
+                    )
+                    print(f"  ✅ → {new_title}")
+                    success_count += 1
+                else:
+                    print(f"  ⚠️  Empty title generated")
+                    error_count += 1
+            else:
+                print(f"  ⚠️  Invalid title response")
+                error_count += 1
+
+        except Exception as exc:
+            print(f"  ❌ Error: {exc}")
+            error_count += 1
+
+    print(f"\n📈 Results: {success_count} updated, {error_count} errors")
+    return 0 if error_count == 0 else 1
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Monitoring Tools
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -1178,6 +1304,11 @@ Examples:
         help="Minimum index scan count to consider used (default: 10)",
     )
 
+    # Regenerate-titles subcommand
+    regenerate_parser = subparsers.add_parser(
+        "regenerate-titles", help="Regenerate community titles using LLM"
+    )
+
     args = parser.parse_args()
 
     if args.command == "evaluate":
@@ -1196,6 +1327,8 @@ Examples:
         return cmd_check_logging(args)
     elif args.command == "monitor":
         return asyncio.run(cmd_monitor(args))
+    elif args.command == "regenerate-titles":
+        return asyncio.run(cmd_regenerate_titles(args))
     else:
         parser.print_help()
         return 1
