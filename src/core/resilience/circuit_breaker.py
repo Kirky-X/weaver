@@ -17,7 +17,7 @@ from enum import Enum
 from core.observability.logging import get_logger
 from core.observability.metrics import metrics
 
-log = get_logger("circuit_breaker")
+log = get_logger(__name__)
 
 
 class CBState(Enum):

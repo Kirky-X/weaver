@@ -13,7 +13,7 @@ from typing import Any
 from core.observability.logging import get_logger
 from core.security.models import URLRisk
 
-log = get_logger("security.cache")
+log = get_logger(__name__)
 
 
 class URLSecurityCache:

@@ -9,7 +9,7 @@ import ntplib  # type: ignore[import-untyped]
 
 from core.observability.logging import get_logger
 
-log = get_logger("time_utils")
+log = get_logger(__name__)
 
 # NTP server list (China priority)
 NTP_SERVERS = [

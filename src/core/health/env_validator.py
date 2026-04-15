@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 from core.constants import LLMProvider
 from core.observability import get_logger
 
-log = get_logger("env_validator")
+log = get_logger(__name__)
 
 
 # ────────────────────────────────────────────────────────────

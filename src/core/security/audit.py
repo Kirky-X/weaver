@@ -18,7 +18,7 @@ from core.observability.logging import get_logger
 if TYPE_CHECKING:
     pass
 
-logger = get_logger("security_audit")
+logger = get_logger(__name__)
 
 
 class SecurityCheckSeverity(str, Enum):

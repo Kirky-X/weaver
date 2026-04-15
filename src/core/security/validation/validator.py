@@ -29,7 +29,7 @@ from core.security.validation.ssrf import SSRFChecker, SSRFError
 if TYPE_CHECKING:
     from modules.ingestion import HttpxFetcher
 
-log = get_logger("security.validator")
+log = get_logger(__name__)
 
 
 @dataclass

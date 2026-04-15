@@ -7,7 +7,7 @@ from pathlib import Path
 
 from core.observability.logging import get_logger
 
-log = get_logger("port_announcer")
+log = get_logger(__name__)
 
 
 class PortAnnouncer:

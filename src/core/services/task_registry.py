@@ -8,7 +8,7 @@ from typing import Any
 
 from core.observability.logging import get_logger
 
-log = get_logger("task_registry")
+log = get_logger(__name__)
 
 
 class InMemoryTaskRegistry:

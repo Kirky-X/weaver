@@ -12,7 +12,7 @@ from pathlib import Path
 
 from core.observability.logging import get_logger
 
-log = get_logger("spacy_manager")
+log = get_logger(__name__)
 
 
 @dataclass

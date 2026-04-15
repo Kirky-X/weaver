@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 from core.observability import get_logger
 
-log = get_logger("pre_startup_health")
+log = get_logger(__name__)
 
 
 @dataclass

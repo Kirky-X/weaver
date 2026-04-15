@@ -17,7 +17,7 @@ from typing import Any
 
 from core.observability.logging import get_logger
 
-logger = get_logger("security_signing")
+logger = get_logger(__name__)
 
 
 # ── Constants ──────────────────────────────────────────────────────────────

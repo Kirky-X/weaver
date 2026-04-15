@@ -8,7 +8,7 @@ from pathlib import Path
 
 from core.observability.logging import get_logger
 
-log = get_logger("prompt_loader")
+log = get_logger(__name__)
 
 
 class PromptLoader:

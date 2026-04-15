@@ -15,7 +15,7 @@ from urllib.parse import ParseResult, unquote, urlparse
 from core.observability.logging import get_logger
 from core.security.models import CheckResult, CheckSource, URLRisk
 
-log = get_logger("security.heuristic")
+log = get_logger(__name__)
 
 
 # Default suspicious keywords

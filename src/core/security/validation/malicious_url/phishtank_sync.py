@@ -20,7 +20,7 @@ from urllib.parse import urlparse
 from core.observability.logging import get_logger
 from core.security.models import CheckResult, CheckSource, URLRisk
 
-log = get_logger("security.phishtank")
+log = get_logger(__name__)
 
 
 @dataclass
