@@ -92,6 +92,9 @@ class TemporalGraphRepo(BaseGraphRepo):
         ON MATCH SET
             e.updated_at = datetime()
 
+        // Pass created node to next clause
+        WITH e
+
         // Find the most recent event (if any)
         OPTIONAL MATCH (prev:EventNode)
         WHERE NOT (prev)-[:EVENT_FOLLOWED_BY]->(:EventNode)

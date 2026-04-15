@@ -26,6 +26,7 @@ except ImportError:
     LEIDEN_AVAILABLE = False
 
 if TYPE_CHECKING:
+    from core.llm import LLMClient
     from core.protocols import GraphPool
 
 from modules.knowledge.graph.community.health.checker import CommunityHealthChecker
@@ -104,12 +105,14 @@ class IncrementalCommunityUpdater:
         interval_minutes: int = 30,
         max_subgraph_size: int = 2000,
         full_rebuild_interval_days: int = 7,
+        llm_client: LLMClient | None = None,
     ) -> None:
         self._pool = pool
         self.update_threshold = update_threshold
         self.interval_minutes = interval_minutes
         self.max_subgraph_size = max_subgraph_size
         self.full_rebuild_interval_days = full_rebuild_interval_days
+        self._llm = llm_client
 
     async def should_trigger(
         self,
@@ -619,7 +622,7 @@ class IncrementalCommunityUpdater:
         # Delegate to CommunityDetector for Leiden-based rebuild
         from modules.knowledge.graph.community.detector import CommunityDetector
 
-        detector = CommunityDetector(pool=self._pool)
+        detector = CommunityDetector(pool=self._pool, llm_client=self._llm)
         detection_result = await detector.rebuild_communities()
 
         result.communities_created = detection_result.total_communities
