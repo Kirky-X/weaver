@@ -944,7 +944,11 @@ class Container:
 
     def hybrid_search_engine(self) -> HybridSearchEngine | None:
         """Get hybrid search engine (or None if unavailable)."""
-        if self._hybrid_engine is None and self._vector_repo is not None:
+        if self._hybrid_engine is None:
+            # Trigger vector_repo lazy load
+            self.vector_repo()
+            if self._vector_repo is None:
+                return None
             from modules.knowledge.search.retrievers.bm25_retriever import BM25Retriever
 
             bm25_retriever = BM25Retriever(self.relational_pool())
