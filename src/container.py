@@ -1008,14 +1008,14 @@ class Container:
                 )
 
                 # Build index on startup if empty
-                if not bm25_retriever._bm25:
+                if not bm25_retriever._retriever:
                     count = await self._bm25_index_service.build_full_index()
                     if count > 0:
                         log.info("bm25_index_built_on_startup", documents=count)
                     else:
                         log.info("bm25_index_build_skipped_no_articles")
-        except Exception:
-            log.warning("bm25_index_init_failed", exc_info=True)
+        except Exception as e:
+            log.error("bm25_index_init_failed", error=str(e), exc_info=True)
 
     # ── Memory Service ───────────────────────────────────────────
 
