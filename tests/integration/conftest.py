@@ -315,6 +315,7 @@ def pytest_collection_modifyitems(config, items):
     If a test needs mock, move it to tests/unit/ directory.
     """
     import inspect
+    from pathlib import Path
 
     forbidden_patterns = [
         "MagicMock",
@@ -324,7 +325,14 @@ def pytest_collection_modifyitems(config, items):
         "unittest.mock",
     ]
 
+    integration_dir = Path(__file__).parent
+
     for item in items:
+        # Only check tests within integration directory
+        test_path = Path(str(item.fspath))
+        if not str(test_path).startswith(str(integration_dir)):
+            continue
+
         # Only check test functions, not fixtures
         if not hasattr(item, "function"):
             continue

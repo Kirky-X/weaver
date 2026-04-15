@@ -14,21 +14,22 @@ from core.db import (
 
 
 async def _check_postgres_available() -> bool:
-    """Check if PostgreSQL is available."""
-    try:
-        from core.db import PostgresPool
+    """Check if PostgreSQL is available using direct asyncpg connection.
 
-        dsn = (
-            f"postgresql+asyncpg://"
-            f"{os.getenv('POSTGRES_USER', 'postgres')}:"
-            f"{os.getenv('POSTGRES_PASSWORD', 'invalid')}@"
-            f"{os.getenv('POSTGRES_HOST', 'localhost')}:"
-            f"{os.getenv('POSTGRES_PORT', '5432')}/"
-            f"{os.getenv('POSTGRES_DATABASE', 'weaver')}"
+    Note: Using asyncpg directly to avoid SQLAlchemy asyncpg dialect
+    server_version_info bug with PostgreSQL 16.
+    """
+    try:
+        import asyncpg
+
+        conn = await asyncpg.connect(
+            host=os.getenv("POSTGRES_HOST", "localhost"),
+            port=int(os.getenv("POSTGRES_PORT", "5432")),
+            user=os.getenv("POSTGRES_USER", "postgres"),
+            password=os.getenv("POSTGRES_PASSWORD", "invalid"),
+            database=os.getenv("POSTGRES_DATABASE", "weaver"),
         )
-        pool = PostgresPool(dsn)
-        await pool.startup()
-        await pool.shutdown()
+        await conn.close()
         return True
     except Exception:
         return False
