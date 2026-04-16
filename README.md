@@ -74,6 +74,10 @@
 |  ✅  | **Smart LLM Router** | 智能 LLM 路由 + Fallback + 使用统计      |
 |  ✅  | **Memory Service** | MAGMA 记忆集成，支持快速检索和因果推理     |
 |  ✅  | **事件驱动架构**   | Blinker 事件总线，组件松耦合通信           |
+|  ✅  | **蒙特卡洛采样**   | 长文档智能采样，节省 60%+ token             |
+|  ✅  | **知识簇缓存**     | 语义搜索结果缓存，命中率 40-70%             |
+|  ✅  | **SSE 流式 API**   | 实时 Pipeline 进度反馈                      |
+|  ✅  | **多模式搜索**     | Fast/Deep 双模式处理                       |
 
 </td>
 <td width="50%" style="vertical-align:top; padding: 16px">
