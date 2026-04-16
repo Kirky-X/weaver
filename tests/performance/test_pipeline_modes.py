@@ -208,9 +208,9 @@ class TestPipelineModeResourceUsage:
         # Expected: 3 calls per article
         expected_calls = len(sample_articles) * 3
 
-        assert llm_call_count == expected_calls, (
-            f"Fast mode should make {expected_calls} LLM calls, got {llm_call_count}"
-        )
+        assert (
+            llm_call_count == expected_calls
+        ), f"Fast mode should make {expected_calls} LLM calls, got {llm_call_count}"
 
     @pytest.mark.asyncio
     async def test_deep_mode_llm_calls(self, sample_articles: list[dict[str, Any]]) -> None:
@@ -252,9 +252,9 @@ class TestPipelineModeResourceUsage:
         # Expected: 3 * N + 1 + 4 * N = 7 * N + 1 calls
         expected_calls = len(sample_articles) * 7 + 1
 
-        assert llm_call_count == expected_calls, (
-            f"Deep mode should make {expected_calls} LLM calls, got {llm_call_count}"
-        )
+        assert (
+            llm_call_count == expected_calls
+        ), f"Deep mode should make {expected_calls} LLM calls, got {llm_call_count}"
 
 
 @pytest.mark.performance

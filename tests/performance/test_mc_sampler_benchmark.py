@@ -70,9 +70,7 @@ class TestMCSamplerBenchmark:
 
     @pytest.mark.asyncio
     @pytest.mark.benchmark
-    async def test_token_savings_10k_document(
-        self, mock_llm_client, mock_token_budget, benchmark
-    ):
+    async def test_token_savings_10k_document(self, mock_llm_client, mock_token_budget, benchmark):
         """Benchmark token savings for 10K character document."""
         sampler = MCSampler(
             llm_client=mock_llm_client,
@@ -91,7 +89,7 @@ class TestMCSamplerBenchmark:
         sampled_len = len(result)
         savings_pct = (1 - sampled_len / original_len) * 100
 
-        print(f"\n10K Document Results:")
+        print("\n10K Document Results:")
         print(f"  Original length: {original_len} chars")
         print(f"  Sampled length: {sampled_len} chars")
         print(f"  Token savings: {savings_pct:.1f}%")
@@ -102,9 +100,7 @@ class TestMCSamplerBenchmark:
 
     @pytest.mark.asyncio
     @pytest.mark.benchmark
-    async def test_token_savings_50k_document(
-        self, mock_llm_client, mock_token_budget
-    ):
+    async def test_token_savings_50k_document(self, mock_llm_client, mock_token_budget):
         """Benchmark token savings for 50K character document."""
         sampler = MCSampler(
             llm_client=mock_llm_client,
@@ -125,7 +121,7 @@ class TestMCSamplerBenchmark:
         sampled_len = len(result)
         savings_pct = (1 - sampled_len / original_len) * 100
 
-        print(f"\n50K Document Results:")
+        print("\n50K Document Results:")
         print(f"  Original length: {original_len} chars")
         print(f"  Sampled length: {sampled_len} chars")
         print(f"  Token savings: {savings_pct:.1f}%")
@@ -160,14 +156,18 @@ class TestMCSamplerBenchmark:
             elapsed_ms = (time.time() - start_time) * 1000
 
             savings_pct = (1 - len(result) / len(doc)) * 100
-            results.append({
-                "size": size,
-                "latency_ms": elapsed_ms,
-                "savings_pct": savings_pct,
-                "confidence": confidence,
-            })
+            results.append(
+                {
+                    "size": size,
+                    "latency_ms": elapsed_ms,
+                    "savings_pct": savings_pct,
+                    "confidence": confidence,
+                }
+            )
 
-            print(f"  Size: {size:,} chars | Latency: {elapsed_ms:.1f}ms | Savings: {savings_pct:.1f}%")
+            print(
+                f"  Size: {size:,} chars | Latency: {elapsed_ms:.1f}ms | Savings: {savings_pct:.1f}%"
+            )
 
         # Latency should scale reasonably with document size
         # Not linear, as we only sample a fixed number of regions
@@ -175,9 +175,7 @@ class TestMCSamplerBenchmark:
 
     @pytest.mark.asyncio
     @pytest.mark.benchmark
-    async def test_sampling_quality_preserves_key_info(
-        self, mock_llm_client, mock_token_budget
-    ):
+    async def test_sampling_quality_preserves_key_info(self, mock_llm_client, mock_token_budget):
         """Verify that sampling preserves key information."""
         # Create document with specific key information
         key_phrase = "关键数据：2024年人工智能市场规模达到5000亿美元"
@@ -194,7 +192,7 @@ class TestMCSamplerBenchmark:
         result, confidence = await sampler.sample_evidence(doc, "重要报告")
 
         # Key information should be preserved in key_facts
-        print(f"\nKey Info Preservation Test:")
+        print("\nKey Info Preservation Test:")
         print(f"  Key phrase: {key_phrase}")
         print(f"  Document length: {len(doc)}")
         print(f"  Sampled length: {len(result)}")
@@ -228,12 +226,12 @@ class TestMCSamplerBenchmark:
         mc_unique_chars = len(set(mc_result))
         truncate_unique_chars = len(set(truncate_result))
 
-        print(f"\nComparison: MC Sampling vs Truncation")
-        print(f"  MC Sampling:")
+        print("\nComparison: MC Sampling vs Truncation")
+        print("  MC Sampling:")
         print(f"    Length: {len(mc_result)} chars")
         print(f"    Unique chars: {mc_unique_chars}")
         print(f"    Confidence: {mc_confidence:.2f}")
-        print(f"  Simple Truncation:")
+        print("  Simple Truncation:")
         print(f"    Length: {len(truncate_result)} chars")
         print(f"    Unique chars: {truncate_unique_chars}")
 
