@@ -19,8 +19,8 @@ Example plugin usage:
         ...
 """
 
+from modules.ingestion.domain.models import NewsItem, SourceConfig
 from modules.ingestion.parsing.base import BaseSourceParser
-from modules.ingestion.parsing.models import NewsItem, SourceConfig
 from modules.ingestion.parsing.newsnow_parser import NewsNowParser
 from modules.ingestion.parsing.plugin import (
     PluginMetadata,
@@ -38,6 +38,7 @@ __all__ = [
     "NewsNowParser",
     "PluginMetadata",
     "RSSParser",
+    "SourceConfig",
     "SourceRegistry",
     "get_plugin",
     "get_registered_plugins",

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import uuid
 from datetime import UTC, datetime
@@ -11,6 +12,7 @@ from urllib.parse import urlparse
 
 import json_repair
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from api.dependencies import (
@@ -23,7 +25,7 @@ from api.schemas.response import APIResponse, success_response
 from config.settings import Settings
 from container import get_settings
 from core.constants import PipelineTaskStatus
-from core.observability import metrics
+from core.observability import log, metrics
 from core.protocols import CachePool, RelationalPool
 from modules.ingestion import SourceScheduler
 from modules.storage import ArticleRepo
@@ -625,6 +627,7 @@ async def emit_event(queue: asyncio.Queue, event: SSEEvent) -> None:
     Args:
         queue: Event queue.
         event: Event to emit.
+
     """
     await queue.put(event.model_dump(exclude_none=True))
 
@@ -635,16 +638,17 @@ async def heartbeat_task(queue: asyncio.Queue, stop_event: asyncio.Event) -> Non
     Args:
         queue: Event queue.
         stop_event: Stop signal.
+
     """
     while not stop_event.is_set():
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=0.5)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             await emit_event(queue, SSEEvent(type="heartbeat"))
 
 
 async def sse_event_generator(
-    request: "ProcessUrlRequest",
+    request: ProcessUrlRequest,
     task_id: str,
     stop_event: asyncio.Event,
     event_queue: asyncio.Queue,
@@ -658,6 +662,7 @@ async def sse_event_generator(
         stop_event: Stop signal.
         event_queue: Event queue.
         cache: Cache client.
+
     """
     from container import get_container
     from modules.ingestion.domain.models import NewsItem
@@ -767,7 +772,7 @@ async def sse_event_generator(
 
 
 async def sse_response_generator(
-    fastapi_request: "Request",
+    fastapi_request: Request,
     event_queue: asyncio.Queue,
     stop_event: asyncio.Event,
     task_id: str,
@@ -779,8 +784,8 @@ async def sse_response_generator(
         event_queue: Event queue.
         stop_event: Stop signal.
         task_id: Task ID for X-Request-Id header.
+
     """
-    from fastapi.responses import StreamingResponse
 
     async def event_stream():
         try:
@@ -795,7 +800,7 @@ async def sse_response_generator(
                     # Wait for event with timeout
                     event = await asyncio.wait_for(event_queue.get(), timeout=1.0)
                     yield f"data: {json.dumps(event)}\n\n"
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     # No event, continue loop (heartbeat handles keep-alive)
                     continue
 
@@ -810,11 +815,11 @@ async def sse_response_generator(
 @router.post("/url/stream")
 async def process_single_url_stream(
     request: ProcessUrlRequest,
-    fastapi_request: "Request",
+    fastapi_request: Request,
     _: str = Depends(verify_api_key),
     cache: CachePool = Depends(get_cache_client),
     settings: Settings = Depends(get_settings),
-) -> "StreamingResponse":
+) -> StreamingResponse:
     """Process a single URL through the pipeline with SSE streaming.
 
     Returns real-time progress events via Server-Sent Events.
@@ -831,9 +836,8 @@ async def process_single_url_stream(
 
     Raises:
         HTTPException: If URL is invalid or blocked.
-    """
-    from fastapi.responses import StreamingResponse
 
+    """
     # Validate URL
     await _validate_url_for_processing(
         request.url,
@@ -886,7 +890,7 @@ async def process_single_url_stream(
                         # Wait for event with timeout
                         event = await asyncio.wait_for(event_queue.get(), timeout=1.0)
                         yield f"data: {json.dumps(event)}\n\n"
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         # No event, continue loop
                         continue
 
@@ -895,10 +899,8 @@ async def process_single_url_stream(
             finally:
                 stop_event.set()
                 heartbeat.cancel()
-                try:
+                with contextlib.suppress(asyncio.CancelledError):
                     await heartbeat
-                except asyncio.CancelledError:
-                    pass
 
         return StreamingResponse(
             event_stream(),

@@ -20,7 +20,7 @@ from typing import Any, Self
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from core.constants import ArticleProcessingState
-from modules.ingestion.domain.models import ArticleRaw
+from modules.ingestion.domain.models import RawArticle
 
 
 class CredibilityModel(BaseModel):
@@ -89,7 +89,7 @@ class ValidatedPipelineState(BaseModel):
     model_config = {"extra": "allow", "populate_by_name": True}
 
     # Input (required)
-    raw: ArticleRaw | None = None
+    raw: RawArticle | None = None
 
     # Classifier
     is_news: bool = True

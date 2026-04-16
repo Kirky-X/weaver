@@ -502,9 +502,9 @@ class SchedulerJobs:
             success_count = 0
             for article in articles:
                 try:
-                    from modules.ingestion.domain.models import ArticleRaw
+                    from modules.ingestion.domain.models import RawArticle
 
-                    raw = ArticleRaw(
+                    raw = RawArticle(
                         url=article.source_url,
                         title=article.title,
                         body=article.body,

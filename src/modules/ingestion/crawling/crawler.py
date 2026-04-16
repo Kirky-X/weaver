@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 import trafilatura
 
 from core.observability.logging import get_logger
-from modules.ingestion.domain.models import ArticleRaw, NewsItem
+from modules.ingestion.domain.models import NewsItem, RawArticle
 from modules.ingestion.fetching.base import BaseFetcher
 from modules.ingestion.fetching.exceptions import FetchError
 
@@ -42,7 +42,7 @@ class Crawler:
         self,
         items: list[NewsItem],
         per_host_config: dict[str, int] | None = None,
-    ) -> list[ArticleRaw | FetchError]:
+    ) -> list[RawArticle | FetchError]:
         """Crawl a batch of URLs concurrently.
 
         Args:
@@ -50,7 +50,7 @@ class Crawler:
             per_host_config: Optional per-host concurrency overrides.
 
         Returns:
-            List of ArticleRaw results or FetchError for failed items.
+            List of RawArticle results or FetchError for failed items.
         """
         per_host_config = per_host_config or {}
 
@@ -67,7 +67,7 @@ class Crawler:
                 limit = per_host_config.get(host, self._default_per_host)
                 host_sems[host] = asyncio.Semaphore(limit)
 
-        async def crawl_one(item: NewsItem) -> ArticleRaw:
+        async def crawl_one(item: NewsItem) -> RawArticle:
             host = urlparse(item.url).netloc
             body = ""
 
@@ -114,12 +114,12 @@ class Crawler:
                         _, html, _ = await self._fetcher.fetch(item.url, force_browser=True)
                         body = trafilatura.extract(html, include_comments=False) or ""
 
-            return ArticleRaw(
+            return RawArticle(
                 url=item.url,
                 title=item.title,
                 body=body,
                 source=item.source,
-                pubDate=item.pubDate,
+                publish_time=item.publish_time,
                 source_host=host,
                 description=item.description or "",
             )
@@ -130,7 +130,7 @@ class Crawler:
         )
 
         # Wrap non-FetchError exceptions with URL context
-        wrapped_results: list[ArticleRaw | FetchError] = []
+        wrapped_results: list[RawArticle | FetchError] = []
         for item, result in zip(items, results):
             if isinstance(result, FetchError):
                 wrapped_results.append(result)
@@ -142,12 +142,12 @@ class Crawler:
                         cause=result,
                     )
                 )
-            elif isinstance(result, ArticleRaw):
+            elif isinstance(result, RawArticle):
                 wrapped_results.append(result)
             # else: BaseException (like KeyboardInterrupt) - skip
 
         # Log results
-        successes = sum(1 for r in wrapped_results if isinstance(r, ArticleRaw))
+        successes = sum(1 for r in wrapped_results if isinstance(r, RawArticle))
         failures = sum(1 for r in wrapped_results if isinstance(r, FetchError))
         log.info(
             "crawl_batch_complete",

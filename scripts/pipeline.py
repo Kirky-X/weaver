@@ -64,7 +64,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-class ProcessingMode(str, enum.Enum):
+class ProcessingMode(enum.StrEnum):
     """Pipeline processing mode.
 
     FAST: Phase 1 only (classifier, cleaner, categorizer, vectorize)
@@ -1017,7 +1017,7 @@ async def cmd_reprocess(args: argparse.Namespace) -> int:
 
     from config.settings import Settings
     from container import Container, set_container, set_settings
-    from modules.ingestion.domain.models import ArticleRaw
+    from modules.ingestion.domain.models import RawArticle
     from modules.storage import ArticleRepo
 
     # Load settings and create container
@@ -1060,7 +1060,7 @@ async def cmd_reprocess(args: argparse.Namespace) -> int:
 
     print(f"Found {len(articles_db)} incomplete articles")
 
-    # Convert to ArticleRaw objects
+    # Convert to RawArticle objects
     articles = []
     article_ids = []
     for article in articles_db:
@@ -1068,7 +1068,7 @@ async def cmd_reprocess(args: argparse.Namespace) -> int:
             print(f"Skipping article {article.id} - no body")
             continue
 
-        raw = ArticleRaw(
+        raw = RawArticle(
             url=article.source_url,
             title=article.title or "",
             body=article.body,

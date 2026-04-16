@@ -26,7 +26,7 @@ class NewsItem:
         title: The article title.
         source: Source identifier (e.g. RSS feed URL or name).
         source_host: The hostname of the source.
-        pubDate: Publication date from the feed.
+        publish_time: Publication date from the feed.
         description: Brief description/summary from the feed.
         body: Full article body text. When present (e.g. from content:encoded
             in RSS), the Crawler will use it directly without re-fetching.
@@ -36,7 +36,7 @@ class NewsItem:
     title: str
     source: str = ""
     source_host: str = ""
-    pubDate: datetime | None = None
+    publish_time: datetime | None = None
     description: str = ""
     body: str = ""
 
@@ -52,7 +52,6 @@ class RawArticle(NewsItem):
         tier: Source tier (1=authoritative, 2+=general). Lower = more authoritative.
         crawl_status: Status of the crawl operation.
         crawl_error: Error message if crawl failed.
-        publish_time: Alias for pubDate for backward compatibility.
     """
 
     # Override body to be required (no empty default for crawled articles)
@@ -60,15 +59,6 @@ class RawArticle(NewsItem):
     tier: int = 2
     crawl_status: str = "pending"
     crawl_error: str | None = None
-    # Backward compatible field - syncs with pubDate via __post_init__
-    publish_time: datetime | None = None
-
-    def __post_init__(self) -> None:
-        """Sync publish_time with pubDate."""
-        if self.pubDate is None and self.publish_time is not None:
-            self.pubDate = self.publish_time
-        elif self.pubDate is not None and self.publish_time is None:
-            self.publish_time = self.pubDate
 
 
 @dataclass
@@ -111,8 +101,3 @@ class SourceConfig:
         if self.tier is not None:
             if not (1 <= self.tier <= 3):
                 raise ValueError(f"tier must be in range [1, 3], got {self.tier}")
-
-
-# Backward compatibility: ArticleRaw alias for RawArticle
-# (matches original collector/models.py naming)
-ArticleRaw = RawArticle

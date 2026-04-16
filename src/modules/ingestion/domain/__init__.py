@@ -9,14 +9,12 @@ circular imports. Import it directly from modules.ingestion.domain.processor
 """
 
 from modules.ingestion.domain.models import (
-    ArticleRaw,
     NewsItem,
     RawArticle,
     SourceConfig,
 )
 
 __all__ = [
-    "ArticleRaw",
     "NewsItem",
     "RawArticle",
     "SourceConfig",

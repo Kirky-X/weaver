@@ -31,7 +31,7 @@ class RSSParser(BaseSourceParser):
 
     Supports:
     - ETag / If-Modified-Since for incremental fetching.
-    - pubDate filtering to avoid re-processing old items.
+    - publish_time filtering to avoid re-processing old items.
 
     Args:
         fetcher: BaseFetcher instance for feed fetching.
@@ -44,7 +44,7 @@ class RSSParser(BaseSourceParser):
         """Fetch and parse an RSS/Atom feed.
 
         Uses ETag/If-Modified-Since headers for conditional requests.
-        Filters items by pubDate against last_crawl_time.
+        Filters items by publish_time against last_crawl_time.
 
         Args:
             config: Source configuration with feed URL and state.
@@ -113,7 +113,7 @@ class RSSParser(BaseSourceParser):
                     title=entry.get("title", ""),
                     source=config.name,
                     source_host=host,
-                    pubDate=pub_date,
+                    publish_time=pub_date,
                     description=entry.get("summary", ""),
                     body=body,
                 )

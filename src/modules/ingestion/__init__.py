@@ -34,7 +34,6 @@ from modules.ingestion.deduplication import (
 
 # Domain models
 from modules.ingestion.domain.models import (
-    ArticleRaw,
     NewsItem,
     RawArticle,
     SourceConfig,
@@ -68,7 +67,6 @@ from modules.ingestion.parsing import (
 from modules.ingestion.scheduling import SourceConfigRepo, SourceScheduler
 
 __all__ = [
-    "ArticleRaw",
     "BaseFetcher",
     "BaseSourceParser",
     "CircuitOpenError",

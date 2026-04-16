@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Any, TypedDict
 
-from modules.ingestion.domain.models import ArticleRaw
+from modules.ingestion.domain.models import RawArticle
 
 
 class CredibilityInfo(TypedDict, total=False):
@@ -33,7 +33,7 @@ class PipelineState(TypedDict, total=False):
     """
 
     # Input
-    raw: ArticleRaw
+    raw: RawArticle
 
     # Classifier
     is_news: bool

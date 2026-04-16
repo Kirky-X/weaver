@@ -107,7 +107,7 @@ class NewsNowParser(BaseSourceParser):
                     title=title,
                     source=config.name,
                     source_host=host,
-                    pubDate=pub_date,
+                    publish_time=pub_date,
                     description="",
                 )
             )

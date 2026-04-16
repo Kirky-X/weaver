@@ -517,37 +517,36 @@ class ArticleRepo:
         they are processed through the pipeline.
 
         Args:
-            article: Raw article data from crawler (ArticleRaw or NewsItem).
+            article: Raw article data from crawler (RawArticle or NewsItem).
             task_id: Optional task ID for tracking the source pipeline run.
 
         Returns:
             The article UUID.
         """
-        from modules.ingestion.domain.models import ArticleRaw as RawModel, NewsItem
+        from modules.ingestion.domain.models import NewsItem, RawArticle
 
         # Convert if needed
-        if isinstance(article, RawModel):
+        if isinstance(article, RawArticle):
             raw = article
         elif isinstance(article, NewsItem):
-            # Convert NewsItem to ArticleRaw format
-            raw = RawModel(
+            # Convert NewsItem to RawArticle format
+            raw = RawArticle(
                 url=article.url,
                 title=article.title,
                 body=article.description or "",
                 source=article.source,
-                publish_time=article.pubDate,
+                publish_time=article.publish_time,
                 source_host=article.source_host,
                 description=article.description or "",
             )
         else:
             # Try to extract attributes from arbitrary object
-            raw = RawModel(
+            raw = RawArticle(
                 url=getattr(article, "url", ""),
                 title=getattr(article, "title", ""),
                 body=getattr(article, "description", "") or getattr(article, "body", ""),
                 source=getattr(article, "source", ""),
-                publish_time=getattr(article, "pubDate", None)
-                or getattr(article, "publish_time", None),
+                publish_time=getattr(article, "publish_time", None),
                 source_host=getattr(article, "source_host", ""),
                 description=getattr(article, "description", ""),
             )

@@ -151,9 +151,9 @@ class DiscoveryProcessor:
             raw_articles = await self._crawler.crawl_batch(items)
             log.info("crawl_complete", count=len(raw_articles))
 
-            from modules.ingestion.domain.models import ArticleRaw
+            from modules.ingestion.domain.models import RawArticle
 
-            successful_articles = [a for a in raw_articles if isinstance(a, ArticleRaw)]
+            successful_articles = [a for a in raw_articles if isinstance(a, RawArticle)]
             errors = [e for e in raw_articles if isinstance(e, FetchError)]
 
             if errors:

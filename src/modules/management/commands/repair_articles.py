@@ -34,7 +34,7 @@ from core.llm.config.token_budget import TokenBudgetManager  # noqa: E402
 from core.observability.logging import get_logger  # noqa: E402
 from core.prompt.loader import PromptLoader  # noqa: E402
 from core.services.pipeline_service import PipelineServiceImpl  # noqa: E402
-from modules.ingestion.domain.models import ArticleRaw  # noqa: E402
+from modules.ingestion.domain.models import RawArticle  # noqa: E402
 from modules.processing.nlp.spacy_extractor import SpacyExtractor  # noqa: E402
 from modules.processing.pipeline.graph import Pipeline  # noqa: E402
 from modules.processing.pipeline.state import PipelineState  # noqa: E402
@@ -156,7 +156,7 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
                     # _phase3_per_article needs:
                     #   - state["cleaned"]["title"] and ["body"] for AnalyzeNode + QualityScorerNode
                     #   - state["is_news"] / state["terminal"] set appropriately
-                    raw = ArticleRaw(
+                    raw = RawArticle(
                         url=article.source_url,
                         title=article.title or "",
                         body=article.body or "",

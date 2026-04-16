@@ -14,7 +14,7 @@ from core.llm.config.token_budget import TokenBudgetManager
 from core.observability.logging import get_logger
 from core.observability.metrics import MetricsCollector
 from core.prompt.loader import PromptLoader
-from modules.ingestion.domain.models import ArticleRaw
+from modules.ingestion.domain.models import RawArticle
 from modules.knowledge.graph.community.updater import (
     IncrementalCommunityUpdater,
 )
@@ -232,7 +232,7 @@ class Pipeline:
 
     async def process_batch(
         self,
-        articles: list[ArticleRaw],
+        articles: list[RawArticle],
         article_ids: list[Any] | None = None,
         task_id: Any | None = None,
     ) -> list[PipelineState]:
@@ -365,7 +365,7 @@ class Pipeline:
 
     async def process_batch_fast(
         self,
-        articles: list[ArticleRaw],
+        articles: list[RawArticle],
         article_ids: list[Any] | None = None,
         task_id: Any | None = None,
     ) -> list[PipelineState]:
@@ -928,9 +928,9 @@ class Pipeline:
             if article is None:
                 raise ValueError(f"Article not found: {article_id}")
 
-            from modules.ingestion.domain.models import ArticleRaw
+            from modules.ingestion.domain.models import RawArticle
 
-            raw = ArticleRaw(
+            raw = RawArticle(
                 url=article.source_url,
                 title=article.title or "",
                 body=article.body or "",
