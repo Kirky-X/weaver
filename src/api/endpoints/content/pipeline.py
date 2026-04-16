@@ -25,10 +25,13 @@ from api.schemas.response import APIResponse, success_response
 from config.settings import Settings
 from container import get_settings
 from core.constants import PipelineTaskStatus
-from core.observability import log, metrics
+from core.observability import metrics
+from core.observability.logging import get_logger
 from core.protocols import CachePool, RelationalPool
 from modules.ingestion import SourceScheduler
 from modules.storage import ArticleRepo
+
+log = get_logger(__name__)
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
