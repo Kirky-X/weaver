@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from api.dependencies import get_source_config_repo, get_source_scheduler
-from api.middleware.auth import verify_api_key
+from api.middleware.auth import verify_admin_api_key, verify_api_key
 from api.schemas.response import APIResponse, success_response
 from modules.ingestion import SourceConfig, SourceConfigRepo, SourceScheduler
 
@@ -196,7 +196,7 @@ async def get_source(
 @router.post("", response_model=APIResponse[SourceResponse], status_code=201)
 async def create_source(
     request: SourceCreateRequest,
-    _: str = Depends(verify_api_key),
+    _: str = Depends(verify_admin_api_key),  # Enhanced: admin only for write operations
     repo: SourceConfigRepo = Depends(get_source_config_repo),
     scheduler: SourceScheduler = Depends(get_source_scheduler),
 ) -> APIResponse[SourceResponse]:
@@ -244,7 +244,7 @@ async def create_source(
 async def update_source(
     source_id: str,
     request: SourceUpdateRequest,
-    _: str = Depends(verify_api_key),
+    _: str = Depends(verify_admin_api_key),  # Enhanced: admin only for write operations
     repo: SourceConfigRepo = Depends(get_source_config_repo),
 ) -> APIResponse[SourceResponse]:
     """Update an existing news source.
@@ -294,7 +294,7 @@ async def update_source(
 @router.delete("/{source_id}", status_code=204)
 async def delete_source(
     source_id: str,
-    _: str = Depends(verify_api_key),
+    _: str = Depends(verify_admin_api_key),  # Enhanced: admin only for write operations
     repo: SourceConfigRepo = Depends(get_source_config_repo),
 ) -> None:
     """Delete a news source.
