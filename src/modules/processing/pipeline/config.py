@@ -75,6 +75,20 @@ class BatchConfig(BaseModel):
     timeout: int = 180
 
 
+class MonteCarloConfig(BaseModel):
+    """Configuration for Monte Carlo evidence sampling.
+
+    Monte Carlo sampling is used to efficiently process long documents
+    by extracting the most relevant regions while staying within token budgets.
+    """
+
+    enabled: bool = True
+    threshold: int = 10000  # Character threshold for MC sampling
+    sample_size: int = 5  # Number of regions to sample
+    region_size: int = 2000  # Characters per region
+    confidence_threshold: float = 0.4  # Minimum confidence to use sampled text
+
+
 class PipelineSettings(BaseSettings):
     """Pipeline configuration loaded from config/pipeline.toml.
 
@@ -93,6 +107,7 @@ class PipelineSettings(BaseSettings):
     phase1: PhaseConfig = PhaseConfig()
     phase3: PhaseConfig = PhaseConfig()
     batch: BatchConfig = BatchConfig()
+    monte_carlo: MonteCarloConfig = MonteCarloConfig()
 
     @field_validator("phase1", "phase3", mode="before")
     @classmethod
@@ -117,6 +132,18 @@ class PipelineSettings(BaseSettings):
         if isinstance(v, dict):
             return BatchConfig(**v)
         return BatchConfig()
+
+    @field_validator("monte_carlo", mode="before")
+    @classmethod
+    def parse_monte_carlo(cls, v: Any) -> MonteCarloConfig:
+        """Parse Monte Carlo configuration."""
+        if v is None:
+            return MonteCarloConfig()
+        if isinstance(v, MonteCarloConfig):
+            return v
+        if isinstance(v, dict):
+            return MonteCarloConfig(**v)
+        return MonteCarloConfig()
 
     @classmethod
     def settings_customise_sources(

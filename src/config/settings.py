@@ -40,10 +40,12 @@ from config.subconfigs import (
     APISettings,
     DedupSettings,
     DuckDBSettings,
+    EmbeddingSettings,
     EntitySettings,
     FetcherSettings,
     HealthCheckSettings,
     IntentRoutingSettings,
+    KnowledgeCacheSettings,
     LadybugSettings,
     MemorySettings,
     Neo4jSettings,
@@ -62,6 +64,40 @@ from config.subconfigs import (
 )
 from core.llm.config.config import LLMSettings
 from modules.processing.pipeline.config import PipelineSettings
+
+__all__ = [
+    # Re-export sub-configurations for direct import (alphabetically sorted)
+    "APISettings",
+    "DedupSettings",
+    "DuckDBSettings",
+    "EmbeddingSettings",
+    "EntitySettings",
+    "FetcherSettings",
+    "HealthCheckSettings",
+    "IntentRoutingSettings",
+    "KnowledgeCacheSettings",
+    "LLMSettings",
+    "LadybugSettings",
+    "MemorySettings",
+    "Neo4jSettings",
+    "ObservabilitySettings",
+    "PipelineProcessSettings",
+    "PipelineSettings",
+    "PipelineUrlEndpointSettings",
+    "PostgresSettings",
+    "PromptSettings",
+    "RedisSettings",
+    "SchedulerSettings",
+    "SearchSettings",
+    "Settings",
+    "SpacySettings",
+    "TemporalInferenceSettings",
+    "TemporalMemorySettings",
+    "URLSecuritySettings",
+    # Functions
+    "get_settings",
+    "set_settings",
+]
 
 # Load environment variables from .env file
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -115,6 +151,8 @@ class Settings(BaseSettings):
     )
     pipeline: PipelineSettings = Field(default_factory=PipelineSettings)
     pipeline_process: PipelineProcessSettings = Field(default_factory=PipelineProcessSettings)
+    embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
+    knowledge_cache: KnowledgeCacheSettings = Field(default_factory=KnowledgeCacheSettings)
 
     # LLM configuration (loaded from separate TOML file)
     llm: LLMSettings = Field(default_factory=LLMSettings)
