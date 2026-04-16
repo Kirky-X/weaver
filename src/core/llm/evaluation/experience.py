@@ -1,4 +1,4 @@
- # Copyright (c) 2026 KirkyX. All Rights Reserved
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Model experience tracking for smart routing.
 
 Subscribes to LLMUsageEvent to track per-model performance,
@@ -63,13 +63,45 @@ class ExperienceStore:
         # Warmup from historical data
         if warmup_data:
             for key, data in warmup_data.items():
+                call_count = data.get("call_count", 0)
+                success_count = data.get("success_count", 0)
+                failure_count = data.get("failure_count", 0)
+                total_latency_ms = data.get("total_latency_ms", 0.0)
+
+                # Generate synthetic call history for time-weighted calculations
+                # Distribute calls across the last 7 days with realistic timestamps
+                call_history = []
+                if call_count > 0:
+                    avg_latency = total_latency_ms / call_count if call_count > 0 else 0.0
+                    now = monotonic()
+                    # Create synthetic calls: 70% in last 24h, 30% in 24h-7d
+                    recent_calls = int(call_count * 0.7)
+                    old_calls = call_count - recent_calls
+
+                    # Distribute successes proportionally
+                    recent_successes = int(success_count * 0.7)
+                    old_successes = success_count - recent_successes
+
+                    # Recent calls (0-24h ago)
+                    for i in range(recent_calls):
+                        timestamp = now - random.uniform(0, 24 * 3600)
+                        success = i < recent_successes
+                        call_history.append((timestamp, avg_latency, success))
+
+                    # Older calls (24h-7d ago)
+                    for i in range(old_calls):
+                        timestamp = now - random.uniform(24 * 3600, 7 * 24 * 3600)
+                        success = i < old_successes
+                        call_history.append((timestamp, avg_latency, success))
+
                 exp = _ModelExperience(
-                    call_count=data.get("call_count", 0),
-                    success_count=data.get("success_count", 0),
-                    failure_count=data.get("failure_count", 0),
-                    total_latency_ms=data.get("total_latency_ms", 0.0),
+                    call_count=call_count,
+                    success_count=success_count,
+                    failure_count=failure_count,
+                    total_latency_ms=total_latency_ms,
                     last_call_time=monotonic(),
                     last_error_type=data.get("last_error_type", ""),
+                    call_history=call_history,
                 )
                 exp.alpha = max(1.0, exp.success_count + 1.0)
                 exp.beta = max(1.0, exp.failure_count + 1.0)
