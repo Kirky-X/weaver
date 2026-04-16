@@ -29,28 +29,48 @@ def event_bus():
 @pytest.fixture
 def experience(event_bus):
     store = ExperienceStore(event_bus=event_bus)
-    # Simulate some experience data
-    store._experiences["classifier.aiping.GLM-Z1"] = type(
-        store._experiences.get("x") or type("E", (), {})()
-    )
-    store._experiences["classifier.aiping.GLM-Z1"].call_count = 100
-    store._experiences["classifier.aiping.GLM-Z1"].success_count = 95
-    store._experiences["classifier.aiping.GLM-Z1"].failure_count = 5
-    store._experiences["classifier.aiping.GLM-Z1"].total_latency_ms = 200000.0
-    store._experiences["classifier.aiping.GLM-Z1"].alpha = 96.0
-    store._experiences["classifier.aiping.GLM-Z1"].beta = 6.0
-    store._experiences["classifier.aiping.GLM-Z1"].last_call_time = 0.0
-    store._experiences["classifier.aiping.GLM-Z1"].last_error_type = ""
+    # Simulate some experience data with call_history
+    from time import monotonic
+    now = monotonic()
 
-    store._experiences["classifier.dmx.glm-4"] = type("E", (), {})()
-    store._experiences["classifier.dmx.glm-4"].call_count = 50
-    store._experiences["classifier.dmx.glm-4"].success_count = 48
-    store._experiences["classifier.dmx.glm-4"].failure_count = 2
-    store._experiences["classifier.dmx.glm-4"].total_latency_ms = 150000.0
-    store._experiences["classifier.dmx.glm-4"].alpha = 49.0
-    store._experiences["classifier.dmx.glm-4"].beta = 3.0
-    store._experiences["classifier.dmx.glm-4"].last_call_time = 0.0
-    store._experiences["classifier.dmx.glm-4"].last_error_type = ""
+    # Create GLM-Z1 experience
+    glm_z1_exp = store._experiences.get("x")
+    if glm_z1_exp is None:
+        from core.llm.evaluation.experience import _ModelExperience
+        glm_z1_exp = _ModelExperience()
+    glm_z1_exp.call_count = 100
+    glm_z1_exp.success_count = 95
+    glm_z1_exp.failure_count = 5
+    glm_z1_exp.total_latency_ms = 200000.0
+    glm_z1_exp.alpha = 96.0
+    glm_z1_exp.beta = 6.0
+    glm_z1_exp.last_call_time = 0.0
+    glm_z1_exp.last_error_type = ""
+    # Add synthetic call history
+    glm_z1_exp.call_history = [
+        (now - 3600 * i, 2000.0, True) for i in range(95)
+    ] + [
+        (now - 3600 * (95 + i), 2000.0, False) for i in range(5)
+    ]
+    store._experiences["classifier.aiping.GLM-Z1"] = glm_z1_exp
+
+    # Create glm-4 experience
+    glm4_exp = type("E", (), {"call_history": []})()
+    glm4_exp.call_count = 50
+    glm4_exp.success_count = 48
+    glm4_exp.failure_count = 2
+    glm4_exp.total_latency_ms = 150000.0
+    glm4_exp.alpha = 49.0
+    glm4_exp.beta = 3.0
+    glm4_exp.last_call_time = 0.0
+    glm4_exp.last_error_type = ""
+    # Add synthetic call history
+    glm4_exp.call_history = [
+        (now - 3600 * i, 3000.0, True) for i in range(48)
+    ] + [
+        (now - 3600 * (48 + i), 3000.0, False) for i in range(2)
+    ]
+    store._experiences["classifier.dmx.glm-4"] = glm4_exp
     return store
 
 

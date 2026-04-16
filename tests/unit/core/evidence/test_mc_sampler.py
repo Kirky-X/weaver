@@ -181,8 +181,24 @@ class TestMCSampler:
     def test_synthesize_regions_combines_regions(self, mc_sampler):
         """Test that _synthesize_regions combines regions correctly."""
         scored_regions = [
-            ("区域1内容", EvidenceScoreOutput(relevance_score=0.9, information_density=0.8, confidence=0.9, key_facts=["事实1"])),
-            ("区域2内容", EvidenceScoreOutput(relevance_score=0.7, information_density=0.6, confidence=0.8, key_facts=["事实2"])),
+            (
+                "区域1内容",
+                EvidenceScoreOutput(
+                    relevance_score=0.9,
+                    information_density=0.8,
+                    confidence=0.9,
+                    key_facts=["事实1"],
+                ),
+            ),
+            (
+                "区域2内容",
+                EvidenceScoreOutput(
+                    relevance_score=0.7,
+                    information_density=0.6,
+                    confidence=0.8,
+                    key_facts=["事实2"],
+                ),
+            ),
         ]
         title = "测试文档"
 
@@ -195,8 +211,21 @@ class TestMCSampler:
     def test_synthesize_regions_sorts_by_score(self, mc_sampler):
         """Test that synthesis prioritizes higher scored regions."""
         scored_regions = [
-            ("低分区域", EvidenceScoreOutput(relevance_score=0.3, information_density=0.3, confidence=0.5, key_facts=[])),
-            ("高分区域", EvidenceScoreOutput(relevance_score=0.9, information_density=0.9, confidence=0.9, key_facts=["关键事实"])),
+            (
+                "低分区域",
+                EvidenceScoreOutput(
+                    relevance_score=0.3, information_density=0.3, confidence=0.5, key_facts=[]
+                ),
+            ),
+            (
+                "高分区域",
+                EvidenceScoreOutput(
+                    relevance_score=0.9,
+                    information_density=0.9,
+                    confidence=0.9,
+                    key_facts=["关键事实"],
+                ),
+            ),
         ]
         title = "测试"
 

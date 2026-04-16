@@ -116,7 +116,8 @@ class TestReliability:
     def test_all_success_returns_one(self, store_with_warmup):
         """100% success rate returns 1.0."""
         reliability = store_with_warmup.reliability("classifier", "aiping", "GLM-Z1")
-        assert reliability == 0.95  # 95/100
+        # Time-weighted reliability should be close to 0.95 (95/100)
+        assert abs(reliability - 0.95) < 0.01  # Allow small variance due to time decay
 
     def test_partial_success(self, store):
         """Mixed success/failure returns correct ratio."""
