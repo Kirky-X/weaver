@@ -189,41 +189,59 @@ class TestEventBus:
     @pytest.mark.asyncio
     async def test_subscribe_and_publish(self, bus):
         """Test basic subscribe and publish flow."""
-        handler = AsyncMock()
+        called = []
+
+        async def handler(event):
+            called.append(event)
+
         bus.subscribe(BaseEvent, handler)
 
         event = BaseEvent()
         await bus.publish(event)
 
-        handler.assert_called_once_with(event)
+        assert called == [event]
 
     @pytest.mark.asyncio
     async def test_publish_to_multiple_handlers(self, bus):
         """Test publishing to multiple handlers."""
-        handler1 = AsyncMock()
-        handler2 = AsyncMock()
+        called1 = []
+        called2 = []
+
+        async def handler1(event):
+            called1.append(event)
+
+        async def handler2(event):
+            called2.append(event)
+
         bus.subscribe(BaseEvent, handler1)
         bus.subscribe(BaseEvent, handler2)
 
         event = BaseEvent()
         await bus.publish(event)
 
-        handler1.assert_called_once_with(event)
-        handler2.assert_called_once_with(event)
+        assert called1 == [event]
+        assert called2 == [event]
 
     @pytest.mark.asyncio
     async def test_publish_to_specific_event_type(self, bus):
         """Test handlers only receive their event type."""
-        handler1 = AsyncMock()
-        handler2 = AsyncMock()
+        called1 = []
+        called2 = []
+
+        async def handler1(event):
+            called1.append(event)
+
+        async def handler2(event):
+            called2.append(event)
+
         bus.subscribe(CredibilityComputedEvent, handler1)
         bus.subscribe(LLMFailureEvent, handler2)
 
         event = CredibilityComputedEvent()
         await bus.publish(event)
 
-        handler1.assert_called_once_with(event)
-        handler2.assert_not_called()
+        assert called1 == [event]
+        assert called2 == []
 
     @pytest.mark.asyncio
     async def test_publish_with_no_handlers(self, bus):
@@ -238,7 +256,10 @@ class TestEventBus:
         async def failing_handler(event):
             raise ValueError("Handler error")
 
-        successful_handler = AsyncMock()
+        called = []
+
+        async def successful_handler(event):
+            called.append(event)
 
         bus.subscribe(BaseEvent, failing_handler)
         bus.subscribe(BaseEvent, successful_handler)
@@ -247,7 +268,7 @@ class TestEventBus:
         await bus.publish(event)
 
         # Successful handler should still be called
-        successful_handler.assert_called_once_with(event)
+        assert called == [event]
 
     @pytest.mark.asyncio
     async def test_multiple_handlers_all_called_on_error(self, bus):
@@ -279,7 +300,9 @@ class TestEventBus:
 
     def test_subscribe_logs_debug(self, bus):
         """Test subscribe logs debug message."""
-        handler = AsyncMock()
+
+        async def handler(event):
+            pass
 
         with patch("core.event.bus.log") as mock_log:
             bus.subscribe(BaseEvent, handler)
@@ -288,7 +311,10 @@ class TestEventBus:
     @pytest.mark.asyncio
     async def test_publish_logs_debug(self, bus):
         """Test publish logs debug message."""
-        handler = AsyncMock()
+
+        async def handler(event):
+            pass
+
         bus.subscribe(BaseEvent, handler)
 
         with patch("core.event.bus.log") as mock_log:
@@ -318,7 +344,10 @@ class TestEventBus:
 
     def test_subscribe_multiple_event_types(self, bus):
         """Test subscribing to multiple event types."""
-        handler = AsyncMock()
+
+        async def handler(event):
+            pass
+
         bus.subscribe(CredibilityComputedEvent, handler)
         bus.subscribe(LLMFailureEvent, handler)
 

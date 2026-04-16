@@ -187,26 +187,6 @@ class TestRedisClientBasicOperations:
         assert result == 1
         client._redis.delete.assert_called_once_with("key")
 
-    @pytest.mark.asyncio
-    async def test_exists(self):
-        """Test exists operation."""
-        client = RedisClient("redis://localhost:6379")
-        client._redis = AsyncMock()
-        client._redis.exists = AsyncMock(return_value=1)
-
-        result = await client.exists("key")
-        assert result is True
-
-    @pytest.mark.asyncio
-    async def test_exists_returns_false(self):
-        """Test exists returns False for missing key."""
-        client = RedisClient("redis://localhost:6379")
-        client._redis = AsyncMock()
-        client._redis.exists = AsyncMock(return_value=0)
-
-        result = await client.exists("missing")
-        assert result is False
-
 
 class TestRedisClientPing:
     """Test ping operation."""

@@ -176,9 +176,11 @@ class TestSpacyModelManagerInstallModel:
         config = SpacyModelConfig(strict_mode=True)
         manager = SpacyModelManager(config)
 
-        with patch.object(
-            manager, "_install_from_network", side_effect=Exception("Download failed")
-        ):
+        # Mock _install_from_network to call _handle_install_failure like real code does
+        def mock_install_from_network(model):
+            manager._handle_install_failure(model, "Download failed")
+
+        with patch.object(manager, "_install_from_network", side_effect=mock_install_from_network):
             with pytest.raises(RuntimeError, match="Failed to install"):
                 manager._install_model("en_core_web_sm")
 
@@ -187,9 +189,11 @@ class TestSpacyModelManagerInstallModel:
         config = SpacyModelConfig(strict_mode=False)
         manager = SpacyModelManager(config)
 
-        with patch.object(
-            manager, "_install_from_network", side_effect=Exception("Download failed")
-        ):
+        # Mock _install_from_network to call _handle_install_failure like real code does
+        def mock_install_from_network(model):
+            manager._handle_install_failure(model, "Download failed")
+
+        with patch.object(manager, "_install_from_network", side_effect=mock_install_from_network):
             with patch("core.nlp.spacy_manager.log") as mock_log:
                 manager._install_model("en_core_web_sm")
 

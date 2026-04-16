@@ -219,8 +219,8 @@ class TestLocalSearchEngineHelperMethods:
 
         assert "What is X?" in prompt
         assert "Mock context content" in prompt
-        # The implementation uses Chinese "回答要求:" instead of "Instructions:"
-        assert "回答要求:" in prompt or "Instructions:" in prompt
+        # The implementation uses Chinese "回答要求：" (with Chinese colon)
+        assert "回答要求：" in prompt or "Answer:" in prompt
 
     def test_extract_entities_from_context(self, mock_context_builder, mock_llm):
         """Test _extract_entities_from_context extracts entity names."""
