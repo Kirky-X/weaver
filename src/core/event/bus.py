@@ -174,7 +174,7 @@ class EventBus:
         signal = self._get_signal(event_type)
 
         # Create a sync wrapper that the signal can call
-        def sync_wrapper(sender: Any, **kwargs: Any) -> None:
+        def sync_wrapper(_sender: Any, **kwargs: Any) -> None:
             # This won't await - just for blinker compatibility
             # Actual async dispatch happens in publish()
             pass

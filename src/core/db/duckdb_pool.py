@@ -39,7 +39,7 @@ class _DuckDBAsyncSession:
         """Enter async context manager."""
         return self
 
-    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+    async def __aexit__(self, exc_type: Any, _exc_val: Any, _exc_tb: Any) -> None:
         """Exit async context manager with automatic commit/rollback."""
         if exc_type is not None:
             await self.rollback()
