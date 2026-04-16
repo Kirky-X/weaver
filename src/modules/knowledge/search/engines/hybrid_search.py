@@ -293,6 +293,8 @@ class HybridSearchEngine:
         """
         # Prepare results lists for RRF (need tuples)
         results_list = []
+        bm25_tuples: list[tuple[str, float]] = []
+
         if vector_results:
             results_list.append(vector_results)
         if bm25_results:
