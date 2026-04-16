@@ -131,8 +131,7 @@ class Container:
         self._bm25_index_service: Any = None  # BM25IndexService
         self._memory_service: Any = None  # MemoryIntegrationService
         self._shutdown: bool = False  # Idempotency protection
-        # ── Local Embedding & Knowledge Cache ─────────────────────
-        self._local_embedding: Any = None  # LocalEmbeddingService
+        # ── Knowledge Cache (uses LLM Client for embedding) ─────────
         self._knowledge_cache: Any = None  # KnowledgeCache
         self._mc_sampler: Any = None  # MCSampler
 
@@ -238,45 +237,7 @@ class Container:
             raise RuntimeError("Redis client not initialized. Call init_redis() first.")
         return self._redis_client
 
-    # ── Local Embedding & Knowledge Cache ─────────────────────────────
-
-    async def init_local_embedding(self) -> Any:
-        """Initialize local embedding service.
-
-        Starts background model loading for sentence-transformers.
-
-        Returns:
-            LocalEmbeddingService instance.
-        """
-        if self._local_embedding is None:
-            from core.embedding import LocalEmbeddingService
-
-            self._local_embedding = LocalEmbeddingService(
-                model_id=self._settings.embedding.model_id,
-                device=self._settings.embedding.device,
-                cache_dir=self._settings.embedding.cache_dir,
-            )
-            self._local_embedding.start_loading()
-            log.info(
-                "local_embedding_initialized",
-                model_id=self._settings.embedding.model_id,
-            )
-        return self._local_embedding
-
-    def local_embedding(self) -> Any:
-        """Get local embedding service.
-
-        Returns:
-            LocalEmbeddingService instance.
-
-        Raises:
-            RuntimeError: If not initialized.
-        """
-        if self._local_embedding is None:
-            raise RuntimeError(
-                "Local embedding not initialized. Call init_local_embedding() first."
-            )
-        return self._local_embedding
+    # ── Knowledge Cache (uses LLM Client for embedding) ───────────────
 
     async def init_knowledge_cache(self) -> Any:
         """Initialize knowledge cluster cache.
@@ -287,13 +248,13 @@ class Container:
         if self._knowledge_cache is None:
             from modules.knowledge.cache import KnowledgeCache
 
-            # Ensure embedding service is ready
-            if self._local_embedding is None:
-                await self.init_local_embedding()
+            # Ensure LLM client is ready for embedding
+            if self._llm_client is None:
+                await self.init_llm()
 
             self._knowledge_cache = KnowledgeCache(
                 cache_path=self._settings.knowledge_cache.path,
-                embedding_service=self._local_embedding,
+                llm_client=self._llm_client,
                 sync_interval=self._settings.knowledge_cache.sync_interval,
                 sync_threshold=self._settings.knowledge_cache.sync_threshold,
                 max_queries=self._settings.knowledge_cache.max_queries,

@@ -40,7 +40,6 @@ from config.subconfigs import (
     APISettings,
     DedupSettings,
     DuckDBSettings,
-    EmbeddingSettings,
     EntitySettings,
     FetcherSettings,
     HealthCheckSettings,
@@ -70,7 +69,6 @@ __all__ = [
     "APISettings",
     "DedupSettings",
     "DuckDBSettings",
-    "EmbeddingSettings",
     "EntitySettings",
     "FetcherSettings",
     "HealthCheckSettings",
@@ -151,7 +149,6 @@ class Settings(BaseSettings):
     )
     pipeline: PipelineSettings = Field(default_factory=PipelineSettings)
     pipeline_process: PipelineProcessSettings = Field(default_factory=PipelineProcessSettings)
-    embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     knowledge_cache: KnowledgeCacheSettings = Field(default_factory=KnowledgeCacheSettings)
 
     # LLM configuration (loaded from separate TOML file)
