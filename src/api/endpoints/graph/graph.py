@@ -9,11 +9,15 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from api.dependencies import get_graph_repo
+from api.dependencies import get_graph_repo, get_relational_pool
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from api.schemas.types import RoundedFloat, RoundedFloatOpt
+from core.observability.logging import get_logger
+from core.protocols import RelationalPool
 from modules.storage.graph_repo import GraphRepository
+
+log = get_logger(__name__)
 
 router = APIRouter(prefix="/graph", tags=["graph"])
 
@@ -76,6 +80,8 @@ class ArticleGraphResponse(BaseModel):
     entities: list[EntityResponse]
     relationships: list[ArticleGraphRelationship]
     related_articles: list[ArticleGraphNode]
+    graph_synced: bool = True
+    """Whether the article is synced to the graph database."""
 
 
 class RelationTypeSummary(BaseModel):
@@ -149,6 +155,7 @@ async def get_article_graph(
     article_id: str,
     _: str = Depends(verify_api_key),
     graph_repo: GraphRepository = Depends(get_graph_repo),
+    relational_pool: RelationalPool = Depends(get_relational_pool),
 ) -> APIResponse[ArticleGraphResponse]:
     """Get the knowledge graph for a specific article.
 
@@ -156,20 +163,57 @@ async def get_article_graph(
         article_id: The article UUID (Postgres ID).
         _: Verified API key.
         graph_repo: Graph repository (database-agnostic).
+        relational_pool: Relational database pool for fallback lookup.
 
     Returns:
         Article graph with entities and relationships wrapped in APIResponse.
 
     """
-    # Get article node
+    # Try to get article from graph database
     article = await graph_repo.get_article(article_id)
+
     if article is None:
+        # Fallback: check PostgreSQL for article existence
+        from sqlalchemy import select
+
+        from core.db.models import Article
+
+        async with relational_pool.session() as session:
+            query = select(Article).where(Article.id == article_id)
+            result = await session.execute(query)
+            pg_article = result.scalar_one_or_none()
+
+        if pg_article is not None:
+            # Article exists in PostgreSQL but not synced to graph
+            # Return partial response with graph_synced=False
+            pg_article_data = {
+                "id": str(pg_article.id),
+                "title": pg_article.title or "",
+                "category": pg_article.category.value if pg_article.category else None,
+                "publish_time": (
+                    pg_article.publish_time.isoformat()
+                    if pg_article.publish_time and hasattr(pg_article.publish_time, "isoformat")
+                    else str(pg_article.publish_time or "")
+                ),
+                "score": pg_article.score,
+            }
+            return success_response(
+                ArticleGraphResponse(
+                    article=ArticleGraphNode(**pg_article_data),
+                    entities=[],
+                    relationships=[],
+                    related_articles=[],
+                    graph_synced=False,
+                )
+            )
+
+        # Article not found in either database
         raise HTTPException(
             status_code=404,
-            detail=f"Article '{article_id}' not found in graph",
+            detail=f"Article '{article_id}' not found",
         )
 
-    # Get entities and relationships
+    # Article found in graph - get entities and relationships
     entities = await graph_repo.get_article_entities(article_id)
     relationships = await graph_repo.get_article_relationships(article_id)
     related_articles = await graph_repo.get_related_articles(article_id)
@@ -180,6 +224,7 @@ async def get_article_graph(
             entities=[EntityResponse(**e) for e in entities],
             relationships=[ArticleGraphRelationship(**r) for r in relationships],
             related_articles=[ArticleGraphNode(**a) for a in related_articles],
+            graph_synced=True,
         )
     )
 
@@ -207,16 +252,35 @@ async def get_entity_relations(
 
     """
     rows = await graph_repo.get_relation_types(entity, entity_type)
-    return success_response(
-        [
-            RelationTypeSummary(
-                relation_type=r["relation_type"],
-                target_count=r["target_count"],
-                primary_direction=r["primary_direction"],
+    result_list = [
+        RelationTypeSummary(
+            relation_type=r["relation_type"],
+            target_count=r["target_count"],
+            primary_direction=r["primary_direction"],
+        )
+        for r in rows
+    ]
+
+    # Provide helpful message when no relations found
+    if not result_list:
+        # Check if entity exists to provide context
+        entity_data = await graph_repo.get_entity(entity)
+        if entity_data is None:
+            log.info("entity_not_found_for_relations", entity=entity)
+            # Entity doesn't exist - include hint in response
+            return success_response(
+                result_list,
+                message=f"实体 '{entity}' 不存在于知识图谱中。",
             )
-            for r in rows
-        ]
-    )
+        else:
+            log.info("entity_has_no_relations", entity=entity)
+            # Entity exists but has no relations
+            return success_response(
+                result_list,
+                message=f"实体 '{entity}' 存在但未发现任何关系。",
+            )
+
+    return success_response(result_list)
 
 
 @router.get("/relations/search", response_model=APIResponse[list[RelatedEntityResult]])

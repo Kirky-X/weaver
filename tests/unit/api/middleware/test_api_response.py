@@ -42,7 +42,8 @@ class TestBuildErrorResponse:
         timestamp = body["timestamp"]
         # ISO format should be parseable
         parsed = datetime.fromisoformat(timestamp)
-        assert parsed.tzinfo is not None
+        # Timestamp uses local time without timezone (matches success responses)
+        assert parsed.tzinfo is None
 
     def test_error_response_with_details(self) -> None:
         """Test error response with details."""
@@ -77,17 +78,17 @@ class TestBuildErrorResponse:
         assert body["details"]["context"] == details["context"]
 
     def test_error_response_timestamp_format(self) -> None:
-        """Test that timestamp uses UTC timezone."""
-        before = datetime.now(UTC)
+        """Test that timestamp uses local time (consistent with success responses)."""
+        before = datetime.now()
         body = _build_error_response(code=100, message="test")
-        after = datetime.now(UTC)
+        after = datetime.now()
 
         timestamp = datetime.fromisoformat(body["timestamp"])
 
         # Timestamp should be within the time range of before and after
         assert before <= timestamp <= after
-        # Should have timezone info
-        assert timestamp.tzinfo is not None
+        # Local time format — no timezone info (consistent with APIResponse)
+        assert timestamp.tzinfo is None
 
     def test_error_response_none_details_not_included(self) -> None:
         """Test that None details are not included in response."""

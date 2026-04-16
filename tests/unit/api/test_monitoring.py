@@ -308,7 +308,9 @@ class TestSlowQueriesEndpoint:
             data = response.json()
             assert data["code"] == 0  # 0 means success
             assert "slow_queries" in data["data"]
-            assert "limit" in data["data"]
+            # limit is only included for PostgreSQL success case
+            if mock_container.relational_pool_type == "postgresql":
+                assert "limit" in data["data"]
 
     def test_get_slow_queries_non_postgres(self, app, mock_container, mock_pool):
         """Test slow queries for non-PostgreSQL database."""

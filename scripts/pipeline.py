@@ -11,12 +11,29 @@ Usage:
     uv run scripts/pipeline.py test --mode strategy
     uv run scripts/pipeline.py test --mode all --clear-db
 
+    # Processing modes (affects depth of pipeline)
+    uv run scripts/pipeline.py test --processing-mode fast    # Phase 1 only (1-2min)
+    uv run scripts/pipeline.py test --processing-mode deep    # Full pipeline (5-10min)
+
     # Process pending articles
     uv run scripts/pipeline.py process-pending
 
     # Reprocess incomplete articles
     uv run scripts/pipeline.py reprocess --incomplete
     uv run scripts/pipeline.py reprocess --article-id <uuid>
+
+Processing Modes:
+    fast: Phase 1 only (classifier → cleaner → categorizer → vectorize)
+          - Fast ingestion without deep analysis
+          - Skips entity extraction, quality scoring, credibility checks
+          - Suitable for quick data collection
+
+    deep: Full 4-phase processing
+          - Phase 1: Classification, cleaning, categorization, vectorization
+          - Phase 2: Batch merging
+          - Phase 3: Entity extraction, analysis, quality, credibility
+          - Phase 4: Persistence to graph database
+          - Suitable for complete knowledge graph building
 
 Note: To limit physical memory to 24GB, run with:
     systemd-run --scope -p MemoryMax=24G uv run scripts/pipeline.py ...
@@ -27,6 +44,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextlib
+import enum
 import os
 import sys
 import time
@@ -39,6 +57,49 @@ import httpx
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Processing Mode Enum
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class ProcessingMode(str, enum.Enum):
+    """Pipeline processing mode.
+
+    FAST: Phase 1 only (classifier, cleaner, categorizer, vectorize)
+          - 1-2 minutes per batch
+          - No entity extraction, no quality scoring
+          - Suitable for quick ingestion
+
+    DEEP: Full 4-phase processing
+          - 5-10 minutes per batch
+          - Includes Phase 3 deep analysis (entities, quality, credibility)
+          - Suitable for complete analysis
+    """
+
+    FAST = "fast"
+    DEEP = "deep"
+
+
+def get_mode_config(mode: ProcessingMode) -> dict[str, Any]:
+    """Get mode-specific configuration overrides.
+
+    Args:
+        mode: Processing mode.
+
+    Returns:
+        Dictionary of configuration overrides for the mode.
+    """
+    if mode == ProcessingMode.FAST:
+        return {
+            "skip_entities": True,
+            "skip_quality": True,
+            "skip_credibility": True,
+            "skip_batch_merger": True,
+            "skip_phase3": True,
+        }
+    return {}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Server startup/shutdown constants
@@ -757,8 +818,15 @@ async def run_strategy_test(
 
 async def cmd_test(args: argparse.Namespace) -> int:
     """Run pipeline test."""
+    # Convert processing_mode string to enum
+    processing_mode = ProcessingMode(args.processing_mode)
+    mode_config = get_mode_config(processing_mode)
+
     print("=" * 60)
     print(f"  Pipeline Test: {args.mode.upper()} mode")
+    print(f"  Processing: {processing_mode.value.upper()} mode")
+    if mode_config:
+        print(f"  Config overrides: {', '.join(k for k, v in mode_config.items() if v)}")
     print("=" * 60)
 
     start_time = time.time()
@@ -1067,6 +1135,13 @@ Examples:
     uv run scripts/pipeline.py test --mode all --clear-db
     uv run scripts/pipeline.py test --mode strategy
 
+    # Processing modes
+    uv run scripts/pipeline.py test --processing-mode fast    # Phase 1 only (1-2min)
+    uv run scripts/pipeline.py test --processing-mode deep    # Full pipeline (5-10min)
+
+    # Combined example
+    uv run scripts/pipeline.py test --mode newsnow --processing-mode fast --max-items 10
+
     # Process pending articles
     uv run scripts/pipeline.py process-pending
 
@@ -1085,6 +1160,17 @@ Examples:
         choices=["newsnow", "rss", "strategy", "all"],
         default="newsnow",
         help="Test mode (default: newsnow)",
+    )
+    test_parser.add_argument(
+        "--processing-mode",
+        dest="processing_mode",
+        choices=["fast", "deep"],
+        default="deep",
+        help=(
+            "Processing mode: 'fast' (1-2min, Phase 1 only - classifier, cleaner, "
+            "categorizer, vectorize) or 'deep' (5-10min, all 4 phases including "
+            "entity extraction and quality scoring)"
+        ),
     )
     test_parser.add_argument(
         "--source",

@@ -161,18 +161,19 @@ class LocalSearchEngine:
         """Build the LLM prompt from context."""
         context_prompt = context.to_prompt()
 
-        return f"""You are a helpful assistant answering questions based on a knowledge graph.
+        return f"""你是一个知识图谱分析助手，基于提供的上下文回答问题。
 
-Use the provided context to answer the question accurately. If the context doesn't contain
-enough information, say so clearly.
+仅使用提供的上下文准确回答问题。如果上下文信息不足，请明确说明。
 
-Context:
+**重要：必须使用纯中文回答，不要包含任何英文或其他语言字符。**
+
+上下文：
 {context_prompt}
 
-Question: {query}
+问题：{query}
 
-Instructions:
-1. Answer based only on the provided context
+回答要求：
+1. 仅基于提供的上下文回答
 2. Cite specific entities and relationships when relevant
 3. If information is incomplete, acknowledge the limitations
 4. Be concise but comprehensive

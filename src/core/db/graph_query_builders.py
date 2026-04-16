@@ -193,10 +193,16 @@ class Neo4jQueryBuilder:
     # === Metrics Queries ===
 
     def build_component_neighbors_query(self) -> str:
-        """Build Neo4j component query with list comprehension."""
+        """Build Neo4j component query matching all Entity-to-Entity relationships.
+
+        Uses untyped ``--`` pattern instead of ``[:RELATED_TO]`` since actual
+        relationship types are Chinese-named (发布, 参与, etc.) or English
+        (EVENT_FOLLOWED_BY).  Article-to-Entity edges (HAS_ENTITY, MENTIONS)
+        are automatically excluded because they connect to Article nodes.
+        """
         return """
         MATCH (e:Entity)
-        OPTIONAL MATCH (e)-[:RELATED_TO]-(connected:Entity)
+        OPTIONAL MATCH (e)--(connected:Entity)
         WITH e, collect(DISTINCT connected) AS neighbors
         RETURN e.canonical_name AS entity,
                [n IN neighbors | n.canonical_name] AS neighbors,
@@ -204,11 +210,18 @@ class Neo4jQueryBuilder:
         """
 
     def build_degree_query(self) -> str:
-        """Build Neo4j degree query."""
+        """Build Neo4j degree query counting all Entity-to-Entity relationships.
+
+        Excludes Article nodes and MENTIONS (which is counted separately as
+        mention_count) so that in_degree/out_degree reflect semantic
+        Entity↔Entity edges only.
+        """
         return """
         MATCH (e:Entity)
-        OPTIONAL MATCH (e)-[r_out:RELATED_TO]->()
-        OPTIONAL MATCH ()-[r_in:RELATED_TO]->(e)
+        OPTIONAL MATCH (e)-[r_out]->(connected_out)
+        WHERE NOT connected_out:Article
+        OPTIONAL MATCH (connected_in)-[r_in]->(e)
+        WHERE NOT connected_in:Article AND type(r_in) <> 'MENTIONS'
         OPTIONAL MATCH ()-[m:MENTIONS]->(e)
         WITH e,
              count(DISTINCT r_out) AS out_degree,
@@ -303,28 +316,36 @@ class Neo4jQueryBuilder:
         return """
             MATCH (a:Article {pg_id: $id})-[r:MENTIONS]->(e:Entity)
             RETURN e.id as id, e.canonical_name as canonical_name, e.type as type,
-                   e.aliases as aliases, r.role as role
+                   e.aliases as aliases, e.description as description,
+                   e.created_at as created_at, e.updated_at as updated_at
         """
 
     def build_get_article_relationships_query(self) -> str:
         """Build Neo4j query to get relationships between entities in an article."""
         return """
             MATCH (a:Article {pg_id: $id})-[:MENTIONS]->(e1:Entity)
-            MATCH (e1)-[r:RELATED_TO]->(e2:Entity)
-            WHERE (a)-[:MENTIONS]->(e2)
+            MATCH (e1)-[r]->(e2:Entity)
+            WHERE type(r) <> 'MENTIONS' AND type(r) <> 'HAS_ENTITY'
+              AND (a)-[:MENTIONS]->(e2)
             RETURN e1.canonical_name as source, e2.canonical_name as target,
-                   r.relation_type as relation_type,
-                   r.source_article_id as source_article_id, r.created_at as created_at
+                   type(r) as relation_type,
+                   r.description as description,
+                   coalesce(r.weight, 1.0) as weight,
+                   r.created_at as created_at
         """
 
     def build_get_related_articles_query(self) -> str:
-        """Build Neo4j query to get related articles."""
+        """Build Neo4j query to get related articles via shared entities.
+
+        Finds articles that mention the same entities, ranked by overlap count.
+        """
         return """
-            MATCH (a:Article {pg_id: $id})-[r:FOLLOWED_BY|MENTIONS]->(ra:Article)
-            RETURN DISTINCT ra.pg_id as id, ra.title as title, ra.category as category,
+            MATCH (a:Article {pg_id: $id})-[:MENTIONS]->(e:Entity)<-[:MENTIONS]-(ra:Article)
+            WHERE ra.pg_id <> $id
+            RETURN ra.pg_id as id, ra.title as title, ra.category as category,
                    ra.publish_time as publish_time, ra.score as score,
-                   type(r) as relation_type
-            ORDER BY ra.publish_time DESC
+                   count(DISTINCT e) as shared_entities
+            ORDER BY shared_entities DESC, ra.publish_time DESC
             LIMIT 10
         """
 
@@ -539,24 +560,30 @@ class LadybugQueryBuilder:
     # === Metrics Queries ===
 
     def build_component_neighbors_query(self) -> str:
-        """Build LadybugDB component query without list comprehension.
+        """Build LadybugDB component query matching all Entity-to-Entity relationships.
 
-        Returns neighbors as a list of Entity nodes, which must be processed
-        in Python to extract canonical_name values.
+        Uses ``-[r]-`` (LadybugDB does not support ``--`` shorthand) to match
+        any relationship type between Entity nodes.
         """
         return """
         MATCH (e:Entity)
-        OPTIONAL MATCH (e)-[:RELATED_TO]-(connected:Entity)
+        OPTIONAL MATCH (e)-[r]-(connected:Entity)
         WITH e, collect(DISTINCT connected) AS neighbors
         RETURN e.canonical_name AS entity, neighbors, e.type AS type
         """
 
     def build_degree_query(self) -> str:
-        """Build LadybugDB degree query using id property."""
+        """Build LadybugDB degree query counting all Entity-to-Entity relationships.
+
+        Excludes Article nodes and MENTIONS (counted separately as
+        mention_count) so in_degree/out_degree reflect semantic edges only.
+        """
         return """
         MATCH (e:Entity)
-        OPTIONAL MATCH (e)-[r_out:RELATED_TO]->()
-        OPTIONAL MATCH ()-[r_in:RELATED_TO]->(e)
+        OPTIONAL MATCH (e)-[r_out]->(connected_out)
+        WHERE NOT connected_out:Article
+        OPTIONAL MATCH (connected_in)-[r_in]->(e)
+        WHERE NOT connected_in:Article AND type(r_in) <> 'MENTIONS'
         OPTIONAL MATCH ()-[m:MENTIONS]->(e)
         WITH e,
              count(DISTINCT r_out) AS out_degree,
@@ -766,7 +793,7 @@ class LadybugQueryBuilder:
         """
         return """
         MATCH (e:Entity)
-        OPTIONAL MATCH (e)-[r:RELATED_TO]-()
+        OPTIONAL MATCH (e)-[r]-(other:Entity)
         WITH e, count(DISTINCT r) AS degree
         RETURN e.canonical_name AS id,
                e.canonical_name AS label,

@@ -477,8 +477,8 @@ class TestGlobalSearchEngineConfidence:
         ]
         confidence = engine._estimate_confidence(answers)
 
-        # Base 0.5 + 0.1 for 3 answers + 0.2 for >500 chars + 0.1 for all non-empty
-        assert confidence == 0.9
+        # Base 0.3 (no community_scores) + 0.05 for >500 chars + 0.03 for all non-empty
+        assert confidence == 0.38
 
     def test_estimate_confidence_short_answers(self, mock_context_builder, mock_llm):
         """Test _estimate_confidence with short answers."""
@@ -490,8 +490,8 @@ class TestGlobalSearchEngineConfidence:
         answers = ["Short", "Answers"]
         confidence = engine._estimate_confidence(answers)
 
-        # Base 0.5, no +0.1 for <3 answers, no +0.2 for <=500 chars, +0.1 for all non-empty
-        assert confidence == 0.6
+        # Base 0.3 (no community_scores), no length bonus (<200 chars), +0.03 for all non-empty
+        assert confidence == 0.33
 
     def test_estimate_confidence_with_empty_string(self, mock_context_builder, mock_llm):
         """Test _estimate_confidence with some empty strings."""
@@ -503,10 +503,9 @@ class TestGlobalSearchEngineConfidence:
         answers = ["Valid answer", "", "Another valid"]
         confidence = engine._estimate_confidence(answers)
 
-        # Base 0.5 + 0.1 for 3 answers + 0.2 for >200 chars (no +0.1 for non-empty check)
-        # Actually "Valid answer" + "Another valid" = 23 chars, so <= 200
-        # But total length is < 200 so no bonus
-        assert confidence == 0.6  # 0.5 + 0.1 for 3 answers
+        # Base 0.3 (no community_scores), total length = 23 chars (< 200, no bonus)
+        # Not all non-empty (one empty string), so no +0.03
+        assert confidence == 0.3
 
 
 class TestGlobalSearchEngineSimple:

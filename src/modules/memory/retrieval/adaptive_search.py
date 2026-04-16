@@ -5,6 +5,8 @@ Implements Heuristic Beam Search with intent-aware traversal
 across four orthogonal graph views (Temporal, Causal, Semantic, Entity).
 
 Based on MAGMA Algorithm 1: Adaptive Hybrid Retrieval.
+
+Enhanced with Phase 0 knowledge cache check for semantic similarity matching.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ from modules.memory.core.graph_types import EdgeType, IntentType
 from modules.memory.core.traversal import calculate_transition_score
 
 if TYPE_CHECKING:
+    from core.protocols.knowledge_cache import KnowledgeCacheProtocol
     from modules.memory.graphs.causal import CausalGraphRepo
     from modules.memory.graphs.temporal import TemporalGraphRepo
 
@@ -27,7 +30,21 @@ log = get_logger(__name__)
 class EmbeddingServiceProtocol(Protocol):
     """Protocol for embedding service."""
 
-    async def embed(self, text: str) -> list[float]: ...
+    async def embed(self, text: str) -> list[float]:
+        """Compute embedding for a single text."""
+        ...
+
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """Compute embeddings for multiple texts."""
+        ...
+
+    def is_ready(self) -> bool:
+        """Check if the embedding service is ready."""
+        ...
+
+    def start_loading(self) -> None:
+        """Start loading the model in background."""
+        ...
 
 
 class IntentClassifierProtocol(Protocol):
@@ -41,6 +58,10 @@ class AdaptiveSearchEngine:
 
     This engine implements MAGMA's Heuristic Beam Search algorithm
     for retrieving relevant events based on query intent.
+
+    Enhanced with Phase 0 cache check for semantic similarity matching.
+    When a similar query has been processed before, returns cached results
+    directly without graph traversal.
     """
 
     def __init__(
@@ -49,6 +70,8 @@ class AdaptiveSearchEngine:
         causal_repo: CausalGraphRepo,
         embedding_service: EmbeddingServiceProtocol,
         intent_classifier: IntentClassifierProtocol,
+        knowledge_cache: KnowledgeCacheProtocol | None = None,
+        cache_similarity_threshold: float = 0.85,
         max_depth: int = 5,
         beam_width: int = 10,
         token_budget: int = 4000,
@@ -65,6 +88,8 @@ class AdaptiveSearchEngine:
             causal_repo: Repository for causal graph operations.
             embedding_service: Service for computing embeddings.
             intent_classifier: Classifier for query intent.
+            knowledge_cache: Optional cache for similar query results.
+            cache_similarity_threshold: Minimum similarity for cache hit.
             max_depth: Maximum traversal depth.
             beam_width: Number of candidates to keep at each step.
             token_budget: Maximum tokens for retrieved context.
@@ -78,6 +103,8 @@ class AdaptiveSearchEngine:
         self._causal_repo = causal_repo
         self._embedding_service = embedding_service
         self._intent_classifier = intent_classifier
+        self._knowledge_cache = knowledge_cache
+        self._cache_similarity_threshold = cache_similarity_threshold
         self._max_depth = max_depth
         self._beam_width = beam_width
         self._token_budget = token_budget
@@ -106,6 +133,33 @@ class AdaptiveSearchEngine:
         start_time = time.monotonic()
 
         try:
+            # Phase 0: Check knowledge cache for similar queries
+            if self._knowledge_cache is not None:
+                cached_cluster = await self._knowledge_cache.find_similar_cluster(
+                    query, threshold=self._cache_similarity_threshold
+                )
+                if cached_cluster is not None:
+                    # Update hotness for cache hit
+                    await self._knowledge_cache.update_hotness(cached_cluster.id)
+
+                    latency_ms = (time.monotonic() - start_time) * 1000
+                    log.info(
+                        "adaptive_search_cache_hit",
+                        query=query[:50],
+                        cluster_id=cached_cluster.id,
+                        latency_ms=round(latency_ms, 2),
+                    )
+
+                    # Return cached content as result
+                    return [
+                        {
+                            "id": cached_cluster.id,
+                            "content": cached_cluster.content,
+                            "score": 1.0,  # Perfect match from cache
+                            "source": "cache",
+                        }
+                    ]
+
             # 1. Classify intent if not provided
             if intent is None:
                 classification = await self._intent_classifier.classify(query)
@@ -140,11 +194,63 @@ class AdaptiveSearchEngine:
                 latency_ms=round(latency_ms, 2),
             )
 
+            # Filter zero-relevance events (exp(0) = 1.0 means no alignment)
+            results = [r for r in results if r.get("score", 0) > 1.0]
+
+            # Normalize scores to [0, 1] range (MAGMA Eq.5 exp() output is unbounded)
+            if results:
+                scores = [r.get("score", 0) for r in results]
+                min_score = min(scores)
+                max_score = max(scores)
+                score_range = max_score - min_score
+                for r in results:
+                    raw = r.get("score", 0)
+                    r["score"] = 1.0 if score_range == 0 else (raw - min_score) / score_range
+
+            # Phase 5: Store results in cache for future queries
+            if self._knowledge_cache is not None and results:
+                await self._store_search_results(query, results)
+
             return results
 
         except Exception as exc:
             log.error("adaptive_search_failed", query=query[:50], error=str(exc))
             return []
+
+    async def _store_search_results(
+        self,
+        query: str,
+        results: list[dict[str, Any]],
+    ) -> None:
+        """Store search results in knowledge cache.
+
+        Args:
+            query: The original query.
+            results: The search results to cache.
+        """
+        try:
+            from core.protocols.knowledge_cache import KnowledgeCluster
+            import uuid
+
+            # Create a cluster from the top result
+            if not results:
+                return
+
+            top_result = results[0]
+            cluster = KnowledgeCluster(
+                id=f"kc_{uuid.uuid4().hex[:8]}",
+                name=query[:100],
+                description=query,
+                content=top_result.get("content", ""),
+                query=query,
+                hotness=0.5,
+            )
+
+            await self._knowledge_cache.store_cluster(cluster)
+            log.debug("search_results_cached", cluster_id=cluster.id, query=query[:50])
+
+        except Exception as exc:
+            log.warning("failed_to_cache_results", error=str(exc))
 
     async def _find_anchors(
         self,
@@ -193,7 +299,28 @@ class AdaptiveSearchEngine:
             List of retrieved events with scores.
         """
         visited: set[str] = set()
-        frontier: list[tuple[str, float]] = [(a, 1.0) for a in anchors]
+        # Score anchors based on content relevance instead of fixed 1.0
+        scored_anchors: list[tuple[str, float]] = []
+        for anchor_id in anchors:
+            event_data = await self._get_event_data(anchor_id)
+            if event_data:
+                anchor_event = EventNode(
+                    id=anchor_id,
+                    content=event_data.get("content", ""),
+                    timestamp=event_data.get("timestamp"),
+                    embedding=None,
+                )
+                anchor_score = calculate_transition_score(
+                    neighbor=anchor_event,
+                    query_embedding=query_embedding,
+                    query_intent=intent,
+                    edge_type=EdgeType.TEMPORAL,
+                )
+                scored_anchors.append((anchor_id, anchor_score))
+            else:
+                scored_anchors.append((anchor_id, 0.5))
+
+        frontier = scored_anchors
         results: list[dict[str, Any]] = []
 
         for depth in range(self._max_depth):

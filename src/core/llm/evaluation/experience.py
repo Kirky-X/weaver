@@ -1,4 +1,4 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
+ # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Model experience tracking for smart routing.
 
 Subscribes to LLMUsageEvent to track per-model performance,
@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from time import monotonic
 from typing import Any
 
@@ -33,6 +33,8 @@ class _ModelExperience:
     alpha: float = 1.0
     beta: float = 1.0
     last_error_type: str = ""
+    # Time-weighted tracking: list of (timestamp, latency_ms, success) tuples
+    call_history: list[tuple[float, float, bool]] = field(default_factory=list)
 
 
 class ExperienceStore:
@@ -79,6 +81,7 @@ class ExperienceStore:
     async def _on_usage_event(self, event: LLMUsageEvent) -> None:
         """Handle LLMUsageEvent — update experience counters."""
         key = f"{event.call_point}.{event.provider}.{event.model}"
+        now = monotonic()
         async with self._lock:
             exp = self._experiences.get(key)
             if exp is None:
@@ -86,7 +89,7 @@ class ExperienceStore:
                 self._experiences[key] = exp
 
             exp.call_count += 1
-            exp.last_call_time = monotonic()
+            exp.last_call_time = now
             exp.total_latency_ms += event.latency_ms
 
             if event.success:
@@ -96,6 +99,9 @@ class ExperienceStore:
                 exp.failure_count += 1
                 exp.beta += 1.0
                 exp.last_error_type = event.error_type or ""
+
+            # Record call history for time-weighted scoring
+            exp.call_history.append((now, event.latency_ms, event.success))
 
     def get_experience(self, call_point: str, provider: str, model: str) -> ExperienceData:
         """Get experience data for a specific model at a call point."""
@@ -116,21 +122,96 @@ class ExperienceStore:
             last_error_type=exp.last_error_type,
         )
 
+    @staticmethod
+    def _calculate_time_weight(timestamp: float, current_time: float) -> float:
+        """Calculate time-based weight for a historical call.
+
+        Args:
+            timestamp: When the call occurred (monotonic time).
+            current_time: Current monotonic time.
+
+        Returns:
+            Weight: 1.0 for <24h, 0.5 for 24h-7d, 0.0 for >7d.
+        """
+        age_seconds = current_time - timestamp
+        hours_24 = 24 * 3600
+        days_7 = 7 * 24 * 3600
+
+        if age_seconds > days_7:
+            return 0.0
+        elif age_seconds > hours_24:
+            return 0.5
+        else:
+            return 1.0
+
+    def _cleanup_old_calls(self, exp: _ModelExperience, current_time: float) -> None:
+        """Remove calls older than 7 days to prevent memory growth."""
+        days_7 = 7 * 24 * 3600
+        # Keep only calls within last 7 days
+        exp.call_history = [
+            (ts, lat, succ) for ts, lat, succ in exp.call_history if current_time - ts <= days_7
+        ]
+
     def reliability(self, call_point: str, provider: str, model: str) -> float:
-        """Get reliability score (success rate). Returns 1.0 for new models."""
+        """Get time-weighted reliability score (success rate). Returns 1.0 for new models.
+
+        Applies time decay:
+        - Calls <24h: weight = 1.0
+        - Calls 24h-7d: weight = 0.5
+        - Calls >7d: excluded (weight = 0.0)
+        """
         key = f"{call_point}.{provider}.{model}"
         exp = self._experiences.get(key)
-        if exp is None or exp.call_count == 0:
+        if exp is None or not exp.call_history:
             return 1.0
-        return exp.success_count / exp.call_count
+
+        now = monotonic()
+        self._cleanup_old_calls(exp, now)
+
+        weighted_success = 0.0
+        weighted_total = 0.0
+
+        for timestamp, _latency, success in exp.call_history:
+            weight = self._calculate_time_weight(timestamp, now)
+            if weight > 0.0:
+                weighted_total += weight
+                if success:
+                    weighted_success += weight
+
+        if weighted_total == 0.0:
+            return 1.0
+
+        return weighted_success / weighted_total
 
     def avg_latency(self, call_point: str, provider: str, model: str) -> float:
-        """Get average latency in ms. Returns 0.0 for new models."""
+        """Get time-weighted average latency in ms. Returns 0.0 for new models.
+
+        Applies time decay:
+        - Calls <24h: weight = 1.0
+        - Calls 24h-7d: weight = 0.5
+        - Calls >7d: excluded (weight = 0.0)
+        """
         key = f"{call_point}.{provider}.{model}"
         exp = self._experiences.get(key)
-        if exp is None or exp.call_count == 0:
+        if exp is None or not exp.call_history:
             return 0.0
-        return exp.total_latency_ms / exp.call_count
+
+        now = monotonic()
+        self._cleanup_old_calls(exp, now)
+
+        weighted_latency = 0.0
+        weighted_total = 0.0
+
+        for timestamp, latency, _success in exp.call_history:
+            weight = self._calculate_time_weight(timestamp, now)
+            if weight > 0.0:
+                weighted_total += weight
+                weighted_latency += weight * latency
+
+        if weighted_total == 0.0:
+            return 0.0
+
+        return weighted_latency / weighted_total
 
     def thompson_sample(self, call_point: str, provider: str, model: str) -> float:
         """Sample from Beta distribution for Thompson Sampling exploration bonus.

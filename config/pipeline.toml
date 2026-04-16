@@ -101,3 +101,16 @@ retry_delay = 5
 merger_class = "modules.processing.pipeline.nodes.batch_merger.BatchMergerNode"
 enabled = true
 timeout = 180
+
+# ============================================================
+# Monte Carlo Sampling Configuration
+# ============================================================
+# Monte Carlo evidence sampling for long documents (>10K characters)
+# Uses multi-anchor strategy to extract relevant regions efficiently
+
+[monte_carlo]
+enabled = true
+threshold = 10000  # Character threshold for MC sampling
+sample_size = 5  # Number of regions to sample
+region_size = 2000  # Characters per region
+confidence_threshold = 0.4  # Fallback to full text if confidence < threshold

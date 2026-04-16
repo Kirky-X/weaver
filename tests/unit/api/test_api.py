@@ -942,12 +942,16 @@ class TestGraphEndpoint:
         mock_graph_repo.get_article_relationships = AsyncMock(return_value=[])
         mock_graph_repo.get_related_articles = AsyncMock(return_value=[])
 
+        mock_relational_pool = MagicMock()
+
         result = await get_article_graph(
             article_id="article-123",
             _="test-key",
             graph_repo=mock_graph_repo,
+            relational_pool=mock_relational_pool,
         )
         assert result.data.article.title == "Test Article"
+        assert result.data.graph_synced is True
 
     @pytest.mark.asyncio
     async def test_get_article_graph_endpoint_not_found(self):
@@ -957,11 +961,23 @@ class TestGraphEndpoint:
         mock_graph_repo = MagicMock()
         mock_graph_repo.get_article = AsyncMock(return_value=None)
 
+        mock_result = MagicMock()
+        mock_result.scalar_one_or_none = MagicMock(return_value=None)
+
+        mock_session = MagicMock()
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        mock_relational_pool = MagicMock()
+        mock_relational_pool.session = MagicMock(return_value=mock_session)
+        mock_relational_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_relational_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
+
         with pytest.raises(HTTPException) as exc_info:
             await get_article_graph(
                 article_id="missing-article",
                 _="test-key",
                 graph_repo=mock_graph_repo,
+                relational_pool=mock_relational_pool,
             )
         assert exc_info.value.status_code == 404
 

@@ -40,6 +40,8 @@ class CallPoint(str, Enum):
     CAUSAL_INFERENCE = "causal_inference"
     ENTITY_FACTS = "entity_facts"
     NARRATIVE_SYNTHESIS = "narrative_synthesis"
+    EVIDENCE_SAMPLING = "evidence_sampling"
+    ROI_SUMMARY = "roi_summary"
 
 
 class Capability(str, Enum):

@@ -1,0 +1,485 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
+"""Knowledge cluster cache storage using DuckDB + Parquet.
+
+Provides in-memory DuckDB storage with async Parquet persistence
+for semantic similarity search result caching.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import atexit
+import os
+import threading
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+import duckdb
+
+from core.observability.logging import get_logger
+from core.protocols.knowledge_cache import KnowledgeCacheProtocol, KnowledgeCluster
+
+log = get_logger(__name__)
+
+DEFAULT_CACHE_PATH = "data/.cache/knowledge"
+
+
+class KnowledgeCache(KnowledgeCacheProtocol):
+    """Knowledge cluster cache using DuckDB + Parquet.
+
+    Architecture:
+    - DuckDB in-memory for fast read/write
+    - Parquet file for durable persistence
+    - Daemon thread for periodic sync
+    - FIFO queue for query management
+
+    Implements: KnowledgeCacheProtocol
+
+    Storage Path: {cache_path}/knowledge_clusters.parquet
+    """
+
+    def __init__(
+        self,
+        cache_path: str | None = None,
+        embedding_service: Any = None,
+        sync_interval: int = 60,
+        sync_threshold: int = 100,
+        max_queries: int = 5,
+    ) -> None:
+        """Initialize the knowledge cache.
+
+        Args:
+            cache_path: Base path for cache storage.
+            embedding_service: Service for computing embeddings.
+            sync_interval: Seconds between Parquet syncs.
+            sync_threshold: Dirty count triggering immediate sync.
+            max_queries: Maximum queries in FIFO queue per cluster.
+        """
+        # Setup paths
+        if cache_path is None:
+            cache_path = os.getenv("KNOWLEDGE_CACHE_PATH", DEFAULT_CACHE_PATH)
+        self.cache_path = Path(cache_path).expanduser().resolve()
+        self.cache_path.mkdir(parents=True, exist_ok=True)
+        self.parquet_file = str(self.cache_path / "knowledge_clusters.parquet")
+
+        # Embedding service
+        self._embedding_service = embedding_service
+
+        # DuckDB in-memory
+        self.db = duckdb.connect(":memory:")
+        self.table_name = "knowledge_clusters"
+
+        # FIFO queue management
+        self._max_queries = max_queries
+
+        # Sync state
+        self._dirty_count = 0
+        self._sync_threshold = sync_threshold
+        self._sync_lock = threading.Lock()
+        self._stop_event = threading.Event()
+
+        # Initialize table
+        self._create_table()
+
+        # Load from parquet if exists
+        self._load_from_parquet()
+
+        # Start sync daemon
+        self._start_sync_daemon(sync_interval)
+        atexit.register(self._shutdown)
+
+        log.info(
+            "knowledge_cache_initialized",
+            path=str(self.cache_path),
+            parquet_file=self.parquet_file,
+        )
+
+    def _create_table(self) -> None:
+        """Create the knowledge clusters table with explicit schema."""
+        self.db.execute(f"""
+            CREATE TABLE IF NOT EXISTS {self.table_name} (
+                id VARCHAR PRIMARY KEY,
+                name VARCHAR NOT NULL,
+                description VARCHAR,
+                content VARCHAR,
+                embedding FLOAT[384],
+                query VARCHAR,
+                hotness FLOAT DEFAULT 0.5,
+                create_time TIMESTAMP,
+                last_modified TIMESTAMP,
+                version INTEGER DEFAULT 0
+            )
+        """)
+
+    def _load_from_parquet(self) -> None:
+        """Load clusters from parquet file if exists."""
+        try:
+            pq = Path(self.parquet_file)
+            if pq.exists():
+                self.db.execute(
+                    f"INSERT INTO {self.table_name} "
+                    f"SELECT * FROM read_parquet('{self.parquet_file}')"
+                )
+                count = self.db.execute(
+                    f"SELECT COUNT(*) FROM {self.table_name}"
+                ).fetchone()[0]
+                log.info("loaded_clusters_from_parquet", count=count)
+        except Exception as e:
+            log.warning("failed_to_load_parquet", error=str(e))
+
+    def _sync_to_parquet(self) -> None:
+        """Sync in-memory data to parquet file."""
+        with self._sync_lock:
+            try:
+                # Atomic write pattern
+                temp_file = self.parquet_file + ".tmp"
+                self.db.execute(
+                    f"COPY {self.table_name} TO '{temp_file}' (FORMAT PARQUET)"
+                )
+                os.replace(temp_file, self.parquet_file)
+                self._dirty_count = 0
+                log.debug("synced_to_parquet")
+            except Exception as e:
+                log.error("parquet_sync_failed", error=str(e))
+
+    def _mark_dirty(self) -> None:
+        """Mark cache as dirty and maybe trigger sync."""
+        with self._sync_lock:
+            self._dirty_count += 1
+            if self._dirty_count >= self._sync_threshold:
+                self._sync_to_parquet()
+
+    def _start_sync_daemon(self, interval: int) -> None:
+        """Start background sync thread."""
+
+        def sync_loop() -> None:
+            while not self._stop_event.wait(interval):
+                if self._dirty_count > 0:
+                    self._sync_to_parquet()
+
+        self._sync_thread = threading.Thread(target=sync_loop, daemon=True)
+        self._sync_thread.start()
+
+    def _shutdown(self) -> None:
+        """Shutdown sync thread and do final sync."""
+        self._stop_event.set()
+        if self._dirty_count > 0:
+            self._sync_to_parquet()
+
+    # ------------------------------------------------------------------
+    # KnowledgeCacheProtocol implementation
+    # ------------------------------------------------------------------
+
+    async def find_similar_cluster(
+        self,
+        query: str,
+        threshold: float = 0.85,
+    ) -> KnowledgeCluster | None:
+        """Find similar cluster by query embedding.
+
+        Args:
+            query: Search query.
+            threshold: Minimum cosine similarity.
+
+        Returns:
+            KnowledgeCluster if found, None otherwise.
+        """
+        if self._embedding_service is None:
+            return None
+
+        try:
+            # Compute query embedding
+            query_embedding = await self._embedding_service.embed(query)
+
+            # Search using DuckDB cosine similarity
+            result = self.db.execute(f"""
+                SELECT id, name, description, content, embedding, query, hotness,
+                       create_time, last_modified, version,
+                       list_cosine_similarity(embedding, {query_embedding}::FLOAT[384]) AS similarity
+                FROM {self.table_name}
+                WHERE embedding IS NOT NULL
+                ORDER BY similarity DESC
+                LIMIT 1
+            """).fetchone()
+
+            if result and result[10] >= threshold:
+                cluster = KnowledgeCluster(
+                    id=result[0],
+                    name=result[1],
+                    description=result[2] or "",
+                    content=result[3] or "",
+                    embedding=list(result[4]) if result[4] else None,
+                    query=result[5] or "",
+                    hotness=result[6] or 0.5,
+                    create_time=result[7],
+                    last_modified=result[8],
+                    version=result[9] or 0,
+                )
+                log.info(
+                    "cache_hit",
+                    cluster_id=cluster.id,
+                    similarity=result[10],
+                    query=query[:50],
+                )
+                return cluster
+
+            log.debug("cache_miss", query=query[:50], threshold=threshold)
+            return None
+
+        except Exception as e:
+            log.error("find_similar_cluster_failed", error=str(e))
+            return None
+
+    async def store_cluster(self, cluster: KnowledgeCluster) -> str:
+        """Store or update a cluster.
+
+        Args:
+            cluster: Cluster to store.
+
+        Returns:
+            Cluster ID.
+        """
+        try:
+            # Compute embedding if not provided
+            if cluster.embedding is None and self._embedding_service:
+                cluster.embedding = await self._embedding_service.embed(
+                    cluster.query or cluster.description
+                )
+
+            # Check if exists
+            existing = self.db.execute(
+                f"SELECT id FROM {self.table_name} WHERE id = ?",
+                [cluster.id],
+            ).fetchone()
+
+            now = datetime.now(timezone.utc)
+            cluster.last_modified = now
+
+            if existing:
+                # Update
+                self.db.execute(
+                    f"""
+                    UPDATE {self.table_name}
+                    SET name = ?, description = ?, content = ?, embedding = ?,
+                        query = ?, hotness = ?, last_modified = ?, version = version + 1
+                    WHERE id = ?
+                    """,
+                    [
+                        cluster.name,
+                        cluster.description,
+                        cluster.content,
+                        cluster.embedding,
+                        cluster.query,
+                        cluster.hotness,
+                        cluster.last_modified,
+                        cluster.id,
+                    ],
+                )
+                log.debug("cluster_updated", cluster_id=cluster.id)
+            else:
+                # Insert
+                if cluster.create_time is None:
+                    cluster.create_time = now
+                self.db.execute(
+                    f"""
+                    INSERT INTO {self.table_name}
+                    (id, name, description, content, embedding, query, hotness,
+                     create_time, last_modified, version)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                    """,
+                    [
+                        cluster.id,
+                        cluster.name,
+                        cluster.description,
+                        cluster.content,
+                        cluster.embedding,
+                        cluster.query,
+                        cluster.hotness,
+                        cluster.create_time,
+                        cluster.last_modified,
+                    ],
+                )
+                log.debug("cluster_inserted", cluster_id=cluster.id)
+
+            self._mark_dirty()
+            return cluster.id
+
+        except Exception as e:
+            log.error("store_cluster_failed", error=str(e), cluster_id=cluster.id)
+            raise
+
+    async def get(self, cluster_id: str) -> KnowledgeCluster | None:
+        """Get cluster by ID.
+
+        Args:
+            cluster_id: Cluster ID.
+
+        Returns:
+            KnowledgeCluster if found, None otherwise.
+        """
+        try:
+            result = self.db.execute(
+                f"""
+                SELECT id, name, description, content, embedding, query, hotness,
+                       create_time, last_modified, version
+                FROM {self.table_name}
+                WHERE id = ?
+                """,
+                [cluster_id],
+            ).fetchone()
+
+            if result:
+                return KnowledgeCluster(
+                    id=result[0],
+                    name=result[1],
+                    description=result[2] or "",
+                    content=result[3] or "",
+                    embedding=list(result[4]) if result[4] else None,
+                    query=result[5] or "",
+                    hotness=result[6] or 0.5,
+                    create_time=result[7],
+                    last_modified=result[8],
+                    version=result[9] or 0,
+                )
+            return None
+
+        except Exception as e:
+            log.error("get_cluster_failed", error=str(e), cluster_id=cluster_id)
+            return None
+
+    async def remove(self, cluster_id: str) -> bool:
+        """Remove cluster by ID.
+
+        Args:
+            cluster_id: Cluster ID.
+
+        Returns:
+            True if removed, False if not found.
+        """
+        try:
+            result = self.db.execute(
+                f"DELETE FROM {self.table_name} WHERE id = ?",
+                [cluster_id],
+            )
+            removed = result.fetchone()[0] > 0 if result else False
+            if removed:
+                self._mark_dirty()
+                log.debug("cluster_removed", cluster_id=cluster_id)
+            return removed
+
+        except Exception as e:
+            log.error("remove_cluster_failed", error=str(e))
+            return False
+
+    async def cleanup_stale(self, hotness_threshold: float = 0.3) -> int:
+        """Remove clusters below hotness threshold.
+
+        Args:
+            hotness_threshold: Minimum hotness to keep.
+
+        Returns:
+            Number of clusters removed.
+        """
+        try:
+            result = self.db.execute(
+                f"DELETE FROM {self.table_name} WHERE hotness < ?",
+                [hotness_threshold],
+            )
+            removed = result.fetchone()[0] if result else 0
+            if removed > 0:
+                self._mark_dirty()
+                log.info("cleanup_stale_clusters", removed=removed)
+            return removed
+
+        except Exception as e:
+            log.error("cleanup_stale_failed", error=str(e))
+            return 0
+
+    async def update_hotness(self, cluster_id: str, delta: float = 0.1) -> None:
+        """Update cluster hotness.
+
+        Args:
+            cluster_id: Cluster ID.
+            delta: Hotness increment.
+        """
+        try:
+            self.db.execute(
+                f"""
+                UPDATE {self.table_name}
+                SET hotness = LEAST(1.0, hotness + ?), last_modified = ?
+                WHERE id = ?
+                """,
+                [delta, datetime.now(timezone.utc), cluster_id],
+            )
+            self._mark_dirty()
+
+        except Exception as e:
+            log.error("update_hotness_failed", error=str(e))
+
+    # ------------------------------------------------------------------
+    # FIFO Query Queue Management
+    # ------------------------------------------------------------------
+
+    async def add_query(self, cluster_id: str, query: str) -> None:
+        """Add a query to cluster's query history (FIFO management).
+
+        Args:
+            cluster_id: Cluster ID.
+            query: Query to add.
+        """
+        try:
+            # Get current queries
+            result = self.db.execute(
+                f"SELECT query FROM {self.table_name} WHERE id = ?",
+                [cluster_id],
+            ).fetchone()
+
+            if result:
+                queries = result[0].split("\n") if result[0] else []
+                queries.append(query)
+                # FIFO: keep only last N queries
+                queries = queries[-self._max_queries :]
+
+                self.db.execute(
+                    f"UPDATE {self.table_name} SET query = ? WHERE id = ?",
+                    ["\n".join(queries), cluster_id],
+                )
+                self._mark_dirty()
+
+        except Exception as e:
+            log.error("add_query_failed", error=str(e))
+
+    # ------------------------------------------------------------------
+    # Statistics
+    # ------------------------------------------------------------------
+
+    def get_stats(self) -> dict[str, Any]:
+        """Get cache statistics.
+
+        Returns:
+            Dict with count, avg_hotness, etc.
+        """
+        try:
+            result = self.db.execute(f"""
+                SELECT
+                    COUNT(*) as count,
+                    AVG(hotness) as avg_hotness,
+                    COUNT(CASE WHEN embedding IS NOT NULL THEN 1 END) as with_embedding
+                FROM {self.table_name}
+            """).fetchone()
+
+            return {
+                "count": result[0] or 0,
+                "avg_hotness": result[1] or 0.0,
+                "with_embedding": result[2] or 0,
+            }
+
+        except Exception as e:
+            log.error("get_stats_failed", error=str(e))
+            return {"count": 0, "avg_hotness": 0.0, "with_embedding": 0}
+
+
+__all__ = [
+    "KnowledgeCache",
+]

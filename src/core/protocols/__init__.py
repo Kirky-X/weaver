@@ -40,6 +40,12 @@ from core.protocols.services import (
     TaskRegistryService,
 )
 
+# Knowledge cache protocols
+from core.protocols.knowledge_cache import (
+    KnowledgeCacheProtocol,
+    KnowledgeCluster,
+)
+
 # Validation utilities
 from core.protocols.validation import (
     assert_implements,
@@ -53,6 +59,8 @@ __all__ = [
     "GraphArticleRepository",
     "GraphPool",
     "GraphWriter",
+    "KnowledgeCacheProtocol",
+    "KnowledgeCluster",
     "PendingSyncRepository",
     "PipelineService",
     "RelationalPool",

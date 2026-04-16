@@ -184,6 +184,18 @@ class ModelSelector:
             idx = candidates.index(label)
             editorial = 1.0 / (idx + 1)
 
+            # Circuit breaker slow request degradation
+            cb = self.circuit_breakers.get(label.provider)
+            if cb is not None and cb.is_slow:
+                editorial *= 0.5
+                log.debug(
+                    "selector_editorial_degraded_slow",
+                    provider=label.provider,
+                    label=key,
+                    original_editorial=round(1.0 / (idx + 1), 4),
+                    degraded_editorial=round(editorial, 4),
+                )
+
             # Thompson Sampling exploration bonus
             ts_bonus = self.experience.thompson_sample(call_point, label.provider, label.model)
 

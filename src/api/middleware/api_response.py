@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
@@ -19,14 +19,14 @@ log = get_logger(__name__)
 
 def _build_error_response(code: int, message: str, details: Any = None) -> dict[str, Any]:
     """构建错误响应体。"""
-    body = {
+    body: dict[str, Any] = {
         "code": code,
         "message": message,
-        "timestamp": datetime.now(UTC).isoformat(),
         "data": None,
     }
     if details is not None:
         body["details"] = details
+    body["timestamp"] = datetime.now().isoformat()
     return body
 
 

@@ -131,6 +131,10 @@ class Container:
         self._bm25_index_service: Any = None  # BM25IndexService
         self._memory_service: Any = None  # MemoryIntegrationService
         self._shutdown: bool = False  # Idempotency protection
+        # ── Local Embedding & Knowledge Cache ─────────────────────
+        self._local_embedding: Any = None  # LocalEmbeddingService
+        self._knowledge_cache: Any = None  # KnowledgeCache
+        self._mc_sampler: Any = None  # MCSampler
 
     def configure(self, settings: Settings) -> Container:
         """Configure the container with settings.
@@ -233,6 +237,130 @@ class Container:
         if self._redis_client is None:
             raise RuntimeError("Redis client not initialized. Call init_redis() first.")
         return self._redis_client
+
+    # ── Local Embedding & Knowledge Cache ─────────────────────────────
+
+    async def init_local_embedding(self) -> Any:
+        """Initialize local embedding service.
+
+        Starts background model loading for sentence-transformers.
+
+        Returns:
+            LocalEmbeddingService instance.
+        """
+        if self._local_embedding is None:
+            from core.embedding import LocalEmbeddingService
+
+            self._local_embedding = LocalEmbeddingService(
+                model_id=self._settings.embedding.model_id,
+                device=self._settings.embedding.device,
+                cache_dir=self._settings.embedding.cache_dir,
+            )
+            self._local_embedding.start_loading()
+            log.info(
+                "local_embedding_initialized",
+                model_id=self._settings.embedding.model_id,
+            )
+        return self._local_embedding
+
+    def local_embedding(self) -> Any:
+        """Get local embedding service.
+
+        Returns:
+            LocalEmbeddingService instance.
+
+        Raises:
+            RuntimeError: If not initialized.
+        """
+        if self._local_embedding is None:
+            raise RuntimeError(
+                "Local embedding not initialized. Call init_local_embedding() first."
+            )
+        return self._local_embedding
+
+    async def init_knowledge_cache(self) -> Any:
+        """Initialize knowledge cluster cache.
+
+        Returns:
+            KnowledgeCache instance.
+        """
+        if self._knowledge_cache is None:
+            from modules.knowledge.cache import KnowledgeCache
+
+            # Ensure embedding service is ready
+            if self._local_embedding is None:
+                await self.init_local_embedding()
+
+            self._knowledge_cache = KnowledgeCache(
+                cache_path=self._settings.knowledge_cache.path,
+                embedding_service=self._local_embedding,
+                sync_interval=self._settings.knowledge_cache.sync_interval,
+                sync_threshold=self._settings.knowledge_cache.sync_threshold,
+                max_queries=self._settings.knowledge_cache.max_queries,
+            )
+            log.info(
+                "knowledge_cache_initialized",
+                path=self._settings.knowledge_cache.path,
+            )
+        return self._knowledge_cache
+
+    def knowledge_cache(self) -> Any:
+        """Get knowledge cluster cache.
+
+        Returns:
+            KnowledgeCache instance.
+
+        Raises:
+            RuntimeError: If not initialized.
+        """
+        if self._knowledge_cache is None:
+            raise RuntimeError(
+                "Knowledge cache not initialized. Call init_knowledge_cache() first."
+            )
+        return self._knowledge_cache
+
+    async def init_mc_sampler(self) -> Any:
+        """Initialize Monte Carlo sampler for long documents.
+
+        Returns:
+            MCSampler instance.
+        """
+        if self._mc_sampler is None:
+            from core.evidence import MCSampler
+
+            # Ensure LLM client is ready
+            if self._llm_client is None:
+                await self.init_llm()
+
+            mc_config = self._settings.pipeline.monte_carlo
+            if mc_config.enabled:
+                self._mc_sampler = MCSampler(
+                    llm_client=self._llm_client,
+                    token_budget_manager=self._budget,  # type: ignore
+                    threshold=mc_config.threshold,
+                    sample_size=mc_config.sample_size,
+                    region_size=mc_config.region_size,
+                    confidence_threshold=mc_config.confidence_threshold,
+                )
+                log.info(
+                    "mc_sampler_initialized",
+                    threshold=mc_config.threshold,
+                    sample_size=mc_config.sample_size,
+                )
+        return self._mc_sampler
+
+    def mc_sampler(self) -> Any:
+        """Get Monte Carlo sampler.
+
+        Returns:
+            MCSampler instance or None if disabled.
+
+        Raises:
+            RuntimeError: If not initialized.
+        """
+        if self._mc_sampler is None and self._settings.pipeline.monte_carlo.enabled:
+            raise RuntimeError("MC sampler not initialized. Call init_mc_sampler() first.")
+        return self._mc_sampler
 
     # ── LLM & Prompt ─────────────────────────────────────────────
 
@@ -586,6 +714,16 @@ class Container:
             IntervalTrigger(minutes=settings.llm_usage_aggregate_interval_minutes),
             id="llm_usage_aggregate",
             name="LLM usage aggregation (Redis to PG)",
+            max_instances=1,
+            coalesce=True,
+        )
+
+        # ── LLM Comparison Aggregation ──
+        scheduler.add_job(
+            jobs.aggregate_llm_compare,
+            IntervalTrigger(minutes=settings.llm_usage_aggregate_interval_minutes),
+            id="llm_compare_aggregate",
+            name="LLM comparison aggregation (Redis to PG)",
             max_instances=1,
             coalesce=True,
         )

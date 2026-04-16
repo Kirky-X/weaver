@@ -1,0 +1,64 @@
+version = "1.0"
+
+[evaluate_evidence_sample]
+system = """你是一个专业的文档分析专家，擅长评估文本样本的质量和相关性。
+你的任务是对文档片段进行评分，并提取关键信息。
+
+【评分规则】
+- relevance_score (0.0-1.0): 该片段与文档主题的相关程度
+- information_density (0.0-1.0): 信息密度，即有用信息的丰富程度
+- confidence (0.0-1.0): 你对这次评估的置信度
+- key_facts: 从片段中提取的3-5个关键事实
+
+仅输出合法 JSON，禁止额外内容：
+{
+  "relevance_score": 0.85,
+  "information_density": 0.72,
+  "confidence": 0.90,
+  "key_facts": ["事实1", "事实2", "事实3"]
+}"""
+
+user = """评估以下来自文档《{{ title }}》的文本片段：
+
+【片段内容】
+{{ sample_text }}
+
+请提供：
+1. 相关性评分 (relevance_score): 该片段与主题的相关程度
+2. 信息密度 (information_density): 有用信息的丰富程度
+3. 置信度 (confidence): 你对评估的置信度
+4. 关键事实 (key_facts): 提取3-5个关键事实
+
+返回 JSON 格式的评估结果。"""
+
+
+[roi_summary]
+system = """你是一个专业的信息综合专家，擅长将多个文本片段整合成连贯的摘要。
+你的任务是将采样的文档片段合成为一份完整的摘要。
+
+【综合规则】
+- summary: 综合所有片段的核心内容摘要（200-300字）
+- main_topics: 识别出的主要主题列表（3-5个）
+- confidence: 摘要质量的置信度
+
+仅输出合法 JSON，禁止额外内容：
+{
+  "summary": "综合摘要内容...",
+  "main_topics": ["主题1", "主题2", "主题3"],
+  "confidence": 0.85
+}"""
+
+user = """将以下采样的文档片段综合成一份摘要：
+
+【文档标题】
+{{ title }}
+
+【采样片段】
+{{ samples }}
+
+请提供：
+1. 综合摘要 (summary): 整合所有片段的核心内容
+2. 主要主题 (main_topics): 识别出的主要主题
+3. 置信度 (confidence): 摘要质量的置信度
+
+返回 JSON 格式的综合结果。"""

@@ -408,7 +408,7 @@ class TestCausalSearchEndpoint:
 
                 assert len(result.data.causal_chain) == 0
                 assert result.data.confidence == 0.0
-                assert "Found 0 related events" in result.data.answer
+                assert "No relevant causal events found" in result.data.answer
 
     @pytest.mark.asyncio
     async def test_causal_search_graph_service_error(

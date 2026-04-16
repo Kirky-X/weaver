@@ -443,3 +443,28 @@ class PipelineProcessSettings(BaseModel):
 
     merge_cross_query_limit: int = 20  # Cross-query similar articles limit
     drain_timeout: float = 30.0  # Pipeline drain timeout
+
+
+class EmbeddingSettings(BaseModel):
+    """Local embedding model configuration.
+
+    Environment variables: WEAVER__EMBEDDING__CACHE_DIR, WEAVER__EMBEDDING__MODEL_ID
+    """
+
+    cache_dir: str = "data/.cache/models"
+    model_id: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    device: str | None = None  # Auto-detect: cuda if available, else cpu
+
+
+class KnowledgeCacheSettings(BaseModel):
+    """Knowledge cluster cache configuration.
+
+    Environment variables: WEAVER__KNOWLEDGE_CACHE__PATH, WEAVER__KNOWLEDGE_CACHE__MAX_QUERIES
+    """
+
+    path: str = "data/.cache/knowledge"
+    sync_interval: int = 60  # Seconds between Parquet syncs
+    sync_threshold: int = 100  # Dirty count triggering immediate sync
+    max_queries: int = 5  # FIFO queue size per cluster
+    similarity_threshold: float = 0.85  # Minimum similarity for cache hit
+    hotness_threshold: float = 0.3  # Minimum hotness to keep cluster

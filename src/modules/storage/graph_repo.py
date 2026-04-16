@@ -322,7 +322,7 @@ class GraphRepository:
         )
         entities = []
         for row in result:
-            # Handle timestamps (LadybugDB stores as INT64 seconds)
+            # Handle timestamps (Neo4j DateTime, LadybugDB INT64, or string)
             updated_at = row.get("updated_at")
             created_at = row.get("created_at")
             for ts_field in ["updated_at", "created_at"]:
@@ -334,10 +334,14 @@ class GraphRepository:
                         ts = datetime.fromtimestamp(ts / 1000, tz=UTC).isoformat()
                     else:
                         ts = datetime.fromtimestamp(ts, tz=UTC).isoformat()
-                    if ts_field == "updated_at":
-                        updated_at = ts
-                    else:
-                        created_at = ts
+                elif ts is not None and hasattr(ts, "isoformat"):
+                    ts = ts.isoformat()
+                elif ts is not None:
+                    ts = str(ts)
+                if ts_field == "updated_at":
+                    updated_at = ts
+                else:
+                    created_at = ts
 
             entities.append(
                 {
@@ -387,7 +391,8 @@ class GraphRepository:
                     "target_id": row["target"],
                     "relation_type": row["relation_type"] or "RELATED_TO",
                     "properties": {
-                        "source_article_id": row.get("source_article_id"),
+                        "description": row.get("description"),
+                        "weight": row.get("weight", 1.0),
                         "created_at": created_at,
                     },
                 }

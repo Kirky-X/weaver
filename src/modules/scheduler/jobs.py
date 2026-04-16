@@ -847,6 +847,17 @@ class SchedulerJobs:
         )
         return processed
 
+    @scheduled_task("llm_compare_aggregate", timeout_seconds=300)
+    async def aggregate_llm_compare(self) -> int:
+        """Aggregate LLM comparison data from Redis buffer to PostgreSQL."""
+        from modules.analytics.llm_compare.aggregator import flush_compare_buffer
+
+        processed, errors = await flush_compare_buffer(
+            cache=self._cache,
+            relational_pool=self._relational_pool,
+        )
+        return processed
+
     @scheduled_task("sync_phishtank_data", timeout_seconds=600)
     async def sync_phishtank_data(self) -> bool:
         """Sync PhishTank phishing URL database.

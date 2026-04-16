@@ -169,11 +169,12 @@ class GlobalSearchEngine:
             # If use_llm=False, return context without LLM generation
             if not use_llm:
                 total_tokens = sum(len(c.full_content or c.summary) // 4 for c in communities)
+                community_scores = [c.similarity_score for c in communities]
                 return SearchResult(
                     query=query,
                     answer=f"Found {len(communities)} relevant communities. LLM generation skipped.",
                     context_tokens=total_tokens,
-                    confidence=self._estimate_confidence([]),
+                    confidence=self._estimate_confidence([], community_scores),
                     entities=list(
                         set(e for c in communities if c.key_entities for e in c.key_entities)
                     ),
@@ -184,6 +185,7 @@ class GlobalSearchEngine:
                         "hybrid_used": self._hybrid_engine is not None,
                         "search_method": "vector_similarity",
                         "community_level": community_level,
+                        "top_community_score": community_scores[0] if community_scores else 0,
                     },
                 )
 
@@ -193,9 +195,7 @@ class GlobalSearchEngine:
                 communities,
                 key=lambda c: c.similarity_score,
                 reverse=True,
-            )[
-                :3
-            ]  # Limit to top 3 communities for faster response
+            )[:3]  # Limit to top 3 communities for faster response
 
             intermediate_answers = []
             total_tokens = 0
@@ -218,7 +218,7 @@ class GlobalSearchEngine:
                                 call_point=CallPoint.SEARCH_GLOBAL,
                                 payload={
                                     "system_prompt": (
-                                        "You are a helpful AI assistant analyzing community reports to answer questions. Provide concise, factual answers based on the given context."
+                                        "你是一个知识图谱分析专家，基于社区报告回答用户问题。请用简洁、准确的语言回答，仅使用中文。"
                                     ),
                                     "user_content": map_prompt,
                                 },
@@ -281,20 +281,35 @@ class GlobalSearchEngine:
                 query, intermediate_answers, community_weights
             )
 
-            final_response = await self._llm.call(
-                label="chat.aiping.GLM-4-9B-0414",
-                call_point=CallPoint.SEARCH_GLOBAL,
-                payload={
-                    "system_prompt": (
-                        "You are a helpful AI assistant synthesizing multiple community perspectives into a unified answer. Provide a comprehensive, balanced response."
+            # Reduce phase with timeout
+            try:
+                final_response = await asyncio.wait_for(
+                    self._llm.call(
+                        label="chat.aiping.GLM-4-9B-0414",
+                        call_point=CallPoint.SEARCH_GLOBAL,
+                        payload={
+                            "system_prompt": (
+                                "你是一个知识图谱分析专家，综合多个社区观点生成统一答案。请提供全面、平衡的回答，仅使用中文，不要包含任何英文或其他语言字符。"
+                            ),
+                            "user_content": reduce_prompt,
+                        },
                     ),
-                    "user_content": reduce_prompt,
-                },
-            )
+                    timeout=15.0,  # 15 second timeout for Reduce phase
+                )
+                final_answer = (
+                    final_response if isinstance(final_response, str) else str(final_response)
+                )
+                reduce_timeout_fallback = False
+            except TimeoutError:
+                log.warning("global_search_reduce_timeout", query=query[:50])
+                # Fallback: concatenate intermediate answers
+                final_answer = "\n\n".join(
+                    f"**社区 {i + 1}观点:** {ans}" for i, ans in enumerate(intermediate_answers)
+                )
+                reduce_timeout_fallback = True
 
-            final_answer = (
-                final_response if isinstance(final_response, str) else str(final_response)
-            )
+            # Collect community scores for confidence estimation
+            community_scores = [c.similarity_score for c in sorted_communities]
 
             return SearchResult(
                 query=query,
@@ -304,17 +319,19 @@ class GlobalSearchEngine:
                 entities=list(
                     set(e for c in sorted_communities if c.key_entities for e in c.key_entities)
                 ),
-                confidence=self._estimate_confidence(intermediate_answers),
+                confidence=self._estimate_confidence(intermediate_answers, community_scores),
                 metadata={
                     "search_type": SearchMode.GLOBAL.value,
                     "communities": len(sorted_communities),
                     "community_level": community_level,
                     "intermediate_count": len(intermediate_answers),
-                    "llm_used": True,
+                    "llm_used": not reduce_timeout_fallback,
+                    "reduce_timeout_fallback": reduce_timeout_fallback,
                     "hybrid_used": self._hybrid_engine is not None,
                     "search_method": "vector_similarity",
-                    "top_community_score": (
-                        sorted_communities[0].similarity_score if sorted_communities else 0
+                    "top_community_score": (community_scores[0] if community_scores else 0),
+                    "avg_community_score": (
+                        sum(community_scores) / len(community_scores) if community_scores else 0
                     ),
                 },
             )
@@ -482,27 +499,58 @@ Instructions:
 
 Comprehensive Answer:"""
 
-    def _estimate_confidence(self, intermediate_answers: list[str]) -> float:
-        """Estimate confidence based on intermediate answers."""
+    def _estimate_confidence(
+        self,
+        intermediate_answers: list[str],
+        community_scores: list[float] | None = None,
+    ) -> float:
+        """Estimate confidence based on actual relevance scores and answer quality.
+
+        Args:
+            intermediate_answers: List of intermediate LLM answers.
+            community_scores: List of community similarity scores (0-1 range).
+
+        Returns:
+            Confidence score (0-1 range).
+        """
         if not intermediate_answers:
             return 0.0
 
-        confidence = 0.5
+        # Base confidence from actual relevance scores (primary factor)
+        if community_scores:
+            # Weight confidence heavily by the top community score
+            top_score = max(community_scores)
+            avg_score = sum(community_scores) / len(community_scores)
 
-        if len(intermediate_answers) >= 3:
-            confidence += 0.1
+            # High relevance scores boost confidence significantly
+            # top_score is primary indicator, avg_score provides consistency check
+            confidence = top_score * 0.6 + avg_score * 0.2
 
+            # Score consistency bonus: low variance means more coherent results
+            if len(community_scores) >= 2:
+                variance = sum((s - avg_score) ** 2 for s in community_scores) / len(
+                    community_scores
+                )
+                # Lower variance = higher consistency = higher confidence
+                consistency_bonus = max(0, 0.15 - variance * 0.3)
+                confidence += consistency_bonus
+        else:
+            # Fallback: no scores available, use conservative estimate
+            confidence = 0.3
+
+        # Secondary factors from answer quality (minor adjustments)
         total_length = sum(len(a) for a in intermediate_answers)
         if total_length > 500:
-            confidence += 0.2
+            confidence += 0.05  # Reduced bonus, content quality matters more than length
         elif total_length > 200:
-            confidence += 0.1
+            confidence += 0.02
 
+        # Non-empty answers bonus
         non_empty = sum(1 for a in intermediate_answers if a.strip())
         if non_empty == len(intermediate_answers):
-            confidence += 0.1
+            confidence += 0.03
 
-        return min(1.0, confidence)
+        return min(1.0, max(0.0, confidence))
 
     async def search_simple(
         self,
@@ -556,7 +604,7 @@ Comprehensive Answer:"""
                 call_point=CallPoint.SEARCH_GLOBAL,
                 payload={
                     "system_prompt": (
-                        "You are a helpful AI assistant. Answer questions based on the given context."
+                        "你是一个知识图谱分析专家，基于给定的上下文回答问题。仅使用中文回答。"
                     ),
                     "user_content": prompt,
                 },

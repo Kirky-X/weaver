@@ -363,6 +363,90 @@ class Pipeline:
             )
             raise
 
+    async def process_batch_fast(
+        self,
+        articles: list[ArticleRaw],
+        article_ids: list[Any] | None = None,
+        task_id: Any | None = None,
+    ) -> list[PipelineState]:
+        """Process a batch of articles through Phase 1 only (fast mode).
+
+        Fast mode skips Phase 2 (batch merger), Phase 3 (deep analysis),
+        entity extraction, and graph writing. Only runs:
+        - Classifier → Cleaner → Categorizer → Vectorize
+
+        This is useful for quick ingestion where full analysis is not required.
+
+        Args:
+            articles: List of raw articles to process.
+            article_ids: Optional list of article UUIDs aligned with articles list.
+            task_id: Optional pipeline task UUID for failure correlation.
+
+        Returns:
+            List of completed pipeline states (Phase 1 only).
+        """
+        if not self._accepting:
+            raise RuntimeError("Pipeline is not accepting new tasks")
+
+        log.info("pipeline_batch_fast_start", batch_size=len(articles))
+
+        # Reset batch progress counters
+        self._batch_total = len(articles)
+        self._batch_completed = 0
+        self._batch_failed = 0
+
+        # Initialize states with optional article_id and task_id
+        states: list[PipelineState] = []
+        for i, article in enumerate(articles):
+            state = PipelineState(raw=article)
+            if article_ids is not None and i < len(article_ids):
+                state["article_id"] = str(article_ids[i])
+            if task_id is not None:
+                state["task_id"] = str(task_id)
+            states.append(state)
+
+        # Phase 1: Per-article concurrent nodes only
+        phase1_tasks = [self._phase1_per_article(state) for state in states]
+        phase1_results = await asyncio.gather(*phase1_tasks, return_exceptions=True)
+
+        # Handle errors gracefully
+        states = []
+        for i, result in enumerate(phase1_results):
+            if isinstance(result, Exception):
+                log.error(
+                    "phase1_task_failed_fast_mode",
+                    article_index=i,
+                    error=str(result),
+                    error_type=type(result).__name__,
+                )
+                failed_state = PipelineState(raw=articles[i])
+                failed_state["terminal"] = True
+                failed_state["error"] = str(result)
+                states.append(failed_state)
+            else:
+                states.append(result)
+
+        # Fast mode: persist directly without Phase 2/3
+        await self._persist_batch(states)
+
+        # Checkpoint cleanup
+        cleanup_tasks = [self._checkpoint_cleanup.execute(state) for state in states]
+        cleanup_results = await asyncio.gather(*cleanup_tasks, return_exceptions=True)
+        for i, result in enumerate(cleanup_results):
+            if isinstance(result, Exception):
+                log.warning(
+                    "checkpoint_cleanup_failed_fast_mode",
+                    article_index=i,
+                    error=str(result),
+                )
+
+        log.info(
+            "pipeline_batch_fast_complete",
+            batch_size=len(articles),
+            processed=sum(1 for s in states if not s.get("terminal")),
+        )
+        return states
+
     async def _phase1_per_article(self, state: PipelineState) -> PipelineState:
         """Phase 1: classify → clean → (categorize || vectorize).
 
