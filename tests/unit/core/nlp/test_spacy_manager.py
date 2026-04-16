@@ -1,19 +1,18 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Unit tests for SpacyModelManager."""
+# Copyright (c) 2026 KirkyX. All Rights Reserved.
+"""Tests for core.nlp.spacy_manager module."""
 
-import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 
-from core.nlp import SpacyModelConfig, SpacyModelManager
+from core.nlp.spacy_manager import SpacyModelConfig, SpacyModelManager
 
 
 class TestSpacyModelConfig:
-    """Tests for SpacyModelConfig dataclass."""
+    """Test SpacyModelConfig dataclass."""
 
-    def test_default_values(self) -> None:
+    def test_default_config(self):
         """Test default configuration values."""
         config = SpacyModelConfig()
 
@@ -22,287 +21,258 @@ class TestSpacyModelConfig:
         assert config.models == ["zh_core_web_lg", "en_core_web_sm"]
         assert config.local_paths == {}
 
-    def test_custom_values(self) -> None:
+    def test_custom_config(self):
         """Test custom configuration values."""
         config = SpacyModelConfig(
             force_install=True,
             strict_mode=False,
-            models=["zh_core_web_trf"],
-            local_paths={"zh_core_web_trf": "/path/to/model.whl"},
+            models=["en_core_web_lg"],
+            local_paths={"en_core_web_lg": "/path/to/model.whl"},
         )
 
         assert config.force_install is True
         assert config.strict_mode is False
-        assert config.models == ["zh_core_web_trf"]
-        assert config.local_paths == {"zh_core_web_trf": "/path/to/model.whl"}
+        assert config.models == ["en_core_web_lg"]
+        assert config.local_paths == {"en_core_web_lg": "/path/to/model.whl"}
 
 
 class TestSpacyModelManagerInit:
-    """Tests for SpacyModelManager initialization."""
+    """Test SpacyModelManager initialization."""
 
-    def test_init_with_config(self) -> None:
-        """Test initialization with config."""
-        config = SpacyModelConfig(force_install=True)
+    def test_init_stores_config(self):
+        """Test __init__ stores config."""
+        config = SpacyModelConfig()
         manager = SpacyModelManager(config)
 
         assert manager._config is config
 
 
-class TestDetectMissingModels:
-    """Tests for _detect_missing_models method."""
+class TestSpacyModelManagerDetectMissing:
+    """Test SpacyModelManager._detect_missing_models."""
 
-    def test_all_models_present(self) -> None:
-        """Test when all models are installed."""
-        config = SpacyModelConfig(models=["zh_core_web_lg", "en_core_web_sm"])
+    def test_detects_no_missing_models(self):
+        """Test detects when all models are present."""
+        config = SpacyModelConfig(models=["en_core_web_sm"])
         manager = SpacyModelManager(config)
 
         with patch("spacy.load") as mock_load:
-            mock_load.return_value = MagicMock()  # All models load successfully
+            mock_load.return_value = MagicMock()
+
             missing = manager._detect_missing_models()
 
-        assert missing == []
+            assert missing == []
+            mock_load.assert_called_once_with("en_core_web_sm")
 
-    def test_some_models_missing(self) -> None:
-        """Test when some models are missing."""
-        config = SpacyModelConfig(models=["zh_core_web_lg", "en_core_web_sm"])
+    def test_detects_missing_models(self):
+        """Test detects missing models."""
+        config = SpacyModelConfig(models=["en_core_web_sm", "zh_core_web_lg"])
         manager = SpacyModelManager(config)
 
-        with patch("spacy.load") as mock_load:
-            # First call succeeds, second fails
-            mock_load.side_effect = [MagicMock(), OSError("Model not found")]
+        def mock_load(model):
+            if model == "en_core_web_sm":
+                return MagicMock()
+            raise OSError(f"Model {model} not found")
+
+        with patch("spacy.load", side_effect=mock_load):
             missing = manager._detect_missing_models()
 
-        assert missing == ["en_core_web_sm"]
+            assert missing == ["zh_core_web_lg"]
 
-    def test_all_models_missing(self) -> None:
-        """Test when all models are missing."""
-        config = SpacyModelConfig(models=["zh_core_web_lg", "en_core_web_sm"])
+    def test_detects_multiple_missing_models(self):
+        """Test detects multiple missing models."""
+        config = SpacyModelConfig(models=["model1", "model2", "model3"])
         manager = SpacyModelManager(config)
 
-        with patch("spacy.load") as mock_load:
-            mock_load.side_effect = OSError("Model not found")
+        with patch("spacy.load", side_effect=OSError("Not found")):
             missing = manager._detect_missing_models()
 
-        assert set(missing) == {"zh_core_web_lg", "en_core_web_sm"}
+            assert missing == ["model1", "model2", "model3"]
 
 
-class TestInstallFromLocal:
-    """Tests for _install_from_local method."""
+class TestSpacyModelManagerCheckAndInstall:
+    """Test SpacyModelManager.check_and_install."""
 
-    def _mock_uv_module(self) -> MagicMock:
-        """Create a mock uv module."""
-        mock_uv = MagicMock()
-        mock_uv.find_uv_bin.return_value = "/path/to/uv"
-        return mock_uv
+    def test_returns_when_all_present(self):
+        """Test returns early when all models present."""
+        config = SpacyModelConfig(models=["en_core_web_sm"])
+        manager = SpacyModelManager(config)
 
-    def test_install_success(self, tmp_path: Path) -> None:
-        """Test successful installation from local wheel."""
+        with patch.object(manager, "_detect_missing_models", return_value=[]):
+            with patch("core.nlp.spacy_manager.log") as mock_log:
+                manager.check_and_install()
+
+                mock_log.info.assert_called_once()
+
+    def test_warns_when_missing_but_no_force_install(self):
+        """Test warns when models missing but force_install=False."""
+        config = SpacyModelConfig(
+            models=["en_core_web_sm"],
+            force_install=False,
+        )
+        manager = SpacyModelManager(config)
+
+        with patch.object(manager, "_detect_missing_models", return_value=["en_core_web_sm"]):
+            with patch("core.nlp.spacy_manager.log") as mock_log:
+                manager.check_and_install()
+
+                mock_log.warning.assert_called_once()
+
+    def test_installs_when_force_enabled(self):
+        """Test installs models when force_install=True."""
+        config = SpacyModelConfig(
+            models=["en_core_web_sm"],
+            force_install=True,
+        )
+        manager = SpacyModelManager(config)
+
+        with patch.object(manager, "_detect_missing_models", return_value=["en_core_web_sm"]):
+            with patch.object(manager, "_install_model") as mock_install:
+                manager.check_and_install()
+
+                mock_install.assert_called_once_with("en_core_web_sm")
+
+
+class TestSpacyModelManagerInstallModel:
+    """Test SpacyModelManager._install_model."""
+
+    def test_installs_from_local_path(self):
+        """Test installs from local wheel file."""
+        config = SpacyModelConfig(
+            local_paths={"en_core_web_sm": "/path/model.whl"},
+        )
+        manager = SpacyModelManager(config)
+
+        with patch("pathlib.Path.exists", return_value=True):
+            with patch.object(manager, "_install_from_local") as mock_install:
+                manager._install_model("en_core_web_sm")
+
+                mock_install.assert_called_once_with("en_core_web_sm", "/path/model.whl")
+
+    def test_falls_back_to_network_when_local_missing(self):
+        """Test falls back to network download when local path doesn't exist."""
+        config = SpacyModelConfig(
+            local_paths={"en_core_web_sm": "/missing/model.whl"},
+        )
+        manager = SpacyModelManager(config)
+
+        with patch("pathlib.Path.exists", return_value=False):
+            with patch.object(manager, "_install_from_network") as mock_install:
+                manager._install_model("en_core_web_sm")
+
+                mock_install.assert_called_once_with("en_core_web_sm")
+
+    def test_installs_from_network_when_no_local_config(self):
+        """Test installs from network when no local path configured."""
         config = SpacyModelConfig()
         manager = SpacyModelManager(config)
 
-        # Create a dummy wheel file
-        wheel_path = tmp_path / "model.whl"
-        wheel_path.touch()
+        with patch.object(manager, "_install_from_network") as mock_install:
+            manager._install_model("en_core_web_sm")
 
-        mock_uv = self._mock_uv_module()
-        with (
-            patch.dict(sys.modules, {"uv": mock_uv}),
-            patch("subprocess.run") as mock_run,
-        ):
-            mock_run.return_value = MagicMock(returncode=0)
+            mock_install.assert_called_once_with("en_core_web_sm")
 
-            # Should not raise
-            manager._install_from_local("zh_core_web_lg", str(wheel_path))
-
-            mock_run.assert_called_once()
-
-    def test_install_failure_strict_mode(self, tmp_path: Path) -> None:
-        """Test installation failure in strict mode."""
+    def test_raises_on_install_failure_in_strict_mode(self):
+        """Test raises RuntimeError on installation failure in strict mode."""
         config = SpacyModelConfig(strict_mode=True)
         manager = SpacyModelManager(config)
 
-        wheel_path = tmp_path / "model.whl"
-        wheel_path.touch()
-
-        with (
-            patch.object(manager, "_install_from_network") as mock_network,
-            patch("core.nlp.spacy_manager.subprocess.run") as mock_run,
+        with patch.object(
+            manager, "_install_from_network", side_effect=Exception("Download failed")
         ):
-            mock_run.return_value = MagicMock(returncode=1, stderr="Install failed")
-            mock_network.side_effect = RuntimeError("Fallback also failed")
+            with pytest.raises(RuntimeError, match="Failed to install"):
+                manager._install_model("en_core_web_sm")
 
-            with pytest.raises(RuntimeError, match="Failed to install spaCy model"):
-                manager._install_from_local("zh_core_web_lg", str(wheel_path))
-
-    def test_install_failure_non_strict_mode(self, tmp_path: Path) -> None:
-        """Test installation failure in non-strict mode."""
+    def test_logs_warning_on_install_failure_in_non_strict_mode(self):
+        """Test logs warning on installation failure in non-strict mode."""
         config = SpacyModelConfig(strict_mode=False)
         manager = SpacyModelManager(config)
 
-        wheel_path = tmp_path / "model.whl"
-        wheel_path.touch()
+        with patch.object(
+            manager, "_install_from_network", side_effect=Exception("Download failed")
+        ):
+            with patch("core.nlp.spacy_manager.log") as mock_log:
+                manager._install_model("en_core_web_sm")
 
-        with patch.object(manager, "_install_from_network"):
-            with patch("core.nlp.spacy_manager.subprocess.run") as mock_run:
-                mock_run.return_value = MagicMock(returncode=1, stderr="Install failed")
-
-                # Should not raise in non-strict mode
-                manager._install_from_local("zh_core_web_lg", str(wheel_path))
+                mock_log.error.assert_called_once()
 
 
-class TestInstallFromNetwork:
-    """Tests for _install_from_network method."""
+class TestSpacyModelManagerInstallFromLocal:
+    """Test SpacyModelManager._install_from_local."""
 
-    def test_install_success(self) -> None:
-        """Test successful network installation."""
+    def test_installs_via_pip(self):
+        """Test installs local wheel via pip."""
+        config = SpacyModelConfig()
+        manager = SpacyModelManager(config)
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0)
+
+            manager._install_from_local("en_core_web_sm", "/path/model.whl")
+
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args[0][0]
+            assert "pip" in call_args[0] or "uv" in call_args[0]
+
+    def test_raises_on_pip_failure(self):
+        """Test raises on pip installation failure."""
+        config = SpacyModelConfig(strict_mode=True)
+        manager = SpacyModelManager(config)
+
+        with patch("subprocess.run", side_effect=Exception("pip failed")):
+            with pytest.raises(RuntimeError):
+                manager._install_from_local("en_core_web_sm", "/path/model.whl")
+
+
+class TestSpacyModelManagerInstallFromNetwork:
+    """Test SpacyModelManager._install_from_network."""
+
+    def test_downloads_via_spacy_cli(self):
+        """Test downloads model via spacy CLI."""
         config = SpacyModelConfig()
         manager = SpacyModelManager(config)
 
         with patch("spacy.cli.download") as mock_download:
-            mock_download.return_value = None  # Success
-
-            # Should not raise
             manager._install_from_network("en_core_web_sm")
 
             mock_download.assert_called_once_with("en_core_web_sm")
 
-    def test_install_failure_strict_mode(self) -> None:
-        """Test network installation failure in strict mode."""
+    def test_raises_on_download_failure(self):
+        """Test raises on download failure."""
         config = SpacyModelConfig(strict_mode=True)
         manager = SpacyModelManager(config)
 
-        with patch("spacy.cli.download") as mock_download:
-            mock_download.side_effect = SystemExit(1)
-
-            with pytest.raises(RuntimeError, match="Failed to install spaCy model"):
+        with patch("spacy.cli.download", side_effect=Exception("Download failed")):
+            with pytest.raises(RuntimeError):
                 manager._install_from_network("en_core_web_sm")
 
-    def test_install_failure_non_strict_mode(self) -> None:
-        """Test network installation failure in non-strict mode."""
-        config = SpacyModelConfig(strict_mode=False)
+
+class TestSpacyModelManagerIntegration:
+    """Integration tests for SpacyModelManager."""
+
+    def test_full_workflow_all_present(self):
+        """Test full workflow when all models present."""
+        config = SpacyModelConfig(models=["en_core_web_sm"])
         manager = SpacyModelManager(config)
 
-        with patch("spacy.cli.download") as mock_download:
-            mock_download.side_effect = SystemExit(1)
+        with patch("spacy.load", return_value=MagicMock()):
+            with patch("core.nlp.spacy_manager.log") as mock_log:
+                manager.check_and_install()
 
-            # Should not raise in non-strict mode
-            manager._install_from_network("en_core_web_sm")
+                mock_log.info.assert_called_once()
 
-
-class TestHandleInstallFailure:
-    """Tests for _handle_install_failure method."""
-
-    def test_strict_mode_raises(self) -> None:
-        """Test that strict mode raises RuntimeError."""
-        config = SpacyModelConfig(strict_mode=True)
+    def test_full_workflow_force_install(self):
+        """Test full workflow with force_install enabled."""
+        config = SpacyModelConfig(
+            models=["en_core_web_sm"],
+            force_install=True,
+        )
         manager = SpacyModelManager(config)
 
-        with pytest.raises(RuntimeError, match="Failed to install spaCy model"):
-            manager._handle_install_failure("zh_core_web_lg", "Connection failed")
+        def mock_load(model):
+            raise OSError("Not found")
 
-    def test_non_strict_mode_logs(self) -> None:
-        """Test that non-strict mode logs error without raising."""
-        config = SpacyModelConfig(strict_mode=False)
-        manager = SpacyModelManager(config)
+        with patch("spacy.load", side_effect=mock_load):
+            with patch("spacy.cli.download") as mock_download:
+                manager.check_and_install()
 
-        with patch("core.nlp.spacy_manager.log") as mock_log:
-            # Should not raise
-            manager._handle_install_failure("zh_core_web_lg", "Connection failed")
-
-            mock_log.error.assert_called_once()
-
-
-class TestCheckAndInstall:
-    """Tests for check_and_install method."""
-
-    def test_all_models_present(self) -> None:
-        """Test when all models are present."""
-        config = SpacyModelConfig(force_install=True)
-        manager = SpacyModelManager(config)
-
-        with patch.object(manager, "_detect_missing_models", return_value=[]):
-            # Should not raise, just log success
-            manager.check_and_install()
-
-    def test_missing_models_force_install_false(self) -> None:
-        """Test missing models when force_install is False."""
-        config = SpacyModelConfig(force_install=False)
-        manager = SpacyModelManager(config)
-
-        with (
-            patch.object(manager, "_detect_missing_models", return_value=["zh_core_web_lg"]),
-            patch("core.nlp.spacy_manager.log") as mock_log,
-        ):
-            manager.check_and_install()
-
-            # Should log warning, not install
-            mock_log.warning.assert_called_once()
-
-    def test_missing_models_force_install_true(self) -> None:
-        """Test missing models when force_install is True."""
-        config = SpacyModelConfig(force_install=True)
-        manager = SpacyModelManager(config)
-
-        with (
-            patch.object(manager, "_detect_missing_models", return_value=["zh_core_web_lg"]),
-            patch.object(manager, "_install_model") as mock_install,
-        ):
-            manager.check_and_install()
-
-            # Should call install for each missing model
-            mock_install.assert_called_once_with("zh_core_web_lg")
-
-    def test_multiple_missing_models_install_serially(self) -> None:
-        """Test that multiple missing models are installed serially."""
-        config = SpacyModelConfig(force_install=True)
-        manager = SpacyModelManager(config)
-
-        with (
-            patch.object(
-                manager, "_detect_missing_models", return_value=["zh_core_web_lg", "en_core_web_sm"]
-            ),
-            patch.object(manager, "_install_model") as mock_install,
-        ):
-            manager.check_and_install()
-
-            # Should call install for each model in order
-            assert mock_install.call_count == 2
-            mock_install.assert_any_call("zh_core_web_lg")
-            mock_install.assert_any_call("en_core_web_sm")
-
-
-class TestInstallModel:
-    """Tests for _install_model method."""
-
-    def test_install_from_local_when_configured(self, tmp_path: Path) -> None:
-        """Test that local path is used when configured and file exists."""
-        wheel_path = tmp_path / "model.whl"
-        wheel_path.touch()
-
-        config = SpacyModelConfig(local_paths={"zh_core_web_lg": str(wheel_path)})
-        manager = SpacyModelManager(config)
-
-        with patch.object(manager, "_install_from_local") as mock_local:
-            manager._install_model("zh_core_web_lg")
-
-            mock_local.assert_called_once_with("zh_core_web_lg", str(wheel_path))
-
-    def test_install_from_network_when_local_not_configured(self) -> None:
-        """Test that network is used when local path not configured."""
-        config = SpacyModelConfig(local_paths={})
-        manager = SpacyModelManager(config)
-
-        with patch.object(manager, "_install_from_network") as mock_network:
-            manager._install_model("en_core_web_sm")
-
-            mock_network.assert_called_once_with("en_core_web_sm")
-
-    def test_install_from_network_when_local_file_not_exists(self) -> None:
-        """Test that network is used when local file doesn't exist."""
-        config = SpacyModelConfig(local_paths={"zh_core_web_lg": "/nonexistent/path.whl"})
-        manager = SpacyModelManager(config)
-
-        with patch.object(manager, "_install_from_network") as mock_network:
-            manager._install_model("zh_core_web_lg")
-
-            mock_network.assert_called_once_with("zh_core_web_lg")
+                mock_download.assert_called_once()

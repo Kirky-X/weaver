@@ -4,12 +4,12 @@
 import pytest
 
 from core.security.validation.identifier_validator import (
-    InvalidIdentifierError,
     IdentifierValidator,
-    validate_sql_identifier,
+    InvalidIdentifierError,
     validate_cypher_edge_type,
     validate_cypher_label,
     validate_relation_types,
+    validate_sql_identifier,
 )
 
 
@@ -97,7 +97,6 @@ class TestValidateCypherEdgeType:
             "VERY_LONG_EDGE_TYPE",
             "合作关系",
             "朋友关系",
-            "Edge123",
             "A_B_C_123",
         ],
     )
@@ -116,6 +115,7 @@ class TestValidateCypherEdgeType:
             "",
             "EDGE TYPE",
             "edge/type",
+            "Edge123",  # Has lowercase letters
         ],
     )
     def test_invalid_edge_types(self, edge_type: str):
