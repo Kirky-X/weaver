@@ -7,7 +7,7 @@ enabling semantic similarity search and hotness-based eviction.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol, runtime_checkable
 
@@ -128,6 +128,6 @@ class KnowledgeCacheProtocol(Protocol):
 
 
 __all__ = [
-    "KnowledgeCluster",
     "KnowledgeCacheProtocol",
+    "KnowledgeCluster",
 ]

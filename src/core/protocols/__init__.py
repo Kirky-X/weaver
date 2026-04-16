@@ -16,6 +16,12 @@ Protocol categories:
 
 from __future__ import annotations
 
+# Knowledge cache protocols
+from core.protocols.knowledge_cache import (
+    KnowledgeCacheProtocol,
+    KnowledgeCluster,
+)
+
 # Pool protocols
 from core.protocols.pools import (
     CachePool,
@@ -38,12 +44,6 @@ from core.protocols.repositories import (
 from core.protocols.services import (
     PipelineService,
     TaskRegistryService,
-)
-
-# Knowledge cache protocols
-from core.protocols.knowledge_cache import (
-    KnowledgeCacheProtocol,
-    KnowledgeCluster,
 )
 
 # Validation utilities

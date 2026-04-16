@@ -7,11 +7,10 @@ for semantic similarity search result caching.
 
 from __future__ import annotations
 
-import asyncio
 import atexit
 import os
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
 
@@ -42,7 +41,7 @@ class KnowledgeCache(KnowledgeCacheProtocol):
     def __init__(
         self,
         cache_path: str | None = None,
-        embedding_service: Any = None,
+        llm_client: Any = None,
         sync_interval: int = 60,
         sync_threshold: int = 100,
         max_queries: int = 5,
@@ -51,7 +50,7 @@ class KnowledgeCache(KnowledgeCacheProtocol):
 
         Args:
             cache_path: Base path for cache storage.
-            embedding_service: Service for computing embeddings.
+            llm_client: LLMClient for computing embeddings via embed() method.
             sync_interval: Seconds between Parquet syncs.
             sync_threshold: Dirty count triggering immediate sync.
             max_queries: Maximum queries in FIFO queue per cluster.
@@ -63,8 +62,8 @@ class KnowledgeCache(KnowledgeCacheProtocol):
         self.cache_path.mkdir(parents=True, exist_ok=True)
         self.parquet_file = str(self.cache_path / "knowledge_clusters.parquet")
 
-        # Embedding service
-        self._embedding_service = embedding_service
+        # LLM Client for embedding
+        self._llm_client = llm_client
 
         # DuckDB in-memory
         self.db = duckdb.connect(":memory:")
@@ -121,9 +120,7 @@ class KnowledgeCache(KnowledgeCacheProtocol):
                     f"INSERT INTO {self.table_name} "
                     f"SELECT * FROM read_parquet('{self.parquet_file}')"
                 )
-                count = self.db.execute(
-                    f"SELECT COUNT(*) FROM {self.table_name}"
-                ).fetchone()[0]
+                count = self.db.execute(f"SELECT COUNT(*) FROM {self.table_name}").fetchone()[0]
                 log.info("loaded_clusters_from_parquet", count=count)
         except Exception as e:
             log.warning("failed_to_load_parquet", error=str(e))
@@ -134,9 +131,7 @@ class KnowledgeCache(KnowledgeCacheProtocol):
             try:
                 # Atomic write pattern
                 temp_file = self.parquet_file + ".tmp"
-                self.db.execute(
-                    f"COPY {self.table_name} TO '{temp_file}' (FORMAT PARQUET)"
-                )
+                self.db.execute(f"COPY {self.table_name} TO '{temp_file}' (FORMAT PARQUET)")
                 os.replace(temp_file, self.parquet_file)
                 self._dirty_count = 0
                 log.debug("synced_to_parquet")
@@ -185,12 +180,13 @@ class KnowledgeCache(KnowledgeCacheProtocol):
         Returns:
             KnowledgeCluster if found, None otherwise.
         """
-        if self._embedding_service is None:
+        if self._llm_client is None:
             return None
 
         try:
-            # Compute query embedding
-            query_embedding = await self._embedding_service.embed(query)
+            # Compute query embedding via LLM Client
+            query_embeddings = await self._llm_client.embed_default([query])
+            query_embedding = query_embeddings[0]
 
             # Search using DuckDB cosine similarity
             result = self.db.execute(f"""
@@ -242,10 +238,11 @@ class KnowledgeCache(KnowledgeCacheProtocol):
         """
         try:
             # Compute embedding if not provided
-            if cluster.embedding is None and self._embedding_service:
-                cluster.embedding = await self._embedding_service.embed(
-                    cluster.query or cluster.description
+            if cluster.embedding is None and self._llm_client:
+                embeddings = await self._llm_client.embed_default(
+                    [cluster.query or cluster.description]
                 )
+                cluster.embedding = embeddings[0]
 
             # Check if exists
             existing = self.db.execute(
@@ -253,7 +250,7 @@ class KnowledgeCache(KnowledgeCacheProtocol):
                 [cluster.id],
             ).fetchone()
 
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             cluster.last_modified = now
 
             if existing:
@@ -410,7 +407,7 @@ class KnowledgeCache(KnowledgeCacheProtocol):
                 SET hotness = LEAST(1.0, hotness + ?), last_modified = ?
                 WHERE id = ?
                 """,
-                [delta, datetime.now(timezone.utc), cluster_id],
+                [delta, datetime.now(UTC), cluster_id],
             )
             self._mark_dirty()
 
