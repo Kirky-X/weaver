@@ -195,7 +195,9 @@ class GlobalSearchEngine:
                 communities,
                 key=lambda c: c.similarity_score,
                 reverse=True,
-            )[:3]  # Limit to top 3 communities for faster response
+            )[
+                :3
+            ]  # Limit to top 3 communities for faster response
 
             intermediate_answers = []
             total_tokens = 0
@@ -329,7 +331,7 @@ class GlobalSearchEngine:
                     "reduce_timeout_fallback": reduce_timeout_fallback,
                     "hybrid_used": self._hybrid_engine is not None,
                     "search_method": "vector_similarity",
-                    "top_community_score": (community_scores[0] if community_scores else 0),
+                    "top_community_score": community_scores[0] if community_scores else 0,
                     "avg_community_score": (
                         sum(community_scores) / len(community_scores) if community_scores else 0
                     ),

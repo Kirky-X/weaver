@@ -229,8 +229,9 @@ class AdaptiveSearchEngine:
             results: The search results to cache.
         """
         try:
-            from core.protocols.knowledge_cache import KnowledgeCluster
             import uuid
+
+            from core.protocols.knowledge_cache import KnowledgeCluster
 
             # Create a cluster from the top result
             if not results:
