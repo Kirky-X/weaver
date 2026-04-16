@@ -9,7 +9,7 @@ from core.evidence.mc_sampler import MCSampler
 from core.evidence.models import EvidenceScoreOutput, ROISummaryOutput
 
 __all__ = [
-    "MCSampler",
     "EvidenceScoreOutput",
+    "MCSampler",
     "ROISummaryOutput",
 ]

@@ -118,12 +118,17 @@ class MCSampler:
                     error=str(e),
                 )
                 # Use default low score for failed regions
-                scored_regions.append((region, EvidenceScoreOutput(
-                    relevance_score=0.3,
-                    information_density=0.3,
-                    confidence=0.0,
-                    key_facts=[],
-                )))
+                scored_regions.append(
+                    (
+                        region,
+                        EvidenceScoreOutput(
+                            relevance_score=0.3,
+                            information_density=0.3,
+                            confidence=0.0,
+                            key_facts=[],
+                        ),
+                    )
+                )
 
         # Step 4: Calculate overall confidence
         if not scored_regions:
@@ -205,10 +210,13 @@ class MCSampler:
         # Limit to sample_size most relevant anchors
         if len(anchors) > self._sample_size:
             # Prioritize fuzz anchors (content change points)
-            anchors = sorted(anchors, key=lambda x: (
-                x not in fuzz_anchors,  # Fuzz anchors first
-                random.random(),  # Then random order
-            ))[:self._sample_size]
+            anchors = sorted(
+                anchors,
+                key=lambda x: (
+                    x not in fuzz_anchors,  # Fuzz anchors first
+                    random.random(),  # Then random order
+                ),
+            )[: self._sample_size]
 
         log.debug(
             "anchors_found",
@@ -238,7 +246,7 @@ class MCSampler:
 
         prev_window = ""
         for pos in range(0, text_len - window, step):
-            current_window = text[pos:pos + window]
+            current_window = text[pos : pos + window]
 
             # Simple similarity check using character overlap
             if prev_window:
@@ -362,9 +370,7 @@ class MCSampler:
         )
 
         # Combine top regions for synthesis
-        combined_text = "\n\n---\n\n".join(
-            region for region, _ in sorted_regions[:5]
-        )
+        combined_text = "\n\n---\n\n".join(region for region, _ in sorted_regions[:5])
 
         result: ROISummaryOutput = await self._llm.call_at(
             CallPoint.ROI_SUMMARY,
@@ -396,9 +402,7 @@ class MCSampler:
         # Sort by relevance * density * confidence
         sorted_regions = sorted(
             scored_regions,
-            key=lambda x: (
-                x[1].relevance_score * x[1].information_density * x[1].confidence
-            ),
+            key=lambda x: (x[1].relevance_score * x[1].information_density * x[1].confidence),
             reverse=True,
         )
 
