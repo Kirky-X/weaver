@@ -65,7 +65,6 @@ async def search_unified(
     limit: int = Query(20, ge=1, le=100, description="Max results (articles mode)"),
     category: str | None = Query(None, description="Category filter (articles mode)"),
     use_hybrid: bool = Query(True, description="Use hybrid search (articles mode)"),
-    global_mode: str = Query("map_reduce", description="Global search mode: map_reduce or simple"),
     output_mode: str | None = Query(
         None,
         description="Output format: 'context' for raw snippets, 'narrative' for LLM-synthesized answer",
