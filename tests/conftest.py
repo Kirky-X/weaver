@@ -172,9 +172,9 @@ def sample_news_item():
 @pytest.fixture
 def sample_article_raw():
     """Sample article raw data for testing."""
-    from modules.ingestion.domain.models import ArticleRaw
+    from modules.ingestion.domain.models import RawArticle
 
-    return ArticleRaw(
+    return RawArticle(
         url="https://example.com/article",
         title="Test Title",
         body="Test body content",
@@ -220,10 +220,10 @@ def sample_article():
 @pytest.fixture
 def sample_pipeline_state():
     """Sample pipeline state for testing."""
-    from modules.ingestion.domain.models import ArticleRaw
+    from modules.ingestion.domain.models import RawArticle
     from modules.processing.pipeline.state import PipelineState
 
-    raw = ArticleRaw(
+    raw = RawArticle(
         url="https://example.com/pipeline-test",
         title="Pipeline Test Article",
         body="Content for pipeline testing",

@@ -17,13 +17,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.ingestion.domain.models import ArticleRaw
+from modules.ingestion.domain.models import RawArticle
 
 
 @pytest.fixture
-def sample_article_raw() -> ArticleRaw:
-    """Create a sample ArticleRaw for testing."""
-    return ArticleRaw(
+def sample_article_raw() -> RawArticle:
+    """Create a sample RawArticle for testing."""
+    return RawArticle(
         url="https://example.com/test-article",
         title="Test Article: Technology News Update",
         body="This is the body of a test article about technology. " * 10,
@@ -33,10 +33,10 @@ def sample_article_raw() -> ArticleRaw:
 
 
 @pytest.fixture
-def sample_articles_raw() -> list[ArticleRaw]:
-    """Create multiple sample ArticleRaw for batch testing."""
+def sample_articles_raw() -> list[RawArticle]:
+    """Create multiple sample RawArticle for batch testing."""
     return [
-        ArticleRaw(
+        RawArticle(
             url=f"https://example.com/test-article-{i}",
             title=f"Test Article {i}: Technology News",
             body=f"Body of test article {i} about technology. " * 10,
@@ -139,7 +139,7 @@ class TestFastModeLLMCallCount:
     @pytest.mark.asyncio
     async def test_fast_mode_llm_calls_per_article(
         self,
-        sample_article_raw: ArticleRaw,
+        sample_article_raw: RawArticle,
         mock_llm_client: MagicMock,
         mock_token_budget: MagicMock,
         mock_prompt_loader: MagicMock,
@@ -199,9 +199,9 @@ class TestFastModeLLMCallCount:
         results = await pipeline.process_batch_fast([sample_article_raw])
 
         # Verify LLM call count (should be at least classifier)
-        assert call_count["call_at"] >= 1, (
-            f"Expected at least 1 call_at call, got {call_count['call_at']}"
-        )
+        assert (
+            call_count["call_at"] >= 1
+        ), f"Expected at least 1 call_at call, got {call_count['call_at']}"
 
         # Verify results
         assert len(results) == 1
@@ -212,7 +212,7 @@ class TestFastModeLLMCallCount:
     @pytest.mark.asyncio
     async def test_fast_mode_llm_calls_batch(
         self,
-        sample_articles_raw: list[ArticleRaw],
+        sample_articles_raw: list[RawArticle],
         mock_llm_client: MagicMock,
         mock_token_budget: MagicMock,
         mock_prompt_loader: MagicMock,
@@ -266,7 +266,7 @@ class TestDeepModeLLMCallCount:
     @pytest.mark.asyncio
     async def test_deep_mode_llm_calls_per_article(
         self,
-        sample_article_raw: ArticleRaw,
+        sample_article_raw: RawArticle,
         mock_llm_client: MagicMock,
         mock_token_budget: MagicMock,
         mock_prompt_loader: MagicMock,
@@ -327,12 +327,12 @@ class TestDeepModeLLMCallCount:
         # Maximum: all nodes
         expected_max = 20
 
-        assert call_count >= expected_min, (
-            f"Expected at least {expected_min} calls for deep mode, got {call_count}"
-        )
-        assert call_count <= expected_max, (
-            f"Expected at most {expected_max} calls for deep mode, got {call_count}"
-        )
+        assert (
+            call_count >= expected_min
+        ), f"Expected at least {expected_min} calls for deep mode, got {call_count}"
+        assert (
+            call_count <= expected_max
+        ), f"Expected at most {expected_max} calls for deep mode, got {call_count}"
 
 
 class TestProcessingModeOutput:
@@ -341,7 +341,7 @@ class TestProcessingModeOutput:
     @pytest.mark.asyncio
     async def test_fast_mode_output_structure(
         self,
-        sample_article_raw: ArticleRaw,
+        sample_article_raw: RawArticle,
         mock_llm_client: MagicMock,
         mock_token_budget: MagicMock,
         mock_prompt_loader: MagicMock,
@@ -373,7 +373,7 @@ class TestProcessingModeOutput:
     @pytest.mark.asyncio
     async def test_mode_comparison_output(
         self,
-        sample_article_raw: ArticleRaw,
+        sample_article_raw: RawArticle,
         mock_llm_client: MagicMock,
         mock_token_budget: MagicMock,
         mock_prompt_loader: MagicMock,

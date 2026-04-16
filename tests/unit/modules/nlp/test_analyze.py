@@ -10,7 +10,7 @@ import pytest
 
 from core.llm import CallPoint
 from core.llm.validation.output_validator import AnalyzeOutput
-from modules.ingestion.domain.models import ArticleRaw
+from modules.ingestion.domain.models import RawArticle
 from modules.processing.nodes.extraction.analyze import AnalyzeNode
 from modules.processing.pipeline.state import PipelineState
 
@@ -18,7 +18,7 @@ from modules.processing.pipeline.state import PipelineState
 @pytest.fixture
 def sample_raw():
     """Create sample raw article."""
-    return ArticleRaw(
+    return RawArticle(
         url="https://example.com/article",
         title="AI Breakthrough in Natural Language Processing",
         body="Researchers have achieved a major breakthrough in natural language processing. "

@@ -9,14 +9,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from core.llm.validation.output_validator import CleanerContent, CleanerEntity, CleanerOutput
-from modules.ingestion.domain.models import ArticleRaw
+from modules.ingestion.domain.models import RawArticle
 from modules.processing.nodes.quality.cleaner import CleanerNode
 from modules.processing.pipeline.state import PipelineState
 
 
 @pytest.fixture
 def sample_raw():
-    return ArticleRaw(
+    return RawArticle(
         url="https://example.com/article",
         title="Test Title",
         body="Test body content with <b>HTML</b> tags and extra whitespace.",
@@ -296,7 +296,7 @@ class TestCleanerNodePreservesState:
 
     @pytest.mark.asyncio
     async def test_no_publish_time_in_raw(self, mock_llm, mock_budget, mock_prompt_loader):
-        raw = ArticleRaw(
+        raw = RawArticle(
             url="https://example.com/article",
             title="Test",
             body="Body",

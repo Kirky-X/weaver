@@ -9,7 +9,7 @@ import pytest
 from pydantic import ValidationError
 
 from core.constants import PipelineState, ProcessingStatus
-from modules.ingestion.domain.models import ArticleRaw
+from modules.ingestion.domain.models import RawArticle
 from modules.processing.pipeline.state_models import (
     CleanedData,
     CredibilityModel,
@@ -20,9 +20,9 @@ from modules.processing.pipeline.state_models import (
 )
 
 
-def _make_raw(url: str = "https://example.com/test") -> ArticleRaw:
+def _make_raw(url: str = "https://example.com/test") -> RawArticle:
     """Create a sample raw article."""
-    return ArticleRaw(
+    return RawArticle(
         url=url,
         title="Test Article",
         body="Test body content about technology and artificial intelligence.",

@@ -8,14 +8,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.ingestion.domain.models import ArticleRaw
+from modules.ingestion.domain.models import RawArticle
 from modules.processing.nodes.checkpoint_cleanup import CheckpointCleanupNode
 from modules.processing.pipeline.state import PipelineState
 
 
 @pytest.fixture
 def sample_raw():
-    return ArticleRaw(
+    return RawArticle(
         url="https://example.com/test-article",
         title="Test Article",
         body="Test body content.",
@@ -152,7 +152,7 @@ class TestCheckpointCleanupNodeKeyGeneration:
         """Should generate different keys for different URLs."""
         node = CheckpointCleanupNode(redis_client=mock_redis)
 
-        raw1 = ArticleRaw(
+        raw1 = RawArticle(
             url="https://example.com/article1",
             title="Article 1",
             body="Body 1",
@@ -160,7 +160,7 @@ class TestCheckpointCleanupNodeKeyGeneration:
             publish_time=datetime.now(UTC),
             source_host="example.com",
         )
-        raw2 = ArticleRaw(
+        raw2 = RawArticle(
             url="https://example.com/article2",
             title="Article 2",
             body="Body 2",

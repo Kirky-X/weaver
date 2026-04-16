@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from core.llm.validation.output_validator import MergerOutput
-from modules.ingestion.domain.models import ArticleRaw
+from modules.ingestion.domain.models import RawArticle
 from modules.processing.nodes.merging.batch_merger import BatchMergerNode, UnionFind
 from modules.processing.pipeline.state import PipelineState
 
@@ -269,7 +269,7 @@ class TestBatchMergerNodeExecuteBatch:
         """Create sample pipeline states."""
         states = []
         for i in range(3):
-            raw = ArticleRaw(
+            raw = RawArticle(
                 url=f"https://example.com/article-{i}",
                 title=f"Article {i}",
                 body=f"Body content {i}",
@@ -309,7 +309,7 @@ class TestBatchMergerNodeExecuteBatch:
         # Create states with orthogonal vectors (dissimilar)
         states = []
         for i in range(3):
-            raw = ArticleRaw(
+            raw = RawArticle(
                 url=f"https://example.com/article-{i}",
                 title=f"Article {i}",
                 body=f"Body content {i}",
@@ -338,7 +338,7 @@ class TestBatchMergerNodeExecuteBatch:
     async def test_execute_batch_with_similar_articles(self, mock_llm, mock_prompt_loader):
         """Test execute_batch with similar articles triggers merge."""
         # Create two very similar articles
-        raw1 = ArticleRaw(
+        raw1 = RawArticle(
             url="https://example.com/article-1",
             title="AI Breakthrough",
             body="A major AI breakthrough was announced today.",
@@ -355,7 +355,7 @@ class TestBatchMergerNodeExecuteBatch:
         state1["vectors"] = {"content": [0.5] * 1024, "title": [0.5] * 1024}
         state1["category"] = "科技"
 
-        raw2 = ArticleRaw(
+        raw2 = RawArticle(
             url="https://example.com/article-2",
             title="AI Major Discovery",
             body="Scientists announced a major AI discovery.",
@@ -390,7 +390,7 @@ class TestBatchMergerNodeExecuteBatch:
         self, mock_llm, mock_prompt_loader
     ):
         """Test articles with different categories are not merged."""
-        raw1 = ArticleRaw(
+        raw1 = RawArticle(
             url="https://example.com/article-1",
             title="Tech News",
             body="Tech content.",
@@ -403,7 +403,7 @@ class TestBatchMergerNodeExecuteBatch:
         state1["vectors"] = {"content": [0.5] * 1024, "title": [0.5] * 1024}
         state1["category"] = "科技"
 
-        raw2 = ArticleRaw(
+        raw2 = RawArticle(
             url="https://example.com/article-2",
             title="Sports News",
             body="Sports content.",
@@ -441,7 +441,7 @@ class TestBatchMergerNodePersistBatchSaga:
         """Create sample pipeline states."""
         states = []
         for i in range(2):
-            raw = ArticleRaw(
+            raw = RawArticle(
                 url=f"https://example.com/article-{i}",
                 title=f"Article {i}",
                 body=f"Body content {i}",
@@ -462,7 +462,7 @@ class TestBatchMergerNodePersistBatchSaga:
         """Test persist_batch_saga raises error without article_repo on valid states."""
         states = []
         for i in range(2):
-            raw = ArticleRaw(
+            raw = RawArticle(
                 url=f"https://example.com/article-{i}",
                 title=f"Article {i}",
                 body=f"Body {i}",
@@ -492,7 +492,7 @@ class TestBatchMergerNodePersistBatchSaga:
         """Test persist_batch_saga skips terminal states."""
         states = []
         for i in range(2):
-            raw = ArticleRaw(
+            raw = RawArticle(
                 url=f"https://example.com/article-{i}",
                 title=f"Article {i}",
                 body=f"Body {i}",
@@ -595,7 +595,7 @@ class TestBatchMergerNodeIntraBatchSimilarity:
         base_vec = base_vec / np.linalg.norm(base_vec)
 
         for i in range(3):
-            raw = ArticleRaw(
+            raw = RawArticle(
                 url=f"https://example.com/article-{i}",
                 title=f"Article {i}",
                 body=f"Body {i}",
@@ -633,7 +633,7 @@ class TestBatchMergerNodeIntraBatchSimilarity:
         base_vec = base_vec / np.linalg.norm(base_vec)
         vec_list = base_vec.tolist()
 
-        raw1 = ArticleRaw(
+        raw1 = RawArticle(
             url="https://example.com/article-1",
             title="Tech Article",
             body="Tech content",
@@ -646,7 +646,7 @@ class TestBatchMergerNodeIntraBatchSimilarity:
         state1["vectors"] = {"content": vec_list, "title": vec_list}
         state1["category"] = "科技"
 
-        raw2 = ArticleRaw(
+        raw2 = RawArticle(
             url="https://example.com/article-2",
             title="Sports Article",
             body="Sports content",
@@ -693,7 +693,7 @@ class TestBatchMergerConflictResolution:
         now = datetime.now(UTC)
 
         # Create two articles with different titles
-        raw1 = ArticleRaw(
+        raw1 = RawArticle(
             url="https://example.com/article-1",
             title="Breaking: Major AI Breakthrough",
             body="Content 1",
@@ -706,7 +706,7 @@ class TestBatchMergerConflictResolution:
         state1["vectors"] = {"content": [0.5] * 1024, "title": [0.5] * 1024}
         state1["category"] = "科技"
 
-        raw2 = ArticleRaw(
+        raw2 = RawArticle(
             url="https://example.com/article-2",
             title="AI Discovery Announced",
             body="Content 2",
@@ -744,7 +744,7 @@ class TestBatchMergerConflictResolution:
         now = datetime.now(UTC)
 
         # Older article
-        raw1 = ArticleRaw(
+        raw1 = RawArticle(
             url="https://example.com/old",
             title="Old Article",
             body="Old content",
@@ -758,7 +758,7 @@ class TestBatchMergerConflictResolution:
         state1["category"] = "科技"
 
         # Newer article
-        raw2 = ArticleRaw(
+        raw2 = RawArticle(
             url="https://example.com/new",
             title="New Article",
             body="New content",
@@ -793,7 +793,7 @@ class TestBatchMergerConflictResolution:
 
         states = []
         for i in range(3):
-            raw = ArticleRaw(
+            raw = RawArticle(
                 url=f"https://example.com/article-{i}",
                 title=f"Article {i}",
                 body=f"Content {i}",
@@ -840,7 +840,7 @@ class TestBatchMergerPerformance:
         # Create 100 articles
         states = []
         for i in range(100):
-            raw = ArticleRaw(
+            raw = RawArticle(
                 url=f"https://example.com/article-{i}",
                 title=f"Article {i}",
                 body=f"Body content {i}" * 10,
@@ -878,7 +878,7 @@ class TestBatchMergerPerformance:
             base_vec[group * 100] = 0.9
 
             for i in range(5):
-                raw = ArticleRaw(
+                raw = RawArticle(
                     url=f"https://example.com/group-{group}-article-{i}",
                     title=f"Group {group} Article {i}",
                     body=f"Content for group {group}",
@@ -916,7 +916,7 @@ class TestBatchMergerPerformance:
 
         states = []
         for i in range(10):
-            raw = ArticleRaw(
+            raw = RawArticle(
                 url=f"https://example.com/article-{i}",
                 title=f"Article {i}",
                 body=f"Body {i}",
@@ -971,7 +971,7 @@ class TestBatchMergerCrossQuery:
         """Test cross-query finds similar historical articles."""
         now = datetime.now(UTC)
 
-        raw = ArticleRaw(
+        raw = RawArticle(
             url="https://example.com/new-article",
             title="New Article",
             body="New content",
@@ -1005,7 +1005,7 @@ class TestBatchMergerCrossQuery:
         """Test cross-query error doesn't crash the batch."""
         now = datetime.now(UTC)
 
-        raw = ArticleRaw(
+        raw = RawArticle(
             url="https://example.com/article",
             title="Article",
             body="Content",
@@ -1049,7 +1049,7 @@ class TestBatchMergerSagaCompensation:
 
         now = datetime.now(UTC)
 
-        raw = ArticleRaw(
+        raw = RawArticle(
             url="https://example.com/article",
             title="Article",
             body="Content",
@@ -1095,7 +1095,7 @@ class TestBatchMergerSagaCompensation:
 
         states = []
         for i in range(3):
-            raw = ArticleRaw(
+            raw = RawArticle(
                 url=f"https://example.com/article-{i}",
                 title=f"Article {i}",
                 body=f"Content {i}",

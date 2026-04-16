@@ -9,13 +9,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.ingestion.domain.models import ArticleRaw
+from modules.ingestion.domain.models import RawArticle
 
 
 @pytest.fixture
 def sample_article():
     """Create sample article for testing."""
-    return ArticleRaw(
+    return RawArticle(
         url="https://example.com/article1",
         title="Test Article",
         body="This is test content for the article body.",
@@ -236,7 +236,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
             deduplicator=mock_dedup,
         )
 
-        mock_article = ArticleRaw(
+        mock_article = RawArticle(
             url="https://example.com/article1",
             title="Test Article",
             body="Content",
@@ -291,7 +291,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
             article_repo=mock_article_repo,
         )
 
-        mock_article = ArticleRaw(
+        mock_article = RawArticle(
             url="https://example.com/article",
             title="Test Article",
             body="Content",
@@ -321,7 +321,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         )
 
         task_id = uuid.uuid4()
-        mock_article = ArticleRaw(
+        mock_article = RawArticle(
             url="https://example.com/article1",
             title="Test Article",
             body="Content",
@@ -365,7 +365,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
             enable_simhash=True,
         )
 
-        mock_article = ArticleRaw(
+        mock_article = RawArticle(
             url="https://example.com/article1",
             title="Test Article",
             body="Content",
@@ -396,7 +396,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
             enable_simhash=False,  # Disabled
         )
 
-        mock_article = ArticleRaw(
+        mock_article = RawArticle(
             url="https://example.com/article1",
             title="Test Article",
             body="Content",
@@ -467,7 +467,7 @@ class TestDiscoveryProcessorErrorHandling:
         """Test processor handles repository insert errors gracefully."""
         from modules.ingestion.domain.processor import DiscoveryProcessor
 
-        mock_article = ArticleRaw(
+        mock_article = RawArticle(
             url="https://example.com/article1",
             title="Test Article",
             body="Content",
@@ -496,7 +496,7 @@ class TestDiscoveryProcessorErrorHandling:
         mock_pipeline = AsyncMock()
         mock_pipeline.process_batch = AsyncMock(side_effect=Exception("Pipeline error"))
 
-        mock_article = ArticleRaw(
+        mock_article = RawArticle(
             url="https://example.com/article1",
             title="Test Article",
             body="Content",
@@ -529,7 +529,7 @@ class TestDiscoveryProcessorErrorHandling:
             message="Failed to fetch",
             cause=None,
         )
-        mock_article = ArticleRaw(
+        mock_article = RawArticle(
             url="https://example.com/article1",
             title="Test Article",
             body="Content",

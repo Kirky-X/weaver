@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.ingestion.domain.models import ArticleRaw
+from modules.ingestion.domain.models import RawArticle
 from modules.processing.nodes.checkpoint_cleanup import CheckpointCleanupNode
 from modules.processing.pipeline.state import PipelineState
 
@@ -16,7 +16,7 @@ from modules.processing.pipeline.state import PipelineState
 @pytest.fixture
 def sample_raw():
     """Create sample raw article."""
-    return ArticleRaw(
+    return RawArticle(
         url="https://example.com/test-article",
         title="Test Article",
         body="Test article body content.",
@@ -135,7 +135,7 @@ class TestCheckpointCleanupNodeKeyFormat:
 
         node = CheckpointCleanupNode(redis_client=mock_redis)
 
-        raw1 = ArticleRaw(
+        raw1 = RawArticle(
             url="https://example.com/article-1",
             title="Article 1",
             body="Body 1",
@@ -145,7 +145,7 @@ class TestCheckpointCleanupNodeKeyFormat:
         state1 = PipelineState(raw=raw1)
         await node.execute(state1)
 
-        raw2 = ArticleRaw(
+        raw2 = RawArticle(
             url="https://example.com/article-2",
             title="Article 2",
             body="Body 2",
@@ -198,7 +198,7 @@ class TestCheckpointCleanupNodeIntegration:
         ]
 
         for url in test_urls:
-            raw = ArticleRaw(
+            raw = RawArticle(
                 url=url,
                 title="Test",
                 body="Body",

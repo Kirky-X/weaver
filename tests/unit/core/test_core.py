@@ -62,10 +62,10 @@ class TestCollectorModels:
     """Tests for collector models."""
 
     def test_article_raw_creation(self):
-        """Test ArticleRaw can be created."""
-        from modules.ingestion.domain.models import ArticleRaw
+        """Test RawArticle can be created."""
+        from modules.ingestion.domain.models import RawArticle
 
-        raw = ArticleRaw(
+        raw = RawArticle(
             url="https://example.com/article",
             title="Test Title",
             body="Test body content",

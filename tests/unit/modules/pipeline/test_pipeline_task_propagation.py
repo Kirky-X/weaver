@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from core.db import Article
-from modules.ingestion.domain.models import ArticleRaw
+from modules.ingestion.domain.models import RawArticle
 from modules.storage import ArticleRepo
 
 
@@ -50,7 +50,7 @@ class TestArticleRepoTaskIdInsertion:
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
 
-        article = ArticleRaw(
+        article = RawArticle(
             url="https://example.com/article",
             title="Test Article",
             body="Test body",
@@ -81,7 +81,7 @@ class TestArticleRepoTaskIdInsertion:
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
 
-        article = ArticleRaw(
+        article = RawArticle(
             url="https://example.com/article-noid",
             title="Test Article",
             body="Test body",
@@ -109,7 +109,7 @@ class TestArticleRepoTaskIdInsertion:
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
 
-        article = ArticleRaw(
+        article = RawArticle(
             url="https://example.com/existing",
             title="Existing Article",
             body="Body",
@@ -163,7 +163,7 @@ class TestDiscoveryProcessorTaskIdPropagation:
 
         mock_crawler = AsyncMock()
         mock_crawler.crawl_batch.return_value = [
-            ArticleRaw(
+            RawArticle(
                 url="https://example.com/test",
                 title="Test",
                 body="Body",
@@ -203,7 +203,7 @@ class TestDiscoveryProcessorTaskIdPropagation:
 
         mock_crawler = AsyncMock()
         mock_crawler.crawl_batch.return_value = [
-            ArticleRaw(
+            RawArticle(
                 url="https://example.com/test2",
                 title="Test",
                 body="Body",

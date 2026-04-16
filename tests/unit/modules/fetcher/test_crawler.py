@@ -29,7 +29,7 @@ class TestCrawler:
             item.url = f"https://example{i}.com/article{i}"
             item.title = f"Article {i}"
             item.source = f"source_{i}"
-            item.pubDate = datetime.now(UTC)
+            item.publish_time = datetime.now(UTC)
             yield item
         return items
 
@@ -55,7 +55,7 @@ class TestCrawler:
         item.url = "https://example.com/article"
         item.title = "Test Article"
         item.source = "test_source"
-        item.pubDate = datetime.now(UTC)
+        item.publish_time = datetime.now(UTC)
 
         crawler = Crawler(smart_fetcher=mock_fetcher)
         results = await crawler.crawl_batch([item])
@@ -72,7 +72,7 @@ class TestCrawler:
             item.url = f"https://host{i}.com/article"
             item.title = f"Article {i}"
             item.source = "test"
-            item.pubDate = None
+            item.publish_time = None
             items.append(item)
 
         crawler = Crawler(smart_fetcher=mock_fetcher)
@@ -89,7 +89,7 @@ class TestCrawler:
             item.url = f"https://example.com/article{i}"
             item.title = f"Article {i}"
             item.source = "test"
-            item.pubDate = None
+            item.publish_time = None
             items.append(item)
 
         crawler = Crawler(smart_fetcher=mock_fetcher, default_per_host=2)
@@ -104,7 +104,7 @@ class TestCrawler:
         item.url = "https://example.com/article"
         item.title = "Test"
         item.source = "test"
-        item.pubDate = None
+        item.publish_time = None
         item.body = ""
 
         crawler = Crawler(smart_fetcher=mock_fetcher)
@@ -121,7 +121,7 @@ class TestCrawler:
         item.url = "https://example.com/article"
         item.title = "Test"
         item.source = "test"
-        item.pubDate = None
+        item.publish_time = None
         item.body = ""
 
         crawler = Crawler(smart_fetcher=mock_fetcher)
@@ -141,7 +141,7 @@ class TestCrawler:
         item.url = "https://example.com/article"
         item.title = "Test"
         item.source = "test"
-        item.pubDate = None
+        item.publish_time = None
         item.body = ""
 
         crawler = Crawler(smart_fetcher=mock_fetcher)
@@ -160,7 +160,7 @@ class TestCrawler:
             item.url = f"https://{host}/article"
             item.title = "Test"
             item.source = "test"
-            item.pubDate = None
+            item.publish_time = None
             item.body = ""
             items.append(item)
 
@@ -187,7 +187,7 @@ class TestCrawler:
         item.url = "https://example.com/article"
         item.title = "Test"
         item.source = "test"
-        item.pubDate = None
+        item.publish_time = None
         item.body = ""
 
         crawler = Crawler(smart_fetcher=mock_fetcher)
@@ -210,7 +210,7 @@ class TestCrawler:
             item.url = f"https://example{i}.com/article"
             item.title = f"Article {i}"
             item.source = "test"
-            item.pubDate = None
+            item.publish_time = None
             item.body = ""
             items.append(item)
 

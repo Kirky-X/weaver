@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from modules.ingestion.domain.models import ArticleRaw
+from modules.ingestion.domain.models import RawArticle
 from modules.processing.pipeline.state import (
     PipelineState,
     get_degradation_summary,
@@ -15,7 +15,7 @@ from modules.processing.pipeline.state import (
 
 def _make_state(**kwargs) -> PipelineState:
     """Create a sample PipelineState for testing."""
-    raw = ArticleRaw(
+    raw = RawArticle(
         url="https://example.com/test",
         title="Test Article",
         body="Test body content.",

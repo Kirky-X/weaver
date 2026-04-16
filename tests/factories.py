@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 from typing import Any
 
 
-class ArticleRawFactory:
-    """Factory for creating ArticleRaw test objects."""
+class RawArticleFactory:
+    """Factory for creating RawArticle test objects."""
 
     @staticmethod
     def create(
@@ -20,7 +20,7 @@ class ArticleRawFactory:
         publish_time: datetime | None = None,
         **kwargs,
     ) -> dict[str, Any]:
-        """Create an ArticleRaw-like dictionary."""
+        """Create an RawArticle-like dictionary."""
         return {
             "url": url or f"https://example.com/article/{uuid.uuid4()}",
             "title": title or f"Test Article {random.randint(1000, 9999)}",
@@ -33,8 +33,8 @@ class ArticleRawFactory:
 
     @staticmethod
     def create_batch(count: int, **kwargs) -> list[dict[str, Any]]:
-        """Create multiple ArticleRaw objects."""
-        return [ArticleRawFactory.create(**kwargs) for _ in range(count)]
+        """Create multiple RawArticle objects."""
+        return [RawArticleFactory.create(**kwargs) for _ in range(count)]
 
 
 class NewsItemFactory:
@@ -57,7 +57,7 @@ class NewsItemFactory:
             "description": description or "News item description",
             "source": source or "Test News Source",
             "source_host": source_host or "news.example.com",
-            "pubDate": pub_date or datetime.now(UTC),
+            "publish_time": pub_date or datetime.now(UTC),
             **kwargs,
         }
 

@@ -238,12 +238,12 @@ class TestArticleRepoIntegration:
     @pytest.mark.asyncio
     async def test_insert_raw_article(self, relational_pool, unique_id):
         """Test insert raw article."""
-        from modules.ingestion.domain.models import ArticleRaw
+        from modules.ingestion.domain.models import RawArticle
 
         pool, _ = relational_pool
         repo = ArticleRepo(pool)
 
-        raw_article = ArticleRaw(
+        raw_article = RawArticle(
             url=f"https://test.example.com/{unique_id}",
             source_host="test.example.com",
             title=f"Raw Article {unique_id}",
@@ -273,13 +273,13 @@ class TestArticleRepoIntegration:
     @pytest.mark.asyncio
     async def test_insert_raw_existing_url(self, relational_pool, unique_id):
         """Test insert raw article with existing URL returns existing id."""
-        from modules.ingestion.domain.models import ArticleRaw
+        from modules.ingestion.domain.models import RawArticle
 
         pool, _ = relational_pool
         repo = ArticleRepo(pool)
 
         # First create an article
-        raw1 = ArticleRaw(
+        raw1 = RawArticle(
             url=f"https://test.example.com/{unique_id}",
             source_host="test.example.com",
             title=f"First Article {unique_id}",
@@ -290,7 +290,7 @@ class TestArticleRepoIntegration:
             first_id = await repo.insert_raw(raw1)
 
             # Insert same URL again
-            raw2 = ArticleRaw(
+            raw2 = RawArticle(
                 url=f"https://test.example.com/{unique_id}",
                 source_host="test.example.com",
                 title=f"Second Article {unique_id}",

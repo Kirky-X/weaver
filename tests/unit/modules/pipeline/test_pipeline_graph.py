@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.ingestion.domain.models import ArticleRaw
+from modules.ingestion.domain.models import RawArticle
 from modules.processing.pipeline.graph import PHASE1_STAGES, PHASE3_STAGES, Pipeline
 from modules.processing.pipeline.state import PipelineState
 
@@ -230,8 +230,8 @@ class TestPipelineProcessBatch:
 
     @pytest.fixture
     def sample_article_raw_for_batch(self):
-        """Create sample ArticleRaw for batch tests."""
-        return ArticleRaw(
+        """Create sample RawArticle for batch tests."""
+        return RawArticle(
             url="https://example.com/test-article",
             title="Test Article Title",
             body="Test article body content for processing.",
@@ -264,7 +264,7 @@ class TestPipelineProcessBatch:
     async def test_process_batch_multiple_articles(self, pipeline_for_batch):
         """Test processing multiple articles."""
         articles = [
-            ArticleRaw(
+            RawArticle(
                 url=f"https://example.com/article-{i}",
                 title=f"Article {i}",
                 body=f"Body content {i}",

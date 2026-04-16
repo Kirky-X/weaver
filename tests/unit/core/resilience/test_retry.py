@@ -14,9 +14,9 @@ from core.resilience.retry import (
     NETWORK_EXCEPTIONS,
     _create_retry_strategy,
     _log_retry_attempt,
-    retry_db_operation,
-    retry_llm_operation,
-    retry_network_operation,
+    retry_db,
+    retry_llm,
+    retry_network,
 )
 
 
@@ -121,14 +121,14 @@ class TestCreateRetryStrategy:
 
 
 class TestRetryNetworkOperation:
-    """Test retry_network_operation decorator."""
+    """Test retry_network decorator."""
 
     @pytest.mark.asyncio
     async def test_succeeds_on_first_attempt(self):
         """Test operation that succeeds on first attempt."""
         mock_func = AsyncMock(return_value="success")
 
-        decorated = retry_network_operation(mock_func)
+        decorated = retry_network(mock_func)
         result = await decorated()
 
         assert result == "success"
@@ -146,7 +146,7 @@ class TestRetryNetworkOperation:
                 raise ConnectionError("Connection lost")
             return "success"
 
-        decorated = retry_network_operation(flaky_func)
+        decorated = retry_network(flaky_func)
         result = await decorated()
 
         assert result == "success"
@@ -159,7 +159,7 @@ class TestRetryNetworkOperation:
         async def failing_func():
             raise ConnectionError("Permanent failure")
 
-        decorated = retry_network_operation(failing_func, max_attempts=2)
+        decorated = retry_network(failing_func, max_attempts=2)
 
         with pytest.raises(ConnectionError):
             await decorated()
@@ -174,7 +174,7 @@ class TestRetryNetworkOperation:
             call_count += 1
             raise ValueError("Not a network error")
 
-        decorated = retry_network_operation(value_error_func)
+        decorated = retry_network(value_error_func)
 
         with pytest.raises(ValueError):
             await decorated()
@@ -183,14 +183,14 @@ class TestRetryNetworkOperation:
 
 
 class TestRetryLLMOperation:
-    """Test retry_llm_operation decorator."""
+    """Test retry_llm decorator."""
 
     @pytest.mark.asyncio
     async def test_succeeds_on_first_attempt(self):
         """Test LLM operation succeeds on first attempt."""
         mock_func = AsyncMock(return_value={"result": "data"})
 
-        decorated = retry_llm_operation(mock_func)
+        decorated = retry_llm(mock_func)
         result = await decorated()
 
         assert result == {"result": "data"}
@@ -207,7 +207,7 @@ class TestRetryLLMOperation:
                 raise TimeoutError("LLM timeout")
             return {"result": "success"}
 
-        decorated = retry_llm_operation(timeout_func)
+        decorated = retry_llm(timeout_func)
         result = await decorated()
 
         assert result == {"result": "success"}
@@ -225,7 +225,7 @@ class TestRetryLLMOperation:
             call_count += 1
             raise OutputParserException("Invalid JSON")
 
-        decorated = retry_llm_operation(parse_error_func)
+        decorated = retry_llm(parse_error_func)
 
         with pytest.raises(OutputParserException):
             await decorated()
@@ -234,14 +234,14 @@ class TestRetryLLMOperation:
 
 
 class TestRetryDBOperation:
-    """Test retry_db_operation decorator."""
+    """Test retry_db decorator."""
 
     @pytest.mark.asyncio
     async def test_succeeds_on_first_attempt(self):
         """Test DB operation succeeds on first attempt."""
         mock_func = AsyncMock(return_value=[{"id": 1}])
 
-        decorated = retry_db_operation(mock_func)
+        decorated = retry_db(mock_func)
         result = await decorated()
 
         assert result == [{"id": 1}]
@@ -258,7 +258,7 @@ class TestRetryDBOperation:
                 raise OSError("Database connection lost")
             return [{"id": 1}]
 
-        decorated = retry_db_operation(db_func)
+        decorated = retry_db(db_func)
         result = await decorated()
 
         assert result == [{"id": 1}]
@@ -271,7 +271,7 @@ class TestRetryDBOperation:
         async def failing_db_func():
             raise TimeoutError("Query timeout")
 
-        decorated = retry_db_operation(failing_db_func, max_attempts=2)
+        decorated = retry_db(failing_db_func, max_attempts=2)
 
         with pytest.raises(TimeoutError):
             await decorated()
@@ -293,7 +293,7 @@ class TestRetryStrategyIntegration:
                 raise ConnectionError("Network issue")
             return "connected"
 
-        decorated = retry_network_operation(flaky_network, max_attempts=3)
+        decorated = retry_network(flaky_network, max_attempts=3)
         result = await decorated()
 
         assert result == "connected"

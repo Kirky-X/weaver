@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.ingestion.domain.models import ArticleRaw
+from modules.ingestion.domain.models import RawArticle
 from modules.processing.nodes.vectorization.vectorize import VectorizeNode
 from modules.processing.pipeline.state import PipelineState
 
@@ -16,7 +16,7 @@ from modules.processing.pipeline.state import PipelineState
 @pytest.fixture
 def sample_raw():
     """Create sample raw article."""
-    return ArticleRaw(
+    return RawArticle(
         url="https://example.com/vectorize-test",
         title="Test Article for Vectorization",
         body="This is the body content for vectorization testing. "
@@ -79,7 +79,7 @@ class TestVectorizeNodeBasic:
         long_body = "A" * 3000
         mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 1536])
 
-        raw = ArticleRaw(
+        raw = RawArticle(
             url="https://example.com/long",
             title="Test",
             body=long_body,
@@ -123,7 +123,7 @@ class TestVectorizeNodeEdgeCases:
         """Test vectorization with very short content."""
         mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 1536])
 
-        raw = ArticleRaw(
+        raw = RawArticle(
             url="https://example.com/short",
             title="Hi",
             body="OK",

@@ -63,7 +63,7 @@ class TestSourceSchedulerEdgeCases:
     @pytest.mark.asyncio
     async def test_scheduler_with_disabled_sources(self, mock_fetcher):
         """Test scheduler behavior with disabled sources."""
-        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.domain.models import SourceConfig
         from modules.ingestion.parsing.registry import SourceRegistry
         from modules.ingestion.scheduling.scheduler import SourceScheduler
 
@@ -94,7 +94,7 @@ class TestSourceSchedulerEdgeCases:
     @pytest.mark.asyncio
     async def test_scheduler_can_start_with_sources(self, mock_fetcher):
         """Test scheduler can start with registered sources."""
-        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.domain.models import SourceConfig
         from modules.ingestion.parsing.registry import SourceRegistry
         from modules.ingestion.scheduling.scheduler import SourceScheduler
 
@@ -154,7 +154,7 @@ class TestSourceSchedulerCrawlSource:
         """Test crawl_source when no parser is found."""
         from unittest.mock import MagicMock
 
-        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.domain.models import SourceConfig
         from modules.ingestion.parsing.registry import SourceRegistry
         from modules.ingestion.scheduling.scheduler import SourceScheduler
 
@@ -184,7 +184,7 @@ class TestSourceSchedulerCrawlSource:
     @pytest.mark.asyncio
     async def test_crawl_source_with_disabled_source(self, mock_fetcher):
         """Test crawl_source when source is disabled."""
-        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.domain.models import SourceConfig
         from modules.ingestion.parsing.registry import SourceRegistry
         from modules.ingestion.scheduling.scheduler import SourceScheduler
 
@@ -235,7 +235,7 @@ class TestSourceSchedulerCrawlSource:
         """Test crawl_source when parser returns items."""
         from datetime import UTC, datetime
 
-        from modules.ingestion.parsing.models import NewsItem, SourceConfig
+        from modules.ingestion.domain.models import NewsItem, SourceConfig
         from modules.ingestion.parsing.registry import SourceRegistry
         from modules.ingestion.parsing.rss_parser import RSSParser
         from modules.ingestion.scheduling.scheduler import SourceScheduler
@@ -250,7 +250,7 @@ class TestSourceSchedulerCrawlSource:
                     body="Body 1",
                     source="test",
                     source_host="example.com",
-                    pubDate=datetime.now(UTC),
+                    publish_time=datetime.now(UTC),
                 )
             ]
         )
@@ -287,7 +287,7 @@ class TestSourceSchedulerCrawlSource:
         """Test that crawl_source updates last_crawl_time when items found."""
         from datetime import UTC, datetime
 
-        from modules.ingestion.parsing.models import NewsItem, SourceConfig
+        from modules.ingestion.domain.models import NewsItem, SourceConfig
         from modules.ingestion.parsing.registry import SourceRegistry
         from modules.ingestion.scheduling.scheduler import SourceScheduler
 
@@ -300,7 +300,7 @@ class TestSourceSchedulerCrawlSource:
                     body="Body 1",
                     source="test",
                     source_host="example.com",
-                    pubDate=datetime.now(UTC),
+                    publish_time=datetime.now(UTC),
                 )
             ]
         )
@@ -334,7 +334,7 @@ class TestSourceSchedulerCrawlSource:
     @pytest.mark.asyncio
     async def test_crawl_source_handles_parser_error(self, mock_fetcher):
         """Test crawl_source handles parser exceptions."""
-        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.domain.models import SourceConfig
         from modules.ingestion.parsing.registry import SourceRegistry
         from modules.ingestion.scheduling.scheduler import SourceScheduler
 
@@ -374,7 +374,7 @@ class TestSourceSchedulerTriggerNow:
         """Test that trigger_now delegates to _crawl_source."""
         from unittest.mock import patch
 
-        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.domain.models import SourceConfig
         from modules.ingestion.parsing.registry import SourceRegistry
         from modules.ingestion.scheduling.scheduler import SourceScheduler
 
@@ -405,7 +405,7 @@ class TestSourceSchedulerTriggerNow:
         """Test trigger_now with task_id parameter."""
         import uuid
 
-        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.domain.models import SourceConfig
         from modules.ingestion.parsing.registry import SourceRegistry
         from modules.ingestion.scheduling.scheduler import SourceScheduler
 

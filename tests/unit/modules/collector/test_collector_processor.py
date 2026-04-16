@@ -9,14 +9,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from modules.ingestion.domain.models import ArticleRaw
+from modules.ingestion.domain.models import RawArticle
 from modules.ingestion.fetching.exceptions import FetchError
 
 
 @pytest.fixture
 def sample_article():
     """Create sample article for testing."""
-    return ArticleRaw(
+    return RawArticle(
         url="https://example.com/article1",
         title="Test Article",
         body="This is test content for the article body.",

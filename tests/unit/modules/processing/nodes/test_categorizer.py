@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from core.llm.validation.output_validator import CategorizerOutput
-from modules.ingestion.domain.models import ArticleRaw
+from modules.ingestion.domain.models import RawArticle
 from modules.processing.nodes.classification.categorizer import (
     CategorizerNode,
     normalize_category,
@@ -20,7 +20,7 @@ from modules.processing.pipeline.state import PipelineState
 
 @pytest.fixture
 def sample_raw():
-    return ArticleRaw(
+    return RawArticle(
         url="https://example.com/tech-article",
         title="New AI Model Achieves Breakthrough Performance",
         body="A new artificial intelligence model has demonstrated unprecedented capabilities.",

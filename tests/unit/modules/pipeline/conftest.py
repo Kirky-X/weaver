@@ -6,13 +6,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.ingestion.domain.models import ArticleRaw
+from modules.ingestion.domain.models import RawArticle
 
 
 @pytest.fixture
 def sample_raw():
-    """Create sample ArticleRaw for pipeline node tests."""
-    return ArticleRaw(
+    """Create sample RawArticle for pipeline node tests."""
+    return RawArticle(
         url="https://example.com/test-article",
         title="Test Article Title",
         body="Test article body content.",

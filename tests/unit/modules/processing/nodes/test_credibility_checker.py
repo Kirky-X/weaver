@@ -10,14 +10,14 @@ import pytest
 
 from core.llm import CallPoint
 from core.llm.validation.output_validator import CredibilityOutput
-from modules.ingestion.domain.models import ArticleRaw
+from modules.ingestion.domain.models import RawArticle
 from modules.processing.nodes.classification.credibility_checker import CredibilityCheckerNode
 from modules.processing.pipeline.state import PipelineState
 
 
 @pytest.fixture
 def sample_raw():
-    return ArticleRaw(
+    return RawArticle(
         url="https://example.com/credible-article",
         title="Research Study Confirms New Treatment Efficacy",
         body="A comprehensive research study has confirmed the efficacy of a new treatment.",
@@ -421,7 +421,7 @@ class TestCredibilityCheckerNodeIntegration:
             event_bus=mock_event_bus,
             source_auth_repo=mock_source_auth_repo,
         )
-        raw = ArticleRaw(
+        raw = RawArticle(
             url="https://example.com/test",
             title="Test",
             body="Test",
@@ -456,7 +456,7 @@ class TestCredibilityCheckerNodeIntegration:
             event_bus=mock_event_bus,
             source_auth_repo=mock_source_auth_repo,
         )
-        raw = ArticleRaw(
+        raw = RawArticle(
             url="https://example.com/economic",
             title="Market Update",
             body="Test",

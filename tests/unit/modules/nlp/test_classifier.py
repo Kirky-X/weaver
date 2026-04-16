@@ -10,7 +10,7 @@ import pytest
 
 from core.llm import CallPoint
 from core.llm.validation.output_validator import ClassifierOutput
-from modules.ingestion.domain.models import ArticleRaw
+from modules.ingestion.domain.models import RawArticle
 from modules.processing.nodes.classification.classifier import ClassifierNode
 from modules.processing.pipeline.state import PipelineState
 
@@ -18,7 +18,7 @@ from modules.processing.pipeline.state import PipelineState
 @pytest.fixture
 def sample_raw():
     """Create sample raw article."""
-    return ArticleRaw(
+    return RawArticle(
         url="https://example.com/news-article",
         title="Breaking: Major Scientific Discovery Announced",
         body="Scientists have announced a groundbreaking discovery in quantum computing. "
@@ -32,7 +32,7 @@ def sample_raw():
 @pytest.fixture
 def sample_non_news_raw():
     """Create sample non-news content."""
-    return ArticleRaw(
+    return RawArticle(
         url="https://example.com/about-page",
         title="About Us",
         body="This is the about page of our company. We provide excellent services.",
@@ -177,7 +177,7 @@ class TestClassifierNodeEdgeCases:
     @pytest.mark.asyncio
     async def test_classify_with_short_body(self, mock_llm, mock_budget, mock_prompt_loader):
         """Test classification with very short body."""
-        short_raw = ArticleRaw(
+        short_raw = RawArticle(
             url="https://example.com/short",
             title="Short",
             body="Brief",
@@ -198,7 +198,7 @@ class TestClassifierNodeEdgeCases:
     @pytest.mark.asyncio
     async def test_classify_with_empty_title(self, mock_llm, mock_budget, mock_prompt_loader):
         """Test classification with empty title."""
-        empty_title_raw = ArticleRaw(
+        empty_title_raw = RawArticle(
             url="https://example.com/no-title",
             title="",
             body="Content without title",
@@ -315,7 +315,7 @@ class TestClassifierNodeIntegration:
         ]
 
         for title, body, expected_is_news, confidence in test_cases:
-            raw = ArticleRaw(
+            raw = RawArticle(
                 url=f"https://example.com/{title.lower().replace(' ', '-')}",
                 title=title,
                 body=body,

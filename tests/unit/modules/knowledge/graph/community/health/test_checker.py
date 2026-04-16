@@ -1,4 +1,4 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved.
+# Copyright (c) 2026 KirkyX. All Rights Reserved
 """Tests for modules.knowledge.graph.community.health.checker module."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -7,8 +7,9 @@ import pytest
 
 from modules.knowledge.graph.community.health.checker import CommunityHealthChecker
 from modules.knowledge.graph.community.health.models import (
+    CommunityHealthReport,
+    CommunityHealthStatus,
     HealthIssue,
-    HealthReport,
     IssueType,
 )
 
@@ -23,6 +24,14 @@ class TestCommunityHealthCheckerInit:
 
         assert checker._pool is mock_pool
 
+    def test_init_with_modularity_calculator(self):
+        """Test initialization with modularity calculator."""
+        mock_pool = MagicMock()
+        mock_calculator = MagicMock()
+        checker = CommunityHealthChecker(mock_pool, modularity_calculator=mock_calculator)
+
+        assert checker._modularity_calculator is mock_calculator
+
 
 class TestCheckEmptyCommunities:
     """Test check_empty_communities method."""
@@ -36,7 +45,7 @@ class TestCheckEmptyCommunities:
     @pytest.mark.asyncio
     async def test_no_empty_communities(self, checker):
         """Test when no empty communities exist."""
-        checker._pool.execute_query = AsyncMock(return_value=[])
+        checker._repo.find_empty_communities = AsyncMock(return_value=[])
 
         issues = await checker.check_empty_communities()
 
@@ -45,10 +54,10 @@ class TestCheckEmptyCommunities:
     @pytest.mark.asyncio
     async def test_finds_empty_communities(self, checker):
         """Test finds empty communities."""
-        checker._pool.execute_query = AsyncMock(
+        checker._repo.find_empty_communities = AsyncMock(
             return_value=[
-                {"community_id": 1, "level": 0},
-                {"community_id": 2, "level": 1},
+                {"community_id": "1", "title": "Community 1"},
+                {"community_id": "2", "title": "Community 2"},
             ]
         )
 
@@ -57,10 +66,23 @@ class TestCheckEmptyCommunities:
         assert len(issues) == 2
         assert all(isinstance(issue, HealthIssue) for issue in issues)
         assert all(issue.issue_type == IssueType.EMPTY_COMMUNITY for issue in issues)
+        assert all(issue.auto_repairable is True for issue in issues)
+
+    @pytest.mark.asyncio
+    async def test_empty_community_high_severity(self, checker):
+        """Test empty community has high severity."""
+        checker._repo.find_empty_communities = AsyncMock(
+            return_value=[{"community_id": "1", "title": "Empty Community"}]
+        )
+
+        issues = await checker.check_empty_communities()
+
+        assert len(issues) == 1
+        assert issues[0].severity == "high"
 
 
-class TestCheckEntityCountMismatch:
-    """Test check_entity_count_mismatch method."""
+class TestCheckEntityCountInconsistency:
+    """Test check_entity_count_inconsistency method."""
 
     @pytest.fixture
     def checker(self):
@@ -71,31 +93,66 @@ class TestCheckEntityCountMismatch:
     @pytest.mark.asyncio
     async def test_no_mismatches(self, checker):
         """Test when no entity count mismatches."""
-        checker._pool.execute_query = AsyncMock(return_value=[])
+        checker._repo.find_entity_count_mismatches = AsyncMock(return_value=[])
 
-        issues = await checker.check_entity_count_mismatch()
+        issues = await checker.check_entity_count_inconsistency()
 
         assert issues == []
 
     @pytest.mark.asyncio
     async def test_finds_mismatches(self, checker):
         """Test finds entity count mismatches."""
-        checker._pool.execute_query = AsyncMock(
+        checker._repo.find_entity_count_mismatches = AsyncMock(
             return_value=[
                 {
-                    "community_id": 1,
+                    "community_id": "1",
                     "stored_count": 10,
                     "actual_count": 15,
-                    "difference": 5,
                 },
             ]
         )
 
-        issues = await checker.check_entity_count_mismatch()
+        issues = await checker.check_entity_count_inconsistency()
 
         assert len(issues) == 1
         assert issues[0].issue_type == IssueType.ENTITY_COUNT_MISMATCH
-        assert issues[0].severity in ["medium", "high"]
+        assert issues[0].severity == "low"
+        assert issues[0].auto_repairable is True
+
+
+class TestCheckMissingReports:
+    """Test check_missing_reports method."""
+
+    @pytest.fixture
+    def checker(self):
+        """Create CommunityHealthChecker with mock pool."""
+        mock_pool = AsyncMock()
+        return CommunityHealthChecker(mock_pool)
+
+    @pytest.mark.asyncio
+    async def test_no_missing_reports(self, checker):
+        """Test when no missing reports."""
+        checker._repo.find_missing_reports = AsyncMock(return_value=[])
+
+        issues = await checker.check_missing_reports()
+
+        assert issues == []
+
+    @pytest.mark.asyncio
+    async def test_finds_missing_reports(self, checker):
+        """Test finds missing reports."""
+        checker._repo.find_missing_reports = AsyncMock(
+            return_value=[
+                {"community_id": "1", "title": "Community 1"},
+            ]
+        )
+
+        issues = await checker.check_missing_reports()
+
+        assert len(issues) == 1
+        assert issues[0].issue_type == IssueType.MISSING_REPORT
+        assert issues[0].severity == "medium"
+        assert issues[0].auto_repairable is True
 
 
 class TestCheckStaleReports:
@@ -110,33 +167,33 @@ class TestCheckStaleReports:
     @pytest.mark.asyncio
     async def test_no_stale_reports(self, checker):
         """Test when no stale reports."""
-        checker._pool.execute_query = AsyncMock(return_value=[])
+        checker._repo.find_stale_reports = AsyncMock(return_value=[])
 
-        issues = await checker.check_stale_reports(max_age_days=7)
+        issues = await checker.check_stale_reports(days_threshold=7)
 
         assert issues == []
 
     @pytest.mark.asyncio
     async def test_finds_stale_reports(self, checker):
         """Test finds stale reports."""
-        checker._pool.execute_query = AsyncMock(
+        checker._repo.find_stale_reports = AsyncMock(
             return_value=[
                 {
-                    "community_id": 1,
-                    "last_updated": "2026-01-01",
-                    "age_days": 100,
+                    "community_id": "1",
+                    "updated_at": "2026-01-01",
                 },
             ]
         )
 
-        issues = await checker.check_stale_reports(max_age_days=7)
+        issues = await checker.check_stale_reports(days_threshold=7)
 
         assert len(issues) == 1
         assert issues[0].issue_type == IssueType.STALE_REPORT
+        assert issues[0].severity == "low"
 
 
-class TestCheckBrokenHierarchy:
-    """Test check_broken_hierarchy method."""
+class TestCheckHierarchyIntegrity:
+    """Test check_hierarchy_integrity method."""
 
     @pytest.fixture
     def checker(self):
@@ -147,150 +204,277 @@ class TestCheckBrokenHierarchy:
     @pytest.mark.asyncio
     async def test_no_broken_references(self, checker):
         """Test when no broken hierarchy references."""
-        checker._pool.execute_query = AsyncMock(return_value=[])
+        checker._repo.find_hierarchy_breaks = AsyncMock(return_value=[])
 
-        issues = await checker.check_broken_hierarchy()
+        issues = await checker.check_hierarchy_integrity()
 
         assert issues == []
 
     @pytest.mark.asyncio
     async def test_finds_broken_references(self, checker):
         """Test finds broken parent references."""
-        checker._pool.execute_query = AsyncMock(
+        checker._repo.find_hierarchy_breaks = AsyncMock(
             return_value=[
                 {
-                    "community_id": 5,
-                    "parent_id": 999,
+                    "community_id": "5",
+                    "parent_id": "999",
                 },
             ]
         )
 
-        issues = await checker.check_broken_hierarchy()
+        issues = await checker.check_hierarchy_integrity()
 
         assert len(issues) == 1
-        assert issues[0].issue_type == IssueType.BROKEN_HIERARCHY
+        assert issues[0].issue_type == IssueType.HIERARCHY_BREAK
+        assert issues[0].severity == "medium"
 
 
-class TestRunFullHealthCheck:
-    """Test run_full_health_check method."""
+class TestCheckModularityScore:
+    """Test check_modularity_score method."""
+
+    @pytest.fixture
+    def checker(self):
+        """Create CommunityHealthChecker with mock pool and calculator."""
+        mock_pool = AsyncMock()
+        mock_calculator = AsyncMock()
+        return CommunityHealthChecker(mock_pool, modularity_calculator=mock_calculator)
+
+    @pytest.mark.asyncio
+    async def test_no_calculator_skips_check(self):
+        """Test skips modularity check when no calculator provided."""
+        mock_pool = AsyncMock()
+        checker = CommunityHealthChecker(mock_pool, modularity_calculator=None)
+
+        issues = await checker.check_modularity_score()
+
+        assert issues == []
+
+    @pytest.mark.asyncio
+    async def test_low_modularity_warning(self, checker):
+        """Test low modularity creates medium severity issue."""
+        checker._modularity_calculator._calculate_modularity = AsyncMock(return_value=0.05)
+
+        issues = await checker.check_modularity_score()
+
+        assert len(issues) == 1
+        assert issues[0].issue_type == IssueType.LOW_MODULARITY
+        assert issues[0].severity == "medium"
+
+    @pytest.mark.asyncio
+    async def test_critical_modularity_error(self, checker):
+        """Test critical modularity creates high severity issue."""
+        checker._modularity_calculator._calculate_modularity = AsyncMock(return_value=-0.1)
+
+        issues = await checker.check_modularity_score()
+
+        assert len(issues) == 1
+        assert issues[0].issue_type == IssueType.LOW_MODULARITY
+        assert issues[0].severity == "high"
+
+
+class TestDiagnoseAll:
+    """Test diagnose_all method."""
 
     @pytest.fixture
     def checker(self):
         """Create CommunityHealthChecker with mock pool."""
         mock_pool = AsyncMock()
-        mock_pool.execute_query = AsyncMock(return_value=[])
+        checker = CommunityHealthChecker(mock_pool)
+        # Mock all repo methods
+        checker._repo.find_empty_communities = AsyncMock(return_value=[])
+        checker._repo.find_entity_count_mismatches = AsyncMock(return_value=[])
+        checker._repo.find_missing_reports = AsyncMock(return_value=[])
+        checker._repo.find_stale_reports = AsyncMock(return_value=[])
+        checker._repo.find_hierarchy_breaks = AsyncMock(return_value=[])
+        checker._repo.get_overall_metrics = AsyncMock(
+            return_value={
+                "total_communities": 10,
+                "empty_community_count": 0,
+                "stale_report_count": 0,
+            }
+        )
+        return checker
+
+    @pytest.mark.asyncio
+    async def test_diagnose_all_no_issues(self, checker):
+        """Test full health check with no issues."""
+        report = await checker.diagnose_all()
+
+        assert isinstance(report, CommunityHealthReport)
+        assert len(report.issues) == 0
+        assert report.status == CommunityHealthStatus.HEALTHY
+        assert report.score == 100.0
+
+    @pytest.mark.asyncio
+    async def test_diagnose_all_with_issues(self, checker):
+        """Test full health check detects issues."""
+        checker._repo.find_empty_communities = AsyncMock(
+            return_value=[{"community_id": "1", "title": "Empty"}]
+        )
+        checker._repo.get_overall_metrics = AsyncMock(
+            return_value={
+                "total_communities": 10,
+                "empty_community_count": 1,
+                "stale_report_count": 0,
+            }
+        )
+
+        report = await checker.diagnose_all()
+
+        assert isinstance(report, CommunityHealthReport)
+        assert len(report.issues) > 0
+        assert report.status != CommunityHealthStatus.HEALTHY
+
+    @pytest.mark.asyncio
+    async def test_diagnose_all_returns_metrics(self, checker):
+        """Test diagnose_all returns metrics."""
+        report = await checker.diagnose_all()
+
+        assert report.metrics is not None
+        assert "total_communities" in report.metrics
+
+
+class TestCalculateHealthScore:
+    """Test _calculate_health_score method."""
+
+    @pytest.fixture
+    def checker(self):
+        """Create CommunityHealthChecker with mock pool."""
+        mock_pool = AsyncMock()
         return CommunityHealthChecker(mock_pool)
 
-    @pytest.mark.asyncio
-    async def test_full_check_no_issues(self, checker):
-        """Test full health check with no issues."""
-        report = await checker.run_full_health_check()
+    def test_perfect_score_no_issues(self, checker):
+        """Test perfect score with no issues."""
+        score = checker._calculate_health_score(
+            [],
+            {"total_communities": 10, "empty_community_count": 0, "stale_report_count": 0},
+        )
 
-        assert isinstance(report, HealthReport)
-        assert len(report.issues) == 0
-        assert report.healthy is True
+        assert score == 100.0
 
-    @pytest.mark.asyncio
-    async def test_full_check_with_issues(self, checker):
-        """Test full health check detects issues."""
-        # Return empty communities
-        call_count = 0
+    def test_score_penalty_for_empty_communities(self, checker):
+        """Test score penalty for empty communities."""
+        issues = [
+            HealthIssue(
+                issue_type=IssueType.EMPTY_COMMUNITY,
+                severity="high",
+                description="Empty",
+                suggestion="Delete",
+            )
+        ]
+        score = checker._calculate_health_score(
+            issues,
+            {"total_communities": 10, "empty_community_count": 2, "stale_report_count": 0},
+        )
 
-        async def mock_execute_query(query):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 1:
-                return [{"community_id": 1, "level": 0}]  # Empty communities
-            return []  # No other issues
+        assert score < 100.0
 
-        checker._pool.execute_query = mock_execute_query
+    def test_zero_communities_critical(self, checker):
+        """Test zero communities returns zero score."""
+        score = checker._calculate_health_score(
+            [],
+            {"total_communities": 0, "empty_community_count": 0, "stale_report_count": 0},
+        )
 
-        report = await checker.run_full_health_check()
-
-        assert isinstance(report, HealthReport)
-        assert len(report.issues) > 0
-        assert report.healthy is False
-
-    @pytest.mark.asyncio
-    async def test_full_check_counts_by_type(self, checker):
-        """Test full check provides issue counts by type."""
-        checker._pool.execute_query = AsyncMock(return_value=[])
-
-        report = await checker.run_full_health_check()
-
-        assert hasattr(report, "issue_counts")
-        assert isinstance(report.issue_counts, dict)
+        assert score == 0.0
 
 
-class TestHealthReport:
-    """Test HealthReport model."""
+class TestDetermineStatus:
+    """Test _determine_status method."""
+
+    @pytest.fixture
+    def checker(self):
+        """Create CommunityHealthChecker with mock pool."""
+        mock_pool = AsyncMock()
+        return CommunityHealthChecker(mock_pool)
+
+    def test_healthy_status(self, checker):
+        """Test healthy status for high score."""
+        status = checker._determine_status(85.0)
+        assert status == CommunityHealthStatus.HEALTHY
+
+    def test_moderate_status(self, checker):
+        """Test moderate status for medium score."""
+        status = checker._determine_status(70.0)
+        assert status == CommunityHealthStatus.MODERATE
+
+    def test_degraded_status(self, checker):
+        """Test degraded status for low score."""
+        status = checker._determine_status(50.0)
+        assert status == CommunityHealthStatus.DEGRADED
+
+    def test_critical_status(self, checker):
+        """Test critical status for very low score."""
+        status = checker._determine_status(30.0)
+        assert status == CommunityHealthStatus.CRITICAL
+
+
+class TestCommunityHealthReport:
+    """Test CommunityHealthReport model."""
 
     def test_create_healthy_report(self):
         """Test creating healthy report."""
-        report = HealthReport(
-            healthy=True,
+        report = CommunityHealthReport(
+            status=CommunityHealthStatus.HEALTHY,
+            score=100.0,
             issues=[],
-            checked_at="2026-04-16T12:00:00Z",
         )
 
-        assert report.healthy is True
+        assert report.status == CommunityHealthStatus.HEALTHY
         assert len(report.issues) == 0
+        assert report.score == 100.0
 
     def test_create_unhealthy_report(self):
         """Test creating report with issues."""
         issue = HealthIssue(
             issue_type=IssueType.EMPTY_COMMUNITY,
-            community_id=1,
             severity="high",
+            description="Empty community",
+            suggestion="Delete it",
+            community_id="1",
         )
 
-        report = HealthReport(
-            healthy=False,
+        report = CommunityHealthReport(
+            status=CommunityHealthStatus.DEGRADED,
+            score=60.0,
             issues=[issue],
-            issue_counts={IssueType.EMPTY_COMMUNITY: 1},
         )
 
-        assert report.healthy is False
+        assert report.status == CommunityHealthStatus.DEGRADED
         assert len(report.issues) == 1
-        assert report.issue_counts[IssueType.EMPTY_COMMUNITY] == 1
 
-
-class TestCommunityHealthCheckerIntegration:
-    """Integration tests."""
-
-    @pytest.mark.asyncio
-    async def test_complete_health_workflow(self):
-        """Test complete health checking workflow."""
-        mock_pool = AsyncMock()
-        mock_pool.execute_query = AsyncMock(return_value=[])
-
-        checker = CommunityHealthChecker(mock_pool)
-
-        # Run full health check
-        report = await checker.run_full_health_check()
-
-        assert isinstance(report, HealthReport)
-        assert report is not None
-
-    @pytest.mark.asyncio
-    async def test_health_check_with_multiple_issues(self):
-        """Test health check detects multiple issue types."""
-        mock_pool = AsyncMock()
-        # Simulate various issues
-        mock_pool.execute_query = AsyncMock(
-            side_effect=[
-                [{"community_id": 1, "level": 0}],  # Empty communities
-                [
-                    {"community_id": 2, "stored_count": 10, "actual_count": 15, "difference": 5}
-                ],  # Mismatch
-                [],  # No stale reports
-                [],  # No broken hierarchy
-            ]
+    def test_to_dict(self):
+        """Test to_dict serialization."""
+        report = CommunityHealthReport(
+            status=CommunityHealthStatus.HEALTHY,
+            score=95.0,
+            issues=[],
+            metrics={"total_communities": 10},
         )
 
-        checker = CommunityHealthChecker(mock_pool)
+        result = report.to_dict()
 
-        report = await checker.run_full_health_check()
+        assert result["status"] == "healthy"
+        assert result["score"] == 95.0
+        assert result["metrics"]["total_communities"] == 10
+        assert "checked_at" in result
 
-        assert report.healthy is False
-        assert len(report.issues) >= 2
+
+class TestHealthIssue:
+    """Test HealthIssue model."""
+
+    def test_create_issue(self):
+        """Test creating health issue."""
+        issue = HealthIssue(
+            issue_type=IssueType.EMPTY_COMMUNITY,
+            severity="high",
+            description="Empty community found",
+            suggestion="Delete the empty community",
+            community_id="123",
+            auto_repairable=True,
+        )
+
+        assert issue.issue_type == IssueType.EMPTY_COMMUNITY
+        assert issue.severity == "high"
+        assert issue.community_id == "123"
+        assert issue.auto_repairable is True

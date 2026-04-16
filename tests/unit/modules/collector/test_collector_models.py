@@ -8,13 +8,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from modules.ingestion.domain.models import ArticleRaw
+from modules.ingestion.domain.models import RawArticle
 
 
 @pytest.fixture
 def sample_article():
     """Create sample article for testing."""
-    return ArticleRaw(
+    return RawArticle(
         url="https://example.com/article1",
         title="Test Article",
         body="This is test content for the article body.",
@@ -28,7 +28,7 @@ def sample_article():
 def sample_articles():
     """Create multiple sample articles."""
     return [
-        ArticleRaw(
+        RawArticle(
             url=f"https://example.com/article{i}",
             title=f"Article {i}",
             body=f"Content for article {i}",
@@ -40,12 +40,12 @@ def sample_articles():
     ]
 
 
-class TestArticleRawModel:
-    """Tests for ArticleRaw model."""
+class TestRawArticleModel:
+    """Tests for RawArticle model."""
 
     def test_article_raw_creation(self):
-        """Test creating an ArticleRaw instance."""
-        article = ArticleRaw(
+        """Test creating an RawArticle instance."""
+        article = RawArticle(
             url="https://example.com/test",
             title="Test Title",
             body="Test Body",
@@ -61,8 +61,8 @@ class TestArticleRawModel:
         assert article.source_host == "example.com"
 
     def test_article_raw_with_optional_fields(self):
-        """Test ArticleRaw with optional fields."""
-        article = ArticleRaw(
+        """Test RawArticle with optional fields."""
+        article = RawArticle(
             url="https://example.com/test",
             title="Test Title",
             body="Test Body",
@@ -75,8 +75,8 @@ class TestArticleRawModel:
         assert article.tier == 1
 
     def test_article_raw_equality(self, sample_article):
-        """Test ArticleRaw equality comparison."""
-        article_copy = ArticleRaw(
+        """Test RawArticle equality comparison."""
+        article_copy = RawArticle(
             url=sample_article.url,
             title=sample_article.title,
             body=sample_article.body,
@@ -94,7 +94,7 @@ class TestCollectorModels:
 
     def test_article_url_validation(self):
         """Test that article URLs are properly stored."""
-        article = ArticleRaw(
+        article = RawArticle(
             url="https://example.com/valid-url",
             title="Title",
             body="Body",
@@ -110,7 +110,7 @@ class TestCollectorModels:
         """Test handling of publish time."""
         now = datetime.now(UTC)
 
-        article = ArticleRaw(
+        article = RawArticle(
             url="https://example.com/test",
             title="Title",
             body="Body",
@@ -128,7 +128,7 @@ class TestCollectorSerialization:
     """Tests for collector model serialization."""
 
     def test_article_to_dict(self, sample_article):
-        """Test converting ArticleRaw to dictionary."""
+        """Test converting RawArticle to dictionary."""
         article_dict = {
             "url": sample_article.url,
             "title": sample_article.title,
@@ -143,7 +143,7 @@ class TestCollectorSerialization:
         assert "title" in article_dict
 
     def test_article_from_dict(self):
-        """Test creating ArticleRaw from dictionary."""
+        """Test creating RawArticle from dictionary."""
         data = {
             "url": "https://example.com/test",
             "title": "Test Title",
@@ -153,7 +153,7 @@ class TestCollectorSerialization:
             "source_host": "example.com",
         }
 
-        article = ArticleRaw(**data)
+        article = RawArticle(**data)
 
         assert article.url == data["url"]
         assert article.title == data["title"]
@@ -163,8 +163,8 @@ class TestCollectorEdgeCases:
     """Edge case tests for collector models."""
 
     def test_article_with_empty_body(self):
-        """Test ArticleRaw with empty body."""
-        article = ArticleRaw(
+        """Test RawArticle with empty body."""
+        article = RawArticle(
             url="https://example.com/empty",
             title="Title Only",
             body="",
@@ -176,10 +176,10 @@ class TestCollectorEdgeCases:
         assert article.body == ""
 
     def test_article_with_long_content(self):
-        """Test ArticleRaw with long content."""
+        """Test RawArticle with long content."""
         long_body = "A" * 10000
 
-        article = ArticleRaw(
+        article = RawArticle(
             url="https://example.com/long",
             title="Long Article",
             body=long_body,
@@ -205,7 +205,7 @@ class TestCollectorErrorHandling:
     def test_article_with_missing_url(self):
         """Test handling of missing URL."""
         try:
-            ArticleRaw(
+            RawArticle(
                 url="",
                 title="Title",
                 body="Body",
@@ -222,7 +222,7 @@ class TestCollectorErrorHandling:
     def test_article_with_invalid_time(self):
         """Test handling of invalid publish time."""
         # None publish time should be allowed
-        article = ArticleRaw(
+        article = RawArticle(
             url="https://example.com/test",
             title="Title",
             body="Body",
