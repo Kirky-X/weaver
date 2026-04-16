@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 import json_repair
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
 from api.dependencies import (
@@ -600,3 +600,313 @@ async def process_single_url(
     _ = asyncio.create_task(_process_single_url(request.url, task_id, cache))  # noqa: RUF006
 
     return success_response(ProcessUrlResponse(task_id=task_id, queued_at=now))
+
+
+# ── SSE Streaming API ──────────────────────────────────────────
+
+
+# Semaphore for limiting concurrent SSE connections
+_sse_semaphore = asyncio.Semaphore(3)
+
+
+class SSEEvent(BaseModel):
+    """Server-Sent Event data model."""
+
+    type: str  # "log", "result", "error", "heartbeat"
+    timestamp: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    level: str | None = None  # For log events: "debug", "info", "warning", "error"
+    message: str | None = None
+    data: dict | None = None  # For result events
+
+
+async def emit_event(queue: asyncio.Queue, event: SSEEvent) -> None:
+    """Emit an SSE event to the queue.
+
+    Args:
+        queue: Event queue.
+        event: Event to emit.
+    """
+    await queue.put(event.model_dump(exclude_none=True))
+
+
+async def heartbeat_task(queue: asyncio.Queue, stop_event: asyncio.Event) -> None:
+    """Send heartbeat events every 0.5 seconds.
+
+    Args:
+        queue: Event queue.
+        stop_event: Stop signal.
+    """
+    while not stop_event.is_set():
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=0.5)
+        except asyncio.TimeoutError:
+            await emit_event(queue, SSEEvent(type="heartbeat"))
+
+
+async def sse_event_generator(
+    request: "ProcessUrlRequest",
+    task_id: str,
+    stop_event: asyncio.Event,
+    event_queue: asyncio.Queue,
+    cache: CachePool,
+) -> None:
+    """Generate SSE events from pipeline execution.
+
+    Args:
+        request: URL processing request.
+        task_id: Task ID.
+        stop_event: Stop signal.
+        event_queue: Event queue.
+        cache: Cache client.
+    """
+    from container import get_container
+    from modules.ingestion.domain.models import NewsItem
+    from modules.ingestion.fetching.exceptions import FetchError
+
+    container = get_container()
+
+    try:
+        # Emit start event
+        await emit_event(
+            event_queue,
+            SSEEvent(
+                type="log",
+                level="info",
+                message=f"Starting pipeline for URL: {request.url}",
+            ),
+        )
+
+        crawler = container.crawler()
+        pipeline = container.pipeline()
+
+        # Emit log: crawling
+        await emit_event(
+            event_queue,
+            SSEEvent(type="log", level="info", message="Fetching URL content..."),
+        )
+
+        # Create NewsItem and crawl
+        item = NewsItem(
+            url=request.url,
+            title="",
+            source="url_endpoint_stream",
+            source_host=urlparse(request.url).netloc,
+        )
+        results = await crawler.crawl_batch([item])
+
+        # Check for fetch error
+        if results and isinstance(results[0], FetchError):
+            raise results[0]
+
+        if not results:
+            raise RuntimeError("Crawler returned no results")
+
+        article = results[0]
+
+        # Emit log: pipeline processing
+        await emit_event(
+            event_queue,
+            SSEEvent(type="log", level="info", message="Running pipeline phases..."),
+        )
+
+        # Run through pipeline
+        states = await pipeline.process_batch(
+            [article],
+            task_id=uuid.UUID(task_id),
+        )
+
+        state = states[0] if states else {}
+
+        # Emit result event
+        await emit_event(
+            event_queue,
+            SSEEvent(
+                type="result",
+                data={
+                    "article_id": state.get("article_id", ""),
+                    "title": state.get("cleaned", {}).get("title", ""),
+                    "score": state.get("score", 0),
+                    "url": request.url,
+                },
+            ),
+        )
+
+        # Emit completion log
+        await emit_event(
+            event_queue,
+            SSEEvent(type="log", level="info", message="Pipeline completed successfully"),
+        )
+
+        # Update task status
+        await _update_task_status(
+            cache,
+            task_id,
+            PipelineTaskStatus.COMPLETED.value,
+            completed_at=datetime.now(UTC).isoformat(),
+            article_id=state.get("article_id", ""),
+        )
+
+    except Exception as exc:
+        # Emit error event
+        await emit_event(
+            event_queue,
+            SSEEvent(type="error", message=str(exc)),
+        )
+
+        # Update task status
+        await _update_task_status(
+            cache,
+            task_id,
+            PipelineTaskStatus.FAILED.value,
+            error=str(exc),
+            completed_at=datetime.now(UTC).isoformat(),
+        )
+
+    finally:
+        stop_event.set()
+
+
+async def sse_response_generator(
+    fastapi_request: "Request",
+    event_queue: asyncio.Queue,
+    stop_event: asyncio.Event,
+    task_id: str,
+) -> None:
+    """Generate SSE response stream.
+
+    Args:
+        fastapi_request: FastAPI request for disconnect detection.
+        event_queue: Event queue.
+        stop_event: Stop signal.
+        task_id: Task ID for X-Request-Id header.
+    """
+    from fastapi.responses import StreamingResponse
+
+    async def event_stream():
+        try:
+            while not stop_event.is_set():
+                # Check for client disconnect
+                if await fastapi_request.is_disconnected():
+                    log.info("sse_client_disconnected", task_id=task_id)
+                    stop_event.set()
+                    break
+
+                try:
+                    # Wait for event with timeout
+                    event = await asyncio.wait_for(event_queue.get(), timeout=1.0)
+                    yield f"data: {json.dumps(event)}\n\n"
+                except asyncio.TimeoutError:
+                    # No event, continue loop (heartbeat handles keep-alive)
+                    continue
+
+        except asyncio.CancelledError:
+            log.info("sse_stream_cancelled", task_id=task_id)
+        finally:
+            stop_event.set()
+
+    return event_stream()
+
+
+@router.post("/url/stream")
+async def process_single_url_stream(
+    request: ProcessUrlRequest,
+    fastapi_request: "Request",
+    _: str = Depends(verify_api_key),
+    cache: CachePool = Depends(get_cache_client),
+    settings: Settings = Depends(get_settings),
+) -> "StreamingResponse":
+    """Process a single URL through the pipeline with SSE streaming.
+
+    Returns real-time progress events via Server-Sent Events.
+
+    Args:
+        request: URL processing request.
+        fastapi_request: FastAPI request for disconnect detection.
+        _: Verified API key.
+        cache: Cache client for task status.
+        settings: Application settings.
+
+    Returns:
+        StreamingResponse with text/event-stream media type.
+
+    Raises:
+        HTTPException: If URL is invalid or blocked.
+    """
+    from fastapi.responses import StreamingResponse
+
+    # Validate URL
+    await _validate_url_for_processing(
+        request.url,
+        request.whitelist_mode,
+        settings,
+    )
+
+    # Acquire semaphore (limit concurrent connections)
+    async with _sse_semaphore:
+        task_id = str(uuid.uuid4())
+
+        # Store initial task status
+        await cache.hset(
+            TASK_STATUS_KEY,
+            task_id,
+            json.dumps(
+                {
+                    "task_id": task_id,
+                    "status": PipelineTaskStatus.QUEUED.value,
+                    "url": request.url,
+                    "queued_at": datetime.now(UTC).isoformat(),
+                }
+            ),
+        )
+
+        # Create event queue and stop signal
+        event_queue: asyncio.Queue = asyncio.Queue()
+        stop_event = asyncio.Event()
+
+        async def event_stream():
+            """SSE event stream generator."""
+            # Start heartbeat task
+            heartbeat = asyncio.create_task(heartbeat_task(event_queue, stop_event))
+
+            # Start pipeline processing task
+            pipeline_task = asyncio.create_task(
+                sse_event_generator(request, task_id, stop_event, event_queue, cache)
+            )
+
+            try:
+                while not stop_event.is_set():
+                    # Check for client disconnect
+                    if await fastapi_request.is_disconnected():
+                        log.info("sse_client_disconnected", task_id=task_id)
+                        stop_event.set()
+                        pipeline_task.cancel()
+                        break
+
+                    try:
+                        # Wait for event with timeout
+                        event = await asyncio.wait_for(event_queue.get(), timeout=1.0)
+                        yield f"data: {json.dumps(event)}\n\n"
+                    except asyncio.TimeoutError:
+                        # No event, continue loop
+                        continue
+
+            except asyncio.CancelledError:
+                log.info("sse_stream_cancelled", task_id=task_id)
+            finally:
+                stop_event.set()
+                heartbeat.cancel()
+                try:
+                    await heartbeat
+                except asyncio.CancelledError:
+                    pass
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-store, must-revalidate",
+                "X-Accel-Buffering": "no",
+                "X-Request-Id": task_id,
+                "Connection": "keep-alive",
+            },
+        )
