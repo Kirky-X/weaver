@@ -30,7 +30,7 @@ def mock_llm_client():
 
 
 @pytest.fixture
-def mock_redis_client():
+def mock_cache_client():
     """Create mock Redis client."""
     redis = MagicMock()
     redis.lpush = AsyncMock(return_value=1)
@@ -61,7 +61,7 @@ def mock_intent_classifier():
 def memory_service(
     mock_graph_pool,
     mock_llm_client,
-    mock_redis_client,
+    mock_cache_client,
     mock_embedding_service,
     mock_intent_classifier,
 ):
@@ -69,7 +69,7 @@ def memory_service(
     return MemoryIntegrationService(
         graph_pool=mock_graph_pool,
         llm_client=mock_llm_client,
-        redis_client=mock_redis_client,
+        cache_client=mock_cache_client,
         embedding_service=mock_embedding_service,
         intent_classifier=mock_intent_classifier,
     )
@@ -130,7 +130,7 @@ async def test_ingest_disabled():
     service = MemoryIntegrationService(
         graph_pool=MagicMock(),
         llm_client=MagicMock(),
-        redis_client=MagicMock(),
+        cache_client=MagicMock(),
         embedding_service=MagicMock(),
         intent_classifier=MagicMock(),
         config=config,
@@ -143,9 +143,9 @@ async def test_ingest_disabled():
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_consolidate_processes_queue(memory_service, mock_redis_client):
+async def test_consolidate_processes_queue(memory_service, mock_cache_client):
     """Test that consolidate processes events from queue."""
-    mock_redis_client.rpop.side_effect = ["event-001", "event-002", None]
+    mock_cache_client.rpop.side_effect = ["event-001", "event-002", None]
 
     results = await memory_service.consolidate(batch_size=5)
 
@@ -163,7 +163,7 @@ async def test_consolidate_disabled():
     service = MemoryIntegrationService(
         graph_pool=MagicMock(),
         llm_client=MagicMock(),
-        redis_client=MagicMock(),
+        cache_client=MagicMock(),
         embedding_service=MagicMock(),
         intent_classifier=MagicMock(),
         config=config,
@@ -199,9 +199,9 @@ async def test_search_with_provided_intent(memory_service, mock_intent_classifie
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_get_queue_depth(memory_service, mock_redis_client):
+async def test_get_queue_depth(memory_service, mock_cache_client):
     """Test getting queue depth."""
-    mock_redis_client.llen.return_value = 5
+    mock_cache_client.llen.return_value = 5
 
     depth = await memory_service.get_queue_depth()
 
@@ -210,9 +210,9 @@ async def test_get_queue_depth(memory_service, mock_redis_client):
 
 @pytest.mark.unit
 @pytest.mark.asyncio
-async def test_health_check(memory_service, mock_redis_client):
+async def test_health_check(memory_service, mock_cache_client):
     """Test health check returns status."""
-    mock_redis_client.llen.return_value = 3
+    mock_cache_client.llen.return_value = 3
 
     health = await memory_service.health_check()
 

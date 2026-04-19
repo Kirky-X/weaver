@@ -163,11 +163,14 @@ class SpacyModelManager:
             pip_bin = shutil.which("pip") or "pip"
             cmd = [pip_bin, "install", str(path)]
 
-        result = subprocess.run(  # noqa: S603
+        # Path is from config, verified to exist above - safe to use
+        # Explicit shell=False ensures no shell interpretation
+        result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
             check=False,
+            shell=False,
         )
 
         if result.returncode != 0:

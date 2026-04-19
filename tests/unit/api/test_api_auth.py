@@ -67,7 +67,9 @@ class TestVerifyApiKeyEdgeCases:
             with pytest.raises(HTTPException):
                 await verify_api_key(key="wrong-key-1234567890abcdefghijkl")
             # Verify compare_digest was called with the provided key and expected key
-            mock_compare.assert_called_once_with("wrong-key-1234567890abcdefghijkl", "expected-key-1234567890abcdefghijkl")
+            mock_compare.assert_called_once_with(
+                "wrong-key-1234567890abcdefghijkl", "expected-key-1234567890abcdefghijkl"
+            )
 
     @pytest.mark.asyncio
     async def test_compare_digest_called_with_valid_key(self):
@@ -82,7 +84,9 @@ class TestVerifyApiKeyEdgeCases:
             patch("api.middleware.auth.secrets.compare_digest", return_value=True) as mock_compare,
         ):
             result = await verify_api_key(key="correct-key-1234567890abcdefghij")
-            mock_compare.assert_called_once_with("correct-key-1234567890abcdefghij", "correct-key-1234567890abcdefghij")
+            mock_compare.assert_called_once_with(
+                "correct-key-1234567890abcdefghij", "correct-key-1234567890abcdefghij"
+            )
             assert result == "correct-key-1234567890abcdefghij"
 
     @pytest.mark.asyncio
@@ -179,7 +183,9 @@ class TestAuthMiddlewareIntegration:
 
         with patch("container.get_settings", return_value=mock_settings):
             with TestClient(app) as client:
-                response = client.get("/articles", headers={"X-API-Key": "wrong-key-1234567890abcdefghijklm"})
+                response = client.get(
+                    "/articles", headers={"X-API-Key": "wrong-key-1234567890abcdefghijklm"}
+                )
                 assert response.status_code == 403
 
     def test_articles_endpoint_with_valid_api_key_returns_200_or_503(self):
@@ -212,30 +218,32 @@ class TestAuthMiddlewareIntegration:
 
         with patch("container.get_settings", return_value=mock_settings):
             with TestClient(app) as client:
-                response = client.get("/articles", headers={"X-API-Key": "correct-key-1234567890abcdefghij"})
+                response = client.get(
+                    "/articles", headers={"X-API-Key": "correct-key-1234567890abcdefghij"}
+                )
                 # Should not be 401 or 403 — auth passed
                 assert response.status_code not in (401, 403)
 
     def test_pipeline_trigger_without_api_key_returns_401(self):
-        """Test POST /pipeline/trigger without X-API-Key returns 401."""
+        """Test POST /admin/pipeline/trigger without X-API-Key returns 401."""
         from unittest.mock import MagicMock
 
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
-        from api.dependencies import get_cache_pool, get_source_scheduler
-        from api.endpoints.content.pipeline import router
+        from api.dependencies import get_cache_client, get_source_scheduler
+        from api.endpoints.admin.admin import router as admin_router
 
         app = FastAPI()
-        app.include_router(router)
+        app.include_router(admin_router)
 
         mock_cache = MagicMock()
         mock_scheduler = MagicMock()
-        app.dependency_overrides[get_cache_pool] = lambda: mock_cache
+        app.dependency_overrides[get_cache_client] = lambda: mock_cache
         app.dependency_overrides[get_source_scheduler] = lambda: mock_scheduler
 
         with TestClient(app) as client:
-            response = client.post("/pipeline/trigger", json={})
+            response = client.post("/admin/pipeline/trigger", json={})
             assert response.status_code == 401
 
     def test_pipeline_status_without_api_key_returns_401(self):
@@ -245,14 +253,14 @@ class TestAuthMiddlewareIntegration:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
-        from api.dependencies import get_cache_pool
+        from api.dependencies import get_cache_client
         from api.endpoints.content.pipeline import router
 
         app = FastAPI()
         app.include_router(router)
 
         mock_cache = MagicMock()
-        app.dependency_overrides[get_cache_pool] = lambda: mock_cache
+        app.dependency_overrides[get_cache_client] = lambda: mock_cache
 
         with TestClient(app) as client:
             response = client.get(f"/pipeline/tasks/{uuid.uuid4()}")

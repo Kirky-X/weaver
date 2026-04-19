@@ -70,16 +70,16 @@ def mock_llm():
 def mock_redis():
     """Create standard mock Redis client for unit tests.
 
-    Delegates to tests.helpers.create_mock_redis_client() for consistency.
+    Delegates to tests.helpers.create_mock_cache_client() for consistency.
 
     Usage:
         def test_redis_ops(mock_redis):
             # Use mock_redis.client.get(), mock_redis.client.set(), etc.
             pass
     """
-    from tests.helpers import create_mock_redis_client
+    from tests.helpers import create_mock_cache_client
 
-    return create_mock_redis_client()
+    return create_mock_cache_client()
 
 
 @pytest.fixture

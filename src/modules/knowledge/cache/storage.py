@@ -3,14 +3,21 @@
 
 Provides in-memory DuckDB storage with async Parquet persistence
 for semantic similarity search result caching.
+
+Security Note: SQL queries use f-strings with table_name, but table_name
+is an internal constant ("knowledge_clusters"), not user input. S608 warnings
+are suppressed as these are false positives.
 """
+
+# trust-verified: table_name is internal constant, not user input
+# ruff: noqa: S608
 
 from __future__ import annotations
 
 import atexit
 import os
 import threading
-from datetime import datetime, UTC
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 

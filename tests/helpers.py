@@ -110,7 +110,7 @@ def create_mock_llm_response(data: dict[str, Any]) -> str:
     return json.dumps(data)
 
 
-def create_mock_redis_client() -> MagicMock:
+def create_mock_cache_client() -> MagicMock:
     """Create a mock Redis client with all common methods."""
     redis = MagicMock()
     redis.client = MagicMock()

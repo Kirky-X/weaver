@@ -117,7 +117,7 @@ class TestGraphMetricsEndpoint:
 
         mock_graph_pool = AsyncMock()
 
-        with patch("api.endpoints.graph.graph_metrics.get_cache_pool", return_value=None):
+        with patch("api.endpoints.graph.graph_metrics.get_cache_client", return_value=None):
             with patch(
                 "api.endpoints.graph.graph_metrics.GraphQualityMetrics"
             ) as mock_metrics_class:

@@ -59,7 +59,7 @@ class TestURLValidationExtended:
             ("http://localhost:8080/api", "localhost"),
             ("http://127.0.0.1/", "127.0.0.1"),
             ("http://127.0.0.1:5000/test", "127.0.0.1"),
-            ("http://0.0.0.0/", "0.0.0.0"),  # noqa: S104
+            ("http://0.0.0.0/", "0.0.0.0"),  # Test: all interfaces (internal address)
             ("http://[::1]/api", "::1"),
             ("http://169.254.169.254/latest/meta-data/", "169.254.169.254"),
         ],

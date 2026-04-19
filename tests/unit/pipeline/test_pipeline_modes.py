@@ -180,8 +180,9 @@ class TestFastModeLLMCallCount:
 
         mock_llm_client.call_at = AsyncMock(side_effect=track_call_at)
         mock_llm_client.embed = AsyncMock(
-            side_effect=lambda *a, **kw: call_count.update({"embed": call_count["embed"] + 1})
-            or [0.1] * 768
+            side_effect=lambda *a, **kw: (
+                call_count.update({"embed": call_count["embed"] + 1}) or [0.1] * 768
+            )
         )
 
         # Create pipeline with minimal dependencies for fast mode

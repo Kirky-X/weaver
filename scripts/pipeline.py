@@ -515,7 +515,7 @@ async def clear_databases(server_ctx: ServerContext) -> None:
         step("Graph nodes cleared", True)
 
     # Clear Redis dedup cache
-    cache_client = server_ctx.container._redis_client
+    cache_client = server_ctx.container._cache_client
     if cache_client:
         with contextlib.suppress(Exception):
             await cache_client.delete("crawl:dedup")

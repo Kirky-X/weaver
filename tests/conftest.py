@@ -36,6 +36,7 @@ _spacy_config = SpacyModelConfig(
 _spacy_manager = SpacyModelManager(_spacy_config)
 _spacy_manager.check_and_install()
 
+
 async def cancel_all_tasks() -> None:
     """Cancel all pending asyncio tasks from the current event loop.
 
@@ -100,9 +101,9 @@ async def relational_pool():
 @pytest.fixture
 def mock_redis():
     """Mock Redis client for testing."""
-    from tests.helpers import create_mock_redis_client
+    from tests.helpers import create_mock_cache_client
 
-    return create_mock_redis_client()
+    return create_mock_cache_client()
 
 
 @pytest.fixture(scope="module")

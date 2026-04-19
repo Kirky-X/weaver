@@ -26,7 +26,7 @@ class TestURLSecurityCache:
     def cache(self, mock_redis: MagicMock) -> URLSecurityCache:
         """Create cache instance with mock Redis."""
         return URLSecurityCache(
-            redis_client=mock_redis,
+            cache_client=mock_redis,
             safe_ttl=21600,
             malicious_ttl=900,
             enabled=True,
@@ -36,7 +36,7 @@ class TestURLSecurityCache:
     def disabled_cache(self, mock_redis: MagicMock) -> URLSecurityCache:
         """Create disabled cache instance."""
         return URLSecurityCache(
-            redis_client=mock_redis,
+            cache_client=mock_redis,
             safe_ttl=21600,
             malicious_ttl=900,
             enabled=False,
@@ -46,7 +46,7 @@ class TestURLSecurityCache:
     def memory_cache(self) -> URLSecurityCache:
         """Create in-memory cache (no Redis)."""
         return URLSecurityCache(
-            redis_client=None,
+            cache_client=None,
             safe_ttl=21600,
             malicious_ttl=900,
             enabled=True,

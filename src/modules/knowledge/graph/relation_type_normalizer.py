@@ -86,7 +86,7 @@ class RelationTypeNormalizer:
             # 查询所有活跃的关系类型及其别名
             result = await session.execute(
                 select(RelationType)
-                .where(RelationType.is_active == True)  # noqa: E712
+                .where(RelationType.is_active.is_(True))
                 .order_by(RelationType.sort_order)
             )
             relation_types = result.scalars().all()
@@ -238,7 +238,7 @@ class RelationTypeNormalizer:
             result = await session.execute(
                 select(UnknownRelationType).where(
                     UnknownRelationType.raw_type == raw_type,
-                    UnknownRelationType.resolved == False,  # noqa: E712
+                    UnknownRelationType.resolved.is_(False),
                 )
             )
             existing = result.scalar_one_or_none()
@@ -289,7 +289,7 @@ class RelationTypeNormalizer:
         async with self._pool.session() as session:
             result = await session.execute(
                 select(RelationType)
-                .where(RelationType.is_active == True)  # noqa: E712
+                .where(RelationType.is_active.is_(True))
                 .order_by(RelationType.sort_order)
             )
             relation_types = result.scalars().all()

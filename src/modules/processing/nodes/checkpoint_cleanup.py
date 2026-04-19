@@ -21,8 +21,8 @@ class CheckpointCleanupNode:
 
     CHECKPOINT_KEY_PREFIX = "pipeline:checkpoint"
 
-    def __init__(self, redis_client: Any = None) -> None:
-        self._redis = redis_client
+    def __init__(self, cache_client: Any = None) -> None:
+        self._redis = cache_client
 
     async def execute(self, state: PipelineState) -> PipelineState:
         """Clean up checkpoint for the processed article.

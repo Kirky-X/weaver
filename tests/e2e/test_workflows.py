@@ -92,7 +92,7 @@ class TestWorkflows:
 
         # 2. Trigger pipeline with this source
         trigger_response = client.post(
-            "/api/v1/pipeline/trigger",
+            "/api/v1/admin/pipeline/trigger",
             json={"source_id": unique_source_id},
             headers=auth_headers,
         )
@@ -117,7 +117,7 @@ class TestWorkflows:
         protected_endpoints = [
             ("GET", "/api/v1/sources"),
             ("GET", "/api/v1/articles"),
-            ("POST", "/api/v1/pipeline/trigger"),
+            ("POST", "/api/v1/admin/pipeline/trigger"),
         ]
 
         for method, endpoint in protected_endpoints:

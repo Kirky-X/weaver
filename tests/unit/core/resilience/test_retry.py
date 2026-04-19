@@ -125,6 +125,7 @@ async def _call_with_retryer(retryer, fn):
     async for attempt in retryer:
         with attempt:
             return await fn()
+    return None  # Should never reach here if retry succeeds
 
 
 class TestRetryNetworkOperation:

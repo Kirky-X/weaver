@@ -81,7 +81,7 @@ def test_pipeline_has_stage_tracking():
     assert "entity_extractor" in PHASE3_STAGES, "PHASE3_STAGES should contain entity_extractor"
 
 
-def test_scheduler_jobs_has_retry_method():
+def test_scheduler_jobs_service_has_retry_method():
     """验证 SchedulerJobs 有 retry_pipeline_processing 方法"""
     from modules.scheduler import SchedulerJobs
 

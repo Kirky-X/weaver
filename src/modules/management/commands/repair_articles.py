@@ -18,26 +18,26 @@ import asyncio
 import sys
 from pathlib import Path
 
+from config.settings import Settings
+from core.cache import RedisClient
+from core.db import PostgresPool
+from core.event.bus import EventBus
+from core.llm.client import LLMClient
+from core.llm.config.token_budget import TokenBudgetManager
+from core.observability.logging import get_logger
+from core.prompt.loader import PromptLoader
+from core.services.pipeline_service import PipelineServiceImpl
+from modules.ingestion.domain.models import RawArticle
+from modules.processing.nlp.spacy_extractor import SpacyExtractor
+from modules.processing.pipeline.graph import Pipeline
+from modules.processing.pipeline.state import PipelineState
+
 # Ensure project root is on path for `python -m src.modules.management` invocation
 # File: src/modules/management/commands/repair_articles.py
 # parents[5] = /home/dev/projects/weaver/src/  (project src/ dir)
 _project_root = Path(__file__).resolve().parents[5]
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
-
-from config.settings import Settings  # noqa: E402
-from core.cache import RedisClient  # noqa: E402
-from core.db import PostgresPool  # noqa: E402
-from core.event.bus import EventBus  # noqa: E402
-from core.llm.client import LLMClient  # noqa: E402
-from core.llm.config.token_budget import TokenBudgetManager  # noqa: E402
-from core.observability.logging import get_logger  # noqa: E402
-from core.prompt.loader import PromptLoader  # noqa: E402
-from core.services.pipeline_service import PipelineServiceImpl  # noqa: E402
-from modules.ingestion.domain.models import RawArticle  # noqa: E402
-from modules.processing.nlp.spacy_extractor import SpacyExtractor  # noqa: E402
-from modules.processing.pipeline.graph import Pipeline  # noqa: E402
-from modules.processing.pipeline.state import PipelineState  # noqa: E402
 
 log = get_logger(__name__)
 
@@ -55,25 +55,25 @@ async def _init_minimal_container():
         ),
     )
 
-    redis_client = RedisClient(settings.redis.url)
-    await redis_client.startup()
+    cache_client = RedisClient(settings.redis.url)
+    await cache_client.startup()
     log.info("redis_initialized")
 
     prompt_loader = PromptLoader(settings.prompt.dir)
     llm_client = await LLMClient.create_from_settings(
         llm_settings=settings.llm,
         prompt_loader=prompt_loader,
-        redis_client=redis_client,
+        cache_client=cache_client,
     )
     log.info("llm_client_initialized")
 
-    return postgres_pool, redis_client, llm_client, prompt_loader, settings
+    return postgres_pool, cache_client, llm_client, prompt_loader, settings
 
 
-async def _shutdown_minimal_container(postgres_pool, redis_client, llm_client):
+async def _shutdown_minimal_container(postgres_pool, cache_client, llm_client):
     """Shutdown minimal container services."""
     await llm_client.close()
-    await redis_client.shutdown()
+    await cache_client.shutdown()
     await postgres_pool.shutdown()
     log.info("container_shutdown_complete")
 
@@ -92,7 +92,7 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
     # Initialize minimal services
     (
         postgres_pool,
-        redis_client,
+        cache_client,
         llm_client,
         prompt_loader,
         settings,
@@ -120,7 +120,7 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
             graph_writer=None,  # Idempotent: do NOT write to Neo4j
             source_auth_repo=None,
             entity_resolver=None,
-            redis_client=redis_client,
+            cache_client=cache_client,
         )
 
         # Wrap pipeline with service interface for stable API
@@ -229,7 +229,7 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
         return repaired
 
     finally:
-        await _shutdown_minimal_container(postgres_pool, redis_client, llm_client)
+        await _shutdown_minimal_container(postgres_pool, cache_client, llm_client)
 
 
 def main() -> None:

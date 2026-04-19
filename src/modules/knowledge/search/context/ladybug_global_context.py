@@ -299,8 +299,9 @@ class LadybugGlobalContextBuilder(ContextBuilder):
                     "id": f"entity:{dict(r).get('entity_name', '')}",
                     "title": dict(r).get("entity_name", ""),
                     "summary": dict(r).get("entity_description", ""),
-                    "rank": 1.0
-                    - (dict(r).get("entity_tier", 2) / 10.0),  # Higher tier = lower rank
+                    "rank": (
+                        1.0 - (dict(r).get("entity_tier", 2) / 10.0)
+                    ),  # Higher tier = lower rank
                 }
                 for r in results
             ]

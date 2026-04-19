@@ -223,7 +223,7 @@ class TestCommunitiesEndpoints:
                 ]
             )
             mock_repo.count_communities = AsyncMock(return_value=1)
-            mock_repo.get_report = AsyncMock(return_value=None)
+            mock_repo.get_reports_existence = AsyncMock(return_value={"c1": False})
             mock_repo_class.return_value = mock_repo
 
             result = await list_communities(

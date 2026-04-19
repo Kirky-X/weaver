@@ -62,7 +62,7 @@ class TestRetryNeo4jWrites:
     """Test retry_neo4j_writes job."""
 
     @pytest.fixture
-    def scheduler_jobs(self):
+    def scheduler_jobs_service(self):
         """Create SchedulerJobs instance."""
         from modules.scheduler import SchedulerJobs
 
@@ -77,26 +77,26 @@ class TestRetryNeo4jWrites:
         )
 
     @pytest.mark.asyncio
-    async def test_retry_neo4j_writes_no_items(self, scheduler_jobs):
+    async def test_retry_neo4j_writes_no_items(self, scheduler_jobs_service):
         """Test when no items need retry."""
         mock_session = AsyncMock()
         mock_result = MagicMock()
         mock_result.scalars().all.return_value = []
         mock_session.execute = AsyncMock(return_value=mock_result)
 
-        scheduler_jobs._relational_pool.session = MagicMock()
-        scheduler_jobs._relational_pool.session.return_value.__aenter__ = AsyncMock(
+        scheduler_jobs_service._relational_pool.session = MagicMock()
+        scheduler_jobs_service._relational_pool.session.return_value.__aenter__ = AsyncMock(
             return_value=mock_session
         )
-        scheduler_jobs._relational_pool.session.return_value.__aexit__ = AsyncMock(
+        scheduler_jobs_service._relational_pool.session.return_value.__aexit__ = AsyncMock(
             return_value=None
         )
 
-        result = await scheduler_jobs.retry_neo4j_writes()
+        result = await scheduler_jobs_service.retry_neo4j_writes()
         assert result == 0
 
     @pytest.mark.asyncio
-    async def test_retry_neo4j_writes_success(self, scheduler_jobs):
+    async def test_retry_neo4j_writes_success(self, scheduler_jobs_service):
         """Test successful retry of Neo4j writes."""
         from core.db import Article, PersistStatus
 
@@ -113,22 +113,22 @@ class TestRetryNeo4jWrites:
         mock_session.execute = AsyncMock(return_value=mock_result)
         mock_session.commit = AsyncMock()
 
-        scheduler_jobs._relational_pool.session = MagicMock()
-        scheduler_jobs._relational_pool.session.return_value.__aenter__ = AsyncMock(
+        scheduler_jobs_service._relational_pool.session = MagicMock()
+        scheduler_jobs_service._relational_pool.session.return_value.__aenter__ = AsyncMock(
             return_value=mock_session
         )
-        scheduler_jobs._relational_pool.session.return_value.__aexit__ = AsyncMock(
+        scheduler_jobs_service._relational_pool.session.return_value.__aexit__ = AsyncMock(
             return_value=None
         )
 
-        scheduler_jobs._graph_writer.write = AsyncMock()
-        scheduler_jobs._pending_sync_repo.get_by_article_id = AsyncMock(return_value=None)
+        scheduler_jobs_service._graph_writer.write = AsyncMock()
+        scheduler_jobs_service._pending_sync_repo.get_by_article_id = AsyncMock(return_value=None)
 
-        result = await scheduler_jobs.retry_neo4j_writes()
+        result = await scheduler_jobs_service.retry_neo4j_writes()
         assert result == 1
 
     @pytest.mark.asyncio
-    async def test_retry_neo4j_writes_failure(self, scheduler_jobs):
+    async def test_retry_neo4j_writes_failure(self, scheduler_jobs_service):
         """Test handling of Neo4j write failure."""
         from core.db import Article, PersistStatus
 
@@ -144,21 +144,21 @@ class TestRetryNeo4jWrites:
         mock_result.scalars().all.return_value = [mock_article]
         mock_session.execute = AsyncMock(return_value=mock_result)
 
-        scheduler_jobs._relational_pool.session = MagicMock()
-        scheduler_jobs._relational_pool.session.return_value.__aenter__ = AsyncMock(
+        scheduler_jobs_service._relational_pool.session = MagicMock()
+        scheduler_jobs_service._relational_pool.session.return_value.__aenter__ = AsyncMock(
             return_value=mock_session
         )
-        scheduler_jobs._relational_pool.session.return_value.__aexit__ = AsyncMock(
+        scheduler_jobs_service._relational_pool.session.return_value.__aexit__ = AsyncMock(
             return_value=None
         )
 
-        scheduler_jobs._graph_writer.write = AsyncMock(side_effect=Exception("Neo4j error"))
+        scheduler_jobs_service._graph_writer.write = AsyncMock(side_effect=Exception("Neo4j error"))
 
-        result = await scheduler_jobs.retry_neo4j_writes()
+        result = await scheduler_jobs_service.retry_neo4j_writes()
         assert result == 0
 
     @pytest.mark.asyncio
-    async def test_retry_neo4j_writes_prefers_pending_sync_payload(self, scheduler_jobs):
+    async def test_retry_neo4j_writes_prefers_pending_sync_payload(self, scheduler_jobs_service):
         """Test that retry_neo4j_writes prefers pending_sync payload over _reconstruct_state."""
         import uuid
         from datetime import UTC, datetime
@@ -178,15 +178,15 @@ class TestRetryNeo4jWrites:
         mock_session.execute = AsyncMock(return_value=mock_result)
         mock_session.commit = AsyncMock()
 
-        scheduler_jobs._relational_pool.session = MagicMock()
-        scheduler_jobs._relational_pool.session.return_value.__aenter__ = AsyncMock(
+        scheduler_jobs_service._relational_pool.session = MagicMock()
+        scheduler_jobs_service._relational_pool.session.return_value.__aenter__ = AsyncMock(
             return_value=mock_session
         )
-        scheduler_jobs._relational_pool.session.return_value.__aexit__ = AsyncMock(
+        scheduler_jobs_service._relational_pool.session.return_value.__aexit__ = AsyncMock(
             return_value=None
         )
 
-        scheduler_jobs._graph_writer.write = AsyncMock()
+        scheduler_jobs_service._graph_writer.write = AsyncMock()
 
         # Mock pending_sync record with payload
         mock_pending_sync = MagicMock()
@@ -194,18 +194,18 @@ class TestRetryNeo4jWrites:
             "article_id": str(mock_article.id),
             "entities": [{"name": "Test Entity", "type": "PERSON"}],
         }
-        scheduler_jobs._pending_sync_repo.get_by_article_id = AsyncMock(
+        scheduler_jobs_service._pending_sync_repo.get_by_article_id = AsyncMock(
             return_value=mock_pending_sync
         )
-        scheduler_jobs._pending_sync_repo.reconstruct_state_from_payload = MagicMock(
+        scheduler_jobs_service._pending_sync_repo.reconstruct_state_from_payload = MagicMock(
             return_value={"article_id": str(mock_article.id), "entities": []}
         )
 
-        result = await scheduler_jobs.retry_neo4j_writes()
+        result = await scheduler_jobs_service.retry_neo4j_writes()
 
         assert result == 1
         # Verify reconstruct_state_from_payload was called with pending_sync payload
-        scheduler_jobs._pending_sync_repo.reconstruct_state_from_payload.assert_called_once_with(
+        scheduler_jobs_service._pending_sync_repo.reconstruct_state_from_payload.assert_called_once_with(
             mock_pending_sync.payload
         )
 
@@ -214,7 +214,7 @@ class TestFlushRetryQueue:
     """Test flush_retry_queue job."""
 
     @pytest.fixture
-    def scheduler_jobs(self):
+    def scheduler_jobs_service(self):
         """Create SchedulerJobs instance."""
         from modules.scheduler import SchedulerJobs
 
@@ -239,29 +239,29 @@ class TestFlushRetryQueue:
         return gen
 
     @pytest.mark.asyncio
-    async def test_flush_retry_queue_no_keys(self, scheduler_jobs):
+    async def test_flush_retry_queue_no_keys(self, scheduler_jobs_service):
         """Test when no retry keys exist."""
-        scheduler_jobs._cache.scan_iter = MagicMock(return_value=self._make_async_gen([])())
-        result = await scheduler_jobs.flush_retry_queue()
+        scheduler_jobs_service._cache.scan_iter = MagicMock(return_value=self._make_async_gen([])())
+        result = await scheduler_jobs_service.flush_retry_queue()
         assert result == 0
 
     @pytest.mark.asyncio
-    async def test_flush_retry_queue_with_items(self, scheduler_jobs):
+    async def test_flush_retry_queue_with_items(self, scheduler_jobs_service):
         """Test flushing items from retry queue."""
-        scheduler_jobs._cache.scan_iter = MagicMock(
+        scheduler_jobs_service._cache.scan_iter = MagicMock(
             return_value=self._make_async_gen([b"crawl:retry:example.com"])()
         )
-        scheduler_jobs._cache.zrangebyscore = AsyncMock(return_value=[b'{"url": "test"}'])
-        scheduler_jobs._cache.zrem = AsyncMock(return_value=1)
-        scheduler_jobs._cache.lpush = AsyncMock(return_value=1)
+        scheduler_jobs_service._cache.zrangebyscore = AsyncMock(return_value=[b'{"url": "test"}'])
+        scheduler_jobs_service._cache.zrem = AsyncMock(return_value=1)
+        scheduler_jobs_service._cache.lpush = AsyncMock(return_value=1)
 
-        result = await scheduler_jobs.flush_retry_queue()
+        result = await scheduler_jobs_service.flush_retry_queue()
         assert result == 1
 
     @pytest.mark.asyncio
-    async def test_flush_retry_queue_multiple_hosts(self, scheduler_jobs):
+    async def test_flush_retry_queue_multiple_hosts(self, scheduler_jobs_service):
         """Test flushing items from multiple hosts."""
-        scheduler_jobs._cache.scan_iter = MagicMock(
+        scheduler_jobs_service._cache.scan_iter = MagicMock(
             return_value=self._make_async_gen(
                 [
                     b"crawl:retry:host1.com",
@@ -269,11 +269,11 @@ class TestFlushRetryQueue:
                 ]
             )()
         )
-        scheduler_jobs._cache.zrangebyscore = AsyncMock(return_value=[b"item1", b"item2"])
-        scheduler_jobs._cache.zrem = AsyncMock(return_value=2)
-        scheduler_jobs._cache.lpush = AsyncMock(return_value=1)
+        scheduler_jobs_service._cache.zrangebyscore = AsyncMock(return_value=[b"item1", b"item2"])
+        scheduler_jobs_service._cache.zrem = AsyncMock(return_value=2)
+        scheduler_jobs_service._cache.lpush = AsyncMock(return_value=1)
 
-        result = await scheduler_jobs.flush_retry_queue()
+        result = await scheduler_jobs_service.flush_retry_queue()
         assert result == 4
 
 
@@ -281,7 +281,7 @@ class TestUpdateSourceAutoScores:
     """Test update_source_auto_scores job."""
 
     @pytest.fixture
-    def scheduler_jobs(self):
+    def scheduler_jobs_service(self):
         """Create SchedulerJobs instance."""
         from modules.scheduler import SchedulerJobs
 
@@ -296,26 +296,26 @@ class TestUpdateSourceAutoScores:
         )
 
     @pytest.mark.asyncio
-    async def test_update_source_auto_scores_no_sources(self, scheduler_jobs):
+    async def test_update_source_auto_scores_no_sources(self, scheduler_jobs_service):
         """Test when no sources have articles."""
         mock_session = AsyncMock()
         mock_result = MagicMock()
         mock_result.__iter__ = MagicMock(return_value=iter([]))
         mock_session.execute = AsyncMock(return_value=mock_result)
 
-        scheduler_jobs._relational_pool.session = MagicMock()
-        scheduler_jobs._relational_pool.session.return_value.__aenter__ = AsyncMock(
+        scheduler_jobs_service._relational_pool.session = MagicMock()
+        scheduler_jobs_service._relational_pool.session.return_value.__aenter__ = AsyncMock(
             return_value=mock_session
         )
-        scheduler_jobs._relational_pool.session.return_value.__aexit__ = AsyncMock(
+        scheduler_jobs_service._relational_pool.session.return_value.__aexit__ = AsyncMock(
             return_value=None
         )
 
-        result = await scheduler_jobs.update_source_auto_scores()
+        result = await scheduler_jobs_service.update_source_auto_scores()
         assert result == 0
 
     @pytest.mark.asyncio
-    async def test_update_source_auto_scores_with_sources(self, scheduler_jobs):
+    async def test_update_source_auto_scores_with_sources(self, scheduler_jobs_service):
         """Test updating scores for sources."""
         # First query: select(Article.source_host).distinct() → iterates rows
         hosts_result = MagicMock()
@@ -330,17 +330,17 @@ class TestUpdateSourceAutoScores:
         mock_session = AsyncMock()
         mock_session.execute = AsyncMock(side_effect=[hosts_result, articles_result])
 
-        scheduler_jobs._relational_pool.session = MagicMock()
-        scheduler_jobs._relational_pool.session.return_value.__aenter__ = AsyncMock(
+        scheduler_jobs_service._relational_pool.session = MagicMock()
+        scheduler_jobs_service._relational_pool.session.return_value.__aenter__ = AsyncMock(
             return_value=mock_session
         )
-        scheduler_jobs._relational_pool.session.return_value.__aexit__ = AsyncMock(
+        scheduler_jobs_service._relational_pool.session.return_value.__aexit__ = AsyncMock(
             return_value=None
         )
 
-        scheduler_jobs._source_authority_repo.update_auto_score = AsyncMock()
+        scheduler_jobs_service._source_authority_repo.update_auto_score = AsyncMock()
 
-        result = await scheduler_jobs.update_source_auto_scores()
+        result = await scheduler_jobs_service.update_source_auto_scores()
         assert result == 1
 
 
@@ -348,7 +348,7 @@ class TestArchiveOldNeo4jNodes:
     """Test archive_old_neo4j_nodes job."""
 
     @pytest.fixture
-    def scheduler_jobs(self):
+    def scheduler_jobs_service(self):
         """Create SchedulerJobs instance."""
         from modules.scheduler import SchedulerJobs
 
@@ -363,22 +363,24 @@ class TestArchiveOldNeo4jNodes:
         )
 
     @pytest.mark.asyncio
-    async def test_archive_old_nodes_success(self, scheduler_jobs):
+    async def test_archive_old_nodes_success(self, scheduler_jobs_service):
         """Test successful archiving of old nodes."""
-        scheduler_jobs._graph_writer.archive_old_articles = AsyncMock(return_value=10)
-        scheduler_jobs._graph_writer.entity_repo.delete_orphan_entities = AsyncMock(return_value=5)
+        scheduler_jobs_service._graph_writer.archive_old_articles = AsyncMock(return_value=10)
+        scheduler_jobs_service._graph_writer.entity_repo.delete_orphan_entities = AsyncMock(
+            return_value=5
+        )
 
-        result = await scheduler_jobs.archive_old_neo4j_nodes()
+        result = await scheduler_jobs_service.archive_old_neo4j_nodes()
         assert result == 10
 
     @pytest.mark.asyncio
-    async def test_archive_old_nodes_failure(self, scheduler_jobs):
+    async def test_archive_old_nodes_failure(self, scheduler_jobs_service):
         """Test handling of archive failure."""
-        scheduler_jobs._graph_writer.archive_old_articles = AsyncMock(
+        scheduler_jobs_service._graph_writer.archive_old_articles = AsyncMock(
             side_effect=Exception("Archive error")
         )
 
-        result = await scheduler_jobs.archive_old_neo4j_nodes()
+        result = await scheduler_jobs_service.archive_old_neo4j_nodes()
         assert result == 0
 
 
@@ -386,7 +388,7 @@ class TestCleanupOrphanEntityVectors:
     """Test cleanup_orphan_entity_vectors job."""
 
     @pytest.fixture
-    def scheduler_jobs(self):
+    def scheduler_jobs_service(self):
         """Create SchedulerJobs instance."""
         from modules.scheduler import SchedulerJobs
 
@@ -401,21 +403,23 @@ class TestCleanupOrphanEntityVectors:
         )
 
     @pytest.mark.asyncio
-    async def test_cleanup_orphan_vectors(self, scheduler_jobs):
+    async def test_cleanup_orphan_vectors(self, scheduler_jobs_service):
         """Test cleanup of orphan vectors."""
         mock_session = AsyncMock()
 
-        scheduler_jobs._relational_pool.session = MagicMock()
-        scheduler_jobs._relational_pool.session.return_value.__aenter__ = AsyncMock(
+        scheduler_jobs_service._relational_pool.session = MagicMock()
+        scheduler_jobs_service._relational_pool.session.return_value.__aenter__ = AsyncMock(
             return_value=mock_session
         )
-        scheduler_jobs._relational_pool.session.return_value.__aexit__ = AsyncMock(
+        scheduler_jobs_service._relational_pool.session.return_value.__aexit__ = AsyncMock(
             return_value=None
         )
 
-        scheduler_jobs._graph_writer.entity_repo.list_all_entity_ids = AsyncMock(return_value=[])
+        scheduler_jobs_service._graph_writer.entity_repo.list_all_entity_ids = AsyncMock(
+            return_value=[]
+        )
 
-        result = await scheduler_jobs.cleanup_orphan_entity_vectors()
+        result = await scheduler_jobs_service.cleanup_orphan_entity_vectors()
         assert result == 0
 
 
@@ -423,7 +427,7 @@ class TestRetryPipelineProcessing:
     """Test retry_pipeline_processing job."""
 
     @pytest.fixture
-    def scheduler_jobs_with_pipeline(self):
+    def scheduler_jobs_service_with_pipeline(self):
         """Create SchedulerJobs instance with pipeline."""
         from modules.scheduler import SchedulerJobs
 
@@ -439,7 +443,7 @@ class TestRetryPipelineProcessing:
         )
 
     @pytest.fixture
-    def scheduler_jobs_no_pipeline(self):
+    def scheduler_jobs_service_no_pipeline(self):
         """Create SchedulerJobs instance without pipeline."""
         from modules.scheduler import SchedulerJobs
 
@@ -455,22 +459,26 @@ class TestRetryPipelineProcessing:
         )
 
     @pytest.mark.asyncio
-    async def test_retry_pipeline_no_pipeline(self, scheduler_jobs_no_pipeline):
+    async def test_retry_pipeline_no_pipeline(self, scheduler_jobs_service_no_pipeline):
         """Test when pipeline is not configured."""
-        result = await scheduler_jobs_no_pipeline.retry_pipeline_processing()
+        result = await scheduler_jobs_service_no_pipeline.retry_pipeline_processing()
         assert result == 0
 
     @pytest.mark.asyncio
-    async def test_retry_pipeline_no_items(self, scheduler_jobs_with_pipeline):
+    async def test_retry_pipeline_no_items(self, scheduler_jobs_service_with_pipeline):
         """Test when no items need retry."""
-        scheduler_jobs_with_pipeline._article_repo.get_stuck_articles = AsyncMock(return_value=[])
-        scheduler_jobs_with_pipeline._article_repo.get_failed_articles = AsyncMock(return_value=[])
+        scheduler_jobs_service_with_pipeline._article_repo.get_stuck_articles = AsyncMock(
+            return_value=[]
+        )
+        scheduler_jobs_service_with_pipeline._article_repo.get_failed_articles = AsyncMock(
+            return_value=[]
+        )
 
-        result = await scheduler_jobs_with_pipeline.retry_pipeline_processing()
+        result = await scheduler_jobs_service_with_pipeline.retry_pipeline_processing()
         assert result == 0
 
     @pytest.mark.asyncio
-    async def test_retry_pipeline_with_stuck_articles(self, scheduler_jobs_with_pipeline):
+    async def test_retry_pipeline_with_stuck_articles(self, scheduler_jobs_service_with_pipeline):
         """Test retrying stuck articles."""
         mock_article = MagicMock()
         mock_article.id = MagicMock()
@@ -479,14 +487,16 @@ class TestRetryPipelineProcessing:
         mock_article.body = "Body"
         mock_article.source_host = "example.com"
 
-        scheduler_jobs_with_pipeline._article_repo.get_pending = AsyncMock(return_value=[])
-        scheduler_jobs_with_pipeline._article_repo.get_stuck_articles = AsyncMock(
+        scheduler_jobs_service_with_pipeline._article_repo.get_pending = AsyncMock(return_value=[])
+        scheduler_jobs_service_with_pipeline._article_repo.get_stuck_articles = AsyncMock(
             return_value=[mock_article]
         )
-        scheduler_jobs_with_pipeline._article_repo.get_failed_articles = AsyncMock(return_value=[])
-        scheduler_jobs_with_pipeline._pipeline.process_batch = AsyncMock()
+        scheduler_jobs_service_with_pipeline._article_repo.get_failed_articles = AsyncMock(
+            return_value=[]
+        )
+        scheduler_jobs_service_with_pipeline._pipeline.process_batch = AsyncMock()
 
-        result = await scheduler_jobs_with_pipeline.retry_pipeline_processing()
+        result = await scheduler_jobs_service_with_pipeline.retry_pipeline_processing()
         assert result == 1
 
 
@@ -494,7 +504,7 @@ class TestReconstructState:
     """Test _reconstruct_state method."""
 
     @pytest.fixture
-    def scheduler_jobs(self):
+    def scheduler_jobs_service(self):
         """Create SchedulerJobs instance."""
         from modules.scheduler import SchedulerJobs
 
@@ -509,7 +519,7 @@ class TestReconstructState:
         )
 
     @pytest.mark.asyncio
-    async def test_reconstruct_state(self, scheduler_jobs):
+    async def test_reconstruct_state(self, scheduler_jobs_service):
         """Test state reconstruction from article."""
         from core.db import Article
 
@@ -523,7 +533,7 @@ class TestReconstructState:
         mock_article.category = "tech"
         mock_article.score = 0.85
 
-        state = await scheduler_jobs._reconstruct_state(mock_article)
+        state = await scheduler_jobs_service._reconstruct_state(mock_article)
 
         assert state["article_id"] == str(mock_article.id)
         assert state["raw"].url == mock_article.source_url
@@ -537,7 +547,7 @@ class TestSyncNeo4jWithPostgres:
     """Test sync_neo4j_with_postgres job."""
 
     @pytest.fixture
-    def scheduler_jobs(self):
+    def scheduler_jobs_service(self):
         """Create SchedulerJobs instance."""
         from modules.scheduler import SchedulerJobs
 
@@ -552,21 +562,21 @@ class TestSyncNeo4jWithPostgres:
         )
 
     @pytest.mark.asyncio
-    async def test_sync_neo4j_no_orphans_no_gaps(self, scheduler_jobs):
+    async def test_sync_neo4j_no_orphans_no_gaps(self, scheduler_jobs_service):
         """Test when there are no orphans and no enrichment gaps."""
         import uuid
 
         pg_id = str(uuid.uuid4())
-        scheduler_jobs._article_repo.get_all_article_ids = AsyncMock(return_value={pg_id})
-        scheduler_jobs._graph_writer.article_repo.list_all_article_pg_ids = AsyncMock(
+        scheduler_jobs_service._article_repo.get_all_article_ids = AsyncMock(return_value={pg_id})
+        scheduler_jobs_service._graph_writer.article_repo.list_all_article_pg_ids = AsyncMock(
             return_value=[pg_id]
         )
-        scheduler_jobs._graph_writer.article_repo.count_articles_without_mentions = AsyncMock(
-            return_value=0
+        scheduler_jobs_service._graph_writer.article_repo.count_articles_without_mentions = (
+            AsyncMock(return_value=0)
         )
-        scheduler_jobs._article_repo.get_incomplete_articles = AsyncMock(return_value=[])
+        scheduler_jobs_service._article_repo.get_incomplete_articles = AsyncMock(return_value=[])
 
-        result = await scheduler_jobs.sync_neo4j_with_postgres()
+        result = await scheduler_jobs_service.sync_neo4j_with_postgres()
 
         assert result == {
             "neo4j_orphans_deleted": 0,
@@ -574,48 +584,52 @@ class TestSyncNeo4jWithPostgres:
             "enrichment_gaps_detected": 0,
             "enrichment_gaps_reverted": 0,
         }
-        scheduler_jobs._graph_writer.article_repo.delete_orphan_articles.assert_not_called()
-        scheduler_jobs._article_repo.revert_to_pg_done.assert_not_called()
+        scheduler_jobs_service._graph_writer.article_repo.delete_orphan_articles.assert_not_called()
+        scheduler_jobs_service._article_repo.revert_to_pg_done.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_sync_neo4j_deletes_orphans(self, scheduler_jobs):
+    async def test_sync_neo4j_deletes_orphans(self, scheduler_jobs_service):
         """Test orphan Neo4j articles are deleted."""
         import uuid
 
         pg_id = str(uuid.uuid4())
-        scheduler_jobs._article_repo.get_all_article_ids = AsyncMock(return_value={pg_id})
-        scheduler_jobs._graph_writer.article_repo.list_all_article_pg_ids = AsyncMock(
+        scheduler_jobs_service._article_repo.get_all_article_ids = AsyncMock(return_value={pg_id})
+        scheduler_jobs_service._graph_writer.article_repo.list_all_article_pg_ids = AsyncMock(
             return_value=[pg_id, "orphan-id"]
         )
-        scheduler_jobs._article_repo.get_incomplete_articles = AsyncMock(return_value=[])
-        scheduler_jobs._graph_writer.article_repo.delete_orphan_articles = AsyncMock(return_value=1)
-        scheduler_jobs._graph_writer.article_repo.count_articles_without_mentions = AsyncMock(
-            return_value=0
+        scheduler_jobs_service._article_repo.get_incomplete_articles = AsyncMock(return_value=[])
+        scheduler_jobs_service._graph_writer.article_repo.delete_orphan_articles = AsyncMock(
+            return_value=1
+        )
+        scheduler_jobs_service._graph_writer.article_repo.count_articles_without_mentions = (
+            AsyncMock(return_value=0)
         )
 
-        result = await scheduler_jobs.sync_neo4j_with_postgres()
+        result = await scheduler_jobs_service.sync_neo4j_with_postgres()
 
         assert result["neo4j_orphans_deleted"] == 1
         assert result["orphan_articles_cleaned"] == 0
         assert result["enrichment_gaps_detected"] == 0
         assert result["enrichment_gaps_reverted"] == 0
-        scheduler_jobs._graph_writer.article_repo.delete_orphan_articles.assert_called_once()
+        scheduler_jobs_service._graph_writer.article_repo.delete_orphan_articles.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_sync_neo4j_reverts_enrichment_gaps(self, scheduler_jobs):
+    async def test_sync_neo4j_reverts_enrichment_gaps(self, scheduler_jobs_service):
         """Test enrichment gaps are reverted to PG_DONE."""
         import uuid
 
         from core.db import Article, PersistStatus
 
         pg_id = str(uuid.uuid4())
-        scheduler_jobs._article_repo.get_all_article_ids = AsyncMock(return_value={pg_id})
-        scheduler_jobs._graph_writer.article_repo.list_all_article_pg_ids = AsyncMock(
+        scheduler_jobs_service._article_repo.get_all_article_ids = AsyncMock(return_value={pg_id})
+        scheduler_jobs_service._graph_writer.article_repo.list_all_article_pg_ids = AsyncMock(
             return_value=[pg_id]
         )
-        scheduler_jobs._graph_writer.article_repo.delete_orphan_articles = AsyncMock(return_value=0)
-        scheduler_jobs._graph_writer.article_repo.count_articles_without_mentions = AsyncMock(
+        scheduler_jobs_service._graph_writer.article_repo.delete_orphan_articles = AsyncMock(
             return_value=0
+        )
+        scheduler_jobs_service._graph_writer.article_repo.count_articles_without_mentions = (
+            AsyncMock(return_value=0)
         )
 
         incomplete_article = MagicMock(spec=Article)
@@ -628,19 +642,19 @@ class TestSyncNeo4jWithPostgres:
         incomplete_article.summary = None
         incomplete_article.quality_score = None
 
-        scheduler_jobs._article_repo.get_incomplete_articles = AsyncMock(
+        scheduler_jobs_service._article_repo.get_incomplete_articles = AsyncMock(
             return_value=[incomplete_article]
         )
-        scheduler_jobs._article_repo.revert_to_pg_done = AsyncMock(return_value=True)
+        scheduler_jobs_service._article_repo.revert_to_pg_done = AsyncMock(return_value=True)
 
-        result = await scheduler_jobs.sync_neo4j_with_postgres()
+        result = await scheduler_jobs_service.sync_neo4j_with_postgres()
 
         # sync returns dict with stats (1 enrichment gap detected and reverted)
         assert result["neo4j_orphans_deleted"] == 0
         assert result["orphan_articles_cleaned"] == 0
         assert result["enrichment_gaps_detected"] == 1
         assert result["enrichment_gaps_reverted"] == 1
-        scheduler_jobs._article_repo.revert_to_pg_done.assert_called_once_with(
+        scheduler_jobs_service._article_repo.revert_to_pg_done.assert_called_once_with(
             incomplete_article.id
         )
 
@@ -767,7 +781,7 @@ class TestSyncPendingToNeo4j:
     """Test sync_pending_to_neo4j job."""
 
     @pytest.fixture
-    def scheduler_jobs(self):
+    def scheduler_jobs_service(self):
         """Create SchedulerJobs instance."""
         from modules.scheduler import SchedulerJobs
 
@@ -782,17 +796,17 @@ class TestSyncPendingToNeo4j:
         )
 
     @pytest.mark.asyncio
-    async def test_sync_pending_to_neo4j_no_items(self, scheduler_jobs):
+    async def test_sync_pending_to_neo4j_no_items(self, scheduler_jobs_service):
         """Test when no pending records exist."""
-        scheduler_jobs._pending_sync_repo.get_pending = AsyncMock(return_value=[])
+        scheduler_jobs_service._pending_sync_repo.get_pending = AsyncMock(return_value=[])
 
-        result = await scheduler_jobs.sync_pending_to_neo4j()
+        result = await scheduler_jobs_service.sync_pending_to_neo4j()
 
         assert result == 0
-        scheduler_jobs._graph_writer.write.assert_not_called()
+        scheduler_jobs_service._graph_writer.write.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_sync_pending_to_neo4j_success(self, scheduler_jobs):
+    async def test_sync_pending_to_neo4j_success(self, scheduler_jobs_service):
         """Test successful sync of pending records."""
         import uuid
         from datetime import UTC, datetime
@@ -809,23 +823,25 @@ class TestSyncPendingToNeo4j:
         }
         mock_record.created_at = datetime.now(UTC)
 
-        scheduler_jobs._pending_sync_repo.get_pending = AsyncMock(return_value=[mock_record])
-        scheduler_jobs._pending_sync_repo.reconstruct_state_from_payload = MagicMock(
+        scheduler_jobs_service._pending_sync_repo.get_pending = AsyncMock(
+            return_value=[mock_record]
+        )
+        scheduler_jobs_service._pending_sync_repo.reconstruct_state_from_payload = MagicMock(
             return_value={"article_id": str(mock_record.article_id)}
         )
-        scheduler_jobs._graph_writer.write = AsyncMock(return_value=[])
-        scheduler_jobs._article_repo.update_persist_status = AsyncMock()
-        scheduler_jobs._pending_sync_repo.mark_synced = AsyncMock()
+        scheduler_jobs_service._graph_writer.write = AsyncMock(return_value=[])
+        scheduler_jobs_service._article_repo.update_persist_status = AsyncMock()
+        scheduler_jobs_service._pending_sync_repo.mark_synced = AsyncMock()
 
-        result = await scheduler_jobs.sync_pending_to_neo4j()
+        result = await scheduler_jobs_service.sync_pending_to_neo4j()
 
         assert result == 1
-        scheduler_jobs._graph_writer.write.assert_called_once()
-        scheduler_jobs._article_repo.update_persist_status.assert_called_once()
-        scheduler_jobs._pending_sync_repo.mark_synced.assert_called_once_with(1)
+        scheduler_jobs_service._graph_writer.write.assert_called_once()
+        scheduler_jobs_service._article_repo.update_persist_status.assert_called_once()
+        scheduler_jobs_service._pending_sync_repo.mark_synced.assert_called_once_with(1)
 
     @pytest.mark.asyncio
-    async def test_sync_pending_to_neo4j_failure(self, scheduler_jobs):
+    async def test_sync_pending_to_neo4j_failure(self, scheduler_jobs_service):
         """Test handling of sync failure."""
         import uuid
         from datetime import UTC, datetime
@@ -838,24 +854,28 @@ class TestSyncPendingToNeo4j:
         mock_record.payload = {"article_id": str(mock_record.article_id)}
         mock_record.created_at = datetime.now(UTC)
 
-        scheduler_jobs._pending_sync_repo.get_pending = AsyncMock(return_value=[mock_record])
-        scheduler_jobs._pending_sync_repo.reconstruct_state_from_payload = MagicMock(
+        scheduler_jobs_service._pending_sync_repo.get_pending = AsyncMock(
+            return_value=[mock_record]
+        )
+        scheduler_jobs_service._pending_sync_repo.reconstruct_state_from_payload = MagicMock(
             return_value={"article_id": str(mock_record.article_id)}
         )
-        scheduler_jobs._graph_writer.write = AsyncMock(side_effect=Exception("Neo4j error"))
-        scheduler_jobs._pending_sync_repo.mark_failed = AsyncMock()
+        scheduler_jobs_service._graph_writer.write = AsyncMock(side_effect=Exception("Neo4j error"))
+        scheduler_jobs_service._pending_sync_repo.mark_failed = AsyncMock()
 
-        result = await scheduler_jobs.sync_pending_to_neo4j()
+        result = await scheduler_jobs_service.sync_pending_to_neo4j()
 
         assert result == 0
-        scheduler_jobs._pending_sync_repo.mark_failed.assert_called_once_with(1, "Neo4j error")
+        scheduler_jobs_service._pending_sync_repo.mark_failed.assert_called_once_with(
+            1, "Neo4j error"
+        )
 
 
 class TestConsistencyCheck:
     """Test consistency_check job."""
 
     @pytest.fixture
-    def scheduler_jobs(self):
+    def scheduler_jobs_service(self):
         """Create SchedulerJobs instance."""
         from modules.scheduler import SchedulerJobs
 
@@ -870,53 +890,65 @@ class TestConsistencyCheck:
         )
 
     @pytest.mark.asyncio
-    async def test_consistency_check_no_mismatch(self, scheduler_jobs):
+    async def test_consistency_check_no_mismatch(self, scheduler_jobs_service):
         """Test when entity counts match."""
-        scheduler_jobs._graph_writer.entity_repo.list_all_entity_ids = AsyncMock(
+        scheduler_jobs_service._graph_writer.entity_repo.list_all_entity_ids = AsyncMock(
             return_value=["id1", "id2", "id3"]
         )
-        scheduler_jobs._vector_repo.count_entities_with_valid_neo4j_ids = AsyncMock(return_value=3)
-        scheduler_jobs._vector_repo.get_entity_vectors_with_temp_keys = AsyncMock(return_value=[])
-        scheduler_jobs._pending_sync_repo.get_stale_pending = AsyncMock(return_value=[])
+        scheduler_jobs_service._vector_repo.count_entities_with_valid_neo4j_ids = AsyncMock(
+            return_value=3
+        )
+        scheduler_jobs_service._vector_repo.get_entity_vectors_with_temp_keys = AsyncMock(
+            return_value=[]
+        )
+        scheduler_jobs_service._pending_sync_repo.get_stale_pending = AsyncMock(return_value=[])
 
-        result = await scheduler_jobs.consistency_check()
+        result = await scheduler_jobs_service.consistency_check()
 
         assert result["entity_mismatch"] is False
         assert result["orphan_temp_keys"] == []
         assert result["stale_pending"] == []
 
     @pytest.mark.asyncio
-    async def test_consistency_check_entity_mismatch(self, scheduler_jobs):
+    async def test_consistency_check_entity_mismatch(self, scheduler_jobs_service):
         """Test when entity counts don't match."""
-        scheduler_jobs._graph_writer.entity_repo.list_all_entity_ids = AsyncMock(
+        scheduler_jobs_service._graph_writer.entity_repo.list_all_entity_ids = AsyncMock(
             return_value=["id1", "id2"]
         )
-        scheduler_jobs._vector_repo.count_entities_with_valid_neo4j_ids = AsyncMock(return_value=5)
-        scheduler_jobs._vector_repo.get_entity_vectors_with_temp_keys = AsyncMock(return_value=[])
-        scheduler_jobs._pending_sync_repo.get_stale_pending = AsyncMock(return_value=[])
+        scheduler_jobs_service._vector_repo.count_entities_with_valid_neo4j_ids = AsyncMock(
+            return_value=5
+        )
+        scheduler_jobs_service._vector_repo.get_entity_vectors_with_temp_keys = AsyncMock(
+            return_value=[]
+        )
+        scheduler_jobs_service._pending_sync_repo.get_stale_pending = AsyncMock(return_value=[])
 
-        result = await scheduler_jobs.consistency_check()
+        result = await scheduler_jobs_service.consistency_check()
 
         assert result["entity_mismatch"] is True
         assert result["neo4j_count"] == 2
         assert result["pg_count"] == 5
 
     @pytest.mark.asyncio
-    async def test_consistency_check_orphan_temp_keys(self, scheduler_jobs):
+    async def test_consistency_check_orphan_temp_keys(self, scheduler_jobs_service):
         """Test detection of orphan temp keys."""
-        scheduler_jobs._graph_writer.entity_repo.list_all_entity_ids = AsyncMock(return_value=[])
-        scheduler_jobs._vector_repo.count_entities_with_valid_neo4j_ids = AsyncMock(return_value=0)
-        scheduler_jobs._vector_repo.get_entity_vectors_with_temp_keys = AsyncMock(
+        scheduler_jobs_service._graph_writer.entity_repo.list_all_entity_ids = AsyncMock(
+            return_value=[]
+        )
+        scheduler_jobs_service._vector_repo.count_entities_with_valid_neo4j_ids = AsyncMock(
+            return_value=0
+        )
+        scheduler_jobs_service._vector_repo.get_entity_vectors_with_temp_keys = AsyncMock(
             return_value=[("temp_key1", []), ("temp_key2", [])]
         )
-        scheduler_jobs._pending_sync_repo.get_stale_pending = AsyncMock(return_value=[])
+        scheduler_jobs_service._pending_sync_repo.get_stale_pending = AsyncMock(return_value=[])
 
-        result = await scheduler_jobs.consistency_check()
+        result = await scheduler_jobs_service.consistency_check()
 
         assert result["orphan_temp_keys"] == ["temp_key1", "temp_key2"]
 
     @pytest.mark.asyncio
-    async def test_consistency_check_stale_pending(self, scheduler_jobs):
+    async def test_consistency_check_stale_pending(self, scheduler_jobs_service):
         """Test detection of stale pending records."""
         import uuid
         from datetime import UTC, datetime
@@ -928,12 +960,20 @@ class TestConsistencyCheck:
         mock_record.article_id = uuid.uuid4()
         mock_record.created_at = datetime.now(UTC)
 
-        scheduler_jobs._graph_writer.entity_repo.list_all_entity_ids = AsyncMock(return_value=[])
-        scheduler_jobs._vector_repo.count_entities_with_valid_neo4j_ids = AsyncMock(return_value=0)
-        scheduler_jobs._vector_repo.get_entity_vectors_with_temp_keys = AsyncMock(return_value=[])
-        scheduler_jobs._pending_sync_repo.get_stale_pending = AsyncMock(return_value=[mock_record])
+        scheduler_jobs_service._graph_writer.entity_repo.list_all_entity_ids = AsyncMock(
+            return_value=[]
+        )
+        scheduler_jobs_service._vector_repo.count_entities_with_valid_neo4j_ids = AsyncMock(
+            return_value=0
+        )
+        scheduler_jobs_service._vector_repo.get_entity_vectors_with_temp_keys = AsyncMock(
+            return_value=[]
+        )
+        scheduler_jobs_service._pending_sync_repo.get_stale_pending = AsyncMock(
+            return_value=[mock_record]
+        )
 
-        result = await scheduler_jobs.consistency_check()
+        result = await scheduler_jobs_service.consistency_check()
 
         assert len(result["stale_pending"]) == 1
         assert result["stale_pending"][0]["id"] == 1
@@ -943,7 +983,7 @@ class TestCleanupOldSynced:
     """Test cleanup_old_synced job."""
 
     @pytest.fixture
-    def scheduler_jobs(self):
+    def scheduler_jobs_service(self):
         """Create SchedulerJobs instance."""
         from modules.scheduler import SchedulerJobs
 
@@ -958,23 +998,23 @@ class TestCleanupOldSynced:
         )
 
     @pytest.mark.asyncio
-    async def test_cleanup_old_synced_success(self, scheduler_jobs):
+    async def test_cleanup_old_synced_success(self, scheduler_jobs_service):
         """Test cleanup of old synced records."""
-        scheduler_jobs._pending_sync_repo.cleanup_old_synced = AsyncMock(return_value=5)
+        scheduler_jobs_service._pending_sync_repo.cleanup_old_synced = AsyncMock(return_value=5)
 
-        result = await scheduler_jobs.cleanup_old_synced()
+        result = await scheduler_jobs_service.cleanup_old_synced()
 
         assert result == 5
-        scheduler_jobs._pending_sync_repo.cleanup_old_synced.assert_called_once_with(days=7)
+        scheduler_jobs_service._pending_sync_repo.cleanup_old_synced.assert_called_once_with(days=7)
 
     @pytest.mark.asyncio
-    async def test_cleanup_old_synced_error(self, scheduler_jobs):
+    async def test_cleanup_old_synced_error(self, scheduler_jobs_service):
         """Test handling of cleanup error."""
-        scheduler_jobs._pending_sync_repo.cleanup_old_synced = AsyncMock(
+        scheduler_jobs_service._pending_sync_repo.cleanup_old_synced = AsyncMock(
             side_effect=Exception("DB error")
         )
 
-        result = await scheduler_jobs.cleanup_old_synced()
+        result = await scheduler_jobs_service.cleanup_old_synced()
 
         assert result == 0
 
@@ -983,7 +1023,7 @@ class TestLLMFailureCleanup:
     """Test llm_failure_cleanup job."""
 
     @pytest.fixture
-    def scheduler_jobs(self):
+    def scheduler_jobs_service(self):
         from modules.scheduler import SchedulerJobs
 
         mock_llm_failure_repo = MagicMock()
@@ -1000,10 +1040,10 @@ class TestLLMFailureCleanup:
         )
 
     @pytest.mark.asyncio
-    async def test_llm_failure_cleanup_calls_repo(self, scheduler_jobs):
-        result = await scheduler_jobs.llm_failure_cleanup()
+    async def test_llm_failure_cleanup_calls_repo(self, scheduler_jobs_service):
+        result = await scheduler_jobs_service.llm_failure_cleanup()
         assert result == 5
-        scheduler_jobs._llm_failure_repo.cleanup_older_than.assert_awaited_once_with(3)
+        scheduler_jobs_service._llm_failure_repo.cleanup_older_than.assert_awaited_once_with(3)
 
     @pytest.mark.asyncio
     async def test_llm_failure_cleanup_no_repo(self):
@@ -1027,7 +1067,7 @@ class TestLLMUsageRawCleanup:
     """Test llm_usage_raw_cleanup job."""
 
     @pytest.fixture
-    def scheduler_jobs(self):
+    def scheduler_jobs_service(self):
         from modules.scheduler import SchedulerJobs
 
         return SchedulerJobs(
@@ -1041,13 +1081,13 @@ class TestLLMUsageRawCleanup:
         )
 
     @pytest.mark.asyncio
-    async def test_llm_usage_raw_cleanup(self, scheduler_jobs):
+    async def test_llm_usage_raw_cleanup(self, scheduler_jobs_service):
         with patch("modules.analytics.llm_usage.repo.LLMUsageRepo") as MockRepo:
             mock_repo = AsyncMock()
             mock_repo.cleanup_raw_older_than = AsyncMock(return_value=10)
             MockRepo.return_value = mock_repo
 
-            result = await scheduler_jobs.llm_usage_raw_cleanup()
+            result = await scheduler_jobs_service.llm_usage_raw_cleanup()
 
             assert result == 10
             mock_repo.cleanup_raw_older_than.assert_awaited_once_with(2)
@@ -1057,7 +1097,7 @@ class TestAggregateLLMUsage:
     """Test aggregate_llm_usage job."""
 
     @pytest.fixture
-    def scheduler_jobs(self):
+    def scheduler_jobs_service(self):
         from modules.scheduler import SchedulerJobs
 
         return SchedulerJobs(
@@ -1071,11 +1111,11 @@ class TestAggregateLLMUsage:
         )
 
     @pytest.mark.asyncio
-    async def test_aggregate_llm_usage(self, scheduler_jobs):
+    async def test_aggregate_llm_usage(self, scheduler_jobs_service):
         with patch("modules.analytics.llm_usage.aggregator.flush_usage_buffer") as mock_flush:
             mock_flush.return_value = (5, 0)  # 5 processed, 0 errors
 
-            result = await scheduler_jobs.aggregate_llm_usage()
+            result = await scheduler_jobs_service.aggregate_llm_usage()
 
             assert result == 5
             mock_flush.assert_awaited_once()

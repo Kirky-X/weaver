@@ -498,7 +498,7 @@ class LLMUsageRepo:
                 LLMUsageRaw.error_type,
                 func.count().label("count"),
             )
-            .where(and_(*conditions, LLMUsageRaw.success == False))  # noqa: E712
+            .where(and_(*conditions, LLMUsageRaw.success.is_(False)))
             .group_by(LLMUsageRaw.error_type)
         )
 

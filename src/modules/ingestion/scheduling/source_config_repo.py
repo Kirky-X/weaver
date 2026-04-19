@@ -99,7 +99,7 @@ class SourceConfigRepo:
         async with self._pool.session() as session:
             query = select(Source)
             if enabled_only:
-                query = query.where(Source.enabled == True)  # noqa: E712
+                query = query.where(Source.enabled.is_(True))
             result = await session.execute(query.order_by(Source.name))
             return [self._to_config(s) for s in result.scalars().all()]
 

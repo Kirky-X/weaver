@@ -109,21 +109,21 @@ class TestEndpointsDependencyRegistry:
         assert exc_info.value.status_code == 503
 
     def test_get_cache_returns_when_set(self):
-        """Test get_cache returns client when set."""
+        """Test get_cache_client returns client when set."""
         from api.endpoints._deps import Endpoints
 
         mock_cache = MagicMock()
         Endpoints._cache = mock_cache
-        result = Endpoints.get_cache()
+        result = Endpoints.get_cache_client()
         assert result == mock_cache
 
     def test_get_cache_raises_when_not_set(self):
-        """Test get_cache raises HTTPException when not set."""
+        """Test get_cache_client raises HTTPException when not set."""
         from api.endpoints._deps import Endpoints
 
         Endpoints._cache = None
         with pytest.raises(HTTPException) as exc_info:
-            Endpoints.get_cache()
+            Endpoints.get_cache_client()
         assert exc_info.value.status_code == 503
 
     def test_get_llm_returns_when_set(self):
@@ -132,7 +132,7 @@ class TestEndpointsDependencyRegistry:
 
         mock_llm = MagicMock()
         Endpoints._llm = mock_llm
-        result = Endpoints.get_llm()
+        result = Endpoints.get_llm_client()
         assert result == mock_llm
 
     def test_get_llm_raises_when_not_set(self):
@@ -141,7 +141,7 @@ class TestEndpointsDependencyRegistry:
 
         Endpoints._llm = None
         with pytest.raises(HTTPException) as exc_info:
-            Endpoints.get_llm()
+            Endpoints.get_llm_client()
         assert exc_info.value.status_code == 503
 
     def test_get_vector_repo_returns_when_set(self):
@@ -257,14 +257,14 @@ class TestDependencyFunctions:
         result = get_relational_pool()
         assert result == mock_pool
 
-    def test_get_cache_pool_delegates_to_endpoints(self):
-        """Test get_cache_pool delegates to Endpoints."""
-        from api.dependencies import get_cache_pool
+    def test_get_cache_client_delegates_to_endpoints(self):
+        """Test get_cache_client delegates to Endpoints."""
+        from api.dependencies import get_cache_client
         from api.endpoints._deps import Endpoints
 
         mock_cache = MagicMock()
         Endpoints._cache = mock_cache
-        result = get_cache_pool()
+        result = get_cache_client()
         assert result == mock_cache
 
     def test_get_graph_pool_delegates_to_endpoints(self):
@@ -317,14 +317,14 @@ class TestDependencyFunctions:
         result = get_global_search_engine()
         assert result == mock_engine
 
-    def test_get_hybrid_search_engine_delegates_to_endpoints(self):
-        """Test get_hybrid_search_engine delegates to Endpoints."""
-        from api.dependencies import get_hybrid_search_engine
+    def test_get_hybrid_engine_delegates_to_endpoints(self):
+        """Test get_hybrid_engine delegates to Endpoints."""
+        from api.dependencies import get_hybrid_engine
         from api.endpoints._deps import Endpoints
 
         mock_engine = MagicMock()
         Endpoints._hybrid_engine = mock_engine
-        result = get_hybrid_search_engine()
+        result = get_hybrid_engine()
         assert result == mock_engine
 
     def test_get_source_scheduler_delegates_to_endpoints(self):
@@ -449,11 +449,11 @@ class TestDependencyErrorHandling:
         getters = [
             Endpoints.get_relational_pool,
             Endpoints.get_graph_pool,
-            Endpoints.get_cache_pool,
+            Endpoints.get_cache_client,
             Endpoints.get_llm_client,
             Endpoints.get_local_search_engine,
             Endpoints.get_global_search_engine,
-            Endpoints.get_hybrid_search_engine,
+            Endpoints.get_hybrid_engine,
             Endpoints.get_vector_repo,
             Endpoints.get_graph_repo,
             Endpoints.get_source_scheduler,

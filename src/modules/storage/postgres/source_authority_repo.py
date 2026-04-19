@@ -99,7 +99,7 @@ class SourceAuthorityRepo:
         async with self._pool.session() as session:
             result = await session.execute(
                 select(SourceAuthority)
-                .where(SourceAuthority.needs_review == True)  # noqa: E712
+                .where(SourceAuthority.needs_review.is_(True))
                 .order_by(SourceAuthority.host)
             )
             return list(result.scalars().all())

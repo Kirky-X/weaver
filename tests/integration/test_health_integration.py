@@ -54,13 +54,13 @@ class TestHealthEndpointIntegration:
         app,
         relational_pool,
         graph_pool,
-        cache_pool,
+        cache_client,
     ):
         """Test health endpoint returns 200 when all services are healthy."""
         # Set global pools with real connections (using fallback fixtures)
         rel_pool, _ = relational_pool
         g_pool, _ = graph_pool
-        cache, _ = cache_pool
+        cache, _ = cache_client
 
         Endpoints._relational_pool = rel_pool
         Endpoints._graph_pool = g_pool
@@ -100,13 +100,13 @@ class TestHealthEndpointIntegration:
         app,
         relational_pool,
         graph_pool,
-        cache_pool,
+        cache_client,
     ):
         """Test health endpoint response format is correct."""
         # Set global pools (using fallback fixtures)
         rel_pool, _ = relational_pool
         g_pool, _ = graph_pool
-        cache, _ = cache_pool
+        cache, _ = cache_client
 
         Endpoints._relational_pool = rel_pool
         Endpoints._graph_pool = g_pool
@@ -154,7 +154,7 @@ class TestHealthEndpointIntegration:
         app,
         relational_pool,
         graph_pool,
-        cache_pool,
+        cache_client,
     ):
         """Test health endpoint responds within reasonable time."""
         import time
@@ -162,7 +162,7 @@ class TestHealthEndpointIntegration:
         # Set global pools (using fallback fixtures)
         rel_pool, _ = relational_pool
         g_pool, _ = graph_pool
-        cache, _ = cache_pool
+        cache, _ = cache_client
 
         Endpoints._relational_pool = rel_pool
         Endpoints._graph_pool = g_pool
@@ -217,9 +217,9 @@ class TestIndividualHealthChecks:
         assert result.get("error") is None
 
     @pytest.mark.asyncio
-    async def test_check_redis_health_with_real_client(self, cache_pool):
+    async def test_check_redis_health_with_real_client(self, cache_client):
         """Test Redis health check with real connection."""
-        client, _ = cache_pool
+        client, _ = cache_client
         result = await check_redis_health(client)
 
         assert result["status"] == "ok"

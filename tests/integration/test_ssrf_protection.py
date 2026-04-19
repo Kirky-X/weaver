@@ -37,7 +37,7 @@ class TestSSRFProtection:
         return URLValidator(
             config=url_validator_config,
             fetcher=httpx_fetcher,
-            redis_client=None,
+            cache_client=None,
         )
 
     # ── URL Validation Tests ─────────────────────────────────────────────────

@@ -174,7 +174,7 @@ tests/unit/
 
 **文件**:
 
-- `test_scheduler_jobs.py` - 调度作业测试
+- `test_scheduler_jobs_service.py` - 调度作业测试
 
 #### `search/` - 搜索
 

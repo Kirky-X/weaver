@@ -222,6 +222,10 @@ class TestSourcesEndpoint:
         mock_repo.get = AsyncMock(return_value=mock_existing)
         mock_repo.upsert = AsyncMock(side_effect=lambda cfg: cfg)
 
+        mock_scheduler = MagicMock()
+        mock_scheduler._registry = MagicMock()
+        mock_scheduler._registry.add_source = MagicMock()
+
         request = SourceUpdateRequest(name="New Name", enabled=False)
 
         result = await update_source(
@@ -229,10 +233,12 @@ class TestSourcesEndpoint:
             request=request,
             _="test-key",
             repo=mock_repo,
+            scheduler=mock_scheduler,
         )
         assert mock_existing.name == "New Name"
         assert mock_existing.enabled is False
         mock_repo.upsert.assert_called_once()
+        mock_scheduler._registry.add_source.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_update_source_endpoint_not_found(self):
@@ -295,7 +301,7 @@ class TestPipelineEndpoint:
 
     def test_trigger_request_model(self):
         """Test TriggerRequest model."""
-        from api.endpoints.content.pipeline import TriggerRequest
+        from api.endpoints.admin.admin import TriggerRequest
 
         request = TriggerRequest()
         assert request.source_id is None
@@ -303,7 +309,7 @@ class TestPipelineEndpoint:
 
     def test_trigger_request_with_values(self):
         """Test TriggerRequest with custom values."""
-        from api.endpoints.content.pipeline import TriggerRequest
+        from api.endpoints.admin.admin import TriggerRequest
 
         request = TriggerRequest(source_id="source-1", force=True)
         assert request.source_id == "source-1"
@@ -311,7 +317,7 @@ class TestPipelineEndpoint:
 
     def test_trigger_response_model(self):
         """Test TriggerResponse model."""
-        from api.endpoints.content.pipeline import TriggerResponse
+        from api.endpoints.admin.admin import TriggerResponse
 
         response = TriggerResponse(
             task_id="test-123",
@@ -341,8 +347,8 @@ class TestPipelineEndpoint:
 
     @pytest.mark.asyncio
     async def test_trigger_pipeline_specific_source(self):
-        """Test POST /pipeline/trigger with specific source."""
-        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
+        """Test POST /admin/pipeline/trigger with specific source."""
+        from api.endpoints.admin.admin import TriggerRequest, trigger_pipeline
 
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
@@ -372,8 +378,8 @@ class TestPipelineEndpoint:
 
     @pytest.mark.asyncio
     async def test_trigger_pipeline_all_sources(self):
-        """Test POST /pipeline/trigger for all enabled sources."""
-        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
+        """Test POST /admin/pipeline/trigger for all enabled sources."""
+        from api.endpoints.admin.admin import TriggerRequest, trigger_pipeline
 
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
@@ -390,7 +396,7 @@ class TestPipelineEndpoint:
         request = TriggerRequest()
 
         with patch(
-            "api.endpoints.content.pipeline.uuid.uuid4",
+            "api.endpoints.admin.admin.uuid.uuid4",
             return_value=uuid.UUID("12345678-1234-5678-1234-567812345678"),
         ):
             result = await trigger_pipeline(
@@ -404,8 +410,8 @@ class TestPipelineEndpoint:
 
     @pytest.mark.asyncio
     async def test_trigger_pipeline_failure(self):
-        """Test POST /pipeline/trigger handles errors."""
-        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
+        """Test POST /admin/pipeline/trigger handles errors."""
+        from api.endpoints.admin.admin import TriggerRequest, trigger_pipeline
 
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
@@ -416,7 +422,7 @@ class TestPipelineEndpoint:
         request = TriggerRequest(source_id="source-1")
 
         with patch(
-            "api.endpoints.content.pipeline.uuid.uuid4",
+            "api.endpoints.admin.admin.uuid.uuid4",
             return_value=uuid.UUID("12345678-1234-5678-1234-567812345678"),
         ):
             with pytest.raises(HTTPException) as exc_info:
@@ -511,8 +517,8 @@ class TestPipelineEndpoint:
         assert result.data["queue_depth"] == 5
         assert result.data["total_tasks"] == 2
 
-    # NOTE: _redis_client module-level variable removed in favor of Endpoints class
-    # The get_redis_client function now uses api.dependencies.get_redis_client()
+    # NOTE: _cache_client module-level variable removed in favor of Endpoints class
+    # The get_cache_client function now uses api.dependencies.get_cache_client()
 
     # NOTE: _source_scheduler module-level variable removed in favor of Endpoints class
     # The get_source_scheduler function now uses api.dependencies.get_source_scheduler()

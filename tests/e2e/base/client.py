@@ -161,7 +161,7 @@ class E2EClient:
         force: bool = False,
         max_items: int | None = None,
     ) -> dict[str, Any]:
-        """Trigger pipeline via POST /api/v1/pipeline/trigger.
+        """Trigger pipeline via POST /api/v1/admin/pipeline/trigger.
 
         Args:
             source_id: Specific source to crawl, or None for all.
@@ -178,7 +178,7 @@ class E2EClient:
             payload["max_items"] = max_items
 
         response = self._client.post(
-            "/api/v1/pipeline/trigger",
+            "/api/v1/admin/pipeline/trigger",
             json=payload,
             headers=self.headers,
         )

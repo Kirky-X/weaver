@@ -316,9 +316,9 @@ class BM25Retriever:
             log.info(
                 "bm25_incremental_index_built",
                 num_documents=len(self._documents),
-                avg_tokens=sum(len(t) for t in self._corpus) / len(self._corpus)
-                if self._corpus
-                else 0,
+                avg_tokens=(
+                    sum(len(t) for t in self._corpus) / len(self._corpus) if self._corpus else 0
+                ),
             )
 
     def retrieve(self, query: str, top_k: int = 10) -> list[BM25Result]:

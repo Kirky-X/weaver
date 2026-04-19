@@ -327,8 +327,8 @@ class TestSearchDependencyGetters:
 
     @pytest.mark.asyncio
     async def test_get_llm_client_raises_503_when_uninitialized(self):
-        """Test Endpoints.get_llm() raises 503 when client not set."""
+        """Test Endpoints.get_llm_client() raises 503 when client not set."""
         Endpoints._llm = None
         with pytest.raises(HTTPException) as exc_info:
-            Endpoints.get_llm()
+            Endpoints.get_llm_client()
         assert exc_info.value.status_code == 503

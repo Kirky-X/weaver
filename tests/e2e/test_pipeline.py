@@ -15,9 +15,9 @@ class TestPipelineEndpoint:
         client: TestClient,  # type: ignore[name-defined]
         auth_headers: dict[str, str],
     ) -> None:
-        """Test that POST /api/v1/pipeline/trigger returns a task_id."""
+        """Test that POST /api/v1/admin/pipeline/trigger returns a task_id."""
         response = client.post(
-            "/api/v1/pipeline/trigger",
+            "/api/v1/admin/pipeline/trigger",
             json={},
             headers=auth_headers,
         )
@@ -36,7 +36,7 @@ class TestPipelineEndpoint:
         """Test that GET /api/v1/pipeline/tasks/{id} shows correct status."""
         # First trigger a task
         trigger_response = client.post(
-            "/api/v1/pipeline/trigger",
+            "/api/v1/admin/pipeline/trigger",
             json={},
             headers=auth_headers,
         )
@@ -76,7 +76,7 @@ class TestPipelineEndpoint:
 
         # Trigger with specific source
         response = client.post(
-            "/api/v1/pipeline/trigger",
+            "/api/v1/admin/pipeline/trigger",
             json={"source_id": unique_source_id},
             headers=auth_headers,
         )

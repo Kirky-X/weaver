@@ -240,12 +240,12 @@ class TestQueueStatsEndpoint:
 
 
 class TestTriggerPipelineEdgeCases:
-    """Additional edge-case tests for POST /pipeline/trigger."""
+    """Additional edge-case tests for POST /admin/pipeline/trigger."""
 
     @pytest.mark.asyncio
     async def test_trigger_with_max_items_sets_scheduler_param(self):
         """Test that max_items in request is passed to scheduler.trigger_now."""
-        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
+        from api.endpoints.admin.admin import TriggerRequest, trigger_pipeline
 
         task_uuid = uuid.uuid4()
 
@@ -257,7 +257,7 @@ class TestTriggerPipelineEdgeCases:
 
         request = TriggerRequest(source_id="test-source", max_items=50)
 
-        with patch("api.endpoints.content.pipeline.uuid.uuid4", return_value=task_uuid):
+        with patch("api.endpoints.admin.admin.uuid.uuid4", return_value=task_uuid):
             result = await trigger_pipeline(
                 request=request,
                 _="test-key",
@@ -274,7 +274,7 @@ class TestTriggerPipelineEdgeCases:
     @pytest.mark.asyncio
     async def test_trigger_with_force_flag_sets_scheduler_param(self):
         """Test that force=True in request is handled."""
-        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
+        from api.endpoints.admin.admin import TriggerRequest, trigger_pipeline
 
         task_uuid = uuid.uuid4()
 
@@ -286,7 +286,7 @@ class TestTriggerPipelineEdgeCases:
 
         request = TriggerRequest(source_id="test-source", force=True)
 
-        with patch("api.endpoints.content.pipeline.uuid.uuid4", return_value=task_uuid):
+        with patch("api.endpoints.admin.admin.uuid.uuid4", return_value=task_uuid):
             result = await trigger_pipeline(
                 request=request,
                 _="test-key",
@@ -299,7 +299,7 @@ class TestTriggerPipelineEdgeCases:
     @pytest.mark.asyncio
     async def test_trigger_redis_hset_called_with_task_status(self):
         """Test that Redis hset is called to store task status on trigger."""
-        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
+        from api.endpoints.admin.admin import TriggerRequest, trigger_pipeline
 
         task_uuid = uuid.uuid4()
 
@@ -311,7 +311,7 @@ class TestTriggerPipelineEdgeCases:
 
         request = TriggerRequest(source_id="test-source")
 
-        with patch("api.endpoints.content.pipeline.uuid.uuid4", return_value=task_uuid):
+        with patch("api.endpoints.admin.admin.uuid.uuid4", return_value=task_uuid):
             await trigger_pipeline(
                 request=request,
                 _="test-key",

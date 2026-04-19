@@ -125,9 +125,10 @@ class TestDuckDBQueryExecution:
     async def test_query_handles_syntax_error_gracefully(self, pool: DuckDBPool) -> None:
         """Test that invalid SQL raises a meaningful error."""
         from sqlalchemy import text
+        from sqlalchemy.exc import OperationalError, ProgrammingError
 
         async with pool.session_context() as session:
-            with pytest.raises(Exception):  # noqa: B017 - SQLAlchemy will raise an exception
+            with pytest.raises((ProgrammingError, OperationalError)):
                 await session.execute(text("SELECT * FROM nonexistent_table_xyz"))
 
     @pytest.mark.asyncio

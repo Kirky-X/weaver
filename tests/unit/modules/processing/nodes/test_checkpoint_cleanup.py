@@ -40,12 +40,12 @@ class TestCheckpointCleanupNodeInit:
 
     def test_init_with_redis(self, mock_redis):
         """Test initialization with Redis client."""
-        node = CheckpointCleanupNode(redis_client=mock_redis)
+        node = CheckpointCleanupNode(cache_client=mock_redis)
         assert node._redis == mock_redis
 
     def test_init_without_redis(self):
         """Test initialization without Redis client."""
-        node = CheckpointCleanupNode(redis_client=None)
+        node = CheckpointCleanupNode(cache_client=None)
         assert node._redis is None
 
 
@@ -55,7 +55,7 @@ class TestCheckpointCleanupNodeExecute:
     @pytest.mark.asyncio
     async def test_execute_with_redis(self, mock_redis, sample_raw):
         """Test execute deletes checkpoint when Redis is available."""
-        node = CheckpointCleanupNode(redis_client=mock_redis)
+        node = CheckpointCleanupNode(cache_client=mock_redis)
         state = PipelineState(raw=sample_raw)
 
         result = await node.execute(state)
@@ -68,7 +68,7 @@ class TestCheckpointCleanupNodeExecute:
     @pytest.mark.asyncio
     async def test_execute_without_redis(self, sample_raw):
         """Test execute skips cleanup when Redis is not available."""
-        node = CheckpointCleanupNode(redis_client=None)
+        node = CheckpointCleanupNode(cache_client=None)
         state = PipelineState(raw=sample_raw)
 
         result = await node.execute(state)
@@ -79,7 +79,7 @@ class TestCheckpointCleanupNodeExecute:
     @pytest.mark.asyncio
     async def test_execute_skips_terminal_state(self, mock_redis, sample_raw):
         """Test execute skips terminal states."""
-        node = CheckpointCleanupNode(redis_client=mock_redis)
+        node = CheckpointCleanupNode(cache_client=mock_redis)
         state = PipelineState(raw=sample_raw)
         state["terminal"] = True
 
@@ -95,7 +95,7 @@ class TestCheckpointCleanupNodeExecute:
         """Test that correct Redis key is generated."""
         import hashlib
 
-        node = CheckpointCleanupNode(redis_client=mock_redis)
+        node = CheckpointCleanupNode(cache_client=mock_redis)
         state = PipelineState(raw=sample_raw)
 
         await node.execute(state)
@@ -111,7 +111,7 @@ class TestCheckpointCleanupNodeExecute:
         """Test execute handles Redis errors gracefully."""
         mock_redis.client.delete = AsyncMock(side_effect=Exception("Redis connection failed"))
 
-        node = CheckpointCleanupNode(redis_client=mock_redis)
+        node = CheckpointCleanupNode(cache_client=mock_redis)
         state = PipelineState(raw=sample_raw)
 
         # Should not raise exception
@@ -133,7 +133,7 @@ class TestCheckpointCleanupNodeKeyFormat:
         """Test that different URLs generate different keys."""
         import hashlib
 
-        node = CheckpointCleanupNode(redis_client=mock_redis)
+        node = CheckpointCleanupNode(cache_client=mock_redis)
 
         raw1 = RawArticle(
             url="https://example.com/article-1",
@@ -170,7 +170,7 @@ class TestCheckpointCleanupNodeIntegration:
     @pytest.mark.asyncio
     async def test_execute_preserves_state_fields(self, mock_redis, sample_raw):
         """Test that execute preserves all state fields."""
-        node = CheckpointCleanupNode(redis_client=mock_redis)
+        node = CheckpointCleanupNode(cache_client=mock_redis)
         state = PipelineState(raw=sample_raw)
         state["is_news"] = True
         state["category"] = "科技"
@@ -188,7 +188,7 @@ class TestCheckpointCleanupNodeIntegration:
     @pytest.mark.asyncio
     async def test_execute_with_various_url_formats(self, mock_redis):
         """Test execute handles various URL formats."""
-        node = CheckpointCleanupNode(redis_client=mock_redis)
+        node = CheckpointCleanupNode(cache_client=mock_redis)
 
         test_urls = [
             "https://example.com/simple",

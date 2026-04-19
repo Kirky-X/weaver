@@ -90,7 +90,7 @@ def unique_id():
 
 
 @pytest.fixture
-async def redis_client():
+async def cache_client():
     """Create a real Redis client for integration tests.
 
     Skips tests if Redis is not available.
@@ -203,7 +203,7 @@ async def graph_pool():
 
 
 @pytest.fixture
-async def cache_pool():
+async def cache_client():
     """Create a cache pool with automatic fallback.
 
     Tries Redis first, falls back to CashewsClient (in-memory) if unavailable.
@@ -289,7 +289,7 @@ async def optional_graph_pool():
 
 
 @pytest.fixture
-async def optional_redis_client():
+async def optional_cache_client():
     """Optional Redis client - returns None if not available."""
     from redis import asyncio as aioredis
 

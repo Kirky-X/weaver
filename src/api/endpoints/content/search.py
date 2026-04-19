@@ -78,7 +78,7 @@ async def search_unified(
     global_engine: GlobalSearchEngine = Depends(deps.Endpoints.get_global_search_engine),
     vector_repo: VectorRepo = Depends(deps.Endpoints.get_vector_repo),
     llm: LLMClient = Depends(deps.Endpoints.get_llm_client),
-    hybrid_engine: HybridSearchEngine = Depends(deps.Endpoints.get_hybrid_search_engine),
+    hybrid_engine: HybridSearchEngine = Depends(deps.Endpoints.get_hybrid_engine),
 ) -> APIResponse[SearchResponse]:
     """Unified search endpoint with MAGMA-inspired intent-aware routing.
 

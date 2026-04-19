@@ -52,7 +52,7 @@ class TestCheckpointCleanupNodeBasic:
     @pytest.mark.asyncio
     async def test_skips_without_redis(self, sample_raw):
         """Should skip cleanup if no Redis client."""
-        node = CheckpointCleanupNode(redis_client=None)
+        node = CheckpointCleanupNode(cache_client=None)
         state = PipelineState(raw=sample_raw)
 
         result = await node.execute(state)
@@ -63,7 +63,7 @@ class TestCheckpointCleanupNodeBasic:
     @pytest.mark.asyncio
     async def test_cleans_checkpoint_with_redis(self, sample_raw, mock_redis):
         """Should delete checkpoint key when Redis is available."""
-        node = CheckpointCleanupNode(redis_client=mock_redis)
+        node = CheckpointCleanupNode(cache_client=mock_redis)
         state = PipelineState(raw=sample_raw)
 
         result = await node.execute(state)
@@ -76,7 +76,7 @@ class TestCheckpointCleanupNodeBasic:
     @pytest.mark.asyncio
     async def test_returns_unchanged_state(self, sample_raw, mock_redis):
         """Should return state unchanged (cleanup is a side effect)."""
-        node = CheckpointCleanupNode(redis_client=mock_redis)
+        node = CheckpointCleanupNode(cache_client=mock_redis)
         state = PipelineState(raw=sample_raw)
         state["article_id"] = "test-123"
         state["cleaned"] = {"title": "Test"}
@@ -94,7 +94,7 @@ class TestCheckpointCleanupNodeErrorHandling:
     async def test_handles_redis_delete_error(self, sample_raw, mock_redis):
         """Should handle Redis delete errors gracefully."""
         mock_redis.client.delete = AsyncMock(side_effect=Exception("Redis error"))
-        node = CheckpointCleanupNode(redis_client=mock_redis)
+        node = CheckpointCleanupNode(cache_client=mock_redis)
         state = PipelineState(raw=sample_raw)
 
         result = await node.execute(state)
@@ -105,7 +105,7 @@ class TestCheckpointCleanupNodeErrorHandling:
     @pytest.mark.asyncio
     async def test_handles_missing_raw_in_state(self, mock_redis):
         """Should handle missing raw field gracefully."""
-        node = CheckpointCleanupNode(redis_client=mock_redis)
+        node = CheckpointCleanupNode(cache_client=mock_redis)
         state = PipelineState()
 
         result = await node.execute(state)
@@ -117,7 +117,7 @@ class TestCheckpointCleanupNodeErrorHandling:
     async def test_handles_connection_error(self, sample_raw, mock_redis):
         """Should handle Redis connection errors."""
         mock_redis.client.delete = AsyncMock(side_effect=ConnectionError("Connection refused"))
-        node = CheckpointCleanupNode(redis_client=mock_redis)
+        node = CheckpointCleanupNode(cache_client=mock_redis)
         state = PipelineState(raw=sample_raw)
 
         result = await node.execute(state)
@@ -132,7 +132,7 @@ class TestCheckpointCleanupNodeKeyGeneration:
     @pytest.mark.asyncio
     async def test_generates_consistent_key(self, sample_raw, mock_redis):
         """Should generate consistent key for same URL."""
-        node = CheckpointCleanupNode(redis_client=mock_redis)
+        node = CheckpointCleanupNode(cache_client=mock_redis)
 
         # Execute twice with same URL
         state1 = PipelineState(raw=sample_raw)
@@ -150,7 +150,7 @@ class TestCheckpointCleanupNodeKeyGeneration:
     @pytest.mark.asyncio
     async def test_different_urls_generate_different_keys(self, mock_redis):
         """Should generate different keys for different URLs."""
-        node = CheckpointCleanupNode(redis_client=mock_redis)
+        node = CheckpointCleanupNode(cache_client=mock_redis)
 
         raw1 = RawArticle(
             url="https://example.com/article1",

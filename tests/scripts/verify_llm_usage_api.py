@@ -585,14 +585,15 @@ def run_pytest_tests() -> tuple[str, int]:
         "--override-ini=addopts=",
     ]
 
-    # Use shell=False for security (command is hardcoded)
-    result = subprocess.run(  # noqa: S603
+    # Trusted command: running pytest with fixed arguments
+    result = subprocess.run(
         cmd,
         capture_output=True,
         text=True,
         cwd=str(_PROJECT_ROOT),
         timeout=300,
         check=False,  # We handle the return code ourselves
+        shell=False,  # Explicit: no shell interpretation
     )
 
     output = result.stdout

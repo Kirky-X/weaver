@@ -11,7 +11,7 @@ class TestRetryPipelineMetrics:
     """Test metrics emission for retry_pipeline_processing."""
 
     @pytest.fixture
-    def scheduler_jobs(self):
+    def scheduler_jobs_service(self):
         """Create SchedulerJobs instance with pipeline."""
         from modules.scheduler import SchedulerJobs
 
@@ -42,20 +42,20 @@ class TestRetryPipelineMetrics:
         metrics.pipeline_retry_success_total = original_retry_success
 
     @pytest.mark.asyncio
-    async def test_retry_pipeline_emits_started_and_completed_metrics(self, scheduler_jobs):
+    async def test_retry_pipeline_emits_started_and_completed_metrics(self, scheduler_jobs_service):
         """Test that pipeline_retry_total metrics are emitted at start and end."""
         from core.observability import metrics
 
         # Setup mocks
-        scheduler_jobs._article_repo.get_pending = AsyncMock(return_value=[])
-        scheduler_jobs._article_repo.get_stuck_articles = AsyncMock(return_value=[])
-        scheduler_jobs._article_repo.get_failed_articles = AsyncMock(return_value=[])
+        scheduler_jobs_service._article_repo.get_pending = AsyncMock(return_value=[])
+        scheduler_jobs_service._article_repo.get_stuck_articles = AsyncMock(return_value=[])
+        scheduler_jobs_service._article_repo.get_failed_articles = AsyncMock(return_value=[])
 
         # Get initial metric values
         started_before = metrics.pipeline_retry_total.labels(status="started")._value._value
         completed_before = metrics.pipeline_retry_total.labels(status="completed")._value._value
 
-        await scheduler_jobs.retry_pipeline_processing()
+        await scheduler_jobs_service.retry_pipeline_processing()
 
         started_after = metrics.pipeline_retry_total.labels(status="started")._value._value
         completed_after = metrics.pipeline_retry_total.labels(status="completed")._value._value
@@ -65,7 +65,7 @@ class TestRetryPipelineMetrics:
         assert completed_after == completed_before + 1
 
     @pytest.mark.asyncio
-    async def test_retry_pipeline_emits_pending_success_metric(self, scheduler_jobs):
+    async def test_retry_pipeline_emits_pending_success_metric(self, scheduler_jobs_service):
         """Test that pipeline_retry_success_total is emitted for pending articles."""
         from core.observability import metrics
 
@@ -77,21 +77,21 @@ class TestRetryPipelineMetrics:
         mock_article.source_host = "example.com"
         mock_article.task_id = None
 
-        scheduler_jobs._article_repo.get_pending = AsyncMock(return_value=[mock_article])
-        scheduler_jobs._article_repo.get_stuck_articles = AsyncMock(return_value=[])
-        scheduler_jobs._article_repo.get_failed_articles = AsyncMock(return_value=[])
-        scheduler_jobs._pipeline.process_batch = AsyncMock()
+        scheduler_jobs_service._article_repo.get_pending = AsyncMock(return_value=[mock_article])
+        scheduler_jobs_service._article_repo.get_stuck_articles = AsyncMock(return_value=[])
+        scheduler_jobs_service._article_repo.get_failed_articles = AsyncMock(return_value=[])
+        scheduler_jobs_service._pipeline.process_batch = AsyncMock()
 
         pending_before = metrics.pipeline_retry_success_total.labels(type="pending")._value._value
 
-        await scheduler_jobs.retry_pipeline_processing()
+        await scheduler_jobs_service.retry_pipeline_processing()
 
         pending_after = metrics.pipeline_retry_success_total.labels(type="pending")._value._value
 
         assert pending_after == pending_before + 1
 
     @pytest.mark.asyncio
-    async def test_retry_pipeline_emits_stuck_success_metric(self, scheduler_jobs):
+    async def test_retry_pipeline_emits_stuck_success_metric(self, scheduler_jobs_service):
         """Test that pipeline_retry_success_total is emitted for stuck articles."""
         from core.observability import metrics
 
@@ -103,21 +103,23 @@ class TestRetryPipelineMetrics:
         mock_article.source_host = "example.com"
         mock_article.task_id = None
 
-        scheduler_jobs._article_repo.get_pending = AsyncMock(return_value=[])
-        scheduler_jobs._article_repo.get_stuck_articles = AsyncMock(return_value=[mock_article])
-        scheduler_jobs._article_repo.get_failed_articles = AsyncMock(return_value=[])
-        scheduler_jobs._pipeline.process_batch = AsyncMock()
+        scheduler_jobs_service._article_repo.get_pending = AsyncMock(return_value=[])
+        scheduler_jobs_service._article_repo.get_stuck_articles = AsyncMock(
+            return_value=[mock_article]
+        )
+        scheduler_jobs_service._article_repo.get_failed_articles = AsyncMock(return_value=[])
+        scheduler_jobs_service._pipeline.process_batch = AsyncMock()
 
         stuck_before = metrics.pipeline_retry_success_total.labels(type="stuck")._value._value
 
-        await scheduler_jobs.retry_pipeline_processing()
+        await scheduler_jobs_service.retry_pipeline_processing()
 
         stuck_after = metrics.pipeline_retry_success_total.labels(type="stuck")._value._value
 
         assert stuck_after == stuck_before + 1
 
     @pytest.mark.asyncio
-    async def test_retry_pipeline_emits_failed_success_metric(self, scheduler_jobs):
+    async def test_retry_pipeline_emits_failed_success_metric(self, scheduler_jobs_service):
         """Test that pipeline_retry_success_total is emitted for failed articles."""
         from core.observability import metrics
 
@@ -129,21 +131,23 @@ class TestRetryPipelineMetrics:
         mock_article.source_host = "example.com"
         mock_article.task_id = None
 
-        scheduler_jobs._article_repo.get_pending = AsyncMock(return_value=[])
-        scheduler_jobs._article_repo.get_stuck_articles = AsyncMock(return_value=[])
-        scheduler_jobs._article_repo.get_failed_articles = AsyncMock(return_value=[mock_article])
-        scheduler_jobs._pipeline.process_batch = AsyncMock()
+        scheduler_jobs_service._article_repo.get_pending = AsyncMock(return_value=[])
+        scheduler_jobs_service._article_repo.get_stuck_articles = AsyncMock(return_value=[])
+        scheduler_jobs_service._article_repo.get_failed_articles = AsyncMock(
+            return_value=[mock_article]
+        )
+        scheduler_jobs_service._pipeline.process_batch = AsyncMock()
 
         failed_before = metrics.pipeline_retry_success_total.labels(type="failed")._value._value
 
-        await scheduler_jobs.retry_pipeline_processing()
+        await scheduler_jobs_service.retry_pipeline_processing()
 
         failed_after = metrics.pipeline_retry_success_total.labels(type="failed")._value._value
 
         assert failed_after == failed_before + 1
 
     @pytest.mark.asyncio
-    async def test_retry_pipeline_emits_multiple_success_metrics(self, scheduler_jobs):
+    async def test_retry_pipeline_emits_multiple_success_metrics(self, scheduler_jobs_service):
         """Test that multiple success metrics are emitted correctly."""
         from core.observability import metrics
 
@@ -163,15 +167,17 @@ class TestRetryPipelineMetrics:
         mock_article2.source_host = "example.com"
         mock_article2.task_id = None
 
-        scheduler_jobs._article_repo.get_pending = AsyncMock(return_value=[mock_article1])
-        scheduler_jobs._article_repo.get_stuck_articles = AsyncMock(return_value=[mock_article2])
-        scheduler_jobs._article_repo.get_failed_articles = AsyncMock(return_value=[])
-        scheduler_jobs._pipeline.process_batch = AsyncMock()
+        scheduler_jobs_service._article_repo.get_pending = AsyncMock(return_value=[mock_article1])
+        scheduler_jobs_service._article_repo.get_stuck_articles = AsyncMock(
+            return_value=[mock_article2]
+        )
+        scheduler_jobs_service._article_repo.get_failed_articles = AsyncMock(return_value=[])
+        scheduler_jobs_service._pipeline.process_batch = AsyncMock()
 
         pending_before = metrics.pipeline_retry_success_total.labels(type="pending")._value._value
         stuck_before = metrics.pipeline_retry_success_total.labels(type="stuck")._value._value
 
-        await scheduler_jobs.retry_pipeline_processing()
+        await scheduler_jobs_service.retry_pipeline_processing()
 
         pending_after = metrics.pipeline_retry_success_total.labels(type="pending")._value._value
         stuck_after = metrics.pipeline_retry_success_total.labels(type="stuck")._value._value
@@ -180,18 +186,18 @@ class TestRetryPipelineMetrics:
         assert stuck_after == stuck_before + 1
 
     @pytest.mark.asyncio
-    async def test_retry_pipeline_no_items_still_emits_metrics(self, scheduler_jobs):
+    async def test_retry_pipeline_no_items_still_emits_metrics(self, scheduler_jobs_service):
         """Test that metrics are emitted even when no items are retried."""
         from core.observability import metrics
 
-        scheduler_jobs._article_repo.get_pending = AsyncMock(return_value=[])
-        scheduler_jobs._article_repo.get_stuck_articles = AsyncMock(return_value=[])
-        scheduler_jobs._article_repo.get_failed_articles = AsyncMock(return_value=[])
+        scheduler_jobs_service._article_repo.get_pending = AsyncMock(return_value=[])
+        scheduler_jobs_service._article_repo.get_stuck_articles = AsyncMock(return_value=[])
+        scheduler_jobs_service._article_repo.get_failed_articles = AsyncMock(return_value=[])
 
         started_before = metrics.pipeline_retry_total.labels(status="started")._value._value
         completed_before = metrics.pipeline_retry_total.labels(status="completed")._value._value
 
-        result = await scheduler_jobs.retry_pipeline_processing()
+        result = await scheduler_jobs_service.retry_pipeline_processing()
 
         started_after = metrics.pipeline_retry_total.labels(status="started")._value._value
         completed_after = metrics.pipeline_retry_total.labels(status="completed")._value._value
@@ -201,7 +207,7 @@ class TestRetryPipelineMetrics:
         assert completed_after == completed_before + 1
 
     @pytest.mark.asyncio
-    async def test_retry_pipeline_no_pipeline_no_metrics(self, scheduler_jobs):
+    async def test_retry_pipeline_no_pipeline_no_metrics(self, scheduler_jobs_service):
         """Test that no metrics are emitted when pipeline is not configured."""
         from modules.scheduler import SchedulerJobs
 

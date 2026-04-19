@@ -115,10 +115,10 @@ class TestLLMUsageRedisBuffer:
     """Test LLMUsageBuffer Redis accumulation with real Redis."""
 
     @pytest.mark.asyncio
-    async def test_buffer_accumulates_event(self, cache_pool, unique_id):
+    async def test_buffer_accumulates_event(self, cache_client, unique_id):
         """Test LLMUsageBuffer accumulates event to Redis HASH."""
-        redis_client, _ = cache_pool
-        buffer = LLMUsageBuffer(redis_client, ttl_seconds=7200)
+        cache_client, _ = cache_client
+        buffer = LLMUsageBuffer(cache_client, ttl_seconds=7200)
 
         event = LLMUsageEvent(
             label=f"test_{unique_id}",
@@ -136,10 +136,10 @@ class TestLLMUsageRedisBuffer:
         await buffer.accumulate(event)
 
     @pytest.mark.asyncio
-    async def test_buffer_handles_failure_event(self, cache_pool, unique_id):
+    async def test_buffer_handles_failure_event(self, cache_client, unique_id):
         """Test LLMUsageBuffer handles failure event correctly."""
-        redis_client, _ = cache_pool
-        buffer = LLMUsageBuffer(redis_client, ttl_seconds=7200)
+        cache_client, _ = cache_client
+        buffer = LLMUsageBuffer(cache_client, ttl_seconds=7200)
 
         event = LLMUsageEvent(
             label=f"test_{unique_id}",
@@ -256,14 +256,14 @@ class TestLLMUsageCompleteChain:
 
     @pytest.mark.asyncio
     async def test_complete_chain_event_to_buffer_to_db(
-        self, event_bus, cache_pool, relational_pool, unique_id
+        self, event_bus, cache_client, relational_pool, unique_id
     ):
         """Test complete chain: Event published → Buffer receives → DB stores."""
 
-        redis_client, _ = cache_pool
+        cache_client, _ = cache_client
         postgres_pool, _ = relational_pool
 
-        buffer = LLMUsageBuffer(redis_client, ttl_seconds=7200)
+        buffer = LLMUsageBuffer(cache_client, ttl_seconds=7200)
         repo = LLMUsageRepo(postgres_pool)
 
         buffer_received = []

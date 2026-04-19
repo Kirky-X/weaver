@@ -334,6 +334,7 @@ class TestListCommunitiesEndpoint:
         )
         mock_repo.count_communities = AsyncMock(return_value=1)
         mock_repo.get_report = AsyncMock(return_value=None)
+        mock_repo.get_reports_existence = AsyncMock(return_value={})
 
         with patch(
             "api.endpoints.communities.Neo4jCommunityRepo",
@@ -349,6 +350,7 @@ class TestListCommunitiesEndpoint:
                     offset=0,
                     _="test-api-key",
                     pool=mock_pool,
+                    pool_type="neo4j",
                 )
 
                 assert result.data.total == 1
@@ -362,6 +364,7 @@ class TestListCommunitiesEndpoint:
         mock_repo = MagicMock()
         mock_repo.list_communities = AsyncMock(return_value=[])
         mock_repo.count_communities = AsyncMock(return_value=0)
+        mock_repo.get_reports_existence = AsyncMock(return_value={})
 
         with patch(
             "api.endpoints.communities.Neo4jCommunityRepo",
@@ -377,6 +380,7 @@ class TestListCommunitiesEndpoint:
                     offset=0,
                     _="test-api-key",
                     pool=mock_pool,
+                    pool_type="neo4j",
                 )
 
                 assert result.data.level == 0

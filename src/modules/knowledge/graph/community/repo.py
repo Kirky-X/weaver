@@ -714,6 +714,32 @@ class Neo4jCommunityRepo:
             return CommunityReport.from_neo4j(dict(result[0]))
         return None
 
+    async def get_reports_existence(self, community_ids: list[str]) -> dict[str, bool]:
+        """Batch check which communities have reports.
+
+        Args:
+            community_ids: List of community IDs to check.
+
+        Returns:
+            Dict mapping community_id to whether it has a report.
+        """
+        if not community_ids:
+            return {}
+
+        query = """
+        MATCH (r:CommunityReport)
+        WHERE r.community_id IN $community_ids
+        RETURN r.community_id AS community_id
+        """
+        result = await self._pool.execute_query(query, {"community_ids": community_ids})
+        # Start with all False, then set True for those that have reports
+        has_report = dict.fromkeys(community_ids, False)
+        for row in result:
+            cid = row.get("community_id")
+            if cid:
+                has_report[cid] = True
+        return has_report
+
     async def update_report_embedding(
         self,
         report_id: str,

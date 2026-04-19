@@ -3,23 +3,52 @@
 
 Tests search functionality using real API server and real articles/communities.
 Connects to running server at localhost:8000 to avoid DuckDB lock conflicts.
+
+IMPORTANT: These tests require a running API server. Start the server first:
+    uv run python -m src.main
+
+Or set WEAVER_TEST_API_URL to point to an existing server.
 """
 
 from __future__ import annotations
 
 import os
 
-import pytest
 import httpx
-
+import pytest
 
 API_BASE_URL = os.environ.get("WEAVER_TEST_API_URL", "http://localhost:8000")
-API_KEY = "test-api-key-32chars-long!!!!"
+# API key must be at least 32 characters (see src/api/middleware/auth.py:24)
+API_KEY = os.environ.get("WEAVER_API__API_KEY", "test-api-key-32chars-long!!!!!!!")
+
+
+def _check_server_available() -> bool:
+    """Check if API server is running and accessible."""
+    try:
+        with httpx.Client(base_url=API_BASE_URL, timeout=5.0) as client:
+            response = client.get("/health")
+            return (
+                response.status_code == 200
+                and response.json().get("data", {}).get("status") == "healthy"
+            )
+    except (httpx.ConnectError, httpx.TimeoutException, OSError):
+        return False
+
+
+SERVER_AVAILABLE = _check_server_available()
 
 
 @pytest.fixture(scope="module")
 def http_client():
-    """Create httpx client for module-scoped tests."""
+    """Create httpx client for module-scoped tests.
+
+    Raises Skip if server is not available.
+    """
+    if not SERVER_AVAILABLE:
+        pytest.skip(
+            f"API server not running at {API_BASE_URL}. "
+            "Start server with 'uv run python -m src.main' or set WEAVER_TEST_API_URL"
+        )
     with httpx.Client(base_url=API_BASE_URL, timeout=30.0) as client:
         yield client
 

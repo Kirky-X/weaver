@@ -180,6 +180,6 @@ class TestSearchEngineDependency:
 
     def test_hybrid_search_engine_interface(self) -> None:
         """Test hybrid search engine dependency exists."""
-        from api.dependencies import get_hybrid_search_engine
+        from api.dependencies import get_hybrid_engine
 
-        assert callable(get_hybrid_search_engine)
+        assert callable(get_hybrid_engine)

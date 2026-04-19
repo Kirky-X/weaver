@@ -16,9 +16,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from api.dependencies import (
-    get_cache_pool,
+    get_cache_client,
     get_relational_pool,
-    get_source_scheduler,
 )
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
@@ -28,7 +27,6 @@ from core.constants import PipelineTaskStatus
 from core.observability import metrics
 from core.observability.logging import get_logger
 from core.protocols import CachePool, RelationalPool
-from modules.ingestion import SourceScheduler
 from modules.storage import ArticleRepo
 
 log = get_logger(__name__)
@@ -37,31 +35,6 @@ router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
 
 # ── Request/Response Models ─────────────────────────────────────
-
-
-class TriggerRequest(BaseModel):
-    """Request model for triggering a pipeline run."""
-
-    source_id: str | None = Field(
-        default=None,
-        description="Specific source ID to crawl. If not provided, crawls all enabled sources.",
-    )
-    force: bool = Field(
-        default=False,
-        description="Force re-crawl even for recently fetched URLs.",
-    )
-    max_items: int | None = Field(
-        default=None,
-        description="Maximum number of items to process per source (None for unlimited).",
-    )
-
-
-class TriggerResponse(BaseModel):
-    """Response model for pipeline trigger."""
-
-    task_id: str
-    status: str = PipelineTaskStatus.QUEUED.value
-    queued_at: str
 
 
 class TaskStatusResponse(BaseModel):
@@ -121,104 +94,11 @@ QUEUE_DEPTH_GAUGE = metrics.pipeline_queue_depth
 # ── Endpoints ───────────────────────────────────────────────────
 
 
-@router.post("/trigger", response_model=APIResponse[TriggerResponse])
-async def trigger_pipeline(
-    request: TriggerRequest,
-    _: str = Depends(verify_api_key),
-    cache: CachePool = Depends(get_cache_pool),
-    scheduler: SourceScheduler = Depends(get_source_scheduler),
-) -> APIResponse[TriggerResponse]:
-    """Trigger a pipeline run to crawl news sources.
-
-    Args:
-        request: Pipeline trigger configuration.
-        _: Verified API key.
-        cache: Cache client for task queue.
-        scheduler: Source scheduler for triggering crawls.
-
-    Returns:
-        Task ID and initial status.
-
-    """
-    task_id = str(uuid.uuid4())
-    now = datetime.now(UTC).isoformat()
-
-    # Update task status to running
-    await cache.hset(
-        TASK_STATUS_KEY,
-        task_id,
-        json.dumps(
-            {
-                "task_id": task_id,
-                "status": PipelineTaskStatus.RUNNING.value,
-                "source_id": request.source_id,
-                "queued_at": now,
-                "started_at": now,
-            }
-        ),
-    )
-
-    # Trigger the source scheduler to crawl
-    try:
-        if request.source_id:
-            await scheduler.trigger_now(
-                request.source_id, max_items=request.max_items, task_id=uuid.UUID(task_id)
-            )
-        else:
-            sources = scheduler.list_enabled_sources()
-            tasks = [
-                scheduler.trigger_now(
-                    source.id, max_items=request.max_items, task_id=uuid.UUID(task_id)
-                )
-                for source in sources
-            ]
-            await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Update task status to completed
-        await cache.hset(
-            TASK_STATUS_KEY,
-            task_id,
-            json.dumps(
-                {
-                    "task_id": task_id,
-                    "status": PipelineTaskStatus.COMPLETED.value,
-                    "source_id": request.source_id,
-                    "queued_at": now,
-                    "started_at": now,
-                    "completed_at": datetime.now(UTC).isoformat(),
-                }
-            ),
-        )
-
-    except Exception as exc:
-        # Update task status to failed
-        await cache.hset(
-            TASK_STATUS_KEY,
-            task_id,
-            json.dumps(
-                {
-                    "task_id": task_id,
-                    "status": PipelineTaskStatus.FAILED.value,
-                    "source_id": request.source_id,
-                    "queued_at": now,
-                    "started_at": now,
-                    "error": str(exc),
-                }
-            ),
-        )
-        raise HTTPException(
-            status_code=500,
-            detail="Pipeline trigger failed",
-        )
-
-    return success_response(TriggerResponse(task_id=task_id, queued_at=now))
-
-
 @router.get("/tasks/{task_id}", response_model=APIResponse[TaskStatusResponse])
 async def get_task_status(
     task_id: str,
     _: str = Depends(verify_api_key),
-    cache: CachePool = Depends(get_cache_pool),
+    cache: CachePool = Depends(get_cache_client),
     relational_pool: RelationalPool = Depends(get_relational_pool),
 ) -> APIResponse[TaskStatusResponse]:
     """Query the status of a pipeline task.
@@ -284,7 +164,7 @@ async def get_task_status(
 @router.get("/queue/stats", response_model=APIResponse[dict])
 async def get_queue_stats(
     _: str = Depends(verify_api_key),
-    cache: CachePool = Depends(get_cache_pool),
+    cache: CachePool = Depends(get_cache_client),
     relational_pool: RelationalPool = Depends(get_relational_pool),
 ) -> APIResponse[dict]:
     """Get pipeline queue statistics.
@@ -558,7 +438,7 @@ async def _process_single_url(
 async def process_single_url(
     request: ProcessUrlRequest,
     _: str = Depends(verify_api_key),
-    cache: CachePool = Depends(get_cache_pool),
+    cache: CachePool = Depends(get_cache_client),
     settings: Settings = Depends(get_settings),
 ) -> APIResponse[ProcessUrlResponse]:
     """Process a single URL through the full pipeline.
@@ -602,7 +482,13 @@ async def process_single_url(
     )
 
     # Launch background processing
-    _ = asyncio.create_task(_process_single_url(request.url, task_id, cache))  # noqa: RUF006
+    def _on_task_done(task: asyncio.Task) -> None:
+        """Handle background task completion."""
+        if task.exception() is not None:
+            log.error("background_task_failed", task_id=task_id, error=str(task.exception()))
+
+    background_task = asyncio.create_task(_process_single_url(request.url, task_id, cache))
+    background_task.add_done_callback(_on_task_done)
 
     return success_response(ProcessUrlResponse(task_id=task_id, queued_at=now))
 
@@ -820,7 +706,7 @@ async def process_single_url_stream(
     request: ProcessUrlRequest,
     fastapi_request: Request,
     _: str = Depends(verify_api_key),
-    cache: CachePool = Depends(get_cache_pool),
+    cache: CachePool = Depends(get_cache_client),
     settings: Settings = Depends(get_settings),
 ) -> StreamingResponse:
     """Process a single URL through the pipeline with SSE streaming.

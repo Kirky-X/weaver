@@ -150,40 +150,40 @@ class TestCheckRedisHealth:
     """Tests for Redis health check."""
 
     @pytest.fixture
-    def mock_redis_client(self):
+    def mock_cache_client(self):
         """Create a mock Redis client."""
         client = MagicMock(spec=RedisClient)
         client.ping = AsyncMock(return_value=True)
         return client
 
     @pytest.mark.asyncio
-    async def test_redis_health_ok(self, mock_redis_client):
+    async def test_redis_health_ok(self, mock_cache_client):
         """Test Redis health check when connection is healthy."""
-        result = await check_redis_health(mock_redis_client)
+        result = await check_redis_health(mock_cache_client)
 
         assert result["status"] == "ok"
         assert "latency_ms" in result
         assert isinstance(result["latency_ms"], float)
         assert result["latency_ms"] >= 0
-        mock_redis_client.ping.assert_called_once()
+        mock_cache_client.ping.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_redis_health_timeout(self, mock_redis_client):
+    async def test_redis_health_timeout(self, mock_cache_client):
         """Test Redis health check when connection times out."""
-        mock_redis_client.ping = AsyncMock(side_effect=TimeoutError())
+        mock_cache_client.ping = AsyncMock(side_effect=TimeoutError())
 
-        result = await check_redis_health(mock_redis_client)
+        result = await check_redis_health(mock_cache_client)
 
         assert result["status"] == "timeout"
         assert "latency_ms" in result
         assert isinstance(result["latency_ms"], float)
 
     @pytest.mark.asyncio
-    async def test_redis_health_error(self, mock_redis_client):
+    async def test_redis_health_error(self, mock_cache_client):
         """Test Redis health check when connection fails."""
-        mock_redis_client.ping = AsyncMock(side_effect=Exception("Connection refused"))
+        mock_cache_client.ping = AsyncMock(side_effect=Exception("Connection refused"))
 
-        result = await check_redis_health(mock_redis_client)
+        result = await check_redis_health(mock_cache_client)
 
         assert result["status"] == "error"
         assert "latency_ms" in result
@@ -191,9 +191,9 @@ class TestCheckRedisHealth:
         assert "Connection refused" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_redis_health_latency_measurement(self, mock_redis_client):
+    async def test_redis_health_latency_measurement(self, mock_cache_client):
         """Test that Redis health check measures latency."""
-        result = await check_redis_health(mock_redis_client)
+        result = await check_redis_health(mock_cache_client)
 
         # Latency should be small (typically < 10ms in tests)
         assert result["latency_ms"] < 100
@@ -269,18 +269,18 @@ class TestHealthCheck:
         return pool
 
     @pytest.fixture
-    def mock_redis_client(self):
+    def mock_cache_client(self):
         """Create a mock Redis client."""
         client = MagicMock(spec=RedisClient)
         client.ping = AsyncMock(return_value=True)
         return client
 
     @pytest.mark.asyncio
-    async def test_all_healthy(self, mock_relational_pool, mock_graph_pool, mock_redis_client):
+    async def test_all_healthy(self, mock_relational_pool, mock_graph_pool, mock_cache_client):
         """Test health check when all dependencies are healthy."""
         Endpoints._relational_pool = mock_relational_pool
         Endpoints._graph_pool = mock_graph_pool
-        Endpoints._cache = mock_redis_client
+        Endpoints._cache = mock_cache_client
 
         result = await health_check()
 
@@ -292,7 +292,7 @@ class TestHealthCheck:
 
     @pytest.mark.asyncio
     async def test_postgres_unhealthy(
-        self, mock_relational_pool, mock_graph_pool, mock_redis_client
+        self, mock_relational_pool, mock_graph_pool, mock_cache_client
     ):
         """Test health check when PostgreSQL is unhealthy."""
         # Make PostgreSQL fail
@@ -305,7 +305,7 @@ class TestHealthCheck:
 
         Endpoints._relational_pool = mock_relational_pool
         Endpoints._graph_pool = mock_graph_pool
-        Endpoints._cache = mock_redis_client
+        Endpoints._cache = mock_cache_client
 
         result = await health_check()
 
@@ -315,13 +315,13 @@ class TestHealthCheck:
         assert result.checks["redis"].status == "ok"
 
     @pytest.mark.asyncio
-    async def test_neo4j_unhealthy(self, mock_relational_pool, mock_graph_pool, mock_redis_client):
+    async def test_neo4j_unhealthy(self, mock_relational_pool, mock_graph_pool, mock_cache_client):
         """Test health check when Neo4j is unhealthy."""
         mock_graph_pool.execute_query = AsyncMock(side_effect=Exception("ServiceUnavailable"))
 
         Endpoints._relational_pool = mock_relational_pool
         Endpoints._graph_pool = mock_graph_pool
-        Endpoints._cache = mock_redis_client
+        Endpoints._cache = mock_cache_client
 
         result = await health_check()
 
@@ -331,13 +331,13 @@ class TestHealthCheck:
         assert result.checks["redis"].status == "ok"
 
     @pytest.mark.asyncio
-    async def test_redis_unhealthy(self, mock_relational_pool, mock_graph_pool, mock_redis_client):
+    async def test_redis_unhealthy(self, mock_relational_pool, mock_graph_pool, mock_cache_client):
         """Test health check when Redis is unhealthy."""
-        mock_redis_client.ping = AsyncMock(side_effect=Exception("Connection refused"))
+        mock_cache_client.ping = AsyncMock(side_effect=Exception("Connection refused"))
 
         Endpoints._relational_pool = mock_relational_pool
         Endpoints._graph_pool = mock_graph_pool
-        Endpoints._cache = mock_redis_client
+        Endpoints._cache = mock_cache_client
 
         result = await health_check()
 
@@ -347,7 +347,7 @@ class TestHealthCheck:
         assert result.checks["redis"].status == "error"
 
     @pytest.mark.asyncio
-    async def test_all_unhealthy(self, mock_relational_pool, mock_graph_pool, mock_redis_client):
+    async def test_all_unhealthy(self, mock_relational_pool, mock_graph_pool, mock_cache_client):
         """Test health check when all dependencies are unhealthy."""
         # Make all services fail
         mock_session = AsyncMock()
@@ -358,11 +358,11 @@ class TestHealthCheck:
         mock_relational_pool.session_context = MagicMock(return_value=async_context)
 
         mock_graph_pool.execute_query = AsyncMock(side_effect=Exception("Failed"))
-        mock_redis_client.ping = AsyncMock(side_effect=Exception("Failed"))
+        mock_cache_client.ping = AsyncMock(side_effect=Exception("Failed"))
 
         Endpoints._relational_pool = mock_relational_pool
         Endpoints._graph_pool = mock_graph_pool
-        Endpoints._cache = mock_redis_client
+        Endpoints._cache = mock_cache_client
 
         result = await health_check()
 
@@ -385,10 +385,10 @@ class TestHealthCheck:
         assert "not initialized" in result.checks["redis"].error
 
     @pytest.mark.asyncio
-    async def test_partial_pools_initialized(self, mock_graph_pool, mock_redis_client):
+    async def test_partial_pools_initialized(self, mock_graph_pool, mock_cache_client):
         """Test health check when only some pools are initialized."""
         Endpoints._graph_pool = mock_graph_pool
-        Endpoints._cache = mock_redis_client
+        Endpoints._cache = mock_cache_client
         # PostgreSQL pool not set
 
         result = await health_check()
@@ -400,7 +400,7 @@ class TestHealthCheck:
 
     @pytest.mark.asyncio
     async def test_timeout_scenarios(
-        self, mock_relational_pool, mock_graph_pool, mock_redis_client
+        self, mock_relational_pool, mock_graph_pool, mock_cache_client
     ):
         """Test health check when dependencies timeout."""
         # Make all services timeout
@@ -412,11 +412,11 @@ class TestHealthCheck:
         mock_relational_pool.session_context = MagicMock(return_value=async_context)
 
         mock_graph_pool.execute_query = AsyncMock(side_effect=TimeoutError())
-        mock_redis_client.ping = AsyncMock(side_effect=TimeoutError())
+        mock_cache_client.ping = AsyncMock(side_effect=TimeoutError())
 
         Endpoints._relational_pool = mock_relational_pool
         Endpoints._graph_pool = mock_graph_pool
-        Endpoints._cache = mock_redis_client
+        Endpoints._cache = mock_cache_client
 
         result = await health_check()
 
@@ -427,7 +427,7 @@ class TestHealthCheck:
 
     @pytest.mark.asyncio
     async def test_mixed_failure_scenarios(
-        self, mock_relational_pool, mock_graph_pool, mock_redis_client
+        self, mock_relational_pool, mock_graph_pool, mock_cache_client
     ):
         """Test health check with mixed failure types."""
         # PostgreSQL: timeout
@@ -445,7 +445,7 @@ class TestHealthCheck:
 
         Endpoints._relational_pool = mock_relational_pool
         Endpoints._graph_pool = mock_graph_pool
-        Endpoints._cache = mock_redis_client
+        Endpoints._cache = mock_cache_client
 
         result = await health_check()
 
@@ -456,12 +456,12 @@ class TestHealthCheck:
 
     @pytest.mark.asyncio
     async def test_latency_measured_for_all_checks(
-        self, mock_relational_pool, mock_graph_pool, mock_redis_client
+        self, mock_relational_pool, mock_graph_pool, mock_cache_client
     ):
         """Test that latency is measured for all dependency checks."""
         Endpoints._relational_pool = mock_relational_pool
         Endpoints._graph_pool = mock_graph_pool
-        Endpoints._cache = mock_redis_client
+        Endpoints._cache = mock_cache_client
 
         result = await health_check()
 
@@ -473,7 +473,7 @@ class TestHealthCheck:
 
     @pytest.mark.asyncio
     async def test_error_messages_included(
-        self, mock_relational_pool, mock_graph_pool, mock_redis_client
+        self, mock_relational_pool, mock_graph_pool, mock_cache_client
     ):
         """Test that error messages are included in failed checks."""
         # Make services fail with specific errors
@@ -485,11 +485,11 @@ class TestHealthCheck:
         mock_relational_pool.session_context = MagicMock(return_value=async_context)
 
         mock_graph_pool.execute_query = AsyncMock(side_effect=Exception("Neo4j connection failed"))
-        mock_redis_client.ping = AsyncMock(side_effect=Exception("Redis connection failed"))
+        mock_cache_client.ping = AsyncMock(side_effect=Exception("Redis connection failed"))
 
         Endpoints._relational_pool = mock_relational_pool
         Endpoints._graph_pool = mock_graph_pool
-        Endpoints._cache = mock_redis_client
+        Endpoints._cache = mock_cache_client
 
         result = await health_check()
 
@@ -534,7 +534,7 @@ class TestGlobalPoolSetters:
 
         assert Endpoints._graph_pool is mock_pool
 
-    def test_set_redis_client(self, cleanup_endpoints):
+    def test_set_cache_client(self, cleanup_endpoints):
         """Test setting Redis client via Endpoints."""
         mock_client = MagicMock(spec=RedisClient)
         Endpoints._cache = mock_client

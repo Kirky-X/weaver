@@ -22,10 +22,10 @@ class TestRedisConnection:
     @pytest.fixture
     def mock_redis(self) -> AsyncMock:
         """Create a mock Redis client."""
-        redis_client = AsyncMock(spec=AsyncRedis)
-        redis_client.ping = AsyncMock(return_value=True)
-        redis_client.close = AsyncMock()
-        return redis_client
+        cache_client = AsyncMock(spec=AsyncRedis)
+        cache_client.ping = AsyncMock(return_value=True)
+        cache_client.close = AsyncMock()
+        return cache_client
 
     @pytest.mark.asyncio
     async def test_redis_ping(self, mock_redis: AsyncMock) -> None:
@@ -67,13 +67,13 @@ class TestRedisCacheOperations:
     @pytest.fixture
     def mock_redis(self) -> AsyncMock:
         """Create a mock Redis client with cache operations."""
-        redis_client = AsyncMock(spec=AsyncRedis)
-        redis_client.get = AsyncMock()
-        redis_client.set = AsyncMock()
-        redis_client.delete = AsyncMock()
-        redis_client.exists = AsyncMock()
-        redis_client.expire = AsyncMock()
-        return redis_client
+        cache_client = AsyncMock(spec=AsyncRedis)
+        cache_client.get = AsyncMock()
+        cache_client.set = AsyncMock()
+        cache_client.delete = AsyncMock()
+        cache_client.exists = AsyncMock()
+        cache_client.expire = AsyncMock()
+        return cache_client
 
     @pytest.mark.asyncio
     async def test_cache_set(self, mock_redis: AsyncMock) -> None:
@@ -152,10 +152,10 @@ class TestRedisDistributedLock:
     @pytest.fixture
     def mock_redis(self) -> AsyncMock:
         """Create a mock Redis client with lock support."""
-        redis_client = AsyncMock(spec=AsyncRedis)
-        redis_client.set = AsyncMock()
-        redis_client.delete = AsyncMock()
-        return redis_client
+        cache_client = AsyncMock(spec=AsyncRedis)
+        cache_client.set = AsyncMock()
+        cache_client.delete = AsyncMock()
+        return cache_client
 
     @pytest.mark.asyncio
     async def test_lock_acquire(self, mock_redis: AsyncMock) -> None:
@@ -200,11 +200,11 @@ class TestRedisPubSub:
     @pytest.fixture
     def mock_redis(self) -> AsyncMock:
         """Create a mock Redis client with pub/sub support."""
-        redis_client = AsyncMock(spec=AsyncRedis)
-        redis_client.publish = AsyncMock()
-        redis_client.subscribe = AsyncMock()
-        redis_client.unsubscribe = AsyncMock()
-        return redis_client
+        cache_client = AsyncMock(spec=AsyncRedis)
+        cache_client.publish = AsyncMock()
+        cache_client.subscribe = AsyncMock()
+        cache_client.unsubscribe = AsyncMock()
+        return cache_client
 
     @pytest.mark.asyncio
     async def test_publish_message(self, mock_redis: AsyncMock) -> None:
@@ -238,8 +238,8 @@ class TestRedisErrorHandling:
     @pytest.fixture
     def mock_redis(self) -> AsyncMock:
         """Create a mock Redis client."""
-        redis_client = AsyncMock(spec=AsyncRedis)
-        return redis_client
+        cache_client = AsyncMock(spec=AsyncRedis)
+        return cache_client
 
     @pytest.mark.asyncio
     async def test_connection_error_recovery(self, mock_redis: AsyncMock) -> None:

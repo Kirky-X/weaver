@@ -85,11 +85,13 @@ def run_pytest_with_timing(output_dir: Path) -> tuple[Metrics, str]:
         "--tb=no",
     ]
 
-    result = subprocess.run(  # noqa: S603
+    # Trusted command: running pytest with fixed arguments for coverage
+    result = subprocess.run(
         cmd,
         capture_output=True,
         text=True,
         cwd=Path(__file__).parent.parent.parent,
+        shell=False,  # Explicit: no shell interpretation
     )
 
     # Parse output

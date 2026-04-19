@@ -278,6 +278,7 @@ class TestSourcesEndpoint:
             request=request,
             _="test-key",
             repo=mock_repo,
+            scheduler=MagicMock(),  # Mock scheduler
         )
         assert result.data.name == "New Name"
         mock_repo.upsert.assert_called_once()

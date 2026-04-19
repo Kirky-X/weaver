@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from api.dependencies import get_cache_pool, get_graph_pool, get_graph_pool_type
+from api.dependencies import get_cache_client, get_graph_pool, get_graph_pool_type
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from api.schemas.types import RoundedFloat, RoundedFloatOpt
@@ -144,7 +144,7 @@ async def _get_full_view(
     include_set = _parse_include_param(include)
 
     # Try to get from cache if no specific include filter
-    cache = get_cache_pool()
+    cache = get_cache_client()
     if cache and include_set is None:
         try:
             cached = await cache.get(GRAPH_METRICS_FULL_CACHE_KEY)

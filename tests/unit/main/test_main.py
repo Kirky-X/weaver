@@ -47,7 +47,7 @@ def mock_container(mock_settings):
     # Mock all the pool/client/repo accessors
     container.relational_pool = MagicMock()
     container.graph_pool = MagicMock()
-    container.redis_client = MagicMock()
+    container.cache_client = MagicMock()
     container.llm_client = MagicMock()
     container.source_scheduler = MagicMock()
     container.vector_repo = MagicMock()
@@ -245,7 +245,7 @@ class TestLifespan:
                                 deps.Endpoints._relational_pool is mock_container.relational_pool()
                             )
                             assert deps.Endpoints._graph_pool is mock_container.graph_pool()
-                            assert deps.Endpoints._cache is mock_container.cache_pool()
+                            assert deps.Endpoints._cache is mock_container.cache_client()
                             assert deps.Endpoints._llm is mock_container.llm_client()
                             assert deps.Endpoints._scheduler is mock_container.source_scheduler()
                             assert deps.Endpoints._vector_repo is mock_container.vector_repo()

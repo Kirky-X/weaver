@@ -81,7 +81,7 @@ class Pipeline:
         graph_writer: Any = None,
         source_auth_repo: Any = None,
         entity_resolver: EntityResolver | None = None,
-        cache_pool: Any = None,
+        cache_client: Any = None,
         community_updater: IncrementalCommunityUpdater | None = None,
         phase1_concurrency: int | None = None,
         phase3_concurrency: int | None = None,
@@ -124,7 +124,7 @@ class Pipeline:
             relation_type_normalizer=relation_type_normalizer,
         )
         self._entity_resolver = entity_resolver
-        self._checkpoint_cleanup = CheckpointCleanupNode(cache_pool)
+        self._checkpoint_cleanup = CheckpointCleanupNode(cache_client)
         self._article_repo = article_repo
         self._graph_writer = graph_writer
         self._vector_repo = vector_repo

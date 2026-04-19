@@ -427,7 +427,7 @@ class CausalInferenceService:
 
         try:
             result = await self._pool.execute_query(
-                query if self._is_ladybug else query,
+                query,
                 {"entity_name": entity_name} if not self._is_ladybug else {},
             )
 
@@ -471,7 +471,7 @@ class CausalInferenceService:
 
         try:
             result = await self._pool.execute_query(
-                query if self._is_ladybug else query,
+                query,
                 {"entity_name": entity_name} if not self._is_ladybug else {},
             )
 
@@ -525,7 +525,7 @@ class CausalInferenceService:
             }
 
             create_result = await self._pool.execute_query(
-                create_query if self._is_ladybug else create_query,
+                create_query,
                 params if not self._is_ladybug else {},
             )
 

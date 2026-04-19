@@ -478,19 +478,25 @@ class APITester:
         # Trigger pipeline
         code, data, ms = await self._request(
             "POST",
-            "/api/v1/pipeline/trigger",
+            "/api/v1/admin/pipeline/trigger",
             json_data={"source_id": "test-source", "force": False},
             expected_status=[200, 404],
         )
         if code == 200:
-            self._record("/api/v1/pipeline/trigger", "POST", "PASS", code, "", ms, data)
+            self._record("/api/v1/admin/pipeline/trigger", "POST", "PASS", code, "", ms, data)
         elif code == 404:
             self._record(
-                "/api/v1/pipeline/trigger", "POST", "PASS", code, "(source not found)", ms, data
+                "/api/v1/admin/pipeline/trigger",
+                "POST",
+                "PASS",
+                code,
+                "(source not found)",
+                ms,
+                data,
             )
         else:
             self._record(
-                "/api/v1/pipeline/trigger",
+                "/api/v1/admin/pipeline/trigger",
                 "POST",
                 "FAIL",
                 code,
@@ -1003,7 +1009,7 @@ class APITester:
 
         code, data, _ms = await self._request(
             "POST",
-            "/api/v1/pipeline/trigger",
+            "/api/v1/admin/pipeline/trigger",
             json_data={
                 "source_id": source_id,
                 "max_items": max_items,
