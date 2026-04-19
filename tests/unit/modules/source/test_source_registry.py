@@ -38,7 +38,7 @@ class TestSourceRegistryBasic:
 
     def test_registry_add_source(self, mock_fetcher):
         """Test adding a source to registry."""
-        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.parsing import SourceConfig
         from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
@@ -71,7 +71,7 @@ class TestSourceRegistryEdgeCases:
 
     def test_registry_list_enabled_only(self, mock_fetcher):
         """Test listing only enabled sources."""
-        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.parsing import SourceConfig
         from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
@@ -103,7 +103,7 @@ class TestSourceRegistryEdgeCases:
 
     def test_registry_update_source(self, mock_fetcher):
         """Test updating an existing source."""
-        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.parsing import SourceConfig
         from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
@@ -147,7 +147,7 @@ class TestSourceRegistryErrorHandling:
 
     def test_registry_remove_source(self, mock_fetcher):
         """Test removing a source."""
-        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.parsing import SourceConfig
         from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
@@ -382,7 +382,7 @@ class TestSourceRegistryListSources:
 
     def test_list_sources_returns_all_by_default(self, mock_fetcher):
         """Test that list_sources returns only enabled sources by default."""
-        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.parsing import SourceConfig
         from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)
@@ -419,7 +419,7 @@ class TestSourceRegistryListSources:
 
     def test_list_sources_all(self, mock_fetcher):
         """Test listing all sources including disabled."""
-        from modules.ingestion.parsing.models import SourceConfig
+        from modules.ingestion.parsing import SourceConfig
         from modules.ingestion.parsing.registry import SourceRegistry
 
         registry = SourceRegistry(fetcher=mock_fetcher)

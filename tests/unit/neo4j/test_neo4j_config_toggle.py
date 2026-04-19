@@ -94,7 +94,7 @@ class TestContainerNeo4jToggle:
         mock_strategy.relational_type = "postgresql"
         mock_strategy.relational_pool = MagicMock()
 
-        with patch("container.create_strategy", AsyncMock(return_value=mock_strategy)):
+        with patch("core.db.create_strategy", AsyncMock(return_value=mock_strategy)):
             strategy = await container.init_strategy()
 
         # graph_pool should be None when Neo4j is disabled
@@ -117,7 +117,7 @@ class TestContainerNeo4jToggle:
         mock_strategy.relational_type = "postgresql"
         mock_strategy.relational_pool = MagicMock()
 
-        with patch("container.create_strategy", AsyncMock(return_value=mock_strategy)):
+        with patch("core.db.create_strategy", AsyncMock(return_value=mock_strategy)):
             strategy = await container.init_strategy()
 
         # graph_pool should be available when Neo4j is enabled

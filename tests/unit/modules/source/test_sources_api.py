@@ -57,8 +57,8 @@ class TestSourceResponseModel:
         )
         assert request.id == "new_source"
         assert request.enabled is True
-        assert request.credibility is None
-        assert request.tier is None
+        assert request.credibility == 0.5
+        assert request.tier == 2
 
     def test_source_create_request_with_credibility(self):
         """Test SourceCreateRequest with credibility and tier."""

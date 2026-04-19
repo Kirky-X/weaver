@@ -88,8 +88,8 @@ async def test_disconnect(url: str, api_key: str, test_url: str) -> None:
 
     payload = {"url": test_url}
 
-    print(f"Testing disconnect handling...")
-    print(f"Will disconnect after 3 events...")
+    print("Testing disconnect handling...")
+    print("Will disconnect after 3 events...")
 
     event_count = 0
 
