@@ -491,7 +491,7 @@ class TestGlobalSearchEngineConfidence:
         confidence = engine._estimate_confidence(answers)
 
         # Base 0.3 (no community_scores), no length bonus (<200 chars), +0.03 for all non-empty
-        assert confidence == 0.33
+        assert confidence == pytest.approx(0.33)
 
     def test_estimate_confidence_with_empty_string(self, mock_context_builder, mock_llm):
         """Test _estimate_confidence with some empty strings."""

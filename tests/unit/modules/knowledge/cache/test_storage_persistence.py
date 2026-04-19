@@ -78,18 +78,17 @@ class TestKnowledgeCachePersistence:
         """)
         db.execute(f"COPY knowledge_clusters TO '{parquet_file}' (FORMAT PARQUET)")
 
-        with patch("modules.knowledge.cache.storage.KnowledgeCache._create_table"):
-            with patch("modules.knowledge.cache.storage.KnowledgeCache._start_sync_daemon"):
-                with patch("modules.knowledge.cache.storage.KnowledgeCache._shutdown"):
-                    from modules.knowledge.cache.storage import KnowledgeCache
+        with patch("modules.knowledge.cache.storage.KnowledgeCache._start_sync_daemon"):
+            with patch("modules.knowledge.cache.storage.KnowledgeCache._shutdown"):
+                from modules.knowledge.cache.storage import KnowledgeCache
 
-                    cache = KnowledgeCache(cache_path=str(tmp_path))
+                cache = KnowledgeCache(cache_path=str(tmp_path))
 
-                    # Verify data was loaded
-                    result = cache.db.execute("SELECT id, name FROM knowledge_clusters").fetchall()
+                # Verify data was loaded
+                result = cache.db.execute("SELECT id, name FROM knowledge_clusters").fetchall()
 
-                    assert len(result) == 1
-                    assert result[0][0] == "existing1"
+                assert len(result) == 1
+                assert result[0][0] == "existing1"
 
     def test_dirty_count_tracking(self, tmp_path):
         """Test dirty count is tracked correctly."""

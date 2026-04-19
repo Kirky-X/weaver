@@ -49,21 +49,19 @@ class TestKnowledgeCacheGetStats:
 
     @pytest.fixture
     def cache(self, tmp_path):
-        """Create KnowledgeCache with mock database."""
-        with patch("modules.knowledge.cache.storage.KnowledgeCache._create_table"):
-            with patch("modules.knowledge.cache.storage.KnowledgeCache._load_from_parquet"):
-                with patch("modules.knowledge.cache.storage.KnowledgeCache._start_sync_daemon"):
-                    with patch("modules.knowledge.cache.storage.KnowledgeCache._shutdown"):
-                        cache = KnowledgeCache(cache_path=str(tmp_path))
-                        return cache
+        """Create KnowledgeCache with mock db connection."""
+        mock_db = MagicMock()
+        mock_db.execute.return_value.fetchone.return_value = [0, None, 0]
+
+        with patch("modules.knowledge.cache.storage.duckdb.connect", return_value=mock_db):
+            with patch("modules.knowledge.cache.storage.KnowledgeCache._start_sync_daemon"):
+                with patch("modules.knowledge.cache.storage.KnowledgeCache._shutdown"):
+                    cache = KnowledgeCache(cache_path=str(tmp_path))
+                    yield cache
 
     def test_get_stats_empty(self, cache):
         """Test get_stats with empty cache."""
-        cache.db.execute = MagicMock(return_value=MagicMock())
-        cache.db.execute.return_value.fetchone.return_value = [0, None, 0]
-
         stats = cache.get_stats()
-
         assert stats["count"] == 0
         assert stats["avg_hotness"] == 0.0
         assert stats["with_embedding"] == 0
@@ -73,20 +71,10 @@ class TestKnowledgeCacheGet:
     """Test get method."""
 
     @pytest.fixture
-    def cache(self, tmp_path):
-        """Create KnowledgeCache with mock database."""
-        with patch("modules.knowledge.cache.storage.KnowledgeCache._create_table"):
-            with patch("modules.knowledge.cache.storage.KnowledgeCache._load_from_parquet"):
-                with patch("modules.knowledge.cache.storage.KnowledgeCache._start_sync_daemon"):
-                    with patch("modules.knowledge.cache.storage.KnowledgeCache._shutdown"):
-                        cache = KnowledgeCache(cache_path=str(tmp_path))
-                        return cache
-
-    @pytest.mark.asyncio
-    async def test_get_found(self, cache):
-        """Test get finds cluster."""
-        cache.db.execute = MagicMock(return_value=MagicMock())
-        cache.db.execute.return_value.fetchone.return_value = [
+    def cache_with_cluster(self, tmp_path):
+        """Create KnowledgeCache with mock db and one cluster."""
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = [
             "cluster1",
             "Test Cluster",
             "Description",
@@ -98,21 +86,41 @@ class TestKnowledgeCacheGet:
             None,  # last_modified
             0,  # version
         ]
+        mock_db = MagicMock()
+        mock_db.execute.return_value = mock_result
 
-        cluster = await cache.get("cluster1")
+        with patch("modules.knowledge.cache.storage.duckdb.connect", return_value=mock_db):
+            with patch("modules.knowledge.cache.storage.KnowledgeCache._start_sync_daemon"):
+                with patch("modules.knowledge.cache.storage.KnowledgeCache._shutdown"):
+                    cache = KnowledgeCache(cache_path=str(tmp_path))
+                    yield cache
 
+    @pytest.fixture
+    def cache_empty(self, tmp_path):
+        """Create KnowledgeCache with mock db returning None."""
+        mock_db = MagicMock()
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = None
+        mock_db.execute.return_value = mock_result
+
+        with patch("modules.knowledge.cache.storage.duckdb.connect", return_value=mock_db):
+            with patch("modules.knowledge.cache.storage.KnowledgeCache._start_sync_daemon"):
+                with patch("modules.knowledge.cache.storage.KnowledgeCache._shutdown"):
+                    cache = KnowledgeCache(cache_path=str(tmp_path))
+                    yield cache
+
+    @pytest.mark.asyncio
+    async def test_get_found(self, cache_with_cluster):
+        """Test get finds cluster."""
+        cluster = await cache_with_cluster.get("cluster1")
         assert cluster is not None
         assert cluster.id == "cluster1"
         assert cluster.name == "Test Cluster"
 
     @pytest.mark.asyncio
-    async def test_get_not_found(self, cache):
+    async def test_get_not_found(self, cache_empty):
         """Test get returns None when not found."""
-        cache.db.execute = MagicMock(return_value=MagicMock())
-        cache.db.execute.return_value.fetchone.return_value = None
-
-        cluster = await cache.get("nonexistent")
-
+        cluster = await cache_empty.get("nonexistent")
         assert cluster is None
 
 
@@ -120,33 +128,43 @@ class TestKnowledgeCacheRemove:
     """Test remove method."""
 
     @pytest.fixture
-    def cache(self, tmp_path):
-        """Create KnowledgeCache with mock database."""
-        with patch("modules.knowledge.cache.storage.KnowledgeCache._create_table"):
-            with patch("modules.knowledge.cache.storage.KnowledgeCache._load_from_parquet"):
-                with patch("modules.knowledge.cache.storage.KnowledgeCache._start_sync_daemon"):
-                    with patch("modules.knowledge.cache.storage.KnowledgeCache._shutdown"):
-                        cache = KnowledgeCache(cache_path=str(tmp_path))
-                        return cache
+    def cache_remove_found(self, tmp_path):
+        """Create KnowledgeCache where remove will find cluster."""
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = [1]
+        mock_db = MagicMock()
+        mock_db.execute.return_value = mock_result
+
+        with patch("modules.knowledge.cache.storage.duckdb.connect", return_value=mock_db):
+            with patch("modules.knowledge.cache.storage.KnowledgeCache._start_sync_daemon"):
+                with patch("modules.knowledge.cache.storage.KnowledgeCache._shutdown"):
+                    cache = KnowledgeCache(cache_path=str(tmp_path))
+                    yield cache
+
+    @pytest.fixture
+    def cache_remove_not_found(self, tmp_path):
+        """Create KnowledgeCache where remove will not find cluster."""
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = [0]
+        mock_db = MagicMock()
+        mock_db.execute.return_value = mock_result
+
+        with patch("modules.knowledge.cache.storage.duckdb.connect", return_value=mock_db):
+            with patch("modules.knowledge.cache.storage.KnowledgeCache._start_sync_daemon"):
+                with patch("modules.knowledge.cache.storage.KnowledgeCache._shutdown"):
+                    cache = KnowledgeCache(cache_path=str(tmp_path))
+                    yield cache
 
     @pytest.mark.asyncio
-    async def test_remove_found(self, cache):
+    async def test_remove_found(self, cache_remove_found):
         """Test remove removes cluster."""
-        cache.db.execute = MagicMock(return_value=MagicMock())
-        cache.db.execute.return_value.fetchone.return_value = [1]
-
-        result = await cache.remove("cluster1")
-
+        result = await cache_remove_found.remove("cluster1")
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_remove_not_found(self, cache):
+    async def test_remove_not_found(self, cache_remove_not_found):
         """Test remove returns False when not found."""
-        cache.db.execute = MagicMock(return_value=MagicMock())
-        cache.db.execute.return_value.fetchone.return_value = [0]
-
-        result = await cache.remove("nonexistent")
-
+        result = await cache_remove_not_found.remove("nonexistent")
         assert result is False
 
 
@@ -154,23 +172,23 @@ class TestKnowledgeCacheCleanupStale:
     """Test cleanup_stale method."""
 
     @pytest.fixture
-    def cache(self, tmp_path):
-        """Create KnowledgeCache with mock database."""
-        with patch("modules.knowledge.cache.storage.KnowledgeCache._create_table"):
-            with patch("modules.knowledge.cache.storage.KnowledgeCache._load_from_parquet"):
-                with patch("modules.knowledge.cache.storage.KnowledgeCache._start_sync_daemon"):
-                    with patch("modules.knowledge.cache.storage.KnowledgeCache._shutdown"):
-                        cache = KnowledgeCache(cache_path=str(tmp_path))
-                        return cache
+    def cache_cleanup(self, tmp_path):
+        """Create KnowledgeCache for cleanup test."""
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = [5]
+        mock_db = MagicMock()
+        mock_db.execute.return_value = mock_result
+
+        with patch("modules.knowledge.cache.storage.duckdb.connect", return_value=mock_db):
+            with patch("modules.knowledge.cache.storage.KnowledgeCache._start_sync_daemon"):
+                with patch("modules.knowledge.cache.storage.KnowledgeCache._shutdown"):
+                    cache = KnowledgeCache(cache_path=str(tmp_path))
+                    yield cache
 
     @pytest.mark.asyncio
-    async def test_cleanup_stale(self, cache):
+    async def test_cleanup_stale(self, cache_cleanup):
         """Test cleanup_stale removes clusters below threshold."""
-        cache.db.execute = MagicMock(return_value=MagicMock())
-        cache.db.execute.return_value.fetchone.return_value = [5]
-
-        removed = await cache.cleanup_stale(hotness_threshold=0.3)
-
+        removed = await cache_cleanup.cleanup_stale(hotness_threshold=0.3)
         assert removed == 5
 
 
@@ -178,47 +196,45 @@ class TestKnowledgeCacheUpdateHotness:
     """Test update_hotness method."""
 
     @pytest.fixture
-    def cache(self, tmp_path):
-        """Create KnowledgeCache with mock database."""
-        with patch("modules.knowledge.cache.storage.KnowledgeCache._create_table"):
-            with patch("modules.knowledge.cache.storage.KnowledgeCache._load_from_parquet"):
-                with patch("modules.knowledge.cache.storage.KnowledgeCache._start_sync_daemon"):
-                    with patch("modules.knowledge.cache.storage.KnowledgeCache._shutdown"):
-                        cache = KnowledgeCache(cache_path=str(tmp_path))
-                        return cache
+    def cache_update(self, tmp_path):
+        """Create KnowledgeCache for update test."""
+        mock_db = MagicMock()
+
+        with patch("modules.knowledge.cache.storage.duckdb.connect", return_value=mock_db):
+            with patch("modules.knowledge.cache.storage.KnowledgeCache._start_sync_daemon"):
+                with patch("modules.knowledge.cache.storage.KnowledgeCache._shutdown"):
+                    cache = KnowledgeCache(cache_path=str(tmp_path))
+                    yield cache
 
     @pytest.mark.asyncio
-    async def test_update_hotness(self, cache):
+    async def test_update_hotness(self, cache_update):
         """Test update_hotness increments hotness."""
-        cache.db.execute = MagicMock()
-
-        await cache.update_hotness("cluster1", delta=0.1)
-
-        assert cache.db.execute.called
+        await cache_update.update_hotness("cluster1", delta=0.1)
+        assert cache_update.db.execute.called
 
 
 class TestKnowledgeCacheAddQuery:
     """Test add_query method."""
 
     @pytest.fixture
-    def cache(self, tmp_path):
-        """Create KnowledgeCache with mock database."""
-        with patch("modules.knowledge.cache.storage.KnowledgeCache._create_table"):
-            with patch("modules.knowledge.cache.storage.KnowledgeCache._load_from_parquet"):
-                with patch("modules.knowledge.cache.storage.KnowledgeCache._start_sync_daemon"):
-                    with patch("modules.knowledge.cache.storage.KnowledgeCache._shutdown"):
-                        cache = KnowledgeCache(cache_path=str(tmp_path))
-                        return cache
+    def cache_add_query(self, tmp_path):
+        """Create KnowledgeCache for add_query test."""
+        mock_result = MagicMock()
+        mock_result.fetchone.return_value = ["query1\nquery2"]
+        mock_db = MagicMock()
+        mock_db.execute.return_value = mock_result
+
+        with patch("modules.knowledge.cache.storage.duckdb.connect", return_value=mock_db):
+            with patch("modules.knowledge.cache.storage.KnowledgeCache._start_sync_daemon"):
+                with patch("modules.knowledge.cache.storage.KnowledgeCache._shutdown"):
+                    cache = KnowledgeCache(cache_path=str(tmp_path))
+                    yield cache
 
     @pytest.mark.asyncio
-    async def test_add_query(self, cache):
+    async def test_add_query(self, cache_add_query):
         """Test add_query adds query to history."""
-        cache.db.execute = MagicMock(return_value=MagicMock())
-        cache.db.execute.return_value.fetchone.return_value = ["query1\nquery2"]
-
-        await cache.add_query("cluster1", "new_query")
-
-        assert cache.db.execute.called
+        await cache_add_query.add_query("cluster1", "new_query")
+        assert cache_add_query.db.execute.called
 
 
 class TestKnowledgeCluster:

@@ -46,8 +46,15 @@ async def graph_test_data(graph_pool) -> None:
 
     yield
 
-    # Cleanup - simpler approach for LadybugDB compatibility
-    # Delete all RELATED_TO relationships between test entities
+    # Cleanup - LadybugDB requires deleting relationships before nodes
+    # 1. Delete communities and their relationships first
+    repo = Neo4jCommunityRepo(pool, database_type=GraphDatabaseType(db_type))
+    try:
+        await repo.delete_all_communities()
+    except Exception:
+        pass
+
+    # 2. Delete all RELATED_TO relationships between test entities
     for source in ["Entity_A", "Entity_B", "Entity_C", "Entity_D"]:
         for target in ["Entity_A", "Entity_B", "Entity_C", "Entity_D"]:
             try:
@@ -61,7 +68,7 @@ async def graph_test_data(graph_pool) -> None:
             except Exception:
                 pass  # Ignore if relationship doesn't exist
 
-    # Delete entities
+    # 3. Delete entities
     for name in ["Entity_A", "Entity_B", "Entity_C", "Entity_D"]:
         await pool.execute_query(
             """

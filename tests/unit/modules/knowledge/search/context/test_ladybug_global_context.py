@@ -103,12 +103,13 @@ class TestBuildContext:
 
     @pytest.mark.asyncio
     async def test_should_handle_no_communities_exist(self, mock_pool) -> None:
-        """Test when no communities exist in database."""
+        """Test when no communities exist and fallback also fails."""
         mock_pool.execute_query = AsyncMock(
             side_effect=[
                 [],  # text search
                 [],  # text fallback
-                [],  # entity-article fallback
+                [],  # entity fallback (token-based)
+                [],  # entity fallback (Chinese chunk - also empty for "test")
                 [{"count": 0}],  # no communities exist
             ]
         )
@@ -363,14 +364,12 @@ class TestFindRelevantCommunities:
             side_effect=[
                 [],  # text search with query
                 [],  # text search fallback (no query)
-                [  # entity-article fallback
+                [  # entity-article fallback (new format)
                     {
                         "entity_name": "AI",
                         "entity_type": "TECHNOLOGY",
                         "entity_description": "Artificial Intelligence",
-                        "article_id": "article-1",
-                        "article_title": "AI Revolution",
-                        "article_score": 0.95,
+                        "entity_tier": 2,
                     },
                 ],
             ]
@@ -388,7 +387,7 @@ class TestFindRelevantCommunities:
         assert len(communities) == 1
         assert used_fallback is True
         assert method == "entity_article_fallback"
-        assert communities[0]["id"] == "fallback:article-1"
+        assert communities[0]["id"] == "entity:AI"
 
     @pytest.mark.asyncio
     async def test_should_return_empty_when_no_results(self, mock_pool) -> None:
@@ -600,16 +599,15 @@ class TestFindEntityArticleFallback:
 
     @pytest.mark.asyncio
     async def test_should_build_fallback_results(self, mock_pool) -> None:
-        """Test building fallback results from entity-article matches."""
+        """Test building fallback results from entity matches."""
+        # Mock data matches new entity-based fallback format
         mock_pool.execute_query = AsyncMock(
             return_value=[
                 {
                     "entity_name": "Python",
                     "entity_type": "LANGUAGE",
                     "entity_description": "Programming language",
-                    "article_id": "article-123",
-                    "article_title": "Python Guide",
-                    "article_score": 0.95,
+                    "entity_tier": 2,
                 },
             ]
         )
@@ -618,9 +616,10 @@ class TestFindEntityArticleFallback:
         result = await builder._find_entity_article_fallback("Python programming")
 
         assert len(result) == 1
-        assert result[0]["id"] == "fallback:article-123"
-        assert "Python" in result[0]["title"]
-        assert result[0]["rank"] == 0.95
+        assert result[0]["id"] == "entity:Python"
+        assert result[0]["title"] == "Python"
+        assert result[0]["summary"] == "Programming language"
+        assert result[0]["rank"] == 0.8  # 1.0 - (2 / 10.0)
 
     @pytest.mark.asyncio
     async def test_should_handle_fallback_query_error(self, mock_pool) -> None:

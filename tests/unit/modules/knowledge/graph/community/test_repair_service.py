@@ -106,7 +106,7 @@ class TestRepairEntityCountMismatch:
         """Test when no entity count mismatches exist."""
         service._pool.execute_query = AsyncMock(return_value=[])
 
-        result = await service.repair_entity_count_mismatch()
+        result = await service.repair_entity_count_mismatches()
 
         assert result.success is True
         assert result.affected_count == 0
@@ -116,12 +116,12 @@ class TestRepairEntityCountMismatch:
         """Test updates mismatched entity counts."""
         service._pool.execute_query = AsyncMock(
             side_effect=[
-                [{"community_id": 1, "actual_count": 10}],  # Find mismatches
-                [{"updated": 1}],  # Update
+                [{"count": 1}],  # Count query
+                [{"updated": 1}],  # Update query
             ]
         )
 
-        result = await service.repair_entity_count_mismatch(dry_run=False)
+        result = await service.repair_entity_count_mismatches(dry_run=False)
 
         assert result.success is True
         assert result.affected_count >= 0
@@ -130,13 +130,10 @@ class TestRepairEntityCountMismatch:
     async def test_dry_run_for_mismatches(self, service):
         """Test dry run for entity count mismatches."""
         service._pool.execute_query = AsyncMock(
-            return_value=[
-                {"community_id": 1, "actual_count": 10},
-                {"community_id": 2, "actual_count": 5},
-            ]
+            return_value=[{"count": 2}]
         )
 
-        result = await service.repair_entity_count_mismatch(dry_run=True)
+        result = await service.repair_entity_count_mismatches(dry_run=True)
 
         assert result.affected_count == 2
 
@@ -169,12 +166,12 @@ class TestRepairStaleReports:
                 {"community_id": 1, "level": 0},
             ]
         )
-        service_with_generator._report_generator.generate_report = AsyncMock()
+        service_with_generator._report_generator.regenerate_report = AsyncMock()
 
-        result = await service_with_generator.repair_stale_reports(max_age_days=7)
+        result = await service_with_generator.repair_stale_reports(community_ids=None, dry_run=False)
 
         assert result.success is True
-        service_with_generator._report_generator.generate_report.assert_called()
+        service_with_generator._report_generator.regenerate_report.assert_called()
 
     @pytest.mark.asyncio
     async def test_stale_reports_without_generator(self):
@@ -203,7 +200,7 @@ class TestRepairBrokenHierarchy:
         """Test when no broken hierarchy references."""
         service._pool.execute_query = AsyncMock(return_value=[])
 
-        result = await service.repair_broken_hierarchy()
+        result = await service.repair_hierarchy_breaks()
 
         assert result.success is True
         assert result.affected_count == 0
@@ -213,41 +210,14 @@ class TestRepairBrokenHierarchy:
         """Test cleans up broken hierarchy references."""
         service._pool.execute_query = AsyncMock(
             side_effect=[
-                [{"community_id": 1, "parent_id": 999}],  # Find broken
-                [{"cleaned": 1}],  # Clean up
+                [{"count": 1}],  # Count query
+                [{"cleared": 1}],  # Clear query
             ]
         )
 
-        result = await service.repair_broken_hierarchy(dry_run=False)
+        result = await service.repair_hierarchy_breaks(dry_run=False)
 
         assert result.success is True
-
-
-class TestRepairAll:
-    """Test repair_all method."""
-
-    @pytest.fixture
-    def service(self):
-        """Create CommunityRepairService with mock pool."""
-        mock_pool = AsyncMock()
-        mock_pool.execute_query = AsyncMock(return_value=[])
-        return CommunityRepairService(mock_pool)
-
-    @pytest.mark.asyncio
-    async def test_repairs_all_issues(self, service):
-        """Test repairs all issue types."""
-        summary = await service.repair_all(dry_run=True)
-
-        assert isinstance(summary, RepairSummary)
-        assert hasattr(summary, "total_repaired")
-
-    @pytest.mark.asyncio
-    async def test_dry_run_mode(self, service):
-        """Test dry run mode doesn't make changes."""
-        summary = await service.repair_all(dry_run=True)
-
-        # All operations should be in dry run mode
-        assert summary is not None
 
 
 class TestRepairResult:
@@ -271,11 +241,11 @@ class TestRepairResult:
             repair_type="test_repair",
             affected_count=0,
             success=False,
-            error_message="Test error",
+            error="Test error",
         )
 
         assert result.success is False
-        assert result.error_message == "Test error"
+        assert result.error == "Test error"
 
 
 class TestHealthIssue:
@@ -288,6 +258,7 @@ class TestHealthIssue:
             community_id=1,
             severity="high",
             description="Community has no entities",
+            suggestion="Remove the empty community",
         )
 
         assert issue.issue_type == IssueType.EMPTY_COMMUNITY

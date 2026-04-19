@@ -119,6 +119,14 @@ class TestBuildContext:
         """Test building context with explicit entity names (skip query search)."""
         mock_pool.execute_query = AsyncMock(
             side_effect=[
+                # entity_names verification check
+                [
+                    {
+                        "canonical_name": "Python",
+                        "type": "LANGUAGE",
+                        "description": "Programming language",
+                    },
+                ],
                 # _get_entities_with_details
                 [
                     {
@@ -155,8 +163,8 @@ class TestBuildContext:
 
         assert isinstance(context, SearchContext)
         assert len(context.sections) == 1
-        assert context.sections[0].name == "No Entities Found"
-        assert "No relevant entities" in context.sections[0].content
+        assert context.sections[0].name == "Search Note"
+        assert "No direct entity matches" in context.sections[0].content
 
     @pytest.mark.asyncio
     async def test_should_handle_empty_entity_names_list(self, mock_pool) -> None:
@@ -166,7 +174,7 @@ class TestBuildContext:
 
         assert isinstance(context, SearchContext)
         assert len(context.sections) == 1
-        assert context.sections[0].name == "No Entities Found"
+        assert context.sections[0].name == "Search Note"
 
     @pytest.mark.asyncio
     async def test_should_handle_custom_max_tokens(self, mock_pool) -> None:
@@ -187,6 +195,8 @@ class TestBuildContext:
         """Test filtering by relation types."""
         mock_pool.execute_query = AsyncMock(
             side_effect=[
+                # entity_names verification check
+                [{"canonical_name": "Entity1", "type": "TECH", "description": "Tech"}],
                 # _get_entities_with_details
                 [{"canonical_name": "Entity1", "type": "TECH", "description": "Tech"}],
                 # _get_related_entities
@@ -213,6 +223,11 @@ class TestBuildContext:
         """Test that metadata is properly tracked."""
         mock_pool.execute_query = AsyncMock(
             side_effect=[
+                # entity_names verification check
+                [
+                    {"canonical_name": "E1", "type": "TYPE1", "description": "Desc1"},
+                    {"canonical_name": "E2", "type": "TYPE2", "description": "Desc2"},
+                ],
                 # _get_entities_with_details
                 [
                     {"canonical_name": "E1", "type": "TYPE1", "description": "Desc1"},
@@ -245,15 +260,17 @@ class TestBuildContext:
         context = await builder.build(query="test")
 
         assert isinstance(context, SearchContext)
-        # When query fails, should return "No Entities Found"
+        # When query fails, should return "Search Note"
         assert len(context.sections) == 1
-        assert context.sections[0].name == "No Entities Found"
+        assert context.sections[0].name == "Search Note"
 
     @pytest.mark.asyncio
     async def test_should_skip_sections_when_empty(self, mock_pool) -> None:
         """Test that empty sections are not added."""
         mock_pool.execute_query = AsyncMock(
             side_effect=[
+                # entity_names verification check
+                [{"canonical_name": "Entity1", "type": "TECH", "description": "Tech"}],
                 # _get_entities_with_details
                 [{"canonical_name": "Entity1", "type": "TECH", "description": "Tech"}],
                 # _get_related_entities - empty
@@ -919,6 +936,15 @@ class TestEdgeCases:
         """Test handling large number of entities."""
         mock_pool.execute_query = AsyncMock(
             side_effect=[
+                # entity_names verification check
+                [
+                    {
+                        "canonical_name": f"Entity{i}",
+                        "type": "TYPE",
+                        "description": f"Desc{i}",
+                    }
+                    for i in range(50)
+                ],
                 # _get_entities_with_details - 50 entities
                 [
                     {
@@ -953,6 +979,8 @@ class TestContextSectionPriority:
         """Test that sections are added with correct priorities."""
         mock_pool.execute_query = AsyncMock(
             side_effect=[
+                # entity_names verification check
+                [{"canonical_name": "E1", "type": "T", "description": "D"}],
                 # _get_entities_with_details
                 [{"canonical_name": "E1", "type": "T", "description": "D"}],
                 # _get_related_entities
