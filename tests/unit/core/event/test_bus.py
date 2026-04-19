@@ -111,7 +111,7 @@ class TestLLMUsageEvent:
 
     def test_creates_with_values(self):
         """Test custom values."""
-        tokens = TokenUsage(prompt=100, completion=50, total=150)
+        tokens = TokenUsage(input_tokens=100, output_tokens=50, total_tokens=150)
         event = LLMUsageEvent(
             label="chat.openai.GPT-4",
             call_point="classifier",
@@ -126,7 +126,7 @@ class TestLLMUsageEvent:
             task_id="task-789",
         )
         assert event.label == "chat.openai.GPT-4"
-        assert event.tokens.total == 150
+        assert event.tokens.total_tokens == 150
         assert event.success is False
 
 

@@ -2,7 +2,6 @@
 """Test edge cases for cancel_all_tasks utility."""
 
 import asyncio
-import logging
 
 import pytest
 
@@ -110,11 +109,9 @@ async def test_cancel_all_tasks_with_multiple_task_types():
 
 
 @pytest.mark.asyncio
-async def test_cancel_all_tasks_timeout_handling(caplog):
+async def test_cancel_all_tasks_timeout_handling():
     """Verify cancel_all_tasks logs warning on timeout."""
     from tests.conftest import cancel_all_tasks
-
-    caplog.set_level(logging.WARNING)
 
     # Create a task that really doesn't want to stop
     async def stubborn_worker():
@@ -129,8 +126,10 @@ async def test_cancel_all_tasks_timeout_handling(caplog):
     task = asyncio.create_task(stubborn_worker())
 
     # Run cancel_all_tasks - should timeout and log warning
+    print("[TEST] Starting cancel_all_tasks timeout test")
     await cancel_all_tasks()
 
     # Should have logged a timeout warning
     # Note: The task might still complete after timeout
-    assert task.done() or "task_cancellation_timeout" in caplog.text
+    print(f"[TEST] Task done: {task.done()}")
+    assert task.done()

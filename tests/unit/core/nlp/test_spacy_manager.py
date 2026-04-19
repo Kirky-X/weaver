@@ -222,7 +222,7 @@ class TestSpacyModelManagerInstallFromLocal:
         config = SpacyModelConfig(strict_mode=True)
         manager = SpacyModelManager(config)
 
-        with patch("subprocess.run", side_effect=Exception("pip failed")):
+        with patch("subprocess.run", side_effect=SystemExit(1)):
             with pytest.raises(RuntimeError):
                 manager._install_from_local("en_core_web_sm", "/path/model.whl")
 
@@ -245,7 +245,7 @@ class TestSpacyModelManagerInstallFromNetwork:
         config = SpacyModelConfig(strict_mode=True)
         manager = SpacyModelManager(config)
 
-        with patch("spacy.cli.download", side_effect=Exception("Download failed")):
+        with patch("spacy.cli.download", side_effect=SystemExit(1)):
             with pytest.raises(RuntimeError):
                 manager._install_from_network("en_core_web_sm")
 

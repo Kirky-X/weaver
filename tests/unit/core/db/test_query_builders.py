@@ -158,7 +158,7 @@ class TestDuckDBVectorQueryBuilder:
 
     def test_build_upsert_article_vector_query(self, builder: DuckDBVectorQueryBuilder) -> None:
         result = builder.build_upsert_article_vector_query()
-        assert "INSERT OR REPLACE" in result
+        assert "ON CONFLICT" in result
         assert "article_vectors" in result
 
     def test_build_upsert_article_vector_batch_query_raises(
@@ -285,7 +285,7 @@ class TestQueryOutputComparison:
         duck_upsert = duck.build_upsert_article_vector_query()
 
         assert "ON CONFLICT" in pg_upsert
-        assert "INSERT OR REPLACE" in duck_upsert
+        assert "ON CONFLICT" in duck_upsert
 
     def test_session_init_differs(self) -> None:
         pg = PgVectorQueryBuilder()

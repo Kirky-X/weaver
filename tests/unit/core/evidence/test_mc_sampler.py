@@ -53,7 +53,7 @@ class TestMCSamplerSampleEvidence:
         """Create MCSampler instance with mocks."""
         llm_client = AsyncMock()
         token_budget = MagicMock()
-        token_budget.truncate = MagicMock(side_effect=lambda text, **kwargs: text[:1000])
+        token_budget.truncate = MagicMock(side_effect=lambda text, *args, **kwargs: text[:1000])
         return MCSampler(llm_client, token_budget)
 
     @pytest.mark.asyncio
@@ -72,26 +72,52 @@ class TestMCSamplerSampleEvidence:
         """Test long document (> threshold) triggers MC sampling."""
         document = "Long document. " * 1000  # ~16000 chars
 
-        with patch.object(sampler, "_find_anchors", return_value=[100, 200, 300]):
-            with patch.object(sampler, "_sample_regions", return_value=["region1", "region2"]):
-                with patch.object(
-                    sampler, "_score_regions", return_value=[(0.8, "region1"), (0.7, "region2")]
-                ):
-                    with patch.object(sampler, "_synthesize", return_value=("synthesized", 0.75)):
+        from core.evidence.models import EvidenceScoreOutput
+
+        mock_score1 = MagicMock(spec=EvidenceScoreOutput)
+        mock_score1.relevance_score = 0.8
+        mock_score1.information_density = 0.7
+        mock_score1.confidence = 0.75
+        mock_score1.key_facts = []
+
+        mock_score2 = MagicMock(spec=EvidenceScoreOutput)
+        mock_score2.relevance_score = 0.7
+        mock_score2.information_density = 0.6
+        mock_score2.confidence = 0.7
+        mock_score2.key_facts = []
+
+        async def mock_score(region, title):
+            return mock_score1 if "region1" in region else mock_score2
+
+        with patch.object(sampler, "_find_anchor_points", return_value=[100, 200, 300]):
+            with patch.object(sampler, "_extract_regions", return_value=["region1", "region2"]):
+                with patch.object(sampler, "_score_region", side_effect=mock_score):
+                    with patch.object(
+                        sampler, "_synthesize_regions", return_value="synthesized text"
+                    ):
                         sampled_text, confidence = await sampler.sample_evidence(document)
 
-                        assert confidence == 0.75
+                        assert sampled_text == "synthesized text"
 
     @pytest.mark.asyncio
     async def test_low_confidence_falls_back_to_truncation(self, sampler):
         """Test low confidence falls back to truncated document."""
         document = "Long document. " * 1000
 
-        with patch.object(sampler, "_find_anchors", return_value=[100, 200]):
-            with patch.object(sampler, "_sample_regions", return_value=["region1"]):
-                with patch.object(
-                    sampler, "_score_regions", return_value=[(0.2, "region1")]
-                ):  # Low confidence
+        from core.evidence.models import EvidenceScoreOutput
+
+        mock_score = MagicMock(spec=EvidenceScoreOutput)
+        mock_score.relevance_score = 0.2
+        mock_score.information_density = 0.2
+        mock_score.confidence = 0.1
+        mock_score.key_facts = []
+
+        async def mock_score_region(region, title):
+            return mock_score
+
+        with patch.object(sampler, "_find_anchor_points", return_value=[100, 200]):
+            with patch.object(sampler, "_extract_regions", return_value=["region1"]):
+                with patch.object(sampler, "_score_region", side_effect=mock_score_region):
                     sampled_text, confidence = await sampler.sample_evidence(document, title="Test")
 
                     # Should fall back to truncation
@@ -119,7 +145,7 @@ class TestMCSamplerFindAnchors:
         """Test _find_anchors returns list of positions."""
         document = "A" * 20000
 
-        anchors = sampler._find_anchors(document)
+        anchors = sampler._find_anchor_points(document)
 
         assert isinstance(anchors, list)
         assert len(anchors) <= sampler._sample_size
@@ -130,7 +156,7 @@ class TestMCSamplerFindAnchors:
         """Test _find_anchors distributes positions across document."""
         document = "B" * 30000
 
-        anchors = sampler._find_anchors(document)
+        anchors = sampler._find_anchor_points(document)
 
         # Should have multiple anchors
         assert len(anchors) > 1
@@ -154,7 +180,7 @@ class TestMCSamplerSampleRegions:
         document = "X" * 10000
         anchors = [1000, 3000, 5000]
 
-        regions = sampler._sample_regions(document, anchors)
+        regions = sampler._extract_regions(document, anchors)
 
         assert isinstance(regions, list)
         assert len(regions) == len(anchors)
@@ -166,14 +192,14 @@ class TestMCSamplerSampleRegions:
         document = "Y" * 10000
         anchors = [2000]
 
-        regions = sampler._sample_regions(document, anchors)
+        regions = sampler._extract_regions(document, anchors)
 
         # Region should be approximately region_size
         assert len(regions[0]) <= sampler._region_size + 100  # Some tolerance
 
 
-class TestMCSamplerScoreRegions:
-    """Test MCSampler._score_regions method."""
+class TestMCSamplerScoreRegion:
+    """Test MCSampler._score_region method."""
 
     @pytest.fixture
     def sampler(self):
@@ -183,34 +209,40 @@ class TestMCSamplerScoreRegions:
         return MCSampler(llm_client, token_budget)
 
     @pytest.mark.asyncio
-    async def test_score_regions_calls_llm(self, sampler):
-        """Test _score_regions calls LLM for scoring."""
-        regions = ["Region 1 text", "Region 2 text"]
+    async def test_score_region_calls_llm(self, sampler):
+        """Test _score_region calls LLM for scoring a single region."""
+        from core.evidence.models import EvidenceScoreOutput
 
-        sampler._llm.call = AsyncMock(return_value='{"score": 0.8, "reason": "Good"}')
+        mock_output = EvidenceScoreOutput(
+            relevance_score=0.8,
+            information_density=0.7,
+            confidence=0.75,
+            key_facts=["fact1"],
+        )
+        sampler._llm.call_at = AsyncMock(return_value=mock_output)
 
-        scores = await sampler._score_regions(regions, title="Test Doc")
+        score = await sampler._score_region("Test region text", title="Test Doc")
 
-        assert isinstance(scores, list)
-        assert len(scores) == len(regions)
-        sampler._llm.call.assert_called()
+        assert isinstance(score, EvidenceScoreOutput)
+        assert score.relevance_score == 0.8
+        sampler._llm.call_at.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_score_regions_handles_llm_failure(self, sampler):
-        """Test _score_regions handles LLM failure gracefully."""
-        regions = ["Region 1", "Region 2"]
+    async def test_score_region_handles_llm_failure(self, sampler):
+        """Test _score_region handles LLM failure gracefully."""
+        from core.evidence.models import EvidenceScoreOutput
 
-        sampler._llm.call = AsyncMock(side_effect=Exception("LLM error"))
+        sampler._llm.call_at = AsyncMock(side_effect=Exception("LLM error"))
 
-        scores = await sampler._score_regions(regions)
+        score = await sampler._score_region("Test region text", title="Test Doc")
 
-        # Should return default scores
-        assert len(scores) == len(regions)
-        assert all(isinstance(score, tuple) for score in scores)
+        # Should return default low score
+        assert isinstance(score, EvidenceScoreOutput)
+        assert score.relevance_score == 0.3
 
 
-class TestMCSamplerSynthesize:
-    """Test MCSampler._synthesize method."""
+class TestMCSamplerSynthesizeRegions:
+    """Test MCSampler._synthesize_regions method."""
 
     @pytest.fixture
     def sampler(self):
@@ -219,36 +251,59 @@ class TestMCSamplerSynthesize:
         token_budget = MagicMock()
         return MCSampler(llm_client, token_budget)
 
-    @pytest.mark.asyncio
-    async def test_synthesize_combines_regions(self, sampler):
-        """Test _synthesize combines scored regions."""
+    def test_synthesize_regions_combines_by_score(self, sampler):
+        """Test _synthesize_regions combines scored regions by relevance."""
+        from core.evidence.models import EvidenceScoreOutput
+
         scored_regions = [
-            (0.9, "Important region 1"),
-            (0.7, "Less important region 2"),
+            (
+                "Important region 1",
+                EvidenceScoreOutput(
+                    relevance_score=0.9,
+                    information_density=0.8,
+                    confidence=0.7,
+                    key_facts=["fact1"],
+                ),
+            ),
+            (
+                "Less important region 2",
+                EvidenceScoreOutput(
+                    relevance_score=0.7,
+                    information_density=0.6,
+                    confidence=0.6,
+                    key_facts=["fact2"],
+                ),
+            ),
         ]
 
-        sampler._llm.call = AsyncMock(
-            return_value='{"synthesis": "Combined text", "confidence": 0.85}'
-        )
+        result = sampler._synthesize_regions(scored_regions, title="Test Doc")
 
-        synthesized, confidence = await sampler._synthesize(scored_regions)
+        assert isinstance(result, str)
+        assert "【文档标题】Test Doc" in result
+        assert "fact1" in result
 
-        assert isinstance(synthesized, str)
-        assert isinstance(confidence, float)
-        assert 0.0 <= confidence <= 1.0
+    def test_synthesize_regions_sorts_by_relevance(self, sampler):
+        """Test _synthesize_regions sorts regions by relevance * density * confidence."""
+        from core.evidence.models import EvidenceScoreOutput
 
-    @pytest.mark.asyncio
-    async def test_synthesize_handles_failure(self, sampler):
-        """Test _synthesize handles LLM failure."""
-        scored_regions = [(0.8, "Region text")]
+        scored_regions = [
+            (
+                "Low priority",
+                EvidenceScoreOutput(
+                    relevance_score=0.3, information_density=0.3, confidence=0.3, key_facts=["low"]
+                ),
+            ),
+            (
+                "High priority",
+                EvidenceScoreOutput(
+                    relevance_score=0.9, information_density=0.9, confidence=0.9, key_facts=["high"]
+                ),
+            ),
+        ]
 
-        sampler._llm.call = AsyncMock(side_effect=Exception("Synthesis failed"))
+        result = sampler._synthesize_regions(scored_regions, title="Test")
 
-        synthesized, confidence = await sampler._synthesize(scored_regions)
-
-        # Should return fallback (first region)
-        assert isinstance(synthesized, str)
-        assert len(synthesized) > 0
+        assert "high" in result
 
 
 class TestMCSamplerIntegration:
@@ -257,9 +312,19 @@ class TestMCSamplerIntegration:
     @pytest.mark.asyncio
     async def test_full_sampling_workflow(self):
         """Test complete sampling workflow."""
+        from core.evidence.models import EvidenceScoreOutput
+
         llm_client = AsyncMock()
         token_budget = MagicMock()
         token_budget.truncate = MagicMock(side_effect=lambda text, **kwargs: text[:2000])
+
+        mock_output = EvidenceScoreOutput(
+            relevance_score=0.8,
+            information_density=0.7,
+            confidence=0.75,
+            key_facts=["key fact"],
+        )
+        llm_client.call_at = AsyncMock(return_value=mock_output)
 
         sampler = MCSampler(llm_client, token_budget, threshold=1000)
 

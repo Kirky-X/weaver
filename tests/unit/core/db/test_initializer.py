@@ -121,10 +121,10 @@ class TestParseDSN:
 
     def test_parse_postgresql_dsn(self):
         """Test parsing PostgreSQL DSN."""
-        from core.db.initializer import _parse_dsn
+        from core.db.initializer import parse_dsn
 
         dsn = "postgresql://user:pass@localhost:5432/dbname"
-        parsed = _parse_dsn(dsn)
+        parsed = parse_dsn(dsn)
 
         assert parsed.driver == "postgresql"
         assert parsed.user == "user"
@@ -135,20 +135,20 @@ class TestParseDSN:
 
     def test_parse_dsn_without_port(self):
         """Test parsing DSN without port."""
-        from core.db.initializer import _parse_dsn
+        from core.db.initializer import parse_dsn
 
         dsn = "postgresql://user:pass@localhost/dbname"
-        parsed = _parse_dsn(dsn)
+        parsed = parse_dsn(dsn)
 
         assert parsed.host == "localhost"
         assert parsed.database == "dbname"
 
     def test_parse_invalid_dsn(self):
         """Test parsing invalid DSN raises error."""
-        from core.db.initializer import _parse_dsn
+        from core.db.initializer import parse_dsn
 
         with pytest.raises(ValueError):
-            _parse_dsn("invalid_dsn")
+            parse_dsn("invalid_dsn")
 
 
 class TestCheckDatabaseExists:
@@ -157,27 +157,41 @@ class TestCheckDatabaseExists:
     @pytest.mark.asyncio
     async def test_database_exists(self):
         """Test check when database exists."""
-        from core.db.initializer import _check_database_exists
+        from core.db.initializer import check_database_exists, parse_dsn
 
-        mock_conn = AsyncMock()
-        mock_conn.fetchval = AsyncMock(return_value=True)
+        dsn = "postgresql://user:pass@localhost:5432/weaver"
+        parsed = parse_dsn(dsn)
 
-        result = await _check_database_exists(mock_conn, "weaver")
+        with patch("core.db.initializer.asyncpg.connect") as mock_connect:
+            mock_conn = AsyncMock()
+            mock_conn.fetchval = AsyncMock(return_value=True)
+            mock_conn.close = AsyncMock()
+            mock_connect.return_value = mock_conn
 
-        assert result is True
-        mock_conn.fetchval.assert_called_once()
+            result = await check_database_exists(parsed)
+
+            assert result is True
+            mock_connect.assert_called_once()
+            mock_conn.fetchval.assert_called_once()
+            mock_conn.close.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_database_does_not_exist(self):
         """Test check when database doesn't exist."""
-        from core.db.initializer import _check_database_exists
+        from core.db.initializer import check_database_exists, parse_dsn
 
-        mock_conn = AsyncMock()
-        mock_conn.fetchval = AsyncMock(return_value=False)
+        dsn = "postgresql://user:pass@localhost:5432/weaver"
+        parsed = parse_dsn(dsn)
 
-        result = await _check_database_exists(mock_conn, "weaver")
+        with patch("core.db.initializer.asyncpg.connect") as mock_connect:
+            mock_conn = AsyncMock()
+            mock_conn.fetchval = AsyncMock(return_value=None)
+            mock_conn.close = AsyncMock()
+            mock_connect.return_value = mock_conn
 
-        assert result is False
+            result = await check_database_exists(parsed)
+
+            assert result is False
 
 
 class TestCreateDatabase:
@@ -186,14 +200,23 @@ class TestCreateDatabase:
     @pytest.mark.asyncio
     async def test_create_database(self):
         """Test creating database."""
-        from core.db.initializer import _create_database
+        from core.db.initializer import create_database, parse_dsn
 
-        mock_conn = AsyncMock()
+        dsn = "postgresql://user:pass@localhost:5432/weaver"
+        parsed = parse_dsn(dsn)
 
-        await _create_database(mock_conn, "weaver")
+        with patch("core.db.initializer.asyncpg.connect") as mock_connect:
+            mock_conn = AsyncMock()
+            mock_conn.execute = AsyncMock()
+            mock_conn.close = AsyncMock()
+            mock_connect.return_value = mock_conn
 
-        mock_conn.execute.assert_called_once()
-        assert "CREATE DATABASE" in str(mock_conn.execute.call_args)
+            await create_database(parsed)
+
+            mock_connect.assert_called_once()
+            mock_conn.execute.assert_called_once()
+            assert "CREATE DATABASE" in str(mock_conn.execute.call_args)
+            mock_conn.close.assert_called_once()
 
 
 class TestCheckRequiredTables:
@@ -202,34 +225,54 @@ class TestCheckRequiredTables:
     @pytest.mark.asyncio
     async def test_all_tables_exist(self):
         """Test when all required tables exist."""
-        from core.db.initializer import _check_required_tables
+        from core.db.initializer import verify_tables
 
-        mock_conn = AsyncMock()
-        mock_conn.fetchval = AsyncMock(return_value=True)
+        dsn = "postgresql://user:pass@localhost:5432/weaver"
 
-        missing = await _check_required_tables(mock_conn, REQUIRED_TABLES)
+        with patch("core.db.initializer.asyncpg.connect") as mock_connect:
+            mock_conn = AsyncMock()
+            # Mock fetch to return all required tables
+            mock_conn.fetch = AsyncMock(
+                return_value=[
+                    {"tablename": "articles"},
+                    {"tablename": "article_vectors"},
+                    {"tablename": "entity_vectors"},
+                    {"tablename": "source_authorities"},
+                ]
+            )
+            mock_conn.close = AsyncMock()
+            mock_connect.return_value = mock_conn
 
-        assert missing == []
+            result = await verify_tables(dsn)
+
+            assert result is True
+            mock_conn.fetch.assert_called_once()
+            mock_conn.close.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_missing_tables(self):
         """Test when some tables are missing."""
-        from core.db.initializer import _check_required_tables
+        from core.db.initializer import verify_tables
 
-        mock_conn = AsyncMock()
-        call_count = 0
+        dsn = "postgresql://user:pass@localhost:5432/weaver"
 
-        async def mock_fetchval(query):
-            nonlocal call_count
-            call_count += 1
-            # First table exists, second doesn't
-            return call_count == 1
+        with patch("core.db.initializer.asyncpg.connect") as mock_connect:
+            mock_conn = AsyncMock()
+            # Mock fetch to return only some tables (missing article_vectors)
+            mock_conn.fetch = AsyncMock(
+                return_value=[
+                    {"tablename": "articles"},
+                    {"tablename": "entity_vectors"},
+                ]
+            )
+            mock_conn.close = AsyncMock()
+            mock_connect.return_value = mock_conn
 
-        mock_conn.fetchval = mock_fetchval
+            result = await verify_tables(dsn)
 
-        missing = await _check_required_tables(mock_conn, ["table1", "table2"])
-
-        assert "table2" in missing
+            assert result is False
+            mock_conn.fetch.assert_called_once()
+            mock_conn.close.assert_called_once()
 
 
 class TestRunAlembicMigration:
@@ -237,24 +280,25 @@ class TestRunAlembicMigration:
 
     def test_run_upgrade(self):
         """Test running alembic upgrade."""
-        from core.db.initializer import _run_alembic_migration
+        from core.db.initializer import run_migrations
 
-        with patch("core.db.initializer.command.upgrade") as mock_upgrade:
-            with patch("core.db.initializer.Config") as mock_config:
-                _run_alembic_migration("postgresql://localhost/db", "head")
+        with patch("core.db.initializer._run_migrations_sync") as mock_run_sync:
+            run_migrations("alembic.ini", "src/alembic", "postgresql://localhost/db")
 
-                mock_upgrade.assert_called_once()
+            mock_run_sync.assert_called_once_with(
+                "alembic.ini", "src/alembic", "postgresql://localhost/db"
+            )
 
     def test_run_migration_handles_error(self):
         """Test migration handles errors."""
-        from core.db.initializer import _run_alembic_migration
+        from core.db.initializer import run_migrations
 
         with patch(
-            "core.db.initializer.command.upgrade", side_effect=Exception("Migration failed")
+            "core.db.initializer._run_migrations_sync",
+            side_effect=Exception("Migration failed"),
         ):
-            with patch("core.db.initializer.Config"):
-                with pytest.raises(Exception, match="Migration failed"):
-                    _run_alembic_migration("postgresql://localhost/db", "head")
+            with pytest.raises(Exception, match="Migration failed"):
+                run_migrations("alembic.ini", "src/alembic", "postgresql://localhost/db")
 
 
 class TestInitializeNeo4jConstraints:
@@ -263,26 +307,36 @@ class TestInitializeNeo4jConstraints:
     @pytest.mark.asyncio
     async def test_create_constraints(self):
         """Test creating Neo4j constraints."""
-        from core.db.initializer import _initialize_neo4j_constraints
+        from core.db.initializer import verify_neo4j_constraints
 
         mock_pool = AsyncMock()
-        mock_pool.execute_query = AsyncMock()
+        mock_pool.execute_query = AsyncMock(
+            return_value=[
+                {"name": "entity_name_type_unique"},
+                {"name": "article_url_unique"},
+            ]
+        )
 
-        await _initialize_neo4j_constraints(mock_pool)
+        all_exist, missing = await verify_neo4j_constraints(mock_pool)
 
-        # Should execute constraint queries
-        assert mock_pool.execute_query.call_count >= len(REQUIRED_NEO4J_CONSTRAINTS)
+        assert all_exist is True
+        assert missing == []
+        mock_pool.execute_query.assert_called_once_with("SHOW CONSTRAINTS")
 
     @pytest.mark.asyncio
     async def test_constraint_creation_failure(self):
         """Test constraint creation failure handling."""
-        from core.db.initializer import _initialize_neo4j_constraints
+        from core.db.initializer import verify_neo4j_constraints
 
         mock_pool = AsyncMock()
         mock_pool.execute_query = AsyncMock(side_effect=Exception("Constraint failed"))
 
-        # Should not raise, just log error
-        await _initialize_neo4j_constraints(mock_pool)
+        all_exist, missing = await verify_neo4j_constraints(mock_pool)
+
+        # Should return False with error message
+        assert all_exist is False
+        assert len(missing) == 1
+        assert "Failed to check constraints" in missing[0]
 
 
 class TestDatabaseInitializerIntegration:
@@ -295,14 +349,18 @@ class TestDatabaseInitializerIntegration:
 
         dsn = "postgresql://user:pass@localhost:5432/weaver"
 
-        with patch("core.db.initializer.asyncpg.connect") as mock_connect:
-            with patch("core.db.initializer._check_database_exists", return_value=False):
-                with patch("core.db.initializer._create_database"):
-                    with patch("core.db.initializer._run_alembic_migration"):
-                        await initialize_database(dsn)
+        # Patch all functions that make external calls
+        with patch("core.db.initializer.wait_for_postgres"):
+            with patch("core.db.initializer.check_database_exists", return_value=True):
+                with patch("core.db.initializer.verify_tables", return_value=True):
+                    with patch("core.db.initializer.run_migrations"):
+                        result = await initialize_database(dsn)
 
-                        # Should complete without error
-                        assert True
+                        # Should complete without error and return result dict
+                        assert result is not None
+                        assert result["database_created"] is False  # DB existed
+                        assert result["migrations_run"] is False  # Tables OK, no migration needed
+                        assert result["tables_verified"] is True
 
     def test_initialization_error_provides_context(self):
         """Test initialization error provides helpful context."""
