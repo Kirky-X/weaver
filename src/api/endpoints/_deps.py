@@ -118,7 +118,7 @@ class Endpoints:
         return Endpoints._llm
 
     @staticmethod
-    def get_llm_client() -> LLMClient | None:
+    def get_llm_client_optional() -> LLMClient | None:
         """Get LLM client or None if unavailable."""
         return Endpoints._llm
 
@@ -132,7 +132,7 @@ class Endpoints:
         return Endpoints._local_engine
 
     @staticmethod
-    def get_local_search_engine() -> LocalSearchEngine | None:
+    def get_local_search_engine_optional() -> LocalSearchEngine | None:
         """Get local search engine or None if unavailable."""
         return Endpoints._local_engine
 
