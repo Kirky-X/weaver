@@ -201,6 +201,56 @@ class PipelineTaskStatus(str, enum.Enum):
     FAILED = "failed"
 
 
+# ── Relation Type Constants ────────────────────────────────────────
+
+
+class RelationType(str, enum.Enum):
+    """Graph relationship types between entities."""
+
+    RELATED_TO = "RELATED_TO"
+    HAS_ENTITY = "HAS_ENTITY"
+    REPORTS_ON = "REPORTS_ON"
+    MENTIONS = "MENTIONS"
+
+
+# ── Health Check Status Constants ────────────────────────────────────
+
+
+class HealthCheckStatus(str, enum.Enum):
+    """Individual service health check status values."""
+
+    OK = "ok"
+    TIMEOUT = "timeout"
+    ERROR = "error"
+    UNAVAILABLE = "unavailable"
+
+
+# ── Migration Status Constants ───────────────────────────────────────
+
+
+class MigrationStatus(str, enum.Enum):
+    """Migration operation status values."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+# ── Task Status Constants ────────────────────────────────────────────
+
+
+class TaskStatus(str, enum.Enum):
+    """Background task execution status."""
+
+    RUNNING = "running"
+    DONE = "done"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
+    NOT_FOUND = "not_found"
+
+
 # ── Default Values Constants ───────────────────────────────────────
 
 

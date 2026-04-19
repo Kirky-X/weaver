@@ -128,6 +128,9 @@ class EmotionType(str, enum.Enum):
     PESSIMISTIC = "悲观"
     ANGRY = "愤怒"
     PANIC = "恐慌"
+    POSITIVE = "正面"
+    NEGATIVE = "负面"
+    NEUTRAL = "中性"
 
 
 class VectorType(str, enum.Enum):
@@ -187,13 +190,9 @@ class Article(Base):
     # Sentiment
     sentiment: Mapped[str | None] = mapped_column(String(10))
     sentiment_score: Mapped[float | None] = mapped_column(Numeric(3, 2))
-    primary_emotion: Mapped[EmotionType | None] = mapped_column(
-        Enum(
-            EmotionType,
-            name="emotion_type",
-            create_type=True,
-            values_callable=lambda x: [e.value for e in x],  # Use enum values, not names
-        )
+    primary_emotion: Mapped[str | None] = mapped_column(
+        String(20),
+        nullable=True,
     )
     emotion_targets: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
 
@@ -441,8 +440,8 @@ class Source(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
     per_host_concurrency: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
-    credibility: Mapped[float | None] = mapped_column(Numeric(3, 2), nullable=True)
-    tier: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    credibility: Mapped[float] = mapped_column(Numeric(3, 2), nullable=False, default=0.5)
+    tier: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
     last_crawl_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     etag: Mapped[str | None] = mapped_column(String(200))
     last_modified: Mapped[str | None] = mapped_column(String(100))

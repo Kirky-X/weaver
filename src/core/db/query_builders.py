@@ -293,7 +293,7 @@ class PgVectorQueryBuilder:
         similarity_expr = self.build_similarity_expression("av.embedding")
 
         # Build WHERE conditions based on filter flags
-        conditions = [f"av.vector_type = '{config.vector_type}'"]
+        conditions = ["av.vector_type = :vector_type"]
 
         if config.filter_by_category:
             conditions.append(f"a.category = {config.category_param}")
@@ -301,7 +301,7 @@ class PgVectorQueryBuilder:
         if config.filter_by_model_id:
             conditions.append(f"av.model_id = {config.model_id_param}")
 
-        conditions.append(f"{similarity_expr} >= {config.threshold}")
+        conditions.append(f"{similarity_expr} >= :threshold")
 
         where_clause = " AND ".join(conditions)
 
@@ -379,13 +379,18 @@ class DuckDBVectorQueryBuilder:
         return f"CAST({param} AS FLOAT[1024])"
 
     def build_upsert_article_vector_query(self) -> str:
-        """Build DuckDB upsert with INSERT OR REPLACE.
+        """Build DuckDB upsert with ON CONFLICT.
 
-        Note: embedding is passed as a Python list parameter.
+        Note: DuckDB requires explicit conflict target when table has multiple
+        UNIQUE/PRIMARY KEY constraints. article_vectors uses composite PK (article_id, vector_type).
         """
         return """
-            INSERT OR REPLACE INTO article_vectors (article_id, vector_type, embedding, model_id)
+            INSERT INTO article_vectors (article_id, vector_type, embedding, model_id)
             VALUES (:article_id, :vector_type, CAST(:embedding AS FLOAT[1024]), :model_id)
+            ON CONFLICT (article_id, vector_type) DO UPDATE SET
+                embedding = EXCLUDED.embedding,
+                model_id = EXCLUDED.model_id,
+                created_at = NOW()
         """
 
     def build_upsert_article_vector_batch_query(self, batch_size: int) -> str:
@@ -393,13 +398,18 @@ class DuckDBVectorQueryBuilder:
         raise NotImplementedError("DuckDB doesn't support batch upsert; use individual inserts")
 
     def build_upsert_entity_vector_query(self) -> str:
-        """Build DuckDB upsert for entity vectors.
+        """Build DuckDB upsert for entity vectors with ON CONFLICT.
 
-        Uses INSERT OR REPLACE for DuckDB's native upsert mechanism.
+        Note: DuckDB requires explicit conflict target when table has multiple
+        UNIQUE/PRIMARY KEY constraints. entity_vectors has PK (id) + UNIQUE (neo4j_id).
         """
         return """
-            INSERT OR REPLACE INTO entity_vectors (neo4j_id, embedding, model_id)
+            INSERT INTO entity_vectors (neo4j_id, embedding, model_id)
             VALUES (:neo4j_id, CAST(:embedding AS FLOAT[1024]), :model_id)
+            ON CONFLICT (neo4j_id) DO UPDATE SET
+                embedding = EXCLUDED.embedding,
+                model_id = EXCLUDED.model_id,
+                updated_at = NOW()
         """
 
     def build_find_similar_articles_query(self, config: SimilarityQuery) -> str:
@@ -412,7 +422,7 @@ class DuckDBVectorQueryBuilder:
         similarity_expr = self.build_similarity_expression("av.embedding")
 
         # Build WHERE conditions based on filter flags
-        conditions = [f"av.vector_type = '{config.vector_type}'"]
+        conditions = ["av.vector_type = :vector_type"]
 
         if config.filter_by_category:
             conditions.append(f"a.category = {config.category_param}")
@@ -420,7 +430,7 @@ class DuckDBVectorQueryBuilder:
         if config.filter_by_model_id:
             conditions.append(f"av.model_id = {config.model_id_param}")
 
-        conditions.append(f"{similarity_expr} >= {config.threshold}")
+        conditions.append(f"{similarity_expr} >= :threshold")
 
         where_clause = " AND ".join(conditions)
 

@@ -578,12 +578,13 @@ class LadybugQueryBuilder:
         Excludes Article nodes and MENTIONS (counted separately as
         mention_count) so in_degree/out_degree reflect semantic edges only.
         """
+        # LadybugDB uses r.edge_type instead of type(r)
         return """
         MATCH (e:Entity)
         OPTIONAL MATCH (e)-[r_out]->(connected_out)
         WHERE NOT connected_out:Article
         OPTIONAL MATCH (connected_in)-[r_in]->(e)
-        WHERE NOT connected_in:Article AND type(r_in) <> 'MENTIONS'
+        WHERE NOT connected_in:Article AND r_in.edge_type <> 'MENTIONS'
         OPTIONAL MATCH ()-[m:MENTIONS]->(e)
         WITH e,
              count(DISTINCT r_out) AS out_degree,
@@ -611,28 +612,26 @@ class LadybugQueryBuilder:
     # === Entity Repository Queries ===
 
     def build_get_entity_query(self) -> str:
-        """Build LadybugDB query to get entity by canonical name or alias."""
-        # Support lookup by canonical_name OR alias
-        # LadybugDB uses array_contains for LIST type
+        """Build LadybugDB query to get entity by canonical name."""
+        # LadybugDB Entity schema: id, canonical_name, type, description, tier, created_at, updated_at
+        # No aliases property - lookup by canonical_name only
         return """
             MATCH (e:Entity)
-            WHERE e.canonical_name = $name OR array_contains(e.aliases, $name)
+            WHERE e.canonical_name = $name
             RETURN e.id as id, e.canonical_name as canonical_name, e.type as type,
-                   e.aliases as aliases, e.description as description,
+                   NULL as aliases, e.description as description,
                    e.updated_at as updated_at
         """
 
     def build_get_entity_relations_query(self) -> str:
         """Build LadybugDB query to get entity relationships."""
-        # Support lookup by canonical_name OR alias
-        # Use untyped pattern -[r]-> to match all semantic relationships
+        # LadybugDB Entity has no aliases property
         # LadybugDB stores relationship type as edge_type property
-        # Exclude MENTIONS (metadata relation, not domain semantics)
+        # Use explicit relationship types in MATCH - exclude MENTIONS
         return """
             MATCH (e:Entity)
-            WHERE e.canonical_name = $name OR array_contains(e.aliases, $name)
-            MATCH (e)-[r]->(target:Entity)
-            WHERE type(r) <> 'MENTIONS'
+            WHERE e.canonical_name = $name
+            MATCH (e)-[r:RELATED_TO|CAUSES|ENABLES|PREVENTS|REPORTS_ON|FOLLOWED_BY|EVENT_FOLLOWED_BY|HAS_ENTITY]->(target:Entity)
             RETURN target.canonical_name as target, r.edge_type as relation_type,
                    NULL as source_article_id, r.created_at as created_at
             ORDER BY r.created_at DESC
@@ -646,14 +645,14 @@ class LadybugQueryBuilder:
         the reverse direction. Returns full entity data including
         description and timestamps.
         """
-        # Support lookup by canonical_name OR alias
+        # LadybugDB Entity has no aliases property - lookup by canonical_name only
         return """
             MATCH (e:Entity)
-            WHERE e.canonical_name = $name OR array_contains(e.aliases, $name)
+            WHERE e.canonical_name = $name
             MATCH (e)-[:MENTIONS]-(a:Article)-[:MENTIONS]-(re:Entity)
             WHERE re.canonical_name <> e.canonical_name
             RETURN re.id as id, re.canonical_name as canonical_name,
-                   re.type as type, re.aliases as aliases,
+                   re.type as type, NULL as aliases,
                    re.description as description,
                    re.created_at as created_at, re.updated_at as updated_at
             LIMIT $limit
@@ -665,10 +664,10 @@ class LadybugQueryBuilder:
         Note: LadybugDB MENTIONS goes FROM Article TO Entity, so we match
         the reverse direction.
         """
-        # Support lookup by canonical_name OR alias
+        # LadybugDB Entity has no aliases property - lookup by canonical_name only
         return """
             MATCH (e:Entity)
-            WHERE e.canonical_name = $name OR array_contains(e.aliases, $name)
+            WHERE e.canonical_name = $name
             MATCH (a:Article)-[:MENTIONS]->(e)
             RETURN a.pg_id as id, a.title as title, a.category as category,
                    a.publish_time as publish_time, a.score as score
@@ -859,14 +858,14 @@ class LadybugQueryBuilder:
     def build_subgraph_edges_query(self) -> str:
         """Build LadybugDB query to get edges for subgraph visualization.
 
-        Note: Uses type(r) for dynamic relation type detection.
+        Note: LadybugDB uses r.edge_type for relationship type, not type(r).
         """
         return """
         MATCH (e1:Entity)-[r]->(e2:Entity)
         WHERE e1.canonical_name IN $node_ids AND e2.canonical_name IN $node_ids
         RETURN e1.canonical_name AS source,
                e2.canonical_name AS target,
-               type(r) AS relation_type,
+               r.edge_type AS relation_type,
                r.weight AS weight
         LIMIT 500
         """
