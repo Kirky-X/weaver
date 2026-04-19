@@ -177,8 +177,6 @@ ignore = [
     "B904",
     # UP007 — 使用 X | Y 而非 Union[X, Y]（py312 原生支持但 pydantic 2.x 兼容）
     "UP007",
-    # UP038 — 使用 Union 而非 X | Y（pydantic 兼容性）
-    "UP038",
     # S101 — 使用 assert（测试文件中可接受，生产代码由 bandit B101 检查）
     "S101",
     # S105 — 硬编码字符串中的 password/key/secrets（配置文件场景）
@@ -227,6 +225,15 @@ ignore = [
     "S603",   # conftest需要subprocess管理Docker
     "S607",   # conftest需要subprocess调用docker compose
 ]  # conftest允许subprocess调用
+"tests/scripts/*.py" = [
+    "S603",   # 测试脚本需要subprocess运行pytest
+]
+"tests/unit/api/endpoints/test_pipeline_extended.py" = [
+    "S104",   # 测试用例需要测试0.0.0.0绑定
+]
+"tests/integration/test_port_detection_integration.py" = [
+    "S104",   # 测试用例需要测试0.0.0.0绑定
+]
 
 "tests/*.py" = [
     "E402",   # 测试文件导入顺序不严格
