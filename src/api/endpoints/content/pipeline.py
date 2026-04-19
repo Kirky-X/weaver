@@ -16,7 +16,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from api.dependencies import (
-    get_cache_client,
+    get_cache_pool,
     get_relational_pool,
     get_source_scheduler,
 )
@@ -125,7 +125,7 @@ QUEUE_DEPTH_GAUGE = metrics.pipeline_queue_depth
 async def trigger_pipeline(
     request: TriggerRequest,
     _: str = Depends(verify_api_key),
-    cache: CachePool = Depends(get_cache_client),
+    cache: CachePool = Depends(get_cache_pool),
     scheduler: SourceScheduler = Depends(get_source_scheduler),
 ) -> APIResponse[TriggerResponse]:
     """Trigger a pipeline run to crawl news sources.
@@ -218,7 +218,7 @@ async def trigger_pipeline(
 async def get_task_status(
     task_id: str,
     _: str = Depends(verify_api_key),
-    cache: CachePool = Depends(get_cache_client),
+    cache: CachePool = Depends(get_cache_pool),
     relational_pool: RelationalPool = Depends(get_relational_pool),
 ) -> APIResponse[TaskStatusResponse]:
     """Query the status of a pipeline task.
@@ -284,7 +284,7 @@ async def get_task_status(
 @router.get("/queue/stats", response_model=APIResponse[dict])
 async def get_queue_stats(
     _: str = Depends(verify_api_key),
-    cache: CachePool = Depends(get_cache_client),
+    cache: CachePool = Depends(get_cache_pool),
     relational_pool: RelationalPool = Depends(get_relational_pool),
 ) -> APIResponse[dict]:
     """Get pipeline queue statistics.
@@ -558,7 +558,7 @@ async def _process_single_url(
 async def process_single_url(
     request: ProcessUrlRequest,
     _: str = Depends(verify_api_key),
-    cache: CachePool = Depends(get_cache_client),
+    cache: CachePool = Depends(get_cache_pool),
     settings: Settings = Depends(get_settings),
 ) -> APIResponse[ProcessUrlResponse]:
     """Process a single URL through the full pipeline.
@@ -820,7 +820,7 @@ async def process_single_url_stream(
     request: ProcessUrlRequest,
     fastapi_request: Request,
     _: str = Depends(verify_api_key),
-    cache: CachePool = Depends(get_cache_client),
+    cache: CachePool = Depends(get_cache_pool),
     settings: Settings = Depends(get_settings),
 ) -> StreamingResponse:
     """Process a single URL through the pipeline with SSE streaming.
