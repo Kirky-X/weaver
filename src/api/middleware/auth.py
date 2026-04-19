@@ -63,12 +63,12 @@ async def verify_api_key(
                 detail="API key not properly configured. "
                 "Set WEAVER_API__API_KEY environment variable with at least 32 characters.",
             )
-        # Development mode: warn but allow weak keys
-        log = get_logger(__name__)
-        log.warning(
-            "weak_api_key_detected",
-            key_length=len(expected_key) if expected_key else 0,
-            recommended_length=MIN_API_KEY_LENGTH,
+        # Development mode: reject weak keys, do not allow fallback
+        raise HTTPException(
+            status_code=500,
+            detail="API key too short. "
+            f"Current length: {len(expected_key) if expected_key else 0}, "
+            f"minimum required: {MIN_API_KEY_LENGTH} characters.",
         )
 
     if not secrets.compare_digest(key, expected_key):
@@ -132,7 +132,7 @@ async def verify_admin_api_key(
             detail="Invalid API Key",
         )
 
-    # Admin key not configured: fallback to regular key (development mode)
+    # Admin key not configured: do not allow fallback in any environment
     environment = os.environ.get("ENVIRONMENT", "development")
     if environment == "production":
         raise HTTPException(
@@ -141,9 +141,11 @@ async def verify_admin_api_key(
             "Set WEAVER_API__ADMIN_API_KEY environment variable for production.",
         )
 
-    # Development: regular key grants admin access
-    log.warning("admin_key_not_configured_using_regular_key")
-    return await verify_api_key(key)
+    # Development mode: reject missing admin key, do not fallback to regular key
+    raise HTTPException(
+        status_code=500,
+        detail="Admin API key not configured. Set WEAVER_API__ADMIN_API_KEY environment variable.",
+    )
 
 
 async def verify_api_key_optional(

@@ -208,7 +208,7 @@ async def trigger_pipeline(
         )
         raise HTTPException(
             status_code=500,
-            detail=f"Pipeline trigger failed: {exc!s}",
+            detail="Pipeline trigger failed",
         )
 
     return success_response(TriggerResponse(task_id=task_id, queued_at=now))

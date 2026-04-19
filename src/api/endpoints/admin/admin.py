@@ -704,3 +704,115 @@ async def refresh_auto_scores(
             triggered_at=datetime.now(UTC).isoformat(),
         )
     )
+
+
+# ── Causal Inference ─────────────────────────────────
+
+
+class CausalInferenceRequest(BaseModel):
+    """Request model for causal inference."""
+
+    entity_names: list[str] | None = Field(
+        None, description="Optional filter for specific entities"
+    )
+    relation_types: list[str] | None = Field(
+        None, description="Optional filter for relation types (e.g., INVESTS_IN, 合资)"
+    )
+
+
+class CausalInferenceResponse(BaseModel):
+    """Response model for causal inference."""
+
+    edges_created: int
+    edges_filtered: int
+    errors: int
+    relations_analyzed: int
+
+
+@router.post(
+    "/causal/infer",
+    response_model=APIResponse[CausalInferenceResponse],
+    summary="Trigger causal edge inference",
+)
+async def trigger_causal_inference(
+    request: CausalInferenceRequest | None = None,
+    _: str = Depends(verify_admin_api_key),  # Security: write operation requires admin
+    container: Any = Depends(get_container),
+) -> APIResponse[CausalInferenceResponse]:
+    """Trigger LLM-based causal inference from entity relationships.
+
+    Analyzes existing entity relationships (INVESTS_IN, 合资, ACQUIRES, etc.)
+    and infers causal edges (CAUSES, ENABLES, PREVENTS) using LLM semantic analysis.
+
+    Args:
+        request: Optional filter parameters for entity names or relation types.
+        _: Verified admin API key.
+        container: Application container.
+
+    Returns:
+        Statistics of the inference process.
+
+    """
+    # Initialize causal inference service
+    service = await container.init_causal_inference_service()
+    if service is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Causal inference service unavailable (missing graph pool or LLM client)",
+        )
+
+    # Run inference
+    entity_names = request.entity_names if request else None
+    relation_types = request.relation_types if request else None
+
+    stats = await service.infer_and_create_causal_edges(
+        entity_names=entity_names,
+        relation_types=relation_types,
+    )
+
+    return success_response(
+        CausalInferenceResponse(
+            edges_created=stats.get("edges_created", 0),
+            edges_filtered=stats.get("edges_filtered", 0),
+            errors=stats.get("errors", 0),
+            relations_analyzed=stats.get("relations_analyzed", 0),
+        )
+    )
+
+
+@router.get(
+    "/causal/stats",
+    response_model=APIResponse[dict],
+    summary="Get causal graph statistics",
+)
+async def get_causal_stats(
+    _: str = Depends(verify_api_key),
+    container: Any = Depends(get_container),
+) -> APIResponse[dict]:
+    """Get statistics about the causal graph.
+
+    Returns count of causal edges (CAUSES, ENABLES, PREVENTS).
+
+    Args:
+        _: Verified API key.
+        container: Application container.
+
+    Returns:
+        Causal graph statistics.
+
+    """
+    causal_repo = container.causal_repo()
+    if causal_repo is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Causal graph repository unavailable",
+        )
+
+    count = await causal_repo.count_causal_links()
+
+    return success_response(
+        {
+            "causal_edges": count,
+            "edge_types": ["CAUSES", "ENABLES", "PREVENTS"],
+        }
+    )

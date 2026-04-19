@@ -231,7 +231,7 @@ async def rebuild_communities(
 
     except Exception as exc:
         log.error("community_rebuild_failed", error=str(exc))
-        raise HTTPException(status_code=500, detail=f"Rebuild failed: {exc!s}")
+        raise HTTPException(status_code=500, detail="Rebuild failed")
 
 
 @router.post("/reports/generate", response_model=APIResponse[ReportGenerateResponse])
@@ -283,7 +283,7 @@ async def generate_all_reports(
 
     except Exception as exc:
         log.error("report_generation_failed", error=str(exc))
-        raise HTTPException(status_code=500, detail=f"Report generation failed: {exc!s}")
+        raise HTTPException(status_code=500, detail="Report generation failed")
 
 
 @router.post(
@@ -338,7 +338,7 @@ async def regenerate_report(
         raise
     except Exception as exc:
         log.error("report_regeneration_failed", community_id=community_id, error=str(exc))
-        raise HTTPException(status_code=500, detail=f"Report regeneration failed: {exc!s}")
+        raise HTTPException(status_code=500, detail="Report regeneration failed")
 
 
 # ── Graph Community Endpoints (merged into main router) ─────────
@@ -402,7 +402,7 @@ async def list_communities(
 
     except Exception as exc:
         log.error("list_communities_failed", error=str(exc))
-        raise HTTPException(status_code=500, detail=f"Failed to list communities: {exc!s}")
+        raise HTTPException(status_code=500, detail="Failed to list communities")
 
 
 # ── Health Check Endpoints ───────────────────────────────────────
@@ -484,7 +484,7 @@ async def get_health_overview(
 
     except Exception as exc:
         log.error("get_health_overview_failed", error=str(exc))
-        raise HTTPException(status_code=500, detail=f"Health check failed: {exc!s}")
+        raise HTTPException(status_code=500, detail="Health check failed")
 
 
 @router.post("/health/diagnose", response_model=APIResponse[DiagnoseResponse])
@@ -543,7 +543,7 @@ async def diagnose_health(
 
     except Exception as exc:
         log.error("diagnose_health_failed", error=str(exc))
-        raise HTTPException(status_code=500, detail=f"Diagnosis failed: {exc!s}")
+        raise HTTPException(status_code=500, detail="Diagnosis failed")
 
 
 @router.post("/health/repair", response_model=APIResponse[RepairResponse])
@@ -635,7 +635,7 @@ async def repair_health(
 
     except Exception as exc:
         log.error("repair_health_failed", error=str(exc))
-        raise HTTPException(status_code=500, detail=f"Repair failed: {exc!s}")
+        raise HTTPException(status_code=500, detail="Repair failed")
 
 
 @router.get("/{community_id}", response_model=APIResponse[CommunityDetailResponse])
@@ -720,4 +720,4 @@ async def get_community(
         raise
     except Exception as exc:
         log.error("get_community_failed", community_id=community_id, error=str(exc))
-        raise HTTPException(status_code=500, detail=f"Failed to get community: {exc!s}")
+        raise HTTPException(status_code=500, detail="Failed to get community")

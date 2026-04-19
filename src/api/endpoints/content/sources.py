@@ -63,17 +63,17 @@ class SourceCreateRequest(BaseModel):
         default=30, ge=5, le=1440, description="Crawl interval in minutes"
     )
     per_host_concurrency: int = Field(default=2, ge=1, le=10, description="Max concurrent requests")
-    credibility: float | None = Field(
-        default=None,
+    credibility: float = Field(
+        default=0.5,
         ge=0.0,
         le=1.0,
-        description="Preset credibility score (0.0-1.0)",
+        description="Preset credibility score (0.0-1.0), defaults to 0.5",
     )
-    tier: int | None = Field(
-        default=None,
+    tier: int = Field(
+        default=2,
         ge=1,
         le=3,
-        description="Source tier: 1=authoritative, 2=credible, 3=ordinary",
+        description="Source tier: 1=authoritative, 2=credible, 3=ordinary, defaults to 2",
     )
 
     @field_validator("url")

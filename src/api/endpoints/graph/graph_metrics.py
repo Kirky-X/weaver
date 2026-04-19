@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from api.dependencies import get_cache_client, get_graph_pool
+from api.dependencies import get_cache_client, get_graph_pool, get_graph_pool_type
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from api.schemas.types import RoundedFloat, RoundedFloatOpt
@@ -78,6 +78,7 @@ async def get_graph_metrics(
     ),
     _: str = Depends(verify_api_key),
     graph_pool: GraphPool = Depends(get_graph_pool),
+    pool_type: str = Depends(get_graph_pool_type),
 ) -> APIResponse[Any]:
     """Get graph metrics with view-based routing.
 
@@ -99,9 +100,9 @@ async def get_graph_metrics(
     Omit `include` to get all metrics (same as `include=all`).
     """
     if view == "health":
-        return await _get_health_view(graph_pool)
+        return await _get_health_view(graph_pool, pool_type)
     elif view == "full":
-        return await _get_full_view(graph_pool, include)
+        return await _get_full_view(graph_pool, include, pool_type)
     elif view == "community":
         raise HTTPException(
             status_code=400,
@@ -114,9 +115,11 @@ async def get_graph_metrics(
         )
 
 
-async def _get_health_view(graph_pool: GraphPool) -> APIResponse[HealthSummaryResponse]:
+async def _get_health_view(
+    graph_pool: GraphPool, pool_type: str = "neo4j"
+) -> APIResponse[HealthSummaryResponse]:
     """Get health summary view."""
-    metrics = GraphQualityMetrics(graph_pool)
+    metrics = GraphQualityMetrics(graph_pool, db_type=pool_type)
     summary = await metrics.get_health_summary()
 
     return success_response(
@@ -134,7 +137,7 @@ async def _get_health_view(graph_pool: GraphPool) -> APIResponse[HealthSummaryRe
 
 
 async def _get_full_view(
-    graph_pool: GraphPool, include: str | None
+    graph_pool: GraphPool, include: str | None, pool_type: str = "neo4j"
 ) -> APIResponse[GraphMetricsResponse]:
     """Get full metrics view with optional caching and include filtering."""
     # Parse include parameter
@@ -154,7 +157,7 @@ async def _get_full_view(
             log.warning("cache_lookup_failed", error=str(exc))  # Fall through to compute
 
     # Compute metrics — pass include_set to skip expensive calculations
-    metrics = GraphQualityMetrics(graph_pool)
+    metrics = GraphQualityMetrics(graph_pool, db_type=pool_type)
     result = await metrics.calculate_all_metrics(include=include_set)
 
     # Build response

@@ -98,6 +98,10 @@ async def search_unified(
     | **MULTI_HOP** | "X和Y的关系..."、对比 | Global search with deeper community traversal |
     | **OPEN** | "关于..."、探索 | Global search with standard community level |
     """
+    # Validate query is not empty
+    if not q or not q.strip():
+        raise HTTPException(status_code=422, detail="Search query cannot be empty")
+
     # Validate output_mode (default to CONTEXT)
     out_mode_value = output_mode if isinstance(output_mode, str) else "context"
     try:
@@ -303,12 +307,12 @@ async def _search_articles_direct(
     except Exception as exc:
         log.error("articles_direct_search_failed", error=str(exc))
         return {
-            "answer": f"Search failed: {exc!s}",
+            "answer": "Search failed",
             "context_tokens": 0,
             "confidence": 0.0,
             "entities": [],
             "sources": [],
-            "metadata": {"error": str(exc)},
+            "metadata": {"error": "An internal error occurred"},
         }
 
 
@@ -372,6 +376,10 @@ async def search_drift(
         Hierarchical search result with primer and follow-up answers.
 
     """
+    # Validate query is not empty
+    if not body.query or not body.query.strip():
+        raise HTTPException(status_code=422, detail="Search query cannot be empty")
+
     from modules.knowledge.search.engines.drift_search import DriftConfig, DRIFTSearchEngine
 
     try:
@@ -495,6 +503,10 @@ async def search_causal(
         Causal chain with explanations and confidence scores.
 
     """
+    # Validate query is not empty
+    if not body.query or not body.query.strip():
+        raise HTTPException(status_code=422, detail="Search query cannot be empty")
+
     from modules.memory.graphs.causal import CausalGraphRepo
     from modules.memory.retrieval.adaptive_search import AdaptiveSearchEngine
 
@@ -554,10 +566,25 @@ async def search_causal(
             for r in results
         ]
 
+        # Generate semantic answer using LLM
+        if causal_chain:
+            chain_content = "\n".join([f"- {e['content']}" for e in causal_chain[:5]])
+            prompt = f"""基于以下因果链事件，简洁回答"{body.query}"：
+
+{chain_content}
+
+请用1-2句话总结因果关系。"""
+            try:
+                answer = await llm.chat(prompt)
+            except Exception:
+                answer = f"发现 {len(causal_chain)} 个相关事件形成因果链。"
+        else:
+            answer = f'未找到与 "{body.query}" 相关的因果事件。可能数据库中缺少相关数据。'
+
         return success_response(
             CausalSearchResponse(
                 query=body.query,
-                answer=f"Found {len(causal_chain)} related events in causal chain.",
+                answer=answer,
                 causal_chain=causal_chain,
                 confidence=sum(r.get("score", 0) for r in results) / max(len(results), 1),
                 metadata={"depth": body.max_depth},
@@ -595,6 +622,10 @@ async def search_temporal(
         Ordered list of events with temporal metadata.
 
     """
+    # Validate query is not empty
+    if not body.query or not body.query.strip():
+        raise HTTPException(status_code=422, detail="Search query cannot be empty")
+
     from modules.memory.graphs.temporal import TemporalGraphRepo
 
     log = get_logger(__name__)
@@ -606,8 +637,8 @@ async def search_temporal(
         # Create repository
         temporal_repo = TemporalGraphRepo(pool=graph_pool)
 
-        # Get temporal chain
-        events = await temporal_repo.get_temporal_chain(limit=body.limit)
+        # Search events by query content and return in temporal order
+        events = await temporal_repo.search_temporal_events(query=body.query, limit=body.limit)
 
         # Convert neo4j.time.DateTime to ISO string for JSON serialization
         for event in events:
