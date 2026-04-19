@@ -117,7 +117,7 @@ class CachePool(Protocol):
 
     Implementations:
         - RedisClient: redis-py async wrapper
-        - CashewsRedisFallback: in-memory fallback using cashews
+        - CashewsClient: in-memory cache client using cashews
     """
 
     # ── Lifecycle ─────────────────────────────────────────────────────

@@ -269,7 +269,7 @@ class RedisClient:
 class _CashewsPipeline:
     """Pseudo-pipeline that buffers commands and replays them."""
 
-    def __init__(self, fallback: CashewsRedisFallback) -> None:
+    def __init__(self, fallback: CashewsClient) -> None:
         self._fallback = fallback
         self._commands: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
 
@@ -354,8 +354,8 @@ class _CashewsScript:
         )
 
 
-class CashewsRedisFallback:
-    """In-memory Redis fallback built on cashews for cache init.
+class CashewsClient:
+    """In-memory cache client built on cashews.
 
     Uses cashews ``mem://`` backend for the underlying cache store and
     supplements it with in-memory dicts/lists for Redis-specific data
@@ -392,7 +392,7 @@ class CashewsRedisFallback:
         return True
 
     @property
-    def client(self) -> CashewsRedisFallback:
+    def client(self) -> CashewsClient:
         return self
 
     # ── Key / Value ────────────────────────────────────────────

@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Kirky-X. All Rights Reserved
 """Integration tests for API cross-endpoint workflows with fallback databases.
 
-All tests use fallback databases (DuckDB, LadybugDB, CashewsRedisFallback)
+All tests use fallback databases (DuckDB, LadybugDB, CashewsClient)
 when external services are not available.
 """
 

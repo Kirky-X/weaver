@@ -206,8 +206,8 @@ async def graph_pool():
 async def cache_pool():
     """Create a cache pool with automatic fallback.
 
-    Tries Redis first, falls back to CashewsRedisFallback (in-memory) if unavailable.
-    CashewsRedisFallback is a real in-memory cache - no mocks.
+    Tries Redis first, falls back to CashewsClient (in-memory) if unavailable.
+    CashewsClient is a real in-memory cache - no mocks.
 
     Returns:
         tuple: (pool, cache_type) where cache_type is "redis" or "cashews"
@@ -222,10 +222,10 @@ async def cache_pool():
         yield client, "redis"
         await client.shutdown()
     else:
-        # Fallback to CashewsRedisFallback (real in-memory cache)
-        from core.cache import CashewsRedisFallback
+        # Fallback to CashewsClient (real in-memory cache)
+        from core.cache import CashewsClient
 
-        client = CashewsRedisFallback()
+        client = CashewsClient()
         await client.startup()
         yield client, "cashews"
         await client.shutdown()

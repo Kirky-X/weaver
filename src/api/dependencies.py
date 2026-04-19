@@ -109,7 +109,7 @@ def get_cache_client() -> CachePool:
         HTTPException: If client is not initialized.
 
     Returns:
-        CachePool instance (RedisClient or CashewsRedisFallback).
+        CachePool instance (RedisClient or CashewsClient).
 
     """
     return Endpoints.get_cache()
