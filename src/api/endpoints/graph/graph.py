@@ -128,17 +128,23 @@ async def get_entity(
     canonical_name = urllib.parse.unquote(name)
 
     # Get entity
-    entity = await graph_repo.get_entity(canonical_name)
+    try:
+        entity = await graph_repo.get_entity(canonical_name)
+        relationships = await graph_repo.get_entity_relations(canonical_name, limit)
+        related_entities = await graph_repo.get_related_entities(canonical_name, limit)
+        mentioned_articles = await graph_repo.get_entity_articles(canonical_name, limit)
+    except Exception as exc:
+        log.warning("graph_entity_fetch_failed", entity=canonical_name, error=str(exc))
+        raise HTTPException(
+            status_code=404,
+            detail=f"Entity '{canonical_name}' not found or graph unavailable",
+        )
+
     if entity is None:
         raise HTTPException(
             status_code=404,
             detail=f"Entity '{canonical_name}' not found",
         )
-
-    # Get relationships in parallel
-    relationships = await graph_repo.get_entity_relations(canonical_name, limit)
-    related_entities = await graph_repo.get_related_entities(canonical_name, limit)
-    mentioned_articles = await graph_repo.get_entity_articles(canonical_name, limit)
 
     return success_response(
         EntityWithRelations(
@@ -170,7 +176,18 @@ async def get_article_graph(
 
     """
     # Try to get article from graph database
-    article = await graph_repo.get_article(article_id)
+    try:
+        article = await graph_repo.get_article(article_id)
+        if article:
+            entities = await graph_repo.get_article_entities(article_id)
+            relationships = await graph_repo.get_article_relationships(article_id)
+            related_articles = await graph_repo.get_related_articles(article_id)
+    except Exception as exc:
+        log.warning("article_graph_fetch_failed", article_id=str(article_id), error=str(exc))
+        article = None
+        entities = []
+        relationships = []
+        related_articles = []
 
     if article is None:
         # Fallback: check PostgreSQL for article existence
@@ -213,10 +230,7 @@ async def get_article_graph(
             detail=f"Article '{article_id}' not found",
         )
 
-    # Article found in graph - get entities and relationships
-    entities = await graph_repo.get_article_entities(article_id)
-    relationships = await graph_repo.get_article_relationships(article_id)
-    related_articles = await graph_repo.get_related_articles(article_id)
+    # Article found in graph - use already fetched data from try block
 
     return success_response(
         ArticleGraphResponse(
@@ -267,18 +281,15 @@ async def get_entity_relations(
         entity_data = await graph_repo.get_entity(entity)
         if entity_data is None:
             log.info("entity_not_found_for_relations", entity=entity)
-            # Entity doesn't exist - include hint in response
-            return success_response(
-                result_list,
-                message=f"实体 '{entity}' 不存在于知识图谱中。",
+            raise HTTPException(
+                status_code=404,
+                detail=f"实体 '{entity}' 不存在于知识图谱中",
             )
-        else:
-            log.info("entity_has_no_relations", entity=entity)
-            # Entity exists but has no relations
-            return success_response(
-                result_list,
-                message=f"实体 '{entity}' 存在但未发现任何关系。",
-            )
+        log.info("entity_has_no_relations", entity=entity)
+        return success_response(
+            result_list,
+            message=f"实体 '{entity}' 存在但未发现任何关系。",
+        )
 
     return success_response(result_list)
 
@@ -309,7 +320,11 @@ async def search_relations(
     types_list = (
         [t.strip() for t in relation_types.split(",") if t.strip()] if relation_types else None
     )
-    rows = await graph_repo.find_by_relation_types(entity, entity_type, types_list, limit)
+    try:
+        rows = await graph_repo.find_by_relation_types(entity, entity_type, types_list, limit)
+    except Exception as exc:
+        log.warning("relations_search_failed", entity=entity, error=str(exc))
+        rows = []
     return success_response(
         [
             RelatedEntityResult(
