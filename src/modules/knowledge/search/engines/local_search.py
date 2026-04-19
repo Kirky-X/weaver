@@ -102,6 +102,8 @@ class LocalSearchEngine:
             relation_types=relation_types,
         )
 
+        sources = self._extract_sources_from_context(context)
+
         # If use_llm=False, return context without LLM generation
         if not use_llm:
             entities = self._extract_entities_from_context(context)
@@ -109,7 +111,7 @@ class LocalSearchEngine:
                 query=query,
                 answer="Context built successfully. LLM generation skipped.",
                 context_tokens=context.total_tokens,
-                sources=context.metadata.get("article_count", 0),
+                sources=sources,
                 entities=entities,
                 confidence=self._estimate_confidence(context),
                 metadata={
@@ -136,7 +138,7 @@ class LocalSearchEngine:
                 query=query,
                 answer=answer,
                 context_tokens=context.total_tokens,
-                sources=context.metadata.get("article_count", 0),
+                sources=sources,
                 entities=entities,
                 confidence=self._estimate_confidence(context),
                 metadata={
@@ -181,17 +183,42 @@ class LocalSearchEngine:
 Answer:"""
 
     def _extract_entities_from_context(self, context: Any) -> list[str]:
-        """Extract entity names from context."""
+        """Extract entity names from context.
+
+        Looks for sections with entity_count or related_count metadata,
+        then parses entity names formatted as "- EntityName (TYPE)".
+        """
         entities = []
+        log.info("extract_entities_start", sections_count=len(context.sections))
         for section in context.sections:
-            if section.metadata.get("entity_count"):
+            # Check both entity_count (for direct entities) and related_count (for related entities)
+            count = section.metadata.get("entity_count") or section.metadata.get("related_count")
+            log.info(
+                "extract_entities_section",
+                name=section.name,
+                entity_count=count,
+            )
+            if count:
                 content = section.content
+                log.info("extract_entities_content", content_preview=content[:200])
                 for line in content.split("\n"):
                     if line.startswith("- ") and "(" in line:
                         name = line[2:].split("(")[0].strip()
                         if name:
                             entities.append(name)
+                            log.info("entity_extracted", name=name)
+        log.info("entities_extracted_total", count=len(entities), entities=entities[:5])
         return list(set(entities))[:20]
+
+    def _extract_sources_from_context(self, context: Any) -> list[dict[str, Any]]:
+        """Extract source articles from context sections."""
+        sources: list[dict[str, Any]] = []
+        for section in context.sections:
+            if "article" in section.name.lower():
+                for line in section.content.split("\n"):
+                    if line.startswith("- "):
+                        sources.append({"title": line[2:].strip()})
+        return sources[:20]
 
     def _estimate_confidence(self, context: Any) -> float:
         """Estimate confidence based on context quality."""

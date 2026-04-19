@@ -19,6 +19,7 @@ from modules.knowledge.search.context.builder import ContextBuilder, SearchConte
 if TYPE_CHECKING:
     from core.protocols import GraphPool
 
+
 log = get_logger(__name__)
 
 
@@ -38,6 +39,7 @@ class LocalContextBuilder(ContextBuilder):
     def __init__(
         self,
         graph_pool: GraphPool,
+        article_repo: ArticleRepo | None = None,
         token_encoder: Any = None,
         default_max_tokens: int = 8000,
         max_entities: int = 20,
@@ -48,6 +50,7 @@ class LocalContextBuilder(ContextBuilder):
 
         Args:
             graph_pool: Graph database connection pool.
+            article_repo: Optional PostgreSQL ArticleRepo for fetching body content.
             token_encoder: Optional tokenizer.
             default_max_tokens: Default max tokens for context.
             max_entities: Maximum entities to include.
@@ -56,6 +59,7 @@ class LocalContextBuilder(ContextBuilder):
         """
         super().__init__(token_encoder, default_max_tokens)
         self._pool = graph_pool
+        self._article_repo = article_repo
         self._max_entities = max_entities
         self._max_relationships = max_relationships
         self._max_hops = max_hops
@@ -299,7 +303,10 @@ class LocalContextBuilder(ContextBuilder):
         entity_names: list[str],
         limit: int = 10,
     ) -> list[dict[str, Any]]:
-        """Get articles mentioning the query entities."""
+        """Get articles mentioning the query entities.
+
+        Enriches articles with body excerpts from PostgreSQL when available.
+        """
         if not entity_names:
             return []
 
@@ -319,7 +326,22 @@ class LocalContextBuilder(ContextBuilder):
                 cypher,
                 {"names": entity_names, "limit": limit},
             )
-            return [dict(r) for r in results]
+            articles = [dict(r) for r in results]
+
+            # Fetch body content from PostgreSQL
+            pg_ids = [str(a.get("id", "")) for a in articles if a.get("id")]
+            bodies = await self._fetch_article_bodies(pg_ids)
+
+            for article in articles:
+                pg_id = str(article.get("id", ""))
+                if pg_id and pg_id in bodies:
+                    article["body_excerpt"] = self._extract_key_excerpt(
+                        bodies[pg_id],
+                        entity_names,
+                        max_tokens=300,
+                    )
+
+            return articles
         except Exception as exc:
             log.warning("get_related_articles_failed", error=str(exc))
             return []
@@ -422,13 +444,84 @@ class LocalContextBuilder(ContextBuilder):
         self,
         articles: list[dict[str, Any]],
     ) -> str:
-        """Format articles section."""
+        """Format articles section with body excerpt."""
         lines = []
         for article in articles:
             title = article.get("title", "Unknown")
             summary = article.get("summary", "")
+            body_excerpt = article.get("body_excerpt", "")
+
             lines.append(f"- {title}")
             if summary:
-                truncated = self.truncate_content(summary, 100)
-                lines.append(f"  {truncated}")
+                truncated = self.truncate_content(summary, 200)
+                lines.append(f"  概要: {truncated}")
+            if body_excerpt:
+                lines.append(f"  原文片段: {body_excerpt}")
         return "\n".join(lines)
+
+    async def _fetch_article_bodies(
+        self,
+        pg_ids: list[str],
+    ) -> dict[str, str]:
+        """Fetch article body content from PostgreSQL by pg_ids.
+
+        Args:
+            pg_ids: List of PostgreSQL article IDs.
+
+        Returns:
+            Dict mapping pg_id to body content.
+        """
+        if not self._article_repo or not pg_ids:
+            return {}
+
+        bodies: dict[str, str] = {}
+        for pg_id in pg_ids[:5]:
+            try:
+                article = await self._article_repo.get(pg_id)
+                if article and article.body:
+                    bodies[str(pg_id)] = article.body
+            except Exception as exc:
+                log.warning("fetch_body_failed", pg_id=pg_id, error=str(exc))
+        return bodies
+
+    def _extract_key_excerpt(
+        self,
+        body: str,
+        entity_names: list[str],
+        max_tokens: int = 300,
+    ) -> str:
+        """Extract key excerpt from article body.
+
+        Extracts sentences containing entity mentions, falling back to
+        head/tail truncation when no matches found.
+
+        Args:
+            body: Full article body text.
+            entity_names: Entity names to match in sentences.
+            max_tokens: Maximum tokens for excerpt.
+
+        Returns:
+            Truncated excerpt with entity-relevant content prioritized.
+        """
+        import re
+
+        sentences = re.split(r"(?<=[。！？.!?\n])", body)
+        matched: list[str] = []
+        others: list[str] = []
+
+        for s in sentences:
+            s = s.strip()
+            if not s:
+                continue
+            lower_s = s.lower()
+            if any(n.lower() in lower_s for n in entity_names):
+                matched.append(s)
+            else:
+                others.append(s)
+
+        selected = matched[:8]
+        if len(selected) < 4:
+            selected.extend(others[: 4 - len(selected)])
+
+        excerpt = "".join(selected)
+        return self.truncate_content(excerpt, max_tokens)

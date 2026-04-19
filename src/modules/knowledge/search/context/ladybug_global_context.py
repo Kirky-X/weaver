@@ -112,17 +112,23 @@ class LadybugGlobalContextBuilder(ContextBuilder):
                 metadata={"community_count": len(relevant_communities)},
             )
 
-        key_entities = await self._get_key_entities(relevant_communities)
-        if key_entities:
-            entity_content = self._format_entities_section(key_entities)
-            context.add_content(
-                name="Key Entities",
-                content=entity_content,
-                priority=90,
-                metadata={"entity_count": len(key_entities)},
-            )
+        # Skip key entities and cross-community queries for entity fallback
+        # (fallback results are already entity-based)
+        cross_community_rels: list[dict[str, Any]] = []
+        if not used_fallback:
+            key_entities = await self._get_key_entities(relevant_communities)
+            if key_entities:
+                entity_content = self._format_entities_section(key_entities)
+                context.add_content(
+                    name="Key Entities",
+                    content=entity_content,
+                    priority=90,
+                    metadata={"entity_count": len(key_entities)},
+                )
 
-        cross_community_rels = await self._get_cross_community_relationships(relevant_communities)
+            cross_community_rels = await self._get_cross_community_relationships(
+                relevant_communities
+            )
         if cross_community_rels:
             rel_content = self._format_cross_community_section(cross_community_rels)
             context.add_content(
@@ -243,37 +249,58 @@ class LadybugGlobalContextBuilder(ContextBuilder):
         if not tokens:
             return []
 
-        # Build query for LadybugDB
+        # Build query for LadybugDB - search Entity directly (MENTIONS edges may not exist)
         tokens_str = ", ".join(f"'{t}'" for t in tokens)
         cypher = f"""
-        MATCH (a:Article)-[:MENTIONS]->(e:Entity)
+        MATCH (e:Entity)
         WHERE any(token IN [{tokens_str}] WHERE
-                 LOWER(e.canonical_name) CONTAINS token
-                 OR LOWER(a.title) CONTAINS token)
+                 e.canonical_name CONTAINS token)
         RETURN e.canonical_name AS entity_name,
                e.type AS entity_type,
                e.description AS entity_description,
-               a.id AS article_id,
-               a.title AS article_title,
-               a.score AS article_score
-        ORDER BY article_score DESC
+               e.tier AS entity_tier
+        ORDER BY e.tier ASC
         LIMIT {self._max_communities}
         """
 
         try:
             results = await self._pool.execute_query(cypher)
 
+            # If no results with token-based search, try full query substring match
+            # For Chinese queries without spaces, split into individual keywords
+            if not results and len(query) > 1:
+                # Try Chinese keyword extraction: take 2-4 character chunks
+                chinese_chunks = []
+                for chunk_len in [4, 3, 2]:
+                    for i in range(0, len(query) - chunk_len + 1):
+                        chinese_chunks.append(query[i : i + chunk_len])
+
+                if chinese_chunks:
+                    chunks_str = ", ".join(f"'{c}'" for c in chinese_chunks[:10])
+                    full_query_cypher = f"""
+                    MATCH (e:Entity)
+                    WHERE any(chunk IN [{chunks_str}] WHERE
+                             e.canonical_name CONTAINS chunk
+                             OR e.description CONTAINS chunk)
+                    RETURN e.canonical_name AS entity_name,
+                           e.type AS entity_type,
+                           e.description AS entity_description,
+                           e.tier AS entity_tier
+                    ORDER BY e.tier ASC
+                    LIMIT {self._max_communities}
+                    """
+                    results = await self._pool.execute_query(full_query_cypher)
+
             if not results:
                 return []
 
             return [
                 {
-                    "id": f"fallback:{dict(r).get('article_id', '')}",
-                    "title": (
-                        f"{dict(r).get('entity_name', '')} — {dict(r).get('article_title', '')}"
-                    ),
+                    "id": f"entity:{dict(r).get('entity_name', '')}",
+                    "title": dict(r).get("entity_name", ""),
                     "summary": dict(r).get("entity_description", ""),
-                    "rank": float(dict(r).get("article_score", 0.5)),
+                    "rank": 1.0
+                    - (dict(r).get("entity_tier", 2) / 10.0),  # Higher tier = lower rank
                 }
                 for r in results
             ]

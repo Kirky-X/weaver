@@ -180,8 +180,10 @@ class BM25Retriever:
         self._retriever: bm25s.BM25 | None = None
         self._documents: list[BM25Document] = []
         self._doc_id_to_idx: dict[str, int] = {}
+        self._corpus: list[list[str]] = []  # Tokenized documents for incremental updates
         self._nlp: spacy.Language | None = None
         self._stemmer: Stemmer.Stemmer | None = None
+        self._needs_reindex: bool = False  # Flag to track if index needs rebuilding
 
         # Initialize stemmer for English
         if language == "en" and STEMMER_AVAILABLE and Stemmer is not None:
@@ -259,6 +261,9 @@ class BM25Retriever:
             tokens = self._tokenize(combined_text)
             corpus.append(tokens)
 
+        self._corpus = corpus
+        self._needs_reindex = False
+
         # Build BM25 index
         self._retriever = bm25s.BM25(corpus=corpus, k1=self._k1, b=self._b)
         self._retriever.index(corpus)
@@ -270,10 +275,11 @@ class BM25Retriever:
         )
 
     def add_documents(self, documents: list[BM25Document]) -> None:
-        """Add new documents to existing index.
+        """Add new documents to index incrementally.
 
-        Note: This rebuilds the index with new documents appended.
-        For large-scale updates, use index() with full document set.
+        Documents are tokenized and added to the corpus, but the BM25 index
+        is only rebuilt when _needs_reindex is True (set after adding).
+        This avoids O(n) tokenization on every add.
 
         Args:
             documents: New documents to add.
@@ -288,10 +294,32 @@ class BM25Retriever:
             self._documents.append(doc)
             start_idx += 1
 
-        # Rebuild index
-        self.index(self._documents)
+            # Tokenize and add to corpus incrementally
+            combined_text = f"{doc.title} {doc.content}"
+            tokens = self._tokenize(combined_text)
+            self._corpus.append(tokens)
+
+        # Mark that index needs rebuilding before next search
+        self._needs_reindex = True
 
         log.info("bm25_documents_added", count=len(documents), total=len(self._documents))
+
+    def _ensure_indexed(self) -> None:
+        """Rebuild BM25 index if documents have been added since last index.
+
+        This enables O(1) add_documents with deferred re-indexing.
+        """
+        if self._needs_reindex and self._corpus:
+            self._retriever = bm25s.BM25(corpus=self._corpus, k1=self._k1, b=self._b)
+            self._retriever.index(self._corpus)
+            self._needs_reindex = False
+            log.info(
+                "bm25_incremental_index_built",
+                num_documents=len(self._documents),
+                avg_tokens=sum(len(t) for t in self._corpus) / len(self._corpus)
+                if self._corpus
+                else 0,
+            )
 
     def retrieve(self, query: str, top_k: int = 10) -> list[BM25Result]:
         """Retrieve top-k documents for a query.
@@ -303,6 +331,9 @@ class BM25Retriever:
         Returns:
             List of BM25Result objects.
         """
+        # Rebuild index if documents were added since last index
+        self._ensure_indexed()
+
         if self._retriever is None:
             log.warning("bm25_retrieve_no_index")
             return []
@@ -350,6 +381,9 @@ class BM25Retriever:
         Args:
             path: Directory path for saving. Uses index_dir if not specified.
         """
+        # Rebuild index if documents were added since last index
+        self._ensure_indexed()
+
         if self._retriever is None:
             log.warning("bm25_save_no_index")
             return
@@ -407,6 +441,8 @@ class BM25Retriever:
         self._language = data.get("language", "zh")
         self._k1 = data.get("k1", 1.5)
         self._b = data.get("b", 0.75)
+        # Corpus is loaded with bm25s index, mark as not needing reindex
+        self._needs_reindex = False
 
         log.info("bm25_index_loaded", path=str(load_dir), num_documents=len(self._documents))
 
@@ -437,4 +473,6 @@ class BM25Retriever:
         self._retriever = None
         self._documents = []
         self._doc_id_to_idx = {}
+        self._corpus = []
+        self._needs_reindex = False
         log.info("bm25_index_cleared")
