@@ -61,7 +61,7 @@ class ContainerLifecycleMixin:
     # ── Private attributes (defined in Container.__init__) ─────────
     _settings: Settings | None
     _strategy: Any
-    _cache_pool: Any
+    _cache_client: Any
     _llm_client: LLMClient | None
     _prompt_loader: Any
     _source_scheduler: SourceScheduler | None
@@ -134,7 +134,7 @@ class ContainerLifecycleMixin:
             self._llm_client = await LLMClient.create_from_settings(
                 llm_settings=self._settings.llm,
                 prompt_loader=self.prompt_loader(),
-                cache_pool=self._cache_pool,
+                cache_client=self._cache_client,
                 event_bus=self._event_bus,
             )
             self._llm_client._smart_router = self._smart_router
@@ -145,6 +145,7 @@ class ContainerLifecycleMixin:
         return self._llm_client
 
     def llm_client(self) -> LLMClient:
+        """Return the LLM client instance."""
         if self._llm_client is None:
             raise RuntimeError("LLM client not initialized. Call init_llm() first.")
         return self._llm_client
@@ -152,6 +153,7 @@ class ContainerLifecycleMixin:
     # ── Knowledge Cache ─────────────────────────────────────────
 
     async def init_knowledge_cache(self) -> Any:
+        """Initialize the knowledge cache."""
         from core.observability import get_logger
         from modules.knowledge.cache import KnowledgeCache
 
@@ -170,6 +172,7 @@ class ContainerLifecycleMixin:
         return self._knowledge_cache
 
     def knowledge_cache(self) -> Any:
+        """Return the knowledge cache instance."""
         if self._knowledge_cache is None:
             raise RuntimeError(
                 "Knowledge cache not initialized. Call init_knowledge_cache() first."
@@ -179,6 +182,7 @@ class ContainerLifecycleMixin:
     # ── MC Sampler ─────────────────────────────────────────────
 
     async def init_mc_sampler(self) -> Any:
+        """Initialize the Monte Carlo sampler."""
         from core.evidence import MCSampler
         from core.observability import get_logger
 
@@ -204,6 +208,7 @@ class ContainerLifecycleMixin:
         return self._mc_sampler
 
     def mc_sampler(self) -> Any:
+        """Return the MC sampler instance."""
         if self._mc_sampler is None and self._settings.pipeline.monte_carlo.enabled:
             raise RuntimeError("MC sampler not initialized. Call init_mc_sampler() first.")
         return self._mc_sampler
@@ -491,9 +496,11 @@ class ContainerLifecycleMixin:
 
     @property
     def memory_service(self) -> Any | None:
+        """Return the memory service."""
         return self._memory_service
 
     async def init_memory_service(self) -> Any | None:
+        """Initialize the memory service."""
         from core.observability import get_logger
         from modules.knowledge.search.intent.classifier import IntentClassifier
         from modules.memory.integration.memory_service import (
@@ -506,7 +513,7 @@ class ContainerLifecycleMixin:
         if self._memory_service is not None:
             return self._memory_service
 
-        if self.graph_pool() is None or self._llm_client is None or self._cache_pool is None:
+        if self.graph_pool() is None or self._llm_client is None or self._cache_client is None:
             log.info("memory_service_skipped_missing_deps")
             return None
 
@@ -542,7 +549,7 @@ class ContainerLifecycleMixin:
             self._memory_service = MemoryIntegrationService(
                 graph_pool=self.graph_pool(),
                 llm_client=self._llm_client,
-                cache=self._cache_pool,
+                cache=self._cache_client,
                 embedding_service=embedding_service,
                 intent_classifier=intent_classifier,
                 config=config,
@@ -582,7 +589,7 @@ class ContainerLifecycleMixin:
 
         try:
             # Get causal repo
-            causal_repo = self.causal_graph_repo()
+            causal_repo = self.causal_repo()
             if causal_repo is None:
                 log.info("causal_inference_service_skipped_no_repo")
                 return None
@@ -631,6 +638,7 @@ class ContainerLifecycleMixin:
     # ── Startup & Shutdown ──────────────────────────────────────
 
     async def startup(self) -> None:
+        """Initialize all services and start background tasks."""
         from core.event import LLMFailureEvent, LLMUsageEvent
         from core.observability import get_logger
         from modules.analytics.llm_failure.repo import LLMFailureRepo
@@ -652,7 +660,7 @@ class ContainerLifecycleMixin:
                 script_location=os.path.join(project_root, "src", "alembic"),
             )
 
-        await self.init_cache_pool()
+        await self.init_cache_client()
         await self.init_llm()
         self.init_search_engines()
         await self._init_bm25_index()
@@ -683,7 +691,7 @@ class ContainerLifecycleMixin:
 
         # LLM usage statistics
         self._llm_usage_buffer = LLMUsageBuffer(
-            cache=self._cache_pool,
+            cache=self._cache_client,
             ttl_seconds=self._settings.scheduler.llm_usage_redis_buffer_ttl_seconds,
         )
 
@@ -713,7 +721,7 @@ class ContainerLifecycleMixin:
         from modules.analytics.llm_compare.buffer import EvalCompareBuffer
         from modules.analytics.llm_compare.repo import EvalCompareRepo
 
-        self._eval_compare_buffer = EvalCompareBuffer(cache=self._cache_pool, ttl_seconds=86400)
+        self._eval_compare_buffer = EvalCompareBuffer(cache=self._cache_client, ttl_seconds=86400)
 
         async def _handle_eval_compare_buffer(event: LLMCompareEvent) -> None:
             if self._eval_compare_buffer:
@@ -741,6 +749,7 @@ class ContainerLifecycleMixin:
         log.info("container_started")
 
     async def shutdown(self) -> None:
+        """Clean up resources and stop background tasks."""
         from core.observability import get_logger
 
         log = get_logger(__name__)
@@ -780,9 +789,9 @@ class ContainerLifecycleMixin:
             await self._smart_fetcher.close()
             log.info("smart_fetcher_shutdown")
 
-        if self._cache_pool:
-            await self._cache_pool.shutdown()
-            log.info("cache_pool_shutdown")
+        if self._cache_client:
+            await self._cache_client.shutdown()
+            log.info("cache_client_shutdown")
 
         if self._strategy is not None:
             await self._strategy.relational_pool.shutdown()

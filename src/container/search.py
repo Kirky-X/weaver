@@ -31,10 +31,6 @@ class ContainerSearchMixin:
 
     def init_search_engines(self) -> tuple[LocalSearchEngine, GlobalSearchEngine] | None:
         """Initialize search engines (requires graph pool to be available)."""
-        from core.observability import get_logger
-
-        log = get_logger(__name__)
-
         graph_pool = self.graph_pool()
         if graph_pool is None or self._llm_client is None:
             return None

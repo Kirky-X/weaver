@@ -149,17 +149,17 @@ class PreStartupHealthChecker:
                     decode_responses=True,
                     max_connections=10,
                 )
-                redis_client = Redis(connection_pool=pool)
+                cache_client = Redis(connection_pool=pool)
 
                 # Test connection with ping
-                await redis_client.ping()
+                await cache_client.ping()
                 result.details.append("Connection successful")
 
                 # Extract database number from URL
                 db_num = url.split("/")[-1] if "/" in url else "0"
                 result.details.append(f"Database: {db_num}")
 
-                await redis_client.aclose()
+                await cache_client.aclose()
                 await pool.disconnect()
 
                 result.healthy = True

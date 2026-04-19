@@ -49,7 +49,7 @@ class Container(
     def __init__(self) -> None:
         self._settings: Settings | None = None
         self._strategy: Any = None
-        self._cache_pool: Any = None
+        self._cache_client: Any = None
         self._llm_client: Any = None
         self._prompt_loader: Any = None
         self._source_registry: Any = None
@@ -79,7 +79,7 @@ class Container(
         self._eval_runner: Any = None
         self._eval_compare_buffer: Any = None
         self._pending_sync_repo: Any = None
-        self._scheduler_jobs: Any = None
+        self._scheduler_jobs_service: Any = None
         self._scheduler: Any = None
         self._community_updater: Any = None
         self._relation_type_normalizer: Any = None

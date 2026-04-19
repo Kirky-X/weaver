@@ -22,7 +22,7 @@ class ContainerPoolsMixin:
     # ── Private attributes (defined in Container.__init__) ─────────
     _settings: Settings | None
     _strategy: DatabaseStrategy | None
-    _cache_pool: RedisClient | CashewsClient | None
+    _cache_client: RedisClient | CashewsClient | None
 
     # ── Database Pools ──────────────────────────────────────────
 
@@ -83,7 +83,7 @@ class ContainerPoolsMixin:
             return None
         return self._strategy.graph_type
 
-    async def init_cache_pool(self) -> RedisClient | CashewsClient:
+    async def init_cache_client(self) -> RedisClient | CashewsClient:
         """Initialize cache pool with fallback support.
 
         Tries to connect to real Redis first. Falls back to CashewsClient
@@ -93,29 +93,29 @@ class ContainerPoolsMixin:
             RedisClient or CashewsClient instance.
 
         """
-        if self._cache_pool is None:
+        if self._cache_client is None:
             from core.cache import CashewsClient, RedisClient
             from core.observability import get_logger
 
             log = get_logger(__name__)
             try:
-                self._cache_pool = RedisClient(self._settings.redis.url)
-                await self._cache_pool.startup()
+                self._cache_client = RedisClient(self._settings.redis.url)
+                await self._cache_client.startup()
                 log.info("redis_initialized")
             except Exception as exc:
                 log.warning("redis_unavailable_fallback_to_cashews", error=str(exc))
-                self._cache_pool = CashewsClient()
-                await self._cache_pool.startup()
+                self._cache_client = CashewsClient()
+                await self._cache_client.startup()
                 log.info("cashews_client_initialized")
-        return self._cache_pool
+        return self._cache_client
 
-    def cache_pool(self) -> CachePool:
+    def cache_client(self) -> CachePool:
         """Get cache pool (Redis or in-memory fallback).
 
         Returns:
             CachePool implementation (RedisClient or CashewsClient).
 
         """
-        if self._cache_pool is None:
-            raise RuntimeError("Cache pool not initialized. Call init_cache_pool() first.")
-        return self._cache_pool
+        if self._cache_client is None:
+            raise RuntimeError("Cache pool not initialized. Call init_cache_client() first.")
+        return self._cache_client

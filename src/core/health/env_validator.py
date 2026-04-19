@@ -283,15 +283,15 @@ class EnvironmentValidator:
             try:
                 url = self._settings.redis.url
                 pool = ConnectionPool.from_url(url, decode_responses=True, max_connections=10)
-                redis_client = Redis(connection_pool=pool)
+                cache_client = Redis(connection_pool=pool)
 
-                await redis_client.ping()
+                await cache_client.ping()
                 result.details.append("✓ Connection successful")
 
                 db_num = url.split("/")[-1] if "/" in url else "0"
                 result.details.append(f"✓ Database: {db_num}")
 
-                await redis_client.aclose()
+                await cache_client.aclose()
                 await pool.disconnect()
 
                 result.healthy = True

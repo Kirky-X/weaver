@@ -87,8 +87,8 @@ async def lifespan(app: FastAPI) -> None:
     set_container(container)
     set_settings(container.settings)
 
-    cache_pool = container.cache_pool()
-    log.debug("cache_pool_set", client_id=id(cache_pool))
+    cache_client = container.cache_client()
+    log.debug("cache_client_set", client_id=id(cache_client))
 
     # Register all pools/clients with the centralized Endpoints registry
     # Use Protocol-compatible attribute names
@@ -96,7 +96,7 @@ async def lifespan(app: FastAPI) -> None:
     deps.Endpoints._relational_pool_type = container.relational_pool_type
     deps.Endpoints._graph_pool = container.graph_pool()
     deps.Endpoints._graph_pool_type = container.graph_pool_type
-    deps.Endpoints._cache = cache_pool
+    deps.Endpoints._cache = cache_client
     deps.Endpoints._llm = container.llm_client()
     deps.Endpoints._scheduler = container.source_scheduler()
     deps.Endpoints._vector_repo = container.vector_repo()

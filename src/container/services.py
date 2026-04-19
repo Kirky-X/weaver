@@ -40,7 +40,7 @@ class ContainerServicesMixin:
     # ── Private attributes (defined in Container.__init__) ─────────
     _settings: Settings | None
     _strategy: Any
-    _cache_pool: Any
+    _cache_client: Any
     _llm_client: LLMClient | None
     _prompt_loader: Any
     _source_registry: SourceRegistry | None
@@ -70,7 +70,7 @@ class ContainerServicesMixin:
     _eval_runner: Any
     _eval_compare_buffer: Any
     _pending_sync_repo: PendingSyncRepo | None
-    _scheduler_jobs: Any
+    _scheduler_jobs_service: Any
     _scheduler: Any
     _community_updater: IncrementalCommunityUpdater | None
     _relation_type_normalizer: Any
@@ -219,12 +219,12 @@ class ContainerServicesMixin:
 
     def scheduler_job_runner(self) -> Any:
         """Get scheduler job runner instance."""
-        if self._scheduler_jobs is None:
+        if self._scheduler_jobs_service is None:
             from modules.scheduler.jobs import SchedulerJobs
 
-            self._scheduler_jobs = SchedulerJobs(
+            self._scheduler_jobs_service = SchedulerJobs(
                 relational_pool=self.relational_pool(),
-                cache=self.cache_pool(),
+                cache=self.cache_client(),
                 graph_writer=self.graph_writer(),
                 vector_repo=self.vector_repo(),
                 article_repo=self.article_repo(),
@@ -235,7 +235,7 @@ class ContainerServicesMixin:
                 llm_failure_repo=self.llm_failure_repo(),
                 url_validator=None,
             )
-        return self._scheduler_jobs
+        return self._scheduler_jobs_service
 
     # ── Graph Repositories ─────────────────────────────────────────
 
@@ -275,7 +275,7 @@ class ContainerServicesMixin:
                 self._graph_article_repo = Neo4jArticleRepo(graph_pool)
         return self._graph_article_repo
 
-    def causal_graph_repo(self) -> Any | None:
+    def causal_repo(self) -> Any | None:
         """Get causal graph repository (Neo4j or LadybugDB implementation).
 
         Returns:
@@ -491,7 +491,7 @@ class ContainerServicesMixin:
 
         if self._deduplicator is None:
             self._deduplicator = Deduplicator(
-                cache=self._cache_pool,
+                cache=self._cache_client,
                 article_repo=self._article_repo,
             )
         return self._deduplicator
@@ -532,7 +532,7 @@ class ContainerServicesMixin:
                 graph_writer=self.graph_writer(),
                 source_auth_repo=self.source_authority_repo(),
                 entity_resolver=self.entity_resolver(),
-                cache_pool=self._cache_pool,
+                cache_client=self._cache_client,
                 community_updater=self.community_updater(),
                 relation_type_normalizer=self.relation_normalizer(),
             )
