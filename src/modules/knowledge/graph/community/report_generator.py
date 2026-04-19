@@ -71,11 +71,8 @@ class CommunityReportGenerator:
     ) -> None:
         self._pool = pool
         # Detect database type for LadybugDB compatibility
-        db_type = (
-            GraphDatabaseType.LADYBUG
-            if type(pool).__name__ == "LadybugPool"
-            else GraphDatabaseType.NEO4J
-        )
+        self._is_ladybug = type(pool).__name__ == "LadybugPool"
+        db_type = GraphDatabaseType.LADYBUG if self._is_ladybug else GraphDatabaseType.NEO4J
         self._repo = Neo4jCommunityRepo(pool, database_type=db_type)
         self._llm = llm_client
         self._max_concurrent = max_concurrent
@@ -323,17 +320,33 @@ class CommunityReportGenerator:
         Returns:
             List of relationship dicts.
         """
-        query = """
-        MATCH (c:Community {id: $community_id})-[:HAS_ENTITY]->(e1:Entity)
-        MATCH (e1)-[r:RELATED_TO]->(e2:Entity)
-        WHERE (c)-[:HAS_ENTITY]->(e2)
-        RETURN e1.canonical_name AS source,
-               r.relation_type AS relation_type,
-               e2.canonical_name AS target,
-               r.weight AS weight
-        ORDER BY r.weight DESC
-        LIMIT 30
-        """
+        # LadybugDB uses edge_type, Neo4j uses relation_type
+        # Query all relationships for community entities, including cross-community ones
+        # This provides richer context for report generation
+        if self._is_ladybug:
+            query = """
+            MATCH (c:Community {id: $community_id})-[:HAS_ENTITY]->(e1:Entity)
+            MATCH (e1)-[r:RELATED_TO]-(e2:Entity)
+            WHERE e1.canonical_name < e2.canonical_name
+            RETURN e1.canonical_name AS source,
+                   r.edge_type AS relation_type,
+                   e2.canonical_name AS target,
+                   r.weight AS weight
+            ORDER BY r.weight DESC
+            LIMIT 30
+            """
+        else:
+            query = """
+            MATCH (c:Community {id: $community_id})-[:HAS_ENTITY]->(e1:Entity)
+            MATCH (e1)-[r:RELATED_TO]-(e2:Entity)
+            WHERE e1.canonical_name < e2.canonical_name
+            RETURN e1.canonical_name AS source,
+                   type(r) AS relation_type,
+                   e2.canonical_name AS target,
+                   r.weight AS weight
+            ORDER BY r.weight DESC
+            LIMIT 30
+            """
         results = await self._pool.execute_query(query, {"community_id": community_id})
         return [
             {

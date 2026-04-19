@@ -98,22 +98,18 @@ class Neo4jCommunityRepo:
         """
         if self._database_type == GraphDatabaseType.LADYBUG:
             # LadybugDB: No DETACH DELETE. Delete relationships first, then nodes.
-            # Delete CommunityReport nodes and their REPORTS_ON relationships
-            try:
-                await self._pool.execute_query("MATCH (r:CommunityReport) DELETE r")
-            except Exception as exc:
-                log.debug("delete_reports_step", error=str(exc))
+            # Delete REPORTS_ON relationships first (from CommunityReport to Community)
+            await self._pool.execute_query("MATCH ()-[r:REPORTS_ON]->() DELETE r")
+            # Delete CommunityReport nodes
+            await self._pool.execute_query("MATCH (r:CommunityReport) DELETE r")
             # Count communities before deletion
             count_result = await self._pool.execute_query(
                 "MATCH (c:Community) RETURN count(c) AS total"
             )
             total = count_result[0].get("total", 0) if count_result else 0
             # Delete HAS_ENTITY relationships from communities
-            try:
-                await self._pool.execute_query("MATCH (c:Community)-[r:HAS_ENTITY]->() DELETE r")
-            except Exception as exc:
-                log.debug("delete_has_entity_step", error=str(exc))
-            # Delete PARENT_COMMUNITY relationships
+            await self._pool.execute_query("MATCH (c:Community)-[r:HAS_ENTITY]->() DELETE r")
+            # Delete PARENT_COMMUNITY relationships (optional, may not exist in LadybugDB)
             try:
                 await self._pool.execute_query(
                     "MATCH (c:Community)-[r:PARENT_COMMUNITY]->() DELETE r"
@@ -243,17 +239,49 @@ class Neo4jCommunityRepo:
         Returns:
             True if relationship created.
         """
-        query = """
-        MATCH (c:Community {id: $community_id})
-        MATCH (e:Entity {canonical_name: $entity_name, type: $entity_type})
-        MERGE (c)-[:HAS_ENTITY]->(e)
-        RETURN c.id AS id
-        """
-        params = {
-            "community_id": community_id,
-            "entity_name": entity_canonical_name,
-            "entity_type": entity_type,
-        }
+        # LadybugDB: MERGE doesn't work for relationships, use CREATE
+        if self._database_type == GraphDatabaseType.LADYBUG:
+            # First get entity ID by canonical_name
+            entity_query = """
+            MATCH (e:Entity {canonical_name: $entity_name})
+            RETURN e.id AS entity_id
+            """
+            entity_result = await self._pool.execute_query(
+                entity_query, {"entity_name": entity_canonical_name}
+            )
+            if not entity_result or not entity_result[0].get("entity_id"):
+                log.debug(
+                    "entity_not_found_for_community",
+                    entity_name=entity_canonical_name,
+                )
+                return False
+
+            entity_id = entity_result[0]["entity_id"]
+            # Use CREATE instead of MERGE for LadybugDB
+            query = """
+            MATCH (c:Community {id: $community_id})
+            MATCH (e:Entity {id: $entity_id})
+            CREATE (c)-[:HAS_ENTITY]->(e)
+            RETURN c.id AS id
+            """
+            params = {
+                "community_id": community_id,
+                "entity_id": entity_id,
+            }
+        else:
+            # Neo4j: MERGE works for relationships
+            query = """
+            MATCH (c:Community {id: $community_id})
+            MATCH (e:Entity {canonical_name: $entity_name, type: $entity_type})
+            MERGE (c)-[:HAS_ENTITY]->(e)
+            RETURN c.id AS id
+            """
+            params = {
+                "community_id": community_id,
+                "entity_name": entity_canonical_name,
+                "entity_type": entity_type,
+            }
+
         result = await self._pool.execute_query(query, params)
         return bool(result)
 

@@ -199,17 +199,28 @@ class GraphQualityMetrics:
         include_orphans: bool = True,
     ) -> None:
         """Calculate basic entity and relationship counts."""
-        type_expr = self._get_type_expr("r")
-        queries: dict[str, str] = {
-            "entities": "MATCH (e:Entity) RETURN count(e) AS count",
-            "articles": "MATCH (a:Article) RETURN count(a) AS count",
-            "relationships": (
-                f"""
+        # LadybugDB stores relationship types differently than Neo4j:
+        # - Neo4j: type(r) returns the actual relationship type name (RELATED_TO, MENTIONS, etc.)
+        # - LadybugDB: r.edge_type returns the semantic type (WORKS_AT, PUBLISHES, etc.)
+        #   but the relationship table name is RELATED_TO or MENTIONS
+        # For LadybugDB, use direct table matching instead of type expression filtering
+        if self._db_type == "ladybug":
+            relationships_query = """
+            MATCH ()-[r:RELATED_TO]->()
+            RETURN count(r) AS count
+            """
+        else:
+            type_expr = self._get_type_expr("r")
+            relationships_query = f"""
                 MATCH ()-[r]->()
                 WHERE {type_expr} IN ['RELATED_TO', 'MENTIONS', 'HAS_ENTITY']
                 RETURN count(r) AS count
             """
-            ),
+
+        queries: dict[str, str] = {
+            "entities": "MATCH (e:Entity) RETURN count(e) AS count",
+            "articles": "MATCH (a:Article) RETURN count(a) AS count",
+            "relationships": relationships_query,
             "mentions": (
                 """
                 MATCH ()-[r:MENTIONS]->()
@@ -256,18 +267,35 @@ class GraphQualityMetrics:
         # Note: degree counts Entity-to-Entity relationships only, excluding MENTIONS
         # (Article-to-Entity) which is tracked separately as mention_count
         if metrics.total_entities > 0:
-            all_degree_query = """
-            MATCH (e:Entity)
-            OPTIONAL MATCH (e)-[r_out]->(other)
-            WHERE other:Entity
-            OPTIONAL MATCH (other2:Entity)-[r_in]->(e)
-            WITH e, count(DISTINCT r_out) + count(DISTINCT r_in) AS degree
-            RETURN avg(degree) AS avg_degree
-            """
+            # LadybugDB doesn't support nested aggregation like avg(count(...))
+            # Use degree query to get individual degrees, then compute average in Python
+            if self._db_type == "ladybug":
+                degree_for_avg_query = """
+                MATCH (e:Entity)
+                OPTIONAL MATCH (e)-[r_out]->(other)
+                WHERE label(other) = 'Entity'
+                OPTIONAL MATCH (other2:Entity)-[r_in]->(e)
+                WITH e, count(DISTINCT r_out) + count(DISTINCT r_in) AS degree
+                RETURN degree
+                """
+            else:
+                degree_for_avg_query = """
+                MATCH (e:Entity)
+                OPTIONAL MATCH (e)-[r_out]->(other)
+                WHERE other:Entity
+                OPTIONAL MATCH (other2:Entity)-[r_in]->(e)
+                WITH e, count(DISTINCT r_out) + count(DISTINCT r_in) AS degree
+                RETURN avg(degree) AS avg_degree
+                """
             try:
-                avg_result = await self._pool.execute_query(all_degree_query)
-                if avg_result:
-                    metrics.average_degree = avg_result[0].get("avg_degree", 0.0) or 0.0
+                degree_result = await self._pool.execute_query(degree_for_avg_query)
+                if degree_result:
+                    if self._db_type == "ladybug":
+                        # Compute average in Python for LadybugDB
+                        degrees = [r.get("degree", 0) for r in degree_result]
+                        metrics.average_degree = sum(degrees) / len(degrees) if degrees else 0.0
+                    else:
+                        metrics.average_degree = degree_result[0].get("avg_degree", 0.0) or 0.0
             except Exception as exc:
                 log.warning("metrics_avg_degree_failed", error=str(exc))
 
@@ -276,25 +304,47 @@ class GraphQualityMetrics:
             return
 
         # Note: degree counts Entity-to-Entity relationships only, excluding MENTIONS
-        degree_query = """
-        MATCH (e:Entity)
-        OPTIONAL MATCH (e)-[r_out]->(other)
-        WHERE other:Entity
-        OPTIONAL MATCH (other2:Entity)-[r_in]->(e)
-        OPTIONAL MATCH ()-[m:MENTIONS]->(e)
-        WITH e,
-             count(DISTINCT r_out) AS out_degree,
-             count(DISTINCT r_in) AS in_degree,
-             count(DISTINCT m) AS mention_count
-        RETURN e.canonical_name AS name,
-               e.type AS type,
-               in_degree,
-               out_degree,
-               mention_count,
-               (in_degree + out_degree) AS total_degree
-        ORDER BY total_degree DESC
-        LIMIT $limit
-        """
+        # LadybugDB doesn't support `WHERE other:Entity` syntax
+        if self._db_type == "ladybug":
+            degree_query = """
+            MATCH (e:Entity)
+            OPTIONAL MATCH (e)-[r_out]->(other)
+            WHERE label(other) = 'Entity'
+            OPTIONAL MATCH (other2:Entity)-[r_in]->(e)
+            OPTIONAL MATCH ()-[m:MENTIONS]->(e)
+            WITH e,
+                 count(DISTINCT r_out) AS out_degree,
+                 count(DISTINCT r_in) AS in_degree,
+                 count(DISTINCT m) AS mention_count
+            RETURN e.canonical_name AS name,
+                   e.type AS type,
+                   in_degree,
+                   out_degree,
+                   mention_count,
+                   (in_degree + out_degree) AS total_degree
+            ORDER BY total_degree DESC
+            LIMIT $limit
+            """
+        else:
+            degree_query = """
+            MATCH (e:Entity)
+            OPTIONAL MATCH (e)-[r_out]->(other)
+            WHERE other:Entity
+            OPTIONAL MATCH (other2:Entity)-[r_in]->(e)
+            OPTIONAL MATCH ()-[m:MENTIONS]->(e)
+            WITH e,
+                 count(DISTINCT r_out) AS out_degree,
+                 count(DISTINCT r_in) AS in_degree,
+                 count(DISTINCT m) AS mention_count
+            RETURN e.canonical_name AS name,
+                   e.type AS type,
+                   in_degree,
+                   out_degree,
+                   mention_count,
+                   (in_degree + out_degree) AS total_degree
+            ORDER BY total_degree DESC
+            LIMIT $limit
+            """
 
         try:
             results = await self._pool.execute_query(degree_query, {"limit": limit})
@@ -331,12 +381,18 @@ class GraphQualityMetrics:
         try:
             results = await self._pool.execute_query(component_query)
 
+            # Handle None or empty results
+            if not results:
+                metrics.connected_components = 0
+                metrics.largest_component_size = 0
+                return
+
             adjacency: dict[str, set[str]] = defaultdict(set)
             all_entities: set[str] = set()
 
             for row in results:
                 entity = row.get("entity")
-                neighbors = row.get("neighbors", [])
+                neighbors = row.get("neighbors") or []  # Handle None neighbors
                 if entity:
                     all_entities.add(entity)
                     # LadybugDB returns neighbors as list of Entity objects

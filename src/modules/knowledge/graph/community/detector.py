@@ -230,28 +230,23 @@ class CommunityDetector:
         if not results:
             return []
 
-        # Vectorized edge normalization and deduplication using pandas
-        import pandas as pd
+        # Pure Python edge normalization and deduplication using defaultdict
+        # Keep highest weight for duplicate undirected edges
+        edge_map: dict[tuple[str, str], float] = {}
+        for row in results:
+            source = row.get("source", "")
+            target = row.get("target", "")
+            weight = row.get("weight", 1.0) or 1.0
+            if not source or not target:
+                continue
+            # Normalize direction: smaller node name first (undirected graph)
+            lo, hi = (source, target) if source < target else (target, source)
+            key = (lo, hi)
+            # Keep highest weight for duplicate edges
+            if key not in edge_map or weight > edge_map[key]:
+                edge_map[key] = weight
 
-        df = pd.DataFrame(results)
-
-        # Ensure required columns exist
-        if "source" not in df.columns or "target" not in df.columns:
-            return []
-
-        # Fill missing weights with default
-        df["weight"] = df.get("weight", pd.Series(1.0, index=df.index)).fillna(1.0)
-
-        # Normalize direction: smaller node name first (undirected graph)
-        df["lo"] = df[["source", "target"]].min(axis=1)
-        df["hi"] = df[["source", "target"]].max(axis=1)
-
-        # Sort by weight descending to keep highest weight for duplicates
-        df = df.sort_values("weight", ascending=False)
-        df = df.drop_duplicates(subset=["lo", "hi"], keep="first")
-
-        # Convert to list of tuples
-        return list(zip(df["lo"].tolist(), df["hi"].tolist(), df["weight"].tolist()))
+        return [(lo, hi, w) for (lo, hi), w in edge_map.items()]
 
     async def _get_orphan_entities(self) -> list[str]:
         """Get entities with no entity relationships.
@@ -613,6 +608,17 @@ class CommunityDetector:
         # Ensure constraints exist
         await self._repo.ensure_constraints()
 
+        # Collect all entity_ids upfront and batch query entity types (O(1) vs O(n))
+        all_entity_ids: list[str] = []
+        for community in communities:
+            if community.entity_ids:
+                all_entity_ids.extend(community.entity_ids)
+
+        entity_types_map: dict[str, str] = {}
+        if all_entity_ids:
+            # Single batch query for all entity types
+            entity_types_map = await self._get_entity_types(all_entity_ids)
+
         created = 0
         for community in communities:
             try:
@@ -628,15 +634,13 @@ class CommunityDetector:
                     modularity=community.modularity,
                 )
 
-                # Add HAS_ENTITY relationships
+                # Add HAS_ENTITY relationships using pre-fetched entity types
                 if community.entity_ids:
-                    # Get entity types from Neo4j
-                    entity_types = await self._get_entity_types(community.entity_ids)
                     assignments = [
                         {
                             "community_id": community.id,
                             "entity_name": name,
-                            "entity_type": entity_types.get(name, "未知"),
+                            "entity_type": entity_types_map.get(name, "未知"),
                         }
                         for name in community.entity_ids
                     ]
