@@ -87,8 +87,33 @@ class TestAdminAuthMiddleware:
             assert "Admin access required" in exc_info.value.detail
 
     @pytest.mark.asyncio
-    async def test_verify_admin_api_key_fallback_when_not_configured(self) -> None:
-        """Test verify_admin_api_key raises 500 when admin key not configured."""
+    async def test_verify_admin_api_key_raises_500_when_not_configured_production(
+        self,
+    ) -> None:
+        """Test verify_admin_api_key raises 500 when admin key not configured in production."""
+        from api.middleware.auth import verify_admin_api_key
+
+        regular_key = "regular-key-12345678901234567890123456"
+
+        mock_settings = MagicMock()
+        mock_settings.api.admin_api_key = None  # Not configured
+        mock_settings.api.get_api_key.return_value = regular_key
+
+        with (
+            patch("container.get_settings", return_value=mock_settings),
+            patch.dict("os.environ", {"ENVIRONMENT": "production"}),
+        ):
+            # Admin key not configured in production: raises 500
+            with pytest.raises(Exception) as exc_info:
+                await verify_admin_api_key(key=regular_key)
+            assert exc_info.value.status_code == 500
+            assert "Admin API key not configured" in exc_info.value.detail
+
+    @pytest.mark.asyncio
+    async def test_verify_admin_api_key_fallback_when_not_configured_development(
+        self,
+    ) -> None:
+        """Test verify_admin_api_key accepts regular key as fallback when admin key not configured in dev."""
         from api.middleware.auth import verify_admin_api_key
 
         regular_key = "regular-key-12345678901234567890123456"
@@ -101,11 +126,9 @@ class TestAdminAuthMiddleware:
             patch("container.get_settings", return_value=mock_settings),
             patch.dict("os.environ", {"ENVIRONMENT": "development"}),
         ):
-            # Admin key not configured: raises 500, no fallback
-            with pytest.raises(Exception) as exc_info:
-                await verify_admin_api_key(key=regular_key)
-            assert exc_info.value.status_code == 500
-            assert "Admin API key not configured" in exc_info.value.detail
+            # Admin key not configured in development: regular key fallback works
+            result = await verify_admin_api_key(key=regular_key)
+            assert result == regular_key
 
 
 class TestAdminEndpointAuthorityUpdate:

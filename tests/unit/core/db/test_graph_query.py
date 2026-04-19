@@ -368,7 +368,8 @@ class TestLadybugQueryBuilder:
         assert "MATCH (c:Community)" in result
         assert "c.level >= $level" in result
         assert "LOWER(c.title) CONTAINS $query" in result
-        assert "$limit" in result
+        # LadybugDB uses f-string for LIMIT (not parameterized)
+        assert "LIMIT 10" in result
 
     def test_build_community_search_query_without_text(self, builder: LadybugQueryBuilder) -> None:
         config = CommunitySearchConfig(level=2, query="", limit=15)
@@ -376,7 +377,8 @@ class TestLadybugQueryBuilder:
         assert "MATCH (c:Community)" in result
         assert "c.level >= $level" in result
         assert "CONTAINS" not in result
-        assert "$limit" in result
+        # LadybugDB uses f-string for LIMIT (not parameterized)
+        assert "LIMIT 15" in result
 
     def test_build_community_entities_query(self, builder: LadybugQueryBuilder) -> None:
         result = builder.build_community_entities_query("550e8400-e29b-41d4-a716-446655440000", 10)

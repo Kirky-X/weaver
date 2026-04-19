@@ -539,6 +539,17 @@ def auth_headers(api_key: str) -> dict[str, str]:
 
 
 @pytest.fixture
+def admin_headers(e2e_env: dict[str, str]) -> dict[str, str]:
+    """Admin authentication headers for write operations.
+
+    Returns:
+        Dict with X-API-Key header using admin key (or regular key as fallback).
+    """
+    admin_key = e2e_env.get("WEAVER_API__ADMIN_API_KEY", e2e_env.get("WEAVER_API__API_KEY", ""))
+    return {"X-API-Key": admin_key}
+
+
+@pytest.fixture
 def unique_id() -> str:
     """Generate a unique ID for test data isolation.
 
