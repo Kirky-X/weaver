@@ -6,13 +6,16 @@ from __future__ import annotations
 import uuid
 from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from core.observability.logging import get_logger
 from modules.ingestion.domain.models import NewsItem, SourceConfig
 from modules.ingestion.parsing.registry import SourceRegistry
+
+if TYPE_CHECKING:
+    from modules.ingestion.scheduling.source_config_repo import SourceConfigRepo
 
 log = get_logger(__name__)
 
@@ -23,6 +26,7 @@ class SourceScheduler:
     Args:
         registry: Source registry with source configurations.
         on_items_discovered: Callback invoked with newly discovered items.
+        repo: Optional repo for persisting crawl state (last_crawl_time etc).
     """
 
     def __init__(
@@ -31,9 +35,11 @@ class SourceScheduler:
         on_items_discovered: Callable[
             [list[NewsItem], SourceConfig, uuid.UUID | None], Coroutine[Any, Any, None]
         ],
+        repo: SourceConfigRepo | None = None,
     ) -> None:
         self._registry = registry
         self._on_items = on_items_discovered
+        self._repo = repo
         self._scheduler = AsyncIOScheduler()
 
     def start(self) -> None:
@@ -93,6 +99,19 @@ class SourceScheduler:
             items = await parser.parse(source)
             if items:
                 source.last_crawl_time = datetime.now(UTC)
+                # Persist last_crawl_time to database
+                if self._repo and source.last_crawl_time:
+                    try:
+                        await self._repo.update_crawl_state(
+                            source_id=source.id,
+                            last_crawl_time=source.last_crawl_time,
+                        )
+                    except Exception as repo_exc:
+                        log.warning(
+                            "persist_crawl_state_failed",
+                            source_id=source_id,
+                            error=str(repo_exc),
+                        )
                 await self._on_items(items, source, max_items, task_id)
                 log.info(
                     "source_crawled",

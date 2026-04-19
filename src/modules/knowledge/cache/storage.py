@@ -75,7 +75,7 @@ class KnowledgeCache(KnowledgeCacheProtocol):
         # Sync state
         self._dirty_count = 0
         self._sync_threshold = sync_threshold
-        self._sync_lock = threading.Lock()
+        self._sync_lock = threading.RLock()
         self._stop_event = threading.Event()
 
         # Initialize table

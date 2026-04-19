@@ -259,7 +259,7 @@ class AdaptiveSearchEngine:
         query_embedding: list[float],
         intent: IntentType,
     ) -> list[str]:
-        """Find anchor nodes for traversal.
+        """Find anchor nodes for traversal using semantic search.
 
         Args:
             query: The search query.
@@ -269,18 +269,20 @@ class AdaptiveSearchEngine:
         Returns:
             List of anchor event IDs.
         """
-        # For WHY queries, look for recent events with causal chains
+        # Use semantic search to find relevant anchors (not just recent events)
+        anchor_limit = self._default_anchor_limit
         if intent == IntentType.WHY:
-            events = await self._temporal_repo.get_temporal_chain(limit=self._why_anchor_limit)
-            return [e["id"] for e in events if e.get("id")]
+            anchor_limit = self._why_anchor_limit
+        elif intent == IntentType.WHEN:
+            anchor_limit = self._when_anchor_limit
 
-        # For WHEN queries, use temporal ordering
-        if intent == IntentType.WHEN:
-            events = await self._temporal_repo.get_temporal_chain(limit=self._when_anchor_limit)
-            return [e["id"] for e in events if e.get("id")]
+        # Try semantic search first
+        events = await self._temporal_repo.search_temporal_events(query=query, limit=anchor_limit)
 
-        # Default: get recent events
-        events = await self._temporal_repo.get_temporal_chain(limit=self._default_anchor_limit)
+        # Fallback to temporal chain if no semantic matches found
+        if not events:
+            events = await self._temporal_repo.get_temporal_chain(limit=anchor_limit)
+
         return [e["id"] for e in events if e.get("id")]
 
     async def _beam_search(

@@ -169,7 +169,8 @@ class TemporalGraphRepo(BaseGraphRepo):
             id: $id,
             content: $content,
             event_time: $event_time,
-            created_at: $created_at
+            created_at: $created_at,
+            attributes: $attributes
         })
         RETURN e.id
         """
@@ -179,6 +180,7 @@ class TemporalGraphRepo(BaseGraphRepo):
             "content": event.content,
             "event_time": event_time,
             "created_at": now,
+            "attributes": json.dumps(event.attributes) if event.attributes else None,
         }
 
         try:
@@ -243,8 +245,49 @@ class TemporalGraphRepo(BaseGraphRepo):
         results = await self._pool.execute_query(query, params)
 
         # Parse JSON string attributes back to dict
-        import json
+        for record in results:
+            attr = record.get("attributes")
+            if isinstance(attr, str):
+                try:
+                    record["attributes"] = json.loads(attr)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        return results
 
+    async def search_temporal_events(
+        self,
+        query: str,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Search events by content similarity and return in temporal order.
+
+        Args:
+            query: Search query string.
+            limit: Maximum number of events to return.
+
+        Returns:
+            List of event dictionaries matching query, ordered by timestamp.
+        """
+        # LadybugDB uses event_time (INT64), Neo4j uses timestamp (datetime)
+        time_field = "event_time" if self._is_ladybug else "timestamp"
+
+        # Simple content-based search (CONTAINS is case-sensitive in Neo4j)
+        # Use toLower for case-insensitive matching
+        query_cypher = f"""
+        MATCH (e:EventNode)
+        WHERE toLower(e.content) CONTAINS toLower($query)
+        RETURN e.id AS id,
+               e.content AS content,
+               e.{time_field} AS timestamp,
+               e.attributes AS attributes
+        ORDER BY e.{time_field} ASC
+        LIMIT $limit
+        """
+
+        params = {"query": query, "limit": limit}
+        results = await self._pool.execute_query(query_cypher, params)
+
+        # Parse JSON string attributes back to dict
         for record in results:
             attr = record.get("attributes")
             if isinstance(attr, str):
