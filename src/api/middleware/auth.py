@@ -54,6 +54,16 @@ async def verify_api_key(
 
     expected_key = settings.api.get_api_key()
 
+    # Accept admin key as valid for regular endpoints (admin has all permissions)
+    admin_key = settings.api.admin_api_key
+    if (
+        admin_key
+        and len(admin_key) >= MIN_API_KEY_LENGTH
+        and secrets.compare_digest(key, admin_key)
+    ):
+        log.debug("admin_key_accepted_as_regular", key_prefix=key[:8] + "...")
+        return key
+
     # Security check: ensure expected_key is properly configured
     if not expected_key or len(expected_key) < MIN_API_KEY_LENGTH:
         environment = os.environ.get("ENVIRONMENT", "development")
@@ -141,10 +151,15 @@ async def verify_admin_api_key(
             "Set WEAVER_API__ADMIN_API_KEY environment variable for production.",
         )
 
-    # Development mode: reject missing admin key, do not fallback to regular key
+    # Development/testing mode: allow regular key as fallback when admin key not configured
+    expected_key = settings.api.get_api_key()
+    if secrets.compare_digest(key, expected_key):
+        log.debug("admin_fallback_to_regular_key", environment=environment)
+        return key
+
     raise HTTPException(
-        status_code=500,
-        detail="Admin API key not configured. Set WEAVER_API__ADMIN_API_KEY environment variable.",
+        status_code=403,
+        detail="Invalid API Key",
     )
 
 
