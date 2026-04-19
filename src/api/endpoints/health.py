@@ -10,7 +10,7 @@ from typing import Any
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 
-from core.constants import HealthStatus, HealthCheckStatus
+from core.constants import HealthCheckStatus, HealthStatus
 from core.observability import metrics
 
 
@@ -53,19 +53,29 @@ async def check_postgres_health(pool: Any) -> dict[str, Any]:
             async with pool.session_context() as session:
                 await session.execute(text("SELECT 1"))
         latency_ms = (time.monotonic() - start) * 1000
-        metrics.health_check_status.labels(service="postgres").set(HEALTH_STATUS_CODES[HealthCheckStatus.OK.value])
+        metrics.health_check_status.labels(service="postgres").set(
+            HEALTH_STATUS_CODES[HealthCheckStatus.OK.value]
+        )
         metrics.health_check_latency.labels(service="postgres").observe(latency_ms / 1000)
         return {"status": HealthCheckStatus.OK.value, "latency_ms": latency_ms}
     except TimeoutError:
         latency_ms = (time.monotonic() - start) * 1000
-        metrics.health_check_status.labels(service="postgres").set(HEALTH_STATUS_CODES[HealthCheckStatus.TIMEOUT.value])
+        metrics.health_check_status.labels(service="postgres").set(
+            HEALTH_STATUS_CODES[HealthCheckStatus.TIMEOUT.value]
+        )
         metrics.health_check_latency.labels(service="postgres").observe(latency_ms / 1000)
         return {"status": HealthCheckStatus.TIMEOUT.value, "latency_ms": latency_ms}
     except Exception as e:
         latency_ms = (time.monotonic() - start) * 1000
-        metrics.health_check_status.labels(service="postgres").set(HEALTH_STATUS_CODES[HealthCheckStatus.ERROR.value])
+        metrics.health_check_status.labels(service="postgres").set(
+            HEALTH_STATUS_CODES[HealthCheckStatus.ERROR.value]
+        )
         metrics.health_check_latency.labels(service="postgres").observe(latency_ms / 1000)
-        return {"status": HealthCheckStatus.ERROR.value, "latency_ms": latency_ms, HealthCheckStatus.ERROR.value: str(e)}
+        return {
+            "status": HealthCheckStatus.ERROR.value,
+            "latency_ms": latency_ms,
+            HealthCheckStatus.ERROR.value: str(e),
+        }
 
 
 async def check_neo4j_health(pool: Any) -> dict[str, Any]:
@@ -80,19 +90,29 @@ async def check_neo4j_health(pool: Any) -> dict[str, Any]:
         async with asyncio.timeout(5):
             await pool.execute_query("RETURN 1")
         latency_ms = (time.monotonic() - start) * 1000
-        metrics.health_check_status.labels(service="neo4j").set(HEALTH_STATUS_CODES[HealthCheckStatus.OK.value])
+        metrics.health_check_status.labels(service="neo4j").set(
+            HEALTH_STATUS_CODES[HealthCheckStatus.OK.value]
+        )
         metrics.health_check_latency.labels(service="neo4j").observe(latency_ms / 1000)
         return {"status": HealthCheckStatus.OK.value, "latency_ms": latency_ms}
     except TimeoutError:
         latency_ms = (time.monotonic() - start) * 1000
-        metrics.health_check_status.labels(service="neo4j").set(HEALTH_STATUS_CODES[HealthCheckStatus.TIMEOUT.value])
+        metrics.health_check_status.labels(service="neo4j").set(
+            HEALTH_STATUS_CODES[HealthCheckStatus.TIMEOUT.value]
+        )
         metrics.health_check_latency.labels(service="neo4j").observe(latency_ms / 1000)
         return {"status": HealthCheckStatus.TIMEOUT.value, "latency_ms": latency_ms}
     except Exception as e:
         latency_ms = (time.monotonic() - start) * 1000
-        metrics.health_check_status.labels(service="neo4j").set(HEALTH_STATUS_CODES[HealthCheckStatus.ERROR.value])
+        metrics.health_check_status.labels(service="neo4j").set(
+            HEALTH_STATUS_CODES[HealthCheckStatus.ERROR.value]
+        )
         metrics.health_check_latency.labels(service="neo4j").observe(latency_ms / 1000)
-        return {"status": HealthCheckStatus.ERROR.value, "latency_ms": latency_ms, HealthCheckStatus.ERROR.value: str(e)}
+        return {
+            "status": HealthCheckStatus.ERROR.value,
+            "latency_ms": latency_ms,
+            HealthCheckStatus.ERROR.value: str(e),
+        }
 
 
 async def check_redis_health(client: Any) -> dict[str, Any]:
@@ -107,19 +127,29 @@ async def check_redis_health(client: Any) -> dict[str, Any]:
         async with asyncio.timeout(5):
             await client.ping()
         latency_ms = (time.monotonic() - start) * 1000
-        metrics.health_check_status.labels(service="redis").set(HEALTH_STATUS_CODES[HealthCheckStatus.OK.value])
+        metrics.health_check_status.labels(service="redis").set(
+            HEALTH_STATUS_CODES[HealthCheckStatus.OK.value]
+        )
         metrics.health_check_latency.labels(service="redis").observe(latency_ms / 1000)
         return {"status": HealthCheckStatus.OK.value, "latency_ms": latency_ms}
     except TimeoutError:
         latency_ms = (time.monotonic() - start) * 1000
-        metrics.health_check_status.labels(service="redis").set(HEALTH_STATUS_CODES[HealthCheckStatus.TIMEOUT.value])
+        metrics.health_check_status.labels(service="redis").set(
+            HEALTH_STATUS_CODES[HealthCheckStatus.TIMEOUT.value]
+        )
         metrics.health_check_latency.labels(service="redis").observe(latency_ms / 1000)
         return {"status": HealthCheckStatus.TIMEOUT.value, "latency_ms": latency_ms}
     except Exception as e:
         latency_ms = (time.monotonic() - start) * 1000
-        metrics.health_check_status.labels(service="redis").set(HEALTH_STATUS_CODES[HealthCheckStatus.ERROR.value])
+        metrics.health_check_status.labels(service="redis").set(
+            HEALTH_STATUS_CODES[HealthCheckStatus.ERROR.value]
+        )
         metrics.health_check_latency.labels(service="redis").observe(latency_ms / 1000)
-        return {"status": HealthCheckStatus.ERROR.value, "latency_ms": latency_ms, HealthCheckStatus.ERROR.value: str(e)}
+        return {
+            "status": HealthCheckStatus.ERROR.value,
+            "latency_ms": latency_ms,
+            HealthCheckStatus.ERROR.value: str(e),
+        }
 
 
 async def health_check() -> HealthCheckResponse:
@@ -142,7 +172,9 @@ async def health_check() -> HealthCheckResponse:
         if pg_result["status"] != HealthCheckStatus.OK.value:
             all_healthy = False
     else:
-        checks["postgres"] = ServiceHealthCheck(status=HealthCheckStatus.UNAVAILABLE.value, error="Pool not initialized")
+        checks["postgres"] = ServiceHealthCheck(
+            status=HealthCheckStatus.UNAVAILABLE.value, error="Pool not initialized"
+        )
         metrics.health_check_status.labels(service="postgres").set(
             HEALTH_STATUS_CODES[HealthCheckStatus.UNAVAILABLE.value]
         )
@@ -156,20 +188,28 @@ async def health_check() -> HealthCheckResponse:
         if neo4j_result["status"] != HealthCheckStatus.OK.value:
             all_healthy = False
     else:
-        checks["neo4j"] = ServiceHealthCheck(status=HealthCheckStatus.UNAVAILABLE.value, error="Pool not initialized")
-        metrics.health_check_status.labels(service="neo4j").set(HEALTH_STATUS_CODES[HealthCheckStatus.UNAVAILABLE.value])
+        checks["neo4j"] = ServiceHealthCheck(
+            status=HealthCheckStatus.UNAVAILABLE.value, error="Pool not initialized"
+        )
+        metrics.health_check_status.labels(service="neo4j").set(
+            HEALTH_STATUS_CODES[HealthCheckStatus.UNAVAILABLE.value]
+        )
         all_healthy = False
 
     # Check Redis
-    cache_client = Endpoints.get_cache_optional()
+    cache_client = Endpoints.get_cache_client_optional()
     if cache_client is not None:
         redis_result = await check_redis_health(cache_client)
         checks["redis"] = ServiceHealthCheck(**redis_result)
         if redis_result["status"] != HealthCheckStatus.OK.value:
             all_healthy = False
     else:
-        checks["redis"] = ServiceHealthCheck(status=HealthCheckStatus.UNAVAILABLE.value, error="Client not initialized")
-        metrics.health_check_status.labels(service="redis").set(HEALTH_STATUS_CODES[HealthCheckStatus.UNAVAILABLE.value])
+        checks["redis"] = ServiceHealthCheck(
+            status=HealthCheckStatus.UNAVAILABLE.value, error="Client not initialized"
+        )
+        metrics.health_check_status.labels(service="redis").set(
+            HEALTH_STATUS_CODES[HealthCheckStatus.UNAVAILABLE.value]
+        )
         all_healthy = False
 
     return HealthCheckResponse(

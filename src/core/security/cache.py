@@ -32,7 +32,7 @@ class URLSecurityCache:
 
     def __init__(
         self,
-        redis_client: Any,
+        cache_client: Any,
         safe_ttl: int = 21600,  # 6 hours
         malicious_ttl: int = 900,  # 15 minutes
         enabled: bool = True,
@@ -40,12 +40,12 @@ class URLSecurityCache:
         """Initialize the cache.
 
         Args:
-            redis_client: Redis client instance.
+            cache_client: Redis client instance.
             safe_ttl: TTL in seconds for safe results.
             malicious_ttl: TTL in seconds for malicious results.
             enabled: Whether caching is enabled.
         """
-        self._redis = redis_client
+        self._redis = cache_client
         self._safe_ttl = safe_ttl
         self._malicious_ttl = malicious_ttl
         self._enabled = enabled

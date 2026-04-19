@@ -74,7 +74,7 @@ class URLValidator:
     URL security validation.
 
     Example:
-        validator = URLValidator(config, fetcher, redis_client)
+        validator = URLValidator(config, fetcher, cache_client)
         await validator.initialize()
 
         result = await validator.validate("https://example.com")
@@ -88,21 +88,21 @@ class URLValidator:
         self,
         config: URLValidatorConfig,
         fetcher: "HttpxFetcher",
-        redis_client: Any = None,
+        cache_client: Any = None,
     ) -> None:
         """Initialize URL validator.
 
         Args:
             config: Validator configuration.
             fetcher: HttpxFetcher instance for HTTP requests.
-            redis_client: Optional Redis client for caching.
+            cache_client: Optional Redis client for caching.
         """
         self._config = config
         self._fetcher = fetcher
 
         # Initialize cache
         self._cache = URLSecurityCache(
-            redis_client=redis_client,
+            cache_client=cache_client,
             safe_ttl=config.cache_safe_ttl,
             malicious_ttl=config.cache_malicious_ttl,
             enabled=config.cache_enabled,

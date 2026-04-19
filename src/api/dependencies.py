@@ -102,7 +102,7 @@ def get_graph_pool_type() -> str:
     return Endpoints.get_graph_pool_type()
 
 
-def get_cache_pool() -> CachePool:
+def get_cache_client() -> CachePool:
     """FastAPI dependency for cache pool.
 
     Raises:
@@ -112,7 +112,7 @@ def get_cache_pool() -> CachePool:
         CachePool instance (RedisClient or CashewsClient).
 
     """
-    return Endpoints.get_cache_pool()
+    return Endpoints.get_cache_client()
 
 
 # ── Service Dependencies ──────────────────────────────────────────────
@@ -183,7 +183,7 @@ def get_global_search_engine() -> GlobalSearchEngine:
     return Endpoints.get_global_search_engine()
 
 
-def get_hybrid_search_engine() -> HybridSearchEngine:
+def get_hybrid_engine() -> HybridSearchEngine:
     """FastAPI dependency for hybrid search engine.
 
     Raises:
@@ -193,7 +193,7 @@ def get_hybrid_search_engine() -> HybridSearchEngine:
         HybridSearchEngine instance.
 
     """
-    return Endpoints.get_hybrid_search_engine()
+    return Endpoints.get_hybrid_engine()
 
 
 def get_source_scheduler() -> SourceScheduler:
@@ -291,13 +291,13 @@ def get_task_registry() -> InMemoryTaskRegistry:
 
 RelationalPoolDep = Annotated["RelationalPool", Depends(get_relational_pool)]
 GraphPoolDep = Annotated["GraphPool", Depends(get_graph_pool)]
-CachePoolDep = Annotated["CachePool", Depends(get_cache_pool)]
+CachePoolDep = Annotated["CachePool", Depends(get_cache_client)]
 LLMClientDep = Annotated["LLMClient", Depends(get_llm_client)]
 VectorRepoDep = Annotated["VectorRepo", Depends(get_vector_repo)]
 GraphRepoDep = Annotated["GraphRepository", Depends(get_graph_repo)]
 LocalSearchEngineDep = Annotated["LocalSearchEngine", Depends(get_local_search_engine)]
 GlobalSearchEngineDep = Annotated["GlobalSearchEngine", Depends(get_global_search_engine)]
-HybridSearchEngineDep = Annotated["HybridSearchEngine", Depends(get_hybrid_search_engine)]
+HybridSearchEngineDep = Annotated["HybridSearchEngine", Depends(get_hybrid_engine)]
 SourceSchedulerDep = Annotated["SourceScheduler", Depends(get_source_scheduler)]
 SourceConfigRepoDep = Annotated["SourceConfigRepo", Depends(get_source_config_repo)]
 SourceAuthorityRepoDep = Annotated["SourceAuthorityRepo", Depends(get_source_authority_repo)]

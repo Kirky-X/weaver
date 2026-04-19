@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.dependencies import get_graph_pool, get_graph_pool_type, get_llm_client
-from api.middleware.auth import verify_api_key
+from api.middleware.auth import verify_admin_api_key, verify_api_key
 from api.schemas.response import APIResponse, success_response
 from api.schemas.types import RoundedFloat, RoundedFloatOpt
 from core.constants import ProcessingStatus
@@ -169,7 +169,7 @@ class RepairResponse(BaseModel):
 @router.post("/rebuild", response_model=APIResponse[RebuildResponse])
 async def rebuild_communities(
     request: RebuildRequest = RebuildRequest(),
-    _: str = Depends(verify_api_key),
+    _: str = Depends(verify_admin_api_key),  # Security: destructive operation requires admin
     pool: GraphPool = Depends(get_graph_pool),
     pool_type: str = Depends(get_graph_pool_type),
     llm: Any = Depends(get_llm_client),
@@ -292,7 +292,7 @@ async def generate_all_reports(
 )
 async def regenerate_report(
     community_id: str,
-    _: str = Depends(verify_api_key),
+    _: str = Depends(verify_admin_api_key),  # Security: write operation requires admin
     pool: GraphPool = Depends(get_graph_pool),
     llm: Any = Depends(get_llm_client),
 ) -> APIResponse[dict[str, Any]]:
@@ -375,22 +375,23 @@ async def list_communities(
         communities = await repo.list_communities(level=level, limit=limit, offset=offset)
         total = await repo.count_communities(level=level)
 
-        # Check which communities have reports
-        community_responses = []
-        for c in communities:
-            report = await repo.get_report(c.id)
-            community_responses.append(
-                CommunityResponse(
-                    id=c.id,
-                    title=c.title,
-                    level=c.level,
-                    entity_count=c.entity_count,
-                    parent_id=c.parent_id,
-                    rank=c.rank,
-                    period=c.period,
-                    has_report=report is not None,
-                )
+        # Batch check which communities have reports (fixes N+1 query)
+        community_ids = [c.id for c in communities]
+        reports_exist = await repo.get_reports_existence(community_ids)
+
+        community_responses = [
+            CommunityResponse(
+                id=c.id,
+                title=c.title,
+                level=c.level,
+                entity_count=c.entity_count,
+                parent_id=c.parent_id,
+                rank=c.rank,
+                period=c.period,
+                has_report=reports_exist.get(c.id, False),
             )
+            for c in communities
+        ]
 
         return success_response(
             CommunityListResponse(
@@ -549,7 +550,7 @@ async def diagnose_health(
 @router.post("/health/repair", response_model=APIResponse[RepairResponse])
 async def repair_health(
     request: RepairRequest = RepairRequest(),
-    _: str = Depends(verify_api_key),
+    _: str = Depends(verify_admin_api_key),  # Security: destructive operation requires admin
     pool: GraphPool = Depends(get_graph_pool),
     llm: Any = Depends(get_llm_client),
 ) -> APIResponse[RepairResponse]:

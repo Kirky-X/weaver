@@ -3,18 +3,29 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
+import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from api.dependencies import get_container, get_source_authority_repo
+from api.dependencies import (
+    get_cache_client,
+    get_container,
+    get_source_authority_repo,
+    get_source_scheduler,
+)
 from api.endpoints._deps import Endpoints
 from api.middleware.auth import verify_admin_api_key, verify_api_key
 from api.schemas.response import APIResponse, success_response
 from api.schemas.types import RoundedFloat, RoundedFloatOpt
+from core.constants import PipelineTaskStatus
 from core.observability import get_logger
+from core.protocols import CachePool
+from modules.ingestion import SourceScheduler
 from modules.storage import SourceAuthorityRepo
 
 if TYPE_CHECKING:
@@ -23,6 +34,37 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+# ── Pipeline Trigger Models ─────────────────────────────────────
+
+
+class TriggerRequest(BaseModel):
+    """Request model for triggering a pipeline run."""
+
+    source_id: str | None = Field(
+        default=None,
+        description="Specific source ID to crawl. If not provided, crawls all enabled sources.",
+    )
+    force: bool = Field(
+        default=False,
+        description="Force re-crawl even for recently fetched URLs.",
+    )
+    max_items: int | None = Field(
+        default=None,
+        description="Maximum number of items to process per source (None for unlimited).",
+    )
+
+
+class TriggerResponse(BaseModel):
+    """Response model for pipeline trigger."""
+
+    task_id: str
+    status: str = PipelineTaskStatus.QUEUED.value
+    queued_at: str
+
+
+TASK_STATUS_KEY = "pipeline:task_status"
 
 
 def get_llm_failure_repo() -> LLMFailureRepo:
@@ -198,6 +240,102 @@ async def update_authority(
             description=request.description,
         )
     )
+
+
+# ── Pipeline Trigger ─────────────────────────────────────────────
+
+
+@router.post("/pipeline/trigger", response_model=APIResponse[TriggerResponse])
+async def trigger_pipeline(
+    request: TriggerRequest,
+    _: str = Depends(verify_admin_api_key),
+    cache: CachePool = Depends(get_cache_client),
+    scheduler: SourceScheduler = Depends(get_source_scheduler),
+) -> APIResponse[TriggerResponse]:
+    """Trigger a pipeline run to crawl news sources.
+
+    Args:
+        request: Pipeline trigger configuration.
+        _: Verified admin API key.
+        cache: Cache client for task queue.
+        scheduler: Source scheduler for triggering crawls.
+
+    Returns:
+        Task ID and initial status.
+
+    """
+    task_id = str(uuid.uuid4())
+    now = datetime.now(UTC).isoformat()
+
+    # Update task status to running
+    await cache.hset(
+        TASK_STATUS_KEY,
+        task_id,
+        json.dumps(
+            {
+                "task_id": task_id,
+                "status": PipelineTaskStatus.RUNNING.value,
+                "source_id": request.source_id,
+                "queued_at": now,
+                "started_at": now,
+            }
+        ),
+    )
+
+    # Trigger the source scheduler to crawl
+    try:
+        if request.source_id:
+            await scheduler.trigger_now(
+                request.source_id, max_items=request.max_items, task_id=uuid.UUID(task_id)
+            )
+        else:
+            sources = scheduler.list_enabled_sources()
+            tasks = [
+                scheduler.trigger_now(
+                    source.id, max_items=request.max_items, task_id=uuid.UUID(task_id)
+                )
+                for source in sources
+            ]
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Update task status to completed
+        await cache.hset(
+            TASK_STATUS_KEY,
+            task_id,
+            json.dumps(
+                {
+                    "task_id": task_id,
+                    "status": PipelineTaskStatus.COMPLETED.value,
+                    "source_id": request.source_id,
+                    "queued_at": now,
+                    "started_at": now,
+                    "completed_at": datetime.now(UTC).isoformat(),
+                }
+            ),
+        )
+
+    except Exception as exc:
+        # Update task status to failed
+        await cache.hset(
+            TASK_STATUS_KEY,
+            task_id,
+            json.dumps(
+                {
+                    "task_id": task_id,
+                    "status": PipelineTaskStatus.FAILED.value,
+                    "source_id": request.source_id,
+                    "queued_at": now,
+                    "started_at": now,
+                    "error": str(exc),
+                }
+            ),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Pipeline trigger failed",
+        )
+
+    return success_response(TriggerResponse(task_id=task_id, queued_at=now))
 
 
 # ── LLM Failure Endpoints ───────────────────────────────────────
@@ -801,7 +939,7 @@ async def get_causal_stats(
         Causal graph statistics.
 
     """
-    causal_repo = container.causal_graph_repo()
+    causal_repo = container.causal_repo()
     if causal_repo is None:
         raise HTTPException(
             status_code=503,

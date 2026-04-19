@@ -246,6 +246,7 @@ async def update_source(
     request: SourceUpdateRequest,
     _: str = Depends(verify_admin_api_key),  # Enhanced: admin only for write operations
     repo: SourceConfigRepo = Depends(get_source_config_repo),
+    scheduler: SourceScheduler = Depends(get_source_scheduler),
 ) -> APIResponse[SourceResponse]:
     """Update an existing news source.
 
@@ -288,6 +289,10 @@ async def update_source(
         existing.tier = request.tier
 
     saved = await repo.upsert(existing)
+
+    # Sync to in-memory registry so scheduler uses updated config
+    scheduler._registry.add_source(saved)
+
     return success_response(SourceResponse.from_config(saved))
 
 

@@ -102,7 +102,7 @@ class Endpoints:
     # ── Cache ─────────────────────────────────────────────────────────
 
     @staticmethod
-    def get_cache_pool() -> CachePool:
+    def get_cache_client() -> CachePool:
         """Get cache pool (Redis or in-memory fallback)."""
         if Endpoints._cache is None:
             raise HTTPException(503, detail="Cache pool not initialized")
@@ -144,7 +144,7 @@ class Endpoints:
         return Endpoints._global_engine
 
     @staticmethod
-    def get_hybrid_search_engine() -> HybridSearchEngine:
+    def get_hybrid_engine() -> HybridSearchEngine:
         """Get hybrid search engine."""
         if Endpoints._hybrid_engine is None:
             raise HTTPException(503, detail="Hybrid search service not initialized")
@@ -236,6 +236,6 @@ class Endpoints:
         return Endpoints._graph_pool
 
     @staticmethod
-    def get_cache_pool_optional() -> CachePool | None:
+    def get_cache_client_optional() -> CachePool | None:
         """Get cache pool or None if not initialized."""
         return Endpoints._cache
