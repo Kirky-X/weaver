@@ -338,15 +338,23 @@ class MCSampler:
         Returns:
             EvidenceScoreOutput with relevance, density, and confidence.
         """
-        result: EvidenceScoreOutput = await self._llm.call_at(
-            CallPoint.EVIDENCE_SAMPLING,
-            {
-                "title": title,
-                "sample_text": region,
-            },
-            output_model=EvidenceScoreOutput,
-        )
-        return result
+        try:
+            result: EvidenceScoreOutput = await self._llm.call_at(
+                CallPoint.EVIDENCE_SAMPLING,
+                {
+                    "title": title,
+                    "sample_text": region,
+                },
+                output_model=EvidenceScoreOutput,
+            )
+            return result
+        except Exception:
+            return EvidenceScoreOutput(
+                relevance_score=0.3,
+                information_density=0.3,
+                confidence=0.0,
+                key_facts=[],
+            )
 
     async def _synthesize_roi_summary(
         self,
@@ -402,7 +410,7 @@ class MCSampler:
         # Sort by relevance * density * confidence
         sorted_regions = sorted(
             scored_regions,
-            key=lambda x: (x[1].relevance_score * x[1].information_density * x[1].confidence),
+            key=lambda x: x[1].relevance_score * x[1].information_density * x[1].confidence,
             reverse=True,
         )
 

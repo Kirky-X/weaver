@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from core.constants import TaskStatus
 from core.observability.logging import get_logger
 
 log = get_logger(__name__)
@@ -47,7 +48,7 @@ class InMemoryTaskRegistry:
         self._tasks[task_id] = {
             "task": async_task,
             "metadata": metadata or {},
-            "status": "running",
+            "status": TaskStatus.RUNNING.value,
             "result": None,
             "error": None,
         }
@@ -61,14 +62,14 @@ class InMemoryTaskRegistry:
                 return
             try:
                 entry["result"] = t.result()
-                entry["status"] = "done"
+                entry["status"] = TaskStatus.DONE.value
                 log.debug("task_completed", task_id=task_id)
             except asyncio.CancelledError:
-                entry["status"] = "cancelled"
+                entry["status"] = TaskStatus.CANCELLED.value
                 log.debug("task_cancelled", task_id=task_id)
             except Exception as e:
                 entry["error"] = str(e)
-                entry["status"] = "failed"
+                entry["status"] = TaskStatus.FAILED.value
                 log.error("task_failed", task_id=task_id, error=str(e))
 
         async_task.add_done_callback(on_done)
@@ -85,7 +86,7 @@ class InMemoryTaskRegistry:
         entry = self._tasks.get(task_id)
         if entry is None:
             return {
-                "status": "not_found",
+                "status": TaskStatus.NOT_FOUND.value,
                 "result": None,
                 "error": None,
                 "metadata": {},
@@ -116,7 +117,7 @@ class InMemoryTaskRegistry:
             return False
 
         task.cancel()
-        entry["status"] = "cancelled"
+        entry["status"] = TaskStatus.CANCELLED.value
         log.info("task_cancelled_by_request", task_id=task_id)
         return True
 
@@ -159,7 +160,7 @@ class InMemoryTaskRegistry:
         to_remove = [
             tid
             for tid, entry in self._tasks.items()
-            if entry["status"] in ("done", "cancelled", "failed")
+            if entry["status"] in (TaskStatus.DONE.value, TaskStatus.CANCELLED.value, TaskStatus.FAILED.value)
         ]
         for tid in to_remove:
             del self._tasks[tid]

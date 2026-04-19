@@ -40,6 +40,9 @@ class QualityScorerNode:
     async def execute(self, state: PipelineState) -> PipelineState:
         """Assess article quality and update state with quality score."""
         if state.get("terminal") or state.get("is_merged"):
+            # Set default quality_score if not already set to avoid null values in DB
+            if "quality_score" not in state:
+                state["quality_score"] = 0.5
             return state
 
         body = self._budget.truncate(state["cleaned"]["body"], CallPoint.QUALITY_SCORER)
