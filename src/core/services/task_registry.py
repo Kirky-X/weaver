@@ -160,7 +160,8 @@ class InMemoryTaskRegistry:
         to_remove = [
             tid
             for tid, entry in self._tasks.items()
-            if entry["status"] in (TaskStatus.DONE.value, TaskStatus.CANCELLED.value, TaskStatus.FAILED.value)
+            if entry["status"]
+            in (TaskStatus.DONE.value, TaskStatus.CANCELLED.value, TaskStatus.FAILED.value)
         ]
         for tid in to_remove:
             del self._tasks[tid]

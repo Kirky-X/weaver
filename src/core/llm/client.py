@@ -49,7 +49,7 @@ class LLMClient:
         self,
         providers: list[ProviderConfig],
         global_config: GlobalConfig,
-        redis_client: Any = None,
+        cache_client: Any = None,
         prompt_loader: PromptLoader | None = None,
         event_bus: EventBus | None = None,
         smart_router: SmartRouter | None = None,
@@ -60,7 +60,7 @@ class LLMClient:
         Args:
             providers: Provider配置列表
             global_config: 全局配置
-            redis_client: 可选的Redis客户端（用于embedding缓存）
+            cache_client: 可选的Redis客户端（用于embedding缓存）
             prompt_loader: 可选的Prompt加载器（用于call_at方法）
             event_bus: 可选的EventBus，用于发射LLMUsageEvent
             smart_router: 可选的智能路由器（动态评分选择模型）
@@ -70,7 +70,7 @@ class LLMClient:
         self._router = LabelRouter(global_config)
         self._smart_router = smart_router
         self._eval_runner = eval_runner
-        self._redis = redis_client
+        self._redis = cache_client
         self._prompts = prompt_loader
         self._event_bus = event_bus
 
@@ -461,7 +461,7 @@ class LLMClient:
     async def create_from_settings(
         cls,
         llm_settings: Any,  # LLMSettings
-        redis_client: Any = None,
+        cache_client: Any = None,
         prompt_loader: PromptLoader | None = None,
         event_bus: EventBus | None = None,
     ) -> LLMClient:
@@ -469,7 +469,7 @@ class LLMClient:
 
         Args:
             llm_settings: LLMSettings实例
-            redis_client: 可选的Redis客户端
+            cache_client: 可选的Redis客户端
             prompt_loader: 可选的Prompt加载器
             event_bus: 可选的EventBus，用于发射LLMUsageEvent
 
@@ -478,4 +478,4 @@ class LLMClient:
         """
         providers = llm_settings.get_providers()
         global_config = llm_settings.get_global_config()
-        return cls(providers, global_config, redis_client, prompt_loader, event_bus)
+        return cls(providers, global_config, cache_client, prompt_loader, event_bus)

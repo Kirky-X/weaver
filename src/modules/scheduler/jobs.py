@@ -842,7 +842,7 @@ class SchedulerJobs:
         from modules.analytics.llm_usage.aggregator import flush_usage_buffer
 
         processed, errors = await flush_usage_buffer(
-            redis_client=self._cache,
+            cache_client=self._cache,
             postgres_pool=self._relational_pool,
         )
         return processed
