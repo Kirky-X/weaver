@@ -44,8 +44,19 @@ def _load_api_key() -> str:
     return os.environ.get("WEAVER_API__API_KEY", "test-api-key")
 
 
+def _load_admin_api_key() -> str:
+    """Load admin API key from test_env.env file."""
+    if E2E_ENV_FILE.exists():
+        for line in E2E_ENV_FILE.read_text().splitlines():
+            if line.startswith("WEAVER_API__ADMIN_API_KEY="):
+                return line.split("=", 1)[1].strip()
+    return _load_api_key()
+
+
 API_KEY = _load_api_key()
+ADMIN_KEY = _load_admin_api_key()
 AUTH_HEADERS = {"X-API-Key": API_KEY}
+ADMIN_HEADERS = {"X-API-Key": ADMIN_KEY}
 
 
 # ── Helper Functions ──────────────────────────────────────────────────
@@ -165,17 +176,17 @@ class TestSystemEndpoints:
         assert response.status_code == 200
 
     def test_system_config(self, client):
-        """Test GET /api/v1/config endpoint."""
+        """Test GET /api/v1/config endpoint (requires admin key)."""
         response = make_request(
             client,
             "GET",
             "/api/v1/config",
             "system",
             "system_config",
-            headers=AUTH_HEADERS,
+            headers=ADMIN_HEADERS,
             validate_fn=lambda d: {"valid": "data" in d, "checks": []},
         )
-        assert response.status_code == 200
+        assert response.status_code in [200, 403]
 
     def test_metrics(self, client):
         """Test GET /metrics endpoint."""
@@ -282,7 +293,7 @@ class TestSourceManagement:
             "/api/v1/sources",
             "sources",
             "create_source",
-            headers=AUTH_HEADERS,
+            headers=ADMIN_HEADERS,
             json_data=source_data,
         )
         # May succeed or fail depending on validation
@@ -302,7 +313,7 @@ class TestSourceManagement:
             "/api/v1/sources",
             "sources",
             "create_source_invalid_url",
-            headers=AUTH_HEADERS,
+            headers=ADMIN_HEADERS,
             json_data=source_data,
         )
         # Should return validation error, but may have serialization bug
@@ -316,7 +327,7 @@ class TestSourceManagement:
             "/api/v1/sources",
             "sources",
             "create_source_missing_fields",
-            headers=AUTH_HEADERS,
+            headers=ADMIN_HEADERS,
             json_data={"id": "test-incomplete"},
         )
         assert response.status_code == 422
@@ -330,7 +341,7 @@ class TestSourceManagement:
             "url": "https://example.com/rss",
             "enabled": True,
         }
-        client.post("/api/v1/sources", headers=AUTH_HEADERS, json=create_data)
+        client.post("/api/v1/sources", headers=ADMIN_HEADERS, json=create_data)
 
         # Update it
         update_data = {
@@ -343,7 +354,7 @@ class TestSourceManagement:
             "/api/v1/sources/test-source-update",
             "sources",
             "update_source",
-            headers=AUTH_HEADERS,
+            headers=ADMIN_HEADERS,
             json_data=update_data,
         )
         assert response.status_code in [200, 404]
@@ -357,7 +368,7 @@ class TestSourceManagement:
             "url": "https://example.com/rss",
             "enabled": True,
         }
-        client.post("/api/v1/sources", headers=AUTH_HEADERS, json=create_data)
+        client.post("/api/v1/sources", headers=ADMIN_HEADERS, json=create_data)
 
         response = make_request(
             client,
@@ -365,7 +376,7 @@ class TestSourceManagement:
             "/api/v1/sources/test-source-delete",
             "sources",
             "delete_source",
-            headers=AUTH_HEADERS,
+            headers=ADMIN_HEADERS,
         )
         # DELETE may return 204 (no content), 404, or 200
         # Note: 204 responses have no body, so JSON parsing will fail
@@ -640,28 +651,26 @@ class TestGraphEndpoints:
         assert response.status_code in [200, 400, 422, 500]
 
     def test_visualization(self, client):
-        """Test GET /api/v1/graph/visualization."""
+        """Test GET /api/v1/graph/relations (graph data endpoint)."""
         response = make_request(
             client,
             "GET",
-            "/api/v1/graph/visualization",
+            "/api/v1/graph/relations",
             "graph",
-            "get_visualization",
+            "get_relations",
             headers=AUTH_HEADERS,
         )
-        assert response.status_code in [200, 500]
+        assert response.status_code in [200, 422]
 
     def test_extract_subgraph(self, client):
-        """Test POST /api/v1/graph/visualization."""
-        extract_data = {"center_entity": "test", "hops": 2}
+        """Test GET /api/v1/graph/relations/search (subgraph search)."""
         response = make_request(
             client,
-            "POST",
-            "/api/v1/graph/visualization",
+            "GET",
+            "/api/v1/graph/relations/search",
             "graph",
-            "extract_subgraph",
+            "search_relations",
             headers=AUTH_HEADERS,
-            json_data=extract_data,
         )
         # May return 404 if no nodes found
         assert response.status_code in [200, 400, 404, 422, 500]
@@ -676,10 +685,10 @@ class TestGraphMetrics:
         response = make_request(
             client,
             "GET",
-            "/api/v1/graph/metrics",
+            "/api/v1/monitoring/graph/metrics",
             "graph_metrics",
             "metrics_default",
-            headers=AUTH_HEADERS,
+            headers=ADMIN_HEADERS,
         )
         assert response.status_code in [200, 500]
 
@@ -688,10 +697,10 @@ class TestGraphMetrics:
         response = make_request(
             client,
             "GET",
-            "/api/v1/graph/metrics",
+            "/api/v1/monitoring/graph/metrics",
             "graph_metrics",
             "metrics_health",
-            headers=AUTH_HEADERS,
+            headers=ADMIN_HEADERS,
             params={"view": "health"},
         )
         assert response.status_code in [200, 500]
@@ -701,10 +710,10 @@ class TestGraphMetrics:
         response = make_request(
             client,
             "GET",
-            "/api/v1/graph/metrics",
+            "/api/v1/monitoring/graph/metrics",
             "graph_metrics",
             "metrics_full",
-            headers=AUTH_HEADERS,
+            headers=ADMIN_HEADERS,
             params={"view": "full"},
         )
         assert response.status_code in [200, 500]

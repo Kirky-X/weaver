@@ -13,13 +13,13 @@ class TestPipelineEndpoint:
     def test_trigger_pipeline_returns_task_id(
         self,
         client: TestClient,  # type: ignore[name-defined]
-        auth_headers: dict[str, str],
+        admin_headers: dict[str, str],
     ) -> None:
         """Test that POST /api/v1/admin/pipeline/trigger returns a task_id."""
         response = client.post(
             "/api/v1/admin/pipeline/trigger",
             json={},
-            headers=auth_headers,
+            headers=admin_headers,
         )
         assert response.status_code == 200
         data = response.json()["data"]
@@ -31,14 +31,14 @@ class TestPipelineEndpoint:
     def test_get_task_status_returns_pending(
         self,
         client: TestClient,  # type: ignore[name-defined]
-        auth_headers: dict[str, str],
+        admin_headers: dict[str, str],
     ) -> None:
         """Test that GET /api/v1/pipeline/tasks/{id} shows correct status."""
         # First trigger a task
         trigger_response = client.post(
             "/api/v1/admin/pipeline/trigger",
             json={},
-            headers=auth_headers,
+            headers=admin_headers,
         )
         assert trigger_response.status_code == 200
         task_id = trigger_response.json()["data"]["task_id"]
@@ -46,7 +46,7 @@ class TestPipelineEndpoint:
         # Get the task status
         response = client.get(
             f"/api/v1/pipeline/tasks/{task_id}",
-            headers=auth_headers,
+            headers=admin_headers,
         )
         assert response.status_code == 200
         data = response.json()["data"]
@@ -56,7 +56,7 @@ class TestPipelineEndpoint:
     def test_trigger_with_source_filter(
         self,
         client: TestClient,  # type: ignore[name-defined]
-        auth_headers: dict[str, str],
+        admin_headers: dict[str, str],
         unique_source_id: str,
     ) -> None:
         """Test triggering pipeline with specific source_id filter."""
@@ -71,14 +71,14 @@ class TestPipelineEndpoint:
                 "enabled": True,
                 "interval_minutes": 30,
             },
-            headers=auth_headers,
+            headers=admin_headers,
         )
 
         # Trigger with specific source
         response = client.post(
             "/api/v1/admin/pipeline/trigger",
             json={"source_id": unique_source_id},
-            headers=auth_headers,
+            headers=admin_headers,
         )
         assert response.status_code == 200
         data = response.json()["data"]
@@ -87,24 +87,24 @@ class TestPipelineEndpoint:
     def test_get_nonexistent_task_returns_404(
         self,
         client: TestClient,  # type: ignore[name-defined]
-        auth_headers: dict[str, str],
+        admin_headers: dict[str, str],
     ) -> None:
         """Test that GET /api/v1/pipeline/tasks/{invalid_id} returns 404."""
         response = client.get(
             "/api/v1/pipeline/tasks/nonexistent-task-id",
-            headers=auth_headers,
+            headers=admin_headers,
         )
         assert response.status_code == 404
 
     def test_queue_stats_returns_valid(
         self,
         client: TestClient,  # type: ignore[name-defined]
-        auth_headers: dict[str, str],
+        admin_headers: dict[str, str],
     ) -> None:
         """Test that GET /api/v1/pipeline/queue/stats returns valid stats."""
         response = client.get(
             "/api/v1/pipeline/queue/stats",
-            headers=auth_headers,
+            headers=admin_headers,
         )
         assert response.status_code == 200
         data = response.json()["data"]

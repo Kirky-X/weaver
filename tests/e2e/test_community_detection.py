@@ -28,7 +28,7 @@ class TestCommunityDetectionWorkflow:
     def test_community_rebuild_workflow(
         self,
         client: TestClient,
-        auth_headers: dict[str, str],
+        admin_headers: dict[str, str],
     ) -> None:
         """Test complete community rebuild workflow via real API.
 
@@ -39,14 +39,14 @@ class TestCommunityDetectionWorkflow:
         """
         rebuild_response = client.post(
             "/api/v1/admin/communities/rebuild",
-            headers=auth_headers,
+            headers=admin_headers,
             json={"force": True},
         )
 
-        assert rebuild_response.status_code in (200, 202), (
-            f"Rebuild failed with status {rebuild_response.status_code}: "
-            f"{rebuild_response.text}"
-        )
+        assert rebuild_response.status_code in (
+            200,
+            202,
+        ), f"Rebuild failed with status {rebuild_response.status_code}: {rebuild_response.text}"
 
         data = rebuild_response.json()
         assert "data" in data or "task_id" in data
@@ -58,7 +58,7 @@ class TestCommunityDetectionWorkflow:
     def test_community_list_workflow(
         self,
         client: TestClient,
-        auth_headers: dict[str, str],
+        admin_headers: dict[str, str],
     ) -> None:
         """Test listing communities via real API.
 
@@ -69,7 +69,7 @@ class TestCommunityDetectionWorkflow:
         """
         list_response = client.get(
             "/api/v1/admin/communities",
-            headers=auth_headers,
+            headers=admin_headers,
         )
 
         assert list_response.status_code == 200, f"List failed: {list_response.text}"
@@ -92,7 +92,7 @@ class TestCommunityDetectionWorkflow:
     def test_community_get_detail_workflow(
         self,
         client: TestClient,
-        auth_headers: dict[str, str],
+        admin_headers: dict[str, str],
     ) -> None:
         """Test getting individual community detail via real API.
 
@@ -103,7 +103,7 @@ class TestCommunityDetectionWorkflow:
         """
         list_response = client.get(
             "/api/v1/admin/communities",
-            headers=auth_headers,
+            headers=admin_headers,
         )
 
         assert list_response.status_code == 200
@@ -117,7 +117,7 @@ class TestCommunityDetectionWorkflow:
 
         detail_response = client.get(
             f"/api/v1/admin/communities/{first_community_id}",
-            headers=auth_headers,
+            headers=admin_headers,
         )
 
         assert detail_response.status_code == 200, f"Detail failed: {detail_response.text}"
@@ -130,7 +130,7 @@ class TestCommunityDetectionWorkflow:
     def test_community_rebuild_and_list_sequence(
         self,
         client: TestClient,
-        auth_headers: dict[str, str],
+        admin_headers: dict[str, str],
     ) -> None:
         """Test rebuild followed by list in sequence.
 
@@ -142,7 +142,7 @@ class TestCommunityDetectionWorkflow:
         """
         rebuild_response = client.post(
             "/api/v1/admin/communities/rebuild",
-            headers=auth_headers,
+            headers=admin_headers,
             json={"force": True},
         )
 
@@ -153,7 +153,7 @@ class TestCommunityDetectionWorkflow:
 
         list_response = client.get(
             "/api/v1/admin/communities",
-            headers=auth_headers,
+            headers=admin_headers,
             params={"limit": 10},
         )
 
@@ -165,7 +165,7 @@ class TestCommunityDetectionWorkflow:
     def test_community_search_workflow(
         self,
         client: TestClient,
-        auth_headers: dict[str, str],
+        admin_headers: dict[str, str],
     ) -> None:
         """Test community search via real API.
 
@@ -175,7 +175,7 @@ class TestCommunityDetectionWorkflow:
         """
         search_response = client.get(
             "/api/v1/admin/communities",
-            headers=auth_headers,
+            headers=admin_headers,
             params={"search": "test", "limit": 5},
         )
 
@@ -186,7 +186,7 @@ class TestCommunityDetectionWorkflow:
     def test_community_report_workflow(
         self,
         client: TestClient,
-        auth_headers: dict[str, str],
+        admin_headers: dict[str, str],
     ) -> None:
         """Test community report generation and retrieval.
 
@@ -197,7 +197,7 @@ class TestCommunityDetectionWorkflow:
         """
         list_response = client.get(
             "/api/v1/admin/communities",
-            headers=auth_headers,
+            headers=admin_headers,
         )
 
         assert list_response.status_code == 200
@@ -211,7 +211,7 @@ class TestCommunityDetectionWorkflow:
 
         report_response = client.get(
             f"/api/v1/admin/communities/{first_community_id}/report",
-            headers=auth_headers,
+            headers=admin_headers,
         )
 
         assert report_response.status_code in (200, 404)

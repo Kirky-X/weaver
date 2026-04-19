@@ -13,7 +13,7 @@ class TestSourcesCRUD:
     def test_create_source_returns_201(
         self,
         client: TestClient,  # type: ignore[name-defined]
-        auth_headers: dict[str, str],
+        admin_headers: dict[str, str],
         unique_source_id: str,
     ) -> None:
         """Test that POST /api/v1/sources creates a source and returns 201."""
@@ -27,7 +27,7 @@ class TestSourcesCRUD:
                 "enabled": True,
                 "interval_minutes": 30,
             },
-            headers=auth_headers,
+            headers=admin_headers,
         )
         assert response.status_code == 201
         data = response.json()["data"]
@@ -38,7 +38,7 @@ class TestSourcesCRUD:
     def test_list_sources_returns_created(
         self,
         client: TestClient,  # type: ignore[name-defined]
-        auth_headers: dict[str, str],
+        admin_headers: dict[str, str],
         unique_source_id: str,
     ) -> None:
         """Test that GET /api/v1/sources includes the created source."""
@@ -53,14 +53,14 @@ class TestSourcesCRUD:
                 "enabled": True,
                 "interval_minutes": 60,
             },
-            headers=auth_headers,
+            headers=admin_headers,
         )
 
         # List sources
         response = client.get(
             "/api/v1/sources",
             params={"enabled_only": False},
-            headers=auth_headers,
+            headers=admin_headers,
         )
         assert response.status_code == 200
         data = response.json()["data"]
@@ -70,7 +70,7 @@ class TestSourcesCRUD:
     def test_get_source_returns_details(
         self,
         client: TestClient,  # type: ignore[name-defined]
-        auth_headers: dict[str, str],
+        admin_headers: dict[str, str],
         unique_source_id: str,
     ) -> None:
         """Test that GET /api/v1/sources/{id} returns correct data."""
@@ -85,13 +85,13 @@ class TestSourcesCRUD:
                 "enabled": True,
                 "interval_minutes": 30,
             },
-            headers=auth_headers,
+            headers=admin_headers,
         )
 
         # Get the source
         response = client.get(
             f"/api/v1/sources/{unique_source_id}",
-            headers=auth_headers,
+            headers=admin_headers,
         )
         assert response.status_code == 200
         data = response.json()["data"]
@@ -102,7 +102,7 @@ class TestSourcesCRUD:
     def test_update_source_returns_modified(
         self,
         client: TestClient,  # type: ignore[name-defined]
-        auth_headers: dict[str, str],
+        admin_headers: dict[str, str],
         unique_source_id: str,
     ) -> None:
         """Test that PUT /api/v1/sources/{id} updates fields."""
@@ -117,7 +117,7 @@ class TestSourcesCRUD:
                 "enabled": True,
                 "interval_minutes": 30,
             },
-            headers=auth_headers,
+            headers=admin_headers,
         )
 
         # Update the source
@@ -127,7 +127,7 @@ class TestSourcesCRUD:
                 "name": "Updated Name",
                 "enabled": False,
             },
-            headers=auth_headers,
+            headers=admin_headers,
         )
         assert response.status_code == 200
         data = response.json()["data"]
@@ -139,7 +139,7 @@ class TestSourcesCRUD:
     def test_delete_source_returns_204(
         self,
         client: TestClient,  # type: ignore[name-defined]
-        auth_headers: dict[str, str],
+        admin_headers: dict[str, str],
         unique_source_id: str,
     ) -> None:
         """Test that DELETE /api/v1/sources/{id} removes source and returns 204."""
@@ -154,20 +154,20 @@ class TestSourcesCRUD:
                 "enabled": True,
                 "interval_minutes": 30,
             },
-            headers=auth_headers,
+            headers=admin_headers,
         )
 
         # Delete the source
         response = client.delete(
             f"/api/v1/sources/{unique_source_id}",
-            headers=auth_headers,
+            headers=admin_headers,
         )
         assert response.status_code == 204
 
     def test_get_source_after_delete_returns_404(
         self,
         client: TestClient,  # type: ignore[name-defined]
-        auth_headers: dict[str, str],
+        admin_headers: dict[str, str],
         unique_source_id: str,
     ) -> None:
         """Test that GET /api/v1/sources/{id} returns 404 after deletion."""
@@ -182,18 +182,18 @@ class TestSourcesCRUD:
                 "enabled": True,
                 "interval_minutes": 30,
             },
-            headers=auth_headers,
+            headers=admin_headers,
         )
 
         # Delete the source
         client.delete(
             f"/api/v1/sources/{unique_source_id}",
-            headers=auth_headers,
+            headers=admin_headers,
         )
 
         # Try to get the deleted source
         response = client.get(
             f"/api/v1/sources/{unique_source_id}",
-            headers=auth_headers,
+            headers=admin_headers,
         )
         assert response.status_code == 404

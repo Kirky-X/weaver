@@ -69,7 +69,7 @@ def memory_service(
     return MemoryIntegrationService(
         graph_pool=mock_graph_pool,
         llm_client=mock_llm_client,
-        cache_client=mock_cache_client,
+        cache=mock_cache_client,
         embedding_service=mock_embedding_service,
         intent_classifier=mock_intent_classifier,
     )
@@ -130,7 +130,7 @@ async def test_ingest_disabled():
     service = MemoryIntegrationService(
         graph_pool=MagicMock(),
         llm_client=MagicMock(),
-        cache_client=MagicMock(),
+        cache=MagicMock(),
         embedding_service=MagicMock(),
         intent_classifier=MagicMock(),
         config=config,
@@ -163,7 +163,7 @@ async def test_consolidate_disabled():
     service = MemoryIntegrationService(
         graph_pool=MagicMock(),
         llm_client=MagicMock(),
-        cache_client=MagicMock(),
+        cache=MagicMock(),
         embedding_service=MagicMock(),
         intent_classifier=MagicMock(),
         config=config,

@@ -14,10 +14,13 @@ class TestNewsNowParserListPageFilter:
     @pytest.mark.parametrize(
         "url,expected",
         [
-            # Newsflash URLs should be skipped
-            ("https://36kr.com/newsflashes/3762051664102145", True),
-            ("https://36kr.com/newsflashes/123456", True),
-            ("https://example.com/newsflash/789", True),
+            # Newsflash list pages (no ID) should be skipped
+            ("https://36kr.com/newsflashes", True),
+            ("https://example.com/newsflash", True),
+            # Newsflash with numeric ID = individual article, NOT a list page
+            ("https://36kr.com/newsflashes/3762051664102145", False),
+            ("https://36kr.com/newsflashes/123456", False),
+            ("https://example.com/newsflash/789", False),
             # List/category pages should be skipped
             ("https://example.com/list/tech", True),
             ("https://example.com/category/news", True),

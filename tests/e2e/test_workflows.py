@@ -13,7 +13,7 @@ class TestWorkflows:
     def test_full_source_crud_workflow(
         self,
         client: TestClient,  # type: ignore[name-defined]
-        auth_headers: dict[str, str],
+        admin_headers: dict[str, str],
         unique_source_id: str,
     ) -> None:
         """Test complete Source CRUD workflow: Create -> List -> Update -> Delete."""
@@ -28,7 +28,7 @@ class TestWorkflows:
                 "enabled": True,
                 "interval_minutes": 30,
             },
-            headers=auth_headers,
+            headers=admin_headers,
         )
         assert create_response.status_code == 201
         create_data = create_response.json()["data"]
@@ -38,7 +38,7 @@ class TestWorkflows:
         list_response = client.get(
             "/api/v1/sources",
             params={"enabled_only": False},
-            headers=auth_headers,
+            headers=admin_headers,
         )
         assert list_response.status_code == 200
         list_data = list_response.json()["data"]
@@ -49,7 +49,7 @@ class TestWorkflows:
         update_response = client.put(
             f"/api/v1/sources/{unique_source_id}",
             json={"name": "Updated Workflow Source"},
-            headers=auth_headers,
+            headers=admin_headers,
         )
         assert update_response.status_code == 200
         update_data = update_response.json()["data"]
@@ -58,21 +58,21 @@ class TestWorkflows:
         # 4. Delete
         delete_response = client.delete(
             f"/api/v1/sources/{unique_source_id}",
-            headers=auth_headers,
+            headers=admin_headers,
         )
         assert delete_response.status_code == 204
 
         # 5. Verify deleted
         get_response = client.get(
             f"/api/v1/sources/{unique_source_id}",
-            headers=auth_headers,
+            headers=admin_headers,
         )
         assert get_response.status_code == 404
 
     def test_source_then_pipeline_workflow(
         self,
         client: TestClient,  # type: ignore[name-defined]
-        auth_headers: dict[str, str],
+        admin_headers: dict[str, str],
         unique_source_id: str,
     ) -> None:
         """Test workflow: Create source -> Trigger pipeline -> Verify no crash."""
@@ -87,14 +87,14 @@ class TestWorkflows:
                 "enabled": True,
                 "interval_minutes": 30,
             },
-            headers=auth_headers,
+            headers=admin_headers,
         )
 
         # 2. Trigger pipeline with this source
         trigger_response = client.post(
             "/api/v1/admin/pipeline/trigger",
             json={"source_id": unique_source_id},
-            headers=auth_headers,
+            headers=admin_headers,
         )
         assert trigger_response.status_code == 200
         trigger_data = trigger_response.json()["data"]
@@ -103,7 +103,7 @@ class TestWorkflows:
         # 3. Get task status
         status_response = client.get(
             f"/api/v1/pipeline/tasks/{task_id}",
-            headers=auth_headers,
+            headers=admin_headers,
         )
         assert status_response.status_code == 200
         status_data = status_response.json()["data"]
@@ -153,12 +153,12 @@ class TestWorkflows:
     def test_graph_entity_not_found(
         self,
         client: TestClient,  # type: ignore[name-defined]
-        auth_headers: dict[str, str],
+        admin_headers: dict[str, str],
     ) -> None:
         """Test that querying a non-existent entity returns appropriate response."""
         response = client.get(
             "/api/v1/graph/entities/NonexistentEntity12345",
-            headers=auth_headers,
+            headers=admin_headers,
         )
         # Acceptable responses:
         # - 404: entity not found
