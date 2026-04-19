@@ -223,7 +223,7 @@ class TestAuthMiddlewareIntegration:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
-        from api.dependencies import get_cache_client, get_source_scheduler
+        from api.dependencies import get_cache_pool, get_source_scheduler
         from api.endpoints.content.pipeline import router
 
         app = FastAPI()
@@ -231,7 +231,7 @@ class TestAuthMiddlewareIntegration:
 
         mock_cache = MagicMock()
         mock_scheduler = MagicMock()
-        app.dependency_overrides[get_cache_client] = lambda: mock_cache
+        app.dependency_overrides[get_cache_pool] = lambda: mock_cache
         app.dependency_overrides[get_source_scheduler] = lambda: mock_scheduler
 
         with TestClient(app) as client:
@@ -245,14 +245,14 @@ class TestAuthMiddlewareIntegration:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
-        from api.dependencies import get_cache_client
+        from api.dependencies import get_cache_pool
         from api.endpoints.content.pipeline import router
 
         app = FastAPI()
         app.include_router(router)
 
         mock_cache = MagicMock()
-        app.dependency_overrides[get_cache_client] = lambda: mock_cache
+        app.dependency_overrides[get_cache_pool] = lambda: mock_cache
 
         with TestClient(app) as client:
             response = client.get(f"/pipeline/tasks/{uuid.uuid4()}")
