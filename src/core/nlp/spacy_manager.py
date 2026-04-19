@@ -142,7 +142,7 @@ class SpacyModelManager:
         log.info("spacy_installing_from_local", model=model, path=local_path)
 
         # Verify path is valid (double-check after _install_model check)
-        path = Path(local_path)
+        path = Path(local_path).resolve()
         if not path.exists() or not path.is_file():
             log.error(
                 "spacy_local_load_failed",
@@ -152,6 +152,17 @@ class SpacyModelManager:
             )
             # Fall back to network download instead of failing
             log.info("spacy_falling_back_to_network", model=model)
+            self._install_from_network(model)
+            return
+
+        # Security: verify path is a .whl file (prevent arbitrary command execution)
+        if path.suffix != ".whl":
+            log.error(
+                "spacy_local_invalid_format",
+                model=model,
+                path=local_path,
+                error="Only .whl files are allowed",
+            )
             self._install_from_network(model)
             return
 
