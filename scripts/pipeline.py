@@ -221,7 +221,7 @@ class PipelineAPIClient:
         max_items: int | None = None,
     ) -> str:
         """Trigger pipeline for a source."""
-        url = f"{self.base_url}/api/v1/pipeline/trigger"
+        url = f"{self.base_url}/api/v1/admin/pipeline/trigger"
         payload: dict[str, Any] = {
             "source_id": source_id,
             "force": True,
@@ -858,7 +858,10 @@ async def cmd_test(args: argparse.Namespace) -> int:
         from config.settings import Settings
 
         settings = Settings()
-        api_key = settings.api.get_api_key()
+        # Use admin API key if configured, otherwise fallback to regular key
+        api_key = (
+            settings.api.admin_api_key if settings.api.admin_api_key else settings.api.get_api_key()
+        )
         base_url = f"http://127.0.0.1:{args.port}"
 
         # Create API client
