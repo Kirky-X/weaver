@@ -245,8 +245,8 @@ class TestSourceInputValidation:
         assert request.enabled is True
         assert request.interval_minutes == 30
         assert request.per_host_concurrency == 2
-        assert request.credibility is None
-        assert request.tier is None
+        assert request.credibility == 0.5  # default value from model
+        assert request.tier == 2  # default value from model
 
     def test_custom_optional_fields(self) -> None:
         """Custom optional field values should be accepted."""

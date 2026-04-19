@@ -14,16 +14,15 @@ class TestRateLimiterConfiguration:
         assert limiter is not None
 
     def test_limiter_uses_remote_address_key_func(self):
-        """Test that the limiter uses get_remote_address as its key function.
+        """Test that the limiter uses get_client_key as its key function.
 
-        This ensures rate limiting is applied per client IP address.
+        The custom get_client_key combines client IP and API key for
+        composite rate limiting, preventing distributed attacks.
         """
-        from slowapi.util import get_remote_address
-
-        from api.middleware.rate_limit import limiter
+        from api.middleware.rate_limit import get_client_key, limiter
 
         # slowapi stores key_func as _key_func internally
-        assert limiter._key_func is get_remote_address
+        assert limiter._key_func is get_client_key
 
     def test_limiter_is_limiter_instance(self):
         """Test that limiter is a slowapi Limiter instance."""

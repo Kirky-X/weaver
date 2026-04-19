@@ -19,7 +19,7 @@ class TestVerifyApiKeyEdgeCases:
         from api.middleware.auth import verify_api_key
 
         mock_settings = MagicMock()
-        mock_settings.api.get_api_key.return_value = "valid-key"
+        mock_settings.api.get_api_key.return_value = "valid-api-key-12345678901234567890"
 
         with patch("container.get_settings", return_value=mock_settings):
             with pytest.raises(HTTPException) as exc_info:
@@ -33,7 +33,7 @@ class TestVerifyApiKeyEdgeCases:
         from api.middleware.auth import verify_api_key
 
         mock_settings = MagicMock()
-        mock_settings.api.get_api_key.return_value = "valid-key"
+        mock_settings.api.get_api_key.return_value = "valid-api-key-12345678901234567890"
 
         with patch("container.get_settings", return_value=mock_settings):
             with pytest.raises(HTTPException) as exc_info:
@@ -46,11 +46,11 @@ class TestVerifyApiKeyEdgeCases:
         from api.middleware.auth import verify_api_key
 
         mock_settings = MagicMock()
-        mock_settings.api.get_api_key.return_value = "my-secret-key"
+        mock_settings.api.get_api_key.return_value = "my-secret-key-1234567890abcdefgh"
 
         with patch("container.get_settings", return_value=mock_settings):
-            result = await verify_api_key(key="my-secret-key")
-            assert result == "my-secret-key"
+            result = await verify_api_key(key="my-secret-key-1234567890abcdefgh")
+            assert result == "my-secret-key-1234567890abcdefgh"
 
     @pytest.mark.asyncio
     async def test_compare_digest_called_for_key_comparison(self):
@@ -58,16 +58,16 @@ class TestVerifyApiKeyEdgeCases:
         from api.middleware.auth import verify_api_key
 
         mock_settings = MagicMock()
-        mock_settings.api.get_api_key.return_value = "expected-key"
+        mock_settings.api.get_api_key.return_value = "expected-key-1234567890abcdefghijkl"
 
         with (
             patch("container.get_settings", return_value=mock_settings),
             patch("api.middleware.auth.secrets.compare_digest", return_value=False) as mock_compare,
         ):
             with pytest.raises(HTTPException):
-                await verify_api_key(key="wrong-key")
+                await verify_api_key(key="wrong-key-1234567890abcdefghijkl")
             # Verify compare_digest was called with the provided key and expected key
-            mock_compare.assert_called_once_with("wrong-key", "expected-key")
+            mock_compare.assert_called_once_with("wrong-key-1234567890abcdefghijkl", "expected-key-1234567890abcdefghijkl")
 
     @pytest.mark.asyncio
     async def test_compare_digest_called_with_valid_key(self):
@@ -75,15 +75,15 @@ class TestVerifyApiKeyEdgeCases:
         from api.middleware.auth import verify_api_key
 
         mock_settings = MagicMock()
-        mock_settings.api.get_api_key.return_value = "correct-key"
+        mock_settings.api.get_api_key.return_value = "correct-key-1234567890abcdefghij"
 
         with (
             patch("container.get_settings", return_value=mock_settings),
             patch("api.middleware.auth.secrets.compare_digest", return_value=True) as mock_compare,
         ):
-            result = await verify_api_key(key="correct-key")
-            mock_compare.assert_called_once_with("correct-key", "correct-key")
-            assert result == "correct-key"
+            result = await verify_api_key(key="correct-key-1234567890abcdefghij")
+            mock_compare.assert_called_once_with("correct-key-1234567890abcdefghij", "correct-key-1234567890abcdefghij")
+            assert result == "correct-key-1234567890abcdefghij"
 
     @pytest.mark.asyncio
     async def test_timing_attack_safety_using_compare_digest(self):
@@ -175,11 +175,11 @@ class TestAuthMiddlewareIntegration:
 
         # Override get_settings to return a known API key
         mock_settings = MagicMock()
-        mock_settings.api.get_api_key.return_value = "correct-key"
+        mock_settings.api.get_api_key.return_value = "correct-key-1234567890abcdefghij"
 
         with patch("container.get_settings", return_value=mock_settings):
             with TestClient(app) as client:
-                response = client.get("/articles", headers={"X-API-Key": "wrong-key"})
+                response = client.get("/articles", headers={"X-API-Key": "wrong-key-1234567890abcdefghijklm"})
                 assert response.status_code == 403
 
     def test_articles_endpoint_with_valid_api_key_returns_200_or_503(self):
@@ -208,11 +208,11 @@ class TestAuthMiddlewareIntegration:
         app.dependency_overrides[get_relational_pool] = lambda: mock_pool
 
         mock_settings = MagicMock()
-        mock_settings.api.get_api_key.return_value = "correct-key"
+        mock_settings.api.get_api_key.return_value = "correct-key-1234567890abcdefghij"
 
         with patch("container.get_settings", return_value=mock_settings):
             with TestClient(app) as client:
-                response = client.get("/articles", headers={"X-API-Key": "correct-key"})
+                response = client.get("/articles", headers={"X-API-Key": "correct-key-1234567890abcdefghij"})
                 # Should not be 401 or 403 — auth passed
                 assert response.status_code not in (401, 403)
 

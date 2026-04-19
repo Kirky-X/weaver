@@ -15,7 +15,7 @@ def knowledge_cache():
 
     cache = KnowledgeCache(
         cache_path="/tmp/test_knowledge_cache",
-        embedding_service=None,  # Will test without embedding
+        llm_client=None,  # Will test without embedding
         sync_interval=3600,  # Long interval for tests
     )
     yield cache
@@ -197,7 +197,9 @@ class TestKnowledgeCacheFindSimilar:
     """Tests for similarity search."""
 
     @pytest.mark.asyncio
-    async def test_find_similar_without_embedding_service(self, knowledge_cache, sample_cluster) -> None:
+    async def test_find_similar_without_embedding_service(
+        self, knowledge_cache, sample_cluster
+    ) -> None:
         """Test find_similar_cluster returns None without embedding service."""
         await knowledge_cache.store_cluster(sample_cluster)
 

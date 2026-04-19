@@ -88,7 +88,7 @@ class TestAdminAuthMiddleware:
 
     @pytest.mark.asyncio
     async def test_verify_admin_api_key_fallback_when_not_configured(self) -> None:
-        """Test verify_admin_api_key falls back to regular key when admin key not configured."""
+        """Test verify_admin_api_key raises 500 when admin key not configured."""
         from api.middleware.auth import verify_admin_api_key
 
         regular_key = "regular-key-12345678901234567890123456"
@@ -101,9 +101,11 @@ class TestAdminAuthMiddleware:
             patch("container.get_settings", return_value=mock_settings),
             patch.dict("os.environ", {"ENVIRONMENT": "development"}),
         ):
-            # In development, regular key should work as admin key fallback
-            result = await verify_admin_api_key(key=regular_key)
-            assert result == regular_key
+            # Admin key not configured: raises 500, no fallback
+            with pytest.raises(Exception) as exc_info:
+                await verify_admin_api_key(key=regular_key)
+            assert exc_info.value.status_code == 500
+            assert "Admin API key not configured" in exc_info.value.detail
 
 
 class TestAdminEndpointAuthorityUpdate:
