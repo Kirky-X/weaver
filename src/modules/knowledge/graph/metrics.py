@@ -481,6 +481,10 @@ class GraphQualityMetrics:
         try:
             results = await self._pool.execute_query(component_query)
 
+            if not results:
+                metrics.modularity_score = 0.0
+                return
+
             adjacency: dict[str, set[str]] = defaultdict(set)
             all_entities: set[str] = set()
 
@@ -539,6 +543,9 @@ class GraphQualityMetrics:
         component_query = self._query_builder.build_component_neighbors_query()
 
         results = await self._pool.execute_query(component_query)
+
+        if not results:
+            return []
 
         adjacency: dict[str, set[str]] = defaultdict(set)
         entity_types: dict[str, str] = {}

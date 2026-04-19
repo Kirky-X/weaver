@@ -190,6 +190,7 @@ class StructuralConsolidationWorker:
 3. evidence 是支持该因果关系的证据描述"""
 
             response = await self._llm.call(
+                label="chat.aiping.GLM-4-9B-0414",
                 call_point="CAUSAL_INFERENCE",
                 payload={
                     "system_prompt": (

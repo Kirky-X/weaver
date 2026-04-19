@@ -248,16 +248,30 @@ class CausalGraphRepo(BaseGraphRepo):
         # LadybugDB uses event_time (INT64), Neo4j uses timestamp (datetime)
         time_field = "event_time" if self._is_ladybug else "timestamp"
 
-        query = f"""
-        MATCH (cause:EventNode)-[r:CAUSES|ENABLES]->(effect:EventNode {{id: $event_id}})
-        RETURN cause.id AS id,
-               cause.content AS content,
-               cause.{time_field} AS timestamp,
-               type(r) AS relation_type,
-               r.confidence AS confidence,
-               r.evidence AS evidence
-        ORDER BY r.confidence DESC
-        """
+        # For LadybugDB, when using pattern [r:CAUSES|ENABLES], edge_type is implicit
+        # LadybugDB may not have evidence property on edges
+        if self._is_ladybug:
+            query = f"""
+            MATCH (cause:EventNode)-[r:CAUSES|ENABLES]->(effect:EventNode {{id: $event_id}})
+            RETURN cause.id AS id,
+                   cause.content AS content,
+                   cause.{time_field} AS timestamp,
+                   'CAUSES' AS relation_type,
+                   r.confidence AS confidence,
+                   '' AS evidence
+            ORDER BY r.confidence DESC
+            """
+        else:
+            query = f"""
+            MATCH (cause:EventNode)-[r:CAUSES|ENABLES]->(effect:EventNode {{id: $event_id}})
+            RETURN cause.id AS id,
+                   cause.content AS content,
+                   cause.{time_field} AS timestamp,
+                   type(r) AS relation_type,
+                   r.confidence AS confidence,
+                   r.evidence AS evidence
+            ORDER BY r.confidence DESC
+            """
 
         params = {"event_id": event_id}
         return await self._pool.execute_query(query, params)
@@ -274,16 +288,30 @@ class CausalGraphRepo(BaseGraphRepo):
         # LadybugDB uses event_time (INT64), Neo4j uses timestamp (datetime)
         time_field = "event_time" if self._is_ladybug else "timestamp"
 
-        query = f"""
-        MATCH (cause:EventNode {{id: $event_id}})-[r:CAUSES|ENABLES]->(effect:EventNode)
-        RETURN effect.id AS id,
-               effect.content AS content,
-               effect.{time_field} AS timestamp,
-               type(r) AS relation_type,
-               r.confidence AS confidence,
-               r.evidence AS evidence
-        ORDER BY r.confidence DESC
-        """
+        # For LadybugDB, when using pattern [r:CAUSES|ENABLES], edge_type is implicit
+        # LadybugDB may not have evidence property on edges
+        if self._is_ladybug:
+            query = f"""
+            MATCH (cause:EventNode {{id: $event_id}})-[r:CAUSES|ENABLES]->(effect:EventNode)
+            RETURN effect.id AS id,
+                   effect.content AS content,
+                   effect.{time_field} AS timestamp,
+                   'CAUSES' AS relation_type,
+                   r.confidence AS confidence,
+                   '' AS evidence
+            ORDER BY r.confidence DESC
+            """
+        else:
+            query = f"""
+            MATCH (cause:EventNode {{id: $event_id}})-[r:CAUSES|ENABLES]->(effect:EventNode)
+            RETURN effect.id AS id,
+                   effect.content AS content,
+                   effect.{time_field} AS timestamp,
+                   type(r) AS relation_type,
+                   r.confidence AS confidence,
+                   r.evidence AS evidence
+            ORDER BY r.confidence DESC
+            """
 
         params = {"event_id": event_id}
         return await self._pool.execute_query(query, params)
