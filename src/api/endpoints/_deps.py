@@ -102,16 +102,16 @@ class Endpoints:
     # ── Cache ─────────────────────────────────────────────────────────
 
     @staticmethod
-    def get_cache() -> CachePool:
-        """Get cache client (Redis or in-memory fallback)."""
+    def get_cache_pool() -> CachePool:
+        """Get cache pool (Redis or in-memory fallback)."""
         if Endpoints._cache is None:
-            raise HTTPException(503, detail="Cache client not initialized")
+            raise HTTPException(503, detail="Cache pool not initialized")
         return Endpoints._cache
 
     # ── LLM ───────────────────────────────────────────────────────────
 
     @staticmethod
-    def get_llm() -> LLMClient:
+    def get_llm_client() -> LLMClient:
         """Get LLM client."""
         if Endpoints._llm is None:
             raise HTTPException(503, detail="LLM client not initialized")
@@ -125,7 +125,7 @@ class Endpoints:
     # ── Search Engines ────────────────────────────────────────────────
 
     @staticmethod
-    def get_local_engine() -> LocalSearchEngine:
+    def get_local_search_engine() -> LocalSearchEngine:
         """Get local search engine."""
         if Endpoints._local_engine is None:
             raise HTTPException(503, detail="Search service not initialized")
@@ -137,14 +137,14 @@ class Endpoints:
         return Endpoints._local_engine
 
     @staticmethod
-    def get_global_engine() -> GlobalSearchEngine:
+    def get_global_search_engine() -> GlobalSearchEngine:
         """Get global search engine."""
         if Endpoints._global_engine is None:
             raise HTTPException(503, detail="Search service not initialized")
         return Endpoints._global_engine
 
     @staticmethod
-    def get_hybrid_engine() -> HybridSearchEngine:
+    def get_hybrid_search_engine() -> HybridSearchEngine:
         """Get hybrid search engine."""
         if Endpoints._hybrid_engine is None:
             raise HTTPException(503, detail="Hybrid search service not initialized")
@@ -169,7 +169,7 @@ class Endpoints:
     # ── Scheduler ──────────────────────────────────────────────────────
 
     @staticmethod
-    def get_scheduler() -> SourceScheduler:
+    def get_source_scheduler() -> SourceScheduler:
         """Get source scheduler."""
         if Endpoints._scheduler is None:
             raise HTTPException(503, detail="Source scheduler not initialized")
@@ -236,6 +236,6 @@ class Endpoints:
         return Endpoints._graph_pool
 
     @staticmethod
-    def get_cache_optional() -> CachePool | None:
-        """Get cache client or None if not initialized."""
+    def get_cache_pool_optional() -> CachePool | None:
+        """Get cache pool or None if not initialized."""
         return Endpoints._cache

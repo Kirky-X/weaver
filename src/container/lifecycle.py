@@ -233,7 +233,7 @@ class ContainerLifecycleMixin:
             }
         )
         self._scheduler = scheduler
-        jobs = self.scheduler_jobs()
+        jobs = self.scheduler_job_runner()
 
         # Data Sync
         scheduler.add_job(
@@ -582,7 +582,7 @@ class ContainerLifecycleMixin:
 
         try:
             # Get causal repo
-            causal_repo = self.causal_repo()
+            causal_repo = self.causal_graph_repo()
             if causal_repo is None:
                 log.info("causal_inference_service_skipped_no_repo")
                 return None
@@ -652,7 +652,7 @@ class ContainerLifecycleMixin:
                 script_location=os.path.join(project_root, "src", "alembic"),
             )
 
-        await self.init_redis()
+        await self.init_cache_pool()
         await self.init_llm()
         self.init_search_engines()
         await self._init_bm25_index()

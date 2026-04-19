@@ -102,17 +102,17 @@ def get_graph_pool_type() -> str:
     return Endpoints.get_graph_pool_type()
 
 
-def get_cache_client() -> CachePool:
-    """FastAPI dependency for cache client.
+def get_cache_pool() -> CachePool:
+    """FastAPI dependency for cache pool.
 
     Raises:
-        HTTPException: If client is not initialized.
+        HTTPException: If pool is not initialized.
 
     Returns:
         CachePool instance (RedisClient or CashewsClient).
 
     """
-    return Endpoints.get_cache()
+    return Endpoints.get_cache_pool()
 
 
 # ── Service Dependencies ──────────────────────────────────────────────
@@ -128,7 +128,7 @@ def get_llm_client() -> LLMClient:
         LLMClient instance.
 
     """
-    return Endpoints.get_llm()
+    return Endpoints.get_llm_client()
 
 
 def get_vector_repo() -> VectorRepo:
@@ -167,7 +167,7 @@ def get_local_search_engine() -> LocalSearchEngine:
         LocalSearchEngine instance.
 
     """
-    return Endpoints.get_local_engine()
+    return Endpoints.get_local_search_engine()
 
 
 def get_global_search_engine() -> GlobalSearchEngine:
@@ -180,7 +180,7 @@ def get_global_search_engine() -> GlobalSearchEngine:
         GlobalSearchEngine instance.
 
     """
-    return Endpoints.get_global_engine()
+    return Endpoints.get_global_search_engine()
 
 
 def get_hybrid_search_engine() -> HybridSearchEngine:
@@ -193,7 +193,7 @@ def get_hybrid_search_engine() -> HybridSearchEngine:
         HybridSearchEngine instance.
 
     """
-    return Endpoints.get_hybrid_engine()
+    return Endpoints.get_hybrid_search_engine()
 
 
 def get_source_scheduler() -> SourceScheduler:
@@ -206,7 +206,7 @@ def get_source_scheduler() -> SourceScheduler:
         SourceScheduler instance.
 
     """
-    return Endpoints.get_scheduler()
+    return Endpoints.get_source_scheduler()
 
 
 def get_source_config_repo() -> SourceConfigRepo:
@@ -291,7 +291,7 @@ def get_task_registry() -> InMemoryTaskRegistry:
 
 RelationalPoolDep = Annotated["RelationalPool", Depends(get_relational_pool)]
 GraphPoolDep = Annotated["GraphPool", Depends(get_graph_pool)]
-CachePoolDep = Annotated["CachePool", Depends(get_cache_client)]
+CachePoolDep = Annotated["CachePool", Depends(get_cache_pool)]
 LLMClientDep = Annotated["LLMClient", Depends(get_llm_client)]
 VectorRepoDep = Annotated["VectorRepo", Depends(get_vector_repo)]
 GraphRepoDep = Annotated["GraphRepository", Depends(get_graph_repo)]

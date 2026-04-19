@@ -1187,8 +1187,8 @@ class TestSystemConfigEndpoint:
         from api.endpoints._deps import Endpoints
 
         # Verify the correct methods exist (these are what main.py should call)
-        assert hasattr(Endpoints, "get_llm")
-        assert hasattr(Endpoints, "get_local_engine")
+        assert hasattr(Endpoints, "get_llm_client")
+        assert hasattr(Endpoints, "get_local_search_engine")
         assert hasattr(Endpoints, "get_graph_pool_optional")
         assert hasattr(Endpoints, "get_relational_type")
         assert hasattr(Endpoints, "get_graph_type")

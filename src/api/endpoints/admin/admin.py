@@ -801,7 +801,7 @@ async def get_causal_stats(
         Causal graph statistics.
 
     """
-    causal_repo = container.causal_repo()
+    causal_repo = container.causal_graph_repo()
     if causal_repo is None:
         raise HTTPException(
             status_code=503,

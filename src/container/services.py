@@ -217,8 +217,8 @@ class ContainerServicesMixin:
 
         return LLMUsageRepo(self.relational_pool())
 
-    def scheduler_jobs(self) -> Any:
-        """Get scheduler jobs instance."""
+    def scheduler_job_runner(self) -> Any:
+        """Get scheduler job runner instance."""
         if self._scheduler_jobs is None:
             from modules.scheduler.jobs import SchedulerJobs
 
@@ -275,7 +275,7 @@ class ContainerServicesMixin:
                 self._graph_article_repo = Neo4jArticleRepo(graph_pool)
         return self._graph_article_repo
 
-    def causal_repo(self) -> Any | None:
+    def causal_graph_repo(self) -> Any | None:
         """Get causal graph repository (Neo4j or LadybugDB implementation).
 
         Returns:
@@ -301,7 +301,7 @@ class ContainerServicesMixin:
         if self._strategy is None:
             return None
         if self._graph_writer is None:
-            rt_normalizer = self.relation_type_normalizer()
+            rt_normalizer = self.relation_normalizer()
             if self._strategy.graph_type == "ladybug":
                 from modules.storage.ladybug import LadybugWriter
 
@@ -341,7 +341,7 @@ class ContainerServicesMixin:
             )
         return self._graph_repo
 
-    def relation_type_normalizer(self) -> Any | None:
+    def relation_normalizer(self) -> Any | None:
         """Get cached RelationTypeNormalizer instance."""
         if self._relation_type_normalizer is None and self._strategy is not None:
             from modules.knowledge.core.relation_types import RelationTypeNormalizer
@@ -534,7 +534,7 @@ class ContainerServicesMixin:
                 entity_resolver=self.entity_resolver(),
                 cache_pool=self._cache_pool,
                 community_updater=self.community_updater(),
-                relation_type_normalizer=self.relation_type_normalizer(),
+                relation_type_normalizer=self.relation_normalizer(),
             )
             log.info("pipeline_initialized")
         return self._pipeline

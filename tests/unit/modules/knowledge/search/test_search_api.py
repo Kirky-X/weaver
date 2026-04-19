@@ -302,19 +302,19 @@ class TestSearchDependencyGetters:
     """Tests for dependency getter functions via Endpoints."""
 
     @pytest.mark.asyncio
-    async def test_get_local_engine_raises_503_when_uninitialized(self):
-        """Test Endpoints.get_local_engine() raises 503 when engine not set."""
+    async def test_get_local_search_engine_raises_503_when_uninitialized(self):
+        """Test Endpoints.get_local_search_engine() raises 503 when engine not set."""
         Endpoints._local_engine = None
         with pytest.raises(HTTPException) as exc_info:
-            Endpoints.get_local_engine()
+            Endpoints.get_local_search_engine()
         assert exc_info.value.status_code == 503
 
     @pytest.mark.asyncio
-    async def test_get_global_engine_raises_503_when_uninitialized(self):
-        """Test Endpoints.get_global_engine() raises 503 when engine not set."""
+    async def test_get_global_search_engine_raises_503_when_uninitialized(self):
+        """Test Endpoints.get_global_search_engine() raises 503 when engine not set."""
         Endpoints._global_engine = None
         with pytest.raises(HTTPException) as exc_info:
-            Endpoints.get_global_engine()
+            Endpoints.get_global_search_engine()
         assert exc_info.value.status_code == 503
 
     @pytest.mark.asyncio

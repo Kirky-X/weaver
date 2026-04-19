@@ -168,7 +168,7 @@ class TestEndpointsDependencyRegistry:
 
         mock_scheduler = MagicMock()
         Endpoints._scheduler = mock_scheduler
-        result = Endpoints.get_scheduler()
+        result = Endpoints.get_source_scheduler()
         assert result == mock_scheduler
 
     def test_get_scheduler_raises_when_not_set(self):
@@ -177,7 +177,7 @@ class TestEndpointsDependencyRegistry:
 
         Endpoints._scheduler = None
         with pytest.raises(HTTPException) as exc_info:
-            Endpoints.get_scheduler()
+            Endpoints.get_source_scheduler()
         assert exc_info.value.status_code == 503
 
     def test_get_source_config_repo_returns_when_set(self):
@@ -257,14 +257,14 @@ class TestDependencyFunctions:
         result = get_relational_pool()
         assert result == mock_pool
 
-    def test_get_cache_client_delegates_to_endpoints(self):
-        """Test get_cache_client delegates to Endpoints."""
-        from api.dependencies import get_cache_client
+    def test_get_cache_pool_delegates_to_endpoints(self):
+        """Test get_cache_pool delegates to Endpoints."""
+        from api.dependencies import get_cache_pool
         from api.endpoints._deps import Endpoints
 
         mock_cache = MagicMock()
         Endpoints._cache = mock_cache
-        result = get_cache_client()
+        result = get_cache_pool()
         assert result == mock_cache
 
     def test_get_graph_pool_delegates_to_endpoints(self):
@@ -449,14 +449,14 @@ class TestDependencyErrorHandling:
         getters = [
             Endpoints.get_relational_pool,
             Endpoints.get_graph_pool,
-            Endpoints.get_cache,
-            Endpoints.get_llm,
-            Endpoints.get_local_engine,
-            Endpoints.get_global_engine,
-            Endpoints.get_hybrid_engine,
+            Endpoints.get_cache_pool,
+            Endpoints.get_llm_client,
+            Endpoints.get_local_search_engine,
+            Endpoints.get_global_search_engine,
+            Endpoints.get_hybrid_search_engine,
             Endpoints.get_vector_repo,
             Endpoints.get_graph_repo,
-            Endpoints.get_scheduler,
+            Endpoints.get_source_scheduler,
             Endpoints.get_source_config_repo,
             Endpoints.get_source_authority_repo,
             Endpoints.get_llm_failure_repo,

@@ -74,11 +74,11 @@ async def search_unified(
         description="Enable entity aggregation to enrich results with entity neighborhoods",
     ),
     _: str = Depends(verify_api_key),
-    local_engine: LocalSearchEngine = Depends(deps.Endpoints.get_local_engine),
-    global_engine: GlobalSearchEngine = Depends(deps.Endpoints.get_global_engine),
+    local_engine: LocalSearchEngine = Depends(deps.Endpoints.get_local_search_engine),
+    global_engine: GlobalSearchEngine = Depends(deps.Endpoints.get_global_search_engine),
     vector_repo: VectorRepo = Depends(deps.Endpoints.get_vector_repo),
-    llm: LLMClient = Depends(deps.Endpoints.get_llm),
-    hybrid_engine: HybridSearchEngine = Depends(deps.Endpoints.get_hybrid_engine),
+    llm: LLMClient = Depends(deps.Endpoints.get_llm_client),
+    hybrid_engine: HybridSearchEngine = Depends(deps.Endpoints.get_hybrid_search_engine),
 ) -> APIResponse[SearchResponse]:
     """Unified search endpoint with MAGMA-inspired intent-aware routing.
 
@@ -349,8 +349,8 @@ async def search_drift(
     request: Request,
     body: DriftSearchRequest,
     _: str = Depends(verify_api_key),
-    local_engine: LocalSearchEngine = Depends(deps.Endpoints.get_local_engine),
-    global_engine: GlobalSearchEngine = Depends(deps.Endpoints.get_global_engine),
+    local_engine: LocalSearchEngine = Depends(deps.Endpoints.get_local_search_engine),
+    global_engine: GlobalSearchEngine = Depends(deps.Endpoints.get_global_search_engine),
 ) -> APIResponse[DriftSearchResponse]:
     """DRIFT Search - Dynamic Reasoning and Inference Framework.
 
@@ -483,7 +483,7 @@ async def search_causal(
     request: Request,
     body: CausalSearchRequest,
     _: str = Depends(verify_api_key),
-    llm: LLMClient = Depends(deps.Endpoints.get_llm),
+    llm: LLMClient = Depends(deps.Endpoints.get_llm_client),
 ) -> APIResponse[CausalSearchResponse]:
     """Causal reasoning search using MAGMA multi-graph architecture.
 

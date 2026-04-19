@@ -83,7 +83,7 @@ class ContainerPoolsMixin:
             return None
         return self._strategy.graph_type
 
-    async def init_redis(self) -> RedisClient | CashewsClient:
+    async def init_cache_pool(self) -> RedisClient | CashewsClient:
         """Initialize cache pool with fallback support.
 
         Tries to connect to real Redis first. Falls back to CashewsClient
@@ -117,5 +117,5 @@ class ContainerPoolsMixin:
 
         """
         if self._cache_pool is None:
-            raise RuntimeError("Cache pool not initialized. Call init_redis() first.")
+            raise RuntimeError("Cache pool not initialized. Call init_cache_pool() first.")
         return self._cache_pool
