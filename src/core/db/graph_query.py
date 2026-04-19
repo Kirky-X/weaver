@@ -540,8 +540,10 @@ class LadybugQueryBuilder(GraphQueryBuilder):
         self,
         config: CommunitySearchConfig,
     ) -> str:
+        # LadybugDB doesn't support parameterized LIMIT, use f-string
+        limit = config.limit or 10
         if config.query:
-            return """
+            return f"""
             MATCH (c:Community)
             WHERE c.level >= $level
               AND (LOWER(c.title) CONTAINS $query
@@ -551,10 +553,10 @@ class LadybugQueryBuilder(GraphQueryBuilder):
                    c.summary AS summary,
                    c.rank AS rank
             ORDER BY c.rank DESC
-            LIMIT $limit
+            LIMIT {limit}
             """
 
-        return """
+        return f"""
         MATCH (c:Community)
         WHERE c.level >= $level
         RETURN c.id AS id,
@@ -562,7 +564,7 @@ class LadybugQueryBuilder(GraphQueryBuilder):
                c.summary AS summary,
                c.rank AS rank
         ORDER BY c.rank DESC
-        LIMIT $limit
+        LIMIT {limit}
         """
 
     def build_community_entities_query(

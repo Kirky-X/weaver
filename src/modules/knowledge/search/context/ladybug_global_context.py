@@ -334,6 +334,40 @@ class LadybugGlobalContextBuilder(ContextBuilder):
             log.warning("get_key_entities_failed", error=str(exc))
             return []
 
+    async def _get_community_entities(
+        self,
+        community_id: str,
+    ) -> list[dict[str, Any]]:
+        """Get entities belonging to a specific community.
+
+        Args:
+            community_id: Community ID to get entities for.
+
+        Returns:
+            List of entity dictionaries with canonical_name, type, description.
+
+        """
+        if not community_id:
+            return []
+
+        cypher = """
+        MATCH (c:Community {id: $community_id})-[:HAS_ENTITY]->(e:Entity)
+        RETURN e.canonical_name AS canonical_name,
+               e.type AS type,
+               e.description AS description
+        LIMIT $limit
+        """
+
+        try:
+            results = await self._pool.execute_query(
+                cypher,
+                {"community_id": community_id, "limit": self._max_entities_per_community},
+            )
+            return [dict(r) for r in results]
+        except Exception as exc:
+            log.warning("get_community_entities_failed", community_id=community_id, error=str(exc))
+            return []
+
     async def _get_cross_community_relationships(
         self,
         communities: list[dict[str, Any]],

@@ -145,14 +145,18 @@ class CommunityHealthRepo:
         """Find communities with broken hierarchy references.
 
         Finds communities where parent_id points to a non-existent community.
+        LadybugDB compatible: uses LEFT JOIN instead of NOT EXISTS.
 
         Returns:
             List of dicts with community_id, parent_id, level.
         """
+        # LadybugDB doesn't support EXISTS subquery
+        # Use LEFT JOIN approach: find communities where parent_id exists but parent doesn't
         query = """
         MATCH (c:Community)
         WHERE c.parent_id IS NOT NULL
-          AND NOT EXISTS((:Community {id: c.parent_id}))
+        OPTIONAL MATCH (p:Community {id: c.parent_id})
+        WHERE p.id IS NULL
         RETURN c.id AS community_id, c.parent_id AS parent_id, c.level AS level
         ORDER BY c.level DESC
         """

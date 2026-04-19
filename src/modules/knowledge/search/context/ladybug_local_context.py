@@ -11,7 +11,7 @@ Uses GraphQueryBuilder for database-agnostic queries.
 
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from core.db.graph_query import (
     EntitySearchConfig,
@@ -201,18 +201,17 @@ class LadybugLocalContextBuilder(ContextBuilder):
             log.warning("find_query_entities_exact_failed", error=str(exc))
 
         # Step 2: Try fuzzy match using CONTAINS
-        fuzzy_cypher = """
+        # LadybugDB: simple query without complex OR/EXISTS
+        limit = self._max_entities
+        fuzzy_cypher = f"""
         MATCH (e:Entity)
-        WHERE toLower(e.canonical_name) CONTAINS toLower($query)
-           OR ANY(alias IN e.aliases WHERE toLower(alias) CONTAINS toLower($query))
+        WHERE LOWER(e.canonical_name) CONTAINS LOWER($query)
         RETURN e.canonical_name AS name
-        LIMIT $limit
+        LIMIT {limit}
         """
 
         try:
-            results = await self._pool.execute_query(
-                fuzzy_cypher, {"query": query.lower(), "limit": self._max_entities}
-            )
+            results = await self._pool.execute_query(fuzzy_cypher, {"query": query.lower()})
             fuzzy_matches = [r["name"] for r in results if r.get("name")]
             if fuzzy_matches:
                 log.info(
@@ -345,20 +344,18 @@ class LadybugLocalContextBuilder(ContextBuilder):
         """Get articles related to the query text.
 
         This is a fallback when no entities are found.
-        It searches for articles that mention the query in title or summary.
+        It searches for articles that mention the query in title.
+        LadybugDB: Article node may not have summary/url properties, use title only.
         """
-        cypher = """
+        cypher = f"""
         MATCH (a:Article)
-        WHERE toLower(a.title) CONTAINS toLower($query)
-           OR toLower(a.summary) CONTAINS toLower($query)
-        RETURN a.title AS title, a.summary AS summary, a.url AS url
-        LIMIT $limit
+        WHERE LOWER(a.title) CONTAINS LOWER($query)
+        RETURN a.title AS title
+        LIMIT {limit}
         """
 
         try:
-            results = await self._pool.execute_query(
-                cypher, {"query": query.lower(), "limit": limit}
-            )
+            results = await self._pool.execute_query(cypher, {"query": query.lower()})
             articles = [dict(r) for r in results]
             if articles:
                 log.info("articles_found_by_text", count=len(articles), query=query)
