@@ -33,12 +33,8 @@ import pytest_asyncio
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from core.observability import get_logger
-
 # Enable nested event loops to fix asyncpg + TestClient compatibility
 nest_asyncio.apply()
-
-log = get_logger("e2e_conftest")
 
 # Path constants
 E2E_DIR = Path(__file__).parent
@@ -423,7 +419,7 @@ def docker_compose(
         DockerComposeManager instance or None if Docker unavailable.
     """
     if not DOCKER_AVAILABLE:
-        log.info("e2e_docker_unavailable_using_fallback")
+        print("[e2e] Docker unavailable, using fallback")
         yield None
         return
 
@@ -449,7 +445,7 @@ async def db_migrations(
         postgres_dsn: PostgreSQL connection string or None.
     """
     if postgres_dsn is None:
-        log.info("e2e_skipping_migrations_duckdb_fallback")
+        print("[e2e] Skipping migrations, DuckDB fallback")
         return
 
     await _run_alembic_migrations(postgres_dsn, PROJECT_ROOT)

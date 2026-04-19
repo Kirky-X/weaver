@@ -36,11 +36,6 @@ _spacy_config = SpacyModelConfig(
 _spacy_manager = SpacyModelManager(_spacy_config)
 _spacy_manager.check_and_install()
 
-from core.observability import get_logger
-
-log = get_logger(__name__)
-
-
 async def cancel_all_tasks() -> None:
     """Cancel all pending asyncio tasks from the current event loop.
 
@@ -52,10 +47,10 @@ async def cancel_all_tasks() -> None:
     tasks = [t for t in asyncio.all_tasks(loop) if t is not asyncio.current_task()]
 
     if not tasks:
-        log.debug("no_pending_tasks_to_cancel")
+        print("[conftest] no_pending_tasks_to_cancel")
         return
 
-    log.info("cancelling_tasks", count=len(tasks))
+    print(f"[conftest] cancelling_tasks count={len(tasks)}")
 
     # Cancel all tasks
     for task in tasks:
@@ -64,17 +59,16 @@ async def cancel_all_tasks() -> None:
     # Wait for all cancellations to complete with timeout
     try:
         await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=5.0)
-        log.info("all_tasks_cancelled", count=len(tasks))
+        print(f"[conftest] all_tasks_cancelled count={len(tasks)}")
     except TimeoutError:
-        log.warning(
-            "task_cancellation_timeout",
-            message="Some tasks did not respond to cancellation within timeout",
+        print(
+            "[conftest] task_cancellation_timeout: "
+            "Some tasks did not respond to cancellation within timeout"
         )
     except Exception as exc:
-        log.warning(
-            "task_cancellation_error",
-            error=str(exc),
-            message="Errors occurred during task cancellation but continuing",
+        print(
+            f"[conftest] task_cancellation_error: {exc} - "
+            "Errors occurred during task cancellation but continuing"
         )
 
 
@@ -350,8 +344,12 @@ def pytest_sessionfinish(session, exitstatus):
 
     Ensures all background asyncio tasks are cancelled before pytest exits.
     This hook runs even when tests fail.
+    Note: Uses sys.stderr.write instead of loguru to avoid I/O errors
+    when pytest has already closed stdout.
     """
-    log.info("session_cleanup_starting", exit_status=exitstatus)
+    import sys
+
+    sys.stderr.write(f"[conftest] session_cleanup_starting exit_status={exitstatus}\n")
 
     # Get the current event loop if one exists
     try:
@@ -362,13 +360,9 @@ def pytest_sessionfinish(session, exitstatus):
         else:
             # If loop is not running, run cleanup directly
             loop.run_until_complete(cancel_all_tasks())
-        log.info("session_cleanup_complete")
+        sys.stderr.write("[conftest] session_cleanup_complete\n")
     except RuntimeError as e:
         # No event loop exists, which is fine
-        log.debug("no_event_loop_during_cleanup", error=str(e))
+        sys.stderr.write(f"[conftest] no_event_loop_during_cleanup: {e}\n")
     except Exception as e:
-        log.warning(
-            "session_cleanup_error",
-            error=str(e),
-            message="Cleanup encountered errors but continuing shutdown",
-        )
+        sys.stderr.write(f"[conftest] session_cleanup_error: {e}\n")
