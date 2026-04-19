@@ -131,15 +131,29 @@ class LiveConfig:
             log.warning("watchfiles_not_installed", msg="Hot-reload disabled. Install watchfiles.")
             return
 
+        # Create stop event for awatch
+        stop_event = asyncio.Event()
+
         while self._running:
             try:
+                # Check if file exists before watching
+                if not self._path.exists():
+                    log.warning(
+                        "live_config_file_not_found",
+                        path=str(self._path),
+                        msg="Waiting for file to be created",
+                    )
+                    await asyncio.sleep(5)
+                    continue
+
                 async for changes in awatch(
                     self._path,
-                    stop_event=asyncio.Event() if not self._running else None,
+                    stop_event=stop_event,
                     debounce=500,
                     step=500,
                 ):
                     if not self._running:
+                        stop_event.set()
                         break
 
                     log.info("live_config_file_changed", path=str(self._path))
