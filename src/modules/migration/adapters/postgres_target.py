@@ -10,6 +10,8 @@ from typing import Any
 
 from sqlalchemy import text
 
+from core.db.safe_query import validate_sql_identifier
+
 from modules.migration.exceptions import ValidationFailedError
 from modules.migration.models import MigrationSchema
 

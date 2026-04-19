@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+
+from core.constants import MigrationStatus
 from typing import Any
 
 
@@ -111,7 +113,7 @@ class MigrationProgress:
         total: Total number of items to migrate.
         migrated: Number of items already migrated.
         started_at: Migration start timestamp.
-        status: Current status ("pending" | "running" | "completed" | "failed").
+        status: Current status (MigrationStatus).
         error: Error message if failed.
     """
 
@@ -119,7 +121,7 @@ class MigrationProgress:
     total: int
     migrated: int = 0
     started_at: datetime = field(default_factory=datetime.now)
-    status: str = "pending"
+    status: str = MigrationStatus.PENDING.value
     error: str | None = None
 
     @property
@@ -142,7 +144,7 @@ class MigrationResult:
         items: Progress for each migrated item.
         started_at: Migration start timestamp.
         completed_at: Migration completion timestamp.
-        status: Final status ("success" | "partial" | "failed").
+        status: Final status ("success" | "partial" | MigrationStatus).
         total_migrated: Total number of items migrated.
         total_expected: Total number of items expected.
         errors: List of error messages.
@@ -152,7 +154,7 @@ class MigrationResult:
     items: list[MigrationProgress]
     started_at: datetime
     completed_at: datetime | None = None
-    status: str = "pending"
+    status: str = MigrationStatus.PENDING.value
     total_migrated: int = 0
     total_expected: int = 0
     errors: list[str] = field(default_factory=list)
@@ -167,4 +169,4 @@ class MigrationResult:
     @property
     def success(self) -> bool:
         """Check if migration was successful."""
-        return self.status == "success"
+        return self.status == MigrationStatus.COMPLETED.value or self.status == "success"
