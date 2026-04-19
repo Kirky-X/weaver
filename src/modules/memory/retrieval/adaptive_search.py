@@ -205,7 +205,7 @@ class AdaptiveSearchEngine:
                 score_range = max_score - min_score
                 for r in results:
                     raw = r.get("score", 0)
-                    r["score"] = 1.0 if score_range == 0 else (raw - min_score) / score_range
+                    r["score"] = 0.5 if score_range == 0 else (raw - min_score) / score_range
 
             # Phase 5: Store results in cache for future queries
             if self._knowledge_cache is not None and results:
@@ -340,14 +340,16 @@ class AdaptiveSearchEngine:
                 # Get event details
                 event_data = await self._get_event_data(event_id)
                 if event_data:
-                    results.append(
-                        {
-                            "id": event_id,
-                            "content": event_data.get("content", ""),
-                            "timestamp": event_data.get("timestamp"),
-                            "score": cumulative_score,
-                        }
-                    )
+                    content = event_data.get("content", "")
+                    if content.strip():
+                        results.append(
+                            {
+                                "id": event_id,
+                                "content": content,
+                                "timestamp": event_data.get("timestamp"),
+                                "score": cumulative_score,
+                            }
+                        )
 
                 # Get neighbors based on intent
                 neighbors = await self._get_neighbors_by_intent(event_id, intent)

@@ -581,12 +581,20 @@ async def search_causal(
         else:
             answer = f'未找到与 "{body.query}" 相关的因果事件。可能数据库中缺少相关数据。'
 
+        # Filter out empty-content entries for confidence calculation
+        valid_results = [r for r in results if r.get("content", "").strip()]
+        confidence = (
+            sum(r.get("score", 0) for r in valid_results) / len(valid_results)
+            if valid_results
+            else 0.0
+        )
+
         return success_response(
             CausalSearchResponse(
                 query=body.query,
                 answer=answer,
                 causal_chain=causal_chain,
-                confidence=sum(r.get("score", 0) for r in results) / max(len(results), 1),
+                confidence=confidence,
                 metadata={"depth": body.max_depth},
             )
         )
