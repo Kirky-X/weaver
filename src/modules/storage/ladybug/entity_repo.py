@@ -9,22 +9,17 @@ LadybugDB is a Kuzu fork with Cypher support. Key differences from Neo4j:
 
 from __future__ import annotations
 
-import re
 import time
 import uuid
-from collections.abc import Iterator
 from typing import Any
 
 from core.observability.logging import get_logger
-from core.protocols import GraphPool
+from modules.storage.base_entity_repo import BaseEntityRepo
 
 log = get_logger(__name__)
 
-# Valid edge type: uppercase letters, underscores, and digits
-_EDGE_TYPE_RE = re.compile(r"^[A-Z_一-鿿][A-Z_一-鿿0-9]*$")
 
-
-class LadybugEntityRepo:
+class LadybugEntityRepo(BaseEntityRepo):
     """LadybugDB entity repository.
 
     Handles entity CRUD operations in LadybugDB graph database.
@@ -586,15 +581,75 @@ class LadybugEntityRepo:
             "hops": hops,
         }
 
-    @staticmethod
-    def _chunk(items: list[Any], size: int) -> Iterator[list[Any]]:
-        """Split items into chunks of specified size."""
-        for i in range(0, len(items), size):
-            yield items[i : i + size]
+    async def link_entities(
+        self,
+        event: object,
+        entities: list[dict[str, Any]],
+    ) -> int:
+        """Link an event (article) to its extracted entities.
 
-    @staticmethod
-    async def _sleep(seconds: float) -> None:
-        """Async sleep helper."""
-        import asyncio
+        Implements: EntityGraphRepoProtocol.link_entities
 
-        await asyncio.sleep(seconds)
+        Args:
+            event: EventNode instance with id (article UUID).
+            entities: List of entity dicts with 'id' or 'neo4j_id' field.
+
+        Returns:
+            Number of entities linked.
+        """
+        from modules.memory.core.event_node import EventNode
+
+        if not isinstance(event, EventNode):
+            return 0
+
+        linked = 0
+        for entity in entities:
+            entity_id = entity.get("id") or entity.get("neo4j_id")
+            if not entity_id:
+                continue
+            try:
+                await self.merge_mentions_relation(
+                    article_id=event.id,
+                    entity_id=str(entity_id),
+                )
+                linked += 1
+            except Exception as exc:
+                log.warning(
+                    "link_entity_failed",
+                    event_id=event.id,
+                    entity_id=str(entity_id),
+                    error=str(exc),
+                )
+        return linked
+
+    # -------------------------------------------------------------------------
+    # Abstract method implementations for LadybugDB
+    # -------------------------------------------------------------------------
+
+    async def _list_orphan_ids(self) -> list[str]:
+        """List IDs of orphan entities using id property."""
+        query = """
+        MATCH (e:Entity)
+        WHERE NOT ()-[:MENTIONS]->(e) AND NOT (e)-[:RELATED_TO]->() AND NOT ()-[:RELATED_TO]->(e)
+        RETURN e.id AS id
+        """
+        result = await self._pool.execute_query(query)
+        return [r["id"] for r in result]
+
+    def _delete_entity_query(self) -> str:
+        """Return the query to delete a single entity by id property."""
+        return """
+        MATCH (e:Entity {id: $id}) DELETE e
+        """
+
+    def _entity_id_params(self, entity_id: str) -> dict[str, Any]:
+        """Return the params dict for deleting an entity by id."""
+        return {"id": entity_id}
+
+    def _orphan_count_query(self) -> str:
+        """Return the query to count orphan entities."""
+        return """
+        MATCH (e:Entity)
+        WHERE NOT ()-[:MENTIONS]->(e) AND NOT (e)-[:RELATED_TO]->() AND NOT ()-[:RELATED_TO]->(e)
+        RETURN COUNT(e) AS count
+        """

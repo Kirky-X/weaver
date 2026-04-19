@@ -8,6 +8,7 @@ and DuckDB backends.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -224,6 +225,7 @@ class VectorRepo:
         threshold: float = 0.80,
         limit: int = 20,
         model_id: str | None = None,
+        vector_type: str = "content",
     ) -> list[SimilarArticle]:
         """Find similar articles using vector similarity.
 
@@ -233,6 +235,7 @@ class VectorRepo:
             threshold: Minimum cosine similarity threshold.
             limit: Maximum number of results.
             model_id: Optional model_id filter for embedding homogeneity.
+            vector_type: Vector type to filter (default "content").
 
         Returns:
             List of SimilarArticle results with timestamps for temporal decay.
@@ -242,6 +245,7 @@ class VectorRepo:
         config = SimilarityQuery(
             threshold=threshold,
             limit=limit,
+            vector_type=vector_type,
             filter_by_category=category is not None,
             filter_by_model_id=model_id is not None,
         )
@@ -255,8 +259,12 @@ class VectorRepo:
 
             formatted_emb = self._query_builder.format_embedding_param(embedding)
 
-            # Build params dict with only non-None values
-            params: dict[str, str | list[float]] = {"embedding": formatted_emb}
+            # Build params dict with required and optional values
+            params: dict[str, str | list[float] | float] = {
+                "embedding": formatted_emb,
+                "threshold": threshold,
+                "vector_type": vector_type,
+            }
             if category is not None:
                 params["category"] = category
             if model_id is not None:
@@ -352,6 +360,7 @@ class VectorRepo:
         threshold: float = 0.80,
         limit: int = 20,
         model_id: str | None = None,
+        vector_type: str = "content",
     ) -> dict[uuid.UUID, list[SimilarArticle]]:
         """Batch find similar articles for multiple embeddings.
 
@@ -363,6 +372,7 @@ class VectorRepo:
             threshold: Minimum cosine similarity threshold.
             limit: Maximum results per query.
             model_id: Optional model_id filter.
+            vector_type: Vector type to filter (default "content").
 
         Returns:
             Dict mapping query_id to list of similar articles.
@@ -375,6 +385,7 @@ class VectorRepo:
         config = SimilarityQuery(
             threshold=threshold,
             limit=limit,
+            vector_type=vector_type,
             filter_by_category=category is not None,
             filter_by_model_id=model_id is not None,
         )
@@ -385,27 +396,46 @@ class VectorRepo:
             for stmt in self._query_builder.get_session_init_statements():
                 await session.execute(text(stmt))
 
-            for query_id, embedding in queries:
+            # Build query configurations for parallel execution
+            async def execute_single_query(
+                qid: uuid.UUID, embedding: list[float]
+            ) -> tuple[uuid.UUID, list[SimilarArticle]]:
                 query = text(self._query_builder.build_find_similar_articles_query(config))
                 formatted_emb = self._query_builder.format_embedding_param(embedding)
 
-                # Build params dict with only non-None values
-                params: dict[str, str | list[float]] = {"embedding": formatted_emb}
+                # Build params dict with required and optional values
+                params: dict[str, str | list[float] | float] = {
+                    "embedding": formatted_emb,
+                    "threshold": threshold,
+                    "vector_type": vector_type,
+                }
                 if category is not None:
                     params["category"] = category
                 if model_id is not None:
                     params["model_id"] = model_id
 
                 rows = await session.execute(query, params)
+                return (
+                    qid,
+                    [
+                        SimilarArticle(
+                            article_id=row.article_id,
+                            category=row.category,
+                            similarity=row.similarity,
+                        )
+                        for row in rows
+                    ],
+                )
 
-                results[query_id] = [
-                    SimilarArticle(
-                        article_id=row.article_id,
-                        category=row.category,
-                        similarity=row.similarity,
-                    )
-                    for row in rows
-                ]
+            # Execute all queries in parallel using asyncio.gather
+            query_tasks = [
+                execute_single_query(query_id, embedding) for query_id, embedding in queries
+            ]
+            query_results = await asyncio.gather(*query_tasks)
+
+            # Build results dict from parallel execution results
+            for qid, articles in query_results:
+                results[qid] = articles
 
         return results
 
@@ -466,6 +496,44 @@ class VectorRepo:
     async def upsert_entity_vector(self, neo4j_id: str, embedding: list[float]) -> None:
         """Upsert a single entity vector."""
         await self.upsert_entity_vectors([(neo4j_id, embedding)], use_temp_key=False)
+
+    async def upsert_event_embedding(self, event: object) -> bool:
+        """Upsert event embedding for MAGMA memory system.
+
+        Stores event embedding in article_vectors using the event's article UUID.
+        Implements: VectorRepository.upsert_event_embedding
+
+        Args:
+            event: EventNode instance with id (str/UUID), embedding (list[float]).
+
+        Returns:
+            True if upsert was successful.
+        """
+        import uuid as _uuid
+
+        from modules.memory.core.event_node import EventNode
+
+        if not isinstance(event, EventNode):
+            log.warning("upsert_event_invalid_type", type=type(event).__name__)
+            return False
+
+        if not event.embedding:
+            log.debug("upsert_event_no_embedding", event_id=event.id)
+            return False
+
+        try:
+            article_id = _uuid.UUID(event.id)
+        except (ValueError, AttributeError):
+            log.warning("upsert_event_invalid_id", event_id=getattr(event, "id", None))
+            return False
+
+        await self.upsert_article_vectors(
+            article_id=article_id,
+            title_embedding=None,
+            content_embedding=event.embedding,
+        )
+        log.debug("upsert_event_embedding_stored", event_id=event.id)
+        return True
 
     async def find_similar_entities(
         self,

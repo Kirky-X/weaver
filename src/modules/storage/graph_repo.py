@@ -53,10 +53,17 @@ class GraphRepository:
         return self._query_builder.database_type.value
 
     async def _get_fallback_pool(self) -> GraphPool | None:
-        """Get or lazily initialize the fallback pool."""
+        """Get or lazily initialize the fallback pool with schema."""
         if self._fallback_pool is None and self._fallback_pool_factory is not None:
             pool = self._fallback_pool_factory()
             await pool.startup()
+
+            # Initialize LadybugDB schema (create EventNode, CAUSES, etc.)
+            from modules.storage.ladybug.schema import initialize_ladybug_schema
+
+            await initialize_ladybug_schema(pool)
+            log.info("ladybug_schema_initialized_for_fallback")
+
             self._fallback_pool = pool
             log.info("graph_repo_fallback_initialized")
         return self._fallback_pool
@@ -221,7 +228,17 @@ class GraphRepository:
                     "updated_at": updated_at,
                 }
             )
-        return entities
+
+        # Remove duplicates based on entity ID
+        seen_ids = set()
+        deduplicated = []
+        for entity in entities:
+            entity_id = entity.get("id")
+            if entity_id and entity_id not in seen_ids:
+                seen_ids.add(entity_id)
+                deduplicated.append(entity)
+
+        return deduplicated
 
     async def get_entity_articles(
         self, canonical_name: str, limit: int = 10
