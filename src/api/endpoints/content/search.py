@@ -427,7 +427,7 @@ async def search_drift(
         )
 
     except Exception as exc:
-        get_logger(__name__).error("drift_search_failed", error=str(exc))
+        get_logger(__name__).error("drift_search_failed", error=str(exc), exc_info=True)
         if "neo4j" in str(exc).lower() or "graph" in str(exc).lower():
             raise HTTPException(status_code=503, detail="Graph service unavailable")
         if "llm" in str(exc).lower():
@@ -590,8 +590,9 @@ async def search_causal(
 请用1-2句话总结因果关系。"""
             try:
                 answer = await llm.chat(prompt)
-            except Exception:
-                answer = f"发现 {len(causal_chain)} 个相关事件形成因果链。"
+            except Exception as exc:
+                log.error("causal_chain_llm_chat_failed", error=str(exc), exc_info=True)
+                answer = f"发现 {len(causal_chain)} 个相关事件形成因果链。（LLM 总结失败）"
         else:
             answer = f'未找到与 "{body.query}" 相关的因果事件。可能数据库中缺少相关数据。'
 

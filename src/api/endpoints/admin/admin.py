@@ -724,8 +724,9 @@ async def memory_diagnostics(
         if scheduler is not None:
             jobs = scheduler.get_jobs()
             scheduler_registered = any(j.id == "memory_consolidation" for j in jobs)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("scheduler_jobs_check_failed", error=str(exc))
+        scheduler_registered = False
 
     return success_response(
         MemoryDiagnosticResponse(

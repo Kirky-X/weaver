@@ -125,8 +125,9 @@ class ContainerSearchMixin:
                         model_name=self._settings.search.rerank_model,
                         enabled=True,
                     )
-                except Exception:
-                    log.warning("flashrank_reranker_init_failed")
+                except Exception as exc:
+                    log.warning("flashrank_reranker_init_failed", error=str(exc), exc_info=True)
+                    reranker = None
 
             # Initialize MMR reranker
             mmr_reranker = None
@@ -137,8 +138,9 @@ class ContainerSearchMixin:
                     mmr_reranker = MMRReranker(
                         lambda_param=self._settings.search.mmr_lambda,
                     )
-                except Exception:
-                    log.warning("mmr_reranker_init_failed")
+                except Exception as exc:
+                    log.warning("mmr_reranker_init_failed", error=str(exc), exc_info=True)
+                    mmr_reranker = None
 
             self._hybrid_engine = HybridSearchEngine(
                 vector_repo=self._vector_repo,

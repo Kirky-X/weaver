@@ -31,6 +31,7 @@ async def _handle_llm_failure_async(event: Any, repo: Any) -> None:
             call_point=event.call_point,
             provider=event.provider,
             error=str(exc),
+            exc_info=True,
         )
 
 
@@ -52,6 +53,7 @@ async def _handle_llm_usage_metrics(event: Any) -> None:
             label=event.label,
             call_point=event.call_point,
             error=str(exc),
+            exc_info=True,
         )
 
 
@@ -789,7 +791,7 @@ class ContainerLifecycleMixin:
                 await self._live_config.start(on_reload=self._on_llm_config_reload)
                 log.info("live_config_watcher_started")
             except Exception as e:
-                log.warning("live_config_watcher_start_failed", error=str(e))
+                log.error("live_config_watcher_start_failed", error=str(e), exc_info=True)
 
         log.info("container_started")
 
@@ -826,14 +828,14 @@ class ContainerLifecycleMixin:
                     await queue_manager.shutdown()
                     log.info("llm_queue_manager_stopped")
             except Exception as e:
-                log.warning("llm_queue_manager_shutdown_error", error=str(e))
+                log.error("llm_queue_manager_shutdown_error", error=str(e), exc_info=True)
 
         if self._live_config:
             try:
                 await self._live_config.stop()
                 log.info("live_config_watcher_stopped")
             except Exception as e:
-                log.warning("live_config_watcher_stop_error", error=str(e))
+                log.error("live_config_watcher_stop_error", error=str(e), exc_info=True)
 
         if self._smart_fetcher:
             await self._smart_fetcher.close()
