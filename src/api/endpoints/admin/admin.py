@@ -67,6 +67,120 @@ class TriggerResponse(BaseModel):
 TASK_STATUS_KEY = "pipeline:task_status"
 
 
+async def _execute_pipeline_background(
+    task_id: str,
+    source_id: str | None,
+    max_items: int | None,
+    force: bool,
+    scheduler: SourceScheduler,
+    cache: CachePool,
+) -> None:
+    """Execute pipeline crawling in background.
+
+    This function runs asynchronously after the API endpoint returns.
+    It updates task status in Redis as the pipeline progresses.
+
+    Args:
+        task_id: Unique task identifier.
+        source_id: Specific source ID to crawl (None for all sources).
+        max_items: Maximum number of items to process per source.
+        force: Force re-crawl even for recently fetched URLs.
+        scheduler: Source scheduler for triggering crawls.
+        cache: Cache client for task status updates.
+
+    """
+    now = datetime.now(UTC).isoformat()
+
+    # Update status to running
+    await cache.hset(
+        TASK_STATUS_KEY,
+        task_id,
+        json.dumps(
+            {
+                "task_id": task_id,
+                "status": PipelineTaskStatus.RUNNING.value,
+                "source_id": source_id,
+                "queued_at": now,
+                "started_at": now,
+            }
+        ),
+    )
+
+    try:
+        if source_id:
+            # Crawl specific source
+            await scheduler.trigger_now(
+                source_id,
+                max_items=max_items,
+                task_id=uuid.UUID(task_id),
+                force=force,
+            )
+        else:
+            # Crawl all enabled sources
+            sources = scheduler.list_enabled_sources()
+            tasks = [
+                scheduler.trigger_now(
+                    source.id,
+                    max_items=max_items,
+                    task_id=uuid.UUID(task_id),
+                    force=force,
+                )
+                for source in sources
+            ]
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Update status to completed
+        completed_at = datetime.now(UTC).isoformat()
+        await cache.hset(
+            TASK_STATUS_KEY,
+            task_id,
+            json.dumps(
+                {
+                    "task_id": task_id,
+                    "status": PipelineTaskStatus.COMPLETED.value,
+                    "source_id": source_id,
+                    "queued_at": now,
+                    "started_at": now,
+                    "completed_at": completed_at,
+                }
+            ),
+        )
+
+    except TimeoutError:
+        # Update status to failed (timeout)
+        await cache.hset(
+            TASK_STATUS_KEY,
+            task_id,
+            json.dumps(
+                {
+                    "task_id": task_id,
+                    "status": PipelineTaskStatus.FAILED.value,
+                    "source_id": source_id,
+                    "queued_at": now,
+                    "started_at": now,
+                    "error": "Pipeline execution timed out after 300 seconds",
+                }
+            ),
+        )
+
+    except Exception as exc:
+        # Update status to failed (error)
+        await cache.hset(
+            TASK_STATUS_KEY,
+            task_id,
+            json.dumps(
+                {
+                    "task_id": task_id,
+                    "status": PipelineTaskStatus.FAILED.value,
+                    "source_id": source_id,
+                    "queued_at": now,
+                    "started_at": now,
+                    "error": str(exc),
+                }
+            ),
+        )
+
+
 def get_llm_failure_repo() -> LLMFailureRepo:
     """Get the LLM failure repo instance."""
     return Endpoints.get_llm_failure_repo()
@@ -254,6 +368,10 @@ async def trigger_pipeline(
 ) -> APIResponse[TriggerResponse]:
     """Trigger a pipeline run to crawl news sources.
 
+    This endpoint returns immediately with a task_id. The actual crawling
+    happens asynchronously in the background. Clients can poll the task
+    status using the task_id.
+
     Args:
         request: Pipeline trigger configuration.
         _: Verified admin API key.
@@ -261,110 +379,39 @@ async def trigger_pipeline(
         scheduler: Source scheduler for triggering crawls.
 
     Returns:
-        Task ID and initial status.
+        Task ID and initial status (queued).
 
     """
     task_id = str(uuid.uuid4())
     now = datetime.now(UTC).isoformat()
 
-    # Update task status to running
+    # Set initial task status to queued
     await cache.hset(
         TASK_STATUS_KEY,
         task_id,
         json.dumps(
             {
                 "task_id": task_id,
-                "status": PipelineTaskStatus.RUNNING.value,
+                "status": PipelineTaskStatus.QUEUED.value,
                 "source_id": request.source_id,
                 "queued_at": now,
-                "started_at": now,
             }
         ),
     )
 
-    # Trigger the source scheduler to crawl
-    try:
-        if request.source_id:
-            await asyncio.wait_for(
-                scheduler.trigger_now(
-                    request.source_id,
-                    max_items=request.max_items,
-                    task_id=uuid.UUID(task_id),
-                    force=request.force,
-                ),
-                timeout=300.0,
-            )
-        else:
-            sources = scheduler.list_enabled_sources()
-            tasks = [
-                scheduler.trigger_now(
-                    source.id,
-                    max_items=request.max_items,
-                    task_id=uuid.UUID(task_id),
-                    force=request.force,
-                )
-                for source in sources
-            ]
-            await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=300.0)
+    # Start background task (non-blocking)
+    asyncio.create_task(  # noqa: RUF006
+        _execute_pipeline_background(
+            task_id=task_id,
+            source_id=request.source_id,
+            max_items=request.max_items,
+            force=request.force,
+            scheduler=scheduler,
+            cache=cache,
+        )
+    )
 
-        # Update task status to completed
-        await cache.hset(
-            TASK_STATUS_KEY,
-            task_id,
-            json.dumps(
-                {
-                    "task_id": task_id,
-                    "status": PipelineTaskStatus.COMPLETED.value,
-                    "source_id": request.source_id,
-                    "queued_at": now,
-                    "started_at": now,
-                    "completed_at": datetime.now(UTC).isoformat(),
-                }
-            ),
-        )
-
-    except TimeoutError:
-        # Update task status to failed due to timeout
-        await cache.hset(
-            TASK_STATUS_KEY,
-            task_id,
-            json.dumps(
-                {
-                    "task_id": task_id,
-                    "status": PipelineTaskStatus.FAILED.value,
-                    "source_id": request.source_id,
-                    "queued_at": now,
-                    "started_at": now,
-                    "error": "Pipeline execution timed out after 300 seconds",
-                }
-            ),
-        )
-        raise HTTPException(
-            status_code=504,
-            detail="Pipeline execution timed out",
-        )
-
-    except Exception as exc:
-        # Update task status to failed
-        await cache.hset(
-            TASK_STATUS_KEY,
-            task_id,
-            json.dumps(
-                {
-                    "task_id": task_id,
-                    "status": PipelineTaskStatus.FAILED.value,
-                    "source_id": request.source_id,
-                    "queued_at": now,
-                    "started_at": now,
-                    "error": str(exc),
-                }
-            ),
-        )
-        raise HTTPException(
-            status_code=500,
-            detail="Pipeline trigger failed",
-        )
-
+    # Return immediately (< 100ms)
     return success_response(TriggerResponse(task_id=task_id, queued_at=now))
 
 
