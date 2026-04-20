@@ -635,16 +635,12 @@ class ArticleRepo:
             raw_articles = []
             for a in articles:
                 raw = RawArticle(
-                    url=a.url,
+                    url=a.source_url,
                     title=a.title or "",
-                    content=a.content or "",
-                    summary=a.summary,
-                    source=a.source,
-                    published_at=a.published_at,
-                    author=a.author,
-                    category=a.category,
-                    language=a.language,
-                    region=a.region,
+                    body=a.body or "",
+                    source=a.source_host or "",
+                    source_host=a.source_host or "",
+                    publish_time=a.publish_time,
                 )
                 raw_articles.append(raw)
 
