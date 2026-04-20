@@ -823,7 +823,7 @@ class ContainerLifecycleMixin:
 
         if self._llm_client:
             try:
-                queue_manager = self._llm_client._queue_manager
+                queue_manager = getattr(self._llm_client, "_queue_manager", None)
                 if queue_manager:
                     await queue_manager.shutdown()
                     log.info("llm_queue_manager_stopped")
