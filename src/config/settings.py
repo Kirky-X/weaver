@@ -217,9 +217,13 @@ class Settings(BaseSettings):
             )
 
         # Check LLM API keys
-        warnings.append(
-            "LLM API keys should be configured via WEAVER_LLM__PROVIDERS__<NAME>__API_KEY environment variable."
-        )
+        providers_without_key = [name for name, p in self.llm.providers.items() if not p.api_key]
+        if providers_without_key:
+            names = ", ".join(providers_without_key)
+            warnings.append(
+                f"LLM providers missing API key: {names}. "
+                "Configure via WEAVER_LLM__PROVIDERS__<NAME>__API_KEY environment variable."
+            )
 
         return warnings
 
