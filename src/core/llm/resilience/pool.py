@@ -210,13 +210,12 @@ class ProviderPool:
         timeout: float,
     ) -> LLMResponse:
         """执行单个请求，带指数退避重试."""
-        # 速率限制
-        if self._rate_limiter:
-            async with self._rate_limiter:
-                pass
-
-        # 并发控制 + 重试
+        # 并发控制 + 速率限制 + 重试
         async with self._semaphore:
+            # Rate limit inside semaphore so token consumed right before request
+            if self._rate_limiter:
+                async with self._rate_limiter:
+                    pass
             last_error: Exception | None = None
             async for attempt in retry_llm(max_attempts=3, min_wait=2.0, max_wait=30.0):
                 with attempt:
