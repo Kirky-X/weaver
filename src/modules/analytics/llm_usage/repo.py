@@ -262,9 +262,9 @@ class LLMUsageRepo:
                 failure_count=failure_count,
             )
 
-            # ON CONFLICT DO UPDATE
+            # ON CONFLICT DO UPDATE (use index_elements for DuckDB compatibility)
             stmt = stmt.on_conflict_do_update(
-                constraint="uq_llm_usage_hourly",
+                index_elements=["time_bucket", "label", "call_point"],
                 set_={
                     "call_count": call_count,
                     "input_tokens_sum": input_tokens_sum,
@@ -395,6 +395,11 @@ class LLMUsageRepo:
                 func.max(LLMUsageHourly.latency_max_ms).label("latency_max_ms"),
                 func.sum(LLMUsageHourly.success_count).label("success_count"),
                 func.sum(LLMUsageHourly.failure_count).label("failure_count"),
+                func.array_agg(func.distinct(LLMUsageHourly.label)).label("labels"),
+                func.array_agg(func.distinct(LLMUsageHourly.call_point)).label("call_points"),
+                func.array_agg(func.distinct(LLMUsageHourly.llm_type)).label("llm_types"),
+                func.array_agg(func.distinct(LLMUsageHourly.provider)).label("providers"),
+                func.array_agg(func.distinct(LLMUsageHourly.model)).label("models"),
             )
             .where(
                 and_(
@@ -431,6 +436,11 @@ class LLMUsageRepo:
                 "latency_max_ms": float(row.latency_max_ms or 0),
                 "success_count": row.success_count or 0,
                 "failure_count": row.failure_count or 0,
+                "label": ", ".join(sorted(set(row.labels or []))) if row.labels else "",
+                "call_point": ", ".join(sorted(set(row.call_points or []))) if row.call_points else "",
+                "llm_type": ", ".join(sorted(set(row.llm_types or []))) if row.llm_types else "",
+                "provider": ", ".join(sorted(set(row.providers or []))) if row.providers else "",
+                "model": ", ".join(sorted(set(row.models or []))) if row.models else "",
             }
             for row in rows
         ]

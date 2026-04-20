@@ -16,6 +16,17 @@ from core.observability import get_logger
 
 log = get_logger(__name__)
 
+# HTTP status code to ResponseCode mapping
+HTTP_STATUS_TO_RESPONSE_CODE: dict[int, int] = {
+    400: ResponseCode.ERR_INVALID_PARAM,
+    401: ResponseCode.ERR_AUTH_FAILED,
+    403: ResponseCode.ERR_FORBIDDEN,
+    404: ResponseCode.ERR_NOT_FOUND,
+    409: ResponseCode.ERR_CONFLICT,
+    422: ResponseCode.ERR_INVALID_PARAM,
+    503: ResponseCode.ERR_SEARCH_SERVICE_UNAVAILABLE,
+}
+
 
 def _build_error_response(code: int, message: str, details: Any = None) -> dict[str, Any]:
     """构建错误响应体。"""
@@ -79,8 +90,10 @@ def register_exception_handlers(app: FastAPI) -> None:
         request: Request, exc: StarletteHTTPException
     ) -> JSONResponse:
         """Handle Starlette HTTPException (including 404 route not found)."""
+        code = HTTP_STATUS_TO_RESPONSE_CODE.get(exc.status_code, ResponseCode.ERR_INTERNAL)
+
         body = _build_error_response(
-            code=exc.status_code * 100 + 1,  # e.g. 40401, 40001
+            code=code,
             message=str(exc.detail) if exc.detail else f"HTTP {exc.status_code}",
         )
         return JSONResponse(status_code=exc.status_code, content=body)
@@ -88,8 +101,10 @@ def register_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(HTTPException)
     async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
         """将 HTTPException 映射为统一错误响应。"""
+        code = HTTP_STATUS_TO_RESPONSE_CODE.get(exc.status_code, ResponseCode.ERR_INTERNAL)
+
         body = _build_error_response(
-            code=exc.status_code * 100 + 1,  # e.g. 40401, 40001
+            code=code,
             message=str(exc.detail) if exc.detail else f"HTTP {exc.status_code}",
         )
         return JSONResponse(status_code=exc.status_code, content=body)

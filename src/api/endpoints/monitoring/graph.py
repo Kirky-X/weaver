@@ -24,6 +24,21 @@ router = APIRouter(prefix="/monitoring/graph", tags=["monitoring", "graph"])
 GRAPH_METRICS_FULL_CACHE_KEY = "cache:graph_metrics:full"
 GRAPH_METRICS_CACHE_TTL = 300  # 5 minutes
 
+# Relationship type mapping: English -> Chinese
+RELATION_TYPE_ZH = {
+    "WORKS_AT": "工作于",
+    "PUBLISHES": "发布",
+    "CONTROLS": "控制",
+    "PARTICIPATES_IN": "参与",
+    "SUPPORTS": "支持",
+    "LOCATED_IN": "位于",
+    "COMPETES_WITH": "竞争",
+    "PARTNERS_WITH": "合作",
+    "SUPPLIES": "供应",
+    "AFFILIATED_WITH": "关联",
+    "INFLUENCES": "影响",
+}
+
 
 # ── Response Models ─────────────────────────────────────────────
 
@@ -161,6 +176,14 @@ async def _get_full_view(
     result = await metrics.calculate_all_metrics(include=include_set)
 
     # Build response
+    # Translate relationship types to Chinese
+    raw_rel_types = (
+        result.relationship_type_distribution
+        if _should_include("distributions", include_set)
+        else {}
+    )
+    translated_rel_types = {RELATION_TYPE_ZH.get(k, k): v for k, v in raw_rel_types.items()}
+
     response_data = GraphMetricsResponse(
         total_entities=result.total_entities,
         total_articles=result.total_articles,
@@ -177,11 +200,7 @@ async def _get_full_view(
         entity_type_distribution=(
             result.entity_type_distribution if _should_include("distributions", include_set) else {}
         ),
-        relationship_type_distribution=(
-            result.relationship_type_distribution
-            if _should_include("distributions", include_set)
-            else {}
-        ),
+        relationship_type_distribution=translated_rel_types,
         computed_at=result.computed_at.isoformat(),
     )
 

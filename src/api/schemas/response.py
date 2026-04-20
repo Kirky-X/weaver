@@ -18,6 +18,7 @@ class APIResponse(BaseModel, Generic[T]):
         code: Response code (0 for success).
         message: Response message.
         data: Response payload.
+        warning: Optional warning message for partial success or degraded mode.
         timestamp: Response timestamp.
 
     """
@@ -25,6 +26,7 @@ class APIResponse(BaseModel, Generic[T]):
     code: int = Field(default=0, description="Response code, 0 for success")
     message: str = Field(default="success", description="Response message")
     data: T | None = Field(default=None, description="Response payload")
+    warning: str | None = Field(default=None, description="Optional warning message")
     timestamp: datetime = Field(
         default_factory=datetime.now,
         description="Response timestamp",
@@ -131,12 +133,13 @@ class ResponseCode:
 # ── 响应构造工具函数 ───────────────────────────────────────────────
 
 
-def success_response[T](data: T, message: str | None = None) -> APIResponse[T]:
+def success_response[T](data: T, message: str | None = None, warning: str | None = None) -> APIResponse[T]:
     """Construct a success response.
 
     Args:
         data: Response data.
         message: Optional custom message (defaults to "success").
+        warning: Optional warning message for degraded mode or notices.
 
     Returns:
         APIResponse with success status.
@@ -146,6 +149,7 @@ def success_response[T](data: T, message: str | None = None) -> APIResponse[T]:
         code=ResponseCode.SUCCESS,
         message=message or "success",
         data=data,
+        warning=warning,
     )
 
 

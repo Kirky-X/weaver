@@ -38,7 +38,7 @@ class LadybugPool:
 
     def __init__(
         self,
-        db_path: str = "data/ladybug.db",
+        db_path: str = "data/weaver.lbug",
         max_db_size: int | None = None,
         buffer_pool_size: int | None = None,
     ):

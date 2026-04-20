@@ -346,7 +346,18 @@ class DRIFTSearchEngine:
         return questions[:3]  # Max 3 questions
 
     def _extract_answer(self, text: str) -> str:
-        """Extract the answer portion from LLM response."""
+        """Extract the answer portion from LLM response.
+
+        Handles both plain text and JSON-formatted responses (with markdown blocks).
+        """
+        # Try to parse as JSON first (handles markdown code blocks)
+        try:
+            parsed = parse_llm_json(text)
+            if isinstance(parsed, dict) and "answer" in parsed:
+                return parsed["answer"]
+        except (ValueError, Exception):
+            pass  # Fall through to text extraction
+
         # Split at follow-up questions section
         markers = ["后续问题", "follow-up", "问题：", "questions"]
         for marker in markers:

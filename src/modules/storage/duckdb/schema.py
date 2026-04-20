@@ -148,7 +148,8 @@ SCHEMA_QUERIES = [
         latency_max_ms DOUBLE,
         success_count INTEGER DEFAULT 0,
         failure_count INTEGER DEFAULT 0,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        UNIQUE(time_bucket, label, call_point)
     )""",
     # ── Relation Types ──────────────────────────────────────────
     """CREATE TABLE IF NOT EXISTS relation_types (

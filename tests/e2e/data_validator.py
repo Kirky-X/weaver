@@ -3,7 +3,7 @@
 
 Validates API responses against the original data in:
 - data/weaver.duckdb (DuckDB database)
-- data/ladybug.db (Ladybug graph database)
+- data/weaver.lbug (Ladybug graph database)
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ class DataValidator:
         """
         self.data_dir = Path(data_dir)
         self.duckdb_path = self.data_dir / "weaver.duckdb"
-        self.ladybug_path = self.data_dir / "ladybug.db"
+        self.ladybug_path = self.data_dir / "weaver.lbug"
         self.validation_results: list[dict[str, Any]] = []
 
     def validate_sources_response(self, response_data: dict[str, Any]) -> dict[str, Any]:

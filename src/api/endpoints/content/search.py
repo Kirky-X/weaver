@@ -33,6 +33,12 @@ router = APIRouter(prefix="/search", tags=["search"])
 # ── Request/Response Models ─────────────────────────────────────
 
 
+class SearchQuery(BaseModel):
+    """Request model for search queries."""
+
+    q: str = Query(..., min_length=1, description="Search query")
+
+
 class SearchResponse(BaseModel):
     """Unified response model for all search endpoints."""
 
@@ -445,12 +451,20 @@ class CausalSearchRequest(BaseModel):
     """Minimum confidence for causal edges."""
 
 
+class CausalChainEntry(BaseModel):
+    """Single entry in a causal chain."""
+
+    id: str
+    content: str
+    score: RoundedFloat
+
+
 class CausalSearchResponse(BaseModel):
     """Response model for causal search."""
 
     query: str
     answer: str
-    causal_chain: list[dict[str, Any]]
+    causal_chain: list[CausalChainEntry]
     confidence: RoundedFloat
     metadata: dict[str, Any]
 
@@ -558,17 +572,17 @@ async def search_causal(
 
         # Build causal chain from results
         causal_chain = [
-            {
-                "id": r["id"],
-                "content": r.get("content", ""),
-                "score": r.get("score", 0),
-            }
+            CausalChainEntry(
+                id=r["id"],
+                content=r.get("content", ""),
+                score=r.get("score", 0),
+            )
             for r in results
         ]
 
         # Generate semantic answer using LLM
         if causal_chain:
-            chain_content = "\n".join([f"- {e['content']}" for e in causal_chain[:5]])
+            chain_content = "\n".join([f"- {e.content}" for e in causal_chain[:5]])
             prompt = f"""基于以下因果链事件，简洁回答"{body.query}"：
 
 {chain_content}
@@ -582,11 +596,9 @@ async def search_causal(
             answer = f'未找到与 "{body.query}" 相关的因果事件。可能数据库中缺少相关数据。'
 
         # Filter out empty-content entries for confidence calculation
-        valid_results = [r for r in results if r.get("content", "").strip()]
+        valid_entries = [e for e in causal_chain if e.content.strip()]
         confidence = (
-            sum(r.get("score", 0) for r in valid_results) / len(valid_results)
-            if valid_results
-            else 0.0
+            sum(e.score for e in valid_entries) / len(valid_entries) if valid_entries else 0.0
         )
 
         return success_response(

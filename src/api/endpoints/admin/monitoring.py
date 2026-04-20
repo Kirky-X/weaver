@@ -84,7 +84,7 @@ async def get_index_usage(
     if container.relational_pool_type != "postgresql":
         return success_response(
             [],
-            message="Index statistics only available for PostgreSQL",
+            warning="Index statistics only available for PostgreSQL",
         )
 
     assert isinstance(pool, PostgresPool)
@@ -143,7 +143,7 @@ async def get_table_stats(
     if container.relational_pool_type != "postgresql":
         return success_response(
             [],
-            message="Table statistics only available for PostgreSQL",
+            warning="Table statistics only available for PostgreSQL",
         )
 
     assert isinstance(pool, PostgresPool)
@@ -216,7 +216,7 @@ async def get_pool_stats(
     # DuckDB doesn't have connection pool
     return success_response(
         PoolStats(pool_size=1, checked_in=1, checked_out=0, overflow=0),
-        message="DuckDB uses single connection, no pool statistics",
+        warning="DuckDB uses single connection, no pool statistics",
     )
 
 
@@ -244,7 +244,7 @@ async def get_slow_queries(
     if container.relational_pool_type != "postgresql":
         return success_response(
             {"slow_queries": []},
-            message="Slow query statistics only available for PostgreSQL",
+            warning="Slow query statistics only available for PostgreSQL",
         )
 
     assert isinstance(pool, PostgresPool)
@@ -283,5 +283,5 @@ async def get_slow_queries(
     except Exception as exc:
         return success_response(
             {"slow_queries": [], "error": str(exc)},
-            message="pg_stat_statements not available. Enable with: CREATE EXTENSION pg_stat_statements;",
+            warning="pg_stat_statements not available. Enable with: CREATE EXTENSION pg_stat_statements;",
         )

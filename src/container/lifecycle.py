@@ -117,7 +117,8 @@ class ContainerLifecycleMixin:
 
             from core.llm.config.live_config import LiveConfig
 
-            project_root = Path(__file__).parent.parent
+            # Fix: project_root should be Weaver root (src's parent), not src directory
+            project_root = Path(__file__).parent.parent.parent
             llm_toml_path = project_root / "config" / "llm.toml"
             self._live_config = LiveConfig(config_path=llm_toml_path)
             log.info("llm_live_config_initialized", path=str(llm_toml_path))
@@ -397,6 +398,41 @@ class ContainerLifecycleMixin:
                 max_instances=1,
                 coalesce=True,
             )
+        else:
+            # LadybugDB fallback: use detector directly
+            graph_pool = self.graph_pool()
+            if graph_pool is not None:
+                from modules.knowledge.graph.community.detector import CommunityDetector
+                from core.db.graph_query_builders import GraphDatabaseType
+
+                detector = CommunityDetector(
+                    pool=graph_pool,
+                    max_cluster_size=10,
+                    database_type=GraphDatabaseType.LADYBUG,
+                    llm_client=self.llm_client(),
+                )
+
+                async def _ladybug_community_check() -> dict[str, object]:
+                    try:
+                        result = await detector.rebuild_communities()
+                        log.info(
+                            "ladybug_community_detection_complete",
+                            communities=result.total_communities,
+                            modularity=result.modularity,
+                        )
+                        return {"communities": result.total_communities}
+                    except Exception as exc:
+                        log.error("ladybug_community_detection_failed", error=str(exc))
+                        return {"error": str(exc)}
+
+                scheduler.add_job(
+                    _ladybug_community_check,
+                    IntervalTrigger(minutes=settings.community_check_interval_minutes),
+                    id="community_auto_check",
+                    name="LadybugDB community detection",
+                    max_instances=1,
+                    coalesce=True,
+                )
 
         # Community Health Check
         if self.graph_pool() is not None:
@@ -700,17 +736,22 @@ class ContainerLifecycleMixin:
                 await self._llm_usage_buffer.accumulate(event)
 
         async def _handle_llm_usage_raw(event: LLMUsageEvent) -> None:
-            from core.db.duckdb_pool import DuckDBPool
-            from modules.storage.duckdb import DuckDBLLMUsageRepo
+            try:
+                from core.db.duckdb_pool import DuckDBPool
+                from modules.storage.duckdb import DuckDBLLMUsageRepo
 
-            pool = self.relational_pool()
-            if isinstance(pool, DuckDBPool):
-                repo = DuckDBLLMUsageRepo(pool)
-            else:
-                from modules.analytics import LLMUsageRepo
+                pool = self.relational_pool()
+                if isinstance(pool, DuckDBPool):
+                    repo = DuckDBLLMUsageRepo(pool)
+                else:
+                    from modules.analytics import LLMUsageRepo
 
-                repo = LLMUsageRepo(pool)
-            await repo.insert_raw(event)
+                    repo = LLMUsageRepo(pool)
+                await repo.insert_raw(event)
+            except Exception as e:
+                log.error(
+                    "llm_usage_raw_insert_failed", error=str(e), label=event.label, exc_info=True
+                )
 
         self._event_bus.subscribe(LLMUsageEvent, _handle_llm_usage_buffer)
         self._event_bus.subscribe(LLMUsageEvent, _handle_llm_usage_raw)

@@ -195,13 +195,31 @@ class GlobalSearchEngine:
                 communities,
                 key=lambda c: c.similarity_score,
                 reverse=True,
-            )[
-                :3
-            ]  # Limit to top 3 communities for faster response
+            )[:3]
+
+            # Skip LLM calls when all communities have very low relevance
+            sorted_communities = [c for c in sorted_communities if c.similarity_score >= 0.15]
 
             intermediate_answers = []
             total_tokens = 0
             community_weights = []
+
+            # Early return when no community passes relevance threshold
+            if not sorted_communities:
+                return SearchResult(
+                    query=query,
+                    answer="未找到与查询相关的社区信息。",
+                    context_tokens=0,
+                    sources=[],
+                    entities=[],
+                    confidence=0.0,
+                    metadata={
+                        "search_type": SearchMode.GLOBAL.value,
+                        "communities": 0,
+                        "llm_used": False,
+                        "low_relevance_skip": True,
+                    },
+                )
 
             # Parallel LLM calls with semaphore for rate limiting and timeout
             semaphore = asyncio.Semaphore(3)  # Reduced concurrent LLM calls

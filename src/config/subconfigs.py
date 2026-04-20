@@ -75,7 +75,7 @@ class LadybugSettings(BaseModel):
     """
 
     enabled: bool = True
-    db_path: str = "data/ladybug.db"
+    db_path: str = "data/weaver.lbug"
 
 
 class RedisSettings(BaseModel):

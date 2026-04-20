@@ -30,12 +30,14 @@ class SourceAuthorityRepo:
         self,
         host: str,
         auto_score: float | None = None,
+        description: str | None = None,
     ) -> SourceAuthority:
         """Get existing authority or create a new entry with defaults.
 
         Args:
             host: Source hostname.
             auto_score: Optional auto-computed score.
+            description: Optional description (defaults to host if not provided).
 
         Returns:
             SourceAuthority record.
@@ -47,17 +49,20 @@ class SourceAuthorityRepo:
             authority = result.scalar_one_or_none()
 
             if authority is None:
+                # Use host as default description if not provided
+                default_desc = description or host
                 authority = SourceAuthority(
                     host=host,
                     authority=0.50,
                     tier=3,
+                    description=default_desc,
                     needs_review=True,
                     auto_score=auto_score,
                 )
                 session.add(authority)
                 await session.commit()
                 await session.refresh(authority)
-                log.info("source_authority_created", host=host)
+                log.info("source_authority_created", host=host, description=default_desc)
 
             return authority
 

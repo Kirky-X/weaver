@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from api.dependencies import get_source_config_repo, get_source_scheduler
 from api.middleware.auth import verify_admin_api_key, verify_api_key
@@ -232,7 +233,13 @@ async def create_source(
         credibility=request.credibility,
         tier=request.tier,
     )
-    saved = await repo.upsert(config)
+    try:
+        saved = await repo.upsert(config)
+    except (IntegrityError, OperationalError):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Source with id '{request.id}' already exists",
+        )
 
     # Add to in-memory registry so scheduler can find it
     scheduler._registry.add_source(saved)
