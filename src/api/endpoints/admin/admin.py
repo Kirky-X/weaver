@@ -285,18 +285,27 @@ async def trigger_pipeline(
     # Trigger the source scheduler to crawl
     try:
         if request.source_id:
-            await scheduler.trigger_now(
-                request.source_id, max_items=request.max_items, task_id=uuid.UUID(task_id)
+            await asyncio.wait_for(
+                scheduler.trigger_now(
+                    request.source_id,
+                    max_items=request.max_items,
+                    task_id=uuid.UUID(task_id),
+                    force=request.force,
+                ),
+                timeout=300.0,
             )
         else:
             sources = scheduler.list_enabled_sources()
             tasks = [
                 scheduler.trigger_now(
-                    source.id, max_items=request.max_items, task_id=uuid.UUID(task_id)
+                    source.id,
+                    max_items=request.max_items,
+                    task_id=uuid.UUID(task_id),
+                    force=request.force,
                 )
                 for source in sources
             ]
-            await asyncio.gather(*tasks, return_exceptions=True)
+            await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), timeout=300.0)
 
         # Update task status to completed
         await cache.hset(
@@ -312,6 +321,27 @@ async def trigger_pipeline(
                     "completed_at": datetime.now(UTC).isoformat(),
                 }
             ),
+        )
+
+    except TimeoutError:
+        # Update task status to failed due to timeout
+        await cache.hset(
+            TASK_STATUS_KEY,
+            task_id,
+            json.dumps(
+                {
+                    "task_id": task_id,
+                    "status": PipelineTaskStatus.FAILED.value,
+                    "source_id": request.source_id,
+                    "queued_at": now,
+                    "started_at": now,
+                    "error": "Pipeline execution timed out after 300 seconds",
+                }
+            ),
+        )
+        raise HTTPException(
+            status_code=504,
+            detail="Pipeline execution timed out",
         )
 
     except Exception as exc:

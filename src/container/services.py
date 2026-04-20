@@ -124,8 +124,14 @@ class ContainerServicesMixin:
 
         if self._source_scheduler is None:
             # Default callback - can be overridden
-            async def default_callback(items: Any, source: Any) -> None:
-                log.info("items_discovered", count=len(items), source=source.id)
+            async def default_callback(
+                items: Any,
+                source: Any,
+                max_items: int | None = None,
+                task_id: Any = None,
+                force: bool = False,
+            ) -> None:
+                log.info("items_discovered", count=len(items), source=source.id, force=force)
 
             registry = self.source_registry()
             # Bridge DB sources into the in-memory registry so the scheduler
@@ -368,9 +374,10 @@ class ContainerServicesMixin:
         return self._entity_resolver
 
     def community_updater(self) -> IncrementalCommunityUpdater | None:
-        """Get community updater (or None if Neo4j unavailable)."""
-        if self._strategy is None or self._strategy.graph_type != "neo4j":
+        """Get community updater (works with Neo4j or LadybugDB)."""
+        if self._strategy is None:
             return None
+        # Community detection works with both Neo4j and LadybugDB
         if self._community_updater is None:
             from modules.knowledge.graph.community.updater import IncrementalCommunityUpdater
 
