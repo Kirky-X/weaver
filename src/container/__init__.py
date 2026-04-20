@@ -95,6 +95,7 @@ class Container(
         self._causal_inference_service: Any = None
         self._processing_queue: Any = None
         self._pipeline_worker: Any = None
+        self._llm_usage_repo: Any = None
 
     def configure(self, settings: Settings) -> Container:
         """Configure the container with settings."""
