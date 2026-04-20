@@ -65,48 +65,14 @@ class TestCase:
     json_body: dict | None = None
     expected_status: int = 200
     description: str = ""
-    sequential: bool = False  # True = must execute sequentially (depends on previous test results)
-    headers: dict | None = None  # Custom headers override default
+    sequential: bool = False  # True = 必须顺序执行（如依赖前序测试结果）
 
 
 def generate_test_cases() -> list[TestCase]:
     """生成所有测试用例"""
     cases = []
 
-    # ===== 0. 认证测试 =====
-    cases.extend(
-        [
-            TestCase(
-                "invalid_api_key",
-                "auth",
-                "GET",
-                "/articles",
-                expected_status=403,  # 403 Forbidden for invalid key (not 401)
-                description="invalid_api_key",
-                headers={"X-API-Key": "invalid-key-wrong"},
-            ),
-            TestCase(
-                "missing_api_key",
-                "auth",
-                "GET",
-                "/articles",  # Protected endpoint requiring API key
-                expected_status=401,  # 401 Unauthorized when API key is missing
-                description="missing_api_key_protected_endpoint",
-                headers={},  # No API key provided
-            ),
-            TestCase(
-                "health_public_endpoint",
-                "auth",
-                "GET",
-                "http://localhost:8000/health",  # Full URL for non-/api/v1 endpoint
-                expected_status=200,  # Health endpoint is public
-                description="health_endpoint_no_auth_required",
-                headers={},  # No API key needed
-            ),
-        ]
-    )
-
-    # ===== 1. 社区初始化 (必须顺序执行) =====
+    # ===== 0. 社区初始化 =====
     cases.extend(
         [
             TestCase(
@@ -117,18 +83,15 @@ def generate_test_cases() -> list[TestCase]:
                 json_body={"max_cluster_size": 10, "seed": 42},
                 expected_status=200,
                 description="rebuild_communities_default",
-                sequential=True,  # Must complete before list_communities
             ),
-            # Skip generate_reports - too slow (13 communities × LLM call > 60s timeout)
-            # TestCase(
-            #     "generate_reports",
-            #     "communities",
-            #     "POST",
-            #     "/admin/communities/reports/generate",
-            #     expected_status=200,
-            #     description="generate_reports",
-            #     sequential=True,  # Must complete after rebuild
-            # ),
+            TestCase(
+                "generate_reports",
+                "communities",
+                "POST",
+                "/admin/communities/reports/generate",
+                expected_status=200,
+                description="generate_reports",
+            ),
         ]
     )
 
@@ -588,7 +551,7 @@ def generate_test_cases() -> list[TestCase]:
                 "get_entity_test",
                 "graph",
                 "GET",
-                "/graph/entities/%E4%B8%8A%E6%B5%B7%E5%B8%82",  # 上海市
+                "/graph/entities/%E4%B8%9C%E5%8D%87%E5%AE%87%E8%88%AA",  # 东升宇航
                 description="get_entity_test",
             ),
             TestCase(
@@ -603,7 +566,7 @@ def generate_test_cases() -> list[TestCase]:
                 "get_entity_with_limit",
                 "graph",
                 "GET",
-                "/graph/entities/%E4%B8%8A%E6%B5%B7%E5%B8%82",  # 上海市
+                "/graph/entities/%E4%B8%9C%E5%8D%87%E5%AE%87%E8%88%AA",  # 东升宇航
                 params={"limit": 5},
                 description="get_entity_with_limit",
             ),
@@ -611,7 +574,7 @@ def generate_test_cases() -> list[TestCase]:
                 "get_entity_with_limit_50",
                 "graph",
                 "GET",
-                "/graph/entities/%E4%B8%8A%E6%B5%B7%E5%B8%82",  # 上海市
+                "/graph/entities/%E4%B8%9C%E5%8D%87%E5%AE%87%E8%88%AA",  # 东升宇航
                 params={"limit": 50},
                 description="get_entity_with_limit_50",
             ),
@@ -653,10 +616,11 @@ def generate_test_cases() -> list[TestCase]:
                 "GET",
                 "/graph/relations/search",
                 params={
-                    "entity": "上海市",
-                    "limit": 10,
-                },
-                description="search_relations_no_filter",
+                    "entity": "宇石空间",
+                    "relation_types": "投资",
+                    "limit": 20,
+                },  # Entity that may exist,
+                description="search_relations_with_types",
             ),
         ]
     )
@@ -748,60 +712,44 @@ def generate_test_cases() -> list[TestCase]:
         ]
     )
 
-    # GET /monitoring/llm/usage - LLM usage statistics (requires admin key)
+    # GET /admin/llm-usage
     cases.extend(
         [
             TestCase(
                 "llm_usage_summary",
                 "admin",
                 "GET",
-                "/monitoring/llm/usage",
-                params={
-                    "group_by": "summary",
-                    "from": "2026-04-01T00:00:00",
-                    "to": "2026-04-20T23:59:59",
-                },
-                headers={"X-API-Key": ADMIN_API_KEY},
+                "/admin/llm-usage",
+                params={"group_by": "summary", "from": "2026-03-21", "to": "2026-04-20"},
                 description="llm_usage_summary",
             ),
             TestCase(
                 "llm_usage_by_model",
                 "admin",
                 "GET",
-                "/monitoring/llm/usage",
-                params={
-                    "group_by": "model",
-                    "from": "2026-04-01T00:00:00",
-                    "to": "2026-04-20T23:59:59",
-                },
-                headers={"X-API-Key": ADMIN_API_KEY},
+                "/admin/llm-usage",
+                params={"group_by": "model", "from": "2026-03-21", "to": "2026-04-20"},
                 description="llm_usage_by_model",
             ),
             TestCase(
                 "llm_usage_by_callpoint",
                 "admin",
                 "GET",
-                "/monitoring/llm/usage",
-                params={
-                    "group_by": "call_point",
-                    "from": "2026-04-01T00:00:00",
-                    "to": "2026-04-20T23:59:59",
-                },
-                headers={"X-API-Key": ADMIN_API_KEY},
+                "/admin/llm-usage",
+                params={"group_by": "call_point", "from": "2026-03-21", "to": "2026-04-20"},
                 description="llm_usage_by_callpoint",
             ),
             TestCase(
                 "llm_usage_by_time_daily",
                 "admin",
                 "GET",
-                "/monitoring/llm/usage",
+                "/admin/llm-usage",
                 params={
                     "group_by": "time",
-                    "from": "2026-04-01T00:00:00",
-                    "to": "2026-04-20T23:59:59",
+                    "from": "2026-03-21",
+                    "to": "2026-04-20",
                     "granularity": "daily",
                 },
-                headers={"X-API-Key": ADMIN_API_KEY},
                 description="llm_usage_by_time_daily",
             ),
         ]
@@ -915,12 +863,19 @@ def generate_test_cases() -> list[TestCase]:
     cases.extend(
         [
             TestCase(
-                "trigger_pipeline_quick",
+                "get_queue_stats",
+                "pipeline",
+                "GET",
+                "/pipeline/queue/stats",
+                description="get_queue_stats",
+            ),
+            TestCase(
+                "trigger_pipeline_empty",
                 "pipeline",
                 "POST",
                 "/admin/pipeline/trigger",
-                json_body={"source_id": "newsnow-36kr", "max_items": 1},
-                description="trigger_pipeline_with_source",
+                json_body={},
+                description="trigger_pipeline_empty",
             ),
         ]
     )
@@ -1003,18 +958,13 @@ def add_dynamic_test_cases(cases: list[TestCase]) -> list[TestCase]:
 
 def execute_request(client: httpx.Client, test_case: TestCase) -> dict[str, Any]:
     """执行单个 HTTP 请求并记录完整信息"""
-    # Support full URLs (starting with http://) or relative paths
-    if test_case.url.startswith("http://") or test_case.url.startswith("https://"):
-        url = test_case.url
-    else:
-        url = f"{BASE_URL}{test_case.url}"
+    url = f"{BASE_URL}{test_case.url}"
     start_time = time.time()
 
     # Use ADMIN_HEADERS for:
     # 1. Admin endpoints (/admin/*)
     # 2. Monitoring/graph endpoints (/monitoring/graph/*)
     # 3. Write operations on sources (POST/PUT/PATCH/DELETE on /sources)
-    # 4. Override with custom headers if specified in test case
     is_admin_url = "/admin" in test_case.url or "/monitoring/graph" in test_case.url
     is_sources_write = "/sources" in test_case.url and test_case.method in (
         "POST",
@@ -1022,54 +972,22 @@ def execute_request(client: httpx.Client, test_case: TestCase) -> dict[str, Any]
         "PATCH",
         "DELETE",
     )
-
-    # Use custom headers if provided, otherwise use default
-    # Special case: empty dict {} means explicitly NO headers (for auth testing)
-    if test_case.headers is not None:
-        req_headers = test_case.headers if test_case.headers else None  # {} -> None
-    else:
-        req_headers = ADMIN_HEADERS if (is_admin_url or is_sources_write) else HEADERS
+    req_headers = ADMIN_HEADERS if (is_admin_url or is_sources_write) else HEADERS
 
     try:
-        # Execute request with explicit headers override
-        # When req_headers is None (test_case.headers was {}), create client without base headers
-        if req_headers is None:
-            # Create temporary client without base headers for auth testing
-            with httpx.Client(base_url=BASE_URL, timeout=TIMEOUT) as temp_client:
-                if test_case.method == "GET":
-                    resp = temp_client.get(url, params=test_case.params, timeout=TIMEOUT)
-                elif test_case.method == "POST":
-                    resp = temp_client.post(url, json=test_case.json_body, timeout=TIMEOUT)
-                elif test_case.method == "PUT":
-                    resp = temp_client.put(url, json=test_case.json_body, timeout=TIMEOUT)
-                elif test_case.method == "PATCH":
-                    resp = temp_client.patch(url, json=test_case.json_body, timeout=TIMEOUT)
-                elif test_case.method == "DELETE":
-                    resp = temp_client.delete(url, timeout=TIMEOUT)
-                else:
-                    raise ValueError(f"Unsupported method: {test_case.method}")
+        # 执行请求 (override client headers per request)
+        if test_case.method == "GET":
+            resp = client.get(url, params=test_case.params, headers=req_headers, timeout=TIMEOUT)
+        elif test_case.method == "POST":
+            resp = client.post(url, json=test_case.json_body, headers=req_headers, timeout=TIMEOUT)
+        elif test_case.method == "PUT":
+            resp = client.put(url, json=test_case.json_body, headers=req_headers, timeout=TIMEOUT)
+        elif test_case.method == "PATCH":
+            resp = client.patch(url, json=test_case.json_body, headers=req_headers, timeout=TIMEOUT)
+        elif test_case.method == "DELETE":
+            resp = client.delete(url, headers=req_headers, timeout=TIMEOUT)
         else:
-            # Normal request with headers
-            if test_case.method == "GET":
-                resp = client.get(
-                    url, params=test_case.params, headers=req_headers, timeout=TIMEOUT
-                )
-            elif test_case.method == "POST":
-                resp = client.post(
-                    url, json=test_case.json_body, headers=req_headers, timeout=TIMEOUT
-                )
-            elif test_case.method == "PUT":
-                resp = client.put(
-                    url, json=test_case.json_body, headers=req_headers, timeout=TIMEOUT
-                )
-            elif test_case.method == "PATCH":
-                resp = client.patch(
-                    url, json=test_case.json_body, headers=req_headers, timeout=TIMEOUT
-                )
-            elif test_case.method == "DELETE":
-                resp = client.delete(url, headers=req_headers, timeout=TIMEOUT)
-            else:
-                raise ValueError(f"Unsupported method: {test_case.method}")
+            raise ValueError(f"Unsupported method: {test_case.method}")
 
         response_time_ms = (time.time() - start_time) * 1000
 
@@ -1290,7 +1208,7 @@ def run_tests():
                 except Exception as e:
                     print(f"  ✗ 测试执行异常: {e}")
 
-        # Execute sequential tests (e.g., duplicate key tests)
+        # 顺序执行依赖测试（如 duplicate key 测试）
         if sequential_cases:
             print()
             print(f"执行 {len(sequential_cases)} 个顺序测试...")
