@@ -153,7 +153,7 @@ class TestFlashrankInitRanker:
 
         with patch(
             "modules.knowledge.search.rerankers.flashrank_reranker.FlashrankReranker.MODELS",
-            {"tiny": "flashrank-Tiny"},
+            {"tiny": "ms-marco-TinyBERT-L-2-v2"},
         ):
             # Simulate Ranker constructor raising
             import builtins
@@ -468,7 +468,7 @@ class TestFlashrankHelpers:
         info = reranker.get_model_info()
 
         assert info["model_name"] == "small"
-        assert info["model_path"] == "flashrank-Small"
+        assert info["model_path"] == "ms-marco-MiniLM-L-12-v2"
         assert "available" in info
         assert "cache_dir" in info
         assert "enabled" in info

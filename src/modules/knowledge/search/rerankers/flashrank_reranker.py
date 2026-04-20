@@ -49,10 +49,10 @@ class FlashrankReranker:
 
     # Available models with their sizes
     MODELS = {
-        "tiny": "flashrank-Tiny",
-        "small": "flashrank-Small",
-        "medium": "flashrank-Medium",
-        "multilingual": "ms-marco-MultiBERT",
+        "tiny": "ms-marco-TinyBERT-L-2-v2",
+        "small": "ms-marco-MiniLM-L-12-v2",
+        "medium": "ce-esci-MiniLM-L12-v2",
+        "multilingual": "ms-marco-MultiBERT-L-12",
     }
 
     def __init__(
