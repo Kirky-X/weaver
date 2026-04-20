@@ -153,6 +153,12 @@ class LadybugWriter:
         # Create entity relationships
         # Format: {"source": "name", "target": "name", "relation_type": "..."}
         relations = state.get("relations", [])
+        log.debug(
+            "ladybug_write_relations_check",
+            article_id=article_id,
+            relations_count=len(relations),
+            relations=relations[:3] if relations else [],  # Log first 3 for debugging
+        )
         if relations:
             for rel in relations:
                 try:
@@ -167,6 +173,15 @@ class LadybugWriter:
                     # Find entity IDs
                     source_id = entity_name_to_id.get(source_name)
                     target_id = entity_name_to_id.get(target_name)
+
+                    log.debug(
+                        "ladybug_relation_lookup",
+                        source_name=source_name,
+                        target_name=target_name,
+                        source_id=source_id,
+                        target_id=target_id,
+                        entity_name_to_id_keys=list(entity_name_to_id.keys())[:5],
+                    )
 
                     # If not in cache, look up in database or create if not exists
                     if not source_id:
@@ -224,6 +239,12 @@ class LadybugWriter:
                         to_entity_id=target_id,
                         edge_type=edge_type,
                         properties={"description": description} if description else {},
+                    )
+                    log.debug(
+                        "ladybug_relation_created",
+                        source_id=source_id,
+                        target_id=target_id,
+                        edge_type=edge_type,
                     )
                 except Exception as exc:
                     log.error(

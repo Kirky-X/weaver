@@ -828,6 +828,10 @@ class Pipeline:
                             )
                 return
 
+        # Debug: check graph_writer availability
+        log.debug(
+            "persist_batch_graph_writer_check", has_graph_writer=self._graph_writer is not None
+        )
         if self._graph_writer:
             for state in valid_states:
                 try:
