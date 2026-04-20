@@ -93,6 +93,8 @@ class Container(
         self._mc_sampler: Any = None
         self._causal_repo: Any = None
         self._causal_inference_service: Any = None
+        self._processing_queue: Any = None
+        self._pipeline_worker: Any = None
 
     def configure(self, settings: Settings) -> Container:
         """Configure the container with settings."""
