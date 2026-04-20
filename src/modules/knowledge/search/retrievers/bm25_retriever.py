@@ -182,6 +182,7 @@ class BM25Retriever:
         self._doc_id_to_idx: dict[str, int] = {}
         self._corpus: list[list[str]] = []  # Tokenized documents for incremental updates
         self._nlp: spacy.Language | None = None
+        self._spacy_load_attempted: bool = False
         self._stemmer: Stemmer.Stemmer | None = None
         self._needs_reindex: bool = False  # Flag to track if index needs rebuilding
 
@@ -206,13 +207,16 @@ class BM25Retriever:
         if self._nlp is not None:
             return
 
+        if self._spacy_load_attempted:
+            return
+
+        self._spacy_load_attempted = True
         model_name = self.SUPPORTED_LANGUAGES.get(self._language, "zh_core_web_lg")
         try:
             self._nlp = spacy.load(model_name, disable=["ner", "parser", "lemmatizer"])
             log.info("spacy_model_loaded", model=model_name)
         except OSError:
             log.warning("spacy_model_not_found", model=model_name, fallback="simple_tokenizer")
-            self._nlp = None
 
     def _tokenize(self, text: str) -> list[str]:
         """Tokenize text using spacy or simple whitespace tokenization.
