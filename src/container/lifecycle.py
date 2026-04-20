@@ -402,8 +402,8 @@ class ContainerLifecycleMixin:
             # LadybugDB fallback: use detector directly
             graph_pool = self.graph_pool()
             if graph_pool is not None:
-                from modules.knowledge.graph.community.detector import CommunityDetector
                 from core.db.graph_query_builders import GraphDatabaseType
+                from modules.knowledge.graph.community.detector import CommunityDetector
 
                 detector = CommunityDetector(
                     pool=graph_pool,
