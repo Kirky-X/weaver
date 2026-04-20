@@ -10,7 +10,7 @@ from typing import Any
 from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.db.models import Article, PersistStatus
+from core.db.models import Article, EmotionType, PersistStatus
 from core.exceptions import InvalidStateTransitionError
 from core.observability.logging import get_logger
 from core.protocols import RelationalPool
@@ -31,6 +31,16 @@ STATE_TO_ARTICLE_FIELDS: dict[str, tuple[str, callable]] = {
     "is_merged": ("is_merged", lambda v: v),
     "prompt_versions": ("prompt_versions", lambda v: v),
 }
+
+
+def _to_emotion(value: str | None) -> EmotionType | None:
+    """Convert string emotion value to EmotionType enum for PostgreSQL ENUM column."""
+    if not value:
+        return None
+    for member in EmotionType:
+        if member.value == value or member.name.lower() == value.lower():
+            return member
+    return None
 
 
 def _apply_state_to_article(article: Article, state: PipelineState) -> None:
@@ -74,7 +84,7 @@ def _apply_state_to_article(article: Article, state: PipelineState) -> None:
         sent = state["sentiment"]
         article.sentiment = sent.get("sentiment")
         article.sentiment_score = sent.get("sentiment_score")
-        article.primary_emotion = sent.get("primary_emotion")
+        article.primary_emotion = _to_emotion(sent.get("primary_emotion"))
         article.emotion_targets = sent.get("emotion_targets")
 
     # Credibility mapping

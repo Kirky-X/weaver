@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.db import Article, PersistStatus
+from core.db import Article, EmotionType, PersistStatus
 from core.exceptions import InvalidStateTransitionError
 from modules.storage.postgres.article_repo import (
     STATE_TO_ARTICLE_FIELDS,
@@ -117,7 +117,7 @@ class TestApplyStateToArticle:
 
         assert article.sentiment == "positive"
         assert article.sentiment_score == 0.8
-        assert article.primary_emotion == "optimistic"
+        assert article.primary_emotion == EmotionType.OPTIMISTIC
         assert article.emotion_targets == ["company", "investors"]
 
     def test_apply_credibility(self):

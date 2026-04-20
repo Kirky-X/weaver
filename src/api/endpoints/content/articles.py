@@ -93,7 +93,7 @@ def _article_to_dict(article: Article) -> dict[str, Any]:
         "score": float(article.score) if article.score else None,
         "sentiment": article.sentiment,
         "sentiment_score": float(article.sentiment_score) if article.sentiment_score else None,
-        "primary_emotion": str(article.primary_emotion) if article.primary_emotion else None,
+        "primary_emotion": article.primary_emotion.value if article.primary_emotion else None,
         "credibility_score": (
             float(article.credibility_score) if article.credibility_score else None
         ),

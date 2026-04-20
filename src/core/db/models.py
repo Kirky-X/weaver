@@ -190,8 +190,13 @@ class Article(Base):
     # Sentiment
     sentiment: Mapped[str | None] = mapped_column(String(10))
     sentiment_score: Mapped[float | None] = mapped_column(Numeric(3, 2))
-    primary_emotion: Mapped[str | None] = mapped_column(
-        String(20),
+    primary_emotion: Mapped[EmotionType | None] = mapped_column(
+        Enum(
+            EmotionType,
+            name="emotion_type",
+            create_type=True,
+            values_callable=lambda x: [e.value for e in x],
+        ),
         nullable=True,
     )
     emotion_targets: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
