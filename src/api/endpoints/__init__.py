@@ -16,8 +16,7 @@ from api.endpoints.content.articles import router as articles_router
 from api.endpoints.content.pipeline import router as pipeline_router
 from api.endpoints.content.search import router as search_router
 from api.endpoints.content.sources import router as sources_router
-from api.endpoints.graph import router as graph_router
-from api.endpoints.graph import visualization_router
+from api.endpoints.graph import router as graph_router, visualization_router
 from api.endpoints.monitoring import (
     causal_router,
     communities_monitoring_router,
