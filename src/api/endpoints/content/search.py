@@ -432,7 +432,7 @@ async def search_drift(
             raise HTTPException(status_code=503, detail="Graph service unavailable")
         if "llm" in str(exc).lower():
             raise HTTPException(status_code=503, detail="LLM service unavailable")
-        raise HTTPException(status_code=500, detail=f"DRIFT search failed: {exc}")
+        raise HTTPException(status_code=500, detail="DRIFT search failed")
 
 
 # ── MAGMA Memory Search Endpoints ─────────────────────────────────

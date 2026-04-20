@@ -127,7 +127,6 @@ class ContainerSearchMixin:
                     )
                 except Exception as exc:
                     log.warning("flashrank_reranker_init_failed", error=str(exc), exc_info=True)
-                    reranker = None
 
             # Initialize MMR reranker
             mmr_reranker = None
@@ -140,7 +139,6 @@ class ContainerSearchMixin:
                     )
                 except Exception as exc:
                     log.warning("mmr_reranker_init_failed", error=str(exc), exc_info=True)
-                    mmr_reranker = None
 
             self._hybrid_engine = HybridSearchEngine(
                 vector_repo=self._vector_repo,

@@ -687,7 +687,9 @@ class SchedulerJobs:
             return synced_count
         except Exception as exc:
             log.error("sync_pending_to_neo4j_error", error=str(exc), exc_info=True)
-            raise
+            # Note: Exception is caught by @scheduled_task decorator and logged.
+            # Returning 0 to indicate no records were synced due to error.
+            return 0
 
     @scheduled_task("consistency_check", timeout_seconds=600)
     async def consistency_check(self) -> dict[str, Any]:

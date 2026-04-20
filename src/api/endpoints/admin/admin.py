@@ -717,7 +717,7 @@ async def memory_diagnostics(
             pending_count = await ms._consolidation_queue.length()
             slow_path_enabled = ms._config.slow_path_enabled
         except Exception as exc:
-            log.warning("memory_diagnostic_query_failed", error=str(exc))
+            log.warning("memory_diagnostic_query_failed", error=str(exc), exc_info=True)
 
     try:
         scheduler = container._scheduler
