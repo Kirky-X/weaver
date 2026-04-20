@@ -8,6 +8,7 @@ import warnings
 from typing import Any
 
 import httpx
+import litellm
 from litellm import acompletion, aembedding, arerank
 from litellm.utils import token_counter
 from openai import AsyncOpenAI
@@ -17,9 +18,18 @@ from core.observability.logging import get_logger
 
 log = get_logger(__name__)
 
-# Suppress LiteLLM Pydantic serialization warnings (internal library issue)
-# These warnings occur when LLM providers return responses with fewer fields
-# than LiteLLM's Pydantic models expect. Does not affect functionality.
+# ============================================================================
+# LiteLLM 全局配置
+# ============================================================================
+
+# 1. Disable LiteLLM telemetry (reduce internal processing)
+litellm.telemetry = False
+
+# 2. Enable drop_params (auto-drop unsupported parameters)
+litellm.drop_params = True
+
+# 3. Suppress Pydantic serialization warnings (LiteLLM internal issue)
+# Reference: https://github.com/BerriAI/litellm/issues/11759
 warnings.filterwarnings(
     "ignore",
     category=UserWarning,
@@ -108,13 +118,32 @@ class LiteLLMCaller:
 
             latency_ms = (time.monotonic() - start_time) * 1000
 
-            content = response.choices[0].message.content or ""
+            # Defensive: safely access response fields
+            if not response.choices:
+                log.warning(
+                    "chat_empty_choices",
+                    model=model,
+                    response_type=type(response).__name__,
+                )
+                raise ValueError(f"LLM response has no choices: {model}")
+
+            choice = response.choices[0]
+            message = getattr(choice, "message", None)
+            if message is None:
+                log.warning(
+                    "chat_no_message",
+                    model=model,
+                    choice_type=type(choice).__name__,
+                )
+                raise ValueError(f"LLM choice has no message: {model}")
+
+            content = getattr(message, "content", None) or ""
 
             if not content:
                 log.warning(
                     "chat_empty_response",
                     model=model,
-                    finish_reason=getattr(response.choices[0], "finish_reason", None),
+                    finish_reason=getattr(choice, "finish_reason", None),
                 )
 
             usage = response.usage
