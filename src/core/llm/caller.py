@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import time
+import warnings
 from typing import Any
 
 import httpx
@@ -15,6 +16,16 @@ from core.llm.types import Label, LLMResponse, LLMType, TokenUsage
 from core.observability.logging import get_logger
 
 log = get_logger(__name__)
+
+# Suppress LiteLLM Pydantic serialization warnings (internal library issue)
+# These warnings occur when LLM providers return responses with fewer fields
+# than LiteLLM's Pydantic models expect. Does not affect functionality.
+warnings.filterwarnings(
+    "ignore",
+    category=UserWarning,
+    module="pydantic.main",
+    message=".*PydanticSerializationUnexpectedValue.*",
+)
 
 # LiteLLM原生支持的rerank provider类型
 LITELLM_RERANK_PROVIDERS = frozenset({"cohere", "huggingface", "jina", "infinity"})
