@@ -16,7 +16,7 @@ from core.observability.logging import get_logger
 from core.resilience.retry import retry_llm
 
 if TYPE_CHECKING:
-    from core.event.bus import EventBus
+    pass
 
 log = get_logger(__name__)
 
@@ -32,7 +32,7 @@ class AllProvidersFailedError(Exception):
         self.labels = labels
         self.last_error = last_error
         super().__init__(
-            f"All providers failed for labels: {[str(lbl) for lbl in labels]}. Last error: {last_error}"
+            f"All providers failed for labels: {[str(lbl) for lbl in labels]}. Last error: {last_error}",
         )
 
 
@@ -51,7 +51,6 @@ class ProviderPool:
         config: ProviderConfig,
         circuit_breaker_threshold: int = 5,
         circuit_breaker_timeout: float = 60.0,
-        event_bus: EventBus | None = None,
     ) -> None:
         """初始化Provider池.
 
@@ -59,7 +58,6 @@ class ProviderPool:
             config: Provider配置
             circuit_breaker_threshold: 熔断器失败阈值
             circuit_breaker_timeout: 熔断器冷却时间
-            event_bus: 可选的EventBus，用于发射LLMUsageEvent
         """
         self.config = config
         self.name = config.name
@@ -210,25 +208,33 @@ class ProviderPool:
         timeout: float,
     ) -> LLMResponse:
         """执行单个请求，带指数退避重试."""
-        # 并发控制 + 速率限制 + 重试
         async with self._semaphore:
-            # Rate limit inside semaphore so token consumed right before request
-            if self._rate_limiter:
-                async with self._rate_limiter:
-                    pass
             last_error: Exception | None = None
             async for attempt in retry_llm(max_attempts=3, min_wait=2.0, max_wait=30.0):
                 with attempt:
                     try:
-                        response = await self._circuit_breaker.call(
-                            self._caller.call,
-                            label=label,
-                            provider_type=self.config.type,
-                            api_key=self.config.api_key,
-                            api_base=self.config.base_url,
-                            payload=payload,
-                            timeout=timeout,
-                        )
+                        # Rate limiter must wrap the actual call, not just pass
+                        if self._rate_limiter:
+                            async with self._rate_limiter:
+                                response = await self._circuit_breaker.call(
+                                    self._caller.call,
+                                    label=label,
+                                    provider_type=self.config.type,
+                                    api_key=self.config.api_key,
+                                    api_base=self.config.base_url,
+                                    payload=payload,
+                                    timeout=timeout,
+                                )
+                        else:
+                            response = await self._circuit_breaker.call(
+                                self._caller.call,
+                                label=label,
+                                provider_type=self.config.type,
+                                api_key=self.config.api_key,
+                                api_base=self.config.base_url,
+                                payload=payload,
+                                timeout=timeout,
+                            )
 
                         await self._metrics.record_success(response.latency_ms)
                         return response
