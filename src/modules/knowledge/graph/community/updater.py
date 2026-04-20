@@ -106,6 +106,7 @@ class IncrementalCommunityUpdater:
         max_subgraph_size: int = 2000,
         full_rebuild_interval_days: int = 7,
         llm_client: LLMClient | None = None,
+        database_type: str | None = None,
     ) -> None:
         self._pool = pool
         self.update_threshold = update_threshold
@@ -113,6 +114,12 @@ class IncrementalCommunityUpdater:
         self.max_subgraph_size = max_subgraph_size
         self.full_rebuild_interval_days = full_rebuild_interval_days
         self._llm = llm_client
+        # Detect database type from pool if not provided
+        if database_type is None:
+            pool_type = type(pool).__name__
+            self._database_type = "ladybug" if pool_type == "LadybugPool" else "neo4j"
+        else:
+            self._database_type = database_type
 
     async def should_trigger(
         self,
@@ -620,9 +627,15 @@ class IncrementalCommunityUpdater:
         result.modularity_before = await self._calculate_modularity()
 
         # Delegate to CommunityDetector for Leiden-based rebuild
+        from core.db.graph_query_builders import GraphDatabaseType
         from modules.knowledge.graph.community.detector import CommunityDetector
 
-        detector = CommunityDetector(pool=self._pool, llm_client=self._llm)
+        db_type = (
+            GraphDatabaseType.LADYBUG
+            if self._database_type == "ladybug"
+            else GraphDatabaseType.NEO4J
+        )
+        detector = CommunityDetector(pool=self._pool, llm_client=self._llm, database_type=db_type)
         detection_result = await detector.rebuild_communities()
 
         result.communities_created = detection_result.total_communities
