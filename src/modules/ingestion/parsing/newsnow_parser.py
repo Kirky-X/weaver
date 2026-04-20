@@ -31,11 +31,12 @@ class NewsNowParser(BaseSourceParser):
     def __init__(self, fetcher: BaseFetcher) -> None:
         self._fetcher = fetcher
 
-    async def parse(self, config: SourceConfig) -> list[NewsItem]:
+    async def parse(self, config: SourceConfig, force: bool = False) -> list[NewsItem]:
         """Fetch and parse NewsNow API response.
 
         Args:
             config: Source configuration with API URL.
+            force: Force re-fetch (ignored for API sources, no incremental state).
 
         Returns:
             List of new NewsItem objects.

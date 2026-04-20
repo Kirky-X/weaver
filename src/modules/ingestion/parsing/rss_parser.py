@@ -40,7 +40,7 @@ class RSSParser(BaseSourceParser):
     def __init__(self, fetcher: BaseFetcher) -> None:
         self._fetcher = fetcher
 
-    async def parse(self, config: SourceConfig) -> list[NewsItem]:
+    async def parse(self, config: SourceConfig, force: bool = False) -> list[NewsItem]:
         """Fetch and parse an RSS/Atom feed.
 
         Uses ETag/If-Modified-Since headers for conditional requests.
@@ -48,15 +48,18 @@ class RSSParser(BaseSourceParser):
 
         Args:
             config: Source configuration with feed URL and state.
+            force: Force re-fetch even if not modified. Skips ETag,
+                   If-Modified-Since, and publish_time filtering.
 
         Returns:
             List of new NewsItem objects.
         """
         headers: dict[str, str] = {}
-        if config.etag:
-            headers["If-None-Match"] = config.etag
-        if config.last_modified:
-            headers["If-Modified-Since"] = config.last_modified
+        if not force:
+            if config.etag:
+                headers["If-None-Match"] = config.etag
+            if config.last_modified:
+                headers["If-Modified-Since"] = config.last_modified
 
         try:
             status_code, content, response_headers = await self._fetcher.fetch(
@@ -66,7 +69,7 @@ class RSSParser(BaseSourceParser):
             log.warning("rss_fetch_failed", url=config.url, error=str(exc))
             return []
 
-        if status_code == 304:
+        if status_code == 304 and not force:
             log.debug("rss_not_modified", url=config.url)
             return []
 
@@ -97,7 +100,7 @@ class RSSParser(BaseSourceParser):
 
             pub_date = self._parse_date(entry)
 
-            if config.last_crawl_time and pub_date:
+            if not force and config.last_crawl_time and pub_date:
                 if pub_date <= config.last_crawl_time:
                     continue
 

@@ -89,11 +89,12 @@ class DiscoveryProcessor:
         source: Any,
         max_items: int | None = None,
         task_id: uuid.UUID | None = None,
+        force: bool = False,
     ) -> None:
         """Handle callback to save discovered items to database and trigger pipeline.
 
         Deduplication flow:
-        1. URL deduplication (exact match)
+        1. URL deduplication (exact match, skipped when force=True)
         2. Title SimHash deduplication (similarity match)
         3. Crawler fetch
 
@@ -102,19 +103,22 @@ class DiscoveryProcessor:
             source: Source configuration.
             max_items: Maximum number of items to process (None for unlimited).
             task_id: Optional task ID for tracking.
+            force: Force re-crawl, skip URL dedup (still apply simhash for content quality).
         """
         import traceback
 
         log.info("items_discovered", count=len(items), source=source.id, max_items=max_items)
 
         try:
-            # Stage 1: URL deduplication
-            if self._deduplicator:
+            # Stage 1: URL deduplication (skip when force=True to reprocess existing URLs)
+            if self._deduplicator and not force:
                 items = await self._deduplicator.dedup(items)
                 if not items:
                     log.info("all_items_deduplicated_by_url", source=source.id)
                     return
                 log.info("items_after_url_dedup", count=len(items), source=source.id)
+            elif force:
+                log.info("url_dedup_skipped_force_mode", count=len(items), source=source.id)
 
             # Stage 2: Title SimHash deduplication
             if self._enable_simhash and self._simhash_dedup and items:

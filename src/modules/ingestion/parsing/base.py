@@ -12,11 +12,12 @@ class BaseSourceParser(ABC):
     """Abstract interface for source parsers (RSS, API, etc.)."""
 
     @abstractmethod
-    async def parse(self, config: SourceConfig) -> list[NewsItem]:
+    async def parse(self, config: SourceConfig, force: bool = False) -> list[NewsItem]:
         """Parse a source and return discovered news items.
 
         Args:
             config: Source configuration.
+            force: Force re-fetch even for recently fetched URLs.
 
         Returns:
             List of discovered news items.

@@ -33,7 +33,7 @@ class SourceScheduler:
         self,
         registry: SourceRegistry,
         on_items_discovered: Callable[
-            [list[NewsItem], SourceConfig, uuid.UUID | None], Coroutine[Any, Any, None]
+            [list[NewsItem], SourceConfig, uuid.UUID | None, bool], Coroutine[Any, Any, None]
         ],
         repo: SourceConfigRepo | None = None,
     ) -> None:
@@ -77,7 +77,11 @@ class SourceScheduler:
         log.debug("source_scheduled", source_id=source.id, interval=source.interval_minutes)
 
     async def _crawl_source(
-        self, source_id: str, max_items: int | None = None, task_id: uuid.UUID | None = None
+        self,
+        source_id: str,
+        max_items: int | None = None,
+        task_id: uuid.UUID | None = None,
+        force: bool = False,
     ) -> None:
         """Execute a single crawl for one source.
 
@@ -85,6 +89,7 @@ class SourceScheduler:
             source_id: The source ID to crawl.
             max_items: Maximum number of items to process.
             task_id: Optional task ID for tracking.
+            force: Force re-crawl even for recently fetched URLs.
         """
         source = self._registry.get_source(source_id)
         if not source or not source.enabled:
@@ -96,7 +101,7 @@ class SourceScheduler:
             return
 
         try:
-            items = await parser.parse(source)
+            items = await parser.parse(source, force=force)
             if items:
                 source.last_crawl_time = datetime.now(UTC)
                 # Persist last_crawl_time to database
@@ -112,7 +117,7 @@ class SourceScheduler:
                             source_id=source_id,
                             error=str(repo_exc),
                         )
-                await self._on_items(items, source, max_items, task_id)
+                await self._on_items(items, source, max_items, task_id, force)
                 log.info(
                     "source_crawled",
                     source_id=source_id,
@@ -132,7 +137,11 @@ class SourceScheduler:
             )
 
     async def trigger_now(
-        self, source_id: str, max_items: int | None = None, task_id: uuid.UUID | None = None
+        self,
+        source_id: str,
+        max_items: int | None = None,
+        task_id: uuid.UUID | None = None,
+        force: bool = False,
     ) -> None:
         """Trigger an immediate crawl for a source.
 
@@ -140,5 +149,6 @@ class SourceScheduler:
             source_id: The source ID to crawl.
             max_items: Maximum number of items to process.
             task_id: Optional task ID for tracking.
+            force: Force re-crawl even for recently fetched URLs.
         """
-        await self._crawl_source(source_id, max_items, task_id)
+        await self._crawl_source(source_id, max_items, task_id, force=force)
