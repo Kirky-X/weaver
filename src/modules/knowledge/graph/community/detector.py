@@ -421,8 +421,8 @@ class CommunityDetector:
 
         period = datetime.now(UTC).date().isoformat()
 
-        # Process levels from 0 (leaf) to max
-        for level in sorted(level_clusters.keys()):
+        # Process levels from max (root) to 0 (leaf) to ensure parent communities exist first
+        for level in sorted(level_clusters.keys(), reverse=True):
             for cluster_id in level_clusters[level]:
                 key = (level, cluster_id)
                 entity_ids = level_cluster_map[key]
@@ -432,9 +432,11 @@ class CommunityDetector:
                 community_id_map[key] = community_id
 
                 # Find parent community ID
+                # Parent cluster is at level+1 (higher in hierarchy)
                 parent_community_id: str | None = None
                 if cluster_id in parent_map:
-                    parent_key = (level + 1, parent_map[cluster_id])
+                    parent_cluster_id = parent_map[cluster_id]
+                    parent_key = (level + 1, parent_cluster_id)
                     parent_community_id = community_id_map.get(parent_key)
 
                 # Calculate rank based on entity count and connections
