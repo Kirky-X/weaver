@@ -629,10 +629,21 @@ async def run_all_sources(
             await asyncio.sleep(5)
             continue
 
-        # Count incomplete articles via articles API
-        all_articles = await client.list_articles(page=1, page_size=min(total, 200))
-        items = all_articles.get("items", [])
-        incomplete = sum(1 for a in items if a.get("credibility_score") is None and a.get("body"))
+        # Count incomplete articles via articles API (paginate if total > 100)
+        incomplete = 0
+        page = 1
+        page_size = 100  # API max limit
+        fetched = 0
+        while fetched < total:
+            batch = await client.list_articles(page=page, page_size=page_size)
+            items = batch.get("items", [])
+            if not items:
+                break
+            incomplete += sum(
+                1 for a in items if a.get("credibility_score") is None and a.get("body")
+            )
+            fetched += len(items)
+            page += 1
         if incomplete == 0:
             step(
                 "LLM processing complete",
