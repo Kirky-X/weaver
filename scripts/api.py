@@ -106,7 +106,7 @@ def generate_test_cases() -> list[TestCase]:
         ]
     )
 
-    # ===== 1. 社区初始化 =====
+    # ===== 1. 社区初始化 (必须顺序执行) =====
     cases.extend(
         [
             TestCase(
@@ -117,6 +117,7 @@ def generate_test_cases() -> list[TestCase]:
                 json_body={"max_cluster_size": 10, "seed": 42},
                 expected_status=200,
                 description="rebuild_communities_default",
+                sequential=True,  # Must complete before list_communities
             ),
             TestCase(
                 "generate_reports",
@@ -125,6 +126,7 @@ def generate_test_cases() -> list[TestCase]:
                 "/admin/communities/reports/generate",
                 expected_status=200,
                 description="generate_reports",
+                sequential=True,  # Must complete after rebuild
             ),
         ]
     )
@@ -671,7 +673,7 @@ def generate_test_cases() -> list[TestCase]:
         ]
     )
 
-    # ===== 5. Communities =====
+    # ===== 5. Communities (必须在rebuild后顺序执行) =====
     cases.extend(
         [
             TestCase(
@@ -680,6 +682,7 @@ def generate_test_cases() -> list[TestCase]:
                 "GET",
                 "/admin/communities",
                 description="list_communities_default",
+                sequential=True,  # Must run after rebuild
             ),
             TestCase(
                 "list_communities_level_0",
@@ -688,6 +691,7 @@ def generate_test_cases() -> list[TestCase]:
                 "/admin/communities",
                 params={"level": 0},
                 description="list_communities_level_0",
+                sequential=True,  # Must run after rebuild
             ),
             TestCase(
                 "list_communities_level_1",
@@ -696,6 +700,7 @@ def generate_test_cases() -> list[TestCase]:
                 "/admin/communities",
                 params={"level": 1, "limit": 10},
                 description="list_communities_level_1",
+                sequential=True,  # Must run after rebuild
             ),
             TestCase(
                 "get_communities_health",
