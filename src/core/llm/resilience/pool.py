@@ -207,25 +207,19 @@ class ProviderPool:
         payload: dict[str, Any],
         timeout: float,
     ) -> LLMResponse:
-        """执行单个请求，带指数退避重试."""
+        """执行单个请求，带指数退避重试.
+
+        Rate limiter在retry循环外部，确保一次请求只消耗一个token，
+        重试不会额外消耗rate limit quota。
+        """
         async with self._semaphore:
             last_error: Exception | None = None
-            async for attempt in retry_llm(max_attempts=3, min_wait=2.0, max_wait=30.0):
-                with attempt:
-                    try:
-                        # Rate limiter must wrap the actual call, not just pass
-                        if self._rate_limiter:
-                            async with self._rate_limiter:
-                                response = await self._circuit_breaker.call(
-                                    self._caller.call,
-                                    label=label,
-                                    provider_type=self.config.type,
-                                    api_key=self.config.api_key,
-                                    api_base=self.config.base_url,
-                                    payload=payload,
-                                    timeout=timeout,
-                                )
-                        else:
+
+            async def _call_with_retry() -> LLMResponse:
+                """Retry loop内执行实际调用."""
+                async for attempt in retry_llm(max_attempts=3, min_wait=2.0, max_wait=30.0):
+                    with attempt:
+                        try:
                             response = await self._circuit_breaker.call(
                                 self._caller.call,
                                 label=label,
@@ -235,24 +229,28 @@ class ProviderPool:
                                 payload=payload,
                                 timeout=timeout,
                             )
+                            await self._metrics.record_success(response.latency_ms)
+                            return response
 
-                        await self._metrics.record_success(response.latency_ms)
-                        return response
+                        except CircuitOpenError:
+                            raise
 
-                    except CircuitOpenError:
-                        # Circuit breaker open - fail fast, no retry
-                        raise
+                        except Exception as e:
+                            nonlocal last_error
+                            last_error = e
+                            await self._metrics.record_failure(str(e))
+                            raise
 
-                    except Exception as e:
-                        last_error = e
-                        # Record failure for metrics
-                        await self._metrics.record_failure(str(e))
-                        raise  # Let retry_llm decide whether to retry
+                if last_error:
+                    raise last_error
+                raise RuntimeError("LLM call retry exhausted")
 
-            # Retry exhausted (should not reach here)
-            if last_error:
-                raise last_error
-            raise RuntimeError("LLM call retry exhausted")
+            # Rate limiter outside retry loop - one token per request
+            if self._rate_limiter:
+                async with self._rate_limiter:
+                    return await _call_with_retry()
+            else:
+                return await _call_with_retry()
 
     def get_metrics(self) -> dict[str, Any]:
         """获取监控指标."""
