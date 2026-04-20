@@ -81,7 +81,6 @@ class LLMClient:
                 config=provider_cfg,
                 circuit_breaker_threshold=global_config.circuit_breaker_threshold,
                 circuit_breaker_timeout=global_config.circuit_breaker_timeout,
-                event_bus=event_bus,
             )
             self._pools[provider_cfg.name] = pool
 
