@@ -80,6 +80,8 @@ class ContainerServicesMixin:
     _mc_sampler: Any
     _causal_repo: Any
     _causal_inference_service: Any
+    _processing_queue: Any
+    _pipeline_worker: Any
 
     # ── Prompt Loader ─────────────────────────────────────────────
 
@@ -219,9 +221,11 @@ class ContainerServicesMixin:
 
     def llm_usage_repo(self) -> LLMUsageRepo:
         """Get LLM usage repository."""
-        from modules.analytics import LLMUsageRepo
+        if self._llm_usage_repo is None:
+            from modules.analytics import LLMUsageRepo
 
-        return LLMUsageRepo(self.relational_pool())
+            self._llm_usage_repo = LLMUsageRepo(self.relational_pool())
+        return self._llm_usage_repo
 
     def scheduler_job_runner(self) -> Any:
         """Get scheduler job runner instance."""
@@ -551,6 +555,26 @@ class ContainerServicesMixin:
         if self._pipeline is None:
             raise RuntimeError("Pipeline not initialized. Call init_pipeline() first.")
         return self._pipeline
+
+    def processing_queue(self) -> Any:
+        """Get the processing queue (Redis-backed FIFO with soft backpressure)."""
+        if self._processing_queue is None:
+            from modules.processing.queue import ProcessingQueue
+
+            self._processing_queue = ProcessingQueue(self._cache_client)
+        return self._processing_queue
+
+    def pipeline_worker(self) -> Any | None:
+        """Get the pipeline worker (background consumer)."""
+        if self._pipeline_worker is None and self._pipeline is not None:
+            from modules.processing.worker import PipelineWorker
+
+            self._pipeline_worker = PipelineWorker(
+                queue=self.processing_queue(),
+                pipeline=self._pipeline,
+                article_repo=self.article_repo(),
+            )
+        return self._pipeline_worker
 
     def pipeline_service(self) -> PipelineServiceImpl:
         """Get the pipeline service with stable public interface."""

@@ -39,8 +39,8 @@ def mock_article_repo():
 
 
 @pytest.fixture
-def mock_pipeline():
-    """Mock pipeline."""
+def mock_processing_queue():
+    """Mock processing queue."""
     return AsyncMock()
 
 
@@ -94,17 +94,19 @@ class TestDiscoveryProcessor:
         assert processor is not None
 
     @pytest.mark.asyncio
-    async def test_processor_with_pipeline(self, mock_crawler, mock_article_repo, mock_pipeline):
-        """Test processor with optional pipeline."""
+    async def test_processor_with_processing_queue(
+        self, mock_crawler, mock_article_repo, mock_processing_queue
+    ):
+        """Test processor with optional processing queue."""
         from modules.ingestion.domain.processor import DiscoveryProcessor
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
             article_repo=mock_article_repo,
-            pipeline=mock_pipeline,
+            processing_queue=mock_processing_queue,
         )
 
-        assert processor._pipeline is not None
+        assert processor._processing_queue is not None
 
     @pytest.mark.asyncio
     async def test_processor_with_simhash_enabled(self, mock_crawler, mock_article_repo):
@@ -181,21 +183,6 @@ class TestDiscoveryProcessorSetterMethods:
 
         assert processor._enable_simhash is True
 
-    @pytest.mark.asyncio
-    async def test_set_pipeline(self, mock_crawler, mock_article_repo):
-        """Test setting pipeline on processor."""
-        from modules.ingestion.domain.processor import DiscoveryProcessor
-
-        processor = DiscoveryProcessor(
-            crawler=mock_crawler,
-            article_repo=mock_article_repo,
-        )
-
-        mock_pipeline = MagicMock()
-        processor.set_pipeline(mock_pipeline)
-
-        assert processor._pipeline is not None
-
 
 class TestDiscoveryProcessorOnItemsDiscovered:
     """Tests for on_items_discovered method."""
@@ -205,7 +192,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         self,
         mock_crawler,
         mock_article_repo,
-        mock_pipeline,
+        mock_processing_queue,
         sample_items,
         mock_source,
         sample_article,
@@ -216,12 +203,12 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         # Setup mocks
         mock_crawler.crawl_batch = AsyncMock(return_value=[sample_article])
         mock_article_repo.insert_raw = AsyncMock(return_value=uuid.uuid4())
-        mock_pipeline.process_batch = AsyncMock()
+        mock_processing_queue.enqueue = AsyncMock(return_value=True)
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
             article_repo=mock_article_repo,
-            pipeline=mock_pipeline,
+            processing_queue=mock_processing_queue,
             deduplicator=None,  # No deduplication
             simhash_dedup=None,
             enable_simhash=False,
@@ -234,7 +221,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
 
         mock_crawler.crawl_batch.assert_called_once()
         mock_article_repo.insert_raw.assert_called_once()
-        mock_pipeline.process_batch.assert_called_once()
+        mock_processing_queue.enqueue.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_on_items_discovered_with_url_dedup(
@@ -499,7 +486,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         self,
         mock_crawler,
         mock_article_repo,
-        mock_pipeline,
+        mock_processing_queue,
         sample_items,
         mock_source,
         sample_article,
@@ -510,12 +497,12 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         task_id = uuid.uuid4()
         mock_crawler.crawl_batch = AsyncMock(return_value=[sample_article])
         mock_article_repo.insert_raw = AsyncMock(return_value=uuid.uuid4())
-        mock_pipeline.process_batch = AsyncMock()
+        mock_processing_queue.enqueue = AsyncMock(return_value=True)
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
             article_repo=mock_article_repo,
-            pipeline=mock_pipeline,
+            processing_queue=mock_processing_queue,
         )
 
         await processor.on_items_discovered(
@@ -524,41 +511,50 @@ class TestDiscoveryProcessorOnItemsDiscovered:
             task_id=task_id,
         )
 
-        # Check task_id was passed
+        # Check task_id was passed to insert_raw
         call_args = mock_article_repo.insert_raw.call_args
         assert call_args[1]["task_id"] == task_id
 
+        # Check task_id was passed to enqueue
+        enqueue_args = mock_processing_queue.enqueue.call_args
+        assert enqueue_args[1]["task_id"] == str(task_id)
+
     @pytest.mark.asyncio
-    async def test_on_items_discovered_pipeline_error(
+    async def test_on_items_discovered_queue_full(
         self,
         mock_crawler,
         mock_article_repo,
-        mock_pipeline,
+        mock_processing_queue,
         sample_items,
         mock_source,
         sample_article,
     ):
-        """Test handling of pipeline errors."""
+        """Test handling when queue is full (soft backpressure)."""
         from modules.ingestion.domain.processor import DiscoveryProcessor
 
         mock_crawler.crawl_batch = AsyncMock(return_value=[sample_article])
         mock_article_repo.insert_raw = AsyncMock(return_value=uuid.uuid4())
-        mock_pipeline.process_batch = AsyncMock(side_effect=Exception("Pipeline error"))
+        mock_processing_queue.enqueue = AsyncMock(return_value=False)  # Queue full
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
             article_repo=mock_article_repo,
-            pipeline=mock_pipeline,
+            processing_queue=mock_processing_queue,
         )
 
-        # Should not raise
+        # Should not raise, just skip remaining articles
         await processor.on_items_discovered(
             items=sample_items,
             source=mock_source,
         )
 
+        # Insert should have been called before queue full
+        mock_article_repo.insert_raw.assert_called_once()
+        # Enqueue should have been attempted
+        mock_processing_queue.enqueue.assert_called_once()
+
     @pytest.mark.asyncio
-    async def test_on_items_discovered_no_pipeline(
+    async def test_on_items_discovered_no_processing_queue(
         self,
         mock_crawler,
         mock_article_repo,
@@ -566,7 +562,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         mock_source,
         sample_article,
     ):
-        """Test without pipeline (pipeline=None)."""
+        """Test without processing queue (processing_queue=None)."""
         from modules.ingestion.domain.processor import DiscoveryProcessor
 
         mock_crawler.crawl_batch = AsyncMock(return_value=[sample_article])
@@ -575,7 +571,7 @@ class TestDiscoveryProcessorOnItemsDiscovered:
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
             article_repo=mock_article_repo,
-            pipeline=None,  # No pipeline
+            processing_queue=None,  # No queue
         )
 
         await processor.on_items_discovered(

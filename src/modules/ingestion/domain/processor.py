@@ -10,7 +10,7 @@ from core.observability.logging import get_logger
 from modules.ingestion.crawling import Crawler
 from modules.ingestion.deduplication import Deduplicator, SimHashDeduplicator, TitleItem
 from modules.ingestion.fetching.exceptions import FetchError
-from modules.processing.pipeline.graph import Pipeline
+from modules.processing.queue import ProcessingQueue
 from modules.storage import ArticleRepo
 
 log = get_logger(__name__)
@@ -20,7 +20,7 @@ class DiscoveryProcessor:
     """Processor for handling discovered news items.
 
     Handles the data flow:
-    RSS → URL Deduplicator → SimHash Deduplicator → Crawler → Pipeline
+    RSS → URL Deduplicator → SimHash Deduplicator → Crawler → ProcessingQueue
 
     This class is extracted from Container to improve separation of concerns.
     """
@@ -31,7 +31,7 @@ class DiscoveryProcessor:
         article_repo: ArticleRepo,
         deduplicator: Deduplicator | None = None,
         simhash_dedup: SimHashDeduplicator | None = None,
-        pipeline: Pipeline | None = None,
+        processing_queue: ProcessingQueue | None = None,
         enable_simhash: bool = True,
     ) -> None:
         """Initialize the processor.
@@ -41,14 +41,14 @@ class DiscoveryProcessor:
             article_repo: Repository for saving articles.
             deduplicator: Optional deduplicator for URL filtering.
             simhash_dedup: Optional SimHash deduplicator for title filtering.
-            pipeline: Optional pipeline for processing articles.
+            processing_queue: Optional queue for async processing.
             enable_simhash: Whether to enable SimHash deduplication.
         """
         self._crawler = crawler
         self._article_repo = article_repo
         self._deduplicator = deduplicator
         self._simhash_dedup = simhash_dedup
-        self._pipeline = pipeline
+        self._processing_queue = processing_queue
         self._enable_simhash = enable_simhash
 
     def set_deduplicator(self, deduplicator: Deduplicator) -> None:
@@ -75,14 +75,6 @@ class DiscoveryProcessor:
         """
         self._enable_simhash = enable
 
-    def set_pipeline(self, pipeline: Pipeline) -> None:
-        """Set the pipeline for processing.
-
-        Args:
-            pipeline: Pipeline instance.
-        """
-        self._pipeline = pipeline
-
     async def on_items_discovered(
         self,
         items: list[Any],
@@ -91,12 +83,13 @@ class DiscoveryProcessor:
         task_id: uuid.UUID | None = None,
         force: bool = False,
     ) -> None:
-        """Handle callback to save discovered items to database and trigger pipeline.
+        """Handle callback to save discovered items to database and enqueue for processing.
 
         Deduplication flow:
         1. URL deduplication (exact match, skipped when force=True)
         2. Title SimHash deduplication (similarity match)
         3. Crawler fetch
+        4. Enqueue to processing queue (soft backpressure if full)
 
         Args:
             items: List of discovered news items.
@@ -181,18 +174,20 @@ class DiscoveryProcessor:
                 except Exception as exc:
                     log.error("insert_raw_failed", url=article.url, error=str(exc))
 
-            if article_ids and self._pipeline:
-                try:
-                    await self._pipeline.process_batch(
-                        successful_articles,
-                        article_ids=article_ids,
-                        task_id=task_id,
+            if article_ids and self._processing_queue:
+                for idx, aid in enumerate(article_ids):
+                    success = await self._processing_queue.enqueue(
+                        str(aid),
+                        task_id=str(task_id) if task_id else None,
                     )
-                    log.info("pipeline_batch_processed", count=len(successful_articles))
-                except Exception as exc:
-                    log.error(
-                        "pipeline_process_failed", error=str(exc), traceback=traceback.format_exc()
-                    )
+                    if not success:
+                        log.warning(
+                            "queue_full_articles_skipped",
+                            queued=idx,
+                            skipped=len(article_ids) - idx,
+                        )
+                        break
+                log.info("articles_enqueued", count=len(article_ids))
         except Exception as exc:
             log.error(
                 "on_items_discovered_failed",

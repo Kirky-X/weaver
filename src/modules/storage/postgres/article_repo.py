@@ -612,6 +612,44 @@ class ArticleRepo:
             log.info("article_inserted", url=raw.url, article_id=str(article.id))
             return article.id
 
+    async def get_by_ids(self, ids: list[str]) -> list[Any]:
+        """Fetch RawArticle objects by IDs for queue consumer.
+
+        Args:
+            ids: List of article UUID strings.
+
+        Returns:
+            List of RawArticle objects.
+        """
+        if not ids:
+            return []
+
+        from modules.ingestion.domain.models import RawArticle
+
+        async with self._pool.session() as session:
+            uuid_ids = [uuid.UUID(id) for id in ids]
+            query = select(Article).where(Article.id.in_(uuid_ids))
+            result = await session.execute(query)
+            articles = result.scalars().all()
+
+            raw_articles = []
+            for a in articles:
+                raw = RawArticle(
+                    url=a.url,
+                    title=a.title or "",
+                    content=a.content or "",
+                    summary=a.summary,
+                    source=a.source,
+                    published_at=a.published_at,
+                    author=a.author,
+                    category=a.category,
+                    language=a.language,
+                    region=a.region,
+                )
+                raw_articles.append(raw)
+
+            return raw_articles
+
     async def get_stuck_articles(self, timeout_minutes: int = 30) -> list[Article]:
         """Get articles stuck in PROCESSING state beyond timeout.
 

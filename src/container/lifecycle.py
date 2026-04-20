@@ -70,6 +70,7 @@ class ContainerLifecycleMixin:
     _task_registry: InMemoryTaskRegistry | None
     _event_bus: Any
     _llm_usage_buffer: LLMUsageBuffer | None
+    _llm_usage_repo: Any
     _llm_experience: Any
     _live_config: Any
     _smart_router: Any
@@ -706,11 +707,15 @@ class ContainerLifecycleMixin:
             crawler=self.crawler(),
             article_repo=self.article_repo(),
             deduplicator=self.deduplicator(),
+            processing_queue=self.processing_queue(),
         )
         await self.init_source_scheduler(processor.on_items_discovered)
 
         await self.init_pipeline()
-        processor.set_pipeline(self.pipeline())
+        worker = self.pipeline_worker()
+        if worker:
+            await worker.start()
+            log.info("pipeline_worker_started")
 
         await self.init_memory_service()
 
@@ -744,9 +749,8 @@ class ContainerLifecycleMixin:
                 if isinstance(pool, DuckDBPool):
                     repo = DuckDBLLMUsageRepo(pool)
                 else:
-                    from modules.analytics import LLMUsageRepo
-
-                    repo = LLMUsageRepo(pool)
+                    # Reuse cached repo instance from container
+                    repo = self.llm_usage_repo()
                 await repo.insert_raw(event)
             except Exception as e:
                 log.error(
@@ -809,6 +813,11 @@ class ContainerLifecycleMixin:
         if self._source_scheduler:
             self._source_scheduler.stop()
             log.info("source_scheduler_stopped")
+
+        worker = self.pipeline_worker()
+        if worker:
+            await worker.stop()
+            log.info("pipeline_worker_stopped")
 
         if self._llm_client:
             try:
