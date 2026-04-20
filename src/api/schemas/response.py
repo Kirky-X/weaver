@@ -133,7 +133,9 @@ class ResponseCode:
 # ── 响应构造工具函数 ───────────────────────────────────────────────
 
 
-def success_response[T](data: T, message: str | None = None, warning: str | None = None) -> APIResponse[T]:
+def success_response[T](
+    data: T, message: str | None = None, warning: str | None = None
+) -> APIResponse[T]:
     """Construct a success response.
 
     Args:

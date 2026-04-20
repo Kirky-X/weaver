@@ -437,7 +437,9 @@ class LLMUsageRepo:
                 "success_count": row.success_count or 0,
                 "failure_count": row.failure_count or 0,
                 "label": ", ".join(sorted(set(row.labels or []))) if row.labels else "",
-                "call_point": ", ".join(sorted(set(row.call_points or []))) if row.call_points else "",
+                "call_point": (
+                    ", ".join(sorted(set(row.call_points or []))) if row.call_points else ""
+                ),
                 "llm_type": ", ".join(sorted(set(row.llm_types or []))) if row.llm_types else "",
                 "provider": ", ".join(sorted(set(row.providers or []))) if row.providers else "",
                 "model": ", ".join(sorted(set(row.models or []))) if row.models else "",
