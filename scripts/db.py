@@ -343,10 +343,21 @@ async def _stats_ladybug(settings) -> None:
             if name and not name.startswith("_"):
                 # Check if it's a relationship table
                 row_result = await pool.execute_query(f"CALL table_info('{name}') RETURN *")
-                # Node tables have PRIMARY KEY, rel tables have FROM/TO
+                # LadybugDB: Node tables have 'id' column, rel tables have 'edge_type' or '_SRC/_DST'
+                # Check for relationship indicators
+                col_names = [col.get("name", "").lower() for col in row_result]
                 is_rel = any(
-                    col.get("name", "").lower() in ("from", "to", "_from", "_to")
-                    for col in row_result
+                    c in col_names for c in ("edge_type", "properties")
+                ) or name.upper() in (
+                    "RELATED_TO",
+                    "MENTIONS",
+                    "FOLLOWED_BY",
+                    "EVENT_FOLLOWED_BY",
+                    "HAS_ENTITY",
+                    "CAUSES",
+                    "ENABLES",
+                    "PREVENTS",
+                    "REPORTS_ON",
                 )
                 if is_rel:
                     rel_types.append(name)
@@ -1332,6 +1343,195 @@ async def cmd_random(args: argparse.Namespace) -> None:
 
 
 # ---------------------------------------------------------------------------
+# null-fields: Check empty/null fields in tables
+# ---------------------------------------------------------------------------
+
+
+async def _null_fields_postgres(settings, table: str | None, threshold: float) -> None:
+    """Check NULL/empty fields in PostgreSQL tables."""
+    dsn = _pg_dsn(settings)
+
+    print("=" * 80)
+    print("PostgreSQL 空字段检查")
+    print("=" * 80)
+
+    import asyncpg
+
+    conn = await asyncpg.connect(dsn)
+    try:
+        if table:
+            tables_to_check = [_validate_table_name(table)]
+        else:
+            rows = await conn.fetch("""
+                SELECT table_name FROM information_schema.tables
+                WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
+                ORDER BY table_name
+                """)
+            tables_to_check = [
+                r["table_name"] for r in rows if not r["table_name"].startswith("alembic_")
+            ]
+
+        total_issues = 0
+        for tbl in tables_to_check:
+            col_rows = await conn.fetch(
+                """
+                SELECT column_name, data_type, is_nullable
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = $1
+                ORDER BY ordinal_position
+                """,
+                tbl,
+            )
+            if not col_rows:
+                continue
+
+            count = await conn.fetchval(f"SELECT COUNT(*) FROM public.{tbl}")
+            if count == 0:
+                print(f"\n表 {tbl}：空表，跳过")
+                continue
+
+            null_info = []
+            for col in col_rows:
+                col_name = col["column_name"]
+                # nosemgrep: python.sqlalchemy.security.audit sqlalchemy-execute-raw-query
+                # Column/table names validated by _validate_table_name
+                null_count = await conn.fetchval(
+                    f'SELECT COUNT(*) FROM public.{tbl} WHERE "{col_name}" IS NULL'
+                )
+                if null_count == 0:
+                    continue
+                null_pct = null_count / count * 100
+                if null_pct >= threshold:
+                    null_info.append(
+                        {
+                            "column": col_name,
+                            "null_count": null_count,
+                            "total": count,
+                            "null_pct": null_pct,
+                            "data_type": col["data_type"],
+                        }
+                    )
+
+            if null_info:
+                total_issues += 1
+                print(f"\n表 {tbl} ({count} 行)：")
+                print(f"  {'列名':<30} {'空值数':>10} {'总数':>10} {'空值率':>10} {'类型':<20}")
+                print(f"  {'-' * 80}")
+                for info in sorted(null_info, key=lambda x: x["null_pct"], reverse=True):
+                    print(
+                        f"  {info['column']:<30} {info['null_count']:>10,} {info['total']:>10,}"
+                        f" {info['null_pct']:>9.1f}% {info['data_type']:<20}"
+                    )
+
+        if total_issues == 0:
+            print("\n所有表均无空字段问题")
+        else:
+            print(f"\n{'=' * 80}")
+            print(f"共 {total_issues} 个表存在空字段")
+    finally:
+        await conn.close()
+
+
+async def _null_fields_duckdb(settings, table: str | None, threshold: float) -> None:
+    """Check NULL/empty fields in DuckDB tables."""
+    db_path = Path(settings.database.duckdb_path)
+    if not db_path.exists():
+        print(f"DuckDB 文件不存在：{db_path}")
+        return
+
+    print("=" * 80)
+    print("DuckDB 空字段检查")
+    print("=" * 80)
+
+    import duckdb
+
+    conn = duckdb.connect(str(db_path), read_only=True)
+    try:
+        if table:
+            tables_to_check = [_validate_table_name(table)]
+        else:
+            rows = conn.execute(
+                "SELECT table_name FROM information_schema.tables "
+                "WHERE table_schema = 'main' ORDER BY table_name"
+            ).fetchall()
+            tables_to_check = [r[0] for r in rows]
+
+        total_issues = 0
+        for tbl in tables_to_check:
+            col_rows = conn.execute(
+                """
+                SELECT column_name, data_type
+                FROM information_schema.columns
+                WHERE table_schema = 'main' AND table_name = ?
+                ORDER BY ordinal_position
+                """,
+                [tbl],
+            ).fetchall()
+            if not col_rows:
+                continue
+
+            count = conn.execute(f'SELECT COUNT(*) FROM "{tbl}"').fetchone()[0]
+            if count == 0:
+                print(f"\n表 {tbl}：空表，跳过")
+                continue
+
+            null_info = []
+            for col_name, data_type in col_rows:
+                # nosemgrep: python.sqlalchemy.security.audit sqlalchemy-execute-raw-query
+                # Column/table names validated by _validate_table_name
+                null_count = conn.execute(
+                    f'SELECT COUNT(*) FROM "{tbl}" WHERE "{col_name}" IS NULL'
+                ).fetchone()[0]
+                if null_count == 0:
+                    continue
+                null_pct = null_count / count * 100
+                if null_pct >= threshold:
+                    null_info.append(
+                        {
+                            "column": col_name,
+                            "null_count": null_count,
+                            "total": count,
+                            "null_pct": null_pct,
+                            "data_type": data_type,
+                        }
+                    )
+
+            if null_info:
+                total_issues += 1
+                print(f"\n表 {tbl} ({count} 行)：")
+                print(f"  {'列名':<30} {'空值数':>10} {'总数':>10} {'空值率':>10} {'类型':<20}")
+                print(f"  {'-' * 80}")
+                for info in sorted(null_info, key=lambda x: x["null_pct"], reverse=True):
+                    print(
+                        f"  {info['column']:<30} {info['null_count']:>10,} {info['total']:>10,}"
+                        f" {info['null_pct']:>9.1f}% {info['data_type']:<20}"
+                    )
+
+        if total_issues == 0:
+            print("\n所有表均无空字段问题")
+        else:
+            print(f"\n{'=' * 80}")
+            print(f"共 {total_issues} 个表存在空字段")
+    finally:
+        conn.close()
+
+
+async def cmd_null_fields(args: argparse.Namespace) -> None:
+    """Check NULL/empty fields in database tables."""
+    settings = _get_settings()
+    db = args.db or "postgres"
+    table = args.table
+    threshold = args.threshold
+
+    if db == "postgres":
+        await _null_fields_postgres(settings, table, threshold)
+    elif db == "duckdb":
+        await _null_fields_duckdb(settings, table, threshold)
+    else:
+        print(f"null-fields 子命令不支持数据库：{db}（仅支持 postgres/duckdb）")
+
+
+# ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
 
@@ -1415,7 +1615,29 @@ def main() -> None:
         except ValueError as e:
             parser.error(str(e))
 
-    dispatch = {"stats": cmd_stats, "article": cmd_article, "random": cmd_random, "rows": cmd_rows}
+    # null-fields subcommand
+    p_null = sub.add_parser("null-fields", help="Check NULL/empty fields in database tables")
+    p_null.add_argument("--table", help="Specific table to check (default: all tables)")
+    p_null.add_argument(
+        "--db",
+        choices=["postgres", "duckdb"],
+        default="postgres",
+        help="Database to query (default: postgres)",
+    )
+    p_null.add_argument(
+        "--threshold",
+        type=float,
+        default=0,
+        help="Minimum null rate percentage to report (default: 0, show all)",
+    )
+
+    dispatch = {
+        "stats": cmd_stats,
+        "article": cmd_article,
+        "random": cmd_random,
+        "rows": cmd_rows,
+        "null-fields": cmd_null_fields,
+    }
     asyncio.run(dispatch[args.command](args))
 
 
