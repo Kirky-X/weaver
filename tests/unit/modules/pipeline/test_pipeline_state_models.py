@@ -131,13 +131,13 @@ class TestVectorDataValidation:
         assert vectors.title == [0.4, 0.5, 0.6]
 
     def test_default_model_id(self):
-        """Test default model_id is set."""
-        vectors = VectorData()
-        assert vectors.model_id == "text-embedding-3-large"
+        """Test model_id must be provided."""
+        vectors = VectorData(model_id="Qwen3-Embedding-0.6B")
+        assert vectors.model_id == "Qwen3-Embedding-0.6B"
 
     def test_optional_vectors(self):
         """Test that vectors are optional."""
-        vectors = VectorData()
+        vectors = VectorData(model_id="Qwen3-Embedding-0.6B")
         assert vectors.content is None
         assert vectors.title is None
 
@@ -231,7 +231,9 @@ class TestValidatedPipelineState:
         """Test handling of vector data."""
         raw = _make_raw()
         state = ValidatedPipelineState(raw=raw)
-        state.vectors = VectorData(content=[0.1, 0.2], title=[0.3, 0.4])
+        state.vectors = VectorData(
+            content=[0.1, 0.2], title=[0.3, 0.4], model_id="Qwen3-Embedding-0.6B"
+        )
 
         assert state.get_content_vector() == [0.1, 0.2]
         assert state.get_title_vector() == [0.3, 0.4]

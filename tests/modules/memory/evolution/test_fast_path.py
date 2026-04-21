@@ -50,6 +50,7 @@ def service(mock_temporal_repo, mock_vector_repo, mock_entity_repo, mock_queue):
         vector_repo=mock_vector_repo,
         entity_repo=mock_entity_repo,
         consolidation_queue=mock_queue,
+        embedding_model="Qwen3-Embedding-0.6B",
     )
 
 
@@ -93,6 +94,10 @@ async def test_ingest_indexes_embedding(service, mock_vector_repo):
     await service.ingest(state)
 
     mock_vector_repo.upsert_event_embedding.assert_called_once()
+    # Verify model_id is passed
+    call_args = mock_vector_repo.upsert_event_embedding.call_args
+    assert len(call_args[0]) == 2  # event and model_id
+    assert call_args[0][1] == "Qwen3-Embedding-0.6B"
 
 
 @pytest.mark.unit

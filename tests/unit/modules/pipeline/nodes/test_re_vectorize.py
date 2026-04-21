@@ -34,7 +34,7 @@ class TestReVectorizeNodeBasic:
     async def test_calls_embed_with_correct_texts(self, mock_llm, sample_raw):
         """Should call embed with title and content."""
         mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
-        node = ReVectorizeNode(mock_llm)
+        node = ReVectorizeNode(mock_llm, model_id="Qwen3-Embedding-0.6B")
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": "Test Title", "body": "Test body content"}
 
@@ -64,7 +64,7 @@ class TestReVectorizeNodeEdgeCases:
     @pytest.mark.asyncio
     async def test_skips_terminal_state(self, mock_llm, sample_raw):
         """Should skip processing if terminal flag is set."""
-        node = ReVectorizeNode(mock_llm)
+        node = ReVectorizeNode(mock_llm, model_id="Qwen3-Embedding-0.6B")
         state = PipelineState(raw=sample_raw)
         state["terminal"] = True
         state["cleaned"] = {"title": "Title", "body": "Body"}
@@ -77,7 +77,7 @@ class TestReVectorizeNodeEdgeCases:
     @pytest.mark.asyncio
     async def test_skips_merged_articles(self, mock_llm, sample_raw):
         """Should skip processing for merged articles."""
-        node = ReVectorizeNode(mock_llm)
+        node = ReVectorizeNode(mock_llm, model_id="Qwen3-Embedding-0.6B")
         state = PipelineState(raw=sample_raw)
         state["is_merged"] = True
         state["cleaned"] = {"title": "Title", "body": "Body"}
@@ -90,7 +90,7 @@ class TestReVectorizeNodeEdgeCases:
     async def test_truncates_long_body(self, mock_llm, sample_raw):
         """Should truncate body for content embedding."""
         mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
-        node = ReVectorizeNode(mock_llm)
+        node = ReVectorizeNode(mock_llm, model_id="Qwen3-Embedding-0.6B")
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": "Title", "body": "A" * 5000}
 
@@ -105,7 +105,7 @@ class TestReVectorizeNodeEdgeCases:
     async def test_handles_empty_title(self, mock_llm, sample_raw):
         """Should handle empty title."""
         mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
-        node = ReVectorizeNode(mock_llm)
+        node = ReVectorizeNode(mock_llm, model_id="Qwen3-Embedding-0.6B")
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": "", "body": "Body content"}
 
@@ -121,7 +121,7 @@ class TestReVectorizeNodeErrorHandling:
     async def test_propagates_embed_error(self, mock_llm, sample_raw):
         """Should propagate embedding errors."""
         mock_llm.embed_default = AsyncMock(side_effect=Exception("Embedding failed"))
-        node = ReVectorizeNode(mock_llm)
+        node = ReVectorizeNode(mock_llm, model_id="Qwen3-Embedding-0.6B")
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": "Title", "body": "Body"}
 
@@ -132,7 +132,7 @@ class TestReVectorizeNodeErrorHandling:
     async def test_handles_timeout(self, mock_llm, sample_raw):
         """Should propagate timeout errors."""
         mock_llm.embed_default = AsyncMock(side_effect=TimeoutError("Timeout"))
-        node = ReVectorizeNode(mock_llm)
+        node = ReVectorizeNode(mock_llm, model_id="Qwen3-Embedding-0.6B")
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": "Title", "body": "Body"}
 
@@ -147,7 +147,7 @@ class TestReVectorizeNodeIntegration:
     async def test_preserves_existing_state(self, mock_llm, sample_raw):
         """Should preserve existing state fields."""
         mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
-        node = ReVectorizeNode(mock_llm)
+        node = ReVectorizeNode(mock_llm, model_id="Qwen3-Embedding-0.6B")
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": "Title", "body": "Body"}
         state["category"] = "tech"
@@ -163,21 +163,21 @@ class TestReVectorizeNodeIntegration:
     async def test_overwrites_existing_vectors(self, mock_llm, sample_raw):
         """Should overwrite existing vectors."""
         mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
-        node = ReVectorizeNode(mock_llm)
+        node = ReVectorizeNode(mock_llm, model_id="Qwen3-Embedding-0.6B")
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": "Title", "body": "Body"}
         state["vectors"] = {"title": [0.5] * 512, "content": [0.6] * 512, "model_id": "old"}
 
         result = await node.execute(state)
 
-        assert result["vectors"]["model_id"] == "text-embedding-3-large"
+        assert result["vectors"]["model_id"] == "Qwen3-Embedding-0.6B"
         assert result["vectors"]["title"] == [0.1] * 1024
 
     @pytest.mark.asyncio
     async def test_vector_dimensions(self, mock_llm, sample_raw):
         """Should return correct vector dimensions."""
         mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 1024, [0.2] * 1024])
-        node = ReVectorizeNode(mock_llm)
+        node = ReVectorizeNode(mock_llm, model_id="Qwen3-Embedding-0.6B")
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": "Title", "body": "Body"}
 
