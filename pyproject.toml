@@ -58,6 +58,8 @@ dependencies = [
     # ── Local Embedding & Knowledge Cache ─────────────────────
     "sentence-transformers>=2.2.0",
     "rapidfuzz>=3.0.0",
+    "pycountry>=24.6.1",
+    "geonamescache>=2.0.0",
     "modelscope>=1.10.0",
 ]
 
