@@ -53,6 +53,7 @@ class SynapticIngestionService:
         vector_repo: VectorRepository | None = None,
         entity_repo: EntityGraphRepoProtocol | None = None,
         consolidation_queue: ConsolidationQueueProtocol | None = None,
+        embedding_model: str = "Qwen3-Embedding-0.6B",
     ) -> None:
         """Initialize the synaptic ingestion service.
 
@@ -61,11 +62,13 @@ class SynapticIngestionService:
             vector_repo: Repository for vector embedding storage.
             entity_repo: Repository for entity graph operations.
             consolidation_queue: Queue for triggering slow path.
+            embedding_model: Embedding model identifier from configuration.
         """
         self._temporal_repo = temporal_repo
         self._vector_repo = vector_repo
         self._entity_repo = entity_repo
         self._queue = consolidation_queue
+        self._embedding_model = embedding_model
 
     async def ingest(self, state: dict[str, Any]) -> EventNode | None:
         """Ingest a pipeline state into memory.
@@ -90,7 +93,7 @@ class SynapticIngestionService:
 
             # 3. Index embedding in Vector Database
             if event.embedding and self._vector_repo:
-                await self._vector_repo.upsert_event_embedding(event)
+                await self._vector_repo.upsert_event_embedding(event, self._embedding_model)
 
             # 4. Update Entity Graph (deterministic extraction)
             entities = state.get("entities") or []

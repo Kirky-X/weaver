@@ -374,6 +374,7 @@ class ContainerServicesMixin:
                 resolution_rules=resolution_rules,
                 name_normalizer=name_normalizer,
                 disable_data_metrics=disable_data_metrics,
+                embedding_model=self._get_embedding_model_id(),
             )
         return self._entity_resolver
 
@@ -593,3 +594,21 @@ class ContainerServicesMixin:
         if self._task_registry is None:
             self._task_registry = InMemoryTaskRegistry()
         return self._task_registry
+
+    def _get_embedding_model_id(self) -> str:
+        """Get embedding model ID from configuration.
+
+        Extracts the model_id from defaults.embedding.primary.
+        Format: "embedding.aiping.Qwen3-Embedding-0.6B" -> "Qwen3-Embedding-0.6B"
+        """
+        try:
+            embedding_config = self._settings.llm.defaults.get("embedding")
+            if embedding_config and embedding_config.primary:
+                # Parse "embedding.aiping.Qwen3-Embedding-0.6B" -> "Qwen3-Embedding-0.6B"
+                parts = embedding_config.primary.split(".")
+                if len(parts) >= 3:
+                    return parts[-1]
+        except Exception:
+            pass
+        # Fallback
+        return "Qwen3-Embedding-0.6B"

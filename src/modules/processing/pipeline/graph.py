@@ -11,6 +11,7 @@ from core.db.models import PersistStatus
 from core.event.bus import EventBus
 from core.llm.client import LLMClient
 from core.llm.config.token_budget import TokenBudgetManager
+from core.llm.resilience.pool import AllProvidersFailedError
 from core.observability.logging import get_logger
 from core.observability.metrics import MetricsCollector
 from core.prompt.loader import PromptLoader
@@ -37,6 +38,26 @@ if TYPE_CHECKING:
     from config.settings import Settings
 
 log = get_logger(__name__)
+
+
+def _check_fatal_provider_errors(
+    results: list[Any],
+    phase_name: str,
+) -> None:
+    """Raise immediately if any result is AllProvidersFailedError.
+
+    When all providers fail (e.g. 429 rate limit exhausted), continuing
+    the batch is pointless — every subsequent LLM call will also fail.
+    """
+    for result in results:
+        if isinstance(result, AllProvidersFailedError):
+            log.critical(
+                "pipeline_fatal_provider_failure",
+                phase=phase_name,
+                error=str(result),
+            )
+            raise result
+
 
 # Processing stages
 PHASE1_STAGES = {
@@ -110,7 +131,11 @@ class Pipeline:
         self._categorizer = CategorizerNode(llm, prompt_loader)
         self._vectorize = VectorizeNode(llm)
         self._batch_merger = BatchMergerNode(llm, prompt_loader, vector_repo)
-        self._re_vectorize = ReVectorizeNode(llm)
+
+        # Get embedding model from configuration
+        embedding_model = self._extract_embedding_model_id(settings)
+        self._re_vectorize = ReVectorizeNode(llm, embedding_model)
+
         self._analyze = AnalyzeNode(llm, budget, prompt_loader)
         self._quality_scorer = QualityScorerNode(llm, budget, prompt_loader)
         self._credibility = CredibilityCheckerNode(llm, budget, event_bus, source_auth_repo)
@@ -269,6 +294,8 @@ class Pipeline:
         # Phase 1: Per-article concurrent nodes
         phase1_tasks = [self._phase1_per_article(state) for state in states]
         phase1_results = await asyncio.gather(*phase1_tasks, return_exceptions=True)
+        # Fatal provider errors must abort the entire batch immediately
+        _check_fatal_provider_errors(phase1_results, "phase1")
         # Handle errors gracefully - failed articles get error state, others continue
         states = []
         for i, result in enumerate(phase1_results):
@@ -301,6 +328,8 @@ class Pipeline:
             pre_phase3_states = list(states)
             phase3_tasks = [self._phase3_per_article(state) for state in states]
             phase3_results = await asyncio.gather(*phase3_tasks, return_exceptions=True)
+            # Fatal provider errors must abort the entire batch immediately
+            _check_fatal_provider_errors(phase3_results, "phase3")
             # Handle errors gracefully - preserve original state for failed articles
             states = []
             for i, result in enumerate(phase3_results):
@@ -408,6 +437,8 @@ class Pipeline:
         # Phase 1: Per-article concurrent nodes only
         phase1_tasks = [self._phase1_per_article(state) for state in states]
         phase1_results = await asyncio.gather(*phase1_tasks, return_exceptions=True)
+        # Fatal provider errors must abort the entire batch immediately
+        _check_fatal_provider_errors(phase1_results, "phase1_fast")
 
         # Handle errors gracefully
         states = []
@@ -498,6 +529,12 @@ class Pipeline:
                 categorizer_task, vectorize_task, return_exceptions=True
             )
 
+            # Fatal provider errors must propagate immediately
+            _check_fatal_provider_errors(
+                [categorizer_result, vectorize_result],
+                "phase1_categorize_vectorize",
+            )
+
             # Handle categorizer result
             if isinstance(categorizer_result, Exception):
                 log.warning(
@@ -573,6 +610,12 @@ class Pipeline:
 
             analyze_result, quality_result = await asyncio.gather(
                 analyze_task, quality_task, return_exceptions=True
+            )
+
+            # Fatal provider errors must propagate immediately
+            _check_fatal_provider_errors(
+                [analyze_result, quality_result],
+                "phase3_analyze_quality",
             )
 
             # Handle analyze result
@@ -1050,3 +1093,21 @@ class Pipeline:
                 error=str(exc),
                 error_type=type(exc).__name__,
             )
+
+    @staticmethod
+    def _extract_embedding_model_id(settings: Any) -> str:
+        """Extract embedding model ID from settings.
+
+        Parses defaults.embedding.primary from LLM config.
+        Format: "embedding.aiping.Qwen3-Embedding-0.6B" -> "Qwen3-Embedding-0.6B"
+        """
+        try:
+            if settings and hasattr(settings, "llm"):
+                embedding_config = settings.llm.defaults.get("embedding")
+                if embedding_config and embedding_config.primary:
+                    parts = embedding_config.primary.split(".")
+                    if len(parts) >= 3:
+                        return parts[-1]
+        except Exception:
+            pass
+        return "Qwen3-Embedding-0.6B"

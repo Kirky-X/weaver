@@ -585,6 +585,9 @@ class ContainerLifecycleMixin:
 
             embedding_service = EmbeddingServiceWrapper(self._llm_client)
 
+            # Get embedding model ID from configuration
+            embedding_model = self._get_embedding_model_id()
+
             self._memory_service = MemoryIntegrationService(
                 graph_pool=self.graph_pool(),
                 llm_client=self._llm_client,
@@ -594,6 +597,7 @@ class ContainerLifecycleMixin:
                 config=config,
                 vector_repo=self.vector_repo(),
                 entity_repo=self.graph_entity_repo(),
+                embedding_model=embedding_model,
             )
 
             await self._memory_service.initialize()
@@ -876,3 +880,21 @@ class ContainerLifecycleMixin:
                 log.info("llm_config_reload_complete")
         except Exception as e:
             log.error("llm_config_reload_failed", error=str(e))
+
+    def _get_embedding_model_id(self) -> str:
+        """Get embedding model ID from configuration.
+
+        Extracts the model_id from defaults.embedding.primary.
+        Format: "embedding.aiping.Qwen3-Embedding-0.6B" -> "Qwen3-Embedding-0.6B"
+        """
+        try:
+            embedding_config = self._settings.llm.defaults.get("embedding")
+            if embedding_config and embedding_config.primary:
+                # Parse "embedding.aiping.Qwen3-Embedding-0.6B" -> "Qwen3-Embedding-0.6B"
+                parts = embedding_config.primary.split(".")
+                if len(parts) >= 3:
+                    return parts[-1]
+        except Exception:
+            pass
+        # Fallback
+        return "Qwen3-Embedding-0.6B"

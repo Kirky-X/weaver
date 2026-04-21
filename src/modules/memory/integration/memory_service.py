@@ -142,6 +142,7 @@ class MemoryIntegrationService:
         config: MemoryServiceConfig | None = None,
         vector_repo: Any = None,
         entity_repo: Any = None,
+        embedding_model: str = "Qwen3-Embedding-0.6B",
     ) -> None:
         """Initialize the memory integration service.
 
@@ -170,6 +171,7 @@ class MemoryIntegrationService:
             vector_repo=vector_repo,
             entity_repo=entity_repo,
             consolidation_queue=self._consolidation_queue,
+            embedding_model=embedding_model,
         )
 
         # Initialize slow path

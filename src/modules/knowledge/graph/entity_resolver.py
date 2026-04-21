@@ -73,6 +73,7 @@ class EntityResolver:
         resolution_rules: EntityResolutionRules | None = None,
         name_normalizer: NameNormalizer | None = None,
         disable_data_metrics: bool = False,
+        embedding_model: str = "Qwen3-Embedding-0.6B",
     ) -> None:
         self._entity_repo = entity_repo
         self._vector_repo = vector_repo
@@ -80,6 +81,7 @@ class EntityResolver:
         self._rules = resolution_rules or EntityResolutionRules()
         self._normalizer = name_normalizer or NameNormalizer()
         self._disable_data_metrics = disable_data_metrics
+        self._embedding_model = embedding_model
 
     # ── Public API ─────────────────────────────────────────────
 
@@ -437,7 +439,9 @@ class EntityResolver:
                         description=description,
                     )
                     if embedding:
-                        await self._vector_repo.upsert_entity_vector(neo4j_id, embedding)
+                        await self._vector_repo.upsert_entity_vector(
+                            neo4j_id, embedding, self._embedding_model
+                        )
                     return {
                         "neo4j_id": neo4j_id,
                         "canonical_name": name,
@@ -451,7 +455,7 @@ class EntityResolver:
                         existing = await self._entity_repo.find_entity(name, entity_type)
                         if existing:
                             await self._vector_repo.upsert_entity_vector(
-                                existing["neo4j_id"], embedding
+                                existing["neo4j_id"], embedding, self._embedding_model
                             )
                             return {
                                 "neo4j_id": existing["neo4j_id"],
@@ -483,7 +487,7 @@ class EntityResolver:
             await self._entity_repo.add_alias(canonical_name, entity_type, new_name)
 
         if embedding:
-            await self._vector_repo.upsert_entity_vector(neo4j_id, embedding)
+            await self._vector_repo.upsert_entity_vector(neo4j_id, embedding, self._embedding_model)
 
         return {
             "neo4j_id": neo4j_id,
