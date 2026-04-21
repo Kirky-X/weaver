@@ -16,7 +16,7 @@ from core.observability.logging import get_logger
 from core.resilience.retry import retry_llm
 
 if TYPE_CHECKING:
-    pass
+    from core.event.bus import EventBus
 
 log = get_logger(__name__)
 
@@ -49,6 +49,7 @@ class ProviderPool:
     def __init__(
         self,
         config: ProviderConfig,
+        event_bus: EventBus,
         circuit_breaker_threshold: int = 5,
         circuit_breaker_timeout: float = 60.0,
     ) -> None:
@@ -56,11 +57,13 @@ class ProviderPool:
 
         Args:
             config: Provider配置
+            event_bus: 事件总线(必需)
             circuit_breaker_threshold: 熔断器失败阈值
             circuit_breaker_timeout: 熔断器冷却时间
         """
         self.config = config
         self.name = config.name
+        self._event_bus = event_bus
 
         # LiteLLM调用器
         self._caller = LiteLLMCaller()
@@ -109,7 +112,10 @@ class ProviderPool:
         self,
         labels: list[Label],
         payload: dict[str, Any],
+        call_point: str,
         timeout: float | None = None,
+        article_id: str | None = None,
+        task_id: str | None = None,
     ) -> LLMResponse:
         """执行请求，支持fallback链.
 
@@ -118,7 +124,10 @@ class ProviderPool:
         Args:
             labels: 标签链 [primary, fallback1, ...]
             payload: 调用参数
+            call_point: 调用点标识(必需)
             timeout: 超时覆盖
+            article_id: 文章ID(可选)
+            task_id: 任务ID(可选)
 
         Returns:
             LLM响应
@@ -168,6 +177,10 @@ class ProviderPool:
                     label=label,
                     payload=payload,
                     timeout=timeout or self.config.timeout,
+                    call_point=call_point,
+                    article_id=article_id,
+                    task_id=task_id,
+                    fallback_index=idx,
                 )
 
                 # 记录fallback成功
@@ -206,6 +219,10 @@ class ProviderPool:
         label: Label,
         payload: dict[str, Any],
         timeout: float,
+        call_point: str,
+        article_id: str | None,
+        task_id: str | None,
+        fallback_index: int = 0,
     ) -> LLMResponse:
         """执行单个请求，带指数退避重试.
 
@@ -214,6 +231,7 @@ class ProviderPool:
         """
         async with self._semaphore:
             last_error: Exception | None = None
+            attempt_number = 0
 
             async def _call_once() -> LLMResponse:
                 """单次调用：先获取rate limiter令牌，再执行."""
@@ -224,9 +242,11 @@ class ProviderPool:
 
             async def _call_with_retry() -> LLMResponse:
                 """Retry loop内执行实际调用，每次重试重新获取rate limiter令牌."""
+                nonlocal attempt_number
                 async for attempt in retry_llm(max_attempts=3, min_wait=5.0, max_wait=60.0):
                     with attempt:
                         try:
+                            attempt_number += 1
                             return await _call_once()
                         except CircuitOpenError:
                             raise
@@ -234,6 +254,16 @@ class ProviderPool:
                             nonlocal last_error
                             last_error = e
                             await self._metrics.record_failure(str(e))
+                            # 发布失败事件
+                            await self._emit_failure_event(
+                                label=label,
+                                error=e,
+                                attempt=attempt_number,
+                                call_point=call_point,
+                                article_id=article_id,
+                                task_id=task_id,
+                                fallback_tried=fallback_index > 0,
+                            )
                             raise
 
                 if last_error:
@@ -260,6 +290,35 @@ class ProviderPool:
         )
         await self._metrics.record_success(response.latency_ms)
         return response
+
+    async def _emit_failure_event(
+        self,
+        label: Label,
+        error: Exception,
+        attempt: int,
+        call_point: str,
+        article_id: str | None,
+        task_id: str | None,
+        fallback_tried: bool,
+    ) -> None:
+        """发布LLM失败事件到EventBus."""
+        from core.event.bus import LLMFailureEvent
+
+        error_type = type(error).__name__
+        error_detail = str(error)
+
+        event = LLMFailureEvent(
+            call_point=call_point,
+            provider=self.config.name,
+            error_type=error_type,
+            error_detail=error_detail[:500],
+            latency_ms=0.0,
+            article_id=article_id,
+            task_id=task_id,
+            attempt=attempt,
+            fallback_tried=fallback_tried,
+        )
+        await self._event_bus.publish(event)
 
     def get_metrics(self) -> dict[str, Any]:
         """获取监控指标."""

@@ -151,6 +151,7 @@ class EvalRunner:
                 start = monotonic()
                 candidate_result = await self._llm_client.call(
                     label=candidate_label,
+                    call_point=call_point,
                     payload=payload,
                 )
                 candidate_latency = (monotonic() - start) * 1000

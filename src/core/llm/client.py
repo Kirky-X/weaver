@@ -49,9 +49,9 @@ class LLMClient:
         self,
         providers: list[ProviderConfig],
         global_config: GlobalConfig,
+        event_bus: EventBus,
         cache_client: Any = None,
         prompt_loader: PromptLoader | None = None,
-        event_bus: EventBus | None = None,
         smart_router: SmartRouter | None = None,
         eval_runner: EvalRunner | None = None,
     ) -> None:
@@ -60,9 +60,9 @@ class LLMClient:
         Args:
             providers: Provider配置列表
             global_config: 全局配置
+            event_bus: 事件总线(必需)
             cache_client: 可选的Redis客户端（用于embedding缓存）
-            prompt_loader: 可选的Prompt加载器（用于call_at方法）
-            event_bus: 可选的EventBus，用于发射LLMUsageEvent
+            prompt_loader: 可选的Prompt 加载器（用于call_at方法）
             smart_router: 可选的智能路由器（动态评分选择模型）
             eval_runner: 可选的影子评测器
         """
@@ -74,11 +74,12 @@ class LLMClient:
         self._prompts = prompt_loader
         self._event_bus = event_bus
 
-        # 创建provider池映射
+        # 创建provider池映射,必须传递event_bus
         self._pools: dict[str, ProviderPool] = {}
         for provider_cfg in providers:
             pool = ProviderPool(
                 config=provider_cfg,
+                event_bus=event_bus,
                 circuit_breaker_threshold=global_config.circuit_breaker_threshold,
                 circuit_breaker_timeout=global_config.circuit_breaker_timeout,
             )
@@ -138,16 +139,21 @@ class LLMClient:
         self,
         label: str | Label,
         payload: dict[str, Any],
+        call_point: CallPoint | str,
+        article_id: str | None = None,
+        task_id: str | None = None,
         fallback_labels: list[str | Label] | None = None,
         output_model: type[T] | None = None,
         timeout: float | None = None,
-        call_point: CallPoint | str | None = None,
     ) -> T | str:
         """通用LLM调用.
 
         Args:
             label: 标签或标签字符串
             payload: 调用参数
+            call_point: 调用点标识(必需)
+            article_id: 文章ID(可选)
+            task_id: 任务ID(可选)
             fallback_labels: 备用标签列表
             output_model: 可选的Pydantic模型，用于结构化输出
             timeout: 超时覆盖
@@ -157,6 +163,15 @@ class LLMClient:
         """
         # 解析label
         parsed_label = Label.parse(label) if isinstance(label, str) else label
+
+        # 解析call_point
+        if isinstance(call_point, str):
+            try:
+                cp = CallPoint(call_point)
+            except ValueError:
+                cp = CallPoint.CLASSIFIER
+        else:
+            cp = call_point
 
         # 构建label链
         labels = self._router.resolve(parsed_label)
@@ -171,24 +186,24 @@ class LLMClient:
         if not pool:
             raise ValueError(f"Provider not found: {parsed_label.provider}")
 
-        # 执行调用
-        response = await pool.execute(labels, payload, timeout)
+        try:
+            # 执行调用
+            response = await pool.execute(
+                labels=labels,
+                payload=payload,
+                call_point=cp.value,
+                timeout=timeout,
+                article_id=article_id,
+                task_id=task_id,
+            )
 
-        log.debug(
-            "llm_call_complete",
-            label=str(parsed_label),
-            latency_ms=response.latency_ms,
-        )
+            log.debug(
+                "llm_call_complete",
+                label=str(parsed_label),
+                latency_ms=response.latency_ms,
+            )
 
-        # 发射使用事件(如果有 call_point)
-        if call_point:
-            if isinstance(call_point, str):
-                try:
-                    cp = CallPoint(call_point)
-                except ValueError:
-                    cp = CallPoint.CLASSIFIER  # fallback
-            else:
-                cp = call_point
+            # 发射使用事件
             await self._emit_usage_event(
                 label=response.label,
                 call_point=cp,
@@ -197,11 +212,23 @@ class LLMClient:
                 success=True,
             )
 
-        # 解析输出
-        if output_model:
-            return parse_llm_json(response.content, output_model)
+            # 解析输出
+            if output_model:
+                return parse_llm_json(response.content, output_model)
 
-        return response.content
+            return response.content
+
+        except Exception as exc:
+            # 已在pool层发布失败事件,这里发布usage事件标记失败
+            await self._emit_usage_event(
+                label=parsed_label,
+                call_point=cp,
+                latency_ms=0.0,
+                token_usage=None,
+                success=False,
+                error_type=type(exc).__name__,
+            )
+            raise
 
     async def call_at(
         self,
@@ -460,21 +487,21 @@ class LLMClient:
     async def create_from_settings(
         cls,
         llm_settings: Any,  # LLMSettings
+        event_bus: EventBus,
         cache_client: Any = None,
         prompt_loader: PromptLoader | None = None,
-        event_bus: EventBus | None = None,
     ) -> LLMClient:
         """从LLMSettings创建客户端.
 
         Args:
             llm_settings: LLMSettings实例
+            event_bus: 事件总线(必需)
             cache_client: 可选的Redis客户端
             prompt_loader: 可选的Prompt加载器
-            event_bus: 可选的EventBus，用于发射LLMUsageEvent
 
         Returns:
             配置好的LLMClient实例
         """
         providers = llm_settings.get_providers()
         global_config = llm_settings.get_global_config()
-        return cls(providers, global_config, cache_client, prompt_loader, event_bus)
+        return cls(providers, global_config, event_bus, cache_client, prompt_loader)
