@@ -134,6 +134,8 @@ class DuckDBSource:
         """
 
         def _read_batch_sync() -> list[dict[str, Any]]:
+            # Validate table name to prevent SQL injection
+            validate_sql_identifier(table)
             with self._engine.connect() as conn:
                 result = conn.execute(
                     text(f'SELECT * FROM "{table}" OFFSET :offset LIMIT :limit'),
@@ -217,6 +219,8 @@ class DuckDBSource:
         """
 
         def _count_sync() -> int:
+            # Validate table name to prevent SQL injection
+            validate_sql_identifier(table)
             with self._engine.connect() as conn:
                 result = conn.execute(text(f'SELECT COUNT(*) FROM "{table}"'))
                 return result.scalar() or 0

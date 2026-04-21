@@ -158,6 +158,9 @@ class PostgresSource:
         Returns:
             List of row dictionaries.
         """
+        # Validate table name to prevent SQL injection
+        validate_sql_identifier(table)
+
         async with self._engine.connect() as conn:
             result = await conn.execute(
                 text(f'SELECT * FROM "{table}" OFFSET :offset LIMIT :limit'),
@@ -231,6 +234,9 @@ class PostgresSource:
         Returns:
             Total number of rows.
         """
+        # Validate table name to prevent SQL injection
+        validate_sql_identifier(table)
+
         async with self._engine.connect() as conn:
             result = await conn.execute(text(f'SELECT COUNT(*) FROM "{table}"'))
             return result.scalar() or 0
