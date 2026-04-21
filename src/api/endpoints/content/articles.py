@@ -124,6 +124,8 @@ async def list_articles(
     min_credibility: float | None = Query(
         None, ge=0, le=1, description="Minimum credibility filter"
     ),
+    is_news: bool | None = Query(None, description="Filter by is_news flag"),
+    processing_stage: str | None = Query(None, description="Filter by processing stage"),
     sort_by: str = Query(
         "publish_time", description="Sort field: publish_time, score, credibility_score, created_at"
     ),
@@ -167,6 +169,10 @@ async def list_articles(
             filters.append(Article.score >= min_score)
         if min_credibility is not None:
             filters.append(Article.credibility_score >= min_credibility)
+        if is_news is not None:
+            filters.append(Article.is_news == is_news)
+        if processing_stage:
+            filters.append(Article.processing_stage == processing_stage)
 
         for f in filters:
             query = query.where(f)
