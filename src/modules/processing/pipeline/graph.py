@@ -1100,14 +1100,18 @@ class Pipeline:
 
         Parses defaults.embedding.primary from LLM config.
         Format: "embedding.aiping.Qwen3-Embedding-0.6B" -> "Qwen3-Embedding-0.6B"
+
+        The label format is "<type>.<provider>.<model_id>" where model_id may
+        contain dots (e.g., Qwen3-Embedding-0.6B). We split on first 2 dots only.
         """
         try:
             if settings and hasattr(settings, "llm"):
                 embedding_config = settings.llm.defaults.get("embedding")
                 if embedding_config and embedding_config.primary:
-                    parts = embedding_config.primary.split(".")
+                    # Split only on first 2 dots to preserve model_id with dots
+                    parts = embedding_config.primary.split(".", 2)
                     if len(parts) >= 3:
-                        return parts[-1]
+                        return parts[2]  # Return model_id (third part)
         except Exception:
             pass
         return "Qwen3-Embedding-0.6B"
