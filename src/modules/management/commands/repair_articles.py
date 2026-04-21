@@ -59,11 +59,13 @@ async def _init_minimal_container():
     await cache_client.startup()
     log.info("redis_initialized")
 
+    event_bus = EventBus()
     prompt_loader = PromptLoader(settings.prompt.dir)
     llm_client = await LLMClient.create_from_settings(
         llm_settings=settings.llm,
         prompt_loader=prompt_loader,
         cache_client=cache_client,
+        event_bus=event_bus,
     )
     log.info("llm_client_initialized")
 
