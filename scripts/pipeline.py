@@ -281,13 +281,27 @@ class PipelineAPIClient:
         self,
         page: int = 1,
         page_size: int = 20,
+        is_news: bool | None = None,
+        processing_stage: str | None = None,
     ) -> dict[str, Any]:
-        """List articles."""
+        """List articles with optional filters and 429 retry."""
         url = f"{self.base_url}/api/v1/articles"
-        params = {"page": page, "page_size": page_size}
-        response = await self._client.get(url, params=params, headers=self._headers())
-        response.raise_for_status()
-        return response.json()["data"]
+        params: dict[str, Any] = {"page": page, "page_size": page_size}
+        if is_news is not None:
+            params["is_news"] = is_news
+        if processing_stage is not None:
+            params["processing_stage"] = processing_stage
+
+        max_retries = 3
+        for attempt in range(max_retries + 1):
+            response = await self._client.get(url, params=params, headers=self._headers())
+            if response.status_code == 429 and attempt < max_retries:
+                wait = float(response.headers.get("Retry-After", 5))
+                print(f"    Rate limited (429), retrying in {wait:.0f}s...")
+                await asyncio.sleep(wait)
+                continue
+            response.raise_for_status()
+            return response.json()["data"]
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -623,7 +637,7 @@ async def run_all_sources(
     llm_start = time.time()
     llm_timeout = timeout
     while time.time() - llm_start < llm_timeout:
-        articles = await client.list_articles(page=1, page_size=1)
+        articles = await client.list_articles(page=1, page_size=1, is_news=True)
         total = articles.get("total", 0)
         if total == 0:
             await asyncio.sleep(5)
@@ -635,7 +649,7 @@ async def run_all_sources(
         page_size = 100  # API max limit
         fetched = 0
         while fetched < total:
-            batch = await client.list_articles(page=page, page_size=page_size)
+            batch = await client.list_articles(page=page, page_size=page_size, is_news=True)
             items = batch.get("items", [])
             if not items:
                 break
@@ -842,29 +856,30 @@ async def cmd_test(args: argparse.Namespace) -> int:
     print("=" * 60)
 
     start_time = time.time()
-
-    # Setup server
-    phase_header("PHASE 0: Infrastructure Initialization")
-
-    if args.mode == "strategy":
-        server_ctx = await setup_strategy_mode()
-    else:
-        server_ctx = await setup_normal_mode()
-
-    step(
-        f"Database: {server_ctx.relational_type} + {server_ctx.graph_type}",
-        True,
-    )
-
-    # Clear databases if requested
-    if args.clear_db:
-        await clear_databases(server_ctx)
-
-    # Start API server
-    server, _server_task = await start_server(args.port, server_ctx.container)
-    step(f"API server started", True, f"port: {args.port}")
+    server: Any = None
+    server_ctx: ServerContext | None = None
 
     try:
+        # Setup server
+        phase_header("PHASE 0: Infrastructure Initialization")
+
+        if args.mode == "strategy":
+            server_ctx = await setup_strategy_mode()
+        else:
+            server_ctx = await setup_normal_mode()
+
+        step(
+            f"Database: {server_ctx.relational_type} + {server_ctx.graph_type}",
+            True,
+        )
+
+        # Clear databases if requested
+        if args.clear_db:
+            await clear_databases(server_ctx)
+
+        # Start API server
+        server, _server_task = await start_server(args.port, server_ctx.container)
+        step(f"API server started", True, f"port: {args.port}")
         # Get API key
         from config.settings import Settings
 
@@ -921,7 +936,10 @@ async def cmd_test(args: argparse.Namespace) -> int:
 
     finally:
         print("\nShutting down...")
-        await shutdown_server(server, server_ctx.container)
+        if server is not None and server_ctx is not None:
+            await shutdown_server(server, server_ctx.container)
+        elif server_ctx is not None:
+            await server_ctx.container.shutdown()
         print("Done.")
 
 
@@ -943,36 +961,36 @@ async def cmd_process_pending(args: argparse.Namespace) -> int:
     container = Container().configure(settings)
     await container.startup()
 
-    # Get services
-    article_repo = container.article_repo()
-    graph_writer = container.graph_writer()
-    vector_repo = container.vector_repo()
-    pipeline = container.pipeline()
-    relational_pool = container.relational_pool()
+    try:
+        # Get services
+        article_repo = container.article_repo()
+        graph_writer = container.graph_writer()
+        vector_repo = container.vector_repo()
+        pipeline = container.pipeline()
+        relational_pool = container.relational_pool()
 
-    # Get pending articles
-    async with relational_pool.session() as session:
-        from sqlalchemy import text
+        # Get pending articles
+        async with relational_pool.session() as session:
+            from sqlalchemy import text
 
-        result = await session.execute(text("""
-            SELECT CAST(id AS VARCHAR) as id, title
-            FROM articles
-            WHERE persist_status = 'pending'
-            ORDER BY created_at
-        """))
-        rows = result.fetchall()
+            result = await session.execute(text("""
+                SELECT CAST(id AS VARCHAR) as id, title
+                FROM articles
+                WHERE persist_status = 'pending'
+                ORDER BY created_at
+            """))
+            rows = result.fetchall()
 
-    print(f"找到 {len(rows)} 篇待处理文章")
+        print(f"找到 {len(rows)} 篇待处理文章")
 
-    processed_count = 0
+        processed_count = 0
 
-    for row in rows:
-        article_id = row[0]
-        title = row[1]
+        for row in rows:
+            article_id = row[0]
+            title = row[1]
 
-        print(f"\n处理文章: {title[:50]}...")
+            print(f"\n处理文章: {title[:50]}...")
 
-        try:
             # Use pipeline's process_article_phase3 method
             state = await pipeline.process_article_phase3(
                 article_id=article_id, force_reprocess=True
@@ -1010,14 +1028,17 @@ async def cmd_process_pending(args: argparse.Namespace) -> int:
 
             processed_count += 1
 
-        except Exception as exc:
-            print(f"  ✗ 处理失败: {exc}")
-            log.error("process_pending_failed", article_id=article_id, error=str(exc))
+        print(f"\n处理完成: {processed_count}/{len(rows)} 篇")
+        return 0 if processed_count > 0 else 1
 
-    await container.shutdown()
+    except Exception as exc:
+        print(f"\n  ✗ 处理失败: {exc}")
+        log.error("process_pending_fatal", error=str(exc))
+        __import__("traceback").print_exc()
+        return 1
 
-    print(f"\n处理完成: {processed_count}/{len(rows)} 篇")
-    return 0 if processed_count > 0 else 1
+    finally:
+        await container.shutdown()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1040,96 +1061,108 @@ async def cmd_reprocess(args: argparse.Namespace) -> int:
     set_container(container)
     set_settings(settings)
 
-    # Initialize strategy and LLM
-    await container.init_strategy()
-    await container.init_llm()
-    pipeline = await container.init_pipeline()
-    relational_pool = container.relational_pool()
-    article_repo = ArticleRepo(relational_pool)
+    try:
+        # Initialize strategy and LLM
+        await container.init_strategy()
+        await container.init_llm()
+        pipeline = await container.init_pipeline()
+        relational_pool = container.relational_pool()
+        article_repo = ArticleRepo(relational_pool)
 
-    # Find incomplete articles
-    print("Finding incomplete articles...")
-    async with relational_pool.session() as session:
-        from core.db.models import Article
+        # Find incomplete articles
+        print("Finding incomplete articles...")
+        async with relational_pool.session() as session:
+            from core.db.models import Article
 
-        if args.article_id:
-            # Reprocess specific article
-            result = await session.execute(select(Article).where(Article.id == args.article_id))
-            articles_db = result.scalars().all()
-        elif args.incomplete:
-            # Reprocess all incomplete articles
-            result = await session.execute(
-                select(Article)
-                .where(Article.credibility_score.is_(None) | Article.quality_score.is_(None))
-                .order_by(Article.created_at.desc())
-            )
-            articles_db = result.scalars().all()
-        else:
-            print("Error: Specify --incomplete or --article-id")
+            if args.article_id:
+                # Reprocess specific article
+                result = await session.execute(select(Article).where(Article.id == args.article_id))
+                articles_db = result.scalars().all()
+            elif args.incomplete:
+                # Reprocess all incomplete articles
+                result = await session.execute(
+                    select(Article)
+                    .where(Article.credibility_score.is_(None) | Article.quality_score.is_(None))
+                    .order_by(Article.created_at.desc())
+                )
+                articles_db = result.scalars().all()
+            else:
+                print("Error: Specify --incomplete or --article-id")
+                return 1
+
+        if not articles_db:
+            print("No incomplete articles found")
             return 1
 
-    if not articles_db:
-        print("No incomplete articles found")
-        return 1
+        print(f"Found {len(articles_db)} incomplete articles")
 
-    print(f"Found {len(articles_db)} incomplete articles")
+        # Convert to RawArticle objects
+        articles = []
+        article_ids = []
+        for article in articles_db:
+            if not article.body:
+                print(f"Skipping article {article.id} - no body")
+                continue
 
-    # Convert to RawArticle objects
-    articles = []
-    article_ids = []
-    for article in articles_db:
-        if not article.body:
-            print(f"Skipping article {article.id} - no body")
-            continue
-
-        raw = RawArticle(
-            url=article.source_url,
-            title=article.title or "",
-            body=article.body,
-            source=article.source_host or "reprocess",
-            source_host=article.source_host or "",
-            publish_time=article.publish_time,
-        )
-        articles.append(raw)
-        article_ids.append(article.id)
-        print(f"Prepared: {article.title[:50] if article.title else 'N/A'}...")
-
-    if not articles:
-        print("No articles to process (all have empty body)")
-        return 1
-
-    print(f"\nProcessing {len(articles)} articles through pipeline...")
-
-    # Process through pipeline
-    task_id = uuid.uuid4()
-    states = await pipeline.process_batch(articles, article_ids=article_ids, task_id=task_id)
-
-    # Report results
-    completed = sum(1 for s in states if not s.get("terminal"))
-    failed = sum(1 for s in states if s.get("terminal"))
-
-    print(f"\nResults: {completed} completed, {failed} failed")
-
-    # Verify final state
-    async with relational_pool.session() as session:
-        result = await session.execute(
-            select(
-                func.count(Article.id).label("total"),
-                func.sum(case((Article.credibility_score.is_not(None), 1), else_=0)).label(
-                    "cred_complete"
-                ),
-                func.sum(case((Article.quality_score.is_not(None), 1), else_=0)).label(
-                    "qual_complete"
-                ),
+            raw = RawArticle(
+                url=article.source_url,
+                title=article.title or "",
+                body=article.body,
+                source=article.source_host or "reprocess",
+                source_host=article.source_host or "",
+                publish_time=article.publish_time,
             )
-        )
-        row = result.one()
-        print(
-            f"Final state: {int(row.cred_complete or 0)}/{row.total} have credibility_score, "
-            f"{int(row.qual_complete or 0)}/{row.total} have quality_score"
-        )
+            articles.append(raw)
+            article_ids.append(article.id)
+            print(f"Prepared: {article.title[:50] if article.title else 'N/A'}...")
 
-    return 0
+        if not articles:
+            print("No articles to process (all have empty body)")
+            return 1
+
+        print(f"\nProcessing {len(articles)} articles through pipeline...")
+
+        # Process through pipeline
+        task_id = uuid.uuid4()
+        states = await pipeline.process_batch(articles, article_ids=article_ids, task_id=task_id)
+
+        # Report results
+        completed = sum(1 for s in states if not s.get("terminal"))
+        failed = sum(1 for s in states if s.get("terminal"))
+
+        print(f"\nResults: {completed} completed, {failed} failed")
+
+        if failed > 0:
+            return 1
+
+        # Verify final state
+        async with relational_pool.session() as session:
+            result = await session.execute(
+                select(
+                    func.count(Article.id).label("total"),
+                    func.sum(case((Article.credibility_score.is_not(None), 1), else_=0)).label(
+                        "cred_complete"
+                    ),
+                    func.sum(case((Article.quality_score.is_not(None), 1), else_=0)).label(
+                        "qual_complete"
+                    ),
+                )
+            )
+            row = result.one()
+            print(
+                f"Final state: {int(row.cred_complete or 0)}/{row.total} have credibility_score, "
+                f"{int(row.qual_complete or 0)}/{row.total} have quality_score"
+            )
+
+        return 0
+
+    except Exception as exc:
+        print(f"\n  ✗ 处理失败: {exc}")
+        __import__("traceback").print_exc()
+        return 1
+
+    finally:
+        await container.shutdown()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
