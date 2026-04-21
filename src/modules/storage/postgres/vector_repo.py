@@ -75,7 +75,7 @@ class VectorRepo:
         article_id: uuid.UUID,
         title_embedding: list[float] | None,
         content_embedding: list[float] | None,
-        model_id: str = "text-embedding-3-large",  # Default for backward compatibility; should use configured model
+        model_id: str,
     ) -> None:
         """Upsert title and content vectors for an article.
 
@@ -83,9 +83,7 @@ class VectorRepo:
             article_id: Article UUID.
             title_embedding: Title vector (1024-dim).
             content_embedding: Content vector (1024-dim).
-            model_id: Embedding model identifier (e.g., "qwen3-embedding:0.6b", "text-embedding-3-large").
-                      IMPORTANT: In production, this should come from settings.llm.embedding_model
-                      rather than using the default value.
+            model_id: Embedding model identifier from configuration.
         """
         async with self._pool.session() as session:
             # Initialize session with database-specific settings
@@ -442,8 +440,8 @@ class VectorRepo:
     async def upsert_entity_vectors(
         self,
         entities: list[tuple[str, list[float]]],
+        model_id: str,
         use_temp_key: bool = False,
-        model_id: str = "text-embedding-3-large",
     ) -> None:
         """Upsert entity vectors by name.
 
@@ -493,11 +491,21 @@ class VectorRepo:
 
                 await session.commit()
 
-    async def upsert_entity_vector(self, neo4j_id: str, embedding: list[float]) -> None:
-        """Upsert a single entity vector."""
-        await self.upsert_entity_vectors([(neo4j_id, embedding)], use_temp_key=False)
+    async def upsert_entity_vector(
+        self, neo4j_id: str, embedding: list[float], model_id: str
+    ) -> None:
+        """Upsert a single entity vector.
 
-    async def upsert_event_embedding(self, event: object) -> bool:
+        Args:
+            neo4j_id: Neo4j entity ID.
+            embedding: Entity embedding vector.
+            model_id: Embedding model identifier from configuration.
+        """
+        await self.upsert_entity_vectors(
+            [(neo4j_id, embedding)], model_id=model_id, use_temp_key=False
+        )
+
+    async def upsert_event_embedding(self, event: object, model_id: str) -> bool:
         """Upsert event embedding for MAGMA memory system.
 
         Stores event embedding in article_vectors using the event's article UUID.
@@ -505,6 +513,7 @@ class VectorRepo:
 
         Args:
             event: EventNode instance with id (str/UUID), embedding (list[float]).
+            model_id: Embedding model identifier from configuration.
 
         Returns:
             True if upsert was successful.
@@ -531,6 +540,7 @@ class VectorRepo:
             article_id=article_id,
             title_embedding=None,
             content_embedding=event.embedding,
+            model_id=model_id,
         )
         log.debug("upsert_event_embedding_stored", event_id=event.id)
         return True

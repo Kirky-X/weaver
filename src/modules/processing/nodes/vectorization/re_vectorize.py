@@ -18,7 +18,13 @@ class ReVectorizeNode:
     persistent storage in article_vectors.
     """
 
-    def __init__(self, llm: LLMClient, model_id: str = "text-embedding-3-large") -> None:
+    def __init__(self, llm: LLMClient, model_id: str) -> None:
+        """Initialize ReVectorizeNode.
+
+        Args:
+            llm: LLM client for embedding generation.
+            model_id: Embedding model identifier from configuration.
+        """
         self._llm = llm
         self._model_id = model_id
 

@@ -98,13 +98,20 @@ class EntityExtractorNode:
 
                 if self._vector_repo:
                     try:
+                        # Get embedding model from settings
+                        model_id = (
+                            self._settings.llm.embedding_model
+                            if self._settings
+                            else "Qwen3-Embedding-0.6B"
+                        )
                         await self._vector_repo.upsert_entity_vectors(
                             list(
                                 zip(
                                     [e.name for e in spacy_entities],
                                     entity_embeds,
                                 )
-                            )
+                            ),
+                            model_id=model_id,
                         )
                     except Exception as exc:
                         log.warning("entity_vector_upsert_failed", error=str(exc))
@@ -191,7 +198,16 @@ class EntityExtractorNode:
 
                         # Persist to database
                         if entity_vectors_to_upsert:
-                            await self._vector_repo.upsert_entity_vectors(entity_vectors_to_upsert)
+                            # Get embedding model from settings
+                            model_id = (
+                                self._settings.llm.embedding_model
+                                if self._settings
+                                else "Qwen3-Embedding-0.6B"
+                            )
+                            await self._vector_repo.upsert_entity_vectors(
+                                entity_vectors_to_upsert,
+                                model_id=model_id,
+                            )
                             log.debug(
                                 "entity_vectors_persisted",
                                 count=len(entity_vectors_to_upsert),

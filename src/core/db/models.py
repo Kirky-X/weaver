@@ -304,9 +304,7 @@ class ArticleVector(Base):
         Enum(VectorType, name="vector_type", create_type=True), nullable=False
     )
     embedding: Mapped[Any] = mapped_column(Vector(1024), nullable=False)
-    model_id: Mapped[str] = mapped_column(
-        String(64), nullable=False, default="text-embedding-3-large"
-    )
+    model_id: Mapped[str] = mapped_column(String(64), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -340,9 +338,7 @@ class EntityVector(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     neo4j_id: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     embedding: Mapped[Any] = mapped_column(Vector(1024), nullable=False)
-    model_id: Mapped[str] = mapped_column(
-        String(64), nullable=False, default="text-embedding-3-large"
-    )
+    model_id: Mapped[str] = mapped_column(String(64), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),

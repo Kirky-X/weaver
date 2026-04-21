@@ -58,7 +58,7 @@ class VectorData(BaseModel):
 
     content: list[float] | None = None
     title: list[float] | None = None
-    model_id: str = "text-embedding-3-large"
+    model_id: str = Field(..., description="Embedding model identifier from configuration")
 
 
 class EntityData(BaseModel):

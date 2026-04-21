@@ -185,7 +185,7 @@ SCHEMA_QUERIES = [
         article_id VARCHAR,
         vector_type VARCHAR,
         embedding FLOAT[1024],
-        model_id VARCHAR DEFAULT 'text-embedding-3-large',
+        model_id VARCHAR NOT NULL,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
         PRIMARY KEY (article_id, vector_type)
     )""",
@@ -194,7 +194,7 @@ SCHEMA_QUERIES = [
         id BIGINT DEFAULT nextval('entity_vectors_seq') PRIMARY KEY,
         neo4j_id VARCHAR UNIQUE,
         embedding FLOAT[1024],
-        model_id VARCHAR DEFAULT 'text-embedding-3-large',
+        model_id VARCHAR NOT NULL,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
     )""",
 ]

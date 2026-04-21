@@ -165,7 +165,7 @@ class VectorRepository(Protocol):
         article_id: uuid.UUID,
         title_embedding: list[float] | None,
         content_embedding: list[float] | None,
-        model_id: str = "text-embedding-3-large",
+        model_id: str,
     ) -> None:
         """Upsert article vectors.
 
@@ -181,23 +181,27 @@ class VectorRepository(Protocol):
         self,
         neo4j_id: str,
         embedding: list[float],
+        model_id: str,
     ) -> None:
         """Upsert a single entity vector.
 
         Args:
             neo4j_id: Neo4j entity ID.
             embedding: Entity embedding vector.
+            model_id: Embedding model identifier from configuration.
         """
         ...
 
     async def upsert_event_embedding(
         self,
         event: Any,
+        model_id: str,
     ) -> bool:
         """Upsert event embedding for MAGMA memory system.
 
         Args:
             event: EventNode instance with embedding data.
+            model_id: Embedding model identifier from configuration.
 
         Returns:
             True if upsert was successful.
