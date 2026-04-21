@@ -116,14 +116,19 @@ class TestTranslationMatch:
 
     def test_english_to_chinese(self) -> None:
         rules = EntityResolutionRules()
+        # Now uses LocationResolver instead of translation_map
         result = rules.resolve("China", "地点", [{"canonical_name": "中国"}])
-        assert result.match_type == MatchType.TRANSLATION
-        assert result.confidence == 0.9
+        # Location standardization rule (priority=35) triggers before translation (priority=40)
+        assert result.match_type == MatchType.ALIAS
+        assert result.confidence == 1.0
+        assert result.canonical_name == "China"
 
     def test_chinese_to_english(self) -> None:
         rules = EntityResolutionRules()
         result = rules.resolve("中国", "地点", [{"canonical_name": "China"}])
-        assert result.match_type == MatchType.TRANSLATION
+        # Location standardization rule matches via ISO code
+        assert result.match_type == MatchType.ALIAS
+        assert result.confidence == 1.0
 
 
 class TestBracketVariantMatch:
@@ -218,8 +223,9 @@ class TestGetCanonicalSuggestion:
 
     def test_translation_chinese(self) -> None:
         rules = EntityResolutionRules()
+        # With LocationResolver, China normalizes to "China" (canonical English name)
         result = rules.get_canonical_suggestion("China", "地点")
-        assert result == "中国"
+        assert result == "China"
 
 
 class TestGetHelpers:
@@ -242,7 +248,8 @@ class TestGetHelpers:
 
     def test_get_translation(self) -> None:
         rules = EntityResolutionRules()
-        assert rules.get_translation("China") == "中国"
+        # translation_map is now empty (region mappings moved to LocationResolver)
+        assert rules.get_translation("China") is None
         assert rules.get_translation("Unknown") is None
 
 

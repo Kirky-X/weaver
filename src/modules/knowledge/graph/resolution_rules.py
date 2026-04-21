@@ -14,6 +14,7 @@ from enum import Enum
 from typing import Any
 
 from core.observability.logging import get_logger
+from modules.knowledge.graph.location_resolver import LocationResolver
 
 log = get_logger(__name__)
 
@@ -77,6 +78,7 @@ class EntityResolutionRules:
         self._alias_map: dict[str, set[str]] = {}
         self._abbreviation_map: dict[str, str] = {}
         self._translation_map: dict[str, str] = {}
+        self._location_resolver = LocationResolver()  # Required dependency, no fallback
         self._initialize_default_rules()
         self._initialize_alias_maps()
 
@@ -118,6 +120,13 @@ class EntityResolutionRules:
                 priority=30,
                 matcher=self._abbreviation_match,
                 description="Match abbreviations to full names",
+            ),
+            ResolutionRule(
+                name="location_standardization",
+                entity_types=["地点"],
+                priority=35,
+                matcher=self._location_standardization_match,
+                description="Standardize location names using ISO 3166",
             ),
             ResolutionRule(
                 name="translation",
@@ -181,44 +190,7 @@ class EntityResolutionRules:
             "CIA": "中央情报局",
         }
 
-        self._translation_map = {
-            "United States": "美国",
-            "United Kingdom": "英国",
-            "China": "中国",
-            "Japan": "日本",
-            "Germany": "德国",
-            "France": "法国",
-            "Russia": "俄罗斯",
-            "South Korea": "韩国",
-            "North Korea": "朝鲜",
-            "India": "印度",
-            "Australia": "澳大利亚",
-            "Canada": "加拿大",
-            "Brazil": "巴西",
-            "Italy": "意大利",
-            "Spain": "西班牙",
-            "Mexico": "墨西哥",
-            "Taiwan": "台湾",
-            "Hong Kong": "香港",
-            "Macau": "澳门",
-            "Beijing": "北京",
-            "Shanghai": "上海",
-            "Shenzhen": "深圳",
-            "Guangzhou": "广州",
-            "Hangzhou": "杭州",
-            "Nanjing": "南京",
-            "New York": "纽约",
-            "Los Angeles": "洛杉矶",
-            "San Francisco": "旧金山",
-            "Silicon Valley": "硅谷",
-            "Washington": "华盛顿",
-            "London": "伦敦",
-            "Paris": "巴黎",
-            "Tokyo": "东京",
-            "Seoul": "首尔",
-            "Singapore": "新加坡",
-            "Dubai": "迪拜",
-        }
+        self._translation_map = {}
 
         self._alias_map = {
             "OpenAI": {"OpenAI Inc", "OpenAI LP", "OpenAI公司"},
@@ -470,6 +442,35 @@ class EntityResolutionRules:
                 should_merge=True,
                 reason=f"'{canonical}' is translation of '{name}'",
             )
+        return None
+
+    def _location_standardization_match(
+        self,
+        name: str,
+        canonical: str,
+        entity_type: str,
+    ) -> ResolutionResult | None:
+        """Standardize location names using ISO 3166."""
+        norm_result = self._location_resolver.normalize(name)
+        if norm_result.confidence < 0.8:
+            return None
+
+        canonical_result = self._location_resolver.normalize(canonical)
+
+        if norm_result.iso_alpha2 and canonical_result.iso_alpha2:
+            if norm_result.iso_alpha2 == canonical_result.iso_alpha2:
+                return ResolutionResult(
+                    match_type=MatchType.ALIAS,
+                    confidence=norm_result.confidence,
+                    canonical_name=norm_result.canonical_name,
+                    should_merge=True,
+                    reason=f"Location标准化: '{name}' → '{norm_result.canonical_name}' (ISO: {norm_result.iso_alpha2})",
+                    metadata={
+                        "iso_alpha2": norm_result.iso_alpha2,
+                        "iso_alpha3": norm_result.iso_alpha3,
+                    },
+                )
+
         return None
 
     def _person_name_variant_match(

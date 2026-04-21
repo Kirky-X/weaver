@@ -22,6 +22,8 @@ from modules.knowledge.graph.community.updater import (
     IncrementalUpdateResult,
 )
 from modules.knowledge.graph.entity_resolver import EntityResolver
+from modules.knowledge.graph.location_hierarchy import LocationHierarchy, LocationNode
+from modules.knowledge.graph.location_resolver import LocationResolver, LocationResult
 from modules.knowledge.graph.metrics import GraphMetrics, GraphQualityMetrics
 from modules.knowledge.graph.name_normalizer import NameNormalizer, name_normalizer
 from modules.knowledge.graph.neo4j_writer import Neo4jWriter
@@ -38,6 +40,10 @@ from modules.knowledge.graph.resolution_rules import (
     resolution_rules,
 )
 
+# Create global instances
+location_resolver = LocationResolver()
+location_hierarchy = LocationHierarchy()
+
 __all__ = [
     "CommunityDetector",
     "CommunityHealthChecker",
@@ -52,6 +58,10 @@ __all__ = [
     "IncrementalCommunityUpdater",
     "IncrementalUpdateResult",
     "IssueType",
+    "LocationHierarchy",
+    "LocationNode",
+    "LocationResolver",
+    "LocationResult",
     "MatchType",
     "NameNormalizer",
     "Neo4jCommunityRepo",
@@ -62,6 +72,8 @@ __all__ = [
     "ReportGenerationResult",
     "ResolutionResult",
     "ResolutionRule",
+    "location_hierarchy",
+    "location_resolver",
     "name_normalizer",
     "resolution_rules",
 ]
