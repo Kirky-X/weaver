@@ -1606,15 +1606,6 @@ def main() -> None:
         help="Output format (default: table)",
     )
 
-    args = parser.parse_args()
-
-    # Validate db arguments for stats
-    if args.command == "stats" and args.db:
-        try:
-            args.db = _validate_dbs(args.db)
-        except ValueError as e:
-            parser.error(str(e))
-
     # null-fields subcommand
     p_null = sub.add_parser("null-fields", help="Check NULL/empty fields in database tables")
     p_null.add_argument("--table", help="Specific table to check (default: all tables)")
@@ -1630,6 +1621,15 @@ def main() -> None:
         default=0,
         help="Minimum null rate percentage to report (default: 0, show all)",
     )
+
+    args = parser.parse_args()
+
+    # Validate db arguments for stats
+    if args.command == "stats" and args.db:
+        try:
+            args.db = _validate_dbs(args.db)
+        except ValueError as e:
+            parser.error(str(e))
 
     dispatch = {
         "stats": cmd_stats,
