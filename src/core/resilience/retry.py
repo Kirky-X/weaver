@@ -39,7 +39,20 @@ NETWORK_EXCEPTIONS: tuple[type[Exception], ...] = (
     OSError,
 )
 
+
 # Exception types for LLM operations
+# RateLimitError is included so 429 responses trigger automatic backoff + retry.
+# Import at runtime to avoid hard dependency on litellm at module level.
+def _get_rate_limit_error_type() -> tuple[type[Exception], ...]:
+    """Lazy import of litellm.RateLimitError to avoid hard dependency."""
+    try:
+        from litellm import RateLimitError  # type: ignore[attr-defined]
+
+        return (RateLimitError,)
+    except ImportError:
+        return ()
+
+
 LLM_EXCEPTIONS: tuple[type[Exception], ...] = (
     TimeoutError,
     ConnectionError,
@@ -153,7 +166,7 @@ def retry_llm(
     """Create a retry strategy for LLM operations.
 
     Suitable for LLM API calls. Retries on timeouts, connection errors,
-    and output parsing exceptions.
+    rate limit errors (HTTP 429), and output parsing exceptions.
 
     Args:
         max_attempts: Maximum number of retry attempts.
@@ -165,8 +178,9 @@ def retry_llm(
     Returns:
         AsyncRetrying instance configured for LLM operations.
     """
+    exception_types = LLM_EXCEPTIONS + (OutputParserException,) + _get_rate_limit_error_type()
     return _create_retry_strategy(
-        LLM_EXCEPTIONS + (OutputParserException,),
+        exception_types,
         max_attempts=max_attempts,
         min_wait=min_wait,
         max_wait=max_wait,

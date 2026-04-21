@@ -209,32 +209,27 @@ class ProviderPool:
     ) -> LLMResponse:
         """执行单个请求，带指数退避重试.
 
-        Rate limiter在retry循环外部，确保一次请求只消耗一个token，
-        重试不会额外消耗rate limit quota。
+        Rate limiter在retry循环内部，确保每次重试都重新获取令牌。
+        这样当429触发退避等待后，重试时rate limiter的令牌桶已有时间补充。
         """
         async with self._semaphore:
             last_error: Exception | None = None
 
+            async def _call_once() -> LLMResponse:
+                """单次调用：先获取rate limiter令牌，再执行."""
+                if self._rate_limiter:
+                    async with self._rate_limiter:
+                        return await self._do_call(label, payload, timeout)
+                return await self._do_call(label, payload, timeout)
+
             async def _call_with_retry() -> LLMResponse:
-                """Retry loop内执行实际调用."""
-                async for attempt in retry_llm(max_attempts=3, min_wait=2.0, max_wait=30.0):
+                """Retry loop内执行实际调用，每次重试重新获取rate limiter令牌."""
+                async for attempt in retry_llm(max_attempts=3, min_wait=5.0, max_wait=60.0):
                     with attempt:
                         try:
-                            response = await self._circuit_breaker.call(
-                                self._caller.call,
-                                label=label,
-                                provider_type=self.config.type,
-                                api_key=self.config.api_key,
-                                api_base=self.config.base_url,
-                                payload=payload,
-                                timeout=timeout,
-                            )
-                            await self._metrics.record_success(response.latency_ms)
-                            return response
-
+                            return await _call_once()
                         except CircuitOpenError:
                             raise
-
                         except Exception as e:
                             nonlocal last_error
                             last_error = e
@@ -245,12 +240,26 @@ class ProviderPool:
                     raise last_error
                 raise RuntimeError("LLM call retry exhausted")
 
-            # Rate limiter outside retry loop - one token per request
-            if self._rate_limiter:
-                async with self._rate_limiter:
-                    return await _call_with_retry()
-            else:
-                return await _call_with_retry()
+            return await _call_with_retry()
+
+    async def _do_call(
+        self,
+        label: Label,
+        payload: dict[str, Any],
+        timeout: float,
+    ) -> LLMResponse:
+        """执行实际的LLM调用，通过熔断器保护."""
+        response = await self._circuit_breaker.call(
+            self._caller.call,
+            label=label,
+            provider_type=self.config.type,
+            api_key=self.config.api_key,
+            api_base=self.config.base_url,
+            payload=payload,
+            timeout=timeout,
+        )
+        await self._metrics.record_success(response.latency_ms)
+        return response
 
     def get_metrics(self) -> dict[str, Any]:
         """获取监控指标."""
