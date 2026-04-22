@@ -104,8 +104,8 @@ class CategorizerNode:
 
             # Normalize category to Chinese
             state["category"] = normalize_category(result.category)
-            state["language"] = result.language
-            state["region"] = result.region
+            state["language"] = result.language.strip()[:10]
+            state["region"] = result.region.strip()[:50]
         except Exception as e:
             # Fallback: use default values if LLM fails
             log.warning("categorizer_failed_using_defaults", error=str(e), url=state["raw"].url)
