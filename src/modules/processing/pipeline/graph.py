@@ -343,7 +343,7 @@ class Pipeline:
                 failed_state["error"] = str(result)
                 states.append(failed_state)
             else:
-                states.append(result)
+                states.append(result)  # type: ignore[arg-type]
 
         # Phase 2: Batch merger (serial)
         try:
@@ -383,7 +383,7 @@ class Pipeline:
                     original["phase3_error"] = str(result)
                     states.append(original)
                 else:
-                    states.append(result)
+                    states.append(result)  # type: ignore[arg-type]
 
             # Flush Phase 3 stage updates in bulk
             await self._flush_stage_updates()
@@ -493,7 +493,7 @@ class Pipeline:
                 failed_state["error"] = str(result)
                 states.append(failed_state)
             else:
-                states.append(result)
+                states.append(result)  # type: ignore[arg-type]
 
         # Fast mode: persist directly without Phase 2/3
         await self._persist_batch(states)
@@ -563,9 +563,10 @@ class Pipeline:
             categorizer_task = asyncio.create_task(run_categorizer(state))
             vectorize_task = asyncio.create_task(run_vectorize(state))
 
-            categorizer_result, vectorize_result = await asyncio.gather(
+            gather_results: list[PipelineState | Exception] = await asyncio.gather(  # type: ignore[assignment]
                 categorizer_task, vectorize_task, return_exceptions=True
             )
+            categorizer_result, vectorize_result = gather_results[0], gather_results[1]
 
             # Fatal provider errors must propagate immediately
             _check_fatal_provider_errors(
@@ -578,25 +579,25 @@ class Pipeline:
                 log.warning(
                     "categorizer_failed",
                     error=str(categorizer_result),
-                    url=state.get("raw", {}).url if hasattr(state, "get") else "unknown",
+                    url=getattr(state.get("raw"), "url", "unknown"),
                 )
-                categorizer_state = {}
+                categorizer_state: dict[str, Any] = {}
             else:
-                categorizer_state = categorizer_result
+                categorizer_state = categorizer_result  # type: ignore[assignment]
 
             # Handle vectorize result
             if isinstance(vectorize_result, Exception):
                 log.warning(
                     "vectorize_failed",
                     error=str(vectorize_result),
-                    url=state.get("raw", {}).url if hasattr(state, "get") else "unknown",
+                    url=getattr(state.get("raw"), "url", "unknown"),
                 )
-                vectorize_state = {}
+                vectorize_state: dict[str, Any] = {}
             else:
-                vectorize_state = vectorize_result
+                vectorize_state = vectorize_result  # type: ignore[assignment]
 
-            state.update(categorizer_state)
-            state.update(vectorize_state)
+            state.update(categorizer_state)  # type: ignore[typeddict-item]
+            state.update(vectorize_state)  # type: ignore[typeddict-item]
 
             await self._update_processing_stage(state, PHASE1_STAGES["categorizer"])
             await self._update_processing_stage(state, PHASE1_STAGES["vectorize"])
@@ -646,9 +647,10 @@ class Pipeline:
             analyze_task = asyncio.create_task(run_analyze(state))
             quality_task = asyncio.create_task(run_quality_scorer(state))
 
-            analyze_result, quality_result = await asyncio.gather(
+            gather_results: list[PipelineState | Exception] = await asyncio.gather(  # type: ignore[assignment]
                 analyze_task, quality_task, return_exceptions=True
             )
+            analyze_result, quality_result = gather_results[0], gather_results[1]
 
             # Fatal provider errors must propagate immediately
             _check_fatal_provider_errors(
@@ -661,25 +663,25 @@ class Pipeline:
                 log.warning(
                     "analyze_failed",
                     error=str(analyze_result),
-                    url=state.get("raw", {}).url if hasattr(state, "get") else "unknown",
+                    url=getattr(state.get("raw"), "url", "unknown"),
                 )
-                analyze_state = {}
+                analyze_state: dict[str, Any] = {}
             else:
-                analyze_state = analyze_result
+                analyze_state = analyze_result  # type: ignore[assignment]
 
             # Handle quality scorer result
             if isinstance(quality_result, Exception):
                 log.warning(
                     "quality_scorer_failed",
                     error=str(quality_result),
-                    url=state.get("raw", {}).url if hasattr(state, "get") else "unknown",
+                    url=getattr(state.get("raw"), "url", "unknown"),
                 )
-                quality_state = {}
+                quality_state: dict[str, Any] = {}
             else:
-                quality_state = quality_result
+                quality_state = quality_result  # type: ignore[assignment]
 
-            state.update(analyze_state)
-            state.update(quality_state)
+            state.update(analyze_state)  # type: ignore[typeddict-item]
+            state.update(quality_state)  # type: ignore[typeddict-item]
 
             await self._update_processing_stage(state, PHASE3_STAGES["analyze"])
             await self._update_processing_stage(state, PHASE3_STAGES["quality_scorer"])
@@ -739,7 +741,7 @@ class Pipeline:
                 error_msg = f"{type(exc).__name__}: {exc}"
                 log.error(
                     "persist_pg_failed",
-                    url=state.get("raw", {}).url if "raw" in state else "unknown",
+                    url=getattr(state.get("raw"), "url", "unknown"),
                     error=error_msg,
                     error_type=type(exc).__name__,
                     has_article_id=state.get("article_id") is not None,
@@ -1083,7 +1085,7 @@ class Pipeline:
                             name = entity.get("canonical_name") or entity.get("name")
                             if name:
                                 entity_names.append(name)
-                        elif hasattr(entity, "canonical_name"):
+                        elif hasattr(entity, "canonical_name"):  # type: ignore[unreachable]
                             entity_names.append(entity.canonical_name)
                         elif hasattr(entity, "name"):
                             entity_names.append(entity.name)

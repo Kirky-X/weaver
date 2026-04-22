@@ -84,6 +84,10 @@ class PipelineState(TypedDict, total=False):
     degraded_fields: list[str]  # Field names that used fallback values
     degradation_reasons: dict[str, str]  # Field name -> reason for degradation
 
+    # Error tracking
+    error: str
+    phase3_error: str
+
 
 def has_degraded_data(state: PipelineState) -> bool:
     """Check if the state contains any degraded fields.
