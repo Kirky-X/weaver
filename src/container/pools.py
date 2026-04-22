@@ -102,6 +102,11 @@ class ContainerPoolsMixin:
                 self._cache_client = RedisClient(self._settings.redis.url)
                 await self._cache_client.startup()
                 log.info("redis_initialized")
+
+                # 注入 Redis 客户端到 NTP 时间工具 (跨进程缓存)
+                from core.utils.time_utils import set_redis_client
+
+                set_redis_client(self._cache_client)
             except Exception as exc:
                 log.warning("redis_unavailable_fallback_to_cashews", error=str(exc))
                 self._cache_client = CashewsClient()
