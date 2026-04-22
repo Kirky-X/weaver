@@ -1052,8 +1052,12 @@ async def cmd_reprocess(args: argparse.Namespace) -> int:
 
     from config.settings import Settings
     from container import Container, set_container, set_settings
+    from core.observability.logging import configure_logging
     from modules.ingestion.domain.models import RawArticle
     from modules.storage import ArticleRepo
+
+    # Enable structured logging with debug output for diagnostics
+    configure_logging(debug=True)
 
     # Load settings and create container
     settings = Settings()

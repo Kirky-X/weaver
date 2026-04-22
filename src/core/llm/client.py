@@ -82,6 +82,7 @@ class LLMClient:
                 event_bus=event_bus,
                 circuit_breaker_threshold=global_config.circuit_breaker_threshold,
                 circuit_breaker_timeout=global_config.circuit_breaker_timeout,
+                global_config=global_config,
             )
             self._pools[provider_cfg.name] = pool
 
@@ -109,9 +110,6 @@ class LLMClient:
             success: 是否成功
             error_type: 错误类型
         """
-        if not self._event_bus:
-            return
-
         try:
             from core.event.bus import LLMUsageEvent
 
@@ -169,6 +167,11 @@ class LLMClient:
             try:
                 cp = CallPoint(call_point)
             except ValueError:
+                log.warning(
+                    "invalid_call_point",
+                    call_point=call_point,
+                    fallback="CLASSIFIER",
+                )
                 cp = CallPoint.CLASSIFIER
         else:
             cp = call_point
@@ -181,54 +184,69 @@ class LLMClient:
                 if fb_label not in labels:
                     labels.append(fb_label)
 
-        # 获取pool
-        pool = self._pools.get(parsed_label.provider)
-        if not pool:
-            raise ValueError(f"Provider not found: {parsed_label.provider}")
+        # 按 provider 分组 labels, 执行跨池 fallback
+        last_error: Exception | None = None
+        for label in labels:
+            pool = self._pools.get(label.provider)
+            if not pool:
+                log.warning(
+                    "provider_pool_not_found",
+                    provider=label.provider,
+                    label=str(label),
+                )
+                continue
 
-        try:
-            # 执行调用
-            response = await pool.execute(
-                labels=labels,
-                payload=payload,
-                call_point=cp.value,
-                timeout=timeout,
-                article_id=article_id,
-                task_id=task_id,
-            )
+            try:
+                response = await pool.execute(
+                    labels=[label],  # 每个 pool 只执行自己的 label
+                    payload=payload,
+                    call_point=cp.value,
+                    timeout=timeout,
+                    article_id=article_id,
+                    task_id=task_id,
+                )
 
-            log.debug(
-                "llm_call_complete",
-                label=str(parsed_label),
-                latency_ms=response.latency_ms,
-            )
+                log.debug(
+                    "llm_call_complete",
+                    label=str(label),
+                    latency_ms=response.latency_ms,
+                )
 
-            # 发射使用事件
-            await self._emit_usage_event(
-                label=response.label,
-                call_point=cp,
-                latency_ms=response.latency_ms,
-                token_usage=response.token_usage,
-                success=True,
-            )
+                # 发射使用事件
+                await self._emit_usage_event(
+                    label=response.label,
+                    call_point=cp,
+                    latency_ms=response.latency_ms,
+                    token_usage=response.token_usage,
+                    success=True,
+                )
 
-            # 解析输出
-            if output_model:
-                return parse_llm_json(response.content, output_model)
+                # 解析输出
+                if output_model:
+                    return parse_llm_json(response.content, output_model)
 
-            return response.content
+                return response.content
 
-        except Exception as exc:
-            # 已在pool层发布失败事件,这里发布usage事件标记失败
-            await self._emit_usage_event(
-                label=parsed_label,
-                call_point=cp,
-                latency_ms=0.0,
-                token_usage=None,
-                success=False,
-                error_type=type(exc).__name__,
-            )
-            raise
+            except Exception as exc:
+                last_error = exc
+                log.error(
+                    "provider_call_failed",
+                    provider=label.provider,
+                    label=str(label),
+                    error=str(exc),
+                )
+                continue
+
+        # 所有 provider 都失败
+        await self._emit_usage_event(
+            label=parsed_label,
+            call_point=cp,
+            latency_ms=0.0,
+            token_usage=None,
+            success=False,
+            error_type=type(last_error).__name__,
+        )
+        raise last_error  # type: ignore[misc]
 
     async def call_at(
         self,
@@ -282,10 +300,10 @@ class LLMClient:
         result = await self.call(
             labels[0],
             request_payload,
-            labels[1:],
-            output_model,
-            timeout,
             call_point=call_point,
+            fallback_labels=labels[1:],
+            output_model=output_model,
+            timeout=timeout,
         )
 
         # Trigger shadow evaluation if enabled
