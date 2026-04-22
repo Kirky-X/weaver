@@ -72,7 +72,6 @@ def _get_ntp_time() -> datetime | None:
     """
     # 检查缓存
     if monotonic() < _ntp_cache["expires"]:
-        log.debug("ntp_cache_hit")
         return _ntp_cache["time"]  # type: ignore[return-value]
 
     result: dict[str, datetime | None] = {"time": None}
