@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -22,7 +23,7 @@ log = get_logger(__name__)
 
 # Field mapping: state key -> (article_attr, extractor function)
 # This centralizes all field mappings for consistency
-STATE_TO_ARTICLE_FIELDS: dict[str, tuple[str, callable]] = {
+STATE_TO_ARTICLE_FIELDS: dict[str, tuple[str, Callable[[Any], Any]]] = {
     "category": ("category", lambda v: v),
     "language": ("language", lambda v: v.strip()[:10]),
     "region": ("region", lambda v: v.strip()[:50]),
@@ -55,7 +56,7 @@ def _apply_state_to_article(article: Article, state: PipelineState) -> None:
     # Simple field mappings
     for state_key, (attr_name, extractor) in STATE_TO_ARTICLE_FIELDS.items():
         if state_key in state:
-            setattr(article, attr_name, extractor(state[state_key]))
+            setattr(article, attr_name, extractor(state[state_key]))  # type: ignore[literal-required]
 
     # Summary info mapping
     if "summary_info" in state:
@@ -95,10 +96,10 @@ def _apply_state_to_article(article: Article, state: PipelineState) -> None:
         cred = state["credibility"]
         article.credibility_score = cred.get("score")
         article.source_credibility = cred.get("source_credibility")
-        article.cross_verification = cred.get("cross_verification")
+        article.cross_verification = cred.get("cross_verification")  # type: ignore[assignment]
         article.content_check_score = cred.get("content_check")
         article.credibility_flags = cred.get("flags")
-        article.verified_by_sources = cred.get("verified_by_sources", 0)
+        article.verified_by_sources = cred.get("verified_by_sources", 0)  # type: ignore[assignment]
 
     # Merged source IDs conversion
     if "merged_source_ids" in state:
@@ -180,7 +181,7 @@ class ArticleRepo:
             if raw and hasattr(raw, "url"):
                 url = raw.url
             elif isinstance(raw, dict):
-                url = raw.get("url", "")
+                url = raw.get("url", "")  # type: ignore[unreachable]
             else:
                 continue
             normalized_url = Deduplicator.normalize_url(url)
@@ -254,7 +255,7 @@ class ArticleRepo:
 
         raw = state["raw"]
         # Use normalized URL if provided for consistent deduplication
-        source_url = normalized_url or (raw.url if hasattr(raw, "url") else raw.get("url", ""))
+        source_url = normalized_url or (raw.url if hasattr(raw, "url") else getattr(raw, "url", ""))
         article = Article(
             source_url=source_url,
             source_host=getattr(raw, "source_host", None)
@@ -396,7 +397,9 @@ class ArticleRepo:
             )
             return {row[0] for row in result}
 
-    async def update_persist_status(self, article_id: uuid.UUID, status: str) -> None:
+    async def update_persist_status(
+        self, article_id: uuid.UUID, status: PersistStatus | str
+    ) -> None:
         """Update the persist status of an article with state validation.
 
         Args:
@@ -407,10 +410,7 @@ class ArticleRepo:
             InvalidStateTransitionError: If the state transition is invalid.
         """
         # Convert string status to enum if needed
-        if isinstance(status, str):
-            new_status = PersistStatus(status)
-        else:
-            new_status = status
+        new_status = PersistStatus(status) if isinstance(status, str) else status
 
         async with self._pool.session() as session:
             # Get current status
@@ -468,14 +468,14 @@ class ArticleRepo:
                 )
             )
             await session.commit()
-            updated = result.rowcount > 0
+            updated = result.rowcount > 0  # type: ignore[attr-defined]
             if updated:
                 log.info("terminal_article_marked_done", source_url=source_url[:100])
             return updated
 
     async def update_credibility(
         self,
-        article_id: str,
+        article_id: str | uuid.UUID,
         credibility_score: float,
         cross_verification: float,
         verified_by_sources: int,
@@ -711,7 +711,7 @@ class ArticleRepo:
                 )
             )
             await session.commit()
-            return result.rowcount > 0
+            return result.rowcount > 0  # type: ignore[attr-defined]
 
     async def get_incomplete_articles(self, limit: int = 50) -> list[Article]:
         """Get articles with neo4j_done status but missing enrichment data.
@@ -780,7 +780,7 @@ class ArticleRepo:
 
             updated = False
             if category is not None and article.category is None:
-                article.category = category
+                article.category = category  # type: ignore[assignment]
                 updated = True
             if score is not None and article.score is None:
                 article.score = score
@@ -1084,7 +1084,7 @@ class ArticleRepo:
                     to_remove = articles[1:]
 
                     for article in to_remove:
-                        session.delete(article)
+                        await session.delete(article)
                         removed_count += 1
 
                     kept_count += 1
