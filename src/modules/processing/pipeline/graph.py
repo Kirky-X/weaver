@@ -343,7 +343,7 @@ class Pipeline:
                 failed_state["error"] = str(result)
                 states.append(failed_state)
             else:
-                states.append(result)  # type: ignore[arg-type]
+                states.append(result)
 
         # Phase 2: Batch merger (serial)
         try:
@@ -383,7 +383,7 @@ class Pipeline:
                     original["phase3_error"] = str(result)
                     states.append(original)
                 else:
-                    states.append(result)  # type: ignore[arg-type]
+                    states.append(result)
 
             # Flush Phase 3 stage updates in bulk
             await self._flush_stage_updates()
@@ -493,7 +493,7 @@ class Pipeline:
                 failed_state["error"] = str(result)
                 states.append(failed_state)
             else:
-                states.append(result)  # type: ignore[arg-type]
+                states.append(result)
 
         # Fast mode: persist directly without Phase 2/3
         await self._persist_batch(states)
@@ -563,7 +563,7 @@ class Pipeline:
             categorizer_task = asyncio.create_task(run_categorizer(state))
             vectorize_task = asyncio.create_task(run_vectorize(state))
 
-            gather_results: list[PipelineState | Exception] = await asyncio.gather(  # type: ignore[assignment]
+            gather_results = await asyncio.gather(
                 categorizer_task, vectorize_task, return_exceptions=True
             )
             categorizer_result, vectorize_result = gather_results[0], gather_results[1]
@@ -583,7 +583,7 @@ class Pipeline:
                 )
                 categorizer_state: dict[str, Any] = {}
             else:
-                categorizer_state = categorizer_result  # type: ignore[assignment]
+                categorizer_state = categorizer_result
 
             # Handle vectorize result
             if isinstance(vectorize_result, Exception):
@@ -594,10 +594,10 @@ class Pipeline:
                 )
                 vectorize_state: dict[str, Any] = {}
             else:
-                vectorize_state = vectorize_result  # type: ignore[assignment]
+                vectorize_state = vectorize_result
 
-            state.update(categorizer_state)  # type: ignore[typeddict-item]
-            state.update(vectorize_state)  # type: ignore[typeddict-item]
+            state.update(categorizer_state)
+            state.update(vectorize_state)
 
             await self._update_processing_stage(state, PHASE1_STAGES["categorizer"])
             await self._update_processing_stage(state, PHASE1_STAGES["vectorize"])
@@ -647,7 +647,7 @@ class Pipeline:
             analyze_task = asyncio.create_task(run_analyze(state))
             quality_task = asyncio.create_task(run_quality_scorer(state))
 
-            gather_results: list[PipelineState | Exception] = await asyncio.gather(  # type: ignore[assignment]
+            gather_results = await asyncio.gather(
                 analyze_task, quality_task, return_exceptions=True
             )
             analyze_result, quality_result = gather_results[0], gather_results[1]
@@ -667,7 +667,7 @@ class Pipeline:
                 )
                 analyze_state: dict[str, Any] = {}
             else:
-                analyze_state = analyze_result  # type: ignore[assignment]
+                analyze_state = analyze_result
 
             # Handle quality scorer result
             if isinstance(quality_result, Exception):
@@ -678,10 +678,10 @@ class Pipeline:
                 )
                 quality_state: dict[str, Any] = {}
             else:
-                quality_state = quality_result  # type: ignore[assignment]
+                quality_state = quality_result
 
-            state.update(analyze_state)  # type: ignore[typeddict-item]
-            state.update(quality_state)  # type: ignore[typeddict-item]
+            state.update(analyze_state)
+            state.update(quality_state)
 
             await self._update_processing_stage(state, PHASE3_STAGES["analyze"])
             await self._update_processing_stage(state, PHASE3_STAGES["quality_scorer"])
@@ -1085,7 +1085,7 @@ class Pipeline:
                             name = entity.get("canonical_name") or entity.get("name")
                             if name:
                                 entity_names.append(name)
-                        elif hasattr(entity, "canonical_name"):  # type: ignore[unreachable]
+                        elif hasattr(entity, "canonical_name"):
                             entity_names.append(entity.canonical_name)
                         elif hasattr(entity, "name"):
                             entity_names.append(entity.name)

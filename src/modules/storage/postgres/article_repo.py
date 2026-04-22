@@ -56,7 +56,7 @@ def _apply_state_to_article(article: Article, state: PipelineState) -> None:
     # Simple field mappings
     for state_key, (attr_name, extractor) in STATE_TO_ARTICLE_FIELDS.items():
         if state_key in state:
-            setattr(article, attr_name, extractor(state[state_key]))  # type: ignore[literal-required]
+            setattr(article, attr_name, extractor(state[state_key]))
 
     # Summary info mapping
     if "summary_info" in state:
@@ -96,10 +96,10 @@ def _apply_state_to_article(article: Article, state: PipelineState) -> None:
         cred = state["credibility"]
         article.credibility_score = cred.get("score")
         article.source_credibility = cred.get("source_credibility")
-        article.cross_verification = cred.get("cross_verification")  # type: ignore[assignment]
+        article.cross_verification = cred.get("cross_verification")
         article.content_check_score = cred.get("content_check")
         article.credibility_flags = cred.get("flags")
-        article.verified_by_sources = cred.get("verified_by_sources", 0)  # type: ignore[assignment]
+        article.verified_by_sources = cred.get("verified_by_sources", 0)
 
     # Merged source IDs conversion
     if "merged_source_ids" in state:
@@ -181,7 +181,7 @@ class ArticleRepo:
             if raw and hasattr(raw, "url"):
                 url = raw.url
             elif isinstance(raw, dict):
-                url = raw.get("url", "")  # type: ignore[unreachable]
+                url = raw.get("url", "")
             else:
                 continue
             normalized_url = Deduplicator.normalize_url(url)
@@ -468,7 +468,7 @@ class ArticleRepo:
                 )
             )
             await session.commit()
-            updated = result.rowcount > 0  # type: ignore[attr-defined]
+            updated = result.rowcount > 0
             if updated:
                 log.info("terminal_article_marked_done", source_url=source_url[:100])
             return updated
@@ -711,7 +711,7 @@ class ArticleRepo:
                 )
             )
             await session.commit()
-            return result.rowcount > 0  # type: ignore[attr-defined]
+            return result.rowcount > 0
 
     async def get_incomplete_articles(self, limit: int = 50) -> list[Article]:
         """Get articles with neo4j_done status but missing enrichment data.
@@ -780,7 +780,7 @@ class ArticleRepo:
 
             updated = False
             if category is not None and article.category is None:
-                article.category = category  # type: ignore[assignment]
+                article.category = category
                 updated = True
             if score is not None and article.score is None:
                 article.score = score
