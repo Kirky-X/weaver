@@ -63,7 +63,7 @@ class CircuitState(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class Label:
-    """LLM调用标签，用于标识调用类型、供应商和模型.
+    """LLM调用标签,用于标识调用类型、供应商和模型.
 
     格式: {type}.{provider}.{model}
     示例: chat.aiping.GLM-4-9B-0414
@@ -78,7 +78,7 @@ class Label:
         """解析标签字符串.
 
         Args:
-            label: 标签字符串，格式为 'type.provider.model'
+            label: 标签字符串,格式为 'type.provider.model'
 
         Returns:
             解析后的Label对象
@@ -145,7 +145,7 @@ class RoutingConfig(BaseModel):
 
 
 class ModelConfig(BaseModel):
-    """模型配置（第二层）- pydantic BaseModel for TOML loading."""
+    """模型配置(第二层)- pydantic BaseModel for TOML loading."""
 
     model_id: str = ""
     temperature: float = 0.0
@@ -173,7 +173,7 @@ class ModelConfig(BaseModel):
 
 
 class ProviderConfig(BaseModel):
-    """Provider厂商配置（第一层）- pydantic BaseModel for TOML loading."""
+    """Provider厂商配置(第一层)- pydantic BaseModel for TOML loading."""
 
     name: str = ""
     type: str = "openai"  # LiteLLM provider type
@@ -185,6 +185,10 @@ class ProviderConfig(BaseModel):
     priority: int = 100
     weight: int = 100
     models: dict[str, ModelConfig] = {}
+    # 请求延迟配置(可选,覆盖全局配置)
+    request_delay_enabled: bool | None = None
+    request_delay_min: float | None = None
+    request_delay_max: float | None = None
 
     def get_model(self, model_name: str) -> ModelConfig | None:
         """获取模型配置."""
@@ -197,6 +201,10 @@ class GlobalConfig(BaseModel):
     circuit_breaker_threshold: int = 5
     circuit_breaker_timeout: float = 60.0
     default_timeout: float = 120.0
+    # 请求延迟配置
+    request_delay_enabled: bool = False
+    request_delay_min: float = 1.0
+    request_delay_max: float = 2.0
     defaults: dict[str, RoutingConfig] = {}
     call_points: dict[str, RoutingConfig] = {}
 

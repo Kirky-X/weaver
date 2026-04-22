@@ -11,7 +11,7 @@ from aiolimiter import AsyncLimiter
 from core.llm.caller import LiteLLMCaller
 from core.llm.resilience.circuit_breaker import CircuitOpenError, ProviderCircuitBreaker
 from core.llm.resilience.metrics import ProviderMetrics
-from core.llm.types import Label, LLMResponse, ProviderConfig
+from core.llm.types import GlobalConfig, Label, LLMResponse, ProviderConfig
 from core.observability.logging import get_logger
 from core.resilience.retry import retry_llm
 
@@ -52,6 +52,7 @@ class ProviderPool:
         event_bus: EventBus,
         circuit_breaker_threshold: int = 5,
         circuit_breaker_timeout: float = 60.0,
+        global_config: GlobalConfig | None = None,
     ) -> None:
         """初始化Provider池.
 
@@ -60,6 +61,7 @@ class ProviderPool:
             event_bus: 事件总线(必需)
             circuit_breaker_threshold: 熔断器失败阈值
             circuit_breaker_timeout: 熔断器冷却时间
+            global_config: 全局配置（用于请求延迟）
         """
         self.config = config
         self.name = config.name
@@ -86,13 +88,46 @@ class ProviderPool:
         # 监控指标
         self._metrics = ProviderMetrics()
 
+        # 请求延迟器(类型注解)
+        self._request_delay: Any = None
+
         # Set timeout on circuit breaker for slow request detection
         self._circuit_breaker._timeout = config.timeout
+
+        # 初始化请求延迟器
+        self._init_request_delay(config, global_config)
 
     @property
     def circuit_breaker(self) -> ProviderCircuitBreaker:
         """Access the circuit breaker for ModelSelector integration."""
         return self._circuit_breaker
+
+    def _init_request_delay(
+        self,
+        config: ProviderConfig,
+        global_config: GlobalConfig | None,
+    ) -> None:
+        """初始化请求延迟控制器."""
+        from core.llm.resilience.request_delay import RequestDelay
+
+        # 优先使用provider配置,回退到全局配置
+        enabled = config.request_delay_enabled
+        if enabled is None and global_config:
+            enabled = global_config.request_delay_enabled
+
+        delay_min = config.request_delay_min
+        if delay_min is None and global_config:
+            delay_min = global_config.request_delay_min
+
+        delay_max = config.request_delay_max
+        if delay_max is None and global_config:
+            delay_max = global_config.request_delay_max
+
+        self._request_delay = RequestDelay(
+            enabled=enabled or False,
+            delay_min=delay_min or 1.0,
+            delay_max=delay_max or 2.0,
+        )
 
     @property
     def is_available(self) -> bool:
@@ -117,9 +152,9 @@ class ProviderPool:
         article_id: str | None = None,
         task_id: str | None = None,
     ) -> LLMResponse:
-        """执行请求，支持fallback链.
+        """执行请求,支持fallback链.
 
-        按顺序尝试labels中的每个label，直到成功或全部失败.
+        按顺序尝试labels中的每个label,直到成功或全部失败.
 
         Args:
             labels: 标签链 [primary, fallback1, ...]
@@ -224,24 +259,28 @@ class ProviderPool:
         task_id: str | None,
         fallback_index: int = 0,
     ) -> LLMResponse:
-        """执行单个请求，带指数退避重试.
+        """执行单个请求,带指数退避重试.
 
-        Rate limiter在retry循环内部，确保每次重试都重新获取令牌。
-        这样当429触发退避等待后，重试时rate limiter的令牌桶已有时间补充。
+        Rate limiter在retry循环内部,确保每次重试都重新获取令牌。
+        这样当429触发退避等待后,重试时rate limiter的令牌桶已有时间补充。
         """
         async with self._semaphore:
             last_error: Exception | None = None
             attempt_number = 0
 
             async def _call_once() -> LLMResponse:
-                """单次调用：先获取rate limiter令牌，再执行."""
+                """单次调用：延迟 → 限流器 → 熔断器."""
+                # 1. 请求延迟
+                await self._request_delay.acquire(self.name)
+
+                # 2. 限流器
                 if self._rate_limiter:
                     async with self._rate_limiter:
                         return await self._do_call(label, payload, timeout)
                 return await self._do_call(label, payload, timeout)
 
             async def _call_with_retry() -> LLMResponse:
-                """Retry loop内执行实际调用，每次重试重新获取rate limiter令牌."""
+                """Retry loop内执行实际调用,每次重试重新获取rate limiter令牌."""
                 nonlocal attempt_number
                 async for attempt in retry_llm(max_attempts=3, min_wait=5.0, max_wait=60.0):
                     with attempt:
@@ -278,7 +317,7 @@ class ProviderPool:
         payload: dict[str, Any],
         timeout: float,
     ) -> LLMResponse:
-        """执行实际的LLM调用，通过熔断器保护."""
+        """执行实际的LLM调用,通过熔断器保护."""
         response = await self._circuit_breaker.call(
             self._caller.call,
             label=label,
