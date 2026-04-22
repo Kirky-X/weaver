@@ -160,6 +160,9 @@ class Pipeline:
         self._batch_completed: int = 0
         self._batch_failed: int = 0
 
+        # Deferred stage updates: collected per-article, flushed in batch
+        self._pending_stage_updates: list[tuple[str, str]] = []
+
     @staticmethod
     def _create_spacy_extractor(settings: Settings | None) -> SpacyExtractor:
         """Create SpacyExtractor with settings if available."""
@@ -171,25 +174,48 @@ class Pipeline:
         return SpacyExtractor()
 
     async def _update_processing_stage(self, state: PipelineState, stage: str) -> None:
-        """Update the processing stage in the database.
+        """Collect processing stage update for deferred batch flush.
+
+        Instead of writing to DB immediately (which causes ~1900 individual
+        UPDATEs per batch), this method collects updates in memory and flushes
+        them in bulk via _flush_stage_updates after each phase completes.
 
         Args:
             state: Pipeline state containing article_id.
             stage: Current processing stage name.
         """
-        if not self._article_repo:
-            return
-
         article_id = state.get("article_id")
         if not article_id:
             return
 
-        try:
-            import uuid
+        self._pending_stage_updates.append((str(article_id), stage))
 
-            await self._article_repo.update_processing_stage(uuid.UUID(article_id), stage)
-        except Exception as e:
-            log.warning("failed_to_update_stage", article_id=article_id, error=str(e))
+    async def _flush_stage_updates(self) -> None:
+        """Flush accumulated stage updates to DB in bulk.
+
+        Groups pending updates by stage and issues one UPDATE per group,
+        reducing ~1900 individual queries to ~8 per batch.
+        """
+        if not self._pending_stage_updates or not self._article_repo:
+            return
+
+        import uuid as uuid_mod
+        from collections import defaultdict
+
+        stage_groups: dict[str, list[uuid_mod.UUID]] = defaultdict(list)
+        for article_id_str, stage in self._pending_stage_updates:
+            try:
+                stage_groups[stage].append(uuid_mod.UUID(article_id_str))
+            except ValueError:
+                log.warning("invalid_article_id_in_stage_flush", article_id=article_id_str)
+
+        self._pending_stage_updates.clear()
+
+        for stage, ids in stage_groups.items():
+            try:
+                await self._article_repo.bulk_update_processing_stage(ids, stage)
+            except Exception as e:
+                log.warning("flush_stage_updates_failed", stage=stage, count=len(ids), error=str(e))
 
     async def _mark_processing(self, state: PipelineState) -> None:
         """Mark article as processing in the database.
@@ -280,6 +306,7 @@ class Pipeline:
         self._batch_total = len(articles)
         self._batch_completed = 0
         self._batch_failed = 0
+        self._pending_stage_updates.clear()
 
         # Initialize states with optional article_id and task_id
         states: list[PipelineState] = []
@@ -296,6 +323,10 @@ class Pipeline:
         phase1_results = await asyncio.gather(*phase1_tasks, return_exceptions=True)
         # Fatal provider errors must abort the entire batch immediately
         _check_fatal_provider_errors(phase1_results, "phase1")
+
+        # Flush Phase 1 stage updates in bulk
+        await self._flush_stage_updates()
+
         # Handle errors gracefully - failed articles get error state, others continue
         states = []
         for i, result in enumerate(phase1_results):
@@ -353,6 +384,9 @@ class Pipeline:
                     states.append(original)
                 else:
                     states.append(result)
+
+            # Flush Phase 3 stage updates in bulk
+            await self._flush_stage_updates()
 
             # Phase 4: Persist (批量持久化)
             await self._persist_batch(states)
@@ -423,6 +457,7 @@ class Pipeline:
         self._batch_total = len(articles)
         self._batch_completed = 0
         self._batch_failed = 0
+        self._pending_stage_updates.clear()
 
         # Initialize states with optional article_id and task_id
         states: list[PipelineState] = []
@@ -439,6 +474,9 @@ class Pipeline:
         phase1_results = await asyncio.gather(*phase1_tasks, return_exceptions=True)
         # Fatal provider errors must abort the entire batch immediately
         _check_fatal_provider_errors(phase1_results, "phase1_fast")
+
+        # Flush Phase 1 stage updates in bulk
+        await self._flush_stage_updates()
 
         # Handle errors gracefully
         states = []

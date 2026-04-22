@@ -24,8 +24,8 @@ log = get_logger(__name__)
 # This centralizes all field mappings for consistency
 STATE_TO_ARTICLE_FIELDS: dict[str, tuple[str, callable]] = {
     "category": ("category", lambda v: v),
-    "language": ("language", lambda v: v),
-    "region": ("region", lambda v: v),
+    "language": ("language", lambda v: v.strip()[:10]),
+    "region": ("region", lambda v: v.strip()[:50]),
     "score": ("score", lambda v: v),
     "quality_score": ("quality_score", lambda v: v),
     "is_merged": ("is_merged", lambda v: v),
@@ -82,7 +82,10 @@ def _apply_state_to_article(article: Article, state: PipelineState) -> None:
     # Sentiment mapping
     if "sentiment" in state:
         sent = state["sentiment"]
-        article.sentiment = sent.get("sentiment")
+        sentiment_value = sent.get("sentiment")
+        article.sentiment = (
+            sentiment_value.strip()[:10] if isinstance(sentiment_value, str) else sentiment_value
+        )
         article.sentiment_score = sent.get("sentiment_score")
         article.primary_emotion = _to_emotion(sent.get("primary_emotion"))
         article.emotion_targets = sent.get("emotion_targets")
@@ -214,14 +217,20 @@ class ArticleRepo:
                     except Exception as exc:
                         log.error("bulk_upsert_create_prepare_failed", url=url, error=str(exc))
 
-            # Batch insert new articles
+            # Batch insert new articles with per-record error isolation
             if new_articles:
-                session.add_all(new_articles)
-                # Flush to populate auto-generated IDs
-                await session.flush()
-                # Collect IDs after flush
                 for article in new_articles:
-                    article_ids.append(article.id)
+                    try:
+                        session.add(article)
+                        await session.flush()
+                        article_ids.append(article.id)
+                    except Exception as exc:
+                        log.error(
+                            "bulk_upsert_insert_failed",
+                            url=article.source_url,
+                            error=str(exc),
+                        )
+                        await session.rollback()
 
             # Single commit for the entire chunk
             await session.commit()
@@ -824,6 +833,30 @@ class ArticleRepo:
             await session.execute(
                 update(Article)
                 .where(Article.id == article_id)
+                .values(
+                    processing_stage=stage,
+                    updated_at=datetime.now(UTC),
+                )
+            )
+            await session.commit()
+
+    async def bulk_update_processing_stage(self, article_ids: list[uuid.UUID], stage: str) -> None:
+        """Bulk update processing stage for multiple articles.
+
+        Uses a single UPDATE ... WHERE id IN (...) query instead of
+        N individual UPDATEs, reducing DB round-trips from ~1900 to ~8
+        per batch.
+
+        Args:
+            article_ids: List of article UUIDs to update.
+            stage: The processing stage name to set.
+        """
+        if not article_ids:
+            return
+        async with self._pool.session() as session:
+            await session.execute(
+                update(Article)
+                .where(Article.id.in_(article_ids))
                 .values(
                     processing_stage=stage,
                     updated_at=datetime.now(UTC),
