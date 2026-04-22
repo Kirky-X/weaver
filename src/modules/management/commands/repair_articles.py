@@ -18,6 +18,9 @@ import asyncio
 import sys
 from pathlib import Path
 
+# Add src to path for standalone execution
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
+
 from config.settings import Settings
 from core.cache import RedisClient
 from core.db import PostgresPool
@@ -75,12 +78,12 @@ async def _init_minimal_container():
     )
     log.info("llm_client_initialized")
 
-    return postgres_pool, cache_client, llm_client, prompt_loader, settings
+    return postgres_pool, cache_client, llm_client, prompt_loader, settings, event_bus
 
 
 async def _shutdown_minimal_container(postgres_pool, cache_client, llm_client):
     """Shutdown minimal container services."""
-    await llm_client.close()
+    # LLMClient has no shutdown method - it's stateless
     await cache_client.shutdown()
     await postgres_pool.shutdown()
     log.info("container_shutdown_complete")
@@ -104,6 +107,7 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
         llm_client,
         prompt_loader,
         settings,
+        event_bus,
     ) = await _init_minimal_container()
 
     try:
