@@ -64,6 +64,7 @@ async def _init_minimal_container():
 
     set_redis_client(cache_client)
 
+    # 创建 EventBus 并复用于 LLMClient 和 Pipeline
     event_bus = EventBus()
     prompt_loader = PromptLoader(settings.prompt.dir)
     llm_client = await LLMClient.create_from_settings(
@@ -119,7 +120,7 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
             llm=llm_client,
             budget=TokenBudgetManager(),
             prompt_loader=prompt_loader,
-            event_bus=EventBus(),
+            event_bus=event_bus,  # 复用上面创建的 EventBus
             settings=settings,
             spacy=spacy_extractor,
             vector_repo=None,  # Not needed for repair (terminal articles skip vector ops)
