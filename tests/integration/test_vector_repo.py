@@ -135,6 +135,7 @@ class TestVectorRepoIntegration:
                 article_id=article_id,
                 title_embedding=embedding,
                 content_embedding=None,
+                model_id="text-embedding-3-large",
             )
 
             results = await vector_repo.find_similar(
