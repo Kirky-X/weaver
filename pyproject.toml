@@ -21,7 +21,7 @@ dependencies = [
     "pgvector>=0.4.2",
     "crawl4ai>=0.8.6,<0.9.0",
     "prometheus-client>=0.24.1",
-    "pydantic-settings>=2.13.1,<3.0.0",  # Pinned to v2.x for settings_customise_sources compatibility
+    "pydantic-settings>=2.13.1,<3.0.0", # Pinned to v2.x for settings_customise_sources compatibility
     "python-dotenv>=1.2.2",
     "pyyaml>=6.0.3",
     "redis[hiredis]>=7.4.0",
@@ -65,7 +65,7 @@ dependencies = [
 
 [project.optional-dependencies]
 search-enhancement = [
-    "flashrank>=0.2.10",  # Optional: cross-encoder reranking for search results
+    "flashrank>=0.2.10", # Optional: cross-encoder reranking for search results
 ]
 
 [build-system]
@@ -106,7 +106,7 @@ dev = [
     "detect-secrets>=1.5.0",
     "pytest-env>=1.2.0",
     # ── Test utilities ────────────────────────────────────
-    "nest-asyncio>=1.6.0",  # E2E tests: asyncpg + TestClient event loop compat
+    "nest-asyncio>=1.6.0", # E2E tests: asyncpg + TestClient event loop compat
     "freezegun>=1.5.5",
 ]
 test = [
@@ -137,10 +137,10 @@ exclude = [
     ".tox",
     ".venv",
     "__pycache__",
-    "src/alembic/versions",    # 自动生成的迁移文件
+    "src/alembic/versions", # 自动生成的迁移文件
     "docs",
     "monitoring",
-    "scripts/rollback",         # 回滚脚本
+    "scripts/rollback", # 回滚脚本
     "temp",
     ".venv",
 ]
@@ -149,23 +149,23 @@ exclude = [
 # 启用规则
 select = [
     # ── 错误级别 ─────────────────────────────────────────
-    "E",      # pycodestyle errors（保留 E501 由 black 处理）
-    "F",      # Pyflakes（错误级别）
-    "W",      # pycodestyle warnings
+    "E", # pycodestyle errors（保留 E501 由 black 处理）
+    "F", # Pyflakes（错误级别）
+    "W", # pycodestyle warnings
     # ── 代码风格 ─────────────────────────────────────────
-    "UP",     # pyupgrade（现代化语法）
-    "B",      # flake8-bugbear（谨慎，W 级别）
-    "C4",     # 列表/字典推导式优化
-    "SIM",    # 代码简化
-    "PGH",    # pygrep-hooks
-    "RET",    # return 语句优化
-    "N",      # 命名规范（部分）
-    "RUF",    # Ruff 特有规则
+    "UP", # pyupgrade（现代化语法）
+    "B", # flake8-bugbear（谨慎，W 级别）
+    "C4", # 列表/字典推导式优化
+    "SIM", # 代码简化
+    "PGH", # pygrep-hooks
+    "RET", # return 语句优化
+    "N", # 命名规范（部分）
+    "RUF", # Ruff 特有规则
     # ── 安全 ─────────────────────────────────────────────
-    "S",      # bandit
-    "PD",     # pandas-avoidance（部分）
+    "S", # bandit
+    "PD", # pandas-avoidance（部分）
     # ── 文档风格 ───────────────────────────────────────
-    "D",      # pydocstyle（包括 D401）
+    "D", # pydocstyle（包括 D401）
 ]
 # 忽略的规则
 ignore = [
@@ -199,18 +199,18 @@ ignore = [
     # RUF001 — 非 PEP 604 类型注解（pydantic 兼容）
     "RUF001",
     "RUF012",
-    "UP046",   # pydantic GenericModel 模式（与 pydantic 2.x 兼容）
+    "UP046", # pydantic GenericModel 模式（与 pydantic 2.x 兼容）
     # ── Docstring 规则忽略 ───────────────────────────
-    "D100",    # 模块 docstring（初创期放宽）
-    "D104",    # 包 docstring（初创期放宽）
-    "D107",    # __init__ docstring（可从类 docstring 推断）
-    "D203",    # 类前空行（与 D211 冲突）
-    "D212",    # 多行 docstring 首行（与 D213 冲突）
-    "D213",    # 多行 docstring 首行（选择 D212）
-    "D400",    # 首行句点结尾（Google 风格不强制）
-    "D415",    # 首行以动词/问号结尾（D401 已涵盖）
-    "D416",    # 首行以冒号结尾（函数名已说明）
-    "D417",    # 参数描述缺失（FastAPI Depends 参数在签名中已说明）
+    "D100", # 模块 docstring（初创期放宽）
+    "D104", # 包 docstring（初创期放宽）
+    "D107", # __init__ docstring（可从类 docstring 推断）
+    "D203", # 类前空行（与 D211 冲突）
+    "D212", # 多行 docstring 首行（与 D213 冲突）
+    "D213", # 多行 docstring 首行（选择 D212）
+    "D400", # 首行句点结尾（Google 风格不强制）
+    "D415", # 首行以动词/问号结尾（D401 已涵盖）
+    "D416", # 首行以冒号结尾（函数名已说明）
+    "D417", # 参数描述缺失（FastAPI Depends 参数在签名中已说明）
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -219,46 +219,46 @@ ignore = [
 "src/modules/migration/adapters/*.py" = ["S608"]  # 迁移适配器需要动态构建SQL
 "src/core/nlp/spacy_manager.py" = ["S603"]  # spaCy模型安装需要subprocess调用（路径已验证）
 "tests/e2e/*.py" = [
-    "S603",   # E2E tests需要subprocess调用Docker
-    "S607",   # E2E tests需要subprocess调用Docker
+    "S603", # E2E tests需要subprocess调用Docker
+    "S607", # E2E tests需要subprocess调用Docker
 ]  # E2E测试文件允许subprocess调用
 
 "tests/e2e/conftest.py" = [
-    "S603",   # conftest需要subprocess管理Docker
-    "S607",   # conftest需要subprocess调用docker compose
+    "S603", # conftest需要subprocess管理Docker
+    "S607", # conftest需要subprocess调用docker compose
 ]  # conftest允许subprocess调用
 "tests/scripts/*.py" = [
-    "S603",   # 测试脚本需要subprocess运行pytest
+    "S603", # 测试脚本需要subprocess运行pytest
 ]
 "tests/unit/api/endpoints/test_pipeline_extended.py" = [
-    "S104",   # 测试用例需要测试0.0.0.0绑定
+    "S104", # 测试用例需要测试0.0.0.0绑定
 ]
 "tests/integration/test_port_detection_integration.py" = [
-    "S104",   # 测试用例需要测试0.0.0.0绑定
+    "S104", # 测试用例需要测试0.0.0.0绑定
 ]
 
 "tests/*.py" = [
-    "E402",   # 测试文件导入顺序不严格
-    "S101",   # 测试允许 assert
-    "S108",   # 测试中允许使用 /tmp 目录
-    "F811",   # 测试中重复函数名（pytest parametrize）
-    "B018",   # 测试中 l=[] 不视为无用表达式
-    "F841",   # 测试中允许未使用变量（fixture 模式）
-    "F401",   # 测试中未使用的导入
-    "UP017",  # datetime.utcnow() 警告
-    "S311",   # 测试中允许 random
-    "B007",   # 测试中允许未使用循环变量
+    "E402", # 测试文件导入顺序不严格
+    "S101", # 测试允许 assert
+    "S108", # 测试中允许使用 /tmp 目录
+    "F811", # 测试中重复函数名（pytest parametrize）
+    "B018", # 测试中 l=[] 不视为无用表达式
+    "F841", # 测试中允许未使用变量（fixture 模式）
+    "F401", # 测试中未使用的导入
+    "UP017", # datetime.utcnow() 警告
+    "S311", # 测试中允许 random
+    "B007", # 测试中允许未使用循环变量
     "RUF002", # 中文全角字符
     "RUF003", # 中文全角字符
     "RET504", # 测试 fixture 模式
     "SIM117", # 嵌套 with 语句
-    "C401",   # 测试代码
+    "C401", # 测试代码
     "RUF059", # 测试代码
     "SIM105", # 测试代码
     "RUF015", # 测试代码
-    "F821",   # 测试代码
-    "S106",   # 测试中的密码参数
-    "D",      # 测试文件不需要 docstring
+    "F821", # 测试代码
+    "S106", # 测试中的密码参数
+    "D", # 测试文件不需要 docstring
 ]  # 测试文件放宽要求
 "alembic/env.py" = ["E402", "F401", "F811", "D"]
 "alembic/versions/*.py" = ["D"]  # 自动生成的迁移文件不需要 docstring
@@ -282,7 +282,7 @@ ignore = [
     "S112",
     "UP042",
     "RUF006",
-    "D",      # core 模块放宽 docstring 要求
+    "D", # core 模块放宽 docstring 要求
 ]  # core 模块放宽要求
 
 "src/modules/*" = [
@@ -306,13 +306,13 @@ ignore = [
     "F811",
     "C401",
     "B005",
-    "D",      # modules 模块放宽 docstring 要求
+    "D", # modules 模块放宽 docstring 要求
 ]  # modules 模块放宽要求
 
 "src/main.py" = [
     "N818",
     "F811",
-    "D",      # main.py 放宽 docstring 要求
+    "D", # main.py 放宽 docstring 要求
 ]  # main.py 放宽要求
 
 [tool.ruff.lint.isort]
@@ -472,7 +472,7 @@ module = [
     "opentelemetry.*",
     "loguru.*",
     # ── 已忽略的模块 ─────────────────────────────────────
-    "numpy.*",                       # 类型覆盖率低
+    "numpy.*", # 类型覆盖率低
     "_pytest.*",
 ]
 ignore_missing_imports = true
@@ -555,25 +555,25 @@ convention = "google"
 match = "(?!test_).*\\.py$"
 match_dir = "^(?!migrations|alembic|tests|scripts/rollback)"
 add_select = [
-    "D100",   # 模块顶部缺少 docstring
-    "D101",   # 类缺少 docstring
-    "D102",   # 公共方法缺少 docstring
-    "D103",   # 公共函数缺少 docstring
-    "D104",   # 包缺少 docstring（可选）
-    "D105",   # 魔术方法缺少 docstring
-    "D107",   # __init__ 缺少 docstring
-    "D200",   # 单行 docstring fits in one line
-    "D205",   # 单行 docstring 需要空行
-    "D400",   # docstring 首行应以句点结尾
-    "D415",   # docstring 首行应以动词开头
+    "D100", # 模块顶部缺少 docstring
+    "D101", # 类缺少 docstring
+    "D102", # 公共方法缺少 docstring
+    "D103", # 公共函数缺少 docstring
+    "D104", # 包缺少 docstring（可选）
+    "D105", # 魔术方法缺少 docstring
+    "D107", # __init__ 缺少 docstring
+    "D200", # 单行 docstring fits in one line
+    "D205", # 单行 docstring 需要空行
+    "D400", # docstring 首行应以句点结尾
+    "D415", # docstring 首行应以动词开头
 ]
 ignore = [
-    "D100",   # 初创期放松要求
+    "D100", # 初创期放松要求
     "D104",
     "D107",
-    "D203",   # 与 D211 冲突
-    "D212",   # 多行 docstring 首行应为 summary（与 D213 冲突）
-    "D413",   # 最后一行空行（过度严格）
+    "D203", # 与 D211 冲突
+    "D212", # 多行 docstring 首行应为 summary（与 D213 冲突）
+    "D413", # 最后一行空行（过度严格）
 ]
 
 # ────────────────────────────────────────────────────────────

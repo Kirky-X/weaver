@@ -32,19 +32,19 @@ repos:
     rev: v5.0.0
     hooks:
       - id: trailing-whitespace
-        args: [--markdown-linebreak-ext=md]
+        args: [ --markdown-linebreak-ext=md ]
       - id: end-of-file-fixer
-        types: [python, yaml, toml, markdown, json, shell]
+        types: [ python, yaml, toml, markdown, json, shell ]
       - id: check-yaml
       - id: check-toml
       - id: check-json
       - id: check-merge-conflict
-        args: ['--assume-in-merge']
+        args: [ '--assume-in-merge' ]
       - id: check-case-conflict
       - id: mixed-line-ending
-        args: [--fix=lf]
+        args: [ --fix=lf ]
       - id: check-added-large-files
-        args: ['--maxkb=2048']
+        args: [ '--maxkb=2048' ]
 
   # ==========================================================
   # 1. 本地工具调用（使用已安装的工具，避免网络下载）
@@ -57,7 +57,7 @@ repos:
         name: isort (local)
         entry: isort
         language: system
-        types: [python]
+        types: [ python ]
         args:
           - --settings-path=pyproject.toml
           - --filter-files
@@ -70,7 +70,7 @@ repos:
         name: black (local)
         entry: black
         language: system
-        types: [python]
+        types: [ python ]
         args:
           - --config=pyproject.toml
         files: ^src/|^tests/|^scripts/
@@ -82,7 +82,7 @@ repos:
         name: ruff (linter)
         entry: ruff
         language: system
-        types: [python]
+        types: [ python ]
         args:
           - check
           - --config=pyproject.toml
@@ -129,6 +129,6 @@ repos:
         name: check-logging-usage (禁止 logging.getLogger)
         entry: python scripts/tools.py check-logging
         language: system
-        types: [python]
+        types: [ python ]
         files: ^src/|^tests/|^scripts/
         pass_filenames: true
