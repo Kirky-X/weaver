@@ -8,6 +8,7 @@ Uses id property instead of elementId(), and timestamp integers instead of datet
 from __future__ import annotations
 
 import time
+import uuid
 from typing import Any
 
 from core.observability.logging import get_logger
@@ -47,8 +48,6 @@ class LadybugArticleRepo:
         Returns:
             The article ID.
         """
-        import uuid
-
         article_id = str(uuid.uuid4())
 
         # Check if article already exists
