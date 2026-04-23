@@ -422,7 +422,8 @@ class EntityResolutionRules:
         canonical: str,
         entity_type: str,
     ) -> ResolutionResult | None:
-        """Check translation mappings."""
+        """Check translation mappings for locations and general entities."""
+        # First check explicit translation map
         name_translated = self._translation_map.get(name)
         canonical_translated = self._translation_map.get(canonical)
 
@@ -442,6 +443,27 @@ class EntityResolutionRules:
                 should_merge=True,
                 reason=f"'{canonical}' is translation of '{name}'",
             )
+
+        # For locations, check if both names map to same ISO country code
+        if entity_type == "地点":
+            name_result = self._location_resolver.normalize(name)
+            canonical_result = self._location_resolver.normalize(canonical)
+
+            if name_result.iso_alpha2 and canonical_result.iso_alpha2:
+                if name_result.iso_alpha2 == canonical_result.iso_alpha2:
+                    return ResolutionResult(
+                        match_type=MatchType.TRANSLATION,
+                        confidence=min(name_result.confidence, canonical_result.confidence),
+                        canonical_name=name_result.canonical_name,
+                        should_merge=True,
+                        reason=f"Location translation: '{name}' → '{canonical}' (ISO: {name_result.iso_alpha2})",
+                        metadata={
+                            "iso_alpha2": name_result.iso_alpha2,
+                            "name_confidence": name_result.confidence,
+                            "canonical_confidence": canonical_result.confidence,
+                        },
+                    )
+
         return None
 
     def _location_standardization_match(
@@ -616,8 +638,29 @@ class EntityResolutionRules:
         return self._abbreviation_map.get(abbr)
 
     def get_translation(self, name: str) -> str | None:
-        """Get the translation of a name."""
-        return self._translation_map.get(name)
+        """Get the translation of a name.
+
+        For location names, uses LocationResolver to find translations.
+        For other names, checks explicit translation map.
+        """
+        # Check explicit translation map first
+        result = self._translation_map.get(name)
+        if result:
+            return result
+
+        # For locations, use LocationResolver to find English/chinese translation
+        loc_result = self._location_resolver.normalize(name)
+        if loc_result.confidence >= 0.8 and loc_result.iso_alpha2:
+            # If input is Chinese, return English canonical name
+            if self._is_chinese(name):
+                return loc_result.canonical_name
+            # If input is English, try to find Chinese name in our mapping
+            for chinese_name, iso_code in self._location_resolver._name_to_iso.items():
+                if iso_code == loc_result.iso_alpha2 and self._is_chinese(chinese_name):
+                    # Return the most common Chinese name (shortest one)
+                    return chinese_name
+
+        return None
 
 
 resolution_rules = EntityResolutionRules()
