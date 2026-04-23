@@ -72,9 +72,7 @@ class Neo4jTarget:
         pass
 
     async def write_nodes(self, label: str, nodes: list[dict[str, Any]]) -> int:
-        """Write a batch of nodes.
-
-        Uses MERGE for upsert behavior based on id property.
+        """Write a batch of nodes using UNWIND MERGE.
 
         Args:
             label: Target node label.
@@ -86,56 +84,52 @@ class Neo4jTarget:
         if not nodes:
             return 0
 
-        written = 0
+        # Build parameterized UNWIND query
+        # Neo4j allows UNWIND but doesn't allow dynamic label, so we use f-string for label
+        # (label comes from NodeSchema which is validated, not user input)
+        query = f"""
+        UNWIND $nodes AS node
+        MERGE (n:{label} {{id: node.id}})
+        SET n += node.props
+        RETURN count(n) AS written
+        """
 
+        # Prepare nodes with id and props separated
+        processed_nodes = []
         for node in nodes:
-            # Find the id property
             node_id = node.get("id") or node.get("name") or node.get("_id")
             if not node_id:
                 # Use first property value as id
                 node_id = next(iter(node.values()), None) if node else None
-
             if not node_id:
                 continue
 
-            # Build property assignments
-            props_list = []
-            for key, value in node.items():
-                if key.startswith("_"):
-                    continue
-                props_list.append(f"n.`{key}` = ${key}")
+            # Extract properties (exclude metadata keys starting with _)
+            props = {k: v for k, v in node.items() if not k.startswith("_")}
 
-            props_set = ", ".join(props_list) if props_list else ""
+            processed_nodes.append(
+                {
+                    "id": node_id,
+                    "props": props,
+                }
+            )
 
-            # Use MERGE for upsert
-            query = f"""
-                MERGE (n:`{label}` {{id: $node_id}})
-                SET n += $props
-            """
+        if not processed_nodes:
+            return 0
 
-            # Alternative: use name as key if id doesn't exist
-            if "id" not in node and "name" in node:
-                query = f"""
-                    MERGE (n:`{label}` {{name: $node_id}})
-                    SET n += $props
-                """
-
-            try:
-                await self._pool.execute_query(
-                    query,
-                    {
-                        "node_id": node_id,
-                        "props": node,
-                    },
-                )
-                written += 1
-            except Exception as exc:
-                log.warning("write_node_failed", node=str(node), error=str(exc))
-
-        return written
+        try:
+            result = await self._pool.execute_query(query, {"nodes": processed_nodes})
+            return (
+                result[0].get("written", len(processed_nodes)) if result else len(processed_nodes)
+            )
+        except Exception as exc:
+            log.warning("write_nodes_batch_failed", label=label, count=len(nodes), error=str(exc))
+            return 0
 
     async def write_rels(self, rel_type: str, rels: list[dict[str, Any]]) -> int:
-        """Write a batch of relationships.
+        """Write a batch of relationships using UNWIND MERGE.
+
+        Groups relationships by source_label and target_label for batch processing.
 
         Args:
             rel_type: Target relationship type.
@@ -147,47 +141,54 @@ class Neo4jTarget:
         if not rels:
             return 0
 
-        written = 0
-
+        # Group by source_label and target_label for efficient batching
+        groups: dict[tuple[str, str], list[dict[str, Any]]] = {}
         for rel in rels:
             source_id = rel.get("_source_id")
             target_id = rel.get("_target_id")
-            source_label = rel.get("_source_label", "Node")
-            target_label = rel.get("_target_label", "Node")
-
             if not source_id or not target_id:
                 continue
 
-            # Extract relationship properties (exclude metadata)
+            source_label = rel.get("_source_label", "Node")
+            target_label = rel.get("_target_label", "Node")
+            key = (source_label, target_label)
+
             props = {k: v for k, v in rel.items() if not k.startswith("_")}
+            groups.setdefault(key, []).append(
+                {
+                    "source_id": source_id,
+                    "target_id": target_id,
+                    "props": props,
+                }
+            )
 
-            # Build property assignments
-            props_set = ""
-            if props:
-                props_parts = [f"r.`{k}` = ${k}" for k in props]
-                props_set = f"SET {', '.join(props_parts)}"
-
+        total_written = 0
+        for (source_label, target_label), group_rels in groups.items():
+            # rel_type comes from RelSchema which is validated, not user input
             query = f"""
-                MATCH (source:`{source_label}` {{id: $source_id}})
-                MATCH (target:`{target_label}` {{id: $target_id}})
-                MERGE (source)-[r:`{rel_type}`]->(target)
-                {props_set}
+            UNWIND $rels AS rel
+            MATCH (source:{source_label} {{id: rel.source_id}})
+            MATCH (target:{target_label} {{id: rel.target_id}})
+            MERGE (source)-[r:{rel_type}]->(target)
+            SET r += rel.props
+            RETURN count(r) AS written
             """
 
             try:
-                await self._pool.execute_query(
-                    query,
-                    {
-                        "source_id": source_id,
-                        "target_id": target_id,
-                        **props,
-                    },
-                )
-                written += 1
+                result = await self._pool.execute_query(query, {"rels": group_rels})
+                written = result[0].get("written", len(group_rels)) if result else len(group_rels)
+                total_written += written
             except Exception as exc:
-                log.warning("write_node_failed", node=str(node), error=str(exc))
+                log.warning(
+                    "write_rels_batch_failed",
+                    rel_type=rel_type,
+                    source_label=source_label,
+                    target_label=target_label,
+                    count=len(group_rels),
+                    error=str(exc),
+                )
 
-        return written
+        return total_written
 
     async def verify_nodes(self, label: str, expected: int) -> bool:
         """Verify node migration completed successfully.
