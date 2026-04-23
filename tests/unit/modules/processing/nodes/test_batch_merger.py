@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from core.db.models import PersistStatus
 from core.llm.validation.output_validator import MergerOutput
 from modules.ingestion.domain.models import RawArticle
 from modules.processing.nodes.merging.batch_merger import BatchMergerNode, UnionFind
@@ -1071,7 +1072,7 @@ class TestBatchMergerSagaCompensation:
         mock_article_repo.delete = AsyncMock()
 
         mock_graph_writer = MagicMock()
-        mock_graph_writer.write = AsyncMock(side_effect=Exception("Neo4j connection failed"))
+        mock_graph_writer.write_batch = AsyncMock(side_effect=Exception("Neo4j connection failed"))
 
         node = BatchMergerNode(
             mock_llm,
@@ -1084,7 +1085,14 @@ class TestBatchMergerSagaCompensation:
 
         assert result["success"] is False
         assert result["compensation_executed"] is True
-        mock_article_repo.delete.assert_called_once_with(article_id)
+
+        # Verify the LAST call was to mark as NEO4J_FAILED
+        assert mock_article_repo.update_persist_status.call_count >= 1
+        last_call = mock_article_repo.update_persist_status.call_args_list[-1]
+        assert last_call.args[0] == article_id
+        assert last_call.args[1] == PersistStatus.NEO4J_FAILED
+        # Verify delete was NOT called (new compensation strategy)
+        mock_article_repo.delete.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_saga_partial_neo4j_failure(self, mock_llm, mock_prompt_loader):
@@ -1116,14 +1124,14 @@ class TestBatchMergerSagaCompensation:
         mock_article_repo.update_persist_status = AsyncMock()
         mock_article_repo.delete = AsyncMock()
 
-        # First succeeds, second fails, third succeeds
+        # Mock write_batch with mixed success/failure
         mock_graph_writer = MagicMock()
-        mock_graph_writer.write = AsyncMock(
-            side_effect=[
-                ["node1"],  # Success
-                Exception("Failed"),  # Failure
-                ["node3"],  # Success
-            ]
+        mock_graph_writer.write_batch = AsyncMock(
+            return_value={
+                "neo4j_ids": ["node1", "node3"],  # 2 succeeded
+                "article_ids": [str(article_ids[0]), str(article_ids[2])],
+                "errors": [(str(article_ids[1]), "Failed")],  # 1 failed
+            }
         )
 
         node = BatchMergerNode(
@@ -1138,3 +1146,21 @@ class TestBatchMergerSagaCompensation:
         # Should mark as failed due to partial failure
         assert result["success"] is False
         assert result["compensation_executed"] is True
+
+        # Verify update_persist_status calls:
+        # - 3 calls for Phase 1 (PG_DONE)
+        # - 2 calls for successful Neo4j writes (NEO4J_DONE)
+        # - 1 call for failed Neo4j write (NEO4J_FAILED)
+        assert mock_article_repo.update_persist_status.call_count == 6
+
+        # Find the NEO4J_FAILED call
+        neo4j_failed_calls = [
+            call
+            for call in mock_article_repo.update_persist_status.call_args_list
+            if len(call.args) >= 2 and call.args[1] == PersistStatus.NEO4J_FAILED
+        ]
+        assert len(neo4j_failed_calls) == 1
+        assert neo4j_failed_calls[0].args[0] == article_ids[1]  # Second article failed
+
+        # Verify delete was NOT called (new compensation strategy)
+        mock_article_repo.delete.assert_not_called()

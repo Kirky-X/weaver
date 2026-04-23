@@ -106,6 +106,83 @@ class LadybugArticleRepo:
             return result[0]["id"]
         return article_id
 
+    async def create_articles_batch(
+        self,
+        articles: list[dict[str, Any]],
+    ) -> list[str]:
+        """Create multiple Article nodes in batch.
+
+        Note: LadybugDB requires PRIMARY KEY id at creation time.
+        For existing articles, updates them individually.
+
+        Args:
+            articles: List of dicts with pg_id, title, category, publish_time, score.
+
+        Returns:
+            List of article IDs for created/updated articles.
+        """
+        if not articles:
+            return []
+
+        import uuid
+
+        # LadybugDB doesn't support MERGE with ON CREATE/ON MATCH well
+        # Process in batches: first check existing, then create/update
+        existing_ids: dict[str, str] = {}
+        to_create: list[dict[str, Any]] = []
+
+        for article in articles:
+            pg_id = article.get("pg_id")
+            existing = await self.find_article_by_pg_id(pg_id)
+            if existing:
+                existing_ids[pg_id] = existing["id"]
+            else:
+                article["id"] = str(uuid.uuid4())
+                to_create.append(article)
+
+        # Batch create new articles
+        created_ids: list[str] = []
+        if to_create:
+            query = """
+            UNWIND $articles AS article
+            CREATE (a:Article {
+                id: article.id,
+                pg_id: article.pg_id,
+                title: article.title,
+                category: article.category,
+                publish_time: article.publish_time,
+                score: article.score
+            })
+            RETURN a.id AS id
+            """
+            params = {"articles": to_create}
+            result = await self._pool.execute_query(query, params)
+            created_ids = [r["id"] for r in result if r.get("id")]
+
+        # Update existing articles
+        for pg_id, article_id in existing_ids.items():
+            article = next((a for a in articles if a.get("pg_id") == pg_id), None)
+            if article:
+                query = """
+                MATCH (a:Article {pg_id: $pg_id})
+                SET a.title = $title,
+                    a.category = $category,
+                    a.publish_time = $publish_time,
+                    a.score = $score
+                """
+                await self._pool.execute_query(
+                    query,
+                    {
+                        "pg_id": pg_id,
+                        "title": article.get("title", ""),
+                        "category": article.get("category", "unknown"),
+                        "publish_time": article.get("publish_time") or 0,
+                        "score": article.get("score") or 0.0,
+                    },
+                )
+
+        return created_ids + list(existing_ids.values())
+
     async def find_article_by_pg_id(self, pg_id: str) -> dict[str, Any] | None:
         """Find an article by its PostgreSQL ID."""
         query = """
@@ -159,6 +236,33 @@ class LadybugArticleRepo:
                 "time_gap_hours": time_gap_hours or 0.0,
             },
         )
+
+    async def create_followed_by_batch(
+        self,
+        relations: list[dict[str, Any]],
+    ) -> int:
+        """Create multiple FOLLOWED_BY relationships in batch.
+
+        Args:
+            relations: List of dicts with from_pg_id, to_pg_id, time_gap_hours.
+
+        Returns:
+            Number of relationships created.
+        """
+        if not relations:
+            return 0
+
+        query = """
+        UNWIND $relations AS rel
+        MATCH (from:Article {pg_id: rel.from_pg_id})
+        MATCH (to:Article {pg_id: rel.to_pg_id})
+        MERGE (from)-[r:FOLLOWED_BY]->(to)
+        SET r.time_gap_hours = rel.time_gap_hours
+        RETURN count(r) AS created
+        """
+        params = {"relations": relations}
+        result = await self._pool.execute_query(query, params)
+        return result[0].get("created", 0) if result else 0
 
     async def get_followed_articles(
         self,

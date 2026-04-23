@@ -447,77 +447,96 @@ class BatchMergerNode:
                     )
             return result
 
-        # Phase 2: Persist to Neo4j
-        neo4j_errors = []
-        successful_neo4j_ids = []
-
-        for state in new_states:
-            if not self._graph_writer:
-                continue
-
+        # Phase 2: Persist to Neo4j using batch write with concurrency control
+        if self._graph_writer:
             try:
-                neo4j_ids = await self._graph_writer.write(state)
-                state["neo4j_ids"] = neo4j_ids
-                successful_neo4j_ids.extend(neo4j_ids)
+                batch_result = await self._graph_writer.write_batch(
+                    new_states,
+                    concurrency=10,
+                )
+                successful_neo4j_ids = batch_result.get("neo4j_ids", [])
+                result["neo4j_ids"] = successful_neo4j_ids
 
-                if self._article_repo and state.get("article_id"):
-                    await self._article_repo.update_persist_status(
-                        uuid.UUID(state["article_id"]),
-                        PersistStatus.NEO4J_DONE,
+                # Update persist status for successfully written articles
+                successful_article_ids = batch_result.get("article_ids", [])
+                for article_id_str in successful_article_ids:
+                    if self._article_repo and article_id_str:
+                        try:
+                            await self._article_repo.update_persist_status(
+                                uuid.UUID(article_id_str),
+                                PersistStatus.NEO4J_DONE,
+                            )
+                        except Exception as status_exc:
+                            log.warning(
+                                "saga_phase2_status_update_failed",
+                                article_id=article_id_str,
+                                error=str(status_exc),
+                            )
+
+                # Process errors - mark failed instead of deleting
+                neo4j_errors = batch_result.get("errors", [])
+                if neo4j_errors:
+                    log.warning(
+                        "saga_phase2_partial_failure",
+                        failed_count=len(neo4j_errors),
+                        total=len(new_states),
                     )
+                    result["compensation_executed"] = True
+
+                    for article_id_str, error_msg in neo4j_errors:
+                        try:
+                            if article_id_str and article_id_str != "unknown":
+                                pg_id = uuid.UUID(article_id_str)
+                                # Mark as NEO4J_FAILED instead of deleting
+                                await self._article_repo.update_persist_status(
+                                    pg_id,
+                                    PersistStatus.NEO4J_FAILED,
+                                )
+                                log.info(
+                                    "saga_compensation_marked_failed",
+                                    article_id=str(pg_id),
+                                    error=error_msg,
+                                )
+                        except Exception as comp_exc:
+                            log.error(
+                                "saga_compensation_mark_failed_error",
+                                article_id=article_id_str,
+                                error=str(comp_exc),
+                            )
+
+                    result["error"] = f"Phase 2 failed for {len(neo4j_errors)} articles"
+                    result["success"] = False
+                    return result
+
+                log.info(
+                    "saga_phase2_complete",
+                    neo4j_count=len(successful_neo4j_ids),
+                )
+
             except Exception as exc:
-                error_msg = f"Neo4j write failed: {type(exc).__name__}: {exc}"
-                neo4j_errors.append((state.get("article_id"), error_msg))
+                error_msg = f"Phase 2 batch write failed: {type(exc).__name__}: {exc}"
+                result["error"] = error_msg
+                result["success"] = False
+                result["compensation_executed"] = True
                 log.error(
-                    "saga_phase2_article_failed",
-                    article_id=state.get("article_id"),
+                    "saga_phase2_batch_failed",
                     error=error_msg,
                 )
-
-        result["neo4j_ids"] = successful_neo4j_ids
-
-        # Check if Phase 2 had failures
-        if neo4j_errors:
-            log.warning(
-                "saga_phase2_partial_failure",
-                failed_count=len(neo4j_errors),
-                total=len(new_states),
-            )
-
-            # Trigger compensation transaction
-            result["compensation_executed"] = True
-            compensation_errors = []
-
-            for pg_id_str, error_msg in neo4j_errors:
-                try:
-                    pg_id = uuid.UUID(pg_id_str)
-                    # Delete from PostgreSQL
-                    await self._article_repo.delete(pg_id)
-                    log.info(
-                        "saga_compensation_deleted",
-                        article_id=str(pg_id),
-                    )
-                except Exception as comp_exc:
-                    comp_error = f"Compensation failed for {pg_id_str}: {comp_exc}"
-                    compensation_errors.append(comp_error)
-                    log.error(
-                        "saga_compensation_failed",
-                        article_id=str(pg_id),
-                        error=comp_error,
-                    )
-
-            if compensation_errors:
-                log.error(
-                    "saga_compensation_incomplete",
-                    errors=compensation_errors,
-                    message="sync_neo4j_with_postgres background task will reconcile",
-                )
-                # Alert would be raised here in production
-                # For now, rely on the sync_neo4j_with_postgres scheduled job
-
-            result["error"] = f"Phase 2 failed for {len(neo4j_errors)} articles"
-            result["success"] = False
-            return result
+                # Mark all as NEO4J_FAILED
+                for state in new_states:
+                    if state.get("article_id") and self._article_repo:
+                        try:
+                            await self._article_repo.update_persist_status(
+                                uuid.UUID(state["article_id"]),
+                                PersistStatus.NEO4J_FAILED,
+                            )
+                        except Exception as mark_exc:
+                            log.warning(
+                                "saga_phase2_mark_all_failed_error",
+                                article_id=state.get("article_id"),
+                                error=str(mark_exc),
+                            )
+                return result
 
         # All phases succeeded
         result["success"] = True

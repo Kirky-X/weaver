@@ -72,6 +72,41 @@ class Neo4jArticleRepo:
             return result[0]["neo4j_id"]
         raise RuntimeError("Failed to create article node")
 
+    async def create_articles_batch(
+        self,
+        articles: list[dict[str, Any]],
+    ) -> list[str]:
+        """Create multiple Article nodes in batch using UNWIND.
+
+        Args:
+            articles: List of dicts with keys: pg_id, title, category, publish_time, score.
+
+        Returns:
+            List of Neo4j internal IDs for created articles.
+        """
+        if not articles:
+            return []
+
+        query = """
+        UNWIND $articles AS article
+        MERGE (a:Article {pg_id: article.pg_id})
+        ON CREATE SET
+            a.title = article.title,
+            a.category = article.category,
+            a.publish_time = article.publish_time,
+            a.score = article.score,
+            a.created_at = datetime()
+        ON MATCH SET
+            a.title = article.title,
+            a.category = article.category,
+            a.publish_time = article.publish_time,
+            a.score = COALESCE(article.score, a.score)
+        RETURN elementId(a) AS neo4j_id
+        """
+        params = {"articles": articles}
+        result = await self._pool.execute_query(query, params)
+        return [r["neo4j_id"] for r in result if r.get("neo4j_id")]
+
     async def find_article_by_pg_id(self, pg_id: str) -> dict[str, Any] | None:
         """Find an article node by PostgreSQL ID.
 
@@ -152,6 +187,33 @@ class Neo4jArticleRepo:
             params["time_gap_hours"] = time_gap_hours
 
         await self._pool.execute_query(query, params)
+
+    async def create_followed_by_batch(
+        self,
+        relations: list[dict[str, Any]],
+    ) -> int:
+        """Create multiple FOLLOWED_BY relationships in batch.
+
+        Args:
+            relations: List of dicts with from_pg_id, to_pg_id, time_gap_hours.
+
+        Returns:
+            Number of relationships created.
+        """
+        if not relations:
+            return 0
+
+        query = """
+        UNWIND $relations AS rel
+        MATCH (from:Article {pg_id: rel.from_pg_id})
+        MATCH (to:Article {pg_id: rel.to_pg_id})
+        MERGE (from)-[r:FOLLOWED_BY]->(to)
+        SET r.time_gap_hours = rel.time_gap_hours
+        RETURN count(r) AS created
+        """
+        params = {"relations": relations}
+        result = await self._pool.execute_query(query, params)
+        return result[0].get("created", 0) if result else 0
 
     async def get_followed_articles(
         self,

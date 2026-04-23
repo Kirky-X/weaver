@@ -327,7 +327,7 @@ class TestNeo4jWriterMergeSources:
             mock_article_repo = MagicMock()
             mock_article_repo.create_article = AsyncMock(return_value="article-id")
             mock_article_repo.find_article_by_pg_id = AsyncMock(return_value=None)
-            mock_article_repo.create_followed_by_relation = AsyncMock()
+            mock_article_repo.create_followed_by_batch = AsyncMock(return_value=2)
 
             mock_entity_repo_cls.return_value = mock_entity_repo
             mock_article_repo_cls.return_value = mock_article_repo
@@ -343,7 +343,10 @@ class TestNeo4jWriterMergeSources:
         await writer.write(mock_state_with_merges)
 
         # Should add FOLLOWED_BY for each merged source
-        assert mock_article_repo.create_followed_by_relation.call_count == 2
+        mock_article_repo.create_followed_by_batch.assert_called_once()
+        call_args = mock_article_repo.create_followed_by_batch.call_args
+        relations = call_args.args[0]
+        assert len(relations) == 2
 
 
 class TestNeo4jWriterCleanup:
@@ -591,7 +594,7 @@ class TestNeo4jWriterFollowedBy:
             from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
             mock_article_repo = MagicMock()
-            mock_article_repo.create_followed_by_relation = AsyncMock()
+            mock_article_repo.create_followed_by_batch = AsyncMock(return_value=1)
             mock_article_repo.find_article_by_pg_id = AsyncMock(return_value=None)
 
             mock_entity_repo_cls.return_value = MagicMock()
@@ -614,9 +617,11 @@ class TestNeo4jWriterFollowedBy:
 
         await writer._create_followed_relations("article-1", ["source-1"], target_time)
 
-        mock_article_repo.create_followed_by_relation.assert_called_once()
-        call_kwargs = mock_article_repo.create_followed_by_relation.call_args
-        assert call_kwargs.kwargs["time_gap_hours"] == 3.0
+        mock_article_repo.create_followed_by_batch.assert_called_once()
+        call_args = mock_article_repo.create_followed_by_batch.call_args
+        relations = call_args.args[0]
+        assert len(relations) == 1
+        assert relations[0]["time_gap_hours"] == 3.0
 
     @pytest.mark.asyncio
     async def test_followed_with_error(self, writer_with_mocks):
@@ -626,7 +631,7 @@ class TestNeo4jWriterFollowedBy:
 
         # Should not raise
         await writer._create_followed_relations("article-1", ["source-1"], None)
-        mock_article_repo.create_followed_by_relation.assert_not_called()
+        mock_article_repo.create_followed_by_batch.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_followed_no_publish_time(self, writer_with_mocks):
@@ -635,6 +640,8 @@ class TestNeo4jWriterFollowedBy:
 
         await writer._create_followed_relations("article-1", ["source-1"], None)
 
-        mock_article_repo.create_followed_by_relation.assert_called_once()
-        call_kwargs = mock_article_repo.create_followed_by_relation.call_args
-        assert call_kwargs.kwargs["time_gap_hours"] is None
+        mock_article_repo.create_followed_by_batch.assert_called_once()
+        call_args = mock_article_repo.create_followed_by_batch.call_args
+        relations = call_args.args[0]
+        assert len(relations) == 1
+        assert relations[0]["time_gap_hours"] == 0.0

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -118,6 +119,76 @@ class Neo4jWriter:
 
         log.info("neo4j_write_complete", article_id=article_id_str, entity_count=len(neo4j_ids))
         return neo4j_ids
+
+    async def write_batch(
+        self,
+        states: list[PipelineState],
+        concurrency: int = 10,
+    ) -> dict[str, Any]:
+        """Write multiple pipeline states to Neo4j with controlled concurrency.
+
+        Uses asyncio.gather with semaphore for parallel execution.
+        Each state is written independently, failures are recorded.
+
+        Args:
+            states: List of pipeline states to persist.
+            concurrency: Maximum concurrent writes (default 10).
+
+        Returns:
+            Dict with:
+            - neo4j_ids: List of all entity Neo4j IDs created.
+            - article_ids: List of article IDs successfully written.
+            - errors: List of (article_id, error_msg) for failures.
+        """
+        if not states:
+            return {"neo4j_ids": [], "article_ids": [], "errors": []}
+
+        result: dict[str, Any] = {
+            "neo4j_ids": [],
+            "article_ids": [],
+            "errors": [],
+        }
+
+        semaphore = asyncio.Semaphore(concurrency)
+
+        async def write_with_semaphore(
+            state: PipelineState,
+        ) -> tuple[list[str], str | None, str | None]:
+            async with semaphore:
+                try:
+                    ids = await self.write(state)
+                    article_id = str(state.get("article_id", "unknown"))
+                    return ids, article_id, None
+                except Exception as exc:
+                    article_id = str(state.get("article_id", "unknown"))
+                    error_msg = f"{type(exc).__name__}: {exc}"
+                    log.error(
+                        "neo4j_batch_write_failed",
+                        article_id=article_id,
+                        error=error_msg,
+                    )
+                    return [], article_id, error_msg
+
+        write_results = await asyncio.gather(
+            *[write_with_semaphore(s) for s in states],
+            return_exceptions=False,
+        )
+
+        for ids, article_id, error in write_results:
+            if ids:
+                result["neo4j_ids"].extend(ids)
+            if article_id:
+                result["article_ids"].append(article_id)
+            if error:
+                result["errors"].append((article_id or "unknown", error))
+
+        log.info(
+            "neo4j_batch_write_complete",
+            total=len(states),
+            success=len(result["article_ids"]),
+            failed=len(result["errors"]),
+        )
+        return result
 
     async def _write_entities(
         self,
@@ -373,21 +444,22 @@ class Neo4jWriter:
         source_ids: list[str],
         publish_time: datetime | None,
     ) -> None:
-        """Create FOLLOWED_BY relationships for merged articles.
-
-        When articles are merged, creates relationships indicating
-        that the current article follows the source articles.
+        """Create FOLLOWED_BY relationships for merged articles using batch operation.
 
         Args:
             article_id: The target article's PostgreSQL ID.
             source_ids: List of source article PostgreSQL IDs that were merged.
             publish_time: Publication time of the target article.
         """
-        for source_id in source_ids:
-            try:
-                # Calculate time gap if we have publish times
-                time_gap: float | None = None
+        if not source_ids:
+            return
 
+        relations_data: list[dict[str, Any]] = []
+
+        for source_id in source_ids:
+            time_gap: float | None = None
+
+            try:
                 # Get source article to calculate time gap
                 source_article = await self._article_repo.find_article_by_pg_id(source_id)
                 if source_article and publish_time and source_article.get("publish_time"):
@@ -395,23 +467,42 @@ class Neo4jWriter:
                     if hasattr(source_time, "timestamp") and hasattr(publish_time, "timestamp"):
                         time_gap = abs((publish_time.timestamp() - source_time.timestamp()) / 3600)
 
-                await self._article_repo.create_followed_by_relation(
-                    from_pg_id=source_id,
-                    to_pg_id=article_id,
-                    time_gap_hours=time_gap,
-                )
-                log.debug(
-                    "neo4j_followed_by_created",
-                    from_id=source_id,
-                    to_id=article_id,
+                # Only add relation if we successfully fetched the source article
+                relations_data.append(
+                    {
+                        "from_pg_id": source_id,
+                        "to_pg_id": article_id,
+                        "time_gap_hours": time_gap or 0.0,
+                    }
                 )
             except Exception as exc:
-                log.error(
-                    "neo4j_followed_by_failed",
+                log.warning(
+                    "neo4j_followed_by_source_fetch_failed",
                     source_id=source_id,
-                    target_id=article_id,
                     error=str(exc),
                 )
+                # Skip this source on error - don't add to relations_data
+                continue
+
+        # Only create relations if we have valid data
+        if not relations_data:
+            return
+
+        try:
+            count = await self._article_repo.create_followed_by_batch(relations_data)
+            log.info(
+                "neo4j_followed_by_batch_created",
+                count=count,
+                from_ids=source_ids,
+                to_id=article_id,
+            )
+        except Exception as exc:
+            log.error(
+                "neo4j_followed_by_batch_failed",
+                from_ids=source_ids,
+                to_id=article_id,
+                error=str(exc),
+            )
 
     async def cleanup_orphan_entities(self) -> int:
         """Clean up orphan entities with no MENTIONS relationships.
