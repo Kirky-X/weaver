@@ -77,6 +77,7 @@ class PersistStatus(str, enum.Enum):
     PROCESSING = "processing"
     PG_DONE = "pg_done"
     NEO4J_DONE = "neo4j_done"
+    NEO4J_FAILED = "neo4j_failed"
     FAILED = "failed"
 
     @classmethod
@@ -90,7 +91,8 @@ class PersistStatus(str, enum.Enum):
         Valid transitions:
         - PENDING → PROCESSING, FAILED
         - PROCESSING → PG_DONE, FAILED
-        - PG_DONE → NEO4J_DONE, FAILED
+        - PG_DONE → NEO4J_DONE, NEO4J_FAILED, FAILED
+        - NEO4J_FAILED → PG_DONE (allows retry Neo4j)
         - FAILED → PENDING (allows retry)
 
         Args:
@@ -108,7 +110,8 @@ class PersistStatus(str, enum.Enum):
         valid_transitions = {
             cls.PENDING: {cls.PROCESSING, cls.FAILED},
             cls.PROCESSING: {cls.PG_DONE, cls.FAILED},
-            cls.PG_DONE: {cls.NEO4J_DONE, cls.FAILED},
+            cls.PG_DONE: {cls.NEO4J_DONE, cls.NEO4J_FAILED, cls.FAILED},
+            cls.NEO4J_FAILED: {cls.PG_DONE},  # Allow retry Neo4j phase
             cls.FAILED: {cls.PENDING},  # Allow retry
             cls.NEO4J_DONE: set(),  # Terminal state
         }

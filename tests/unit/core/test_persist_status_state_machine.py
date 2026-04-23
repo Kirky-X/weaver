@@ -19,9 +19,12 @@ class TestPersistStatusStateMachine:
             # PROCESSING → PG_DONE, FAILED
             (PersistStatus.PROCESSING, PersistStatus.PG_DONE),
             (PersistStatus.PROCESSING, PersistStatus.FAILED),
-            # PG_DONE → NEO4J_DONE, FAILED
+            # PG_DONE → NEO4J_DONE, NEO4J_FAILED, FAILED
             (PersistStatus.PG_DONE, PersistStatus.NEO4J_DONE),
+            (PersistStatus.PG_DONE, PersistStatus.NEO4J_FAILED),
             (PersistStatus.PG_DONE, PersistStatus.FAILED),
+            # NEO4J_FAILED → PG_DONE (允许重试 Neo4j)
+            (PersistStatus.NEO4J_FAILED, PersistStatus.PG_DONE),
             # FAILED → PENDING (允许重试)
             (PersistStatus.FAILED, PersistStatus.PENDING),
         ],
@@ -41,9 +44,11 @@ class TestPersistStatusStateMachine:
             # PENDING 跳过中间状态
             (PersistStatus.PENDING, PersistStatus.PG_DONE),
             (PersistStatus.PENDING, PersistStatus.NEO4J_DONE),
+            (PersistStatus.PENDING, PersistStatus.NEO4J_FAILED),
             # PROCESSING 不允许回退或跳过
             (PersistStatus.PROCESSING, PersistStatus.PENDING),
             (PersistStatus.PROCESSING, PersistStatus.NEO4J_DONE),
+            (PersistStatus.PROCESSING, PersistStatus.NEO4J_FAILED),
             # PG_DONE 不允许回退
             (PersistStatus.PG_DONE, PersistStatus.PENDING),
             (PersistStatus.PG_DONE, PersistStatus.PROCESSING),
@@ -52,10 +57,17 @@ class TestPersistStatusStateMachine:
             (PersistStatus.NEO4J_DONE, PersistStatus.PROCESSING),
             (PersistStatus.NEO4J_DONE, PersistStatus.PG_DONE),
             (PersistStatus.NEO4J_DONE, PersistStatus.FAILED),
+            (PersistStatus.NEO4J_DONE, PersistStatus.NEO4J_FAILED),
+            # NEO4J_FAILED 只能转换到 PG_DONE (重试 Neo4j)
+            (PersistStatus.NEO4J_FAILED, PersistStatus.PENDING),
+            (PersistStatus.NEO4J_FAILED, PersistStatus.PROCESSING),
+            (PersistStatus.NEO4J_FAILED, PersistStatus.NEO4J_DONE),
+            (PersistStatus.NEO4J_FAILED, PersistStatus.FAILED),
             # FAILED 只能转换到 PENDING
             (PersistStatus.FAILED, PersistStatus.PROCESSING),
             (PersistStatus.FAILED, PersistStatus.PG_DONE),
             (PersistStatus.FAILED, PersistStatus.NEO4J_DONE),
+            (PersistStatus.FAILED, PersistStatus.NEO4J_FAILED),
         ],
     )
     def test_invalid_transitions(self, from_status, to_status):
@@ -77,6 +89,13 @@ class TestPersistStatusStateMachine:
         assert PersistStatus.is_valid_transition(PersistStatus.FAILED, PersistStatus.PENDING)
         # PENDING → PROCESSING
         assert PersistStatus.is_valid_transition(PersistStatus.PENDING, PersistStatus.PROCESSING)
+
+    def test_retry_workflow_from_neo4j_failed(self):
+        """Test retry workflow: NEO4J_FAILED → PG_DONE → NEO4J_DONE."""
+        # NEO4J_FAILED → PG_DONE (重试 Neo4j phase)
+        assert PersistStatus.is_valid_transition(PersistStatus.NEO4J_FAILED, PersistStatus.PG_DONE)
+        # PG_DONE → NEO4J_DONE (成功重试)
+        assert PersistStatus.is_valid_transition(PersistStatus.PG_DONE, PersistStatus.NEO4J_DONE)
 
     def test_failure_from_any_state(self):
         """Test that transition to FAILED is allowed from non-terminal states."""
@@ -101,19 +120,25 @@ class TestPersistStatusStateMachine:
         """Test all possible transition combinations for completeness."""
         all_statuses = list(PersistStatus)
 
-        # 定义所有合法转换
+        # 定义所有合法转换（包含 NEO4J_FAILED）
         valid_transitions = {
+            # Idempotent transitions
             (PersistStatus.PENDING, PersistStatus.PENDING),
+            (PersistStatus.PROCESSING, PersistStatus.PROCESSING),
+            (PersistStatus.PG_DONE, PersistStatus.PG_DONE),
+            (PersistStatus.NEO4J_DONE, PersistStatus.NEO4J_DONE),
+            (PersistStatus.NEO4J_FAILED, PersistStatus.NEO4J_FAILED),
+            (PersistStatus.FAILED, PersistStatus.FAILED),
+            # Forward transitions
             (PersistStatus.PENDING, PersistStatus.PROCESSING),
             (PersistStatus.PENDING, PersistStatus.FAILED),
-            (PersistStatus.PROCESSING, PersistStatus.PROCESSING),
             (PersistStatus.PROCESSING, PersistStatus.PG_DONE),
             (PersistStatus.PROCESSING, PersistStatus.FAILED),
-            (PersistStatus.PG_DONE, PersistStatus.PG_DONE),
             (PersistStatus.PG_DONE, PersistStatus.NEO4J_DONE),
+            (PersistStatus.PG_DONE, PersistStatus.NEO4J_FAILED),
             (PersistStatus.PG_DONE, PersistStatus.FAILED),
-            (PersistStatus.NEO4J_DONE, PersistStatus.NEO4J_DONE),
-            (PersistStatus.FAILED, PersistStatus.FAILED),
+            # Retry transitions
+            (PersistStatus.NEO4J_FAILED, PersistStatus.PG_DONE),
             (PersistStatus.FAILED, PersistStatus.PENDING),
         }
 
