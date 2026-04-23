@@ -408,38 +408,40 @@ class TestLLMUsageAPIEndpoints:
         app.include_router(admin.router)
         return app
 
-    @pytest.fixture
-    def client(self, app):
-        """Create TestClient."""
-        with TestClient(app) as client:
-            yield client
-
-    @pytest.mark.skip(reason="asyncpg event loop compatibility issue with TestClient")
-    def test_get_llm_usage_endpoint(self, client):
+    @pytest.mark.asyncio
+    async def test_get_llm_usage_endpoint(self, app):
         """Test GET /admin/llm-usage endpoint with real database."""
-        response = client.get(
-            "/admin/llm-usage",
-            params={
-                "from": "2024-01-01T00:00:00Z",
-                "to": "2030-01-31T23:59:59Z",
-            },
-        )
+        from httpx import ASGITransport, AsyncClient
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                "/admin/llm-usage",
+                params={
+                    "from": "2024-01-01T00:00:00Z",
+                    "to": "2030-01-31T23:59:59Z",
+                },
+            )
 
         assert response.status_code == 200
         data = response.json()
         assert "data" in data
 
-    @pytest.mark.skip(reason="asyncpg event loop compatibility issue with TestClient")
-    def test_get_llm_usage_summary_endpoint(self, client):
+    @pytest.mark.asyncio
+    async def test_get_llm_usage_summary_endpoint(self, app):
         """Test GET /admin/llm-usage endpoint with group_by=summary."""
-        response = client.get(
-            "/admin/llm-usage",
-            params={
-                "from": "2024-01-01T00:00:00Z",
-                "to": "2030-01-31T23:59:59Z",
-                "group_by": "summary",
-            },
-        )
+        from httpx import ASGITransport, AsyncClient
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(
+                "/admin/llm-usage",
+                params={
+                    "from": "2024-01-01T00:00:00Z",
+                    "to": "2030-01-31T23:59:59Z",
+                    "group_by": "summary",
+                },
+            )
 
         assert response.status_code == 200
         data = response.json()
