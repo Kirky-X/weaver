@@ -42,7 +42,6 @@ class TestCredibilityComputedEvent:
         event = CredibilityComputedEvent()
         assert event.url == ""
         assert event.score == 0.0
-        assert event.cross_count == 0
         assert isinstance(event.timestamp, datetime)
 
     def test_creates_with_values(self):
@@ -50,11 +49,9 @@ class TestCredibilityComputedEvent:
         event = CredibilityComputedEvent(
             url="https://example.com",
             score=0.85,
-            cross_count=5,
         )
         assert event.url == "https://example.com"
         assert event.score == 0.85
-        assert event.cross_count == 5
 
 
 class TestLLMFailureEvent:

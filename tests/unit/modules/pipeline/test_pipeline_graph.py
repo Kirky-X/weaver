@@ -826,14 +826,18 @@ class TestPipelineUpdateProcessingStage:
         import uuid
 
         article_id = uuid.uuid4()
-        pipeline_with_repo._article_repo.update_processing_stage = AsyncMock()
 
         state = PipelineState(raw=MagicMock())
         state["article_id"] = str(article_id)
 
         await pipeline_with_repo._update_processing_stage(state, "phase1_classifier")
 
-        pipeline_with_repo._article_repo.update_processing_stage.assert_called_once()
+        # _update_processing_stage now collects updates in _pending_stage_updates
+        assert len(pipeline_with_repo._pending_stage_updates) == 1
+        assert pipeline_with_repo._pending_stage_updates[0] == (
+            str(article_id),
+            "phase1_classifier",
+        )
 
 
 class TestPipelineMarkProcessing:

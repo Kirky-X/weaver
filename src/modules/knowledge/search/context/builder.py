@@ -128,15 +128,31 @@ class SearchContext:
 
     @staticmethod
     def _estimate_tokens(text: str) -> int:
-        """Estimate token count for text.
+        """Estimate token count for text using tiktoken.
 
-        Uses a simple heuristic:
+        Falls back to simple heuristic if tiktoken is unavailable:
         - Chinese characters: ~1 token each
         - English words: ~0.25 tokens per character
         """
+        # Use cached encoding if available
+        if not hasattr(SearchContext, "_tiktoken_encoding"):
+            try:
+                import tiktoken
+
+                from core.constants import TiktokenEncoding
+
+                SearchContext._tiktoken_encoding = tiktoken.get_encoding(
+                    TiktokenEncoding.CL100K_BASE
+                )
+            except Exception:
+                SearchContext._tiktoken_encoding = None
+
+        if SearchContext._tiktoken_encoding:
+            return len(SearchContext._tiktoken_encoding.encode(text))
+
+        # Fallback to heuristic
         chinese_chars = sum(1 for c in text if "\u4e00" <= c <= "\u9fff")
         other_chars = len(text) - chinese_chars
-
         return chinese_chars + other_chars // 4
 
 

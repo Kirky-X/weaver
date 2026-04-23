@@ -67,11 +67,12 @@ class TestRepairArticlesDryRun:
                 "modules.management.commands.repair_articles._shutdown_minimal_container"
             ) as mock_shutdown:
                 mock_init.return_value = (
-                    AsyncMock(),
-                    AsyncMock(),
-                    AsyncMock(),
-                    MagicMock(),
-                    MagicMock(),
+                    AsyncMock(),  # postgres_pool
+                    AsyncMock(),  # cache_client
+                    AsyncMock(),  # llm_client
+                    MagicMock(),  # prompt_loader
+                    MagicMock(),  # settings
+                    MagicMock(),  # event_bus
                 )
 
                 # Mock ArticleRepo where it's imported (in repair_articles function)
@@ -109,11 +110,12 @@ class TestRepairArticlesDryRun:
                 "modules.management.commands.repair_articles._shutdown_minimal_container"
             ) as mock_shutdown:
                 mock_init.return_value = (
-                    AsyncMock(),
-                    AsyncMock(),
-                    AsyncMock(),
-                    MagicMock(),
-                    MagicMock(),
+                    AsyncMock(),  # postgres_pool
+                    AsyncMock(),  # cache_client
+                    AsyncMock(),  # llm_client
+                    MagicMock(),  # prompt_loader
+                    MagicMock(),  # settings
+                    MagicMock(),  # event_bus
                 )
 
                 with patch("modules.storage.postgres.article_repo.ArticleRepo") as mock_repo_class:
@@ -154,11 +156,12 @@ class TestRepairArticlesForceMode:
                 "modules.management.commands.repair_articles._shutdown_minimal_container"
             ) as mock_shutdown:
                 mock_init.return_value = (
-                    AsyncMock(),
-                    AsyncMock(),
-                    AsyncMock(),
-                    MagicMock(),
-                    MagicMock(),
+                    AsyncMock(),  # postgres_pool
+                    AsyncMock(),  # cache_client
+                    AsyncMock(),  # llm_client
+                    MagicMock(),  # prompt_loader
+                    MagicMock(),  # settings
+                    MagicMock(),  # event_bus
                 )
 
                 with patch("modules.storage.postgres.article_repo.ArticleRepo") as mock_repo_class:
@@ -186,11 +189,12 @@ class TestRepairArticlesLimit:
                 "modules.management.commands.repair_articles._shutdown_minimal_container"
             ) as mock_shutdown:
                 mock_init.return_value = (
-                    AsyncMock(),
-                    AsyncMock(),
-                    AsyncMock(),
-                    MagicMock(),
-                    MagicMock(),
+                    AsyncMock(),  # postgres_pool
+                    AsyncMock(),  # cache_client
+                    AsyncMock(),  # llm_client
+                    MagicMock(),  # prompt_loader
+                    MagicMock(),  # settings
+                    MagicMock(),  # event_bus
                 )
 
                 with patch("modules.storage.postgres.article_repo.ArticleRepo") as mock_repo_class:
@@ -226,7 +230,9 @@ class TestInitMinimalContainer:
 
                             result = await _init_minimal_container()
 
-                            assert len(result) == 5
+                            assert (
+                                len(result) == 6
+                            )  # postgres_pool, cache_client, llm_client, prompt_loader, settings, event_bus
 
 
 class TestShutdownMinimalContainer:
@@ -243,6 +249,7 @@ class TestShutdownMinimalContainer:
 
         await _shutdown_minimal_container(mock_pg, mock_redis, mock_llm)
 
-        mock_llm.close.assert_called_once()
+        # LLMClient has no close method - it's stateless, so it's not called
+        # Only cache and postgres need shutdown
         mock_redis.shutdown.assert_called_once()
         mock_pg.shutdown.assert_called_once()

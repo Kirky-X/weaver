@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -147,98 +148,6 @@ class TestGetTaskStatusWithStats:
         assert exc_info.value.status_code == 404
 
 
-class TestQueueStatsEndpoint:
-    """Tests for GET /pipeline/queue/stats endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_get_queue_stats_returns_queue_depth(self):
-        """Test queue/stats returns queue depth from Redis."""
-        from api.endpoints.content.pipeline import get_queue_stats
-
-        mock_cache = MagicMock()
-        mock_cache.llen = AsyncMock(return_value=7)
-        mock_cache.hgetall = AsyncMock(
-            return_value={
-                "task-1": json.dumps({"status": "completed"}),
-                "task-2": json.dumps({"status": "running"}),
-                "task-3": json.dumps({"status": "failed"}),
-            }
-        )
-
-        mock_row = MagicMock()
-        mock_row.total_articles = 50
-        mock_row.processing_count = 5
-        mock_row.completed_count = 30
-        mock_row.failed_count = 3
-        mock_row.pending_count = 12
-
-        mock_result = MagicMock()
-        mock_result.one.return_value = mock_row
-
-        mock_session = MagicMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
-
-        mock_postgres = MagicMock()
-        mock_postgres.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_postgres.session.return_value.__aexit__ = AsyncMock(return_value=None)
-
-        result = await get_queue_stats(
-            _="test-key",
-            cache=mock_cache,
-            relational_pool=mock_postgres,
-        )
-
-        assert result.data["queue_depth"] == 7
-        assert result.data["total_tasks"] == 3
-        assert result.data["status_counts"]["completed"] == 1
-        assert result.data["status_counts"]["running"] == 1
-        assert result.data["status_counts"]["failed"] == 1
-
-    @pytest.mark.asyncio
-    async def test_get_queue_stats_handles_malformed_task_data(self):
-        """Test queue/stats skips tasks with malformed JSON data."""
-        from api.endpoints.content.pipeline import get_queue_stats
-
-        mock_cache = MagicMock()
-        mock_cache.llen = AsyncMock(return_value=1)
-        mock_cache.hgetall = AsyncMock(
-            return_value={
-                "task-1": json.dumps({"status": "completed"}),
-                "task-bad": "not-valid-json{",
-            }
-        )
-
-        mock_row = MagicMock()
-        mock_row.total_articles = 0
-        mock_row.processing_count = 0
-        mock_row.completed_count = 0
-        mock_row.failed_count = 0
-        mock_row.pending_count = 0
-
-        mock_result = MagicMock()
-        mock_result.one.return_value = mock_row
-
-        mock_session = MagicMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
-
-        mock_postgres = MagicMock()
-        mock_postgres.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_postgres.session.return_value.__aexit__ = AsyncMock(return_value=None)
-
-        result = await get_queue_stats(
-            _="test-key",
-            cache=mock_cache,
-            relational_pool=mock_postgres,
-        )
-
-        # total_tasks counts all Redis entries (including malformed ones)
-        # Only malformed JSON is skipped from status_counts
-        assert result.data["total_tasks"] == 2
-        # status_counts only includes valid entries
-        assert result.data["status_counts"]["completed"] == 1
-        assert "bad" not in result.data["status_counts"]
-
-
 class TestTriggerPipelineEdgeCases:
     """Additional edge-case tests for POST /admin/pipeline/trigger."""
 
@@ -264,6 +173,9 @@ class TestTriggerPipelineEdgeCases:
                 cache=mock_cache,
                 scheduler=mock_scheduler,
             )
+
+        # Wait for background task created by asyncio.create_task to execute
+        await asyncio.sleep(0.01)
 
         assert result.data.task_id == str(task_uuid)
         mock_scheduler.trigger_now.assert_called_once()

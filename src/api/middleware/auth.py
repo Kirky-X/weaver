@@ -142,20 +142,14 @@ async def verify_admin_api_key(
             detail="Invalid API Key",
         )
 
-    # Admin key not configured: do not allow fallback in any environment
-    environment = os.environ.get("ENVIRONMENT", "development")
-    if environment == "production":
+    # Admin key not configured: reject in all environments
+    if not admin_key:
+        log.error("admin_key_not_configured")
         raise HTTPException(
             status_code=500,
             detail="Admin API key not configured. "
-            "Set WEAVER_API__ADMIN_API_KEY environment variable for production.",
+            "Set WEAVER_API__ADMIN_API_KEY environment variable.",
         )
-
-    # Development/testing mode: allow regular key as fallback when admin key not configured
-    expected_key = settings.api.get_api_key()
-    if secrets.compare_digest(key, expected_key):
-        log.debug("admin_fallback_to_regular_key", environment=environment)
-        return key
 
     raise HTTPException(
         status_code=403,

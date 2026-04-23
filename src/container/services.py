@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from core.constants import DatabaseType
+
 if TYPE_CHECKING:
     from config.settings import Settings
     from core.llm import LLMClient
@@ -165,7 +167,7 @@ class ContainerServicesMixin:
         if self._article_repo is None:
             if self._strategy is None:
                 raise RuntimeError("Database strategy not initialized. Call init_strategy() first.")
-            if self._strategy.relational_type == "duckdb":
+            if self._strategy.relational_type == DatabaseType.DUCKDB:
                 from modules.storage.duckdb import DuckDBArticleRepo
 
                 self._article_repo = DuckDBArticleRepo(self._strategy.relational_pool)
@@ -180,7 +182,7 @@ class ContainerServicesMixin:
         if self._source_authority_repo is None:
             if self._strategy is None:
                 raise RuntimeError("Database strategy not initialized. Call init_strategy() first.")
-            if self._strategy.relational_type == "duckdb":
+            if self._strategy.relational_type == DatabaseType.DUCKDB:
                 from modules.storage.duckdb import DuckDBSourceAuthorityRepo
 
                 self._source_authority_repo = DuckDBSourceAuthorityRepo(
@@ -197,7 +199,7 @@ class ContainerServicesMixin:
         if self._pending_sync_repo is None:
             if self._strategy is None:
                 raise RuntimeError("Database strategy not initialized. Call init_strategy() first.")
-            if self._strategy.relational_type == "duckdb":
+            if self._strategy.relational_type == DatabaseType.DUCKDB:
                 from modules.storage.duckdb import DuckDBPendingSyncRepo
 
                 self._pending_sync_repo = DuckDBPendingSyncRepo(self._strategy.relational_pool)
@@ -598,20 +600,8 @@ class ContainerServicesMixin:
     def _get_embedding_model_id(self) -> str:
         """Get embedding model ID from configuration.
 
-        Extracts the model_id from defaults.embedding.primary.
-        Format: "embedding.aiping.Qwen3-Embedding-0.6B" -> "Qwen3-Embedding-0.6B"
-
-        The label format is "<type>.<provider>.<model_id>" where model_id may
-        contain dots (e.g., Qwen3-Embedding-0.6B). We split on first 2 dots only.
+        Delegates to core.utils.model_id.extract_embedding_model_id.
         """
-        try:
-            embedding_config = self._settings.llm.defaults.get("embedding")
-            if embedding_config and embedding_config.primary:
-                # Split only on first 2 dots to preserve model_id with dots
-                parts = embedding_config.primary.split(".", 2)
-                if len(parts) >= 3:
-                    return parts[2]  # Return model_id (third part)
-        except Exception:
-            pass
-        # Fallback
-        return "Qwen3-Embedding-0.6B"
+        from core.utils.model_id import extract_embedding_model_id
+
+        return extract_embedding_model_id(self._settings.llm)

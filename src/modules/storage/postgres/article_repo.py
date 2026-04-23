@@ -103,9 +103,13 @@ def _apply_state_to_article(article: Article, state: PipelineState) -> None:
 
     # Merged source IDs conversion
     if "merged_source_ids" in state:
-        article.merged_source_ids = [
-            uuid.UUID(sid) if isinstance(sid, str) else sid for sid in state["merged_source_ids"]
-        ]
+        cleaned_ids = []
+        for sid in state["merged_source_ids"]:
+            try:
+                cleaned_ids.append(uuid.UUID(sid) if isinstance(sid, str) else sid)
+            except (ValueError, AttributeError) as exc:
+                log.warning("invalid_merged_source_id", source_id=sid, error=str(exc))
+        article.merged_source_ids = cleaned_ids
 
     # Set common fields
     raw = state.get("raw")
@@ -231,7 +235,8 @@ class ArticleRepo:
                             url=article.source_url,
                             error=str(exc),
                         )
-                        await session.rollback()
+                        # Remove failed article from session without affecting others
+                        session.expunge(article)
 
             # Single commit for the entire chunk
             await session.commit()
@@ -251,8 +256,6 @@ class ArticleRepo:
         Returns:
             New Article object (not yet committed).
         """
-        from datetime import UTC, datetime
-
         raw = state["raw"]
         # Use normalized URL if provided for consistent deduplication
         source_url = normalized_url or (raw.url if hasattr(raw, "url") else getattr(raw, "url", ""))
@@ -296,24 +299,26 @@ class ArticleRepo:
         Uses centralized _apply_state_to_article for field mapping.
         """
         raw = state["raw"]
+        # Use normalized URL for consistent deduplication
+        normalized_url = Deduplicator.normalize_url(raw.url)
 
-        result = await session.execute(select(Article).where(Article.source_url == raw.url))
+        result = await session.execute(select(Article).where(Article.source_url == normalized_url))
         article = result.scalar_one_or_none()
 
         if article is None:
             article = Article(
-                source_url=raw.url,
-                source_host=raw.source_host,
+                source_url=normalized_url,
+                source_host=getattr(raw, "source_host", None)
+                or (raw.get("source_host") if isinstance(raw, dict) else None),
                 is_news=state.get("is_news", True),
-                title=state.get("cleaned", {}).get("title", raw.title),
-                body=state.get("cleaned", {}).get("body", raw.body),
+                title=state.get("cleaned", {}).get("title", getattr(raw, "title", "")),
+                body=state.get("cleaned", {}).get("body", getattr(raw, "body", "")),
             )
             session.add(article)
 
         _apply_state_to_article(article, state)
 
         await session.flush()
-        await session.commit()
         return article.id
 
     async def upsert(self, state: PipelineState) -> uuid.UUID:
@@ -331,18 +336,23 @@ class ArticleRepo:
         async with self._pool.session() as session:
             try:
                 raw = state["raw"]
+                # Use normalized URL for consistent deduplication
+                normalized_url = Deduplicator.normalize_url(raw.url)
 
-                # Check if exists
-                result = await session.execute(select(Article).where(Article.source_url == raw.url))
+                # Check if exists using normalized URL
+                result = await session.execute(
+                    select(Article).where(Article.source_url == normalized_url)
+                )
                 article = result.scalar_one_or_none()
 
                 if article is None:
                     article = Article(
-                        source_url=raw.url,
-                        source_host=raw.source_host,
+                        source_url=normalized_url,
+                        source_host=getattr(raw, "source_host", None)
+                        or (raw.get("source_host") if isinstance(raw, dict) else None),
                         is_news=state.get("is_news", True),
-                        title=state.get("cleaned", {}).get("title", raw.title),
-                        body=state.get("cleaned", {}).get("body", raw.body),
+                        title=state.get("cleaned", {}).get("title", getattr(raw, "title", "")),
+                        body=state.get("cleaned", {}).get("body", getattr(raw, "body", "")),
                     )
                     session.add(article)
 
@@ -621,7 +631,7 @@ class ArticleRepo:
             log.info("article_inserted", url=raw.url, article_id=str(article.id))
             return article.id
 
-    async def get_by_ids(self, ids: list[str]) -> list[Any]:
+    async def get_by_ids(self, ids: list[str]) -> list[RawArticle]:
         """Fetch RawArticle objects by IDs for queue consumer.
 
         Args:
@@ -920,8 +930,7 @@ class ArticleRepo:
     ) -> list[uuid.UUID] | None:
         """Detect if setting merged_to target would create a cycle.
 
-        Uses BFS to trace the merged_into chain from target_id.
-        If article_id appears in the chain, a cycle would be created.
+        Uses PostgreSQL recursive CTE to trace the merged_into chain efficiently.
 
         Args:
             article_id: The source article that would be merged.
@@ -933,14 +942,33 @@ class ArticleRepo:
         if article_id == target_id:
             return [article_id, target_id]
 
-        visited: set[uuid.UUID] = {article_id}
-        path: list[uuid.UUID] = []
-        current_id: uuid.UUID | None = target_id
+        from sqlalchemy import text
 
         async with self._pool.session() as session:
-            while current_id is not None:
-                if current_id in visited:
-                    cycle_path = path[path.index(current_id) :] + [current_id]
+            # Use recursive CTE to get entire merge chain in single query
+            result = await session.execute(
+                text("""
+                    WITH RECURSIVE merge_chain AS (
+                        SELECT id, merged_into, ARRAY[id] as path, false as cycle
+                        FROM articles
+                        WHERE id = :target_id
+
+                        UNION ALL
+
+                        SELECT a.id, a.merged_into, mc.path || a.id, a.id = ANY(mc.path)
+                        FROM articles a
+                        INNER JOIN merge_chain mc ON a.id = mc.merged_into
+                        WHERE NOT mc.cycle
+                    )
+                    SELECT id, path, cycle FROM merge_chain
+                """),
+                {"target_id": str(target_id)},
+            )
+
+            rows = result.all()
+            for row in rows:
+                if row.cycle:
+                    cycle_path = row.path
                     log.warning(
                         "merge_cycle_detected",
                         source_id=str(article_id),
@@ -949,13 +977,17 @@ class ArticleRepo:
                     )
                     return cycle_path
 
-                visited.add(current_id)
-                path.append(current_id)
-
-                result = await session.execute(
-                    select(Article.merged_into).where(Article.id == current_id)
-                )
-                current_id = result.scalar_one_or_none()
+            # Check if article_id appears in the chain
+            for row in rows:
+                if article_id in row.path:
+                    cycle_path = row.path + [article_id]
+                    log.warning(
+                        "merge_cycle_detected",
+                        source_id=str(article_id),
+                        target_id=str(target_id),
+                        cycle=cycle_path,
+                    )
+                    return cycle_path
 
         return None
 
@@ -1050,44 +1082,36 @@ class ArticleRepo:
         This is a cleanup method for existing data that has duplicates
         due to DuckDB not enforcing unique constraints.
 
+        Uses a single SQL statement with ROW_NUMBER() window function
+        for efficient batch deletion.
+
         Returns:
             Dict with 'removed' count and 'kept' count.
         """
-        from sqlalchemy import func
+        from sqlalchemy import text
 
         async with self._pool.session() as session:
-            # Find duplicates: source_urls with more than one article
-            result = await session.execute(
-                select(Article.source_url, func.count(Article.id).label("count"))
-                .group_by(Article.source_url)
-                .having(func.count(Article.id) > 1)
+            # Use ROW_NUMBER() to identify duplicates in single query
+            result = await session.execute(text("""
+                    WITH ranked_articles AS (
+                        SELECT id,
+                               source_url,
+                               ROW_NUMBER() OVER (PARTITION BY source_url ORDER BY updated_at DESC) as rn
+                        FROM articles
+                    ),
+                    duplicates AS (
+                        SELECT id FROM ranked_articles WHERE rn > 1
+                    )
+                    DELETE FROM articles WHERE id IN (SELECT id FROM duplicates)
+                """))
+
+            removed_count = result.rowcount or 0
+
+            # Count how many unique URLs we kept
+            kept_result = await session.execute(
+                text("SELECT COUNT(DISTINCT source_url) FROM articles")
             )
-            duplicates = result.all()
-
-            removed_count = 0
-            kept_count = 0
-
-            for row in duplicates:
-                source_url = row[0]
-
-                # Get all articles with this URL, ordered by updated_at DESC
-                articles_result = await session.execute(
-                    select(Article)
-                    .where(Article.source_url == source_url)
-                    .order_by(Article.updated_at.desc())
-                )
-                articles = list(articles_result.scalars().all())
-
-                if len(articles) > 1:
-                    # Keep the first (most recent), delete the rest
-                    to_keep = articles[0]
-                    to_remove = articles[1:]
-
-                    for article in to_remove:
-                        await session.delete(article)
-                        removed_count += 1
-
-                    kept_count += 1
+            kept_count = kept_result.scalar() or 0
 
             if removed_count > 0:
                 await session.commit()

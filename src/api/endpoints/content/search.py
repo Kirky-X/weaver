@@ -613,10 +613,10 @@ async def search_causal(
         )
 
     except Exception as exc:
-        log.error("causal_search_failed", error=str(exc))
+        log.error("causal_search_failed", error=str(exc), exc_info=True)
         if "neo4j" in str(exc).lower():
             raise HTTPException(status_code=503, detail="Graph service unavailable")
-        raise HTTPException(status_code=500, detail=f"Causal search failed: {exc}")
+        raise HTTPException(status_code=500, detail="Internal server error during causal search")
 
 
 @router.post("/temporal", response_model=APIResponse[TemporalSearchResponse])
@@ -686,7 +686,7 @@ async def search_temporal(
         )
 
     except Exception as exc:
-        log.error("temporal_search_failed", error=str(exc))
+        log.error("temporal_search_failed", error=str(exc), exc_info=True)
         if "neo4j" in str(exc).lower():
             raise HTTPException(status_code=503, detail="Graph service unavailable")
-        raise HTTPException(status_code=500, detail=f"Temporal search failed: {exc}")
+        raise HTTPException(status_code=500, detail="Internal server error during temporal search")

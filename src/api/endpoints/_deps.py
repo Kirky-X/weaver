@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING
 
 from fastapi import HTTPException
 
+from core.observability import get_logger
+
 if TYPE_CHECKING:
     from core.llm import LLMClient
     from core.protocols import CachePool, GraphPool, RelationalPool
@@ -132,11 +134,6 @@ class Endpoints:
         return Endpoints._local_engine
 
     @staticmethod
-    def get_local_search_engine_optional() -> LocalSearchEngine | None:
-        """Get local search engine or None if unavailable."""
-        return Endpoints._local_engine
-
-    @staticmethod
     def get_global_search_engine() -> GlobalSearchEngine:
         """Get global search engine."""
         if Endpoints._global_engine is None:
@@ -239,3 +236,58 @@ class Endpoints:
     def get_cache_client_optional() -> CachePool | None:
         """Get cache pool or None if not initialized."""
         return Endpoints._cache
+
+    @classmethod
+    def initialize(cls, container: object) -> None:
+        """Initialize all endpoints dependencies from container.
+
+        This is the proper way to set up the endpoints registry,
+        avoiding direct access to private attributes.
+
+        Args:
+            container: Application container with all services.
+
+        """
+        log = get_logger(__name__)
+
+        # Pool instances
+        cls._relational_pool = container.relational_pool()
+        cls._relational_pool_type = container.relational_pool_type
+        cls._graph_pool = container.graph_pool()
+        cls._graph_pool_type = container.graph_pool_type
+        cls._cache = container.cache_client()
+
+        # Services and repositories
+        cls._llm = container.llm_client()
+        cls._scheduler = container.source_scheduler()
+        cls._vector_repo = container.vector_repo()
+        cls._graph_repo = container.graph_repo()
+        cls._source_config_repo = container.source_config_repo()
+        cls._source_authority_repo = container.source_authority_repo()
+        cls._llm_failure_repo = container.llm_failure_repo()
+        cls._llm_usage_repo = container.llm_usage_repo()
+
+        # Search engines (may be None if not configured)
+        cls._local_engine = container.local_search_engine()
+        cls._global_engine = container.global_search_engine()
+        cls._hybrid_engine = container.hybrid_search_engine()
+
+        if cls._local_engine is None:
+            log.warning("local_search_engine_not_initialized")
+        if cls._global_engine is None:
+            log.warning("global_search_engine_not_initialized")
+        if cls._hybrid_engine is None:
+            log.warning("hybrid_search_engine_not_initialized")
+
+        # Pipeline services
+        cls._pipeline_service = container.pipeline_service()
+        cls._task_registry = container.task_registry()
+
+        log.info(
+            "endpoints_initialized",
+            relational_type=cls._relational_pool_type,
+            graph_type=cls._graph_pool_type,
+            cache_type=type(cls._cache).__name__ if cls._cache else "none",
+            llm_enabled=cls._llm is not None,
+            search_enabled=cls._local_engine is not None,
+        )

@@ -49,7 +49,13 @@ class TestPersistBatchSagaSuccess:
     def mock_graph_writer(self):
         """Mock Neo4j writer."""
         writer = MagicMock()
-        writer.write = AsyncMock(return_value=[str(uuid.uuid4())])
+        writer.write_batch = AsyncMock(
+            return_value={
+                "neo4j_ids": [str(uuid.uuid4()) for _ in range(3)],
+                "article_ids": [str(uuid.uuid4()) for _ in range(3)],
+                "errors": [],
+            }
+        )
         return writer
 
     @pytest.fixture
@@ -113,7 +119,7 @@ class TestPersistBatchSagaSuccess:
         assert mock_article_repo.update_persist_status.call_count == 6  # 3 PG_DONE + 3 NEO4J_DONE
 
         # Verify Phase 2: Neo4j persistence
-        assert mock_graph_writer.write.call_count == 3
+        mock_graph_writer.write_batch.assert_called_once()
 
         # Verify no compensation
         mock_article_repo.delete.assert_not_called()
@@ -193,7 +199,13 @@ class TestPersistBatchSagaPhase1Failure:
     def mock_graph_writer(self):
         """Mock Neo4j writer."""
         writer = MagicMock()
-        writer.write = AsyncMock(return_value=[str(uuid.uuid4())])
+        writer.write_batch = AsyncMock(
+            return_value={
+                "neo4j_ids": [str(uuid.uuid4()) for _ in range(3)],
+                "article_ids": [str(uuid.uuid4()) for _ in range(3)],
+                "errors": [],
+            }
+        )
         return writer
 
     @pytest.fixture
@@ -249,7 +261,7 @@ class TestPersistBatchSagaPhase1Failure:
         mock_article_repo.bulk_upsert.assert_called_once()
 
         # Verify Phase 2 was not attempted
-        mock_graph_writer.write.assert_not_called()
+        mock_graph_writer.write_batch.assert_not_called()
 
         # Verify no compensation (nothing to compensate)
         mock_article_repo.delete.assert_not_called()
@@ -310,7 +322,11 @@ class TestPersistBatchSagaPhase2Failure:
     def mock_graph_writer(self):
         """Mock Neo4j writer that fails."""
         writer = MagicMock()
-        writer.write = AsyncMock(side_effect=Exception("Neo4j connection failed"))
+
+        async def fail_with_concurrency(states, concurrency=None):
+            raise Exception("Neo4j connection failed")
+
+        writer.write_batch = AsyncMock(side_effect=fail_with_concurrency)
         return writer
 
     @pytest.fixture
@@ -367,16 +383,23 @@ class TestPersistBatchSagaPhase2Failure:
         assert len(result["pg_ids"]) == 2
         assert len(result["neo4j_ids"]) == 0
         assert result["compensation_executed"] is True
-        assert "Phase 2 failed" in result["error"]
+        assert "Phase 2 batch write failed" in result["error"]
 
         # Verify Phase 1 succeeded
         mock_article_repo.bulk_upsert.assert_called_once()
 
         # Verify Phase 2 was attempted
-        assert mock_graph_writer.write.call_count == 2
+        mock_graph_writer.write_batch.assert_called_once()
 
-        # Verify compensation: delete called for each failed article
-        assert mock_article_repo.delete.call_count == 2
+        # Verify compensation: articles marked as NEO4J_FAILED instead of deleted
+        assert mock_article_repo.delete.call_count == 0  # New strategy: no deletion
+        # Should have 2 NEO4J_FAILED status updates
+        neo4j_failed_calls = [
+            call
+            for call in mock_article_repo.update_persist_status.call_args_list
+            if len(call.args) >= 2 and call.args[1] == PersistStatus.NEO4J_FAILED
+        ]
+        assert len(neo4j_failed_calls) == 2
 
     @pytest.mark.asyncio
     async def test_saga_phase2_partial_failure(
@@ -388,17 +411,19 @@ class TestPersistBatchSagaPhase2Failure:
         mock_states,
     ):
         """Test partial Neo4j failure (some articles fail)."""
-        # Create Neo4j writer that fails on second article
-        call_count = [0]
 
-        async def partial_fail(state):
-            call_count[0] += 1
-            if call_count[0] == 2:
-                raise Exception("Neo4j failed on second article")
-            return [str(uuid.uuid4())]
+        # Create Neo4j writer that fails on second article
+        async def partial_fail(states, concurrency=None):
+            # Return batch result with partial failure
+            article_ids = [str(s.get("article_id", f"pg-{i}")) for i, s in enumerate(states)]
+            return {
+                "neo4j_ids": ["node1", "node3"],  # First and third succeed
+                "article_ids": [article_ids[0], article_ids[2]],
+                "errors": [(article_ids[1], "Neo4j failed on second article")],
+            }
 
         graph_writer = MagicMock()
-        graph_writer.write = partial_fail
+        graph_writer.write_batch = partial_fail
 
         node = BatchMergerNode(
             llm=mock_llm,
@@ -416,7 +441,7 @@ class TestPersistBatchSagaPhase2Failure:
 
         # Should have 1 successful neo4j_id (first article)
         # but compensation should still trigger for the failed one
-        assert "Phase 2 failed" in result["error"]
+        assert "Phase 2 batch write failed" in result["error"]
 
 
 class TestPersistBatchSagaCompensationFailure:
@@ -456,7 +481,11 @@ class TestPersistBatchSagaCompensationFailure:
     def mock_graph_writer(self):
         """Mock Neo4j writer that fails."""
         writer = MagicMock()
-        writer.write = AsyncMock(side_effect=Exception("Neo4j connection failed"))
+
+        async def fail_with_concurrency(states, concurrency=None):
+            raise Exception("Neo4j connection failed")
+
+        writer.write_batch = AsyncMock(side_effect=fail_with_concurrency)
         return writer
 
     @pytest.fixture
@@ -512,10 +541,18 @@ class TestPersistBatchSagaCompensationFailure:
         # Verify saga failed
         assert result["success"] is False
         assert result["compensation_executed"] is True
-        assert "Phase 2 failed" in result["error"]
+        assert "Phase 2 batch write failed" in result["error"]
 
-        # Verify compensation was attempted
-        assert mock_article_repo.delete.call_count == 2
+        # Verify compensation was attempted (new strategy: mark as NEO4J_FAILED, not delete)
+        # Should NOT call delete (old strategy)
+        assert mock_article_repo.delete.call_count == 0
+        # Should call update_persist_status with NEO4J_FAILED (new strategy)
+        neo4j_failed_calls = [
+            call
+            for call in mock_article_repo.update_persist_status.call_args_list
+            if len(call.args) >= 2 and call.args[1] == PersistStatus.NEO4J_FAILED
+        ]
+        assert len(neo4j_failed_calls) == 2
 
 
 class TestPersistBatchSagaIdempotency:
@@ -545,7 +582,13 @@ class TestPersistBatchSagaIdempotency:
     def mock_graph_writer(self):
         """Mock Neo4j writer."""
         writer = MagicMock()
-        writer.write = AsyncMock(return_value=[str(uuid.uuid4())])
+        writer.write_batch = AsyncMock(
+            return_value={
+                "neo4j_ids": [str(uuid.uuid4()) for _ in range(3)],
+                "article_ids": [str(uuid.uuid4()) for _ in range(3)],
+                "errors": [],
+            }
+        )
         return writer
 
     @pytest.fixture
@@ -643,7 +686,7 @@ class TestPersistBatchSagaIdempotency:
 
         # No persistence operations
         mock_article_repo.bulk_upsert.assert_not_called()
-        mock_graph_writer.write.assert_not_called()
+        mock_graph_writer.write_batch.assert_not_called()
 
 
 class TestPersistBatchSagaVectorPersistence:
@@ -681,7 +724,13 @@ class TestPersistBatchSagaVectorPersistence:
     def mock_graph_writer(self):
         """Mock Neo4j writer."""
         writer = MagicMock()
-        writer.write = AsyncMock(return_value=[str(uuid.uuid4())])
+        writer.write_batch = AsyncMock(
+            return_value={
+                "neo4j_ids": [str(uuid.uuid4()) for _ in range(3)],
+                "article_ids": [str(uuid.uuid4()) for _ in range(3)],
+                "errors": [],
+            }
+        )
         return writer
 
     @pytest.mark.asyncio
@@ -853,7 +902,13 @@ class TestPersistBatchSagaStatusUpdates:
     def mock_graph_writer(self):
         """Mock Neo4j writer."""
         writer = MagicMock()
-        writer.write = AsyncMock(return_value=[str(uuid.uuid4())])
+        writer.write_batch = AsyncMock(
+            return_value={
+                "neo4j_ids": [str(uuid.uuid4()) for _ in range(2)],
+                "article_ids": [str(uuid.uuid4()) for _ in range(2)],
+                "errors": [],
+            }
+        )
         return writer
 
     @pytest.fixture
@@ -1050,7 +1105,13 @@ class TestPersistBatchSagaIntegration:
         article_repo.update_persist_status = AsyncMock()
 
         graph_writer = MagicMock()
-        graph_writer.write = AsyncMock(return_value=[str(uuid.uuid4())])
+        graph_writer.write_batch = AsyncMock(
+            return_value={
+                "neo4j_ids": [str(uuid.uuid4()) for _ in range(3)],
+                "article_ids": [str(uuid.uuid4()) for _ in range(3)],
+                "errors": [],
+            }
+        )
 
         node = BatchMergerNode(
             llm=mock_llm,

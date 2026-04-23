@@ -8,8 +8,9 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from core.constants import PipelineState, ProcessingStatus
+from core.constants import ProcessingStatus
 from modules.ingestion.domain.models import RawArticle
+from modules.processing.pipeline.state import PipelineState
 from modules.processing.pipeline.state_models import (
     CleanedData,
     CredibilityModel,

@@ -6,6 +6,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING, Any
 
+from core.constants import DatabaseType
 from modules.analytics import LLMUsageBuffer
 
 if TYPE_CHECKING:
@@ -694,7 +695,7 @@ class ContainerLifecycleMixin:
 
         await self.init_strategy()
 
-        if self._strategy is not None and self._strategy.relational_type == "postgresql":
+        if self._strategy is not None and self._strategy.relational_type == DatabaseType.POSTGRES:
             from core.db.initializer import initialize_database
 
             await initialize_database(
@@ -884,20 +885,8 @@ class ContainerLifecycleMixin:
     def _get_embedding_model_id(self) -> str:
         """Get embedding model ID from configuration.
 
-        Extracts the model_id from defaults.embedding.primary.
-        Format: "embedding.aiping.Qwen3-Embedding-0.6B" -> "Qwen3-Embedding-0.6B"
-
-        The label format is "<type>.<provider>.<model_id>" where model_id may
-        contain dots (e.g., Qwen3-Embedding-0.6B). We split on first 2 dots only.
+        Delegates to core.utils.model_id.extract_embedding_model_id.
         """
-        try:
-            embedding_config = self._settings.llm.defaults.get("embedding")
-            if embedding_config and embedding_config.primary:
-                # Split only on first 2 dots to preserve model_id with dots
-                parts = embedding_config.primary.split(".", 2)
-                if len(parts) >= 3:
-                    return parts[2]  # Return model_id (third part)
-        except Exception:
-            pass
-        # Fallback
-        return "Qwen3-Embedding-0.6B"
+        from core.utils.model_id import extract_embedding_model_id
+
+        return extract_embedding_model_id(self._settings.llm)

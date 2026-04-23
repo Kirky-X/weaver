@@ -124,7 +124,7 @@ class TestSourceSchedulerCrawlSource:
 
         await scheduler._crawl_source("source-1", max_items=10)
 
-        mock_parser.parse.assert_called_once_with(mock_source)
+        mock_parser.parse.assert_called_once_with(mock_source, force=False)
         scheduler._on_items.assert_called_once()
 
     @pytest.mark.asyncio
@@ -165,4 +165,4 @@ class TestSourceSchedulerTriggerNow:
 
         await scheduler.trigger_now("source-1", max_items=5, task_id=None)
 
-        scheduler._crawl_source.assert_called_once_with("source-1", 5, None)
+        scheduler._crawl_source.assert_called_once_with("source-1", 5, None, force=False)

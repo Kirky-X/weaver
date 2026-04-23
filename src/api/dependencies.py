@@ -24,8 +24,6 @@ if TYPE_CHECKING:
     from container import Container
     from core.llm import LLMClient
     from core.protocols import CachePool, GraphPool, RelationalPool
-    from core.services.pipeline_service import PipelineServiceImpl
-    from core.services.task_registry import InMemoryTaskRegistry
     from modules.ingestion import SourceScheduler
     from modules.knowledge.search import GlobalSearchEngine, HybridSearchEngine, LocalSearchEngine
     from modules.storage import SourceAuthorityRepo, VectorRepo
@@ -261,32 +259,6 @@ def get_llm_usage_repo() -> LLMUsageRepo:
     return Endpoints.get_llm_usage_repo()
 
 
-def get_pipeline_service() -> PipelineServiceImpl:
-    """FastAPI dependency for pipeline service.
-
-    Raises:
-        HTTPException: If service is not initialized.
-
-    Returns:
-        PipelineServiceImpl instance.
-
-    """
-    return Endpoints.get_pipeline_service()
-
-
-def get_task_registry() -> InMemoryTaskRegistry:
-    """FastAPI dependency for task registry.
-
-    Raises:
-        HTTPException: If registry is not initialized.
-
-    Returns:
-        InMemoryTaskRegistry instance.
-
-    """
-    return Endpoints.get_task_registry()
-
-
 # ── Type Aliases for Cleaner Signatures ────────────────────────────────
 
 RelationalPoolDep = Annotated["RelationalPool", Depends(get_relational_pool)]
@@ -302,4 +274,3 @@ SourceSchedulerDep = Annotated["SourceScheduler", Depends(get_source_scheduler)]
 SourceConfigRepoDep = Annotated["SourceConfigRepo", Depends(get_source_config_repo)]
 SourceAuthorityRepoDep = Annotated["SourceAuthorityRepo", Depends(get_source_authority_repo)]
 LLMUsageRepoDep = Annotated["LLMUsageRepo", Depends(get_llm_usage_repo)]
-TaskRegistryDep = Annotated["InMemoryTaskRegistry", Depends(get_task_registry)]

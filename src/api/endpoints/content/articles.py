@@ -10,12 +10,14 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import asc, desc, select
+from sqlalchemy.orm import selectinload
 
 from api.dependencies import get_relational_pool
 from api.middleware.auth import verify_api_key
 from api.middleware.rate_limit import limiter
 from api.schemas.response import APIResponse, success_response
 from api.schemas.types import RoundedFloatOpt
+from core.constants import SortOrder
 from core.db import Article, CategoryType
 from core.observability import get_logger
 from core.protocols import RelationalPool
@@ -129,7 +131,7 @@ async def list_articles(
     sort_by: str = Query(
         "publish_time", description="Sort field: publish_time, score, credibility_score, created_at"
     ),
-    sort_order: str = Query("desc", description="Sort order: asc, desc"),
+    sort_order: SortOrder = Query(SortOrder.DESC, description="Sort order: asc or desc"),
     _: str = Depends(verify_api_key),
     pool: RelationalPool = Depends(get_relational_pool),
 ) -> APIResponse[ArticleListResponse]:
@@ -199,12 +201,15 @@ async def list_articles(
         # nosemgrep: python.lang.security.audit.dangerous-getattr-usage.dangerous-getattr-usage
         # Safe: sort_by validated against ALLOWED_SORT_COLUMNS whitelist above
         sort_column = getattr(Article, sort_by, Article.publish_time)
-        if sort_order == "desc":
+        if sort_order == SortOrder.DESC:
             query = query.order_by(desc(sort_column))
         else:
             query = query.order_by(asc(sort_column))
 
         query = query.offset(offset).limit(page_size)
+
+        # Pre-load vectors relationship to avoid N+1 queries
+        query = query.options(selectinload(Article.vectors))
 
         result = await session.execute(query)
         articles = result.scalars().all()
@@ -249,7 +254,9 @@ async def get_article(
         )
 
     async with pool.session() as session:
-        result = await session.execute(select(Article).where(Article.id == article_uuid))
+        result = await session.execute(
+            select(Article).where(Article.id == article_uuid).options(selectinload(Article.vectors))
+        )
         article = result.scalar_one_or_none()
 
         if article is None:

@@ -368,8 +368,8 @@ class TestCausalSearchEndpoint:
 
                 assert result.data.query == "Why did the market crash?"
                 assert len(result.data.causal_chain) == 2
-                assert result.data.causal_chain[0]["id"] == "1"
-                assert result.data.causal_chain[1]["content"] == "Event B led to Event C"
+                assert result.data.causal_chain[0].id == "1"
+                assert result.data.causal_chain[1].content == "Event B led to Event C"
                 assert result.data.confidence == pytest.approx(0.875, rel=1e-2)
                 assert result.data.metadata["depth"] == 3
 
@@ -463,7 +463,7 @@ class TestCausalSearchEndpoint:
                     )
 
                 assert exc_info.value.status_code == 500
-                assert "Causal search failed" in exc_info.value.detail
+                assert "Internal server error during causal search" in exc_info.value.detail
 
 
 # ── Temporal Search Tests (Lines 472-507) ───────────────────────────
@@ -652,7 +652,7 @@ class TestTemporalSearchEndpoint:
                     )
 
                 assert exc_info.value.status_code == 500
-                assert "Temporal search failed" in exc_info.value.detail
+                assert "Internal server error during temporal search" in exc_info.value.detail
 
 
 # ── Parameterized Error Handling Tests ───────────────────────────────
@@ -698,7 +698,7 @@ class TestErrorHandling:
                 "CausalSearchRequest",
                 "Internal error",
                 500,
-                "Causal search failed",
+                "Internal server error during causal search",
             ),
             (
                 "temporal",
@@ -712,7 +712,7 @@ class TestErrorHandling:
                 "TemporalSearchRequest",
                 "DB error",
                 500,
-                "Temporal search failed",
+                "Internal server error during temporal search",
             ),
         ],
     )

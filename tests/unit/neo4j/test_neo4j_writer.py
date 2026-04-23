@@ -244,7 +244,13 @@ class TestNeo4jWriterWrite:
         writer._article_repo.find_article_by_pg_id = AsyncMock(
             return_value={"publish_time": datetime.now(UTC) - timedelta(hours=2)}
         )
-        writer._article_repo.create_followed_by_relation = AsyncMock()
+        writer._article_repo.create_followed_by_batch = AsyncMock(
+            return_value={
+                "neo4j_ids": ["relation_id"],
+                "article_ids": [article_id],
+                "errors": [],
+            }
+        )
 
         raw = MagicMock()
         raw.title = "Test Article"
@@ -262,7 +268,7 @@ class TestNeo4jWriterWrite:
 
         await writer.write(state)
 
-        writer._article_repo.create_followed_by_relation.assert_called_once()
+        writer._article_repo.create_followed_by_batch.assert_called_once()
 
 
 class TestNeo4jWriterWriteEntities:
@@ -409,7 +415,7 @@ class TestNeo4jWriterCreateFollowedRelations:
                 "publish_time": source_time,
             }
         )
-        writer._article_repo.create_followed_by_relation = AsyncMock()
+        writer._article_repo.create_followed_by_batch = AsyncMock(return_value=1)
 
         await writer._create_followed_relations(
             article_id="target_id",
@@ -417,13 +423,13 @@ class TestNeo4jWriterCreateFollowedRelations:
             publish_time=publish_time,
         )
 
-        writer._article_repo.create_followed_by_relation.assert_called_once()
+        writer._article_repo.create_followed_by_batch.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_create_followed_relations_no_source_article(self, writer):
         """Test create FOLLOWED_BY when source article not found."""
         writer._article_repo.find_article_by_pg_id = AsyncMock(return_value=None)
-        writer._article_repo.create_followed_by_relation = AsyncMock()
+        writer._article_repo.create_followed_by_batch = AsyncMock(return_value=1)
 
         await writer._create_followed_relations(
             article_id="target_id",
@@ -431,7 +437,7 @@ class TestNeo4jWriterCreateFollowedRelations:
             publish_time=datetime.now(UTC),
         )
 
-        writer._article_repo.create_followed_by_relation.assert_called_once()
+        writer._article_repo.create_followed_by_batch.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_create_followed_relations_handles_error(self, writer):
@@ -452,7 +458,7 @@ class TestNeo4jWriterCreateFollowedRelations:
                 "publish_time": datetime.now(UTC) - timedelta(hours=1),
             }
         )
-        writer._article_repo.create_followed_by_relation = AsyncMock()
+        writer._article_repo.create_followed_by_batch = AsyncMock(return_value=3)
 
         await writer._create_followed_relations(
             article_id="target_id",
@@ -460,7 +466,7 @@ class TestNeo4jWriterCreateFollowedRelations:
             publish_time=datetime.now(UTC),
         )
 
-        assert writer._article_repo.create_followed_by_relation.call_count == 3
+        writer._article_repo.create_followed_by_batch.assert_called_once()
 
 
 class TestNeo4jWriterCleanupOrphanEntities:

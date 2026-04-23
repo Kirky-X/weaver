@@ -91,25 +91,8 @@ async def lifespan(app: FastAPI) -> None:
     log.debug("cache_client_set", client_id=id(cache_client))
 
     # Register all pools/clients with the centralized Endpoints registry
-    # Use Protocol-compatible attribute names
-    deps.Endpoints._relational_pool = container.relational_pool()
-    deps.Endpoints._relational_pool_type = container.relational_pool_type
-    deps.Endpoints._graph_pool = container.graph_pool()
-    deps.Endpoints._graph_pool_type = container.graph_pool_type
-    deps.Endpoints._cache = cache_client
-    deps.Endpoints._llm = container.llm_client()
-    deps.Endpoints._scheduler = container.source_scheduler()
-    deps.Endpoints._vector_repo = container.vector_repo()
-    deps.Endpoints._graph_repo = container.graph_repo()
-    deps.Endpoints._source_config_repo = container.source_config_repo()
-    deps.Endpoints._source_authority_repo = container.source_authority_repo()
-    deps.Endpoints._llm_failure_repo = container.llm_failure_repo()
-    deps.Endpoints._llm_usage_repo = container.llm_usage_repo()
-    deps.Endpoints._local_engine = container.local_search_engine()
-    deps.Endpoints._global_engine = container.global_search_engine()
-    deps.Endpoints._hybrid_engine = container.hybrid_search_engine()
-    deps.Endpoints._pipeline_service = container.pipeline_service()
-    deps.Endpoints._task_registry = container.task_registry()
+    # Use the proper initialization method to avoid direct private attribute access
+    deps.Endpoints.initialize(container)
     log.debug("endpoints_registry_populated")
 
     log.info(
@@ -277,6 +260,10 @@ class SecurityHeadersMiddleware:
                 headers[b"x-frame-options"] = b"DENY"
                 headers[b"x-xss-protection"] = b"1; mode=block"
                 headers[b"strict-transport-security"] = b"max-age=31536000; includeSubDomains"
+                # Additional security headers
+                headers[b"content-security-policy"] = b"default-src 'self'; script-src 'self'"
+                headers[b"referrer-policy"] = b"strict-origin-when-cross-origin"
+                headers[b"permissions-policy"] = b"camera=(), microphone=(), geolocation=()"
                 message["headers"] = list(headers.items())
             await send(message)
 

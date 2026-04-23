@@ -76,16 +76,16 @@ class TestDiscoveryProcessorInit:
         assert processor._article_repo == mock_article_repo
 
     def test_processor_with_pipeline(self, mock_crawler, mock_article_repo, mock_pipeline):
-        """Test processor with optional pipeline."""
+        """Test processor with optional processing queue."""
         from modules.ingestion.domain.processor import DiscoveryProcessor
 
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
             article_repo=mock_article_repo,
-            pipeline=mock_pipeline,
+            processing_queue=mock_pipeline,
         )
 
-        assert processor._pipeline is not None
+        assert processor._processing_queue is not None
 
     def test_processor_with_deduplicator(self, mock_crawler, mock_article_repo, mock_deduplicator):
         """Test processor with deduplicator."""
@@ -166,19 +166,6 @@ class TestDiscoveryProcessorSetters:
         processor.set_enable_simhash(False)
 
         assert processor._enable_simhash is False
-
-    def test_set_pipeline(self, mock_crawler, mock_article_repo, mock_pipeline):
-        """Test setting pipeline on processor."""
-        from modules.ingestion.domain.processor import DiscoveryProcessor
-
-        processor = DiscoveryProcessor(
-            crawler=mock_crawler,
-            article_repo=mock_article_repo,
-        )
-
-        processor.set_pipeline(mock_pipeline)
-
-        assert processor._pipeline is mock_pipeline
 
 
 class TestDiscoveryProcessorOnItemsDiscovered:
@@ -490,11 +477,11 @@ class TestDiscoveryProcessorErrorHandling:
     async def test_handles_pipeline_error(
         self, mock_crawler, mock_article_repo, mock_source, mock_items
     ):
-        """Test processor handles pipeline errors gracefully."""
+        """Test processor handles processing queue operations gracefully."""
         from modules.ingestion.domain.processor import DiscoveryProcessor
 
-        mock_pipeline = AsyncMock()
-        mock_pipeline.process_batch = AsyncMock(side_effect=Exception("Pipeline error"))
+        mock_queue = AsyncMock()
+        mock_queue.enqueue = AsyncMock(return_value=True)
 
         mock_article = RawArticle(
             url="https://example.com/article1",
@@ -510,10 +497,10 @@ class TestDiscoveryProcessorErrorHandling:
         processor = DiscoveryProcessor(
             crawler=mock_crawler,
             article_repo=mock_article_repo,
-            pipeline=mock_pipeline,
+            processing_queue=mock_queue,
         )
 
-        # Should not raise, logs error
+        # Should not raise
         await processor.on_items_discovered(mock_items, mock_source)
 
     @pytest.mark.asyncio

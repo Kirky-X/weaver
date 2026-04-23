@@ -276,7 +276,7 @@ class TestHTTPExceptionHandler:
         assert response.status_code == 404
 
         body = json.loads(response.body.decode())
-        assert body["code"] == 40401  # status_code * 100 + 1
+        assert body["code"] == 10004  # ERR_NOT_FOUND (1xxxx general errors)
         assert body["message"] == "Article not found"
 
     def test_http_exception_without_detail(self) -> None:
@@ -297,7 +297,7 @@ class TestHTTPExceptionHandler:
         assert response.status_code == 403
 
         body = json.loads(response.body.decode())
-        assert body["code"] == 40301
+        assert body["code"] == 10003  # ERR_FORBIDDEN
         # HTTPException provides default phrase "Forbidden" for 403
         assert body["message"] == "Forbidden"
 
@@ -318,7 +318,7 @@ class TestHTTPExceptionHandler:
         assert response.status_code == 500
 
         body = json.loads(response.body.decode())
-        assert body["code"] == 50001
+        assert body["code"] == 10099  # ERR_INTERNAL
         assert body["message"] == "Service unavailable"
 
     def test_http_exception_400(self) -> None:
@@ -336,7 +336,7 @@ class TestHTTPExceptionHandler:
         response = asyncio.run(handler(request, exc))
 
         body = json.loads(response.body.decode())
-        assert body["code"] == 40001
+        assert body["code"] == 10001  # ERR_INVALID_PARAM
 
 
 class TestStarletteHTTPExceptionHandler:
@@ -359,7 +359,7 @@ class TestStarletteHTTPExceptionHandler:
         assert response.status_code == 404
 
         body = json.loads(response.body.decode())
-        assert body["code"] == 40401
+        assert body["code"] == 10004  # ERR_NOT_FOUND
         assert body["message"] == "Not Found"
 
     def test_starlette_405_method_not_allowed(self) -> None:
@@ -379,7 +379,7 @@ class TestStarletteHTTPExceptionHandler:
         assert response.status_code == 405
 
         body = json.loads(response.body.decode())
-        assert body["code"] == 40501
+        assert body["code"] == 10099  # ERR_INTERNAL (405 → generic internal error)
         assert body["message"] == "Method Not Allowed"
 
     def test_starlette_without_detail(self) -> None:
@@ -540,7 +540,7 @@ class TestIntegrationWithTestClient:
 
         assert response.status_code == 404
         body = response.json()
-        assert body["code"] == 40401
+        assert body["code"] == 10004  # ERR_NOT_FOUND
         assert body["message"] == "Item not found"
 
     def test_route_not_found_404(self) -> None:
@@ -559,7 +559,7 @@ class TestIntegrationWithTestClient:
 
         assert response.status_code == 404
         body = response.json()
-        assert body["code"] == 40401
+        assert body["code"] == 10004  # ERR_NOT_FOUND
 
     def test_method_not_allowed_405(self) -> None:
         """Test 405 for wrong method."""
@@ -577,7 +577,7 @@ class TestIntegrationWithTestClient:
 
         assert response.status_code == 405
         body = response.json()
-        assert body["code"] == 40501
+        assert body["code"] == 10099  # ERR_INTERNAL (405 → generic internal error)
 
     def test_unexpected_exception_500(self) -> None:
         """Test 500 for unexpected exception."""
@@ -669,20 +669,28 @@ class TestResponseHeaders:
 
 
 class TestErrorCodeCalculation:
-    """Tests for error code calculation logic."""
+    """Tests for error code values."""
 
     def test_code_calculation_404(self) -> None:
         """Test error code for 404 status."""
-        # Code = status_code * 100 + 1
-        assert 404 * 100 + 1 == 40401
+        # 404 errors now use unified ERR_NOT_FOUND code
+        from api.schemas.response import ResponseCode
+
+        assert ResponseCode.ERR_NOT_FOUND == 10004
 
     def test_code_calculation_400(self) -> None:
         """Test error code for 400 status."""
-        assert 400 * 100 + 1 == 40001
+        # 400 errors now use unified ERR_INVALID_PARAM code
+        from api.schemas.response import ResponseCode
+
+        assert ResponseCode.ERR_INVALID_PARAM == 10001
 
     def test_code_calculation_503(self) -> None:
         """Test error code for 503 status."""
-        assert 503 * 100 + 1 == 50301
+        # 503 errors now use unified ERR_GRAPH_SERVICE_UNAVAILABLE code
+        from api.schemas.response import ResponseCode
+
+        assert ResponseCode.ERR_GRAPH_SERVICE_UNAVAILABLE == 40010
 
     def test_validation_error_uses_different_code(self) -> None:
         """Test that validation error uses ERR_INVALID_PARAM."""

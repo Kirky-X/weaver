@@ -248,9 +248,10 @@ class TestGetHelpers:
 
     def test_get_translation(self) -> None:
         rules = EntityResolutionRules()
-        # translation_map is now empty (region mappings moved to LocationResolver)
-        assert rules.get_translation("China") is None
-        assert rules.get_translation("Unknown") is None
+        # LocationResolver translates "China" to its canonical form
+        assert rules.get_translation("China") is not None
+        # Unknown names without translation return None
+        assert rules.get_translation("UnknownXYZ123") is None
 
 
 class TestAddRule:

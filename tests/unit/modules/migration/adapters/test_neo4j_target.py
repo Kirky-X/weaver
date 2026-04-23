@@ -98,11 +98,11 @@ class TestNeo4jTargetWriteNodes:
             {"id": "2", "name": "Entity2"},
         ]
 
-        target._pool.execute_query = AsyncMock()
+        target._pool.execute_query = AsyncMock(return_value=[{"written": 2}])
 
         count = await target.write_nodes("Entity", nodes)
 
-        # Each node should trigger a query
+        # Batch write should report number written
         assert count == 2
 
 
@@ -134,7 +134,7 @@ class TestNeo4jTargetWriteRels:
             },
         ]
 
-        target._pool.execute_query = AsyncMock()
+        target._pool.execute_query = AsyncMock(return_value=[{"written": 1}])
 
         count = await target.write_rels("RELATED_TO", rels)
 

@@ -278,7 +278,7 @@ class TestSourceSchedulerCrawlSource:
         # Should call on_items with found items
         on_items.assert_called_once()
         call_args = on_items.call_args
-        items, source, max_items, task_id = call_args[0]
+        items, source, max_items, task_id, force = call_args[0]
         assert len(items) == 1
         assert items[0].title == "Article 1"
 
@@ -398,7 +398,7 @@ class TestSourceSchedulerTriggerNow:
         with patch.object(scheduler, "_crawl_source", new_callable=AsyncMock) as mock_crawl:
             await scheduler.trigger_now("test_source", max_items=10, task_id=None)
 
-            mock_crawl.assert_called_once_with("test_source", 10, None)
+            mock_crawl.assert_called_once_with("test_source", 10, None, force=False)
 
     @pytest.mark.asyncio
     async def test_trigger_now_with_task_id(self, mock_fetcher):

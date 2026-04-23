@@ -103,7 +103,7 @@ class TestNeo4jWriterWrite:
         writer = Neo4jWriter(pool=MagicMock())
         writer._article_repo.create_article = AsyncMock(return_value="neo4j-article-id")
         writer._article_repo.find_article_by_pg_id = AsyncMock(return_value=None)
-        writer._article_repo.create_followed_by_relation = AsyncMock()
+        writer._article_repo.create_followed_by_batch = AsyncMock()
         writer._entity_repo.merge_entities_batch = AsyncMock(
             return_value={"created": 2, "updated": 0}
         )
@@ -162,7 +162,7 @@ class TestNeo4jWriterWrite:
 
         await writer.write(mock_state)
 
-        assert writer._article_repo.create_followed_by_relation.call_count == 2
+        assert writer._article_repo.create_followed_by_batch.call_count == 1
 
 
 class TestNeo4jWriterCleanup:

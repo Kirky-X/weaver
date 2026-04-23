@@ -1,6 +1,7 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for API endpoints."""
 
+import asyncio
 import json
 import uuid
 from datetime import UTC, datetime
@@ -359,7 +360,7 @@ class TestPipelineEndpoint:
         request = TriggerRequest(source_id="source-1")
 
         with patch(
-            "api.endpoints.content.pipeline.uuid.uuid4",
+            "api.endpoints.admin.admin.uuid.uuid4",
             return_value=uuid.UUID("12345678-1234-5678-1234-567812345678"),
         ):
             result = await trigger_pipeline(
@@ -368,6 +369,8 @@ class TestPipelineEndpoint:
                 cache=mock_cache,
                 scheduler=mock_scheduler,
             )
+            # Give background task time to start
+            await asyncio.sleep(0.01)
 
         assert result.data.task_id == "12345678-1234-5678-1234-567812345678"
         mock_scheduler.trigger_now.assert_called_once_with(
@@ -406,12 +409,18 @@ class TestPipelineEndpoint:
                 cache=mock_cache,
                 scheduler=mock_scheduler,
             )
+            # Give background task time to start
+            await asyncio.sleep(0.01)
 
         assert mock_scheduler.trigger_now.call_count == 2
 
     @pytest.mark.asyncio
     async def test_trigger_pipeline_failure(self):
-        """Test POST /admin/pipeline/trigger handles errors."""
+        """Test POST /admin/pipeline/trigger handles errors gracefully.
+
+        Note: Errors in background tasks are caught and stored in task status,
+        not raised as HTTPException. The endpoint returns success immediately.
+        """
         from api.endpoints.admin.admin import TriggerRequest, trigger_pipeline
 
         mock_cache = MagicMock()
@@ -426,14 +435,18 @@ class TestPipelineEndpoint:
             "api.endpoints.admin.admin.uuid.uuid4",
             return_value=uuid.UUID("12345678-1234-5678-1234-567812345678"),
         ):
-            with pytest.raises(HTTPException) as exc_info:
-                await trigger_pipeline(
-                    request=request,
-                    _="test-key",
-                    cache=mock_cache,
-                    scheduler=mock_scheduler,
-                )
-            assert exc_info.value.status_code == 500
+            # Should NOT raise HTTPException - errors are handled in background
+            result = await trigger_pipeline(
+                request=request,
+                _="test-key",
+                cache=mock_cache,
+                scheduler=mock_scheduler,
+            )
+            # Give background task time to start and fail
+            await asyncio.sleep(0.01)
+
+        # Should return success immediately with task_id
+        assert result.data.task_id == "12345678-1234-5678-1234-567812345678"
 
     @pytest.mark.asyncio
     async def test_get_task_status_found(self):

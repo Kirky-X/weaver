@@ -294,6 +294,7 @@ class TestUpsertArticleVectors:
             article_id=article_id,
             title_embedding=[0.1] * 1024,
             content_embedding=None,
+            model_id="text-embedding-3-large",
         )
 
         assert mock_pool._execute_tracker.call_count >= 1

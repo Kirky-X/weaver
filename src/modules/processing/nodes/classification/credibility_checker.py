@@ -142,7 +142,6 @@ class CredibilityCheckerNode:
             CredibilityComputedEvent(
                 url=state["raw"].url,
                 score=score,
-                cross_count=0,  # No longer used
             )
         )
 

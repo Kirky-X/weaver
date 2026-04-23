@@ -147,10 +147,6 @@ class ArticleProcessingState(str, enum.Enum):
     DONE = "done"
 
 
-# Backward compatibility alias
-PipelineState = ArticleProcessingState
-
-
 # ── Graph Health Status Constants ───────────────────────────────
 
 
@@ -283,3 +279,66 @@ class Defaults:
     # Cache defaults
     CACHE_TTL = 3600  # 1 hour
     CACHE_MAX_SIZE = 1000
+
+
+# ── Sort Order Constants ─────────────────────────────────────────
+
+
+class SortOrder(str, enum.Enum):
+    """Sort order for query results."""
+
+    ASC = "asc"
+    DESC = "desc"
+
+
+# ── Database Type Constants ──────────────────────────────────────
+
+
+class DatabaseType(str, enum.Enum):
+    """Database backend types."""
+
+    POSTGRES = "postgres"
+    DUCKDB = "duckdb"
+    NEO4J = "neo4j"
+    LADYBUG = "ladybug"
+    REDIS = "redis"
+
+
+# ── Cache Strategy Constants ─────────────────────────────────────
+
+
+class CacheStrategy(str, enum.Enum):
+    """Cache backend strategies."""
+
+    REDIS = "redis"
+    CASHUEWS = "cashews"
+    HYBRID = "hybrid"
+
+
+# ── LLM Role Constants ───────────────────────────────────────────
+
+
+class LLMRole(str, enum.Enum):
+    """LLM provider roles in routing."""
+
+    PRIMARY = "primary"
+    SECONDARY = "secondary"
+    EMBEDDING = "embedding"
+
+
+# ── Embedding Model Constants ────────────────────────────────────
+
+
+class EmbeddingModel(str, enum.Enum):
+    """Default embedding model identifiers."""
+
+    DEFAULT = "Qwen3-Embedding-0.6B"
+
+
+# ── Tiktoken Encoding Constants ──────────────────────────────────
+
+
+class TiktokenEncoding(str, enum.Enum):
+    """Tiktoken encoding names for token counting."""
+
+    CL100K_BASE = "cl100k_base"  # Used by GPT-4, GPT-3.5-turbo, text-embedding-ada-002

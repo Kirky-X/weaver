@@ -38,7 +38,6 @@ class CredibilityComputedEvent(BaseEvent):
 
     url: str = ""
     score: float = 0.0
-    cross_count: int = 0
 
 
 @dataclass

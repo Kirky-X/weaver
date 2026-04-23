@@ -110,10 +110,10 @@ class TestAdminAuthMiddleware:
             assert "Admin API key not configured" in exc_info.value.detail
 
     @pytest.mark.asyncio
-    async def test_verify_admin_api_key_fallback_when_not_configured_development(
+    async def test_verify_admin_api_key_rejects_when_not_configured_development(
         self,
     ) -> None:
-        """Test verify_admin_api_key accepts regular key as fallback when admin key not configured in dev."""
+        """Test verify_admin_api_key raises 500 when admin key not configured even in dev."""
         from api.middleware.auth import verify_admin_api_key
 
         regular_key = "regular-key-12345678901234567890123456"
@@ -126,9 +126,11 @@ class TestAdminAuthMiddleware:
             patch("container.get_settings", return_value=mock_settings),
             patch.dict("os.environ", {"ENVIRONMENT": "development"}),
         ):
-            # Admin key not configured in development: regular key fallback works
-            result = await verify_admin_api_key(key=regular_key)
-            assert result == regular_key
+            # Admin key not configured: rejects in all environments
+            with pytest.raises(Exception) as exc_info:
+                await verify_admin_api_key(key=regular_key)
+            assert exc_info.value.status_code == 500
+            assert "Admin API key not configured" in exc_info.value.detail
 
 
 class TestAdminEndpointAuthorityUpdate:
@@ -288,7 +290,12 @@ class TestAdminEndpointDeduplicate:
 
         # Make session work as async context manager
         async_session = MagicMock()
-        async_session.execute = AsyncMock(return_value=MagicMock(all=MagicMock(return_value=[])))
+        # First execute: DELETE (needs rowcount), Second execute: SELECT COUNT (needs scalar)
+        delete_result = MagicMock()
+        delete_result.rowcount = 0
+        count_result = MagicMock()
+        count_result.scalar = MagicMock(return_value=0)
+        async_session.execute = AsyncMock(side_effect=[delete_result, count_result])
         async_session.commit = AsyncMock()
         mock_session.__aenter__ = AsyncMock(return_value=async_session)
         mock_session.__aexit__ = AsyncMock(return_value=None)
