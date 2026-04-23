@@ -347,6 +347,34 @@ class GraphArticleRepository(Protocol):
         score: float | None = None,
     ) -> str: ...
 
+    async def create_articles_batch(
+        self,
+        articles: list[dict[str, Any]],
+    ) -> list[str]:
+        """Create multiple Article nodes in batch.
+
+        Args:
+            articles: List of dicts with pg_id, title, category, publish_time, score.
+
+        Returns:
+            List of Neo4j internal IDs.
+        """
+        ...
+
+    async def create_followed_by_batch(
+        self,
+        relations: list[dict[str, Any]],
+    ) -> int:
+        """Create multiple FOLLOWED_BY relationships in batch.
+
+        Args:
+            relations: List of dicts with from_pg_id, to_pg_id, time_gap_hours.
+
+        Returns:
+            Number of relationships created.
+        """
+        ...
+
     async def find_article_by_pg_id(self, pg_id: str) -> dict[str, Any] | None: ...
 
     async def find_article_by_neo4j_id(self, neo4j_id: str) -> dict[str, Any] | None: ...
@@ -381,12 +409,29 @@ class GraphWriter(Protocol):
     """Protocol for graph writer implementations.
 
     Implementations:
-        - GraphArticleWriter: Neo4j/LadybugDB-based graph writer
+        - Neo4jWriter: Neo4j-based graph writer
+        - LadybugWriter: LadybugDB-based graph writer
     """
 
     async def ensure_constraints(self) -> None: ...
 
     async def write(self, state: Any) -> list[str]: ...
+
+    async def write_batch(
+        self,
+        states: list[Any],
+        concurrency: int = 10,
+    ) -> dict[str, Any]:
+        """Write multiple pipeline states to graph database.
+
+        Args:
+            states: List of pipeline states to persist.
+            concurrency: Maximum concurrent writes.
+
+        Returns:
+            Dict with neo4j_ids list and errors list.
+        """
+        ...
 
     async def cleanup_orphan_entities(self) -> int: ...
 
