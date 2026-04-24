@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from pydantic import BaseModel
@@ -73,6 +74,10 @@ class LLMClient:
         self._redis = cache_client
         self._prompts = prompt_loader
         self._event_bus = event_bus
+
+        self._response_cache = {}
+        self._cache_max_size = 1000
+        self._cache_ttl = 3600
 
         # 创建provider池映射,必须传递event_bus
         self._pools: dict[str, ProviderPool] = {}
@@ -159,10 +164,8 @@ class LLMClient:
         Returns:
             解析后的模型实例或原始字符串
         """
-        # 解析label
         parsed_label = Label.parse(label) if isinstance(label, str) else label
 
-        # 解析call_point
         if isinstance(call_point, str):
             try:
                 cp = CallPoint(call_point)
@@ -175,6 +178,28 @@ class LLMClient:
                 cp = CallPoint.CLASSIFIER
         else:
             cp = call_point
+
+        cache_key = f"{parsed_label}:{hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:32]}"
+        now = time.time()
+
+        if cache_key in self._response_cache:
+            cached = self._response_cache[cache_key]
+            if now - cached["timestamp"] < self._cache_ttl:
+                log.info("llm_cache_hit", label=str(parsed_label))
+                await self._emit_usage_event(
+                    label=parsed_label,
+                    call_point=cp,
+                    latency_ms=0.0,
+                    token_usage=cached.get("token_usage"),
+                    success=True,
+                )
+                if output_model:
+                    return parse_llm_json(cached["content"], output_model)
+                return cached["content"]
+            else:
+                del self._response_cache[cache_key]
+
+        log.debug("llm_cache_miss", label=str(parsed_label))
 
         # 构建label链
         labels = self._router.resolve(parsed_label)
@@ -205,6 +230,18 @@ class LLMClient:
                     article_id=article_id,
                     task_id=task_id,
                 )
+
+                self._response_cache[cache_key] = {
+                    "content": response.content,
+                    "timestamp": time.time(),
+                    "token_usage": response.token_usage,
+                }
+                if len(self._response_cache) > self._cache_max_size:
+                    oldest_key = min(
+                        self._response_cache,
+                        key=lambda k: self._response_cache[k]["timestamp"],
+                    )
+                    del self._response_cache[oldest_key]
 
                 log.debug(
                     "llm_call_complete",

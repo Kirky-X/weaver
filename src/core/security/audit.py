@@ -113,7 +113,7 @@ _SECRET_PATTERNS = [
 ]
 
 
-def check_env_security() -> list[SecurityCheckResult]:
+def check_env_security(environment: str = "development") -> list[SecurityCheckResult]:
     """Check environment variable security configuration.
 
     Returns:
@@ -139,7 +139,7 @@ def check_env_security() -> list[SecurityCheckResult]:
             )
 
     # Check for development mode indicators
-    if os.environ.get("ENVIRONMENT", "development").lower() == "development":
+    if environment.lower() == "development":
         results.append(
             SecurityCheckResult(
                 name="development_mode",
@@ -228,11 +228,14 @@ def check_code_patterns(source_dir: str = "src") -> list[SecurityCheckResult]:
     return results
 
 
-def run_security_audit(source_dir: str = "src") -> SecurityAuditReport:
+def run_security_audit(
+    source_dir: str = "src", environment: str = "development"
+) -> SecurityAuditReport:
     """Run full security audit at application startup.
 
     Args:
         source_dir: Directory to scan for code patterns.
+        environment: Application environment (development/staging/production).
 
     Returns:
         Security audit report.
@@ -242,7 +245,7 @@ def run_security_audit(source_dir: str = "src") -> SecurityAuditReport:
     results = []
 
     # Check environment
-    results.extend(check_env_security())
+    results.extend(check_env_security(environment=environment))
 
     # Check code patterns
     results.extend(check_code_patterns(source_dir))

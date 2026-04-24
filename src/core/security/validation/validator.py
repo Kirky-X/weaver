@@ -38,7 +38,9 @@ class URLValidatorConfig:
 
     enabled: bool = True
     urlhaus_api_key: str = ""
+    urlhaus_api_timeout: float = 5.0
     phishtank_enabled: bool = True
+    phishtank_data_url: str = "https://data.phishtank.com/data/online-valid.json"
     heuristic_enabled: bool = True
     ssl_verify_enabled: bool = True
     cache_enabled: bool = True
@@ -58,7 +60,9 @@ class URLValidatorConfig:
         return cls(
             enabled=settings.enabled,
             urlhaus_api_key=settings.urlhaus_api_key,
+            urlhaus_api_timeout=settings.urlhaus_api_timeout,
             phishtank_enabled=settings.phishtank_enabled,
+            phishtank_data_url=settings.phishtank_data_url,
             heuristic_enabled=settings.heuristic_enabled,
             ssl_verify_enabled=settings.ssl_verify_enabled,
             cache_enabled=settings.cache_enabled,
@@ -117,12 +121,17 @@ class URLValidator:
             self._urlhaus_client = URLhausClient(
                 api_key=config.urlhaus_api_key,
                 fetcher=fetcher,
+                timeout=config.urlhaus_api_timeout,
             )
 
         # Initialize PhishTank sync
         self._phishtank: PhishTankSync | None = None
         if config.phishtank_enabled:
-            self._phishtank = PhishTankSync(fetcher=fetcher, enabled=True)
+            self._phishtank = PhishTankSync(
+                fetcher=fetcher,
+                enabled=True,
+                data_url=config.phishtank_data_url,
+            )
 
         # Initialize heuristic checker
         self._heuristic = HeuristicChecker(enabled=config.heuristic_enabled)

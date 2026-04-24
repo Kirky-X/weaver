@@ -64,15 +64,17 @@ class URLhausClient:
 
     API_URL = "https://urlhaus-api.abuse.ch/v1/url/"
 
-    def __init__(self, api_key: str, fetcher: Any) -> None:
+    def __init__(self, api_key: str, fetcher: Any, timeout: float = 5.0) -> None:
         """Initialize URLhaus client.
 
         Args:
             api_key: URLhaus API key.
             fetcher: HttpxFetcher instance for HTTP requests.
+            timeout: Request timeout in seconds.
         """
         self._api_key = api_key
         self._fetcher = fetcher
+        self._timeout = timeout
 
     async def check(self, url: str) -> URLhausResponse:
         """Check URL against URLhaus database.

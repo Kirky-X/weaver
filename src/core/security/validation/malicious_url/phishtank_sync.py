@@ -71,6 +71,7 @@ class PhishTankSync:
         data_path: str = "data/phishtank.json",
         sync_interval_hours: int = 6,
         enabled: bool = True,
+        data_url: str = "https://data.phishtank.com/data/online-valid.json",
     ) -> None:
         """Initialize PhishTank sync.
 
@@ -79,11 +80,13 @@ class PhishTankSync:
             data_path: Local storage path for PhishTank data.
             sync_interval_hours: Hours between syncs.
             enabled: Whether sync is enabled.
+            data_url: PhishTank data download URL.
         """
         self._fetcher = fetcher
         self._data_path = Path(data_path)
         self._sync_interval = timedelta(hours=sync_interval_hours)
         self._enabled = enabled
+        self._data_url = data_url
 
         self._url_index: dict[str, PhishTankEntry] = {}
         self._domain_index: dict[str, set[str]] = {}
@@ -107,7 +110,7 @@ class PhishTankSync:
 
         try:
             log.info("phishtank_sync_start")
-            status_code, response_text, _ = await self._fetcher.fetch(self.DATA_URL)
+            status_code, response_text, _ = await self._fetcher.fetch(self._data_url)
 
             if status_code != 200:
                 log.warning("phishtank_sync_failed", status=status_code)

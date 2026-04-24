@@ -8,7 +8,6 @@ and grant access to sensitive endpoints like /config.
 
 from __future__ import annotations
 
-import os
 import secrets
 
 from fastapi import HTTPException, Security
@@ -66,7 +65,7 @@ async def verify_api_key(
 
     # Security check: ensure expected_key is properly configured
     if not expected_key or len(expected_key) < MIN_API_KEY_LENGTH:
-        environment = os.environ.get("ENVIRONMENT", "development")
+        environment = settings.environment
         if environment == "production":
             raise HTTPException(
                 status_code=500,
