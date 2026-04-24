@@ -13,7 +13,6 @@ See core.utils.sanitize for similar patterns used in data sanitization.
 
 from __future__ import annotations
 
-import os
 import re
 import sys
 from contextvars import ContextVar
@@ -24,10 +23,10 @@ from opentelemetry import trace
 
 _context_vars: ContextVar[dict[str, Any]] = ContextVar("context_vars", default={})
 
-# Default configuration
-DEFAULT_LOG_FILE = os.environ.get("LOG_FILE", "")
-DEFAULT_LOG_ROTATION = os.environ.get("LOG_ROTATION", "10 MB")
-DEFAULT_LOG_RETENTION = os.environ.get("LOG_RETENTION", "7 days")
+# Default configuration (fallbacks, actual values come from ObservabilitySettings)
+DEFAULT_LOG_FILE = ""
+DEFAULT_LOG_ROTATION = "10 MB"
+DEFAULT_LOG_RETENTION = "7 days"
 
 
 def set_task_context(task_id: str, task_type: str = "scheduler") -> None:

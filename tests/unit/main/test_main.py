@@ -27,6 +27,9 @@ def mock_settings():
     settings.api.host = "localhost"
     settings.api.port = 8000
     settings.observability.otlp_endpoint = "http://localhost:4317"
+    settings.observability.log_file = ""
+    settings.observability.log_rotation = "10 MB"
+    settings.observability.log_retention = "7 days"
     settings.spacy = MagicMock()
     settings.spacy.force_install = False
     settings.spacy.strict_mode = False
