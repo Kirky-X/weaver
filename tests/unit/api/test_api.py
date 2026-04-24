@@ -372,6 +372,7 @@ class TestPipelineEndpoint:
             "source-1",
             max_items=None,
             task_id=uuid.UUID("12345678-1234-5678-1234-567812345678"),
+            force=False,
         )
 
     @pytest.mark.asyncio

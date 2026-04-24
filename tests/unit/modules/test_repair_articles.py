@@ -9,6 +9,16 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 
+def _mock_settings() -> MagicMock:
+    """Create a settings mock with pipeline concurrency configured for Pipeline init."""
+    settings = MagicMock()
+    settings.pipeline.phase1.concurrency = 5
+    settings.pipeline.phase3.concurrency = 5
+    settings.spacy.zh_model_path = "zh_core_web_sm"
+    settings.spacy.en_model_path = "en_core_web_sm"
+    return settings
+
+
 class TestMainFunction:
     """Tests for the main() function."""
 
@@ -71,7 +81,7 @@ class TestRepairArticlesDryRun:
                     AsyncMock(),  # cache_client
                     AsyncMock(),  # llm_client
                     MagicMock(),  # prompt_loader
-                    MagicMock(),  # settings
+                    _mock_settings(),
                     MagicMock(),  # event_bus
                 )
 
@@ -114,7 +124,7 @@ class TestRepairArticlesDryRun:
                     AsyncMock(),  # cache_client
                     AsyncMock(),  # llm_client
                     MagicMock(),  # prompt_loader
-                    MagicMock(),  # settings
+                    _mock_settings(),
                     MagicMock(),  # event_bus
                 )
 
@@ -160,7 +170,7 @@ class TestRepairArticlesForceMode:
                     AsyncMock(),  # cache_client
                     AsyncMock(),  # llm_client
                     MagicMock(),  # prompt_loader
-                    MagicMock(),  # settings
+                    _mock_settings(),
                     MagicMock(),  # event_bus
                 )
 
@@ -193,7 +203,7 @@ class TestRepairArticlesLimit:
                     AsyncMock(),  # cache_client
                     AsyncMock(),  # llm_client
                     MagicMock(),  # prompt_loader
-                    MagicMock(),  # settings
+                    _mock_settings(),
                     MagicMock(),  # event_bus
                 )
 

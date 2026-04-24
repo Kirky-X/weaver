@@ -23,10 +23,12 @@ from api.schemas.response import APIResponse, success_response
 from config.settings import Settings
 from container import get_settings
 from core.constants import PipelineTaskStatus
-from core.observability import metrics
+from core.observability import get_logger, metrics
 from core.protocols import CachePool, RelationalPool
 from modules.ingestion import SourceScheduler
 from modules.storage import ArticleRepo
+
+log = get_logger(__name__)
 
 router = APIRouter(prefix="/pipeline", tags=["pipeline"])
 
@@ -156,14 +158,26 @@ async def trigger_pipeline(
     # Trigger the source scheduler to crawl
     try:
         if request.source_id:
-            await scheduler.trigger_now(
-                request.source_id, max_items=request.max_items, task_id=uuid.UUID(task_id)
+            await asyncio.wait_for(
+                scheduler.trigger_now(
+                    request.source_id,
+                    max_items=request.max_items,
+                    task_id=uuid.UUID(task_id),
+                    force=request.force,
+                ),
+                timeout=300.0,
             )
         else:
             sources = scheduler.list_enabled_sources()
             tasks = [
-                scheduler.trigger_now(
-                    source.id, max_items=request.max_items, task_id=uuid.UUID(task_id)
+                asyncio.wait_for(
+                    scheduler.trigger_now(
+                        source.id,
+                        max_items=request.max_items,
+                        task_id=uuid.UUID(task_id),
+                        force=request.force,
+                    ),
+                    timeout=300.0,
                 )
                 for source in sources
             ]
@@ -185,6 +199,31 @@ async def trigger_pipeline(
             ),
         )
 
+    except TimeoutError as exc:
+        # Update task status to failed due to timeout
+        await cache.hset(
+            TASK_STATUS_KEY,
+            task_id,
+            json.dumps(
+                {
+                    "task_id": task_id,
+                    "status": PipelineTaskStatus.FAILED.value,
+                    "source_id": request.source_id,
+                    "queued_at": now,
+                    "started_at": now,
+                    "error": "Task timed out after 300 seconds",
+                }
+            ),
+        )
+        log.warning(
+            "pipeline_trigger_timeout",
+            task_id=task_id,
+            source_id=request.source_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail="Pipeline trigger timed out after 300 seconds",
+        ) from exc
     except Exception as exc:
         # Update task status to failed
         await cache.hset(

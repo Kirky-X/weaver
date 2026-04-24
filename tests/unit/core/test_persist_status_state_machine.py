@@ -58,8 +58,7 @@ class TestPersistStatusStateMachine:
             (PersistStatus.NEO4J_DONE, PersistStatus.PG_DONE),
             (PersistStatus.NEO4J_DONE, PersistStatus.FAILED),
             (PersistStatus.NEO4J_DONE, PersistStatus.NEO4J_FAILED),
-            # NEO4J_FAILED 只能转换到 PG_DONE (重试 Neo4j)
-            (PersistStatus.NEO4J_FAILED, PersistStatus.PENDING),
+            # NEO4J_FAILED 只能转换到 PG_DONE 或 PENDING (重试)
             (PersistStatus.NEO4J_FAILED, PersistStatus.PROCESSING),
             (PersistStatus.NEO4J_FAILED, PersistStatus.NEO4J_DONE),
             (PersistStatus.NEO4J_FAILED, PersistStatus.FAILED),
@@ -139,6 +138,7 @@ class TestPersistStatusStateMachine:
             (PersistStatus.PG_DONE, PersistStatus.FAILED),
             # Retry transitions
             (PersistStatus.NEO4J_FAILED, PersistStatus.PG_DONE),
+            (PersistStatus.NEO4J_FAILED, PersistStatus.PENDING),
             (PersistStatus.FAILED, PersistStatus.PENDING),
         }
 

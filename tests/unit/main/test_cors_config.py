@@ -165,7 +165,7 @@ class TestCORSProductionEnvironment:
             from main import create_app, log
 
             mock_settings = MagicMock()
-            # Mock log.warning to track calls
+            mock_settings.environment = "production"
             with patch("main.Settings", return_value=mock_settings):
                 with patch.object(log, "warning") as mock_warning:
                     app = create_app()
@@ -197,6 +197,7 @@ class TestCORSProductionEnvironment:
             from main import create_app, log
 
             mock_settings = MagicMock()
+            mock_settings.environment = "production"
             # Mock log.warning to track calls
             with patch("main.Settings", return_value=mock_settings):
                 with patch.object(log, "warning") as mock_warning:
