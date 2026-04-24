@@ -71,6 +71,14 @@ async def lifespan(app: FastAPI) -> None:
     # Startup
     container = app.state.container
 
+    # Re-configure logging with settings (module-level call uses env defaults)
+    configure_logging(
+        debug=container.settings.environment == "development",
+        log_file=container.settings.observability.log_file,
+        log_rotation=container.settings.observability.log_rotation,
+        log_retention=container.settings.observability.log_retention,
+    )
+
     # Initialize OpenTelemetry tracing
     configure_tracing(
         service_name="weaver", endpoint=container.settings.observability.otlp_endpoint
@@ -346,7 +354,7 @@ def create_app(container: Container | None = None) -> FastAPI:
     )
 
     # CORS configuration - security fix for credentials + multiple origins
-    environment = os.environ.get("ENVIRONMENT", "development")
+    environment = settings.environment
     cors_origins_env = os.environ.get("CORS_ORIGINS", "")
 
     if environment == "production":

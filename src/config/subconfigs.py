@@ -131,11 +131,9 @@ class APISettings(BaseModel):
         )
         return generated
 
-    def validate_security(self) -> list[str]:
+    def validate_security(self, environment: str = "development") -> list[str]:
         """Validate security settings and return warnings."""
         warnings = []
-        environment = os.environ.get("ENVIRONMENT", "development")
-
         actual_key = self.get_api_key()
 
         if not actual_key:
@@ -286,6 +284,12 @@ class FetcherSettings(BaseModel):
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     )
     crawl4ai_timeout: float = 30.0
+    crawl4ai_viewport_width: int = 1920
+    crawl4ai_viewport_height: int = 1080
+    crawl4ai_locale: str = "zh-CN"
+    crawl4ai_timezone: str = "Asia/Shanghai"
+    crawl4ai_random_delay_min: float = 0.5
+    crawl4ai_random_delay_max: float = 2.0
 
     rate_limit_enabled: bool = True
     rate_limit_delay_min: float = 1.0
@@ -308,6 +312,9 @@ class SearchSettings(BaseModel):
     bm25_rebuild_interval: int = 300
     temporal_decay_enabled: bool = False
     temporal_decay_half_life_days: float = 30.0
+    global_map_community_timeout: float = 15.0
+    global_map_overall_timeout: float = 30.0
+    global_reduce_timeout: float = 15.0
 
 
 class DedupSettings(BaseModel):
@@ -324,6 +331,9 @@ class ObservabilitySettings(BaseModel):
     """
 
     otlp_endpoint: str = ""
+    log_file: str = ""
+    log_rotation: str = "10 MB"
+    log_retention: str = "7 days"
 
 
 class MemorySettings(BaseModel):
@@ -345,6 +355,7 @@ class MemorySettings(BaseModel):
     structure_weight: float = 1.0
     semantic_weight: float = 0.5
     traversal_decay: float = 0.9
+    max_relations_per_entity: int = 50  # Max causal relations per entity
 
 
 class SpacySettings(BaseModel):
@@ -443,6 +454,9 @@ class PipelineProcessSettings(BaseModel):
 
     merge_cross_query_limit: int = 20  # Cross-query similar articles limit
     drain_timeout: float = 30.0  # Pipeline drain timeout
+    worker_poll_interval: float = 1.0  # seconds between queue polls
+    worker_batch_size: int = 20  # items per batch
+    worker_error_delay: float = 5.0  # seconds after error
 
 
 class KnowledgeCacheSettings(BaseModel):

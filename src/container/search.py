@@ -82,6 +82,7 @@ class ContainerSearchMixin:
                 llm=self._llm_client,
                 context_builder=global_builder,
                 local_engine=self._local_search_engine,
+                search_settings=self._settings.search,
             )
         return (self._local_search_engine, self._global_search_engine)
 

@@ -225,7 +225,6 @@ class PreStartupHealthChecker:
         Returns:
             ServiceCheckResult with validation status.
         """
-        import os
         import time
 
         start_time = time.monotonic()
@@ -233,7 +232,7 @@ class PreStartupHealthChecker:
 
         try:
             api_key = self._settings.api.get_api_key()
-            environment = os.environ.get("ENVIRONMENT", "development")
+            environment = self._settings.environment
             min_key_length = 32
 
             if not api_key:

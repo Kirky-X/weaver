@@ -638,12 +638,12 @@ class ContainerLifecycleMixin:
                 log.info("causal_inference_service_skipped_no_repo")
                 return None
 
-            # Create config (default values)
+            # Create config from settings
             config = InferenceConfig(
-                batch_size=20,
-                confidence_threshold=0.6,
-                max_relations_per_entity=50,
-                llm_timeout_seconds=30,
+                batch_size=self._settings.pipeline_process.worker_batch_size,
+                confidence_threshold=self._settings.memory.causal_confidence_threshold,
+                max_relations_per_entity=self._settings.memory.max_relations_per_entity,
+                llm_timeout_seconds=self._settings.pipeline_process.drain_timeout,
                 enable_parallel_inference=True,
             )
 

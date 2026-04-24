@@ -22,7 +22,6 @@ Examples:
 
 from __future__ import annotations
 
-import os
 import threading
 from pathlib import Path
 
@@ -87,6 +86,7 @@ class Settings(BaseSettings):
 
     # Application metadata
     app_name: str = "weaver"
+    environment: str = "development"  # development / staging / production
     debug: bool = False
 
     # Sub-configurations (loaded from TOML, can be overridden by env vars)
@@ -153,10 +153,10 @@ class Settings(BaseSettings):
             ValueError: If production environment has insecure credentials.
         """
         warnings = []
-        environment = os.environ.get("ENVIRONMENT", os.environ.get("ENV", "development"))
+        environment = self.environment
 
         # Check API key security
-        api_warnings = self.api.validate_security()
+        api_warnings = self.api.validate_security(environment=self.environment)
         warnings.extend(api_warnings)
 
         # Check Neo4j credentials

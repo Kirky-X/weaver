@@ -579,6 +579,7 @@ class ContainerServicesMixin:
                 queue=self.processing_queue(),
                 pipeline=self._pipeline,
                 article_repo=self.article_repo(),
+                pipeline_settings=self._settings.pipeline_process,
             )
         return self._pipeline_worker
 
