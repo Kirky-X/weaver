@@ -95,6 +95,8 @@ class SourceConfig:
 
     def __post_init__(self) -> None:
         """Validate field ranges after initialization."""
+        if not self.id or not self.id.strip():
+            raise ValueError(f"id must be a non-empty string, got {self.id!r}")
         if self.credibility is not None:
             if not (0.0 <= self.credibility <= 1.0):
                 raise ValueError(f"credibility must be in range [0.0, 1.0], got {self.credibility}")

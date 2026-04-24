@@ -133,6 +133,7 @@ class SourceScheduler:
                 "source_crawl_failed",
                 source_id=source_id,
                 error=str(exc),
+                error_type=type(exc).__name__,
                 traceback=traceback.format_exc(),
             )
 

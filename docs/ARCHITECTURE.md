@@ -63,14 +63,15 @@ API Endpoints (使用层)
   - pool: RelationalPoolDep (推荐)
 ```
 
-**注意**: Container 不通过 `register_endpoints()` 注册依赖,而是直接管理所有服务实例。Endpoints 类的变量由外部设置(目前代码中未显式调用,依赖全局 Container 实例)。
+**注意**: Container 不通过 `register_endpoints()` 注册依赖,而是直接管理所有服务实例。Endpoints 类的变量由外部设置(
+目前代码中未显式调用,依赖全局 Container 实例)。
 
 ### 初始化顺序和依赖关系
 
 初始化顺序至关重要,修改可能导致启动失败:
 
-| 阶段                | 依赖项                  | 方法                    |
-| ------------------- | ----------------------- | ----------------------- |
+| 阶段                  | 依赖项                     | 方法                      |
+|---------------------|-------------------------|-------------------------|
 | database            | -                       | init_strategy()         |
 | migrations          | database                | initialize_database()   |
 | redis               | -                       | init_redis()            |
@@ -135,26 +136,26 @@ async def list_items(
 
 **依赖函数** (在 `api/dependencies.py` 中定义):
 
-| 依赖函数                      | 返回类型               | 说明                                   |
-| ----------------------------- | ---------------------- | -------------------------------------- |
-| `get_container()`             | `Container`            | 应用容器实例                           |
+| 依赖函数                          | 返回类型                   | 说明                            |
+|-------------------------------|------------------------|-------------------------------|
+| `get_container()`             | `Container`            | 应用容器实例                        |
 | `get_relational_pool()`       | `RelationalPool`       | 关系型数据库连接池 (PostgreSQL/DuckDB) |
-| `get_graph_pool()`            | `GraphPool`            | 图数据库连接池 (Neo4j/LadybugDB)       |
-| `get_graph_pool_type()`       | `str`                  | 图数据库类型 ('neo4j' 或 'ladybug')    |
-| `get_cache_client()`          | `CachePool`            | 缓存客户端 (Redis/Cashews)             |
-| `get_llm_client()`            | `LLMClient`            | LLM 客户端                             |
-| `get_vector_repo()`           | `VectorRepo`           | 向量仓库                               |
-| `get_graph_repo()`            | `GraphRepository`      | 图数据库仓库                           |
-| `get_local_search_engine()`   | `LocalSearchEngine`    | 本地搜索引擎                           |
-| `get_global_search_engine()`  | `GlobalSearchEngine`   | 全局搜索引擎                           |
-| `get_hybrid_engine()`         | `HybridSearchEngine`   | 混合搜索引擎                           |
-| `get_source_scheduler()`      | `SourceScheduler`      | 源调度器                               |
-| `get_source_config_repo()`    | `SourceConfigRepo`     | 源配置仓库                             |
-| `get_source_authority_repo()` | `SourceAuthorityRepo`  | 源权威仓库                             |
-| `get_llm_failure_repo()`      | `LLMFailureRepo`       | LLM 失败仓库                           |
-| `get_llm_usage_repo()`        | `LLMUsageRepo`         | LLM 使用统计仓库                       |
-| `get_pipeline_service()`      | `PipelineServiceImpl`  | Pipeline 服务                          |
-| `get_task_registry()`         | `InMemoryTaskRegistry` | 任务注册表                             |
+| `get_graph_pool()`            | `GraphPool`            | 图数据库连接池 (Neo4j/LadybugDB)     |
+| `get_graph_pool_type()`       | `str`                  | 图数据库类型 ('neo4j' 或 'ladybug')  |
+| `get_cache_client()`          | `CachePool`            | 缓存客户端 (Redis/Cashews)         |
+| `get_llm_client()`            | `LLMClient`            | LLM 客户端                       |
+| `get_vector_repo()`           | `VectorRepo`           | 向量仓库                          |
+| `get_graph_repo()`            | `GraphRepository`      | 图数据库仓库                        |
+| `get_local_search_engine()`   | `LocalSearchEngine`    | 本地搜索引擎                        |
+| `get_global_search_engine()`  | `GlobalSearchEngine`   | 全局搜索引擎                        |
+| `get_hybrid_engine()`         | `HybridSearchEngine`   | 混合搜索引擎                        |
+| `get_source_scheduler()`      | `SourceScheduler`      | 源调度器                          |
+| `get_source_config_repo()`    | `SourceConfigRepo`     | 源配置仓库                         |
+| `get_source_authority_repo()` | `SourceAuthorityRepo`  | 源权威仓库                         |
+| `get_llm_failure_repo()`      | `LLMFailureRepo`       | LLM 失败仓库                      |
+| `get_llm_usage_repo()`        | `LLMUsageRepo`         | LLM 使用统计仓库                    |
+| `get_pipeline_service()`      | `PipelineServiceImpl`  | Pipeline 服务                   |
+| `get_task_registry()`         | `InMemoryTaskRegistry` | 任务注册表                         |
 
 **Type Aliases** (用于更简洁的函数签名):
 
@@ -168,18 +169,18 @@ LLMClientDep = Annotated["LLMClient", Depends(get_llm_client)]
 
 **数据库类型查询** (Endpoints 类方法):
 
-| 方法                    | 返回值 | 说明                                                  |
-| ----------------------- | ------ | ----------------------------------------------------- |
-| `get_relational_type()` | `str`  | "postgres" 或 "duckdb" (未初始化返回 "unknown")       |
-| `get_graph_type()`      | `str`  | "neo4j" 或 "ladybug" (未初始化返回 "unknown")         |
-| `get_cache_type()`      | `str`  | 类名: "RedisClient", "CashewsRedisFallback" 或 "none" |
+| 方法                      | 返回值   | 说明                                                 |
+|-------------------------|-------|----------------------------------------------------|
+| `get_relational_type()` | `str` | "postgres" 或 "duckdb" (未初始化返回 "unknown")           |
+| `get_graph_type()`      | `str` | "neo4j" 或 "ladybug" (未初始化返回 "unknown")             |
+| `get_cache_type()`      | `str` | 类名: "RedisClient", "CashewsRedisFallback" 或 "none" |
 
 ### 服务生命周期
 
-| 生命周期      | 说明                        | 示例                                              |
-| ------------- | --------------------------- | ------------------------------------------------- |
+| 生命周期          | 说明             | 示例                                                |
+|---------------|----------------|---------------------------------------------------|
 | **Singleton** | 全局唯一实例,应用启动时创建 | RelationalPool, GraphPool, RedisClient, LLMClient |
-| **Transient** | 每次请求创建新实例          | Repo 类 (通过 Container 方法获取,内部缓存实例)    |
+| **Transient** | 每次请求创建新实例      | Repo 类 (通过 Container 方法获取,内部缓存实例)                 |
 
 ### Event Bus 事件系统
 
@@ -194,15 +195,15 @@ Weaver 使用 EventBus 实现组件间的松耦合通信:
 
 **事件订阅者** (在 Container.startup 中注册):
 
-| 事件类型            | 订阅者                        | 功能                                        |
-| ------------------- | ----------------------------- | ------------------------------------------- |
-| `LLMFailureEvent`   | `_handle_llm_failure_async`   | 记录失败到 LLMFailureRepo                   |
-| `LLMUsageEvent`     | `_handle_llm_usage_metrics`   | 更新 Prometheus token 指标                  |
-| `LLMUsageEvent`     | `_handle_llm_usage_buffer`    | 累加到 Redis Buffer (2小时 TTL)             |
+| 事件类型                | 订阅者                           | 功能                               |
+|---------------------|-------------------------------|----------------------------------|
+| `LLMFailureEvent`   | `_handle_llm_failure_async`   | 记录失败到 LLMFailureRepo             |
+| `LLMUsageEvent`     | `_handle_llm_usage_metrics`   | 更新 Prometheus token 指标           |
+| `LLMUsageEvent`     | `_handle_llm_usage_buffer`    | 累加到 Redis Buffer (2小时 TTL)       |
 | `LLMUsageEvent`     | `_handle_llm_usage_raw`       | 插入原始记录到数据库 (PostgreSQL 或 DuckDB) |
-| `LLMCompareEvent`   | `_handle_eval_compare_buffer` | 累加到 EvalCompareBuffer (24小时 TTL)       |
-| `LLMCompareEvent`   | `_handle_eval_compare_raw`    | 插入原始对比记录到数据库                    |
-| `MemoryIngestEvent` | `handle_memory_ingest`        | 调用 MemoryService.ingest()                 |
+| `LLMCompareEvent`   | `_handle_eval_compare_buffer` | 累加到 EvalCompareBuffer (24小时 TTL) |
+| `LLMCompareEvent`   | `_handle_eval_compare_raw`    | 插入原始对比记录到数据库                     |
+| `MemoryIngestEvent` | `handle_memory_ingest`        | 调用 MemoryService.ingest()        |
 
 **实际应用**:
 
@@ -266,10 +267,10 @@ announcer.announce("127.0.0.1", 8005, original_port=8000)
 
 在 `APISettings` 中配置：
 
-| 参数                | 默认值 | 说明                 |
-| ------------------- | ------ | -------------------- |
+| 参数                  | 默认值    | 说明         |
+|---------------------|--------|------------|
 | `port_auto_detect`  | `True` | 是否启用端口自动检测 |
-| `port_max_attempts` | `100`  | 最大搜索尝试次数     |
+| `port_max_attempts` | `100`  | 最大搜索尝试次数   |
 
 **配置示例**：
 
@@ -282,8 +283,8 @@ port_max_attempts = 100
 
 ### 环境变量控制
 
-| 环境变量                | 默认值  | 说明                                     |
-| ----------------------- | ------- | ---------------------------------------- |
+| 环境变量                    | 默认值     | 说明                                 |
+|-------------------------|---------|------------------------------------|
 | `WEAVER_WRITE_PORT_ENV` | `false` | 是否写入 `.env.weaver` 文件 (true/false) |
 
 **配置示例**：
@@ -309,12 +310,12 @@ HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
 
 ### 使用场景
 
-| 场景                     | 行为                                     |
-| ------------------------ | ---------------------------------------- |
-| 端口可用                 | 使用配置端口，日志输出 `port_check`      |
-| 端口被占用               | 自动分配新端口，日志输出 `port_resolved` |
-| 所有端口耗尽             | 抛出 `PortExhaustionError`，应用启动失败 |
-| `port_auto_detect=false` | 使用配置端口，不进行检测                 |
+| 场景                       | 行为                              |
+|--------------------------|---------------------------------|
+| 端口可用                     | 使用配置端口，日志输出 `port_check`        |
+| 端口被占用                    | 自动分配新端口，日志输出 `port_resolved`    |
+| 所有端口耗尽                   | 抛出 `PortExhaustionError`，应用启动失败 |
+| `port_auto_detect=false` | 使用配置端口，不进行检测                    |
 
 ---
 
@@ -333,20 +334,20 @@ SmartRouter 负责智能选择最优 LLM Provider:
 **工作原理**:
 
 1. **ExperienceStore**: 记录每个 Provider 的历史性能数据
-   - 响应时间
-   - 成功率
-   - Token 消耗
-   - 错误类型
+    - 响应时间
+    - 成功率
+    - Token 消耗
+    - 错误类型
 
 2. **Circuit Breaker 集成**: 自动熔断不健康的 Provider
-   - 连续失败 5 次后打开熔断器
-   - 60 秒冷却期后尝试半开状态
-   - 探测成功则关闭熔断器
+    - 连续失败 5 次后打开熔断器
+    - 60 秒冷却期后尝试半开状态
+    - 探测成功则关闭熔断器
 
 3. **多 Provider 自动切换**:
-   - 主 Provider 失败时自动切换到 Fallback
-   - 基于历史性能动态调整优先级
-   - 支持成本优化路由
+    - 主 Provider 失败时自动切换到 Fallback
+    - 基于历史性能动态调整优先级
+    - 支持成本优化路由
 
 **配置示例** (config/llm.toml):
 
@@ -717,12 +718,12 @@ scheduler.add_job(
 
 ### 异常场景处理
 
-| 场景                        | 检测机制                          | 恢复机制                   |
-| --------------------------- | --------------------------------- | -------------------------- |
-| PostgreSQL 成功，Neo4j 失败 | Saga 补偿事务                     | 删除 PostgreSQL → 重试队列 |
-| 补偿事务失败                | 日志告警                          | 定期对账任务修复           |
-| 网络超时                    | Circuit Breaker 熔断              | 自动重试 + 对账            |
-| 进程崩溃                    | 状态检查 (`pg_done` 长时间未变更) | 重试任务处理               |
+| 场景                     | 检测机制                    | 恢复机制                 |
+|------------------------|-------------------------|----------------------|
+| PostgreSQL 成功，Neo4j 失败 | Saga 补偿事务               | 删除 PostgreSQL → 重试队列 |
+| 补偿事务失败                 | 日志告警                    | 定期对账任务修复             |
+| 网络超时                   | Circuit Breaker 熔断      | 自动重试 + 对账            |
+| 进程崩溃                   | 状态检查 (`pg_done` 长时间未变更) | 重试任务处理               |
 
 ---
 
@@ -766,19 +767,19 @@ stateDiagram-v2
 
 1. **异步调用支持**: 手动实现 async/await 支持 (pybreaker 的 call_async 是 Tornado 专用)
 2. **慢请求追踪**: 连续慢请求会降低 provider 的 editorial 分数
-   - 慢请求阈值: `timeout * slow_threshold` (默认 50%)
-   - 连续 5 次慢请求触发警告
+    - 慢请求阈值: `timeout * slow_threshold` (默认 50%)
+    - 连续 5 次慢请求触发警告
 3. **状态查询**: 提供 `is_open`, `state`, `slow_count` 等属性
 4. **异常处理**: 抛出 `CircuitOpenError` 当熔断器开启时
 
 ### 配置参数
 
-| 参数                 | 默认值 | 说明                                    |
-| -------------------- | ------ | --------------------------------------- |
-| `fail_max`           | 5      | 连续失败次数阈值，超过后打开熔断器      |
-| `reset_timeout`      | 60.0   | OPEN 状态冷却期（秒），之后进入半开状态 |
-| `slow_threshold`     | 0.5    | 慢请求阈值 (timeout 的比例)             |
-| `exclude_exceptions` | []     | 不计入失败的异常类型列表                |
+| 参数                   | 默认值  | 说明                     |
+|----------------------|------|------------------------|
+| `fail_max`           | 5    | 连续失败次数阈值，超过后打开熔断器      |
+| `reset_timeout`      | 60.0 | OPEN 状态冷却期（秒），之后进入半开状态 |
+| `slow_threshold`     | 0.5  | 慢请求阈值 (timeout 的比例)    |
+| `exclude_exceptions` | []   | 不计入失败的异常类型列表           |
 
 ### 慢请求降级机制
 
@@ -839,74 +840,74 @@ misfire_grace_time_seconds = 300                  # 错过执行的宽限期
 
 #### 1. 数据同步任务 (Data Sync)
 
-| 任务 ID                         | 触发器   | 间隔              | 说明                         |
-| ------------------------------- | -------- | ----------------- | ---------------------------- |
-| `sync_pending_to_neo4j`         | Interval | 10 分钟           | 同步待处理记录到 Neo4j       |
-| `retry_neo4j_writes`            | Interval | 10 分钟           | 重试失败的 Neo4j 写入        |
-| `sync_neo4j_with_postgres`      | Interval | 1 小时            | 全量 Neo4j ↔ PostgreSQL 同步 |
-| `consistency_check`             | Cron     | 配置值 (默认每天) | 数据一致性检查               |
-| `startup_sync_pending_to_neo4j` | Date     | 启动时            | 启动时立即执行一次同步       |
+| 任务 ID                           | 触发器      | 间隔         | 说明                       |
+|---------------------------------|----------|------------|--------------------------|
+| `sync_pending_to_neo4j`         | Interval | 10 分钟      | 同步待处理记录到 Neo4j           |
+| `retry_neo4j_writes`            | Interval | 10 分钟      | 重试失败的 Neo4j 写入           |
+| `sync_neo4j_with_postgres`      | Interval | 1 小时       | 全量 Neo4j ↔ PostgreSQL 同步 |
+| `consistency_check`             | Cron     | 配置值 (默认每天) | 数据一致性检查                  |
+| `startup_sync_pending_to_neo4j` | Date     | 启动时        | 启动时立即执行一次同步              |
 
 #### 2. 清理任务 (Cleanup)
 
-| 任务 ID                 | 触发器   | 间隔              | 说明                              |
-| ----------------------- | -------- | ----------------- | --------------------------------- |
-| `cleanup_old_synced`    | Cron     | 配置值 (默认每天) | 清理旧同步记录 (保留 7 天)        |
-| `llm_failure_cleanup`   | Interval | 24 小时           | 清理 LLM 失败记录 (保留 3 天)     |
-| `llm_usage_raw_cleanup` | Interval | 6 小时            | 清理 LLM 使用原始记录 (保留 2 天) |
+| 任务 ID                   | 触发器      | 间隔         | 说明                     |
+|-------------------------|----------|------------|------------------------|
+| `cleanup_old_synced`    | Cron     | 配置值 (默认每天) | 清理旧同步记录 (保留 7 天)       |
+| `llm_failure_cleanup`   | Interval | 24 小时      | 清理 LLM 失败记录 (保留 3 天)   |
+| `llm_usage_raw_cleanup` | Interval | 6 小时       | 清理 LLM 使用原始记录 (保留 2 天) |
 
 #### 3. Pipeline 重试任务
 
-| 任务 ID                     | 触发器   | 间隔    | 说明                     |
-| --------------------------- | -------- | ------- | ------------------------ |
+| 任务 ID                       | 触发器      | 间隔    | 说明                |
+|-----------------------------|----------|-------|-------------------|
 | `retry_pipeline_processing` | Interval | 15 分钟 | 重试失败的 Pipeline 处理 |
 
 #### 4. 归档任务 (Archive, 条件性)
 
 需要 Neo4j 可用才注册:
 
-| 任务 ID                         | 触发器 | 间隔        | 说明                      |
-| ------------------------------- | ------ | ----------- | ------------------------- |
-| `archive_old_neo4j_nodes`       | Cron   | 每周六 2:00 | 归档旧 Neo4j 节点 (90 天) |
-| `cleanup_orphan_entity_vectors` | Cron   | 每周六 3:00 | 清理孤立实体向量          |
+| 任务 ID                           | 触发器  | 间隔       | 说明                  |
+|---------------------------------|------|----------|---------------------|
+| `archive_old_neo4j_nodes`       | Cron | 每周六 2:00 | 归档旧 Neo4j 节点 (90 天) |
+| `cleanup_orphan_entity_vectors` | Cron | 每周六 3:00 | 清理孤立实体向量            |
 
 #### 5. 抓取重试任务 (Crawl Retry)
 
-| 任务 ID             | 触发器   | 间隔  | 说明                 |
-| ------------------- | -------- | ----- | -------------------- |
+| 任务 ID               | 触发器      | 间隔   | 说明         |
+|---------------------|----------|------|------------|
 | `flush_retry_queue` | Interval | 30 秒 | 刷新过期抓取重试队列 |
 
 #### 6. LLM 使用统计 (LLM Usage)
 
-| 任务 ID               | 触发器   | 间隔   | 说明                               |
-| --------------------- | -------- | ------ | ---------------------------------- |
+| 任务 ID                 | 触发器      | 间隔   | 说明                            |
+|-----------------------|----------|------|-------------------------------|
 | `llm_usage_aggregate` | Interval | 5 分钟 | LLM 使用量 Redis → PostgreSQL 聚合 |
 
 #### 7. 源评分任务 (Source Scoring)
 
-| 任务 ID                     | 触发器 | 间隔              | 说明           |
-| --------------------------- | ------ | ----------------- | -------------- |
-| `update_source_auto_scores` | Cron   | 配置值 (默认每天) | 更新源权威评分 |
+| 任务 ID                       | 触发器  | 间隔         | 说明      |
+|-----------------------------|------|------------|---------|
+| `update_source_auto_scores` | Cron | 配置值 (默认每天) | 更新源权威评分 |
 
 #### 8. 社区检测任务 (Community Detection)
 
-| 任务 ID                  | 触发器   | 间隔    | 说明                   |
-| ------------------------ | -------- | ------- | ---------------------- |
-| `community_auto_check`   | Interval | 30 分钟 | 社区自动检测检查       |
+| 任务 ID                    | 触发器      | 间隔    | 说明          |
+|--------------------------|----------|-------|-------------|
+| `community_auto_check`   | Interval | 30 分钟 | 社区自动检测检查    |
 | `community_health_check` | Interval | 6 小时  | 社区健康检查和自动修复 |
 
 #### 9. 指标更新任务 (Metrics)
 
-| 任务 ID                         | 触发器   | 间隔   | 说明                           |
-| ------------------------------- | -------- | ------ | ------------------------------ |
+| 任务 ID                           | 触发器      | 间隔   | 说明                    |
+|---------------------------------|----------|------|-----------------------|
 | `update_persist_status_metrics` | Interval | 5 分钟 | 更新 Prometheus 持久化状态指标 |
 
 #### 10. Memory Consolidation (条件性)
 
 需要 Memory Service 可用才注册:
 
-| 任务 ID                | 触发器   | 间隔    | 说明              |
-| ---------------------- | -------- | ------- | ----------------- |
+| 任务 ID                  | 触发器      | 间隔    | 说明           |
+|------------------------|----------|-------|--------------|
 | `memory_consolidation` | Interval | 60 分钟 | Memory 慢路径整合 |
 
 ### 任务执行保证
@@ -940,15 +941,16 @@ scheduler.shutdown(wait=False)  # 不等待当前任务完成
 
 ### 概述
 
-Weaver 使用 **pgvector** 扩展在 PostgreSQL 中存储向量嵌入，并采用 **HNSW (Hierarchical Navigable Small World)** 索引优化相似性搜索性能。
+Weaver 使用 **pgvector** 扩展在 PostgreSQL 中存储向量嵌入，并采用 **HNSW (Hierarchical Navigable Small World)**
+索引优化相似性搜索性能。
 
 ### HNSW 索引优势
 
-| 特性     | HNSW      | IVFFlat     | BRUTE FORCE |
-| -------- | --------- | ----------- | ----------- |
-| 查询速度 | ⚡ 极快   | 🚀 快       | 🐢 慢       |
-| 召回率   | 高 (95%+) | 中等 (90%+) | 100%        |
-| 适用场景 | 生产环境  | 大规模数据  | 小数据集    |
+| 特性   | HNSW     | IVFFlat   | BRUTE FORCE |
+|------|----------|-----------|-------------|
+| 查询速度 | ⚡ 极快     | 🚀 快      | 🐢 慢        |
+| 召回率  | 高 (95%+) | 中等 (90%+) | 100%        |
+| 适用场景 | 生产环境     | 大规模数据     | 小数据集        |
 
 ### 索引配置
 
@@ -967,11 +969,11 @@ WITH (m = 16, ef_construction = 64);
 
 ### 性能指标
 
-| 数据规模  | 查询延迟 (P95) | 召回率 |
-| --------- | -------------- | ------ |
-| 10K 向量  | < 10ms         | 98%    |
-| 100K 向量 | < 30ms         | 97%    |
-| 1M 向量   | < 100ms        | 96%    |
+| 数据规模    | 查询延迟 (P95) | 召回率 |
+|---------|------------|-----|
+| 10K 向量  | < 10ms     | 98% |
+| 100K 向量 | < 30ms     | 97% |
+| 1M 向量   | < 100ms    | 96% |
 
 ---
 
@@ -979,7 +981,8 @@ WITH (m = 16, ef_construction = 64);
 
 ### 概述
 
-Weaver 实现了基于 **Hierarchical Leiden 算法** 的社区检测系统，用于发现知识图谱中的社区结构，支持更智能的全局搜索和 DRIFT 搜索。
+Weaver 实现了基于 **Hierarchical Leiden 算法** 的社区检测系统，用于发现知识图谱中的社区结构，支持更智能的全局搜索和 DRIFT
+搜索。
 
 ### 核心组件
 
@@ -1034,11 +1037,11 @@ scheduler.add_job(
 
 ### 性能指标
 
-| 图谱规模 | 检测时间 | 内存使用 | 社区数量 |
-| -------- | -------- | -------- | -------- |
-| 1K 实体  | < 5s     | ~100MB   | 10-30    |
-| 5K 实体  | < 30s    | ~500MB   | 50-150   |
-| 10K 实体 | < 60s    | ~1GB     | 100-300  |
+| 图谱规模   | 检测时间  | 内存使用   | 社区数量    |
+|--------|-------|--------|---------|
+| 1K 实体  | < 5s  | ~100MB | 10-30   |
+| 5K 实体  | < 30s | ~500MB | 50-150  |
+| 10K 实体 | < 60s | ~1GB   | 100-300 |
 
 ---
 
@@ -1075,17 +1078,17 @@ if has_degraded_data(state):
 
 **PipelineState 关键字段**:
 
-| 字段                  | 类型             | 说明                        |
-| --------------------- | ---------------- | --------------------------- |
+| 字段                    | 类型               | 说明             |
+|-----------------------|------------------|----------------|
 | `degraded_fields`     | `list[str]`      | 使用降级/默认值的字段名列表 |
-| `degradation_reasons` | `dict[str, str]` | 字段名 → 降级原因映射       |
+| `degradation_reasons` | `dict[str, str]` | 字段名 → 降级原因映射   |
 
 ### 降级标记点
 
-| 节点              | 降级字段             | 触发条件     |
-| ----------------- | -------------------- | ------------ |
+| 节点                | 降级字段                 | 触发条件     |
+|-------------------|----------------------|----------|
 | `Cleaner`         | `content`, `summary` | LLM 清洗失败 |
-| `EntityExtractor` | `entities`           | 实体提取失败 |
+| `EntityExtractor` | `entities`           | 实体提取失败   |
 | `Categorizer`     | `categories`         | 分类失败     |
 
 ### 使用场景
@@ -1176,19 +1179,19 @@ async def dedup(self, items: list) -> list:
 
 ### 配置参数
 
-| 参数                    | 默认值          | 说明            |
-| ----------------------- | --------------- | --------------- |
+| 参数                      | 默认值             | 说明            |
+|-------------------------|-----------------|---------------|
 | `DEDUP_KEY`             | `"crawl:dedup"` | Redis Hash 键名 |
-| `DEFAULT_TTL`           | `604800` (7天)  | 缓存条目 TTL    |
-| `HEALTH_CHECK_INTERVAL` | `60` (秒)       | 健康检查间隔    |
+| `DEFAULT_TTL`           | `604800` (7天)   | 缓存条目 TTL      |
+| `HEALTH_CHECK_INTERVAL` | `60` (秒)        | 健康检查间隔        |
 
 ### Prometheus 指标
 
-| 指标名                                      | 类型      | 说明                             |
-| ------------------------------------------- | --------- | -------------------------------- |
+| 指标名                                         | 类型        | 说明                  |
+|---------------------------------------------|-----------|---------------------|
 | `weaver_dedup_redis_fallback_total`         | Counter   | Redis 不可用时回退到数据库的次数 |
-| `weaver_dedup_total{stage="url"}`           | Counter   | URL 去重总数                     |
-| `weaver_dedup_processing_time{stage="url"}` | Histogram | 去重处理时间                     |
+| `weaver_dedup_total{stage="url"}`           | Counter   | URL 去重总数            |
+| `weaver_dedup_processing_time{stage="url"}` | Histogram | 去重处理时间              |
 
 ---
 
@@ -1220,12 +1223,12 @@ for i, cached in enumerate(cached_values):
 
 > 测试环境: Python 3.12, 模拟 1ms 网络延迟 (tests/performance/test_embedding_cache_performance.py)
 
-| 文本数量 | 循环 GET 延迟 | 批量 MGET 延迟 | 性能提升   |
-| -------- | ------------- | -------------- | ---------- |
-| 10 条    | 11.05ms       | 1.09ms         | **10.1x**  |
-| 50 条    | 55.37ms       | 1.10ms         | **50.2x**  |
-| 100 条   | 110.46ms      | 1.12ms         | **98.7x**  |
-| 500 条   | 552.29ms      | 1.14ms         | **483.4x** |
+| 文本数量  | 循环 GET 延迟 | 批量 MGET 延迟 | 性能提升       |
+|-------|-----------|------------|------------|
+| 10 条  | 11.05ms   | 1.09ms     | **10.1x**  |
+| 50 条  | 55.37ms   | 1.10ms     | **50.2x**  |
+| 100 条 | 110.46ms  | 1.12ms     | **98.7x**  |
+| 500 条 | 552.29ms  | 1.14ms     | **483.4x** |
 
 **结论**: 批量 MGET 将 O(N) 网络往返降低到 O(1)，在大批量场景下性能提升高达 **480x**。
 
@@ -1235,7 +1238,8 @@ for i, cached in enumerate(cached_values):
 
 Weaver 通过以下核心架构设计确保系统的可靠性、一致性和高性能：
 
-1. **依赖注入架构**: FastAPI Depends 模式 + Container 统一管理,支持多数据库策略 (PostgreSQL/DuckDB, Neo4j/LadybugDB, Redis/Cashews)
+1. **依赖注入架构**: FastAPI Depends 模式 + Container 统一管理,支持多数据库策略 (PostgreSQL/DuckDB, Neo4j/LadybugDB,
+   Redis/Cashews)
 2. **Smart LLM Router**: 智能路由系统,集成 ExperienceStore + ModelSelector + Circuit Breaker,支持影子评估和热重载
 3. **Saga 模式**: 跨数据库原子性保证,补偿事务机制,幂等性支持
 4. **PersistStatus 状态机**: 合法状态转换验证,支持失败重试和终态保护

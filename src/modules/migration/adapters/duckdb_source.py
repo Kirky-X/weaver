@@ -7,6 +7,7 @@ Implements MigrationSource protocol for reading data from DuckDB.
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -33,6 +34,12 @@ class DuckDBSource:
         """
         self._pool = pool
         self._engine = pool._engine
+        # Cache for count() results: {table: (timestamp, count)}
+        self._count_cache: dict[str, tuple[float, int]] = {}
+        # Cache TTL in seconds for count results
+        self._COUNT_CACHE_TTL = 30.0
+        # Cache for table names to avoid duplicate information_schema queries
+        self._table_names_cache: list[str] | None = None
 
     async def _run_sync(self, func: Any, *args: Any, **kwargs: Any) -> Any:
         """Run a sync function in a thread."""
@@ -58,6 +65,9 @@ class DuckDBSource:
                     ORDER BY table_name
                 """))
                 tables = [row[0] for row in tables_result.fetchall()]
+
+                # Cache table names for reuse by get_table_names()
+                self._table_names_cache = tables
 
                 for table in tables:
                     schema = self._read_table_schema_sync(conn, table)
@@ -211,12 +221,20 @@ class DuckDBSource:
     async def count(self, table: str) -> int:
         """Count total rows in a table.
 
+        Results are cached for 30 seconds to avoid repeated COUNT(*)
+        queries during migration progress tracking.
+
         Args:
             table: Table name to count.
 
         Returns:
             Total number of rows.
         """
+        # Check cache first
+        now = time.monotonic()
+        cached = self._count_cache.get(table)
+        if cached and (now - cached[0]) < self._COUNT_CACHE_TTL:
+            return cached[1]
 
         def _count_sync() -> int:
             # Validate table name to prevent SQL injection
@@ -225,10 +243,18 @@ class DuckDBSource:
                 result = conn.execute(text(f'SELECT COUNT(*) FROM "{table}"'))
                 return result.scalar() or 0
 
-        return await self._run_sync(_count_sync)
+        row_count = await self._run_sync(_count_sync)
+        self._count_cache[table] = (time.monotonic(), row_count)
+        return row_count
 
     async def get_table_names(self) -> list[str]:
-        """Get list of all table names."""
+        """Get list of all table names.
+
+        Returns cached table names if available from a prior read_schema()
+        call, avoiding a duplicate information_schema query.
+        """
+        if self._table_names_cache is not None:
+            return self._table_names_cache
 
         def _get_tables_sync() -> list[str]:
             with self._engine.connect() as conn:
@@ -238,6 +264,8 @@ class DuckDBSource:
                     WHERE table_schema = 'main'
                     AND table_type = 'BASE TABLE'
                 """))
-                return [row[0] for row in result.fetchall()]
+                tables = [row[0] for row in result.fetchall()]
+                self._table_names_cache = tables
+                return tables
 
         return await self._run_sync(_get_tables_sync)

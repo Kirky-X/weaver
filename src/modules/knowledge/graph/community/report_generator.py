@@ -71,7 +71,7 @@ class CommunityReportGenerator:
     ) -> None:
         self._pool = pool
         # Detect database type for LadybugDB compatibility
-        self._is_ladybug = type(pool).__name__ == "LadybugPool"
+        self._is_ladybug = pool.database_type == "ladybug"
         db_type = GraphDatabaseType.LADYBUG if self._is_ladybug else GraphDatabaseType.NEO4J
         self._repo = Neo4jCommunityRepo(pool, database_type=db_type)
         self._llm = llm_client

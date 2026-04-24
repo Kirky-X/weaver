@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     pass
 
-
 # ── Validation Patterns ─────────────────────────────────────────────────────
 
 # Valid SQL identifier: letters, digits, underscore, must start with letter or underscore

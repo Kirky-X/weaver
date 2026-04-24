@@ -468,6 +468,11 @@ class BM25Retriever:
             log.error("bm25_index_integrity_error", path=str(json_path), error=str(e))
             raise
 
+    @property
+    def is_initialized(self) -> bool:
+        """Check if the BM25 index is initialized and ready for queries."""
+        return self._retriever is not None
+
     def get_document_count(self) -> int:
         """Get the number of indexed documents."""
         return len(self._documents)

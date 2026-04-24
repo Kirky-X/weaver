@@ -14,6 +14,7 @@ from core.constants import SearchMode
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
 from core.observability.logging import get_logger
+from modules.knowledge.search.context.builder import ContextBuilder
 
 if TYPE_CHECKING:
     from modules.knowledge.search.engines.hybrid_search import HybridSearchEngine
@@ -50,7 +51,7 @@ class LocalSearchEngine:
 
     def __init__(
         self,
-        context_builder: Any,
+        context_builder: ContextBuilder,
         llm: LLMClient | None = None,
         default_max_tokens: int = 8000,
         max_context_tokens: int = 6000,

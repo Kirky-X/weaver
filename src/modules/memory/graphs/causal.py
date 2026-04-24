@@ -37,7 +37,7 @@ class CausalGraphRepo(BaseGraphRepo):
         """
         super().__init__(pool)
         self._confidence_threshold = confidence_threshold
-        self._is_ladybug = type(pool).__name__ == "LadybugPool"
+        self._is_ladybug = pool.database_type == "ladybug"
 
     async def ensure_constraints(self) -> None:
         """Create indexes for causal edges."""

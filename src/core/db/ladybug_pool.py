@@ -36,6 +36,14 @@ class LadybugPool:
     # Default buffer pool size: 256MB (controls mmap allocation)
     DEFAULT_BUFFER_POOL_SIZE = 256 * 1024 * 1024  # 256MB
 
+    @property
+    def database_type(self) -> str:
+        """Return the database type identifier.
+
+        Implements: GraphPool.database_type
+        """
+        return "ladybug"
+
     def __init__(
         self,
         db_path: str = "data/weaver.lbug",

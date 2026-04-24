@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-
 from fastapi import Request, Security
 from fastapi.security import APIKeyHeader
 from slowapi import Limiter

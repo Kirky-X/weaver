@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 from core.event.bus import CredibilityComputedEvent, EventBus
 from core.llm.client import LLMClient
 from core.llm.config.token_budget import TokenBudgetManager
+from core.llm.resilience.circuit_breaker import CircuitOpenError
+from core.llm.resilience.pool import AllProvidersFailedError
 from core.llm.types import CallPoint
 from core.llm.validation.output_validator import CredibilityOutput
 from core.observability.logging import get_logger
@@ -112,10 +114,21 @@ class CredibilityCheckerNode:
             )
             s2 = llm_result.score
             flags = llm_result.flags
-        except Exception as e:
-            log.warning("credibility_llm_failed_using_default", error=str(e))
+        except (AllProvidersFailedError, CircuitOpenError, ValueError) as e:
+            log.warning(
+                "credibility_llm_failed_using_default",
+                exc_type=type(e).__name__,
+                error=str(e),
+            )
             s2 = 0.5
             flags = []
+        except Exception as e:
+            log.error(
+                "credibility_unexpected_error",
+                exc_type=type(e).__name__,
+                error=str(e),
+            )
+            raise
 
         # Signal 3: Timeliness
         s3 = self._calc_timeliness(
@@ -176,7 +189,12 @@ class CredibilityCheckerNode:
                     log.debug("using_preset_credibility", host=host, value=preset)
                     return preset
             except Exception as exc:
-                log.warning("preset_credibility_lookup_failed", host=host, error=str(exc))
+                log.warning(
+                    "preset_credibility_lookup_failed",
+                    host=host,
+                    exc_type=type(exc).__name__,
+                    error=str(exc),
+                )
 
         # Priority 2: Check auto-calculated authority
         if self._source_auth_repo:
@@ -187,7 +205,12 @@ class CredibilityCheckerNode:
                 )
                 return float(source_auth.authority)
             except Exception as exc:
-                log.warning("source_auth_lookup_failed", host=host, error=str(exc))
+                log.warning(
+                    "source_auth_lookup_failed",
+                    host=host,
+                    exc_type=type(exc).__name__,
+                    error=str(exc),
+                )
 
         # Priority 3: Default
         return 0.50

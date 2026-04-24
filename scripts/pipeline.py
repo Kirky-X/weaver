@@ -119,7 +119,6 @@ FALLBACK_POSTGRES_HOST = "nonexistent.invalid"
 FALLBACK_NEO4J_URI = "bolt://nonexistent.invalid:7687"
 FALLBACK_REDIS_HOST = "nonexistent.invalid"
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Phase indicators
 # ─────────────────────────────────────────────────────────────────────────────
@@ -315,7 +314,6 @@ KNOWN_NEWSNOW_SOURCES: list[str] = [
     "ithome",
     "hupu",
 ]
-
 
 RSS_SOURCES: dict[str, dict[str, Any]] = {
     "solidot": {

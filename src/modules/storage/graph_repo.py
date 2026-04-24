@@ -52,6 +52,30 @@ class GraphRepository:
         """Get the database type."""
         return self._query_builder.database_type.value
 
+    @staticmethod
+    def _convert_timestamp(ts: Any) -> str | None:
+        """Convert timestamp from Neo4j DateTime, LadybugDB INT64, or string to ISO format.
+
+        Args:
+            ts: Timestamp value (int, Neo4j DateTime, Python datetime, or string).
+
+        Returns:
+            ISO format string or None if input is None.
+        """
+        if ts is None:
+            return None
+        if isinstance(ts, int):
+            from datetime import UTC, datetime
+
+            if ts > 1_000_000_000_000:
+                return datetime.fromtimestamp(ts / 1000, tz=UTC).isoformat()
+            return datetime.fromtimestamp(ts, tz=UTC).isoformat()
+        if hasattr(ts, "iso_format"):
+            return ts.iso_format()
+        if hasattr(ts, "isoformat"):
+            return ts.isoformat()
+        return str(ts)
+
     async def _get_fallback_pool(self) -> GraphPool | None:
         """Get or lazily initialize the fallback pool with schema."""
         if self._fallback_pool is None and self._fallback_pool_factory is not None:
@@ -105,25 +129,7 @@ class GraphRepository:
         )
         if result:
             record = result[0]
-            updated_at = record.get("updated_at")
-            if updated_at is not None:
-                # LadybugDB stores as INT64 seconds, Neo4j as datetime
-                if isinstance(updated_at, int):
-                    from datetime import UTC, datetime
-
-                    # Auto-detect: seconds (< 10^11) vs ms (> 10^12)
-                    if updated_at > 1_000_000_000_000:
-                        updated_at = datetime.fromtimestamp(updated_at / 1000, tz=UTC).isoformat()
-                    else:
-                        updated_at = datetime.fromtimestamp(updated_at, tz=UTC).isoformat()
-                elif hasattr(updated_at, "iso_format"):
-                    # Neo4j time.DateTime
-                    updated_at = updated_at.iso_format()
-                elif hasattr(updated_at, "isoformat"):
-                    # Python datetime
-                    updated_at = updated_at.isoformat()
-                else:
-                    updated_at = str(updated_at)
+            updated_at = self._convert_timestamp(record.get("updated_at"))
 
             return {
                 "id": record.get("id") or "",
@@ -153,20 +159,7 @@ class GraphRepository:
         )
         relations = []
         for row in result:
-            created_at = row.get("created_at")
-            if created_at is not None:
-                if isinstance(created_at, int):
-                    from datetime import UTC, datetime
-
-                    # Auto-detect: seconds (< 10^11) vs ms (> 10^12)
-                    if created_at > 1_000_000_000_000:
-                        created_at = datetime.fromtimestamp(created_at / 1000, tz=UTC).isoformat()
-                    else:
-                        created_at = datetime.fromtimestamp(created_at, tz=UTC).isoformat()
-                elif hasattr(created_at, "isoformat"):
-                    created_at = created_at.isoformat()
-                else:
-                    created_at = str(created_at)
+            created_at = self._convert_timestamp(row.get("created_at"))
             relations.append(
                 {
                     "target": row["target"],
@@ -195,27 +188,8 @@ class GraphRepository:
         )
         entities = []
         for row in result:
-            # Handle timestamps: Neo4j DateTime → str, LadybugDB INT64 → str
-            updated_at = row.get("updated_at")
-            created_at = row.get("created_at")
-            for ts_field, ts_val in [("updated_at", updated_at), ("created_at", created_at)]:
-                if ts_val is not None:
-                    if hasattr(ts_val, "iso_format"):
-                        # Neo4j time.DateTime object
-                        ts_val = ts_val.iso_format()
-                    elif isinstance(ts_val, int):
-                        from datetime import UTC, datetime
-
-                        if ts_val > 1_000_000_000_000:
-                            ts_val = datetime.fromtimestamp(ts_val / 1000, tz=UTC).isoformat()
-                        else:
-                            ts_val = datetime.fromtimestamp(ts_val, tz=UTC).isoformat()
-                    elif not isinstance(ts_val, str):
-                        ts_val = str(ts_val)
-                    if ts_field == "updated_at":
-                        updated_at = ts_val
-                    else:
-                        created_at = ts_val
+            updated_at = self._convert_timestamp(row.get("updated_at"))
+            created_at = self._convert_timestamp(row.get("created_at"))
 
             entities.append(
                 {
@@ -258,23 +232,7 @@ class GraphRepository:
         )
         articles = []
         for row in result:
-            publish_time = row.get("publish_time")
-            if publish_time is not None:
-                if isinstance(publish_time, int):
-                    from datetime import UTC, datetime
-
-                    # LadybugDB stores publish_time as INT64 seconds (not ms)
-                    # Check if value looks like seconds (< 10^11) vs ms (> 10^12)
-                    if publish_time > 1_000_000_000_000:
-                        publish_time = datetime.fromtimestamp(
-                            publish_time / 1000, tz=UTC
-                        ).isoformat()
-                    else:
-                        publish_time = datetime.fromtimestamp(publish_time, tz=UTC).isoformat()
-                elif hasattr(publish_time, "isoformat"):
-                    publish_time = publish_time.isoformat()
-                else:
-                    publish_time = str(publish_time)
+            publish_time = self._convert_timestamp(row.get("publish_time"))
             articles.append(
                 {
                     "id": row["id"],
@@ -303,17 +261,7 @@ class GraphRepository:
         )
         if result:
             record = result[0]
-            publish_time = record.get("publish_time")
-            if publish_time is not None:
-                if isinstance(publish_time, int):
-                    from datetime import UTC, datetime
-
-                    # LadybugDB stores publish_time as INT64 seconds (not ms)
-                    publish_time = datetime.fromtimestamp(publish_time, tz=UTC).isoformat()
-                elif hasattr(publish_time, "isoformat"):
-                    publish_time = publish_time.isoformat()
-                else:
-                    publish_time = str(publish_time)
+            publish_time = self._convert_timestamp(record.get("publish_time"))
 
             return {
                 "id": record.get("id") or "",
@@ -339,26 +287,8 @@ class GraphRepository:
         )
         entities = []
         for row in result:
-            # Handle timestamps (Neo4j DateTime, LadybugDB INT64, or string)
-            updated_at = row.get("updated_at")
-            created_at = row.get("created_at")
-            for ts_field in ["updated_at", "created_at"]:
-                ts = row.get(ts_field)
-                if ts is not None and isinstance(ts, int):
-                    from datetime import UTC, datetime
-
-                    if ts > 1_000_000_000_000:
-                        ts = datetime.fromtimestamp(ts / 1000, tz=UTC).isoformat()
-                    else:
-                        ts = datetime.fromtimestamp(ts, tz=UTC).isoformat()
-                elif ts is not None and hasattr(ts, "isoformat"):
-                    ts = ts.isoformat()
-                elif ts is not None:
-                    ts = str(ts)
-                if ts_field == "updated_at":
-                    updated_at = ts
-                else:
-                    created_at = ts
+            updated_at = self._convert_timestamp(row.get("updated_at"))
+            created_at = self._convert_timestamp(row.get("created_at"))
 
             entities.append(
                 {
@@ -388,20 +318,7 @@ class GraphRepository:
         )
         relationships = []
         for row in result:
-            created_at = row.get("created_at")
-            if created_at is not None:
-                if isinstance(created_at, int):
-                    from datetime import UTC, datetime
-
-                    # Auto-detect: seconds (< 10^11) vs ms (> 10^12)
-                    if created_at > 1_000_000_000_000:
-                        created_at = datetime.fromtimestamp(created_at / 1000, tz=UTC).isoformat()
-                    else:
-                        created_at = datetime.fromtimestamp(created_at, tz=UTC).isoformat()
-                elif hasattr(created_at, "isoformat"):
-                    created_at = created_at.isoformat()
-                else:
-                    created_at = str(created_at)
+            created_at = self._convert_timestamp(row.get("created_at"))
             relationships.append(
                 {
                     "source_id": row["source"],
@@ -431,23 +348,7 @@ class GraphRepository:
         )
         articles = []
         for row in result:
-            publish_time = row.get("publish_time")
-            if publish_time is not None:
-                if isinstance(publish_time, int):
-                    from datetime import UTC, datetime
-
-                    # LadybugDB stores publish_time as INT64 seconds (not ms)
-                    # Check if value looks like seconds (< 10^11) vs ms (> 10^12)
-                    if publish_time > 1_000_000_000_000:
-                        publish_time = datetime.fromtimestamp(
-                            publish_time / 1000, tz=UTC
-                        ).isoformat()
-                    else:
-                        publish_time = datetime.fromtimestamp(publish_time, tz=UTC).isoformat()
-                elif hasattr(publish_time, "isoformat"):
-                    publish_time = publish_time.isoformat()
-                else:
-                    publish_time = str(publish_time)
+            publish_time = self._convert_timestamp(row.get("publish_time"))
             articles.append(
                 {
                     "id": row.get("id") or "",

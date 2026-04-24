@@ -101,8 +101,54 @@ class RetryQueue:
         for item_str in items:
             item = json_repair.loads(item_str)
             # json_repair.loads returns '' for invalid JSON (instead of raising)
-            if not isinstance(item, (dict, list)):
+            if not isinstance(item, dict):
+                log.warning(
+                    "invalid_retry_item",
+                    raw=item_str[:100],
+                )
                 continue
+            required_fields = ("url", "host")
+            if not all(f in item for f in required_fields):
+                log.warning(
+                    "missing_fields_in_retry_item",
+                    fields=list(item.keys()),
+                )
+                continue
+
+            # Validate field types
+            url = item.get("url")
+            host = item.get("host")
+            if not isinstance(url, str) or not url:
+                log.warning(
+                    "invalid_retry_item_url",
+                    url_type=type(url).__name__,
+                    raw=item_str[:100],
+                )
+                continue
+            if not isinstance(host, str) or not host:
+                log.warning(
+                    "invalid_retry_item_host",
+                    host_type=type(host).__name__,
+                    raw=item_str[:100],
+                )
+                continue
+            attempt = item.get("attempt")
+            if attempt is not None and not (isinstance(attempt, int) and attempt >= 0):
+                log.warning(
+                    "invalid_retry_item_attempt",
+                    attempt=attempt,
+                    raw=item_str[:100],
+                )
+                continue
+            next_retry_at = item.get("next_retry_at")
+            if next_retry_at is not None and not isinstance(next_retry_at, (int, float)):
+                log.warning(
+                    "invalid_retry_item_next_retry_at",
+                    next_retry_at=next_retry_at,
+                    raw=item_str[:100],
+                )
+                continue
+
             result.append(item)
 
         # Remove fetched items from the sorted set

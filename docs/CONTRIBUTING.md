@@ -46,9 +46,9 @@
 3. **期望行为**：描述您期望发生的行为
 4. **实际行为**：描述实际发生的行为
 5. **环境信息**：
-   - 操作系统及版本
-   - Python 版本
-   - 相关依赖版本
+    - 操作系统及版本
+    - Python 版本
+    - 相关依赖版本
 6. **附加信息**：截图、日志片段等
 
 ### 建议新功能
@@ -58,9 +58,9 @@
 1. 先检查是否已有类似的 Issue
 2. 如果没有，创建新的 Issue，使用 "Feature Request" 标签
 3. 详细描述：
-   - 功能的使用场景
-   - 期望的行为
-   - 可能的实现方案（如果您有想法）
+    - 功能的使用场景
+    - 期望的行为
+    - 可能的实现方案（如果您有想法）
 
 ### 提交代码
 
@@ -80,9 +80,9 @@
    ```
 
 3. **进行更改**
-   - 编写代码
-   - 添加测试
-   - 更新文档
+    - 编写代码
+    - 添加测试
+    - 更新文档
 
 4. **提交更改**
    ```bash
@@ -96,9 +96,9 @@
    ```
 
 6. **创建 Pull Request**
-   - 在 GitHub 上创建 PR
-   - 填写 PR 模板
-   - 等待审查
+    - 在 GitHub 上创建 PR
+    - 填写 PR 模板
+    - 等待审查
 
 ---
 
@@ -177,15 +177,15 @@ uv run python -m src.main
 
 我们使用以下工具确保代码质量：
 
-| 工具 | 用途 | 配置位置 |
-|------|------|----------|
-| **Ruff** | 代码 Lint 和格式化 | `pyproject.toml` |
-| **Black** | 代码格式化 (与 Ruff 配合) | `pyproject.toml` |
-| **isort** | Import 排序 | `pyproject.toml` |
-| **mypy** | 静态类型检查 (部分启用) | `pyproject.toml` |
-| **bandit** | 安全漏洞扫描 | `pyproject.toml` |
-| **pre-commit** | Git 钩子自动化 | `.pre-commit-config.yaml` |
-| **commitizen** | 提交信息规范验证 | `pyproject.toml` |
+| 工具             | 用途                | 配置位置                      |
+|----------------|-------------------|---------------------------|
+| **Ruff**       | 代码 Lint 和格式化      | `pyproject.toml`          |
+| **Black**      | 代码格式化 (与 Ruff 配合) | `pyproject.toml`          |
+| **isort**      | Import 排序         | `pyproject.toml`          |
+| **mypy**       | 静态类型检查 (部分启用)     | `pyproject.toml`          |
+| **bandit**     | 安全漏洞扫描            | `pyproject.toml`          |
+| **pre-commit** | Git 钩子自动化         | `.pre-commit-config.yaml` |
+| **commitizen** | 提交信息规范验证          | `pyproject.toml`          |
 
 ### 运行代码检查
 
@@ -212,7 +212,8 @@ uv run bandit -r src/ -ll
 uv run ruff check src/ && uv run mypy src/ && uv run bandit -r src/
 ```
 
-> **注意**: 项目使用 Ruff 作为主要 Linter,Black 和 isort 作为格式化工具。Ruff 已内置 isort 功能，但为保持兼容性和双重保障，项目同时配置了独立的 isort 和 black。
+> **注意**: 项目使用 Ruff 作为主要 Linter,Black 和 isort 作为格式化工具。Ruff 已内置 isort 功能，但为保持兼容性和双重保障，项目同时配置了独立的
+> isort 和 black。
 
 ### 代码风格指南
 
@@ -365,18 +366,18 @@ except Exception as e:  # ✓ 可以，但仅在顶层使用
 
 #### Type
 
-| 类型 | 说明 |
-|------|------|
-| `feat` | 新功能 |
-| `fix` | Bug 修复 |
-| `docs` | 文档更新 |
-| `style` | 代码格式（不影响功能的更改） |
-| `refactor` | 代码重构 |
-| `perf` | 性能优化 |
-| `test` | 测试相关 |
-| `chore` | 构建/工具链/依赖更新 |
-| `ci` | CI/CD 相关 |
-| `revert` | 回滚提交 |
+| 类型         | 说明             |
+|------------|----------------|
+| `feat`     | 新功能            |
+| `fix`      | Bug 修复         |
+| `docs`     | 文档更新           |
+| `style`    | 代码格式（不影响功能的更改） |
+| `refactor` | 代码重构           |
+| `perf`     | 性能优化           |
+| `test`     | 测试相关           |
+| `chore`    | 构建/工具链/依赖更新    |
+| `ci`       | CI/CD 相关       |
+| `revert`   | 回滚提交           |
 
 #### Scope
 
@@ -437,24 +438,24 @@ Closes #123
 ### Pull Request 流程
 
 1. **创建 PR**
-   - 使用清晰的标题
-   - 填写 PR 模板
-   - 关联相关 Issue
+    - 使用清晰的标题
+    - 填写 PR 模板
+    - 关联相关 Issue
 
 2. **自动化检查**
-   - CI 会运行测试套件
-   - 代码覆盖率检查 (要求 ≥80%)
-   - Pre-commit hooks 检查 (ruff, black, isort)
-   - 提交信息格式验证 (commitizen)
+    - CI 会运行测试套件
+    - 代码覆盖率检查 (要求 ≥80%)
+    - Pre-commit hooks 检查 (ruff, black, isort)
+    - 提交信息格式验证 (commitizen)
 
 3. **代码审查**
-   - 至少需要 1 个审查者批准
-   - 解决所有评论
-   - 保持 PR 小而专注
+    - 至少需要 1 个审查者批准
+    - 解决所有评论
+    - 保持 PR 小而专注
 
 4. **合并**
-   - 使用 "Squash and Merge"
-   - 确保提交信息符合规范
+    - 使用 "Squash and Merge"
+    - 确保提交信息符合规范
 
 ### PR 模板
 
@@ -556,8 +557,8 @@ MAJOR.MINOR.PATCH
    记录所有更改
 
 3. **创建发布 PR**
-   - 标题: "Release v0.2.0"
-   - 包含所有更改
+    - 标题: "Release v0.2.0"
+    - 包含所有更改
 
 4. **合并后打标签**
    ```bash
@@ -566,8 +567,8 @@ MAJOR.MINOR.PATCH
    ```
 
 5. **创建 GitHub Release**
-   - 填写发布说明
-   - 附上二进制文件（如需要）
+    - 填写发布说明
+    - 附上二进制文件（如需要）
 
 ---
 

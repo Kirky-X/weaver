@@ -113,6 +113,7 @@ class AdaptiveSearchEngine:
         self._when_anchor_limit = when_anchor_limit
         self._default_anchor_limit = default_anchor_limit
         self._event_lookup_limit = event_lookup_limit
+        self._event_cache: dict[str, dict[str, Any]] | None = None
 
     async def search(
         self,
@@ -301,6 +302,11 @@ class AdaptiveSearchEngine:
         Returns:
             List of retrieved events with scores.
         """
+        # Pre-fetch temporal chain into cache to avoid N+1 queries
+        all_events = await self._temporal_repo.get_temporal_chain(limit=self._event_lookup_limit)
+        self._event_cache = {e["id"]: e for e in all_events if e.get("id")}
+
+        max_visited_size = self._beam_width * self._max_depth * 2
         visited: set[str] = set()
         # Score anchors based on content relevance instead of fixed 1.0
         scored_anchors: list[tuple[str, float]] = []
@@ -335,6 +341,8 @@ class AdaptiveSearchEngine:
             for event_id, cumulative_score in frontier:
                 if event_id in visited:
                     continue
+                if len(visited) >= max_visited_size:
+                    continue
                 visited.add(event_id)
 
                 # Get event details
@@ -355,7 +363,7 @@ class AdaptiveSearchEngine:
                 neighbors = await self._get_neighbors_by_intent(event_id, intent)
 
                 for neighbor_id, edge_type in neighbors:
-                    if neighbor_id in visited:
+                    if neighbor_id in visited or len(visited) >= max_visited_size:
                         continue
 
                     # Create placeholder EventNode with minimal data for scoring
@@ -389,13 +397,20 @@ class AdaptiveSearchEngine:
     async def _get_event_data(self, event_id: str) -> dict[str, Any] | None:
         """Get event data by ID.
 
+        Uses pre-fetched event cache when available (set by _beam_search),
+        falling back to temporal chain query otherwise.
+
         Args:
             event_id: Event ID.
 
         Returns:
             Event data dictionary or None.
         """
-        # Try temporal repo first
+        # Fast path: check cache first
+        if self._event_cache is not None and event_id in self._event_cache:
+            return self._event_cache[event_id]
+
+        # Fallback: query temporal repo
         events = await self._temporal_repo.get_temporal_chain(limit=self._event_lookup_limit)
         for event in events:
             if event.get("id") == event_id:

@@ -164,7 +164,7 @@ async def test_query_performance(
         query_times.append(query_time)
 
         if (i + 1) % 5 == 0:
-            print(f"  进度: {i+1}/{num_queries}")
+            print(f"  进度: {i + 1}/{num_queries}")
 
     avg_time = np.mean(query_times)
     max_time = np.max(query_times)

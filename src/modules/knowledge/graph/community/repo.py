@@ -48,6 +48,30 @@ class Neo4jCommunityRepo:
             return str(self._now_ts())
         return "datetime()"
 
+    def _format_timestamp_params(self) -> tuple[str, str, int | None]:
+        """Return (created_at_cypher, updated_at_cypher, now_value) based on database type.
+
+        For Neo4j, returns ("datetime()", "datetime()", None) — timestamps are Cypher expressions.
+        For LadybugDB, returns ("$created_at", "$updated_at", now_ms) — timestamps are parameters.
+        """
+        if self._database_type == GraphDatabaseType.LADYBUG:
+            now = self._now_ts()
+            return "$created_at", "$updated_at", now
+        return "datetime(),", "datetime(),", None
+
+    def _format_children_ids_param(self, children_ids: list[str] | None) -> tuple[str, str]:
+        """Return (param_value_for_ladybug, param_value_for_neo4j) for children_ids.
+
+        Args:
+            children_ids: List of child community IDs, or None/empty.
+
+        Returns:
+            Tuple of (csv_string, json_string).
+        """
+        children_ids_csv = "" if not children_ids else ",".join(children_ids)
+        children_ids_json = "[]" if not children_ids else json.dumps(children_ids)
+        return children_ids_csv, children_ids_json
+
     async def ensure_constraints(self) -> None:
         """Create uniqueness constraints and indexes for Community nodes."""
         if self._database_type == GraphDatabaseType.LADYBUG:
@@ -160,43 +184,30 @@ class Neo4jCommunityRepo:
         Returns:
             The created community ID.
         """
-        children_ids_json = "[]" if not children_ids else json.dumps(children_ids)
-        children_ids_csv = "" if not children_ids else ",".join(children_ids)
-        if self._database_type == GraphDatabaseType.LADYBUG:
-            now = self._now_ts()
-            query = """
-            CREATE (c:Community {
-                id: $id,
-                title: $title,
-                level: $level,
-                parent_id: $parent_id,
-                children_ids: $children_ids,
-                entity_count: $entity_count,
-                rank: $rank,
-                period: $period,
-                modularity: $modularity,
-                created_at: $created_at,
-                updated_at: $updated_at
-            })
-            RETURN c.id AS id
+        children_ids_csv, children_ids_json = self._format_children_ids_param(children_ids)
+        created_at_cypher, updated_at_cypher, now_value = self._format_timestamp_params()
+        query = (
             """
-        else:
-            query = """
-            CREATE (c:Community {
-                id: $id,
-                title: $title,
-                level: $level,
-                parent_id: $parent_id,
-                children_ids: $children_ids,
-                entity_count: $entity_count,
-                rank: $rank,
-                period: $period,
-                modularity: $modularity,
-                created_at: datetime(),
-                updated_at: datetime()
-            })
-            RETURN c.id AS id
-            """
+        CREATE (c:Community {
+            id: $id,
+            title: $title,
+            level: $level,
+            parent_id: $parent_id,
+            children_ids: $children_ids,
+            entity_count: $entity_count,
+            rank: $rank,
+            period: $period,
+            modularity: $modularity,
+            created_at: """
+            + created_at_cypher
+            + """
+            updated_at: """
+            + updated_at_cypher
+            + """
+        })
+        RETURN c.id AS id
+        """
+        )
         params = {
             "id": community_id,
             "title": title,
@@ -211,13 +222,10 @@ class Neo4jCommunityRepo:
             "rank": rank,
             "period": period or datetime.now(UTC).date().isoformat(),
             "modularity": modularity,
-            "created_at": now if self._database_type == GraphDatabaseType.LADYBUG else None,
-            "updated_at": now if self._database_type == GraphDatabaseType.LADYBUG else None,
         }
-        # Remove None values that are only used for Neo4j
-        if self._database_type != GraphDatabaseType.LADYBUG:
-            params.pop("created_at", None)
-            params.pop("updated_at", None)
+        if self._database_type == GraphDatabaseType.LADYBUG:
+            params["created_at"] = now_value
+            params["updated_at"] = now_value
         result = await self._pool.execute_query(query, params)
         if result:
             return result[0]["id"]

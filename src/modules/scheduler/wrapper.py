@@ -26,6 +26,9 @@ def scheduled_task(job_id: str, timeout_seconds: int = 600):
     - Prometheus duration histogram and execution counter
     - OpenTelemetry trace context for meaningful trace_id in logs
     - Task context for meaningful req identifier in logs
+
+    Returns:
+        -1 on timeout, -2 on error, otherwise the wrapped function's return value.
     """
 
     def decorator(func):
@@ -74,7 +77,7 @@ def scheduled_task(job_id: str, timeout_seconds: int = 600):
                     span.set_attribute("success", False)
                     span.set_attribute("error", "timeout")
                     span.record_exception(Exception("Timeout"))
-                    return 0
+                    return -1
 
                 except Exception as exc:
                     duration = time.monotonic() - start
@@ -91,7 +94,7 @@ def scheduled_task(job_id: str, timeout_seconds: int = 600):
                     span.set_attribute("success", False)
                     span.set_attribute("error", str(exc))
                     span.record_exception(exc)
-                    return 0
+                    return -2
 
                 finally:
                     clear_task_context()

@@ -164,6 +164,14 @@ class RedisClient:
         """Remove and return the last element of a list."""
         return await self.client.rpop(name)
 
+    async def lrange(self, name: str, start: int, stop: int) -> list[str]:
+        """Return a slice of a list."""
+        return await self.client.lrange(name, start, stop)
+
+    async def ltrim(self, name: str, start: int, stop: int) -> None:
+        """Trim a list to the specified range."""
+        await self.client.ltrim(name, start, stop)
+
     async def zadd(
         self,
         name: str,
@@ -488,6 +496,24 @@ class CashewsClient:
         if lst:
             return lst.pop()
         return None
+
+    async def lrange(self, name: str, start: int, stop: int) -> list[str]:
+        """Return a slice of a list."""
+        self._check_expiry(name)
+        lst = self._lists.get(name, [])
+        if stop == -1:
+            return list(lst[start:])
+        return list(lst[start : stop + 1])
+
+    async def ltrim(self, name: str, start: int, stop: int) -> None:
+        """Trim a list to the specified range."""
+        self._check_expiry(name)
+        lst = self._lists.get(name, [])
+        if stop == -1:
+            trimmed = lst[start:]
+        else:
+            trimmed = lst[start : stop + 1]
+        self._lists[name] = trimmed
 
     # ── Sorted Set ─────────────────────────────────────────────
 

@@ -14,6 +14,7 @@ if TYPE_CHECKING:
         EntityRepository,
         VectorRepository,
     )
+    from core.protocols.repositories import ArticleRepository
     from core.services.pipeline_service import PipelineServiceImpl
     from core.services.task_registry import InMemoryTaskRegistry
     from modules.analytics import LLMUsageBuffer, LLMUsageRepo
@@ -48,7 +49,7 @@ class ContainerServicesMixin:
     _source_registry: SourceRegistry | None
     _source_config_repo: SourceConfigRepo | None
     _source_scheduler: SourceScheduler | None
-    _article_repo: Any
+    _article_repo: ArticleRepository | None
     _vector_repo: VectorRepository | None
     _source_authority_repo: SourceAuthorityRepo | None
     _graph_entity_repo: Any
@@ -162,7 +163,7 @@ class ContainerServicesMixin:
 
     # ── Repositories ──────────────────────────────────────────────
 
-    def article_repo(self) -> Any:
+    def article_repo(self) -> ArticleRepository:
         """Get article repository (PostgreSQL or DuckDB implementation)."""
         if self._article_repo is None:
             if self._strategy is None:

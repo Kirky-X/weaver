@@ -32,10 +32,10 @@ from modules.memory.retrieval.adaptive_search import AdaptiveSearchEngine
 if TYPE_CHECKING:
     from core.llm.client import LLMClient
     from core.protocols import CachePool, GraphPool
+    from core.protocols.repositories import EntityRepository, VectorRepository
     from modules.knowledge.search.intent.classifier import IntentClassifier
 
 log = get_logger(__name__)
-
 
 # Mapping from QueryIntent (knowledge search) to IntentType (memory system)
 _QUERY_INTENT_TO_MEMORY_INTENT: dict[str, IntentType] = {
@@ -140,8 +140,8 @@ class MemoryIntegrationService:
         embedding_service: EmbeddingServiceProtocol,
         intent_classifier: IntentClassifier,
         config: MemoryServiceConfig | None = None,
-        vector_repo: Any = None,
-        entity_repo: Any = None,
+        vector_repo: VectorRepository | None = None,
+        entity_repo: EntityRepository | None = None,
         embedding_model: str = "Qwen3-Embedding-0.6B",
     ) -> None:
         """Initialize the memory integration service.

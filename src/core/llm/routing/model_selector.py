@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-
 # Default weights per routing mode
 DEFAULT_WEIGHTS: dict[RoutingMode, dict[str, float]] = {
     RoutingMode.AUTO: {

@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 from core.constants import SentimentType
 from core.llm.client import LLMClient
 from core.llm.config.token_budget import TokenBudgetManager
+from core.llm.resilience.circuit_breaker import CircuitOpenError
+from core.llm.resilience.pool import AllProvidersFailedError
 from core.llm.types import CallPoint
 from core.llm.validation.output_validator import AnalyzeOutput
 from core.observability.logging import get_logger
@@ -75,12 +77,21 @@ class AnalyzeNode:
                         threshold=self._mc_confidence_threshold,
                         url=state["raw"].url,
                     )
-            except Exception as e:
+            except (AllProvidersFailedError, CircuitOpenError, ValueError) as e:
                 log.warning(
                     "mc_sampling_failed_fallback",
+                    exc_type=type(e).__name__,
                     error=str(e),
                     url=state["raw"].url,
                 )
+            except Exception as e:
+                log.error(
+                    "mc_sampling_unexpected_error",
+                    exc_type=type(e).__name__,
+                    error=str(e),
+                    url=state["raw"].url,
+                )
+                raise
         elif len(body) > self._mc_threshold:
             log.debug(
                 "mc_sampling_disabled_using_truncation",
@@ -120,9 +131,14 @@ class AnalyzeNode:
             }
             log.debug("analyze_sentiment_set", sentiment=state["sentiment"])
             state["score"] = result.score
-        except Exception as e:
+        except (AllProvidersFailedError, CircuitOpenError, ValueError) as e:
             # Fallback: use default values if LLM fails
-            log.warning("analyze_failed_using_defaults", error=str(e), url=state["raw"].url)
+            log.warning(
+                "analyze_failed_using_defaults",
+                exc_type=type(e).__name__,
+                error=str(e),
+                url=state["raw"].url,
+            )
             state["summary_info"] = {
                 "summary": state["cleaned"]["title"],
                 "event_time": None,
@@ -138,6 +154,14 @@ class AnalyzeNode:
                 "emotion_targets": [],
             }
             state["score"] = 0.5
+        except Exception as e:
+            log.error(
+                "analyze_unexpected_error",
+                exc_type=type(e).__name__,
+                error=str(e),
+                url=state["raw"].url,
+            )
+            raise
 
         state.setdefault("prompt_versions", {})["analyze"] = self._prompt_loader.get_version(
             "analyze"

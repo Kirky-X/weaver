@@ -20,7 +20,6 @@ from modules.processing.pipeline.state import PipelineState
 
 log = get_logger(__name__)
 
-
 # Field mapping: state key -> (article_attr, extractor function)
 # This centralizes all field mappings for consistency
 STATE_TO_ARTICLE_FIELDS: dict[str, tuple[str, Callable[[Any], Any]]] = {

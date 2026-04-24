@@ -8,15 +8,14 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from api.dependencies import get_cache_client, get_graph_pool, get_graph_pool_type
+from api.dependencies import get_cache_client, get_graph_pool
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
-from api.schemas.types import RoundedFloat, RoundedFloatOpt
 from core.observability import get_logger
 from core.protocols import GraphPool
 from modules.knowledge.graph import GraphQualityMetrics
 
-log = get_logger(__name__)
+log = get_logger("graph_metrics")
 
 router = APIRouter(prefix="/graph/metrics", tags=["graph-metrics"])
 
@@ -31,17 +30,15 @@ GRAPH_METRICS_CACHE_TTL = 300  # 5 minutes
 class HealthSummaryResponse(BaseModel):
     """Response model for graph health summary."""
 
-    health_score: RoundedFloat = Field(
-        ..., ge=0, le=100, description="Overall health score (0-100)"
-    )
+    health_score: float = Field(..., ge=0, le=100, description="Overall health score (0-100)")
     status: str = Field(..., description="Health status: healthy, moderate, degraded, critical")
     entity_count: int = Field(..., ge=0, description="Total number of entities")
     relationship_count: int = Field(..., ge=0, description="Total number of relationships")
-    orphan_ratio: RoundedFloat = Field(..., ge=0, le=1, description="Ratio of orphan entities")
-    connectedness: RoundedFloat = Field(
+    orphan_ratio: float = Field(..., ge=0, le=1, description="Ratio of orphan entities")
+    connectedness: float = Field(
         ..., ge=0, le=1, description="Ratio of entities in largest component"
     )
-    average_degree: RoundedFloat = Field(..., ge=0, description="Average entity degree")
+    average_degree: float = Field(..., ge=0, description="Average entity degree")
     recommendations: list[str] = Field(default_factory=list, description="Health recommendations")
 
 
@@ -54,8 +51,8 @@ class GraphMetricsResponse(BaseModel):
     total_mentions: int = Field(..., ge=0)
     connected_components: int = Field(..., ge=0)
     largest_component_size: int = Field(..., ge=0)
-    average_degree: RoundedFloat = Field(..., ge=0)
-    modularity_score: RoundedFloatOpt = Field(None, ge=-1, le=1)
+    average_degree: float = Field(..., ge=0)
+    modularity_score: float | None = Field(None, ge=-1, le=1)
     orphan_entities: int = Field(..., ge=0)
     high_degree_entities: list[dict[str, Any]] = Field(default_factory=list)
     entity_type_distribution: dict[str, int] = Field(default_factory=dict)
@@ -78,7 +75,6 @@ async def get_graph_metrics(
     ),
     _: str = Depends(verify_api_key),
     graph_pool: GraphPool = Depends(get_graph_pool),
-    pool_type: str = Depends(get_graph_pool_type),
 ) -> APIResponse[Any]:
     """Get graph metrics with view-based routing.
 
@@ -100,9 +96,9 @@ async def get_graph_metrics(
     Omit `include` to get all metrics (same as `include=all`).
     """
     if view == "health":
-        return await _get_health_view(graph_pool, pool_type)
+        return await _get_health_view(graph_pool)
     elif view == "full":
-        return await _get_full_view(graph_pool, include, pool_type)
+        return await _get_full_view(graph_pool, include)
     elif view == "community":
         raise HTTPException(
             status_code=400,
@@ -115,11 +111,9 @@ async def get_graph_metrics(
         )
 
 
-async def _get_health_view(
-    graph_pool: GraphPool, pool_type: str = "neo4j"
-) -> APIResponse[HealthSummaryResponse]:
+async def _get_health_view(graph_pool: GraphPool) -> APIResponse[HealthSummaryResponse]:
     """Get health summary view."""
-    metrics = GraphQualityMetrics(graph_pool, db_type=pool_type)
+    metrics = GraphQualityMetrics(graph_pool)
     summary = await metrics.get_health_summary()
 
     return success_response(
@@ -137,7 +131,7 @@ async def _get_health_view(
 
 
 async def _get_full_view(
-    graph_pool: GraphPool, include: str | None, pool_type: str = "neo4j"
+    graph_pool: GraphPool, include: str | None
 ) -> APIResponse[GraphMetricsResponse]:
     """Get full metrics view with optional caching and include filtering."""
     # Parse include parameter
@@ -157,7 +151,7 @@ async def _get_full_view(
             log.warning("cache_lookup_failed", error=str(exc))  # Fall through to compute
 
     # Compute metrics — pass include_set to skip expensive calculations
-    metrics = GraphQualityMetrics(graph_pool, db_type=pool_type)
+    metrics = GraphQualityMetrics(graph_pool)
     result = await metrics.calculate_all_metrics(include=include_set)
 
     # Build response

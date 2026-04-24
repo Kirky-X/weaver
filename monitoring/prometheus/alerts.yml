@@ -285,25 +285,25 @@ groups:
   # ============================================================================
   - name: system_resource_alerts
     rules:
-      # 内存使用率告警 - 需要配置 node_exporter
-      # - alert: HighMemoryUsage
-      #   expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 85
-      #   for: 5m
-      #   labels:
-      #     severity: warning
-      #   annotations:
-      #     summary: "内存使用率过高"
-      #     description: "内存使用率达到 {{ $value }}%，超过 85% 阈值。"
+    # 内存使用率告警 - 需要配置 node_exporter
+    # - alert: HighMemoryUsage
+    #   expr: (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100 > 85
+    #   for: 5m
+    #   labels:
+    #     severity: warning
+    #   annotations:
+    #     summary: "内存使用率过高"
+    #     description: "内存使用率达到 {{ $value }}%，超过 85% 阈值。"
 
-      # CPU 使用率告警 - 需要配置 node_exporter
-      # - alert: HighCPUUsage
-      #   expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
-      #   for: 5m
-      #   labels:
-      #     severity: warning
-      #   annotations:
-      #     summary: "CPU 使用率过高"
-      #     description: "CPU 使用率达到 {{ $value }}%，超过 80% 阈值。"
+    # CPU 使用率告警 - 需要配置 node_exporter
+    # - alert: HighCPUUsage
+    #   expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+    #   for: 5m
+    #   labels:
+    #     severity: warning
+    #   annotations:
+    #     summary: "CPU 使用率过高"
+    #     description: "CPU 使用率达到 {{ $value }}%，超过 80% 阈值。"
 
 # ============================================================================
 # 告警配置说明

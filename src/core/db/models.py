@@ -77,7 +77,6 @@ class PersistStatus(str, enum.Enum):
     PROCESSING = "processing"
     PG_DONE = "pg_done"
     NEO4J_DONE = "neo4j_done"
-    NEO4J_FAILED = "neo4j_failed"
     FAILED = "failed"
 
     @classmethod
@@ -91,8 +90,7 @@ class PersistStatus(str, enum.Enum):
         Valid transitions:
         - PENDING → PROCESSING, FAILED
         - PROCESSING → PG_DONE, FAILED
-        - PG_DONE → NEO4J_DONE, NEO4J_FAILED, FAILED
-        - NEO4J_FAILED → PG_DONE (allows retry Neo4j)
+        - PG_DONE → NEO4J_DONE, FAILED
         - FAILED → PENDING (allows retry)
 
         Args:
@@ -110,8 +108,7 @@ class PersistStatus(str, enum.Enum):
         valid_transitions = {
             cls.PENDING: {cls.PROCESSING, cls.FAILED},
             cls.PROCESSING: {cls.PG_DONE, cls.FAILED},
-            cls.PG_DONE: {cls.NEO4J_DONE, cls.NEO4J_FAILED, cls.FAILED},
-            cls.NEO4J_FAILED: {cls.PG_DONE},  # Allow retry Neo4j phase
+            cls.PG_DONE: {cls.NEO4J_DONE, cls.FAILED},
             cls.FAILED: {cls.PENDING},  # Allow retry
             cls.NEO4J_DONE: set(),  # Terminal state
         }
@@ -131,9 +128,6 @@ class EmotionType(str, enum.Enum):
     PESSIMISTIC = "悲观"
     ANGRY = "愤怒"
     PANIC = "恐慌"
-    POSITIVE = "正面"
-    NEGATIVE = "负面"
-    NEUTRAL = "中性"
 
 
 class VectorType(str, enum.Enum):
@@ -198,9 +192,8 @@ class Article(Base):
             EmotionType,
             name="emotion_type",
             create_type=True,
-            values_callable=lambda x: [e.value for e in x],
-        ),
-        nullable=True,
+            values_callable=lambda x: [e.value for e in x],  # Use enum values, not names
+        )
     )
     emotion_targets: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
 
@@ -307,7 +300,9 @@ class ArticleVector(Base):
         Enum(VectorType, name="vector_type", create_type=True), nullable=False
     )
     embedding: Mapped[Any] = mapped_column(Vector(1024), nullable=False)
-    model_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="text-embedding-3-large"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -341,7 +336,9 @@ class EntityVector(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     neo4j_id: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     embedding: Mapped[Any] = mapped_column(Vector(1024), nullable=False)
-    model_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    model_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="text-embedding-3-large"
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -444,8 +441,8 @@ class Source(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
     per_host_concurrency: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
-    credibility: Mapped[float] = mapped_column(Numeric(3, 2), nullable=False, default=0.5)
-    tier: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
+    credibility: Mapped[float | None] = mapped_column(Numeric(3, 2), nullable=True)
+    tier: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_crawl_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     etag: Mapped[str | None] = mapped_column(String(200))
     last_modified: Mapped[str | None] = mapped_column(String(100))

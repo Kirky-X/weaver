@@ -231,12 +231,17 @@ class BatchMergerNode:
         normed = mat / (norms + 1e-8)
         sim_matrix = normed @ normed.T
 
+        # Release intermediate numpy arrays to free memory before O(n²) iteration
+        del mat, norms, normed
+
         n = len(states)
         for i in range(n):
             for j in range(i + 1, n):
                 if sim_matrix[i, j] > self.SIMILARITY_THRESHOLD:
                     if states[i].get("category") == states[j].get("category"):
                         uf.union(states[i]["raw"].url, states[j]["raw"].url)
+
+        del sim_matrix
 
     async def _cross_query(self, state: PipelineState, uf: UnionFind, ids: list[str]) -> None:
         """Query historical similar articles and extend Union-Find."""
@@ -287,7 +292,7 @@ class BatchMergerNode:
 
         primary = max(
             group_states,
-            key=lambda s: s["raw"].publish_time or 0,
+            key=lambda s: s["raw"].publish_time if s["raw"].publish_time is not None else 0,
         )
         primary["cleaned"]["body"] = result.merged_body
         primary["cleaned"]["title"] = result.merged_title

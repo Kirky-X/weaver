@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from urllib.parse import urlparse
 
 import trafilatura
@@ -20,6 +21,9 @@ GLOBAL_MAX_CONCURRENCY = 32
 
 # Minimum article length for valid content
 MIN_ARTICLE_LENGTH = 100
+
+# Maximum total time for a single crawl_batch call (seconds)
+MAX_CRAWL_BATCH_TIME = 300  # 5 minutes
 
 
 class Crawler:
@@ -53,6 +57,15 @@ class Crawler:
             List of RawArticle results or FetchError for failed items.
         """
         per_host_config = per_host_config or {}
+
+        # Validate per_host_config values
+        for host, limit in per_host_config.items():
+            if not isinstance(host, str):
+                raise TypeError(f"Host key must be string, got {type(host).__name__}")
+            if not isinstance(limit, int) or limit < 1:
+                raise ValueError(
+                    f"Invalid concurrency for {host}: {limit!r} (expected positive integer)"
+                )
 
         # Global concurrency = min(cpu, host_count, MAX)
         host_count = len({urlparse(i.url).netloc for i in items})
@@ -124,10 +137,24 @@ class Crawler:
                 description=item.description or "",
             )
 
-        results = await asyncio.gather(
-            *[crawl_one(i) for i in items],
-            return_exceptions=True,
-        )
+        start_time = time.monotonic()
+        try:
+            results = await asyncio.wait_for(
+                asyncio.gather(*[crawl_one(i) for i in items], return_exceptions=True),
+                timeout=MAX_CRAWL_BATCH_TIME,
+            )
+        except TimeoutError:
+            elapsed = time.monotonic() - start_time
+            log.warning(
+                "crawl_batch_timeout",
+                elapsed=round(elapsed, 1),
+                total=len(items),
+            )
+            # Return FetchError for all items on timeout
+            return [
+                FetchError(url=item.url, message=f"Batch timed out after {elapsed:.0f}s")
+                for item in items
+            ]
 
         # Wrap non-FetchError exceptions with URL context
         wrapped_results: list[RawArticle | FetchError] = []

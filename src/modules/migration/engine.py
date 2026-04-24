@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from core.constants import MigrationStatus
 from core.observability.logging import get_logger
 from modules.migration.adapters import (
     DuckDBSource,
@@ -261,10 +262,10 @@ class MigrationEngine:
 
         # Complete or cancel
         if self._cancelled:
-            progress.status = "failed"
+            progress.status = MigrationStatus.CANCELLED.value
             self._display.cancel(table)
         else:
-            progress.status = "completed"
+            progress.status = MigrationStatus.COMPLETED.value
             self._display.complete(table)
 
     async def _run_graph(self) -> MigrationResult:
@@ -365,10 +366,10 @@ class MigrationEngine:
             offset += len(nodes)
 
         if self._cancelled:
-            progress.status = "failed"
+            progress.status = MigrationStatus.CANCELLED.value
             self._display.cancel(label)
         else:
-            progress.status = "completed"
+            progress.status = MigrationStatus.COMPLETED.value
             self._display.complete(label)
 
     async def _migrate_rels(
@@ -416,10 +417,10 @@ class MigrationEngine:
             offset += len(rels)
 
         if self._cancelled:
-            progress.status = "failed"
+            progress.status = MigrationStatus.CANCELLED.value
             self._display.cancel(rel_type)
         else:
-            progress.status = "completed"
+            progress.status = MigrationStatus.COMPLETED.value
             self._display.complete(rel_type)
 
     def cancel(self) -> None:

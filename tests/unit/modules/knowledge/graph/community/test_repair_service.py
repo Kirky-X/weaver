@@ -129,9 +129,7 @@ class TestRepairEntityCountMismatch:
     @pytest.mark.asyncio
     async def test_dry_run_for_mismatches(self, service):
         """Test dry run for entity count mismatches."""
-        service._pool.execute_query = AsyncMock(
-            return_value=[{"count": 2}]
-        )
+        service._pool.execute_query = AsyncMock(return_value=[{"count": 2}])
 
         result = await service.repair_entity_count_mismatches(dry_run=True)
 
@@ -168,7 +166,9 @@ class TestRepairStaleReports:
         )
         service_with_generator._report_generator.regenerate_report = AsyncMock()
 
-        result = await service_with_generator.repair_stale_reports(community_ids=None, dry_run=False)
+        result = await service_with_generator.repair_stale_reports(
+            community_ids=None, dry_run=False
+        )
 
         assert result.success is True
         service_with_generator._report_generator.regenerate_report.assert_called()

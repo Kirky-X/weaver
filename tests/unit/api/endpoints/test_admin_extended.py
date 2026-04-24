@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
+from starlette.requests import Request
 
 from api.endpoints.admin.admin import (
     AutoScoreRefreshResponse,
@@ -37,6 +38,21 @@ from api.endpoints.admin.admin import (
     trigger_consolidation,
     update_authority,
 )
+
+
+@pytest.fixture
+def mock_request():
+    """Create a mock Starlette Request for slowapi rate limiter compatibility."""
+    scope = {
+        "type": "http",
+        "method": "GET",
+        "path": "/test",
+        "query_string": b"",
+        "headers": [],
+        "client": ("127.0.0.1", 12345),
+    }
+    return Request(scope)
+
 
 # ── Fixtures ─────────────────────────────────────────────────────
 
@@ -133,7 +149,7 @@ class TestListAuthorities:
     """Tests for GET /admin/authorities endpoint."""
 
     @pytest.mark.asyncio
-    async def test_list_all_authorities(self, mock_api_key, mock_authority_repo):
+    async def test_list_all_authorities(self, mock_api_key, mock_request, mock_authority_repo):
         """Test listing all authorities."""
         mock_authority = MagicMock()
         mock_authority.id = 1
@@ -148,6 +164,7 @@ class TestListAuthorities:
         mock_authority_repo.list_all.return_value = [mock_authority]
 
         response = await list_authorities(
+            request=mock_request,
             needs_review_only=False,
             _=mock_api_key,
             repo=mock_authority_repo,
@@ -160,7 +177,7 @@ class TestListAuthorities:
         mock_authority_repo.list_all.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_list_needs_review_only(self, mock_api_key, mock_authority_repo):
+    async def test_list_needs_review_only(self, mock_api_key, mock_request, mock_authority_repo):
         """Test listing only authorities needing review."""
         mock_authority = MagicMock()
         mock_authority.id = 2
@@ -175,6 +192,7 @@ class TestListAuthorities:
         mock_authority_repo.get_needs_review.return_value = [mock_authority]
 
         response = await list_authorities(
+            request=mock_request,
             needs_review_only=True,
             _=mock_api_key,
             repo=mock_authority_repo,
@@ -185,11 +203,12 @@ class TestListAuthorities:
         mock_authority_repo.get_needs_review.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_list_empty_authorities(self, mock_api_key, mock_authority_repo):
+    async def test_list_empty_authorities(self, mock_api_key, mock_request, mock_authority_repo):
         """Test listing when no authorities exist."""
         mock_authority_repo.list_all.return_value = []
 
         response = await list_authorities(
+            request=mock_request,
             needs_review_only=False,
             _=mock_api_key,
             repo=mock_authority_repo,
@@ -202,7 +221,7 @@ class TestUpdateAuthority:
     """Tests for PATCH /admin/authorities/{host} endpoint."""
 
     @pytest.mark.asyncio
-    async def test_update_authority_score(self, mock_api_key, mock_authority_repo):
+    async def test_update_authority_score(self, mock_api_key, mock_request, mock_authority_repo):
         """Test updating authority score."""
         existing = MagicMock()
         existing.authority = 0.7
@@ -212,8 +231,9 @@ class TestUpdateAuthority:
         request = UpdateAuthorityRequest(authority=0.9)
 
         response = await update_authority(
+            mock_request,
             host="example.com",
-            request=request,
+            body=request,
             _=mock_api_key,
             repo=mock_authority_repo,
         )
@@ -223,7 +243,7 @@ class TestUpdateAuthority:
         mock_authority_repo.update_authority.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_update_authority_tier(self, mock_api_key, mock_authority_repo):
+    async def test_update_authority_tier(self, mock_api_key, mock_request, mock_authority_repo):
         """Test updating authority tier."""
         existing = MagicMock()
         existing.authority = 0.8
@@ -233,8 +253,9 @@ class TestUpdateAuthority:
         request = UpdateAuthorityRequest(tier=3)
 
         response = await update_authority(
+            mock_request,
             host="example.com",
-            request=request,
+            body=request,
             _=mock_api_key,
             repo=mock_authority_repo,
         )
@@ -242,7 +263,9 @@ class TestUpdateAuthority:
         assert response.data.tier == 3
 
     @pytest.mark.asyncio
-    async def test_update_authority_description(self, mock_api_key, mock_authority_repo):
+    async def test_update_authority_description(
+        self, mock_api_key, mock_request, mock_authority_repo
+    ):
         """Test updating authority description."""
         existing = MagicMock()
         existing.authority = 0.8
@@ -252,8 +275,9 @@ class TestUpdateAuthority:
         request = UpdateAuthorityRequest(description="Updated description")
 
         response = await update_authority(
+            mock_request,
             host="example.com",
-            request=request,
+            body=request,
             _=mock_api_key,
             repo=mock_authority_repo,
         )
@@ -261,7 +285,9 @@ class TestUpdateAuthority:
         assert response.data.description == "Updated description"
 
     @pytest.mark.asyncio
-    async def test_update_authority_multiple_fields(self, mock_api_key, mock_authority_repo):
+    async def test_update_authority_multiple_fields(
+        self, mock_api_key, mock_request, mock_authority_repo
+    ):
         """Test updating multiple fields at once."""
         existing = MagicMock()
         existing.authority = 0.7
@@ -271,8 +297,9 @@ class TestUpdateAuthority:
         request = UpdateAuthorityRequest(authority=0.95, tier=3, description="Top tier")
 
         response = await update_authority(
+            mock_request,
             host="example.com",
-            request=request,
+            body=request,
             _=mock_api_key,
             repo=mock_authority_repo,
         )
@@ -282,14 +309,17 @@ class TestUpdateAuthority:
         assert response.data.description == "Top tier"
 
     @pytest.mark.asyncio
-    async def test_update_authority_no_fields_raises_error(self, mock_api_key, mock_authority_repo):
+    async def test_update_authority_no_fields_raises_error(
+        self, mock_api_key, mock_request, mock_authority_repo
+    ):
         """Test that updating no fields raises HTTPException."""
         request = UpdateAuthorityRequest()
 
         with pytest.raises(HTTPException) as exc_info:
             await update_authority(
+                mock_request,
                 host="example.com",
-                request=request,
+                body=request,
                 _=mock_api_key,
                 repo=mock_authority_repo,
             )
@@ -305,7 +335,7 @@ class TestLLMFailures:
     """Tests for LLM failure endpoints."""
 
     @pytest.mark.asyncio
-    async def test_list_failures_no_filter(self, mock_api_key, mock_llm_failure_repo):
+    async def test_list_failures_no_filter(self, mock_api_key, mock_request, mock_llm_failure_repo):
         """Test listing failures without filters."""
         mock_failure = MagicMock()
         mock_failure.id = 1
@@ -322,6 +352,7 @@ class TestLLMFailures:
         mock_llm_failure_repo.query.return_value = [mock_failure]
 
         response = await list_llm_failures(
+            request=mock_request,
             call_point=None,
             status=None,
             since=None,
@@ -335,11 +366,14 @@ class TestLLMFailures:
         assert response.data[0].error_type == "timeout"
 
     @pytest.mark.asyncio
-    async def test_list_failures_with_filters(self, mock_api_key, mock_llm_failure_repo):
+    async def test_list_failures_with_filters(
+        self, mock_api_key, mock_request, mock_llm_failure_repo
+    ):
         """Test listing failures with filters."""
         mock_llm_failure_repo.query.return_value = []
 
         response = await list_llm_failures(
+            request=mock_request,
             call_point="classifier",
             status="timeout",
             since=datetime(2024, 1, 1, tzinfo=UTC),
@@ -356,7 +390,7 @@ class TestLLMFailures:
         )
 
     @pytest.mark.asyncio
-    async def test_get_failure_stats(self, mock_api_key, mock_llm_failure_repo):
+    async def test_get_failure_stats(self, mock_api_key, mock_request, mock_llm_failure_repo):
         """Test getting failure statistics."""
         mock_llm_failure_repo.get_stats.return_value = {
             "total": 150,
@@ -366,6 +400,7 @@ class TestLLMFailures:
         }
 
         response = await get_llm_failure_stats(
+            request=mock_request,
             since=datetime(2024, 1, 1, tzinfo=UTC),
             _=mock_api_key,
             repo=mock_llm_failure_repo,
@@ -388,10 +423,11 @@ class TestLLMUsageUnified:
         ["summary", "time", "provider", "model", "call_point"],
     )
     async def test_usage_all_group_types(
-        self, mock_api_key, mock_llm_usage_repo, sample_time_range, group_by
+        self, mock_api_key, mock_request, mock_llm_usage_repo, sample_time_range, group_by
     ):
         """Test all group_by options for usage endpoint."""
         response = await get_llm_usage_unified(
+            request=mock_request,
             from_=sample_time_range["from_"],
             to=sample_time_range["to"],
             group_by=group_by,
@@ -408,9 +444,12 @@ class TestLLMUsageUnified:
         assert response.data["group_by"] == group_by
 
     @pytest.mark.asyncio
-    async def test_usage_summary_group(self, mock_api_key, mock_llm_usage_repo, sample_time_range):
+    async def test_usage_summary_group(
+        self, mock_api_key, mock_request, mock_llm_usage_repo, sample_time_range
+    ):
         """Test summary group returns correct metrics."""
         response = await get_llm_usage_unified(
+            request=mock_request,
             from_=sample_time_range["from_"],
             to=sample_time_range["to"],
             group_by="summary",
@@ -426,7 +465,9 @@ class TestLLMUsageUnified:
         assert "error_types" in data
 
     @pytest.mark.asyncio
-    async def test_usage_time_group(self, mock_api_key, mock_llm_usage_repo, sample_time_range):
+    async def test_usage_time_group(
+        self, mock_api_key, mock_request, mock_llm_usage_repo, sample_time_range
+    ):
         """Test time group returns records with time buckets."""
         mock_record = {
             "time_bucket": "2024-01-01T10:00:00",
@@ -446,6 +487,7 @@ class TestLLMUsageUnified:
         mock_llm_usage_repo.query_hourly.return_value = [mock_record]
 
         response = await get_llm_usage_unified(
+            request=mock_request,
             from_=sample_time_range["from_"],
             to=sample_time_range["to"],
             group_by="time",
@@ -460,7 +502,9 @@ class TestLLMUsageUnified:
         assert record["call_count"] == 50
 
     @pytest.mark.asyncio
-    async def test_usage_provider_group(self, mock_api_key, mock_llm_usage_repo, sample_time_range):
+    async def test_usage_provider_group(
+        self, mock_api_key, mock_request, mock_llm_usage_repo, sample_time_range
+    ):
         """Test provider group returns provider breakdown."""
         mock_record = {
             "provider": "openai",
@@ -474,6 +518,7 @@ class TestLLMUsageUnified:
         mock_llm_usage_repo.get_by_provider.return_value = [mock_record]
 
         response = await get_llm_usage_unified(
+            request=mock_request,
             from_=sample_time_range["from_"],
             to=sample_time_range["to"],
             group_by="provider",
@@ -485,7 +530,9 @@ class TestLLMUsageUnified:
         assert response.data["records"][0]["provider"] == "openai"
 
     @pytest.mark.asyncio
-    async def test_usage_model_group(self, mock_api_key, mock_llm_usage_repo, sample_time_range):
+    async def test_usage_model_group(
+        self, mock_api_key, mock_request, mock_llm_usage_repo, sample_time_range
+    ):
         """Test model group returns model breakdown."""
         mock_record = {
             "model": "gpt-4",
@@ -500,6 +547,7 @@ class TestLLMUsageUnified:
         mock_llm_usage_repo.get_by_model.return_value = [mock_record]
 
         response = await get_llm_usage_unified(
+            request=mock_request,
             from_=sample_time_range["from_"],
             to=sample_time_range["to"],
             group_by="model",
@@ -512,7 +560,7 @@ class TestLLMUsageUnified:
 
     @pytest.mark.asyncio
     async def test_usage_call_point_group(
-        self, mock_api_key, mock_llm_usage_repo, sample_time_range
+        self, mock_api_key, mock_request, mock_llm_usage_repo, sample_time_range
     ):
         """Test call_point group returns call point breakdown."""
         mock_record = {
@@ -525,6 +573,7 @@ class TestLLMUsageUnified:
         mock_llm_usage_repo.get_by_call_point.return_value = [mock_record]
 
         response = await get_llm_usage_unified(
+            request=mock_request,
             from_=sample_time_range["from_"],
             to=sample_time_range["to"],
             group_by="call_point",
@@ -535,9 +584,12 @@ class TestLLMUsageUnified:
         assert response.data["records"][0]["call_point"] == "classifier"
 
     @pytest.mark.asyncio
-    async def test_usage_with_filters(self, mock_api_key, mock_llm_usage_repo, sample_time_range):
+    async def test_usage_with_filters(
+        self, mock_api_key, mock_request, mock_llm_usage_repo, sample_time_range
+    ):
         """Test usage endpoint with various filters."""
         await get_llm_usage_unified(
+            request=mock_request,
             from_=sample_time_range["from_"],
             to=sample_time_range["to"],
             group_by="summary",
@@ -557,11 +609,12 @@ class TestLLMUsageUnified:
 
     @pytest.mark.asyncio
     async def test_usage_invalid_group_by_raises_error(
-        self, mock_api_key, mock_llm_usage_repo, sample_time_range
+        self, mock_api_key, mock_request, mock_llm_usage_repo, sample_time_range
     ):
         """Test that invalid group_by raises HTTPException."""
         with pytest.raises(HTTPException) as exc_info:
             await get_llm_usage_unified(
+                request=mock_request,
                 from_=sample_time_range["from_"],
                 to=sample_time_range["to"],
                 group_by="invalid",
@@ -580,7 +633,7 @@ class TestArticleDeduplication:
     """Tests for POST /admin/articles/deduplicate endpoint."""
 
     @pytest.mark.asyncio
-    async def test_deduplicate_success(self, mock_api_key, mock_pool):
+    async def test_deduplicate_success(self, mock_api_key, mock_request, mock_pool):
         """Test successful article deduplication."""
         mock_article_repo = MagicMock()
         mock_article_repo.deduplicate_articles = AsyncMock(
@@ -600,20 +653,20 @@ class TestArticleDeduplication:
             mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=MagicMock())
             mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            response = await deduplicate_articles(_=mock_api_key)
+            response = await deduplicate_articles(request=mock_request, _=mock_api_key)
 
             assert response.data.removed == 150
             assert response.data.kept == 850
 
     @pytest.mark.asyncio
-    async def test_deduplicate_no_database_raises_error(self, mock_api_key):
+    async def test_deduplicate_no_database_raises_error(self, mock_api_key, mock_request):
         """Test deduplication raises error when database not initialized."""
         with patch(
             "api.endpoints.admin.admin.Endpoints.get_relational_pool_optional",
             return_value=None,
         ):
             with pytest.raises(HTTPException) as exc_info:
-                await deduplicate_articles(_=mock_api_key)
+                await deduplicate_articles(request=mock_request, _=mock_api_key)
 
             assert exc_info.value.status_code == 503
             assert "Database not initialized" in exc_info.value.detail
@@ -626,11 +679,14 @@ class TestMemoryDiagnostics:
     """Tests for GET /admin/memory/diagnostics endpoint."""
 
     @pytest.mark.asyncio
-    async def test_diagnostics_service_not_initialized(self, mock_api_key, mock_container):
+    async def test_diagnostics_service_not_initialized(
+        self, mock_api_key, mock_request, mock_container
+    ):
         """Test diagnostics when memory service is not initialized."""
         mock_container.memory_service = None
 
         response = await memory_diagnostics(
+            request=mock_request,
             _=mock_api_key,
             container=mock_container,
         )
@@ -640,7 +696,9 @@ class TestMemoryDiagnostics:
         assert response.data.causal_link_count == 0
 
     @pytest.mark.asyncio
-    async def test_diagnostics_service_initialized(self, mock_api_key, mock_container):
+    async def test_diagnostics_service_initialized(
+        self, mock_api_key, mock_request, mock_container
+    ):
         """Test diagnostics with initialized memory service."""
         mock_ms = MagicMock()
         mock_ms._temporal_repo = MagicMock()
@@ -661,6 +719,7 @@ class TestMemoryDiagnostics:
         mock_container._scheduler = mock_scheduler
 
         response = await memory_diagnostics(
+            request=mock_request,
             _=mock_api_key,
             container=mock_container,
         )
@@ -673,7 +732,9 @@ class TestMemoryDiagnostics:
         assert response.data.scheduler_job_registered is True
 
     @pytest.mark.asyncio
-    async def test_diagnostics_query_failure_handled(self, mock_api_key, mock_container):
+    async def test_diagnostics_query_failure_handled(
+        self, mock_api_key, mock_request, mock_container
+    ):
         """Test diagnostics handles query failures gracefully."""
         mock_ms = MagicMock()
         mock_ms._temporal_repo = MagicMock()
@@ -682,6 +743,7 @@ class TestMemoryDiagnostics:
         mock_container.memory_service = mock_ms
 
         response = await memory_diagnostics(
+            request=mock_request,
             _=mock_api_key,
             container=mock_container,
         )
@@ -694,7 +756,7 @@ class TestTriggerConsolidation:
     """Tests for POST /admin/memory/trigger-consolidation endpoint."""
 
     @pytest.mark.asyncio
-    async def test_consolidation_success(self, mock_api_key, mock_container):
+    async def test_consolidation_success(self, mock_api_key, mock_request, mock_container):
         """Test successful consolidation trigger."""
         mock_ms = MagicMock()
         mock_result = MagicMock()
@@ -704,6 +766,7 @@ class TestTriggerConsolidation:
         mock_container.memory_service = mock_ms
 
         response = await trigger_consolidation(
+            request=mock_request,
             batch_size=20,
             _=mock_api_key,
             container=mock_container,
@@ -714,12 +777,15 @@ class TestTriggerConsolidation:
         mock_ms.consolidate.assert_called_once_with(batch_size=20)
 
     @pytest.mark.asyncio
-    async def test_consolidation_no_service_raises_error(self, mock_api_key, mock_container):
+    async def test_consolidation_no_service_raises_error(
+        self, mock_api_key, mock_request, mock_container
+    ):
         """Test consolidation raises error when service not initialized."""
         mock_container.memory_service = None
 
         with pytest.raises(HTTPException) as exc_info:
             await trigger_consolidation(
+                request=mock_request,
                 batch_size=10,
                 _=mock_api_key,
                 container=mock_container,
@@ -729,7 +795,9 @@ class TestTriggerConsolidation:
         assert "Memory service not initialized" in exc_info.value.detail
 
     @pytest.mark.asyncio
-    async def test_consolidation_batch_size_validation(self, mock_api_key, mock_container):
+    async def test_consolidation_batch_size_validation(
+        self, mock_api_key, mock_request, mock_container
+    ):
         """Test consolidation with different batch sizes."""
         mock_ms = MagicMock()
         mock_ms.consolidate = AsyncMock(return_value=[])
@@ -737,6 +805,7 @@ class TestTriggerConsolidation:
 
         for batch_size in [1, 50, 100]:
             await trigger_consolidation(
+                request=mock_request,
                 batch_size=batch_size,
                 _=mock_api_key,
                 container=mock_container,
@@ -751,7 +820,9 @@ class TestRefreshAutoScores:
     """Tests for POST /admin/authorities/refresh-auto-scores endpoint."""
 
     @pytest.mark.asyncio
-    async def test_refresh_success_with_articles(self, mock_api_key, mock_container, mock_pool):
+    async def test_refresh_success_with_articles(
+        self, mock_api_key, mock_request, mock_container, mock_pool
+    ):
         """Test successful auto-score refresh with articles."""
         mock_repo = AsyncMock()
         mock_container.source_authority_repo.return_value = mock_repo
@@ -785,6 +856,7 @@ class TestRefreshAutoScores:
             ),
         ):
             response = await refresh_auto_scores(
+                request=mock_request,
                 _=mock_api_key,
                 container=mock_container,
             )
@@ -793,7 +865,9 @@ class TestRefreshAutoScores:
             assert response.data.triggered_at is not None
 
     @pytest.mark.asyncio
-    async def test_refresh_no_database_raises_error(self, mock_api_key, mock_container):
+    async def test_refresh_no_database_raises_error(
+        self, mock_api_key, mock_request, mock_container
+    ):
         """Test refresh raises error when database not initialized."""
         with patch(
             "api.endpoints.admin.admin.Endpoints.get_relational_pool_optional",
@@ -801,6 +875,7 @@ class TestRefreshAutoScores:
         ):
             with pytest.raises(HTTPException) as exc_info:
                 await refresh_auto_scores(
+                    request=mock_request,
                     _=mock_api_key,
                     container=mock_container,
                 )
@@ -809,7 +884,9 @@ class TestRefreshAutoScores:
             assert "Database not initialized" in exc_info.value.detail
 
     @pytest.mark.asyncio
-    async def test_refresh_handles_individual_errors(self, mock_api_key, mock_container, mock_pool):
+    async def test_refresh_handles_individual_errors(
+        self, mock_api_key, mock_request, mock_container, mock_pool
+    ):
         """Test refresh continues even if individual host fails."""
         mock_repo = AsyncMock()
         mock_repo.update_auto_score = AsyncMock(side_effect=Exception("Update failed"))
@@ -830,6 +907,7 @@ class TestRefreshAutoScores:
             return_value=mock_pool,
         ):
             response = await refresh_auto_scores(
+                request=mock_request,
                 _=mock_api_key,
                 container=mock_container,
             )
@@ -912,4 +990,5 @@ class TestResponseModels:
             sources_updated=10,
             triggered_at="2024-01-15T10:30:00Z",
         )
+        assert response.sources_updated == 10
         assert response.sources_updated == 10

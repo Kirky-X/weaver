@@ -5,6 +5,8 @@ from __future__ import annotations
 
 from core.llm.client import LLMClient
 from core.llm.config.token_budget import TokenBudgetManager
+from core.llm.resilience.circuit_breaker import CircuitOpenError
+from core.llm.resilience.pool import AllProvidersFailedError
 from core.llm.types import CallPoint
 from core.llm.validation.output_validator import CleanerOutput
 from core.observability.logging import get_logger
@@ -77,7 +79,7 @@ class CleanerNode:
                 # 成功则直接返回
                 break
 
-            except Exception as e:
+            except (AllProvidersFailedError, CircuitOpenError, ValueError) as e:
                 if attempt < _MAX_CLEANER_ATTEMPTS - 1:
                     # 构造 retry_hint 提示 LLM 修正输出
                     retry_hint = (
@@ -89,13 +91,19 @@ class CleanerNode:
                     log.info(
                         "cleaner_retry",
                         attempt=attempt + 1,
+                        exc_type=type(e).__name__,
                         error=str(e),
                         url=raw.url,
                     )
                     continue
 
                 # 最后一次尝试也失败, 降级处理
-                log.warning("cleaner_failed_using_original", error=str(e), url=raw.url)
+                log.warning(
+                    "cleaner_failed_using_original",
+                    exc_type=type(e).__name__,
+                    error=str(e),
+                    url=raw.url,
+                )
                 state["cleaned"] = {
                     "title": raw.title,
                     "body": raw.body,
@@ -115,6 +123,14 @@ class CleanerNode:
                         "cleaner_entities": f"LLM cleaner failed: {e!s}",
                     }
                 )
+            except Exception as e:
+                log.error(
+                    "cleaner_unexpected_error",
+                    exc_type=type(e).__name__,
+                    error=str(e),
+                    url=raw.url,
+                )
+                raise
 
         state.setdefault("prompt_versions", {})["cleaner"] = self._prompt_loader.get_version(
             "cleaner"

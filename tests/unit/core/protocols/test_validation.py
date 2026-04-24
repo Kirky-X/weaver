@@ -33,6 +33,7 @@ class TestAssertImplements:
 
         class MyProtocol(Protocol):
             def foo(self) -> str: ...
+
             def bar(self) -> int: ...
 
         class Implementation:
@@ -111,6 +112,7 @@ class TestGetProtocolMethods:
 
         class MyProtocol(Protocol):
             def foo(self) -> str: ...
+
             def bar(self) -> int: ...
 
         methods = get_protocol_methods(MyProtocol)
@@ -219,6 +221,7 @@ class TestExplicitInterfaceMixin:
 
         class MyProto(Protocol):
             def foo(self) -> str: ...
+
             def bar(self) -> int: ...
 
         with pytest.raises(TypeError, match="bar"):

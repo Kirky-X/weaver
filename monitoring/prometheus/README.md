@@ -6,14 +6,14 @@
 
 本项目实现了 6 大类共 18 条告警规则，覆盖以下关键领域：
 
-| 类别 | 告警数量 | 严重级别 | 覆盖范围 |
-|------|---------|---------|---------|
-| Circuit Breaker 熔断 | 3 | Critical/Warning | 熔断器状态、失败频率 |
-| LLM 服务质量 | 3 | Critical/Warning | 错误率、延迟、Fallback |
-| API 性能 | 2 | Critical/Warning | 延迟、错误率 |
-| 数据库连接池 | 2 | Critical/Warning | 连接池利用率 |
-| 健康检查 | 3 | Critical | 服务健康状态、延迟 |
-| 数据一致性 | 5 | Critical/Warning | 数据同步、事务错误、队列积压 |
+| 类别                 | 告警数量 | 严重级别             | 覆盖范围            |
+|--------------------|------|------------------|-----------------|
+| Circuit Breaker 熔断 | 3    | Critical/Warning | 熔断器状态、失败频率      |
+| LLM 服务质量           | 3    | Critical/Warning | 错误率、延迟、Fallback |
+| API 性能             | 2    | Critical/Warning | 延迟、错误率          |
+| 数据库连接池             | 2    | Critical/Warning | 连接池利用率          |
+| 健康检查               | 3    | Critical         | 服务健康状态、延迟       |
+| 数据一致性              | 5    | Critical/Warning | 数据同步、事务错误、队列积压  |
 
 ## 快速开始
 
@@ -73,174 +73,192 @@ http://localhost:9090/rules
 ### 1. Circuit Breaker 熔断告警
 
 #### CircuitBreakerOpen (Critical)
+
 - **触发条件**: Circuit Breaker 状态为 OPEN (值为 1)
 - **持续时间**: 1 分钟
 - **影响**: 所有请求快速失败，服务不可用
 - **处理步骤**:
-  1. 检查上游服务状态
-  2. 查看 Circuit Breaker 日志
-  3. 修复上游服务或调整熔断阈值
+    1. 检查上游服务状态
+    2. 查看 Circuit Breaker 日志
+    3. 修复上游服务或调整熔断阈值
 
 #### CircuitBreakerHalfOpen (Warning)
+
 - **触发条件**: Circuit Breaker 状态为 HALF_OPEN (值为 2)
 - **持续时间**: 5 分钟
 - **影响**: 服务正在尝试恢复
 - **处理步骤**:
-  1. 监控服务恢复进度
-  2. 如果长时间未恢复，检查上游服务
+    1. 监控服务恢复进度
+    2. 如果长时间未恢复，检查上游服务
 
 #### HighCircuitBreakerFailureRate (Warning)
+
 - **触发条件**: 5 分钟内熔断次数 > 5 次
 - **持续时间**: 2 分钟
 - **影响**: 上游服务不稳定
 - **处理步骤**:
-  1. 分析熔断原因
-  2. 考虑降低熔断阈值或增加重试
+    1. 分析熔断原因
+    2. 考虑降低熔断阈值或增加重试
 
 ### 2. LLM 服务质量告警
 
 #### LLMHighErrorRate (Critical)
+
 - **触发条件**: LLM 调用错误率 > 10%
 - **持续时间**: 5 分钟
 - **影响**: AI 功能不可用或降级
 - **处理步骤**:
-  1. 检查 LLM Provider 状态
-  2. 检查 API Key 是否有效
-  3. 查看 Fallback 是否正常工作
+    1. 检查 LLM Provider 状态
+    2. 检查 API Key 是否有效
+    3. 查看 Fallback 是否正常工作
 
 #### LLMHighLatency (Warning)
+
 - **触发条件**: LLM 调用 P99 延迟 > 10s
 - **持续时间**: 5 分钟
 - **影响**: 用户体验下降
 - **处理步骤**:
-  1. 检查网络连接
-  2. 考虑使用更快的模型
-  3. 检查是否需要调整超时配置
+    1. 检查网络连接
+    2. 考虑使用更快的模型
+    3. 检查是否需要调整超时配置
 
 #### FrequentFallbackTriggered (Warning)
+
 - **触发条件**: 1 小时内 Fallback > 10 次
 - **持续时间**: 5 分钟
 - **影响**: 主 Provider 不稳定
 - **处理步骤**:
-  1. 分析 Fallback 原因
-  2. 优化主 Provider 配置
-  3. 考虑增加备用 Provider
+    1. 分析 Fallback 原因
+    2. 优化主 Provider 配置
+    3. 考虑增加备用 Provider
 
 ### 3. API 性能告警
 
 #### APIHighLatency (Warning)
+
 - **触发条件**: API P99 延迟 > 1s
 - **持续时间**: 5 分钟
 - **影响**: 用户请求慢
 - **处理步骤**:
-  1. 检查慢查询日志
-  2. 分析数据库性能
-  3. 考虑增加缓存
+    1. 检查慢查询日志
+    2. 分析数据库性能
+    3. 考虑增加缓存
 
 #### APIHighErrorRate (Critical)
+
 - **触发条件**: API 5xx 错误率 > 5%
 - **持续时间**: 5 分钟
 - **影响**: 功能不可用
 - **处理步骤**:
-  1. 查看错误日志
-  2. 检查依赖服务状态
-  3. 必要时回滚最近变更
+    1. 查看错误日志
+    2. 检查依赖服务状态
+    3. 必要时回滚最近变更
 
 ### 4. 数据库连接池告警
 
 #### DatabasePoolSaturation (Warning)
+
 - **触发条件**: 连接池利用率 > 90%
 - **持续时间**: 5 分钟
 - **影响**: 请求可能排队或超时
 - **处理步骤**:
-  1. 检查连接泄漏
-  2. 优化查询性能
-  3. 考虑增加连接池大小
+    1. 检查连接泄漏
+    2. 优化查询性能
+    3. 考虑增加连接池大小
 
 #### DatabasePoolExhausted (Critical)
+
 - **触发条件**: 连接池利用率 > 95%
 - **持续时间**: 2 分钟
 - **影响**: 数据库访问失败
 - **处理步骤**:
-  1. 紧急扩容连接池
-  2. 优化长事务
-  3. 重启服务释放连接
+    1. 紧急扩容连接池
+    2. 优化长事务
+    3. 重启服务释放连接
 
 ### 5. 健康检查告警
 
 #### ServiceHealthCheckFailed (Critical)
+
 - **触发条件**: 健康检查状态 != 1 (ok)
 - **持续时间**: 2 分钟
 - **影响**: 依赖服务不可用
 - **处理步骤**:
-  1. 检查服务日志
-  2. 验证网络连接
-  3. 重启服务
+    1. 检查服务日志
+    2. 验证网络连接
+    3. 重启服务
 
 #### HealthCheckHighLatency (Warning)
+
 - **触发条件**: 健康检查延迟 > 1s
 - **持续时间**: 5 分钟
 - **影响**: 服务响应慢
 - **处理步骤**:
-  1. 检查数据库性能
-  2. 检查网络延迟
-  3. 优化健康检查逻辑
+    1. 检查数据库性能
+    2. 检查网络延迟
+    3. 优化健康检查逻辑
 
 #### MultipleServicesUnhealthy (Critical)
+
 - **触发条件**: >= 2 个服务健康检查失败
 - **持续时间**: 1 分钟
 - **影响**: 系统级故障
 - **处理步骤**:
-  1. 检查共享基础设施
-  2. 检查网络和存储
-  3. 考虑切换到备用环境
+    1. 检查共享基础设施
+    2. 检查网络和存储
+    3. 考虑切换到备用环境
 
 ### 6. 数据一致性告警
 
 #### DataInconsistencyDetected (Warning)
+
 - **触发条件**: PostgreSQL 与 Neo4j 记录数差异 > 50
 - **持续时间**: 10 分钟
 - **影响**: 数据可能不一致
 - **处理步骤**:
-  1. 检查同步任务日志
-  2. 手动触发同步
-  3. 验证数据完整性
+    1. 检查同步任务日志
+    2. 手动触发同步
+    3. 验证数据完整性
 
 #### SevereDataInconsistency (Critical)
+
 - **触发条件**: PostgreSQL 与 Neo4j 记录数差异 > 100
 - **持续时间**: 15 分钟
 - **影响**: 数据严重不一致
 - **处理步骤**:
-  1. 停止写入操作
-  2. 手动对账
-  3. 从备份恢复
+    1. 停止写入操作
+    2. 手动对账
+    3. 从备份恢复
 
 #### HighTransactionErrorRate (Warning)
+
 - **触发条件**: 5 分钟内事务错误 > 10 次
 - **持续时间**: 5 分钟
 - **影响**: 写入操作失败
 - **处理步骤**:
-  1. 查看错误类型
-  2. 检查数据库约束
-  3. 优化事务逻辑
+    1. 查看错误类型
+    2. 检查数据库约束
+    3. 优化事务逻辑
 
 #### PipelineQueueBacklog (Warning)
+
 - **触发条件**: 队列深度 > 1000
 - **持续时间**: 10 分钟
 - **影响**: 处理延迟增加
 - **处理步骤**:
-  1. 增加消费者数量
-  2. 优化处理性能
-  3. 检查下游服务
+    1. 增加消费者数量
+    2. 优化处理性能
+    3. 检查下游服务
 
 #### HighPersistenceFailureRate (Warning)
+
 - **触发条件**: 持久化失败率 > 5%
 - **持续时间**: 10 分钟
 - **影响**: 数据丢失风险
 - **处理步骤**:
-  1. 检查失败原因
-  2. 优化持久化逻辑
-  3. 考虑重试机制
+    1. 检查失败原因
+    2. 优化持久化逻辑
+    3. 考虑重试机制
 
 ## Alertmanager 配置示例
 
@@ -355,6 +373,7 @@ rate(ALERTS{alertstate="firing"}[1h])
 ### 4. 告警文档
 
 每个告警都应包含：
+
 - 清晰的 summary 和 description
 - runbook_url 指向处理文档
 - 严重级别标签
@@ -388,24 +407,24 @@ docker start weaver-postgres
 
 确保以下指标已正确暴露：
 
-| 指标名称 | 类型 | 来源 | 说明 |
-|---------|------|------|------|
-| `circuit_breaker_state` | Gauge | Circuit Breaker | 熔断器状态 |
-| `circuit_breaker_failures_total` | Counter | Circuit Breaker | 熔断失败计数 |
-| `llm_call_total` | Counter | LLM Client | LLM 调用计数 |
-| `llm_call_latency_seconds` | Histogram | LLM Client | LLM 调用延迟 |
-| `llm_fallback_total` | Counter | LLM Client | Fallback 计数 |
-| `api_request_total` | Counter | API | API 请求计数 |
-| `api_request_latency_seconds` | Histogram | API | API 延迟 |
-| `db_pool_utilization` | Gauge | Database Pool | 连接池利用率 |
-| `health_check_status` | Gauge | Health Check | 健康检查状态 |
-| `health_check_latency_ms` | Gauge | Health Check | 健康检查延迟 |
-| `pg_stat_user_tables_n_live_tup` | Gauge | PostgreSQL | 表记录数 |
-| `neo4j_node_count` | Gauge | Neo4j | 节点数 |
-| `pipeline_stage_latency_seconds` | Gauge | Pipeline | 同步延迟 |
-| `db_transaction_errors_total` | Counter | Database | 事务错误计数 |
-| `pipeline_queue_depth` | Gauge | Pipeline | 队列深度 |
-| `persist_status_count` | Gauge | Persistence | 持久化状态计数 |
+| 指标名称                             | 类型        | 来源              | 说明          |
+|----------------------------------|-----------|-----------------|-------------|
+| `circuit_breaker_state`          | Gauge     | Circuit Breaker | 熔断器状态       |
+| `circuit_breaker_failures_total` | Counter   | Circuit Breaker | 熔断失败计数      |
+| `llm_call_total`                 | Counter   | LLM Client      | LLM 调用计数    |
+| `llm_call_latency_seconds`       | Histogram | LLM Client      | LLM 调用延迟    |
+| `llm_fallback_total`             | Counter   | LLM Client      | Fallback 计数 |
+| `api_request_total`              | Counter   | API             | API 请求计数    |
+| `api_request_latency_seconds`    | Histogram | API             | API 延迟      |
+| `db_pool_utilization`            | Gauge     | Database Pool   | 连接池利用率      |
+| `health_check_status`            | Gauge     | Health Check    | 健康检查状态      |
+| `health_check_latency_ms`        | Gauge     | Health Check    | 健康检查延迟      |
+| `pg_stat_user_tables_n_live_tup` | Gauge     | PostgreSQL      | 表记录数        |
+| `neo4j_node_count`               | Gauge     | Neo4j           | 节点数         |
+| `pipeline_stage_latency_seconds` | Gauge     | Pipeline        | 同步延迟        |
+| `db_transaction_errors_total`    | Counter   | Database        | 事务错误计数      |
+| `pipeline_queue_depth`           | Gauge     | Pipeline        | 队列深度        |
+| `persist_status_count`           | Gauge     | Persistence     | 持久化状态计数     |
 
 ## 故障排查
 

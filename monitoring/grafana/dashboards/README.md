@@ -9,6 +9,7 @@
 **用途**: 监控系统整体健康状态和关键性能指标
 
 **主要面板**:
+
 - **数据库健康状态**: PostgreSQL、Neo4j、Redis 的实时健康状态（健康/错误/超时/不可用）
 - **数据库延迟趋势**: 各数据库的响应延迟时序图
 - **数据库连接池利用率**: 连接池使用情况监控
@@ -16,6 +17,7 @@
 - **API 响应时间分布**: P50、P95、P99 响应时间
 
 **关键指标**:
+
 - `health_check_status` - 健康检查状态
 - `health_check_latency_ms` - 健康检查延迟
 - `db_pool_utilization` - 连接池利用率
@@ -23,6 +25,7 @@
 - `api_request_latency_seconds` - API 请求延迟
 
 **使用场景**:
+
 - 快速了解系统整体健康状况
 - 发现数据库连接问题
 - 监控 API 性能瓶颈
@@ -34,6 +37,7 @@
 **用途**: 监控熔断器状态和 LLM 服务调用情况
 
 **主要面板**:
+
 - **Circuit Breaker 当前状态**: 所有 provider 的熔断器状态（CLOSED/OPEN/HALF_OPEN）
 - **熔断次数统计**: 5 分钟内的熔断次数趋势
 - **LLM 调用失败率趋势**: 各 provider 的失败率百分比
@@ -42,6 +46,7 @@
 - **Provider 调用统计**: 24 小时内各 provider 的调用次数和失败次数表格
 
 **关键指标**:
+
 - `circuit_breaker_state` - 熔断器状态 (0=CLOSED, 1=OPEN, 2=HALF_OPEN)
 - `circuit_breaker_failures_total` - 熔断失败次数
 - `llm_call_total` - LLM 调用总数
@@ -49,6 +54,7 @@
 - `llm_fallback_total` - Fallback 事件次数
 
 **使用场景**:
+
 - 监控 LLM 服务稳定性
 - 发现 provider 故障
 - 分析 fallback 触发原因
@@ -61,6 +67,7 @@
 **用途**: 监控 PostgreSQL 和 Neo4j 之间的数据一致性
 
 **主要面板**:
+
 - **PostgreSQL 记录数**: PostgreSQL 中的记录总数
 - **Neo4j 实体数**: Neo4j 中的实体总数
 - **记录数差异**: 两个数据库之间的记录数差异
@@ -71,6 +78,7 @@
 - **持久化状态分布**: 各状态（PENDING/PROCESSING/PG_DONE/NEO4J_DONE/FAILED）的记录数
 
 **关键指标**:
+
 - `pg_stat_user_tables_n_live_tup` - PostgreSQL 记录数
 - `neo4j_node_count` - Neo4j 节点数
 - `pipeline_stage_latency_seconds` - Pipeline 阶段延迟
@@ -79,6 +87,7 @@
 - `persist_status_count` - 持久化状态计数
 
 **使用场景**:
+
 - 检测数据库同步问题
 - 监控数据一致性
 - 发现事务错误
@@ -101,12 +110,14 @@
 确保以下指标已正确配置并暴露：
 
 #### 健康检查指标
+
 ```promql
 health_check_status{service="postgres|neo4j|redis"}
 health_check_latency_ms{service="postgres|neo4j|redis"}
 ```
 
 #### Circuit Breaker 指标
+
 ```promql
 circuit_breaker_state{provider="..."}
 circuit_breaker_failures_total{provider="..."}
@@ -116,6 +127,7 @@ llm_fallback_total{from_provider="...", reason="..."}
 ```
 
 #### 数据库一致性指标
+
 ```promql
 pg_stat_user_tables_n_live_tup{datname="weaver"}
 neo4j_node_count{label="Entity"}
@@ -191,9 +203,11 @@ providers:
 部分仪表盘支持动态变量：
 
 ### 系统健康概览
+
 - **endpoint**: 按 API 端点筛选数据
 
 ### Circuit Breaker 状态
+
 - **provider**: 按 LLM provider 筛选数据
 
 ## 刷新间隔
@@ -201,6 +215,7 @@ providers:
 所有仪表盘默认刷新间隔：**30 秒**
 
 可选手动刷新间隔：
+
 - 5s、10s、30s、1m、5m、15m、30m、1h、2h、1d
 
 ## 时间范围
@@ -208,6 +223,7 @@ providers:
 默认时间范围：**最近 1 小时**
 
 可通过时间选择器调整：
+
 - Last 5 minutes
 - Last 15 minutes
 - Last 1 hour
@@ -224,16 +240,19 @@ providers:
 建议为以下指标配置告警：
 
 ### 系统健康
+
 - 健康检查状态为 `error` 或 `timeout` 超过 2 分钟
 - 数据库延迟 > 500ms 超过 5 分钟
 - 连接池利用率 > 90% 超过 5 分钟
 
 ### Circuit Breaker
+
 - 熔断器状态为 `OPEN` 超过 5 分钟
 - LLM 调用失败率 > 20% 超过 5 分钟
 - Fallback 触发次数异常增长
 
 ### 数据库一致性
+
 - PostgreSQL vs Neo4j 记录数差异 > 50
 - 同步延迟 > 10s 超过 5 分钟
 - 错误事务数 > 10 次/分钟
@@ -251,12 +270,14 @@ providers:
 ### 仪表盘显示 "No Data"
 
 **可能原因**:
+
 1. Prometheus 数据源未配置
 2. 对应的指标未暴露或无数据
 3. 查询语句错误
 4. 时间范围内没有数据
 
 **解决方法**:
+
 1. 检查 Prometheus 数据源配置
 2. 访问 `/metrics` 端点确认指标存在
 3. 在 Prometheus UI 中测试查询语句
@@ -265,11 +286,13 @@ providers:
 ### 面板加载缓慢
 
 **可能原因**:
+
 1. 查询时间范围过大
 2. Prometheus 性能不足
 3. 网络延迟
 
 **解决方法**:
+
 1. 缩小时间范围
 2. 优化 Prometheus 查询
 3. 检查网络连接
@@ -277,9 +300,9 @@ providers:
 ## 更新日志
 
 - **2026-03-18**: 初始版本，创建三个核心仪表盘
-  - 系统健康概览
-  - Circuit Breaker 状态
-  - 数据库一致性状态
+    - 系统健康概览
+    - Circuit Breaker 状态
+    - 数据库一致性状态
 
 ## 相关文档
 

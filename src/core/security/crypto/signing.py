@@ -19,7 +19,6 @@ from core.observability.logging import get_logger
 
 logger = get_logger(__name__)
 
-
 # ── Constants ──────────────────────────────────────────────────────────────
 
 DEFAULT_ALGORITHM = "sha256"

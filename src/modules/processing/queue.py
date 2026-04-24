@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import TYPE_CHECKING
 
 from core.observability.logging import get_logger
@@ -38,6 +39,12 @@ class ProcessingQueue:
         Returns:
             True if enqueued, False if queue full (soft backpressure).
         """
+        # Validate UUID format
+        try:
+            uuid.UUID(article_id)
+        except ValueError:
+            raise ValueError(f"Invalid UUID format: {article_id!r}")
+
         current_len = await self._cache.llen(QUEUE_KEY)
         if current_len >= MAX_QUEUE_SIZE:
             log.warning("processing_queue_full", size=current_len, max=MAX_QUEUE_SIZE)
@@ -65,7 +72,10 @@ class ProcessingQueue:
         return (article_id, task_id)
 
     async def dequeue_batch(self, max_size: int = 20) -> list[tuple[str, str | None]]:
-        """Dequeue multiple articles.
+        """Dequeue multiple articles using LRANGE + LTRIM batch operation.
+
+        Replaces N individual rpop calls with two Redis commands:
+        LRANGE to fetch items, then LTRIM to atomically trim the list.
 
         Args:
             max_size: Maximum items to dequeue.
@@ -73,12 +83,31 @@ class ProcessingQueue:
         Returns:
             List of (article_id, task_id) tuples.
         """
+        if max_size <= 0:
+            return []
+
+        current_len = await self._cache.llen(QUEUE_KEY)
+        if current_len == 0:
+            return []
+
+        count = min(max_size, current_len)
+
+        # FIFO: items are at the right end (lpush prepends, rpop removes from right)
+        raw_items = await self._cache.lrange(QUEUE_KEY, -count, -1)
+
+        if count >= current_len:
+            # All items dequeued — remove the key entirely
+            await self._cache.delete(QUEUE_KEY)
+        else:
+            # Keep only items NOT dequeued (indices 0 to -(count+1))
+            await self._cache.ltrim(QUEUE_KEY, 0, -(count + 1))
+
         items = []
-        for _ in range(max_size):
-            item = await self.dequeue()
-            if not item:
-                break
-            items.append(item)
+        for payload in raw_items:
+            parts = payload.split(":")
+            article_id = parts[0]
+            task_id = parts[1] if len(parts) > 1 and parts[1] else None
+            items.append((article_id, task_id))
         return items
 
     async def length(self) -> int:

@@ -116,8 +116,7 @@ class IncrementalCommunityUpdater:
         self._llm = llm_client
         # Detect database type from pool if not provided
         if database_type is None:
-            pool_type = type(pool).__name__
-            self._database_type = "ladybug" if pool_type == "LadybugPool" else "neo4j"
+            self._database_type = pool.database_type
         else:
             self._database_type = database_type
 
@@ -733,7 +732,10 @@ class IncrementalCommunityUpdater:
         if not community_ids:
             return [], []
 
-        query = """
+        id_expr1 = "e1.id" if self._database_type == "ladybug" else "elementId(e1)"
+        id_expr2 = "e2.id" if self._database_type == "ladybug" else "elementId(e2)"
+
+        query = f"""
         MATCH (c:Community)-[:HAS_ENTITY]-(e1:Entity)
         WHERE c.id IN $community_ids
           AND (e1.pruned IS NULL OR e1.pruned = false)
@@ -742,8 +744,8 @@ class IncrementalCommunityUpdater:
         WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
           AND (e2.pruned IS NULL OR e2.pruned = false)
         RETURN DISTINCT
-               elementId(e1) AS id1,
-               elementId(e2) AS id2,
+               {id_expr1} AS id1,
+               {id_expr2} AS id2,
                coalesce(r.weight, 1.0) AS weight
         LIMIT $max_edges
         """

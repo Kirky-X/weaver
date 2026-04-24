@@ -216,6 +216,9 @@ class Pipeline:
                 await self._article_repo.bulk_update_processing_stage(ids, stage)
             except Exception as e:
                 log.warning("flush_stage_updates_failed", stage=stage, count=len(ids), error=str(e))
+                # Re-enqueue failed updates for retry on next flush
+                for failed_id in ids:
+                    self._pending_stage_updates.append((str(failed_id), stage))
 
     async def _mark_processing(self, state: PipelineState) -> None:
         """Mark article as processing in the database.
@@ -308,6 +311,7 @@ class Pipeline:
         self._batch_failed = 0
         self._pending_stage_updates.clear()
 
+        # ── Section: Initialize states ──────────────────────────────
         # Initialize states with optional article_id and task_id
         states: list[PipelineState] = []
         for i, article in enumerate(articles):
@@ -318,7 +322,7 @@ class Pipeline:
                 state["task_id"] = str(task_id)
             states.append(state)
 
-        # Phase 1: Per-article concurrent nodes
+        # ── Section: Phase 1 — Per-article concurrent nodes ────────
         phase1_tasks = [self._phase1_per_article(state) for state in states]
         phase1_results = await asyncio.gather(*phase1_tasks, return_exceptions=True)
         # Fatal provider errors must abort the entire batch immediately
@@ -331,20 +335,32 @@ class Pipeline:
         states = []
         for i, result in enumerate(phase1_results):
             if isinstance(result, Exception):
+                article_id = (
+                    str(article_ids[i])
+                    if article_ids is not None and i < len(article_ids)
+                    else None
+                )
                 log.error(
                     "phase1_task_failed",
                     article_index=i,
+                    article_id=article_id,
+                    url=articles[i].url,
                     error=str(result),
                     error_type=type(result).__name__,
                 )
                 # Create failed state for the article
                 failed_state = PipelineState(raw=articles[i])
+                if article_id:
+                    failed_state["article_id"] = article_id
+                if task_id is not None:
+                    failed_state["task_id"] = str(task_id)
                 failed_state["terminal"] = True
                 failed_state["error"] = str(result)
                 states.append(failed_state)
             else:
                 states.append(result)
 
+        # ── Section: Phase 2-6 — Batch merge → Persist → Cleanup ──
         # Phase 2: Batch merger (serial)
         try:
             import time
@@ -378,8 +394,9 @@ class Pipeline:
                         ),
                     )
                     # Preserve pre-phase3 state so Phase 1/2 results are not lost
+                    # Keep terminal=True from Phase1 if set, otherwise mark non-terminal
                     original = pre_phase3_states[i]
-                    original["terminal"] = False
+                    original.setdefault("terminal", False)
                     original["phase3_error"] = str(result)
                     states.append(original)
                 else:
@@ -1152,6 +1169,6 @@ class Pipeline:
                     parts = embedding_config.primary.split(".", 2)
                     if len(parts) >= 3:
                         return parts[2]  # Return model_id (third part)
-        except Exception:
-            pass
+        except (AttributeError, KeyError, IndexError) as exc:
+            log.debug("extract_embedding_model_id_failed", error=str(exc))
         return "Qwen3-Embedding-0.6B"

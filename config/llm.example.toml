@@ -26,15 +26,15 @@ timeout = 120.0
 priority = 100
 weight = 100
 
-  [providers.openai.models.chat]
-  model_id = "gpt-4o"
-  temperature = 0.0
-  max_tokens = 4096
-  capabilities = ["chat", "vision"]
+[providers.openai.models.chat]
+model_id = "gpt-4o"
+temperature = 0.0
+max_tokens = 4096
+capabilities = ["chat", "vision"]
 
-  [providers.openai.models.embedding]
-  model_id = "text-embedding-3-large"
-  capabilities = ["embedding"]
+[providers.openai.models.embedding]
+model_id = "text-embedding-3-large"
+capabilities = ["embedding"]
 
 # ============================================================
 # Provider: Anthropic
@@ -49,11 +49,11 @@ timeout = 300.0
 priority = 100
 weight = 100
 
-  [providers.anthropic.models.chat]
-  model_id = "claude-sonnet-4-20250514"
-  temperature = 0.0
-  max_tokens = 4096
-  capabilities = ["chat", "vision"]
+[providers.anthropic.models.chat]
+model_id = "claude-sonnet-4-20250514"
+temperature = 0.0
+max_tokens = 4096
+capabilities = ["chat", "vision"]
 
 # ============================================================
 # Provider: Ollama (Local) - Fallback for embedding
@@ -68,9 +68,9 @@ timeout = 300.0
 priority = 200                      # Lower priority (higher number = lower priority)
 weight = 50
 
-  [providers.ollama.models.embedding]
-  model_id = "nomic-embed-text"
-  capabilities = ["embedding"]
+[providers.ollama.models.embedding]
+model_id = "nomic-embed-text"
+capabilities = ["embedding"]
 
 # ============================================================
 # Default Labels (used when no call point specified)
@@ -137,16 +137,16 @@ fallbacks = ["embedding.ollama.nomic-embed-text"]
 [routing.classifier]
 mode = "auto"                      # auto | fast | best
 
-  [routing.classifier.weights]
-  editorial = 0.35                 # Preset priority from TOML order
-  reliability = 0.25               # Historical success rate
-  cost = 0.15                      # Estimated token cost
-  latency = 0.10                   # Historical P50 latency
+[routing.classifier.weights]
+editorial = 0.35                 # Preset priority from TOML order
+reliability = 0.25               # Historical success rate
+cost = 0.15                      # Estimated token cost
+latency = 0.10                   # Historical P50 latency
 
-  [routing.classifier.bandit]
-  enabled = true
-  exploration_weight = 0.15        # Thompson Sampling exploration
-  warmup_calls = 3                 # Min calls before stats are trusted
+[routing.classifier.bandit]
+enabled = true
+exploration_weight = 0.15        # Thompson Sampling exploration
+warmup_calls = 3                 # Min calls before stats are trusted
 
 [routing.entity_extractor]
 mode = "best"                      # Quality-first for extraction tasks

@@ -35,7 +35,6 @@ SPACY_TO_ENTITY_TYPE = {
     "LAW": "法规与政策",
 }
 
-
 # Maximum wheel file size (1GB) to prevent zip bomb attacks
 MAX_WHEEL_SIZE = 1 * 1024 * 1024 * 1024
 

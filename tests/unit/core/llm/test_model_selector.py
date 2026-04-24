@@ -31,12 +31,14 @@ def experience(event_bus):
     store = ExperienceStore(event_bus=event_bus)
     # Simulate some experience data with call_history
     from time import monotonic
+
     now = monotonic()
 
     # Create GLM-Z1 experience
     glm_z1_exp = store._experiences.get("x")
     if glm_z1_exp is None:
         from core.llm.evaluation.experience import _ModelExperience
+
         glm_z1_exp = _ModelExperience()
     glm_z1_exp.call_count = 100
     glm_z1_exp.success_count = 95
@@ -47,9 +49,7 @@ def experience(event_bus):
     glm_z1_exp.last_call_time = 0.0
     glm_z1_exp.last_error_type = ""
     # Add synthetic call history
-    glm_z1_exp.call_history = [
-        (now - 3600 * i, 2000.0, True) for i in range(95)
-    ] + [
+    glm_z1_exp.call_history = [(now - 3600 * i, 2000.0, True) for i in range(95)] + [
         (now - 3600 * (95 + i), 2000.0, False) for i in range(5)
     ]
     store._experiences["classifier.aiping.GLM-Z1"] = glm_z1_exp
@@ -65,9 +65,7 @@ def experience(event_bus):
     glm4_exp.last_call_time = 0.0
     glm4_exp.last_error_type = ""
     # Add synthetic call history
-    glm4_exp.call_history = [
-        (now - 3600 * i, 3000.0, True) for i in range(48)
-    ] + [
+    glm4_exp.call_history = [(now - 3600 * i, 3000.0, True) for i in range(48)] + [
         (now - 3600 * (48 + i), 3000.0, False) for i in range(2)
     ]
     store._experiences["classifier.dmx.glm-4"] = glm4_exp

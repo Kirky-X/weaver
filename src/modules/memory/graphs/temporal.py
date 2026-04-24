@@ -35,7 +35,7 @@ class TemporalGraphRepo(BaseGraphRepo):
             pool: Graph database connection pool (Neo4j or LadybugDB).
         """
         super().__init__(pool)
-        self._is_ladybug = type(pool).__name__ == "LadybugPool"
+        self._is_ladybug = pool.database_type == "ladybug"
 
     async def ensure_constraints(self) -> None:
         """Create EventNode constraints and indexes."""

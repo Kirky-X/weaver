@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import collections
 import json
 import uuid
@@ -25,6 +26,8 @@ if TYPE_CHECKING:
     from core.protocols import CachePool, RelationalPool
 
 log = get_logger(__name__)
+
+MAX_BATCH_RETRIES = 10
 
 
 class SchedulerJobs:
@@ -102,6 +105,7 @@ class SchedulerJobs:
                 return 0
 
             retry_count = 0
+            consecutive_failures = 0
             for article in articles:
                 try:
                     # Prefer pending_sync payload over _reconstruct_state
@@ -128,10 +132,18 @@ class SchedulerJobs:
                     article.persist_status = PersistStatus.NEO4J_DONE
                     await session.commit()
                     retry_count += 1
+                    consecutive_failures = 0
 
                     log.debug("retry_neo4j_write_success", article_id=str(article.id))
 
                 except Exception as exc:
+                    consecutive_failures += 1
+                    if consecutive_failures >= MAX_BATCH_RETRIES:
+                        log.warning(
+                            "retry_neo4j_max_failures_reached",
+                            failures=consecutive_failures,
+                        )
+                        break
                     log.error(
                         "retry_neo4j_write_failed",
                         article_id=str(article.id),
@@ -430,6 +442,7 @@ class SchedulerJobs:
                     batch_size = min(batch_size * 2, 50)
                 else:
                     batch_size = max(batch_size // 2, 5)
+                batch_size = max(1, batch_size)
                 log.debug(
                     "retry_pipeline_processing_batch_size",
                     batch_size=batch_size,
@@ -500,6 +513,7 @@ class SchedulerJobs:
                         )
 
             success_count = 0
+            consecutive_failures = 0
             for article in articles:
                 try:
                     from modules.ingestion.domain.models import RawArticle
@@ -515,6 +529,7 @@ class SchedulerJobs:
                     await self._pipeline.process_batch([raw], article_ids=[article.id])
                     retry_count += 1
                     success_count += 1
+                    consecutive_failures = 0
 
                     # Emit success metric based on article type
                     if article in pending_articles:
@@ -530,10 +545,13 @@ class SchedulerJobs:
                     )
 
                 except Exception as exc:
+                    consecutive_failures += 1
+                    backoff = min(2**consecutive_failures, 30)
                     log.error(
                         "retry_pipeline_processing_failed",
                         article_id=str(article.id),
                         error=str(exc),
+                        backoff_seconds=backoff,
                     )
                     try:
                         await self._article_repo.mark_failed(article.id, f"Retry error: {exc!s}")
@@ -543,6 +561,7 @@ class SchedulerJobs:
                             article_id=str(article.id),
                             error=str(mark_exc),
                         )
+                    await asyncio.sleep(backoff)
 
             # Update success rate in Redis if dynamic batching is enabled
             if self._settings.pipeline_retry_dynamic_batch and articles:
@@ -796,19 +815,21 @@ class SchedulerJobs:
 
     async def _reconstruct_state(self, article: Article) -> dict:
         """Reconstruct pipeline state from article for retry."""
-        # This is a simplified version - in production would need
-        # to reconstruct the full state
         return {
             "article_id": str(article.id),
             "raw": type(
                 "obj",
                 (object,),
                 {
+                    "id": article.id,
                     "url": article.source_url,
                     "title": article.title,
                     "body": article.body,
                     "publish_time": article.publish_time,
                     "source": article.source_host,
+                    "source_host": article.source_host,
+                    "description": "",
+                    "tier": 2,
                 },
             )(),
             "cleaned": {

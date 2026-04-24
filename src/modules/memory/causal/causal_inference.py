@@ -109,7 +109,7 @@ class CausalInferenceService:
         self._llm = llm_client
         self._causal_repo = causal_repo
         self._config = config or InferenceConfig()
-        self._is_ladybug = type(pool).__name__ == "LadybugPool"
+        self._is_ladybug = pool.database_type == "ladybug"
 
     async def infer_and_create_causal_edges(
         self,
@@ -198,48 +198,61 @@ class CausalInferenceService:
         Returns:
             List of relation dicts with source, target, type, description.
         """
+        from core.db.safe_query import validate_edge_type
+
+        # Only get relations that are potentially causal
+        causal_relation_types = list(RELATION_CATEGORY_MAP.keys())
+        limit = self._config.max_relations_per_entity * 10
+
         # Build query based on filters
         if self._is_ladybug:
-            # LadybugDB uses r.edge_type for relationship type
+            # LadybugDB: fully parameterized query
             type_filter = ""
             if relation_types:
-                types_str = ", ".join(f"'{t}'" for t in relation_types)
-                type_filter = f"AND r.edge_type IN [{types_str}]"
+                type_filter = "AND r.edge_type IN $relation_types"
 
             entity_filter = ""
             if entity_names:
-                names_str = ", ".join(f"'{n}'" for n in entity_names)
-                entity_filter = f"AND (e1.canonical_name IN [{names_str}] OR e2.canonical_name IN [{names_str}])"
-
-            # Only get relations that are potentially causal
-            causal_relation_types = list(RELATION_CATEGORY_MAP.keys())
-            causal_types_str = ", ".join(f"'{t}'" for t in causal_relation_types)
+                entity_filter = (
+                    "AND (e1.canonical_name IN $entity_names OR e2.canonical_name IN $entity_names)"
+                )
 
             query = f"""
             MATCH (e1:Entity)-[r]->(e2:Entity)
-            WHERE r.edge_type IN [{causal_types_str}]
+            WHERE r.edge_type IN $causal_types
             {type_filter}
             {entity_filter}
             RETURN e1.canonical_name AS source,
                    e2.canonical_name AS target,
                    r.edge_type AS relation_type,
                    r.properties AS properties
-            LIMIT {self._config.max_relations_per_entity * 10}
+            LIMIT $limit
             """
+
+            params: dict[str, Any] = {
+                "causal_types": causal_relation_types,
+                "limit": limit,
+            }
+            if relation_types:
+                params["relation_types"] = relation_types
+            if entity_names:
+                params["entity_names"] = entity_names
         else:
-            # Neo4j uses type(r)
+            # Neo4j: relationship types in MATCH pattern cannot be parameterized,
+            # validate each type to prevent injection
+            validated_causal = [validate_edge_type(t) for t in causal_relation_types]
+            causal_types_str = "|".join(validated_causal)
+
             type_filter = ""
             if relation_types:
-                types_str = "|".join(relation_types)
-                type_filter = f"AND type(r) IN ['{types_str}']"
+                validated_rel = [validate_edge_type(t) for t in relation_types]
+                type_filter = "AND type(r) IN $relation_types"
 
             entity_filter = ""
             if entity_names:
-                names_str = ", ".join(f"'{n}'" for n in entity_names)
-                entity_filter = f"AND (e1.canonical_name IN [{names_str}] OR e2.canonical_name IN [{names_str}])"
-
-            causal_relation_types = list(RELATION_CATEGORY_MAP.keys())
-            causal_types_str = "|".join(causal_relation_types)
+                entity_filter = (
+                    "AND (e1.canonical_name IN $entity_names OR e2.canonical_name IN $entity_names)"
+                )
 
             query = f"""
             MATCH (e1:Entity)-[r:{causal_types_str}]->(e2:Entity)
@@ -249,11 +262,17 @@ class CausalInferenceService:
                    e2.canonical_name AS target,
                    type(r) AS relation_type,
                    r.description AS description
-            LIMIT {self._config.max_relations_per_entity * 10}
+            LIMIT $limit
             """
 
+            params = {"limit": limit}
+            if relation_types:
+                params["relation_types"] = relation_types
+            if entity_names:
+                params["entity_names"] = entity_names
+
         try:
-            results = await self._pool.execute_query(query)
+            results = await self._pool.execute_query(query, params)
             return [dict(r) for r in results]
         except Exception as exc:
             log.error("get_entity_relations_failed", error=str(exc))

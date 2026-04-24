@@ -168,14 +168,22 @@ class Deduplicator:
         if not urls:
             return []
 
-        url_hashes = [self._hash(url) for url in urls]
-        exists = await self._cache.hexists_many(self.DEDUP_KEY, url_hashes)
+        cache_available = await self._check_cache_health()
+        candidates = urls
 
-        candidates = [url for url, ex in zip(urls, exists) if not ex]
+        if cache_available:
+            try:
+                url_hashes = [self._hash(url) for url in urls]
+                exists = await self._cache.hexists_many(self.DEDUP_KEY, url_hashes)
+                candidates = [url for url, ex in zip(urls, exists) if not ex]
 
-        if not candidates:
-            log.debug("dedup_urls_all_filtered_by_cache", original=len(urls))
-            return []
+                if not candidates:
+                    log.debug("dedup_urls_all_filtered_by_cache", original=len(urls))
+                    return []
+            except Exception as e:
+                log.warning("dedup_urls_cache_failed", error=str(e))
+                self._cache_healthy = False
+                candidates = urls
 
         if hasattr(self._repo, "get_existing_urls"):
             db_existing = await self._repo.get_existing_urls(candidates)
@@ -183,16 +191,21 @@ class Deduplicator:
         else:
             new_urls = candidates
 
-        if new_urls:
-            now = str(int(time.time()))
-            for url in new_urls:
-                await self._cache.hset(self.DEDUP_KEY, self._hash(url), now)
+        if new_urls and self._cache_healthy:
+            try:
+                now = str(int(time.time()))
+                for url in new_urls:
+                    await self._cache.hset(self.DEDUP_KEY, self._hash(url), now)
+            except Exception as e:
+                log.warning("dedup_urls_cache_write_failed", error=str(e))
+                self._cache_healthy = False
 
         log.info(
             "dedup_urls_complete",
             original=len(urls),
             after_cache=len(candidates),
             after_db=len(new_urls),
+            cache_healthy=self._cache_healthy,
         )
         return new_urls
 
@@ -323,5 +336,24 @@ class Deduplicator:
 
     @staticmethod
     def _hash(url: str) -> str:
-        """Generate a short hash for a URL."""
-        return hashlib.sha256(Deduplicator.normalize_url(url).encode()).hexdigest()[:16]
+        """Generate a short hash for a URL.
+
+        Validates URL format before hashing to prevent processing
+        malformed or malicious inputs.
+
+        Args:
+            url: The URL to hash.
+
+        Returns:
+            16-character hex digest of the normalized URL.
+
+        Raises:
+            ValueError: If URL is empty, not a string, or doesn't
+                start with http:// or https://.
+        """
+        if not url or not isinstance(url, str):
+            raise ValueError(f"Invalid URL for hashing: {url!r}")
+        stripped = url.strip()
+        if not stripped.startswith(("http://", "https://")):
+            raise ValueError(f"URL must start with http:// or https://: {url!r}")
+        return hashlib.sha256(Deduplicator.normalize_url(stripped).encode()).hexdigest()[:16]

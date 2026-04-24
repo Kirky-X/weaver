@@ -20,6 +20,14 @@ class Neo4jPool:
         - GraphPool: Async graph database pool with query execution
     """
 
+    @property
+    def database_type(self) -> str:
+        """Return the database type identifier.
+
+        Implements: GraphPool.database_type
+        """
+        return "neo4j"
+
     def __init__(self, uri: str, auth: tuple[str, str]) -> None:
         self._uri = uri
         self._driver: AsyncDriver | None = None

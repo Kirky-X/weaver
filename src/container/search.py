@@ -171,7 +171,7 @@ class ContainerSearchMixin:
                 )
 
                 # Build index on startup if empty
-                if not bm25_retriever._retriever:
+                if not bm25_retriever.is_initialized:
                     count = await self._bm25_index_service.build_full_index()
                     if count > 0:
                         log.info("bm25_index_built_on_startup", documents=count)

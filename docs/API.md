@@ -5,59 +5,59 @@
 ## 目录
 
 - [系统端点](#系统端点)
-  - [GET /api/v1/status](#get-apiv1status)
-  - [GET /api/v1/config](#get-apiv1config)
+    - [GET /api/v1/status](#get-apiv1status)
+    - [GET /api/v1/config](#get-apiv1config)
 - [文章端点](#文章端点)
-  - [GET /api/v1/articles](#get-apiv1articles)
-  - [GET /api/v1/articles/{article_id}](#get-apiv1articlesarticle_id)
+    - [GET /api/v1/articles](#get-apiv1articles)
+    - [GET /api/v1/articles/{article_id}](#get-apiv1articlesarticle_id)
 - [源管理端点](#源管理端点)
-  - [GET /api/v1/sources](#get-apiv1sources)
-  - [POST /api/v1/sources](#post-apiv1sources)
-  - [PUT /api/v1/sources/{source_id}](#put-apiv1sourcessource_id)
-  - [DELETE /api/v1/sources/{source_id}](#delete-apiv1sourcessource_id)
+    - [GET /api/v1/sources](#get-apiv1sources)
+    - [POST /api/v1/sources](#post-apiv1sources)
+    - [PUT /api/v1/sources/{source_id}](#put-apiv1sourcessource_id)
+    - [DELETE /api/v1/sources/{source_id}](#delete-apiv1sourcessource_id)
 - [搜索端点](#搜索端点)
-  - [GET /api/v1/search](#get-apiv1search)
-  - [POST /api/v1/search/drift](#post-apiv1searchdrift)
-  - [POST /api/v1/search/causal](#post-apiv1searchcausal)
-  - [POST /api/v1/search/temporal](#post-apiv1searchtemporal)
+    - [GET /api/v1/search](#get-apiv1search)
+    - [POST /api/v1/search/drift](#post-apiv1searchdrift)
+    - [POST /api/v1/search/causal](#post-apiv1searchcausal)
+    - [POST /api/v1/search/temporal](#post-apiv1searchtemporal)
 - [Pipeline 端点](#pipeline-端点)
-  - [POST /api/v1/pipeline/trigger](#post-apiv1pipelinetrigger)
-  - [GET /api/v1/pipeline/tasks/{task_id}](#get-apiv1pipelinetaskstask_id)
-  - [GET /api/v1/pipeline/queue/stats](#get-apiv1pipelinequeuestats)
-  - [POST /api/v1/pipeline/url](#post-apiv1pipelineurl)
+    - [POST /api/v1/pipeline/trigger](#post-apiv1pipelinetrigger)
+    - [GET /api/v1/pipeline/tasks/{task_id}](#get-apiv1pipelinetaskstask_id)
+    - [GET /api/v1/pipeline/queue/stats](#get-apiv1pipelinequeuestats)
+    - [POST /api/v1/pipeline/url](#post-apiv1pipelineurl)
 - [图谱端点](#图谱端点)
-  - [GET /api/v1/graph/entities/{name}](#get-apiv1graphentitiesname)
-  - [GET /api/v1/graph/articles/{article_id}/graph](#get-apiv1grapharticlesarticle_idgraph)
-  - [GET /api/v1/graph/relations](#get-apiv1graphrelations)
-  - [GET /api/v1/graph/relations/search](#get-apiv1graphrelationssearch)
-  - [GET /api/v1/graph/metrics](#get-apiv1graphmetrics)
-  - [GET /api/v1/graph/visualization](#get-apiv1graphvisualization)
-  - [POST /api/v1/graph/visualization](#post-apiv1graphvisualization)
+    - [GET /api/v1/graph/entities/{name}](#get-apiv1graphentitiesname)
+    - [GET /api/v1/graph/articles/{article_id}/graph](#get-apiv1grapharticlesarticle_idgraph)
+    - [GET /api/v1/graph/relations](#get-apiv1graphrelations)
+    - [GET /api/v1/graph/relations/search](#get-apiv1graphrelationssearch)
+    - [GET /api/v1/graph/metrics](#get-apiv1graphmetrics)
+    - [GET /api/v1/graph/visualization](#get-apiv1graphvisualization)
+    - [POST /api/v1/graph/visualization](#post-apiv1graphvisualization)
 - [社区管理端点](#社区管理端点)
-  - [POST /api/v1/admin/communities/rebuild](#post-apiv1admincommunitiesrebuild)
-  - [POST /api/v1/admin/communities/reports/generate](#post-apiv1admincommunitiesreportsgenerate)
-  - [POST /api/v1/admin/communities/{community_id}/report/regenerate](#post-apiv1admincommunitiescommunity_idreportregenerate)
-  - [GET /api/v1/admin/communities](#get-apiv1admincommunities)
-  - [GET /api/v1/admin/communities/{community_id}](#get-apiv1admincommunitiescommunity_id)
-  - [GET /api/v1/admin/communities/health](#get-apiv1admincommunitieshealth)
-  - [POST /api/v1/admin/communities/health/diagnose](#post-apiv1admincommunitieshealthdiagnose)
-  - [POST /api/v1/admin/communities/health/repair](#post-apiv1admincommunitieshealthrepair)
+    - [POST /api/v1/admin/communities/rebuild](#post-apiv1admincommunitiesrebuild)
+    - [POST /api/v1/admin/communities/reports/generate](#post-apiv1admincommunitiesreportsgenerate)
+    - [POST /api/v1/admin/communities/{community_id}/report/regenerate](#post-apiv1admincommunitiescommunity_idreportregenerate)
+    - [GET /api/v1/admin/communities](#get-apiv1admincommunities)
+    - [GET /api/v1/admin/communities/{community_id}](#get-apiv1admincommunitiescommunity_id)
+    - [GET /api/v1/admin/communities/health](#get-apiv1admincommunitieshealth)
+    - [POST /api/v1/admin/communities/health/diagnose](#post-apiv1admincommunitieshealthdiagnose)
+    - [POST /api/v1/admin/communities/health/repair](#post-apiv1admincommunitieshealthrepair)
 - [源权威管理端点](#源权威管理端点)
-  - [GET /api/v1/admin/authorities](#get-apiv1adminauthorities)
-  - [PATCH /api/v1/admin/authorities/{host}](#patch-apiv1adminauthoritieshost)
+    - [GET /api/v1/admin/authorities](#get-apiv1adminauthorities)
+    - [PATCH /api/v1/admin/authorities/{host}](#patch-apiv1adminauthoritieshost)
 - [文章管理端点](#文章管理端点)
-  - [POST /api/v1/admin/articles/deduplicate](#post-apiv1adminarticlesdeduplicate)
+    - [POST /api/v1/admin/articles/deduplicate](#post-apiv1adminarticlesdeduplicate)
 - [LLM 失败监控端点](#llm-失败监控端点)
-  - [GET /api/v1/admin/llm-failures](#get-apiv1adminllm-failures)
-  - [GET /api/v1/admin/llm-failures/stats](#get-apiv1adminllm-failuresstats)
+    - [GET /api/v1/admin/llm-failures](#get-apiv1adminllm-failures)
+    - [GET /api/v1/admin/llm-failures/stats](#get-apiv1adminllm-failuresstats)
 - [LLM 使用统计端点](#llm-使用统计端点)
-  - [GET /api/v1/admin/llm-usage](#get-apiv1adminllm-usage)
+    - [GET /api/v1/admin/llm-usage](#get-apiv1adminllm-usage)
 - [DRIFT 搜索端点](#drift-搜索端点)
-  - [POST /api/v1/search/drift](#post-apiv1searchdrift)
+    - [POST /api/v1/search/drift](#post-apiv1searchdrift)
 - [健康检查端点](#健康检查端点)
-  - [GET /health](#get-health)
+    - [GET /health](#get-health)
 - [监控指标端点](#监控指标端点)
-  - [GET /metrics](#get-metrics)
+    - [GET /metrics](#get-metrics)
 - [错误响应格式](#错误响应格式)
 - [通用规范](#通用规范)
 
@@ -98,13 +98,13 @@ Host: api.weaver.example.com
 
 **响应字段说明**:
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `status` | string | 系统状态: "running" |
-| `version` | string | 系统版本号 |
-| `database.relational` | string | 关系型数据库类型: "postgres" 或 "duckdb" |
-| `database.graph` | string | 图数据库类型: "neo4j", "ladybug" 或 null |
-| `database.cache` | string | 缓存类型: "redis" 或 "cashews" |
+| 字段                    | 类型     | 说明                                |
+|-----------------------|--------|-----------------------------------|
+| `status`              | string | 系统状态: "running"                   |
+| `version`             | string | 系统版本号                             |
+| `database.relational` | string | 关系型数据库类型: "postgres" 或 "duckdb"   |
+| `database.graph`      | string | 图数据库类型: "neo4j", "ladybug" 或 null |
+| `database.cache`      | string | 缓存类型: "redis" 或 "cashews"         |
 
 #### 使用场景
 
@@ -145,13 +145,13 @@ Host: api.weaver.example.com
 
 **响应字段说明**:
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `relational_pool_type` | string | 关系型数据库类型 |
-| `graph_pool_type` | string | 图数据库类型 |
-| `llm_enabled` | boolean | LLM 功能是否启用 |
-| `search_enabled` | boolean | 搜索功能是否启用 |
-| `graph_available` | boolean | 图数据库是否可用 |
+| 字段                     | 类型      | 说明         |
+|------------------------|---------|------------|
+| `relational_pool_type` | string  | 关系型数据库类型   |
+| `graph_pool_type`      | string  | 图数据库类型     |
+| `llm_enabled`          | boolean | LLM 功能是否启用 |
+| `search_enabled`       | boolean | 搜索功能是否启用   |
+| `graph_available`      | boolean | 图数据库是否可用   |
 
 #### 使用场景
 
@@ -231,31 +231,31 @@ Host: api.weaver.example.com
 
 #### 状态码
 
-| 状态码                  | 说明                 |
-| ----------------------- | -------------------- |
-| 200 OK                  | 所有依赖项健康       |
+| 状态码                     | 说明         |
+|-------------------------|------------|
+| 200 OK                  | 所有依赖项健康    |
 | 503 Service Unavailable | 至少一个依赖项不健康 |
 
 #### 检查状态说明
 
 每个依赖项的检查结果包含 `status` 字段，可能的值包括：
 
-| status 值     | 说明         | 示例场景                     |
-| ------------- | ------------ | ---------------------------- |
-| `ok`          | 依赖项健康   | 连接正常，响应时间在阈值内   |
-| `timeout`     | 检查超时     | 5 秒内未响应                 |
-| `error`       | 检查失败     | 连接失败、认证错误、查询异常 |
-| `unavailable` | 服务未初始化 | 数据库池未创建或未配置       |
+| status 值      | 说明     | 示例场景           |
+|---------------|--------|----------------|
+| `ok`          | 依赖项健康  | 连接正常，响应时间在阈值内  |
+| `timeout`     | 检查超时   | 5 秒内未响应        |
+| `error`       | 检查失败   | 连接失败、认证错误、查询异常 |
+| `unavailable` | 服务未初始化 | 数据库池未创建或未配置    |
 
 #### 响应字段说明
 
-| 字段                       | 类型   | 说明                                   |
-| -------------------------- | ------ | -------------------------------------- |
+| 字段                         | 类型     | 说明                             |
+|----------------------------|--------|--------------------------------|
 | `status`                   | string | 整体健康状态：`healthy` 或 `unhealthy` |
 | `checks`                   | object | 各依赖项检查结果                       |
-| `checks.<name>.status`     | string | 该依赖项的健康状态                     |
+| `checks.<name>.status`     | string | 该依赖项的健康状态                      |
 | `checks.<name>.latency_ms` | number | 检查耗时（毫秒）                       |
-| `checks.<name>.error`      | string | 错误信息（仅失败时存在）               |
+| `checks.<name>.error`      | string | 错误信息（仅失败时存在）                   |
 
 #### 使用示例
 
@@ -427,63 +427,63 @@ Content-Type: text/plain; version=0.0.4; charset=utf-8
 
 #### 状态码
 
-| 状态码 | 说明             |
-| ------ | ---------------- |
+| 状态码    | 说明       |
+|--------|----------|
 | 200 OK | 成功返回指标数据 |
 
 #### 核心指标列表
 
 ##### 1. 系统指标
 
-| 指标名称                        | 类型    | 说明                        |
-| ------------------------------- | ------- | --------------------------- |
-| `python_info`                   | Gauge   | Python 版本信息             |
-| `process_cpu_seconds_total`     | Counter | CPU 使用总时间（秒）        |
-| `process_resident_memory_bytes` | Gauge   | 驻留内存大小（字节）        |
+| 指标名称                            | 类型      | 说明               |
+|---------------------------------|---------|------------------|
+| `python_info`                   | Gauge   | Python 版本信息      |
+| `process_cpu_seconds_total`     | Counter | CPU 使用总时间（秒）     |
+| `process_resident_memory_bytes` | Gauge   | 驻留内存大小（字节）       |
 | `process_start_time_seconds`    | Gauge   | 进程启动时间（Unix 时间戳） |
 
 ##### 2. HTTP 指标
 
-| 指标名称                        | 类型      | 标签                           | 说明              |
-| ------------------------------- | --------- | ------------------------------ | ----------------- |
-| `http_requests_total`           | Counter   | `method`, `endpoint`, `status` | HTTP 请求总数     |
+| 指标名称                            | 类型        | 标签                             | 说明          |
+|---------------------------------|-----------|--------------------------------|-------------|
+| `http_requests_total`           | Counter   | `method`, `endpoint`, `status` | HTTP 请求总数   |
 | `http_request_duration_seconds` | Histogram | `method`, `endpoint`           | HTTP 请求延迟分布 |
-| `http_requests_in_progress`     | Gauge     | `method`, `endpoint`           | 正在处理的请求数  |
+| `http_requests_in_progress`     | Gauge     | `method`, `endpoint`           | 正在处理的请求数    |
 
 ##### 3. Circuit Breaker 指标
 
-| 指标名称                          | 类型    | 标签      | 说明                                       |
-| --------------------------------- | ------- | --------- | ------------------------------------------ |
+| 指标名称                              | 类型      | 标签        | 说明                                    |
+|-----------------------------------|---------|-----------|---------------------------------------|
 | `circuit_breaker_state`           | Gauge   | `service` | 熔断器状态 (0=CLOSED, 1=OPEN, 2=HALF_OPEN) |
-| `circuit_breaker_fail_count`      | Gauge   | `service` | 当前失败计数                               |
-| `circuit_breaker_open_total`      | Counter | `service` | 熔断器打开总次数                           |
-| `circuit_breaker_half_open_total` | Counter | `service` | 进入半开状态总次数                         |
+| `circuit_breaker_fail_count`      | Gauge   | `service` | 当前失败计数                                |
+| `circuit_breaker_open_total`      | Counter | `service` | 熔断器打开总次数                              |
+| `circuit_breaker_half_open_total` | Counter | `service` | 进入半开状态总次数                             |
 
 ##### 4. 数据库连接池指标
 
-| 指标名称                         | 类型    | 标签                     | 说明         |
-| -------------------------------- | ------- | ------------------------ | ------------ |
-| `db_connection_pool_size`        | Gauge   | `database`               | 连接池大小   |
-| `db_connection_pool_available`   | Gauge   | `database`               | 可用连接数   |
+| 指标名称                             | 类型      | 标签                       | 说明     |
+|----------------------------------|---------|--------------------------|--------|
+| `db_connection_pool_size`        | Gauge   | `database`               | 连接池大小  |
+| `db_connection_pool_available`   | Gauge   | `database`               | 可用连接数  |
 | `db_connection_pool_checked_out` | Gauge   | `database`               | 已检出连接数 |
 | `db_connection_errors_total`     | Counter | `database`, `error_type` | 连接错误总数 |
 
 ##### 5. Pipeline 指标
 
-| 指标名称                          | 类型      | 标签              | 说明             |
-| --------------------------------- | --------- | ----------------- | ---------------- |
-| `articles_processed_total`        | Counter   | `status`          | 处理的文章总数   |
-| `pipeline_stage_duration_seconds` | Histogram | `stage`           | 各阶段处理时长   |
-| `llm_calls_total`                 | Counter   | `model`, `status` | LLM 调用总数     |
+| 指标名称                              | 类型        | 标签                | 说明         |
+|-----------------------------------|-----------|-------------------|------------|
+| `articles_processed_total`        | Counter   | `status`          | 处理的文章总数    |
+| `pipeline_stage_duration_seconds` | Histogram | `stage`           | 各阶段处理时长    |
+| `llm_calls_total`                 | Counter   | `model`, `status` | LLM 调用总数   |
 | `llm_call_duration_seconds`       | Histogram | `model`           | LLM 调用延迟分布 |
 
 ##### 6. 数据一致性指标
 
-| 指标名称                  | 类型    | 标签     | 说明           |
-| ------------------------- | ------- | -------- | -------------- |
-| `saga_transactions_total` | Counter | `status` | Saga 事务总数  |
-| `saga_compensation_total` | Counter | `reason` | 补偿事务总数   |
-| `persist_status_articles` | Gauge   | `status` | 各状态文章数量 |
+| 指标名称                      | 类型      | 标签       | 说明        |
+|---------------------------|---------|----------|-----------|
+| `saga_transactions_total` | Counter | `status` | Saga 事务总数 |
+| `saga_compensation_total` | Counter | `reason` | 补偿事务总数    |
+| `persist_status_articles` | Gauge   | `status` | 各状态文章数量   |
 
 #### 使用示例
 
@@ -566,16 +566,16 @@ X-API-Key: your-api-key
 
 **查询参数：**
 
-| 参数              | 类型    | 默认值         | 说明                                                                 |
-| ----------------- | ------- | -------------- | -------------------------------------------------------------------- |
-| `page`            | integer | 1              | 页码（从1开始）                                                      |
+| 参数                | 类型      | 默认值            | 说明                                                           |
+|-------------------|---------|----------------|--------------------------------------------------------------|
+| `page`            | integer | 1              | 页码（从1开始）                                                     |
 | `page_size`       | integer | 20             | 每页数量（最大100）                                                  |
-| `category`        | string  | -              | 按类别过滤（如 `政治`、`军事`、`经济`）                              |
+| `category`        | string  | -              | 按类别过滤（如 `政治`、`军事`、`经济`）                                      |
 | `source_host`     | string  | -              | 按来源主机名过滤                                                     |
 | `min_score`       | float   | -              | 最低评分过滤（0-1）                                                  |
-| `min_credibility` | float   | -              | 最低可信度过滤（0-1）                                                |
+| `min_credibility` | float   | -              | 最低可信度过滤（0-1）                                                 |
 | `sort_by`         | string  | `publish_time` | 排序字段：`publish_time`、`score`、`credibility_score`、`created_at` |
-| `sort_order`      | string  | `desc`         | 排序方向：`asc` 或 `desc`                                            |
+| `sort_order`      | string  | `desc`         | 排序方向：`asc` 或 `desc`                                          |
 
 #### 响应
 
@@ -621,11 +621,11 @@ X-API-Key: your-api-key
 
 #### 状态码
 
-| 状态码                  | 说明               |
-| ----------------------- | ------------------ |
-| 200 OK                  | 成功返回文章列表   |
+| 状态码                     | 说明            |
+|-------------------------|---------------|
+| 200 OK                  | 成功返回文章列表      |
 | 401 Unauthorized        | API Key 无效或缺失 |
-| 503 Service Unavailable | 数据库服务不可用   |
+| 503 Service Unavailable | 数据库服务不可用      |
 
 ---
 
@@ -649,10 +649,10 @@ X-API-Key: your-api-key
 
 #### 状态码
 
-| 状态码           | 说明               |
-| ---------------- | ------------------ |
-| 200 OK           | 成功返回文章详情   |
-| 400 Bad Request  | 无效的文章 ID 格式 |
+| 状态码              | 说明            |
+|------------------|---------------|
+| 200 OK           | 成功返回文章详情      |
+| 400 Bad Request  | 无效的文章 ID 格式   |
 | 401 Unauthorized | API Key 无效或缺失 |
 | 404 Not Found    | 文章不存在         |
 
@@ -674,9 +674,9 @@ X-API-Key: your-api-key
 
 **查询参数：**
 
-| 参数           | 类型    | 默认值 | 说明                 |
-| -------------- | ------- | ------ | -------------------- |
-| `enabled_only` | boolean | true   | 是否仅返回已启用的源 |
+| 参数             | 类型      | 默认值  | 说明         |
+|----------------|---------|------|------------|
+| `enabled_only` | boolean | true | 是否仅返回已启用的源 |
 
 #### 响应
 
@@ -727,17 +727,17 @@ Content-Type: application/json
 
 **请求字段：**
 
-| 字段                   | 类型    | 必填 | 说明                         |
-| ---------------------- | ------- | ---- | ---------------------------- |
-| `id`                   | string  | 是   | 唯一标识符                   |
-| `name`                 | string  | 是   | 显示名称                     |
-| `url`                  | string  | 是   | RSS/Atom 订阅地址            |
-| `source_type`          | string  | 否   | 源类型，默认 `rss`           |
-| `enabled`              | boolean | 否   | 是否启用，默认 `true`        |
-| `interval_minutes`     | integer | 否   | 抓取间隔（分钟），默认30     |
-| `per_host_concurrency` | integer | 否   | 每主机并发数，默认2          |
-| `credibility`          | float   | 否   | 预设可信度（0.0-1.0）        |
-| `tier`                 | integer | 否   | 层级：1=权威，2=可信，3=普通 |
+| 字段                     | 类型      | 必填 | 说明                |
+|------------------------|---------|----|-------------------|
+| `id`                   | string  | 是  | 唯一标识符             |
+| `name`                 | string  | 是  | 显示名称              |
+| `url`                  | string  | 是  | RSS/Atom 订阅地址     |
+| `source_type`          | string  | 否  | 源类型，默认 `rss`      |
+| `enabled`              | boolean | 否  | 是否启用，默认 `true`    |
+| `interval_minutes`     | integer | 否  | 抓取间隔（分钟），默认30     |
+| `per_host_concurrency` | integer | 否  | 每主机并发数，默认2        |
+| `credibility`          | float   | 否  | 预设可信度（0.0-1.0）    |
+| `tier`                 | integer | 否  | 层级：1=权威，2=可信，3=普通 |
 
 #### 安全注意事项
 
@@ -745,13 +745,13 @@ Content-Type: application/json
 
 **URL 验证规则：**
 
-| 检查项     | 说明                     | 示例                                       |
-| ---------- | ------------------------ | ------------------------------------------ |
-| 协议限制   | 仅允许 HTTP/HTTPS        | `file://`, `ftp://` 被阻止                 |
-| 私有网络   | 阻止私有 IP 地址段       | `10.x.x.x`, `192.168.x.x`, `172.16-31.x.x` |
-| 本地地址   | 阻止回环地址             | `127.0.0.1`, `localhost`                   |
-| 云元数据   | 阻止云服务商元数据端点   | `169.254.169.254` (AWS/Azure)              |
-| 重定向验证 | 验证重定向链中的每个 URL | 防止重定向到私有网络                       |
+| 检查项   | 说明             | 示例                                         |
+|-------|----------------|--------------------------------------------|
+| 协议限制  | 仅允许 HTTP/HTTPS | `file://`, `ftp://` 被阻止                    |
+| 私有网络  | 阻止私有 IP 地址段    | `10.x.x.x`, `192.168.x.x`, `172.16-31.x.x` |
+| 本地地址  | 阻止回环地址         | `127.0.0.1`, `localhost`                   |
+| 云元数据  | 阻止云服务商元数据端点    | `169.254.169.254` (AWS/Azure)              |
+| 重定向验证 | 验证重定向链中的每个 URL | 防止重定向到私有网络                                 |
 
 **错误响应示例：**
 
@@ -780,11 +780,11 @@ Content-Type: application/json
 
 #### 状态码
 
-| 状态码           | 说明               |
-| ---------------- | ------------------ |
+| 状态码              | 说明            |
+|------------------|---------------|
 | 201 Created      | 源创建成功         |
 | 401 Unauthorized | API Key 无效或缺失 |
-| 409 Conflict     | 源 ID 已存在       |
+| 409 Conflict     | 源 ID 已存在      |
 
 ---
 
@@ -808,11 +808,11 @@ Content-Type: application/json
 
 #### 状态码
 
-| 状态码           | 说明               |
-| ---------------- | ------------------ |
+| 状态码              | 说明            |
+|------------------|---------------|
 | 200 OK           | 源更新成功         |
 | 401 Unauthorized | API Key 无效或缺失 |
-| 404 Not Found    | 源不存在           |
+| 404 Not Found    | 源不存在          |
 
 ---
 
@@ -830,11 +830,11 @@ X-API-Key: your-api-key
 
 #### 状态码
 
-| 状态码           | 说明               |
-| ---------------- | ------------------ |
-| 204 No Content   | 删除成功           |
+| 状态码              | 说明            |
+|------------------|---------------|
+| 204 No Content   | 删除成功          |
 | 401 Unauthorized | API Key 无效或缺失 |
-| 404 Not Found    | 源不存在           |
+| 404 Not Found    | 源不存在          |
 
 ---
 
@@ -848,13 +848,13 @@ X-API-Key: your-api-key
 
 系统自动识别查询意图，无需手动指定搜索模式:
 
-| 意图类型 | 示例查询 | 搜索策略 |
-|----------|----------|----------|
-| **WHY** | “为什么小米汽车销量增长这么快？” | Local search + 因果关系聚焦 |
-| **WHEN** | “2024年AI领域有哪些重大事件？” | Local search + 时间窗口排序 |
-| **ENTITY** | “OpenAI是什么公司？” | Local search + 实体过滤 |
+| 意图类型          | 示例查询                       | 搜索策略                   |
+|---------------|----------------------------|------------------------|
+| **WHY**       | “为什么小米汽车销量增长这么快？”          | Local search + 因果关系聚焦  |
+| **WHEN**      | “2024年AI领域有哪些重大事件？”        | Local search + 时间窗口排序  |
+| **ENTITY**    | “OpenAI是什么公司？”             | Local search + 实体过滤    |
 | **MULTI_HOP** | “OpenAI和Google在AI领域的竞争关系？” | Global search + 深度社区遍历 |
-| **OPEN** | “关于新能源汽车的发展现状” | Global search + 标准社区层级 |
+| **OPEN**      | “关于新能源汽车的发展现状”             | Global search + 标准社区层级 |
 
 #### 请求
 
@@ -866,17 +866,17 @@ X-API-Key: your-api-key
 
 **查询参数：**
 
-| 参数              | 类型    | 默认值       | 说明                                                |
-| ----------------- | ------- | ------------ | --------------------------------------------------- |
+| 参数                | 类型      | 默认值          | 说明                                          |
+|-------------------|---------|--------------|---------------------------------------------|
 | `q`               | string  | -            | 搜索查询（必填）                                    |
-| `community_level` | integer | 0            | 社区层级（global 模式，0-10）                       |
-| `threshold`       | float   | 0.0          | 最低相似度（articles 模式，0-1）                    |
-| `limit`           | integer | 20           | 最大结果数（articles 模式，1-100）                  |
-| `category`        | string  | -            | 文章类别过滤（articles 模式）                       |
-| `use_hybrid`      | boolean | true         | 启用混合搜索（articles 模式，BM25 + 向量）          |
+| `community_level` | integer | 0            | 社区层级（global 模式，0-10）                        |
+| `threshold`       | float   | 0.0          | 最低相似度（articles 模式，0-1）                      |
+| `limit`           | integer | 20           | 最大结果数（articles 模式，1-100）                    |
+| `category`        | string  | -            | 文章类别过滤（articles 模式）                         |
+| `use_hybrid`      | boolean | true         | 启用混合搜索（articles 模式，BM25 + 向量）               |
 | `global_mode`     | string  | `map_reduce` | 全局搜索模式：`map_reduce` 或 `simple`              |
 | `output_mode`     | string  | `context`    | 输出格式：`context`（原始片段）或 `narrative`（LLM 合成答案） |
-| `enrich_entities` | boolean | false        | 启用实体聚合，丰富结果中的实体邻居信息              |
+| `enrich_entities` | boolean | false        | 启用实体聚合，丰富结果中的实体邻居信息                         |
 
 **output_mode 说明：**
 
@@ -939,11 +939,11 @@ Content-Type: application/json
 
 **请求字段：**
 
-| 字段        | 类型    | 必填 | 说明                                          |
-| ----------- | ------- | ---- | --------------------------------------------- |
-| `source_id` | string  | 否   | 指定抓取的源 ID，为 `null` 时抓取所有已启用源 |
-| `force`     | boolean | 否   | 是否强制重新抓取最近已抓取的 URL              |
-| `max_items` | integer | 否   | 每个源的最大处理数量，`null` 表示无限制       |
+| 字段          | 类型      | 必填 | 说明                           |
+|-------------|---------|----|------------------------------|
+| `source_id` | string  | 否  | 指定抓取的源 ID，为 `null` 时抓取所有已启用源 |
+| `force`     | boolean | 否  | 是否强制重新抓取最近已抓取的 URL           |
+| `max_items` | integer | 否  | 每个源的最大处理数量，`null` 表示无限制      |
 
 #### 响应
 
@@ -959,11 +959,11 @@ Content-Type: application/json
 
 #### 状态码
 
-| 状态码                    | 说明               |
-| ------------------------- | ------------------ |
+| 状态码                       | 说明            |
+|---------------------------|---------------|
 | 200 OK                    | 任务已入队         |
 | 401 Unauthorized          | API Key 无效或缺失 |
-| 500 Internal Server Error | Pipeline 触发失败  |
+| 500 Internal Server Error | Pipeline 触发失败 |
 
 ---
 
@@ -1004,9 +1004,9 @@ X-API-Key: your-api-key
 
 #### 状态码
 
-| 状态码           | 说明               |
-| ---------------- | ------------------ |
-| 200 OK           | 成功返回任务状态   |
+| 状态码              | 说明            |
+|------------------|---------------|
+| 200 OK           | 成功返回任务状态      |
 | 401 Unauthorized | API Key 无效或缺失 |
 | 404 Not Found    | 任务不存在         |
 
@@ -1069,10 +1069,10 @@ Content-Type: application/json
 
 **请求字段：**
 
-| 字段 | 类型 | 必填 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| `url` | string | 是 | - | 要处理的资讯网页URL |
-| `whitelist_mode` | boolean | 否 | false | 是否启用白名单模式 |
+| 字段               | 类型      | 必填 | 默认值   | 说明          |
+|------------------|---------|----|-------|-------------|
+| `url`            | string  | 是  | -     | 要处理的资讯网页URL |
+| `whitelist_mode` | boolean | 否  | false | 是否启用白名单模式   |
 
 #### 响应
 
@@ -1088,16 +1088,17 @@ Content-Type: application/json
 
 #### 状态码
 
-| 状态码 | 说明 |
-|--------|------|
-| 200 OK | 任务已入队 |
-| 401 Unauthorized | API Key 无效或缺失 |
-| 403 Forbidden | URL 被阻止（SSRF防护或不在白名单） |
-| 500 Internal Server Error | Pipeline 触发失败 |
+| 状态码                       | 说明                    |
+|---------------------------|-----------------------|
+| 200 OK                    | 任务已入队                 |
+| 401 Unauthorized          | API Key 无效或缺失         |
+| 403 Forbidden             | URL 被阻止（SSRF防护或不在白名单） |
+| 500 Internal Server Error | Pipeline 触发失败         |
 
 **SSRF 防护：**
 
 系统实施以下 SSRF 防护措施：
+
 - 仅允许 HTTP/HTTPS 协议
 - 阻止私有IP地址段（10.x.x.x, 192.168.x.x, 172.16-31.x.x）
 - 阻止回环地址（127.0.0.1, localhost）
@@ -1246,10 +1247,10 @@ X-API-Key: your-api-key
 
 **查询参数：**
 
-| 参数          | 类型   | 默认值     | 说明             |
-| ------------- | ------ | ---------- | ---------------- |
-| `entity`      | string | -          | 实体名称（必填） |
-| `entity_type` | string | `组织机构` | 实体类型         |
+| 参数            | 类型     | 默认值    | 说明       |
+|---------------|--------|--------|----------|
+| `entity`      | string | -      | 实体名称（必填） |
+| `entity_type` | string | `组织机构` | 实体类型     |
 
 #### 响应
 
@@ -1286,12 +1287,12 @@ X-API-Key: your-api-key
 
 **查询参数：**
 
-| 参数             | 类型    | 默认值     | 说明                   |
-| ---------------- | ------- | ---------- | ---------------------- |
-| `entity`         | string  | -          | 实体名称（必填）       |
-| `entity_type`    | string  | `组织机构` | 实体类型               |
-| `relation_types` | string  | -          | 逗号分隔的关系类型过滤 |
-| `limit`          | integer | 50         | 最大结果数（1-200）    |
+| 参数               | 类型      | 默认值    | 说明           |
+|------------------|---------|--------|--------------|
+| `entity`         | string  | -      | 实体名称（必填）     |
+| `entity_type`    | string  | `组织机构` | 实体类型         |
+| `relation_types` | string  | -      | 逗号分隔的关系类型过滤  |
+| `limit`          | integer | 50     | 最大结果数（1-200） |
 
 #### 响应
 
@@ -1326,9 +1327,9 @@ X-API-Key: your-api-key
 
 **查询参数：**
 
-| 参数      | 类型   | 默认值   | 说明                                                                                                 |
-| --------- | ------ | -------- | ---------------------------------------------------------------------------------------------------- |
-| `view`    | string | `health` | 指标视图：`health`、`full`、`community`                                                              |
+| 参数        | 类型     | 默认值      | 说明                                                                                  |
+|-----------|--------|----------|-------------------------------------------------------------------------------------|
+| `view`    | string | `health` | 指标视图：`health`、`full`、`community`                                                    |
 | `include` | string | -        | full 视图的包含项（逗号分隔）：`components`、`orphans`、`high_degree`、`modularity`、`distributions` |
 
 **view 说明：**
@@ -1341,12 +1342,12 @@ X-API-Key: your-api-key
 
 控制包含哪些高开销计算，省略则返回全部（等同于 `include=all`）：
 
-| 值              | 说明              |
-| --------------- | ----------------- |
-| `components`    | 连通分量分析      |
-| `orphans`       | 孤立实体检测      |
-| `high_degree`   | 高度数实体识别    |
-| `modularity`    | 模块度评分计算    |
+| 值               | 说明        |
+|-----------------|-----------|
+| `components`    | 连通分量分析    |
+| `orphans`       | 孤立实体检测    |
+| `high_degree`   | 高度数实体识别   |
+| `modularity`    | 模块度评分计算   |
 | `distributions` | 实体/关系类型分布 |
 
 #### 响应
@@ -1447,9 +1448,9 @@ X-API-Key: your-api-key
 
 **查询参数：**
 
-| 参数    | 类型    | 默认值 | 说明                      |
-| ------- | ------- | ------ | ------------------------- |
-| `limit` | integer | 100    | 最大返回节点数（10-1000） |
+| 参数      | 类型      | 默认值 | 说明               |
+|---------|---------|-----|------------------|
+| `limit` | integer | 100 | 最大返回节点数（10-1000） |
 
 #### 响应
 
@@ -1508,12 +1509,12 @@ Content-Type: application/json
 
 **请求字段：**
 
-| 字段            | 类型         | 必填 | 默认值 | 说明             |
-| --------------- | ------------ | ---- | ------ | ---------------- |
-| `center_entity` | string       | 是   | -      | 中心实体名称     |
-| `max_hops`      | integer      | 否   | 2      | 最大跳数（1-4）  |
-| `include_types` | list[string] | 否   | -      | 仅包含的实体类型 |
-| `exclude_types` | list[string] | 否   | -      | 排除的实体类型   |
+| 字段              | 类型           | 必填 | 默认值 | 说明        |
+|-----------------|--------------|----|-----|-----------|
+| `center_entity` | string       | 是  | -   | 中心实体名称    |
+| `max_hops`      | integer      | 否  | 2   | 最大跳数（1-4） |
+| `include_types` | list[string] | 否  | -   | 仅包含的实体类型  |
+| `exclude_types` | list[string] | 否  | -   | 排除的实体类型   |
 
 #### 响应
 
@@ -1523,11 +1524,11 @@ Content-Type: application/json
 
 #### 状态码
 
-| 状态码          | 说明                        |
-| --------------- | --------------------------- |
-| 200 OK          | 成功返回子图                |
+| 状态码             | 说明                 |
+|-----------------|--------------------|
+| 200 OK          | 成功返回子图             |
 | 400 Bad Request | 参数错误（max_hops 超范围） |
-| 404 Not Found   | 未找到相关节点              |
+| 404 Not Found   | 未找到相关节点            |
 
 ---
 
@@ -1537,18 +1538,18 @@ Content-Type: application/json
 
 社区检测算法使用分层 Leiden 算法，返回的 Community 对象包含以下字段：
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `id` | string | 社区唯一标识符 (UUID) |
-| `title` | string | 社区人类可读标题 |
-| `level` | integer | 层级级别（0 = 最细粒度，越高越抽象） |
-| `parent_id` | string \| null | 父社区 ID（根社区为 null） |
-| `children_ids` | string[] | 子社区 ID 列表（叶子社区为空数组） |
-| `entity_count` | integer | 社区中实体数量 |
-| `rank` | float | 重要性排名分数（越高越重要） |
-| `period` | string \| null | 社区检测日期 (YYYY-MM-DD) |
-| `modularity` | float \| null | 该社区的模块度贡献 |
-| `has_report` | boolean | 是否有报告 |
+| 字段             | 类型             | 说明                   |
+|----------------|----------------|----------------------|
+| `id`           | string         | 社区唯一标识符 (UUID)       |
+| `title`        | string         | 社区人类可读标题             |
+| `level`        | integer        | 层级级别（0 = 最细粒度，越高越抽象） |
+| `parent_id`    | string \| null | 父社区 ID（根社区为 null）    |
+| `children_ids` | string[]       | 子社区 ID 列表（叶子社区为空数组）  |
+| `entity_count` | integer        | 社区中实体数量              |
+| `rank`         | float          | 重要性排名分数（越高越重要）       |
+| `period`       | string \| null | 社区检测日期 (YYYY-MM-DD)  |
+| `modularity`   | float \| null  | 该社区的模块度贡献            |
+| `has_report`   | boolean        | 是否有报告                |
 
 **层级结构说明**：
 
@@ -1577,10 +1578,10 @@ Content-Type: application/json
 
 **请求字段：**
 
-| 字段 | 类型 | 必填 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| `max_cluster_size` | integer | 否 | 10 | 最大社区规模（1-100） |
-| `seed` | integer | 否 | 42 | 随机种子（确保可重复性） |
+| 字段                 | 类型      | 必填 | 默认值 | 说明            |
+|--------------------|---------|----|-----|---------------|
+| `max_cluster_size` | integer | 否  | 10  | 最大社区规模（1-100） |
+| `seed`             | integer | 否  | 42  | 随机种子（确保可重复性）  |
 
 #### 响应
 
@@ -1600,11 +1601,11 @@ Content-Type: application/json
 
 #### 状态码
 
-| 状态码 | 说明 |
-|--------|------|
-| 200 OK | 社区重建完成 |
-| 401 Unauthorized | API Key 无效或缺失 |
-| 500 Internal Server Error | 社区重建失败 |
+| 状态码                       | 说明            |
+|---------------------------|---------------|
+| 200 OK                    | 社区重建完成        |
+| 401 Unauthorized          | API Key 无效或缺失 |
+| 500 Internal Server Error | 社区重建失败        |
 
 ---
 
@@ -1622,10 +1623,10 @@ X-API-Key: your-api-key
 
 **查询参数：**
 
-| 参数 | 类型 | 必填 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| `level` | integer | 否 | null | 社区层级过滤 |
-| `regenerate_stale` | boolean | 否 | true | 是否重新生成过时报告 |
+| 参数                 | 类型      | 必填 | 默认值  | 说明         |
+|--------------------|---------|----|------|------------|
+| `level`            | integer | 否  | null | 社区层级过滤     |
+| `regenerate_stale` | boolean | 否  | true | 是否重新生成过时报告 |
 
 #### 响应
 
@@ -1642,11 +1643,11 @@ X-API-Key: your-api-key
 
 #### 状态码
 
-| 状态码 | 说明 |
-|--------|------|
-| 200 OK | 报告生成完成 |
-| 401 Unauthorized | API Key 无效或缺失 |
-| 500 Internal Server Error | 报告生成失败 |
+| 状态码                       | 说明            |
+|---------------------------|---------------|
+| 200 OK                    | 报告生成完成        |
+| 401 Unauthorized          | API Key 无效或缺失 |
+| 500 Internal Server Error | 报告生成失败        |
 
 ---
 
@@ -1676,10 +1677,10 @@ X-API-Key: your-api-key
 
 #### 状态码
 
-| 状态码 | 说明 |
-|--------|------|
-| 200 OK | 报告重新生成成功 |
-| 404 Not Found | 社区不存在 |
+| 状态码                       | 说明       |
+|---------------------------|----------|
+| 200 OK                    | 报告重新生成成功 |
+| 404 Not Found             | 社区不存在    |
 | 500 Internal Server Error | 报告重新生成失败 |
 
 ---
@@ -1698,11 +1699,11 @@ X-API-Key: your-api-key
 
 **查询参数：**
 
-| 参数 | 类型 | 必填 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| `level` | integer | 否 | null | 按社区层级过滤 |
-| `limit` | integer | 否 | 20 | 最大结果数（1-100） |
-| `offset` | integer | 否 | 0 | 结果偏移量 |
+| 参数       | 类型      | 必填 | 默认值  | 说明           |
+|----------|---------|----|------|--------------|
+| `level`  | integer | 否  | null | 按社区层级过滤      |
+| `limit`  | integer | 否  | 20   | 最大结果数（1-100） |
+| `offset` | integer | 否  | 0    | 结果偏移量        |
 
 #### 响应
 
@@ -1729,11 +1730,11 @@ X-API-Key: your-api-key
 
 #### 状态码
 
-| 状态码 | 说明 |
-|--------|------|
-| 200 OK | 成功返回社区列表 |
-| 401 Unauthorized | API Key 无效或缺失 |
-| 500 Internal Server Error | 获取社区列表失败 |
+| 状态码                       | 说明            |
+|---------------------------|---------------|
+| 200 OK                    | 成功返回社区列表      |
+| 401 Unauthorized          | API Key 无效或缺失 |
+| 500 Internal Server Error | 获取社区列表失败      |
 
 ---
 
@@ -1778,10 +1779,10 @@ X-API-Key: your-api-key
 
 #### 状态码
 
-| 状态码 | 说明 |
-|--------|------|
-| 200 OK | 成功返回社区详情 |
-| 404 Not Found | 社区不存在 |
+| 状态码                       | 说明       |
+|---------------------------|----------|
+| 200 OK                    | 成功返回社区详情 |
+| 404 Not Found             | 社区不存在    |
 | 500 Internal Server Error | 获取社区详情失败 |
 
 ---
@@ -1817,20 +1818,20 @@ X-API-Key: your-api-key
 
 **健康状态说明：**
 
-| 状态 | 分数范围 | 说明 |
-|------|----------|------|
-| `healthy` | 80-100 | 社区健康 |
-| `moderate` | 60-79 | 社区状态中等 |
-| `degraded` | 40-59 | 社区状态降级 |
-| `critical` | 0-39 | 社区状态严重 |
+| 状态         | 分数范围   | 说明     |
+|------------|--------|--------|
+| `healthy`  | 80-100 | 社区健康   |
+| `moderate` | 60-79  | 社区状态中等 |
+| `degraded` | 40-59  | 社区状态降级 |
+| `critical` | 0-39   | 社区状态严重 |
 
 #### 状态码
 
-| 状态码 | 说明 |
-|--------|------|
-| 200 OK | 成功返回健康状态 |
-| 401 Unauthorized | API Key 无效或缺失 |
-| 500 Internal Server Error | 健康检查失败 |
+| 状态码                       | 说明            |
+|---------------------------|---------------|
+| 200 OK                    | 成功返回健康状态      |
+| 401 Unauthorized          | API Key 无效或缺失 |
+| 500 Internal Server Error | 健康检查失败        |
 
 ---
 
@@ -1877,11 +1878,11 @@ X-API-Key: your-api-key
 
 #### 状态码
 
-| 状态码 | 说明 |
-|--------|------|
-| 200 OK | 成功返回诊断结果 |
-| 401 Unauthorized | API Key 无效或缺失 |
-| 500 Internal Server Error | 诊断失败 |
+| 状态码                       | 说明            |
+|---------------------------|---------------|
+| 200 OK                    | 成功返回诊断结果      |
+| 401 Unauthorized          | API Key 无效或缺失 |
+| 500 Internal Server Error | 诊断失败          |
 
 ---
 
@@ -1905,10 +1906,10 @@ Content-Type: application/json
 
 **请求字段：**
 
-| 字段 | 类型 | 必填 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| `repair_types` | array[string] | 否 | null | 指定修复类型，null表示所有可自动修复的 |
-| `dry_run` | boolean | 否 | false | 如果为true，仅计数而不实际修改 |
+| 字段             | 类型            | 必填 | 默认值   | 说明                    |
+|----------------|---------------|----|-------|-----------------------|
+| `repair_types` | array[string] | 否  | null  | 指定修复类型，null表示所有可自动修复的 |
+| `dry_run`      | boolean       | 否  | false | 如果为true，仅计数而不实际修改     |
 
 #### 响应
 
@@ -1927,11 +1928,11 @@ Content-Type: application/json
 
 #### 状态码
 
-| 状态码 | 说明 |
-|--------|------|
-| 200 OK | 修复完成 |
-| 401 Unauthorized | API Key 无效或缺失 |
-| 500 Internal Server Error | 修复失败 |
+| 状态码                       | 说明            |
+|---------------------------|---------------|
+| 200 OK                    | 修复完成          |
+| 401 Unauthorized          | API Key 无效或缺失 |
+| 500 Internal Server Error | 修复失败          |
 
 ---
 
@@ -1951,8 +1952,8 @@ X-API-Key: your-api-key
 
 **查询参数：**
 
-| 参数               | 类型    | 默认值  | 说明                                   |
-| ------------------ | ------- | ------- | -------------------------------------- |
+| 参数                  | 类型      | 默认值     | 说明                    |
+|---------------------|---------|---------|-----------------------|
 | `needs_review_only` | boolean | `false` | 如果为 true，仅返回需要审核的源权威度 |
 
 #### 响应
@@ -1988,22 +1989,22 @@ X-API-Key: your-api-key
 
 **响应字段说明：**
 
-| 字段           | 类型    | 说明                                 |
-| -------------- | ------- | ------------------------------------ |
-| `id`           | integer | 权威度记录 ID                        |
-| `host`         | string  | 源域名                               |
-| `authority`    | float   | 权威度评分 (0-1)                     |
-| `tier`         | integer | 层级 (1=高, 2=中, 3=低)              |
-| `description`  | string  | 描述信息 (可选)                      |
-| `needs_review` | boolean | 是否需要人工审核                     |
-| `auto_score`   | float   | 自动计算的权威度评分 (可选)          |
-| `updated_at`   | string  | 最后更新时间 (ISO 8601 格式)         |
+| 字段             | 类型      | 说明                   |
+|----------------|---------|----------------------|
+| `id`           | integer | 权威度记录 ID             |
+| `host`         | string  | 源域名                  |
+| `authority`    | float   | 权威度评分 (0-1)          |
+| `tier`         | integer | 层级 (1=高, 2=中, 3=低)   |
+| `description`  | string  | 描述信息 (可选)            |
+| `needs_review` | boolean | 是否需要人工审核             |
+| `auto_score`   | float   | 自动计算的权威度评分 (可选)      |
+| `updated_at`   | string  | 最后更新时间 (ISO 8601 格式) |
 
 #### 状态码
 
-| 状态码           | 说明               |
-| ---------------- | ------------------ |
-| 200 OK           | 成功返回权威度列表 |
+| 状态码              | 说明            |
+|------------------|---------------|
+| 200 OK           | 成功返回权威度列表     |
 | 401 Unauthorized | API Key 无效或缺失 |
 
 #### 使用示例
@@ -2045,9 +2046,9 @@ Content-Type: application/json
 
 **路径参数：**
 
-| 参数   | 类型   | 说明     |
-| ------ | ------ | -------- |
-| `host` | string | 源域名   |
+| 参数     | 类型     | 说明  |
+|--------|--------|-----|
+| `host` | string | 源域名 |
 
 **请求体：**
 
@@ -2059,11 +2060,11 @@ Content-Type: application/json
 }
 ```
 
-| 字段          | 类型    | 必填 | 说明                         |
-| ------------- | ------- | ---- | ---------------------------- |
-| `authority`   | float   | 否   | 权威度评分 (0-1)             |
-| `tier`        | integer | 否   | 层级 (1=高, 2=中, 3=低)      |
-| `description` | string  | 否   | 描述信息                     |
+| 字段            | 类型      | 必填 | 说明                 |
+|---------------|---------|----|--------------------|
+| `authority`   | float   | 否  | 权威度评分 (0-1)        |
+| `tier`        | integer | 否  | 层级 (1=高, 2=中, 3=低) |
+| `description` | string  | 否  | 描述信息               |
 
 > **注意**: 至少需要提供一个字段进行更新。
 
@@ -2084,12 +2085,12 @@ Content-Type: application/json
 
 #### 状态码
 
-| 状态码               | 说明                   |
-| -------------------- | ---------------------- |
-| 200 OK               | 成功更新权威度         |
-| 400 Bad Request      | 未提供任何更新字段     |
-| 401 Unauthorized     | API Key 无效或缺失     |
-| 404 Not Found        | 源域名不存在           |
+| 状态码              | 说明            |
+|------------------|---------------|
+| 200 OK           | 成功更新权威度       |
+| 400 Bad Request  | 未提供任何更新字段     |
+| 401 Unauthorized | API Key 无效或缺失 |
+| 404 Not Found    | 源域名不存在        |
 
 #### 使用示例
 
@@ -2147,18 +2148,18 @@ X-API-Key: your-api-key
 
 **响应字段说明：**
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
+| 字段        | 类型      | 说明       |
+|-----------|---------|----------|
 | `removed` | integer | 删除的重复文章数 |
-| `kept` | integer | 保留的文章数 |
+| `kept`    | integer | 保留的文章数   |
 
 #### 状态码
 
-| 状态码 | 说明 |
-|--------|------|
-| 200 OK | 去重完成 |
-| 401 Unauthorized | API Key 无效或缺失 |
-| 503 Service Unavailable | 数据库未初始化 |
+| 状态码                     | 说明            |
+|-------------------------|---------------|
+| 200 OK                  | 去重完成          |
+| 401 Unauthorized        | API Key 无效或缺失 |
+| 503 Service Unavailable | 数据库未初始化       |
 
 ---
 
@@ -2178,12 +2179,12 @@ X-API-Key: your-api-key
 
 **查询参数：**
 
-| 参数         | 类型   | 默认值 | 说明                                              |
-| ------------ | ------ | ------ | ------------------------------------------------- |
-| `call_point` | string | -      | 按调用点过滤 (如: classifier, entity_extractor)   |
-| `status`     | string | -      | 按错误类型/状态过滤                               |
-| `since`      | string | -      | ISO 时间戳，仅返回此时间之后的记录                |
-| `limit`      | int    | 50     | 最大返回记录数 (1-200)                            |
+| 参数           | 类型     | 默认值 | 说明                                       |
+|--------------|--------|-----|------------------------------------------|
+| `call_point` | string | -   | 按调用点过滤 (如: classifier, entity_extractor) |
+| `status`     | string | -   | 按错误类型/状态过滤                               |
+| `since`      | string | -   | ISO 时间戳，仅返回此时间之后的记录                      |
+| `limit`      | int    | 50  | 最大返回记录数 (1-200)                          |
 
 #### 响应
 
@@ -2211,26 +2212,26 @@ X-API-Key: your-api-key
 
 **响应字段说明：**
 
-| 字段             | 类型    | 说明                                 |
-| ---------------- | ------- | ------------------------------------ |
-| `id`             | integer | 失败记录 ID                          |
+| 字段               | 类型      | 说明                                   |
+|------------------|---------|--------------------------------------|
+| `id`             | integer | 失败记录 ID                              |
 | `call_point`     | string  | 调用点 (classifier, entity_extractor 等) |
-| `provider`       | string  | LLM Provider 名称                    |
-| `error_type`     | string  | 错误类型                             |
-| `error_message`  | string  | 错误详情                             |
-| `status`         | string  | 错误状态 (与 error_type 相同)        |
-| `article_id`     | string  | 关联的文章 ID (可选)                 |
-| `task_id`        | string  | 任务 ID                              |
-| `attempt`        | integer | 重试次数                             |
-| `fallback_tried` | boolean | 是否尝试了 Fallback                  |
-| `created_at`     | string  | 创建时间 (ISO 8601 格式)             |
+| `provider`       | string  | LLM Provider 名称                      |
+| `error_type`     | string  | 错误类型                                 |
+| `error_message`  | string  | 错误详情                                 |
+| `status`         | string  | 错误状态 (与 error_type 相同)               |
+| `article_id`     | string  | 关联的文章 ID (可选)                        |
+| `task_id`        | string  | 任务 ID                                |
+| `attempt`        | integer | 重试次数                                 |
+| `fallback_tried` | boolean | 是否尝试了 Fallback                       |
+| `created_at`     | string  | 创建时间 (ISO 8601 格式)                   |
 
 #### 状态码
 
-| 状态码           | 说明               |
-| ---------------- | ------------------ |
-| 200 OK           | 成功返回失败记录   |
-| 400 Bad Request  | 参数错误           |
+| 状态码              | 说明            |
+|------------------|---------------|
+| 200 OK           | 成功返回失败记录      |
+| 400 Bad Request  | 参数错误          |
 | 401 Unauthorized | API Key 无效或缺失 |
 
 #### 使用示例
@@ -2272,9 +2273,9 @@ X-API-Key: your-api-key
 
 **查询参数：**
 
-| 参数    | 类型   | 默认值 | 说明                                   |
-| ------- | ------ | ------ | -------------------------------------- |
-| `since` | string | -      | ISO 时间戳，仅统计此时间之后的记录     |
+| 参数      | 类型     | 默认值 | 说明                  |
+|---------|--------|-----|---------------------|
+| `since` | string | -   | ISO 时间戳，仅统计此时间之后的记录 |
 
 #### 响应
 
@@ -2303,18 +2304,18 @@ X-API-Key: your-api-key
 
 **响应字段说明：**
 
-| 字段              | 类型   | 说明                                 |
-| ----------------- | ------ | ------------------------------------ |
-| `total_failures`  | int    | 总失败次数                           |
-| `by_call_point`   | object | 按调用点分组的失败次数               |
-| `by_status`       | object | 按错误类型分组的失败次数             |
-| `last_failure_at` | string | 最后一次失败时间 (ISO 8601 格式)     |
+| 字段                | 类型     | 说明                     |
+|-------------------|--------|------------------------|
+| `total_failures`  | int    | 总失败次数                  |
+| `by_call_point`   | object | 按调用点分组的失败次数            |
+| `by_status`       | object | 按错误类型分组的失败次数           |
+| `last_failure_at` | string | 最后一次失败时间 (ISO 8601 格式) |
 
 #### 状态码
 
-| 状态码           | 说明               |
-| ---------------- | ------------------ |
-| 200 OK           | 成功返回统计摘要   |
+| 状态码              | 说明            |
+|------------------|---------------|
+| 200 OK           | 成功返回统计摘要      |
 | 401 Unauthorized | API Key 无效或缺失 |
 
 #### 使用示例
@@ -2351,16 +2352,16 @@ X-API-Key: your-api-key
 
 **查询参数：**
 
-| 参数          | 类型     | 默认值    | 说明                                                         |
-| ------------- | -------- | --------- | ------------------------------------------------------------ |
-| `from`        | datetime | -         | 开始时间（ISO 格式，必填）                                   |
-| `to`          | datetime | -         | 结束时间（ISO 格式，必填）                                   |
-| `group_by`    | string   | `summary` | 分组维度：`summary`、`time`、`provider`、`model`、`call_point` |
+| 参数            | 类型       | 默认值       | 说明                                                      |
+|---------------|----------|-----------|---------------------------------------------------------|
+| `from`        | datetime | -         | 开始时间（ISO 格式，必填）                                         |
+| `to`          | datetime | -         | 结束时间（ISO 格式，必填）                                         |
+| `group_by`    | string   | `summary` | 分组维度：`summary`、`time`、`provider`、`model`、`call_point`   |
 | `granularity` | string   | `hourly`  | 时间粒度（仅当 `group_by=time` 时有效）：`hourly`、`daily`、`monthly` |
 | `provider`    | string   | -         | 按 Provider 名称过滤                                         |
-| `model`       | string   | -         | 按模型名称过滤                                               |
-| `llm_type`    | string   | -         | 按 LLM 类型过滤：`chat`、`embedding`、`rerank`               |
-| `call_point`  | string   | -         | 按调用点过滤                                                 |
+| `model`       | string   | -         | 按模型名称过滤                                                 |
+| `llm_type`    | string   | -         | 按 LLM 类型过滤：`chat`、`embedding`、`rerank`                  |
+| `call_point`  | string   | -         | 按调用点过滤                                                  |
 
 **group_by 说明：**
 
@@ -2502,10 +2503,10 @@ X-API-Key: your-api-key
 
 #### 状态码
 
-| 状态码           | 说明               |
-| ---------------- | ------------------ |
-| 200 OK           | 成功返回统计数据   |
-| 400 Bad Request  | 参数错误           |
+| 状态码              | 说明            |
+|------------------|---------------|
+| 200 OK           | 成功返回统计数据      |
+| 400 Bad Request  | 参数错误          |
 | 401 Unauthorized | API Key 无效或缺失 |
 
 #### 使用示例
@@ -2564,12 +2565,12 @@ Content-Type: application/json
 
 **请求字段：**
 
-| 字段 | 类型 | 必填 | 默认值 | 说明 |
-|-------|------|------|--------|------|
-| `query` | string | 是 | - | 搜索查询 |
-| `primer_k` | integer | 否 | 3 | Primer 阶段检索的社区报告数量 |
-| `max_follow_ups` | integer | 否 | 2 | 最大 follow-up 迭代次数 |
-| `confidence_threshold` | float | 否 | 0.7 | 置信度阈值 (0.0-1.0) |
+| 字段                     | 类型      | 必填 | 默认值 | 说明                 |
+|------------------------|---------|----|-----|--------------------|
+| `query`                | string  | 是  | -   | 搜索查询               |
+| `primer_k`             | integer | 否  | 3   | Primer 阶段检索的社区报告数量 |
+| `max_follow_ups`       | integer | 否  | 2   | 最大 follow-up 迭代次数  |
+| `confidence_threshold` | float   | 否  | 0.7 | 置信度阈值 (0.0-1.0)    |
 
 #### 响应
 
@@ -2614,19 +2615,19 @@ Content-Type: application/json
 
 **响应字段说明：**
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `query` | string | 原始查询 |
-| `answer` | string | 最终聚合答案 |
-| `confidence` | float | 置信度 (0.0-1.0) |
-| `search_type` | string | 搜索类型：`drift` |
-| `hierarchy` | object | 层次化结果结构 |
-| `hierarchy.primer` | object | Primer 阶段结果 |
-| `hierarchy.follow_ups` | array | Follow-up 阶段结果列表 |
-| `primer_communities` | integer | Primer 阶段使用的社区数 |
-| `follow_up_iterations` | integer | Follow-up 迭代次数 |
-| `total_llm_calls` | integer | 总 LLM 调用次数 |
-| `drift_mode` | string | 模式：`normal` 或 `fallback_local` |
+| 字段                     | 类型      | 说明                             |
+|------------------------|---------|--------------------------------|
+| `query`                | string  | 原始查询                           |
+| `answer`               | string  | 最终聚合答案                         |
+| `confidence`           | float   | 置信度 (0.0-1.0)                  |
+| `search_type`          | string  | 搜索类型：`drift`                   |
+| `hierarchy`            | object  | 层次化结果结构                        |
+| `hierarchy.primer`     | object  | Primer 阶段结果                    |
+| `hierarchy.follow_ups` | array   | Follow-up 阶段结果列表               |
+| `primer_communities`   | integer | Primer 阶段使用的社区数                |
+| `follow_up_iterations` | integer | Follow-up 迭代次数                 |
+| `total_llm_calls`      | integer | 总 LLM 调用次数                     |
+| `drift_mode`           | string  | 模式：`normal` 或 `fallback_local` |
 
 **DRIFT 搜索流程：**
 
@@ -2642,13 +2643,13 @@ Content-Type: application/json
 
 #### 状态码
 
-| 状态码 | 说明 |
-|--------|------|
-| 200 OK | 搜索成功 |
-| 400 Bad Request | 请求参数错误（缺少 query） |
-| 401 Unauthorized | API Key 无效或缺失 |
-| 500 Internal Server Error | DRIFT 搜索失败 |
-| 503 Service Unavailable | Graph 或 LLM 服务不可用 |
+| 状态码                       | 说明                |
+|---------------------------|-------------------|
+| 200 OK                    | 搜索成功              |
+| 400 Bad Request           | 请求参数错误（缺少 query）  |
+| 401 Unauthorized          | API Key 无效或缺失     |
+| 500 Internal Server Error | DRIFT 搜索失败        |
+| 503 Service Unavailable   | Graph 或 LLM 服务不可用 |
 
 ---
 
@@ -2673,11 +2674,11 @@ Content-Type: application/json
 
 **请求字段：**
 
-| 字段 | 类型 | 必填 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| `query` | string | 是 | - | 因果推理查询 |
-| `max_depth` | integer | 否 | 3 | 因果链遍历最大深度 |
-| `min_confidence` | float | 否 | 0.7 | 因果边的最小置信度 |
+| 字段               | 类型      | 必填 | 默认值 | 说明        |
+|------------------|---------|----|-----|-----------|
+| `query`          | string  | 是  | -   | 因果推理查询    |
+| `max_depth`      | integer | 否  | 3   | 因果链遍历最大深度 |
+| `min_confidence` | float   | 否  | 0.7 | 因果边的最小置信度 |
 
 #### 响应
 
@@ -2708,12 +2709,12 @@ Content-Type: application/json
 
 #### 状态码
 
-| 状态码 | 说明 |
-|--------|------|
-| 200 OK | 搜索成功 |
-| 401 Unauthorized | API Key 无效或缺失 |
-| 500 Internal Server Error | 因果搜索失败 |
-| 503 Service Unavailable | Graph 服务不可用 |
+| 状态码                       | 说明            |
+|---------------------------|---------------|
+| 200 OK                    | 搜索成功          |
+| 401 Unauthorized          | API Key 无效或缺失 |
+| 500 Internal Server Error | 因果搜索失败        |
+| 503 Service Unavailable   | Graph 服务不可用   |
 
 ---
 
@@ -2738,11 +2739,11 @@ Content-Type: application/json
 
 **请求字段：**
 
-| 字段 | 类型 | 必填 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| `query` | string | 是 | - | 时间推理查询 |
-| `time_window_days` | integer | 否 | 7 | 时间窗口（天） |
-| `limit` | integer | 否 | 10 | 最大返回事件数 |
+| 字段                 | 类型      | 必填 | 默认值 | 说明      |
+|--------------------|---------|----|-----|---------|
+| `query`            | string  | 是  | -   | 时间推理查询  |
+| `time_window_days` | integer | 否  | 7   | 时间窗口（天） |
+| `limit`            | integer | 否  | 10  | 最大返回事件数 |
 
 #### 响应
 
@@ -2771,12 +2772,12 @@ Content-Type: application/json
 
 #### 状态码
 
-| 状态码 | 说明 |
-|--------|------|
-| 200 OK | 搜索成功 |
-| 401 Unauthorized | API Key 无效或缺失 |
-| 500 Internal Server Error | 时间搜索失败 |
-| 503 Service Unavailable | Graph 服务不可用 |
+| 状态码                       | 说明            |
+|---------------------------|---------------|
+| 200 OK                    | 搜索成功          |
+| 401 Unauthorized          | API Key 无效或缺失 |
+| 500 Internal Server Error | 时间搜索失败        |
+| 503 Service Unavailable   | Graph 服务不可用   |
 
 ---
 
@@ -2795,74 +2796,74 @@ Content-Type: application/json
 
 #### 字段说明
 
-| 字段      | 类型    | 说明                     |
-| --------- | ------- | ------------------------ |
+| 字段        | 类型      | 说明           |
+|-----------|---------|--------------|
 | `code`    | integer | 业务错误码，用于程序识别 |
-| `message` | string  | 人类可读的错误描述       |
+| `message` | string  | 人类可读的错误描述    |
 
 ### HTTP 状态码规范
 
-| 状态码                    | 说明           | 使用场景                    |
-| ------------------------- | -------------- | --------------------------- |
-| 200 OK                    | 请求成功       | 成功的 GET、PUT、PATCH 请求 |
-| 201 Created               | 资源创建成功   | 成功的 POST 请求            |
-| 204 No Content            | 无内容         | 成功的 DELETE 请求          |
-| 400 Bad Request           | 请求参数错误   | 参数验证失败、格式错误      |
-| 401 Unauthorized          | 未认证         | 缺少或无效的认证信息        |
-| 403 Forbidden             | 无权限         | 已认证但权限不足            |
-| 404 Not Found             | 资源不存在     | 请求的资源不存在            |
-| 409 Conflict              | 资源冲突       | 违反唯一性约束              |
-| 422 Unprocessable Entity  | 业务逻辑错误   | 请求格式正确但无法处理      |
-| 429 Too Many Requests     | 请求过于频繁   | 触发速率限制                |
-| 500 Internal Server Error | 服务器内部错误 | 未预期的异常                |
-| 503 Service Unavailable   | 服务不可用     | 依赖服务不健康              |
+| 状态码                       | 说明      | 使用场景                 |
+|---------------------------|---------|----------------------|
+| 200 OK                    | 请求成功    | 成功的 GET、PUT、PATCH 请求 |
+| 201 Created               | 资源创建成功  | 成功的 POST 请求          |
+| 204 No Content            | 无内容     | 成功的 DELETE 请求        |
+| 400 Bad Request           | 请求参数错误  | 参数验证失败、格式错误          |
+| 401 Unauthorized          | 未认证     | 缺少或无效的认证信息           |
+| 403 Forbidden             | 无权限     | 已认证但权限不足             |
+| 404 Not Found             | 资源不存在   | 请求的资源不存在             |
+| 409 Conflict              | 资源冲突    | 违反唯一性约束              |
+| 422 Unprocessable Entity  | 业务逻辑错误  | 请求格式正确但无法处理          |
+| 429 Too Many Requests     | 请求过于频繁  | 触发速率限制               |
+| 500 Internal Server Error | 服务器内部错误 | 未预期的异常               |
+| 503 Service Unavailable   | 服务不可用   | 依赖服务不健康              |
 
 ### 业务错误码
 
 #### 通用错误 (1000-1999)
 
-| 错误码 | HTTP 状态码 | 说明             |
-| ------ | ----------- | ---------------- |
-| 1000   | 400         | 请求参数错误     |
-| 1001   | 404         | 资源不存在       |
-| 1002   | 409         | 资源已存在       |
-| 1003   | 422         | 业务逻辑验证失败 |
+| 错误码  | HTTP 状态码 | 说明       |
+|------|----------|----------|
+| 1000 | 400      | 请求参数错误   |
+| 1001 | 404      | 资源不存在    |
+| 1002 | 409      | 资源已存在    |
+| 1003 | 422      | 业务逻辑验证失败 |
 
 #### 认证授权错误 (2000-2999)
 
-| 错误码 | HTTP 状态码 | 说明           |
-| ------ | ----------- | -------------- |
-| 2000   | 401         | 未提供认证信息 |
-| 2001   | 401         | 认证信息无效   |
-| 2002   | 403         | 权限不足       |
-| 2003   | 401         | Token 已过期   |
+| 错误码  | HTTP 状态码 | 说明        |
+|------|----------|-----------|
+| 2000 | 401      | 未提供认证信息   |
+| 2001 | 401      | 认证信息无效    |
+| 2002 | 403      | 权限不足      |
+| 2003 | 401      | Token 已过期 |
 
 #### Pipeline 错误 (3000-3999)
 
-| 错误码 | HTTP 状态码 | 说明              |
-| ------ | ----------- | ----------------- |
-| 3000   | 422         | Pipeline 执行失败 |
-| 3001   | 422         | 文章解析失败      |
-| 3002   | 422         | LLM 调用失败      |
-| 3003   | 422         | 向量生成失败      |
-| 3004   | 422         | 实体抽取失败      |
-| 3005   | 422         | Neo4j 写入失败    |
+| 错误码  | HTTP 状态码 | 说明            |
+|------|----------|---------------|
+| 3000 | 422      | Pipeline 执行失败 |
+| 3001 | 422      | 文章解析失败        |
+| 3002 | 422      | LLM 调用失败      |
+| 3003 | 422      | 向量生成失败        |
+| 3004 | 422      | 实体抽取失败        |
+| 3005 | 422      | Neo4j 写入失败    |
 
 #### 数据库错误 (4000-4999)
 
-| 错误码 | HTTP 状态码 | 说明           |
-| ------ | ----------- | -------------- |
-| 4000   | 503         | 数据库连接失败 |
-| 4001   | 500         | 数据库查询错误 |
-| 4002   | 500         | 数据库写入错误 |
-| 4003   | 422         | 状态转换非法   |
+| 错误码  | HTTP 状态码 | 说明      |
+|------|----------|---------|
+| 4000 | 503      | 数据库连接失败 |
+| 4001 | 500      | 数据库查询错误 |
+| 4002 | 500      | 数据库写入错误 |
+| 4003 | 422      | 状态转换非法  |
 
 #### 限流错误 (5000-5999)
 
-| 错误码 | HTTP 状态码 | 说明           |
-| ------ | ----------- | -------------- |
-| 5000   | 429         | 请求速率超限   |
-| 5001   | 429         | 并发请求数超限 |
+| 错误码  | HTTP 状态码 | 说明      |
+|------|----------|---------|
+| 5000 | 429      | 请求速率超限  |
+| 5001 | 429      | 并发请求数超限 |
 
 ### 错误响应示例
 
@@ -3131,6 +3132,7 @@ X-API-Key: your-api-key
 ```
 
 **安全要求**：
+
 - API Key 长度至少 32 字符（生产环境）
 - 使用常量时间比较防止时序攻击
 - 通过 `WEAVER_API__API_KEY` 环境变量配置

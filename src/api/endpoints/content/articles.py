@@ -10,19 +10,16 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import asc, desc, select
-from sqlalchemy.orm import selectinload
 
 from api.dependencies import get_relational_pool
 from api.middleware.auth import verify_api_key
 from api.middleware.rate_limit import limiter
 from api.schemas.response import APIResponse, success_response
-from api.schemas.types import RoundedFloatOpt
-from core.constants import SortOrder
 from core.db import Article, CategoryType
 from core.observability import get_logger
 from core.protocols import RelationalPool
 
-log = get_logger(__name__)
+log = get_logger("articles_api")
 
 router = APIRouter(prefix="/articles", tags=["articles"])
 
@@ -57,13 +54,13 @@ class ArticleDetailResponse(BaseModel):
     subjects: list[str] | None
     key_data: list[str] | None
     impact: str | None
-    score: RoundedFloatOpt
+    score: float | None
     sentiment: str | None
-    sentiment_score: RoundedFloatOpt
+    sentiment_score: float | None
     primary_emotion: str | None
-    credibility_score: RoundedFloatOpt
-    source_credibility: RoundedFloatOpt
-    content_check_score: RoundedFloatOpt
+    credibility_score: float | None
+    source_credibility: float | None
+    content_check_score: float | None
     publish_time: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -73,10 +70,7 @@ class ArticleDetailResponse(BaseModel):
 
 
 def _article_to_dict(article: Article) -> dict[str, Any]:
-    """Convert Article model to dictionary.
-
-    Note: Float fields are serialized via RoundedFloatOpt in response models.
-    """
+    """Convert Article model to dictionary."""
     return {
         "id": str(article.id),
         "source_url": article.source_url,
@@ -126,12 +120,10 @@ async def list_articles(
     min_credibility: float | None = Query(
         None, ge=0, le=1, description="Minimum credibility filter"
     ),
-    is_news: bool | None = Query(None, description="Filter by is_news flag"),
-    processing_stage: str | None = Query(None, description="Filter by processing stage"),
     sort_by: str = Query(
         "publish_time", description="Sort field: publish_time, score, credibility_score, created_at"
     ),
-    sort_order: SortOrder = Query(SortOrder.DESC, description="Sort order: asc or desc"),
+    sort_order: str = Query("desc", description="Sort order: asc, desc"),
     _: str = Depends(verify_api_key),
     pool: RelationalPool = Depends(get_relational_pool),
 ) -> APIResponse[ArticleListResponse]:
@@ -171,10 +163,6 @@ async def list_articles(
             filters.append(Article.score >= min_score)
         if min_credibility is not None:
             filters.append(Article.credibility_score >= min_credibility)
-        if is_news is not None:
-            filters.append(Article.is_news == is_news)
-        if processing_stage:
-            filters.append(Article.processing_stage == processing_stage)
 
         for f in filters:
             query = query.where(f)
@@ -182,8 +170,6 @@ async def list_articles(
         # Performance fix: Optimize count query
         # Before: SELECT count(*) FROM (SELECT * FROM articles WHERE ...) subquery
         # After: SELECT count(*) FROM articles WHERE ... (direct count with same filters)
-        # nosemgrep: python.sqlalchemy.security.audit sqlalchemy-object-attribute-access
-        # SQLAlchemy ORM select() with explicit column - not raw SQL string interpolation
         count_query = select(func.count(Article.id))
         for f in filters:
             count_query = count_query.where(f)
@@ -198,18 +184,13 @@ async def list_articles(
         if sort_by not in ALLOWED_SORT_COLUMNS:
             sort_by = "publish_time"
 
-        # nosemgrep: python.lang.security.audit.dangerous-getattr-usage.dangerous-getattr-usage
-        # Safe: sort_by validated against ALLOWED_SORT_COLUMNS whitelist above
         sort_column = getattr(Article, sort_by, Article.publish_time)
-        if sort_order == SortOrder.DESC:
+        if sort_order == "desc":
             query = query.order_by(desc(sort_column))
         else:
             query = query.order_by(asc(sort_column))
 
         query = query.offset(offset).limit(page_size)
-
-        # Pre-load vectors relationship to avoid N+1 queries
-        query = query.options(selectinload(Article.vectors))
 
         result = await session.execute(query)
         articles = result.scalars().all()
@@ -254,9 +235,7 @@ async def get_article(
         )
 
     async with pool.session() as session:
-        result = await session.execute(
-            select(Article).where(Article.id == article_uuid).options(selectinload(Article.vectors))
-        )
+        result = await session.execute(select(Article).where(Article.id == article_uuid))
         article = result.scalar_one_or_none()
 
         if article is None:

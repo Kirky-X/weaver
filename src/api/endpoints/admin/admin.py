@@ -3,185 +3,29 @@
 
 from __future__ import annotations
 
-import asyncio
-import json
-import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from api.dependencies import (
-    get_cache_client,
-    get_container,
-    get_source_authority_repo,
-    get_source_scheduler,
-)
+from api.dependencies import get_container, get_source_authority_repo
 from api.endpoints._deps import Endpoints
 from api.middleware.auth import verify_admin_api_key, verify_api_key
+from api.middleware.rate_limit import limiter
 from api.schemas.response import APIResponse, success_response
-from api.schemas.types import RoundedFloat, RoundedFloatOpt
-from core.constants import PipelineTaskStatus
 from core.observability import get_logger
-from core.protocols import CachePool
-from modules.ingestion import SourceScheduler
 from modules.storage import SourceAuthorityRepo
 
 if TYPE_CHECKING:
     from modules.analytics import LLMFailureRepo, LLMUsageRepo
 
-log = get_logger(__name__)
+log = get_logger("admin_api")
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-# ── Pipeline Trigger Models ─────────────────────────────────────
-
-
-class TriggerRequest(BaseModel):
-    """Request model for triggering a pipeline run."""
-
-    source_id: str | None = Field(
-        default=None,
-        description="Specific source ID to crawl. If not provided, crawls all enabled sources.",
-    )
-    force: bool = Field(
-        default=False,
-        description="Force re-crawl even for recently fetched URLs.",
-    )
-    max_items: int | None = Field(
-        default=None,
-        description="Maximum number of items to process per source (None for unlimited).",
-    )
-
-
-class TriggerResponse(BaseModel):
-    """Response model for pipeline trigger."""
-
-    task_id: str
-    status: str = PipelineTaskStatus.QUEUED.value
-    queued_at: str
-
-
-TASK_STATUS_KEY = "pipeline:task_status"
-
-
-async def _execute_pipeline_background(
-    task_id: str,
-    source_id: str | None,
-    max_items: int | None,
-    force: bool,
-    scheduler: SourceScheduler,
-    cache: CachePool,
-) -> None:
-    """Execute pipeline crawling in background.
-
-    This function runs asynchronously after the API endpoint returns.
-    It updates task status in Redis as the pipeline progresses.
-
-    Args:
-        task_id: Unique task identifier.
-        source_id: Specific source ID to crawl (None for all sources).
-        max_items: Maximum number of items to process per source.
-        force: Force re-crawl even for recently fetched URLs.
-        scheduler: Source scheduler for triggering crawls.
-        cache: Cache client for task status updates.
-
-    """
-    now = datetime.now(UTC).isoformat()
-
-    # Update status to running
-    await cache.hset(
-        TASK_STATUS_KEY,
-        task_id,
-        json.dumps(
-            {
-                "task_id": task_id,
-                "status": PipelineTaskStatus.RUNNING.value,
-                "source_id": source_id,
-                "queued_at": now,
-                "started_at": now,
-            }
-        ),
-    )
-
-    try:
-        if source_id:
-            # Crawl specific source
-            await scheduler.trigger_now(
-                source_id,
-                max_items=max_items,
-                task_id=uuid.UUID(task_id),
-                force=force,
-            )
-        else:
-            # Crawl all enabled sources
-            sources = scheduler.list_enabled_sources()
-            tasks = [
-                scheduler.trigger_now(
-                    source.id,
-                    max_items=max_items,
-                    task_id=uuid.UUID(task_id),
-                    force=force,
-                )
-                for source in sources
-            ]
-            await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Update status to completed
-        completed_at = datetime.now(UTC).isoformat()
-        await cache.hset(
-            TASK_STATUS_KEY,
-            task_id,
-            json.dumps(
-                {
-                    "task_id": task_id,
-                    "status": PipelineTaskStatus.COMPLETED.value,
-                    "source_id": source_id,
-                    "queued_at": now,
-                    "started_at": now,
-                    "completed_at": completed_at,
-                }
-            ),
-        )
-
-    except TimeoutError:
-        # Update status to failed (timeout)
-        await cache.hset(
-            TASK_STATUS_KEY,
-            task_id,
-            json.dumps(
-                {
-                    "task_id": task_id,
-                    "status": PipelineTaskStatus.FAILED.value,
-                    "source_id": source_id,
-                    "queued_at": now,
-                    "started_at": now,
-                    "error": "Pipeline execution timed out after 300 seconds",
-                }
-            ),
-        )
-
-    except Exception as exc:
-        # Update status to failed (error)
-        await cache.hset(
-            TASK_STATUS_KEY,
-            task_id,
-            json.dumps(
-                {
-                    "task_id": task_id,
-                    "status": PipelineTaskStatus.FAILED.value,
-                    "source_id": source_id,
-                    "queued_at": now,
-                    "started_at": now,
-                    "error": str(exc),
-                }
-            ),
-        )
-
-
-def get_llm_failure_repo() -> LLMFailureRepo:
+def llm_failure_repo() -> LLMFailureRepo:
     """Get the LLM failure repo instance."""
     return Endpoints.get_llm_failure_repo()
 
@@ -199,18 +43,18 @@ class AuthorityResponse(BaseModel):
 
     id: int
     host: str
-    authority: RoundedFloat
+    authority: float
     tier: int
     description: str | None
     needs_review: bool
-    auto_score: RoundedFloatOpt
+    auto_score: float | None
     updated_at: str
 
 
 class UpdateAuthorityRequest(BaseModel):
     """Request model for updating authority."""
 
-    authority: RoundedFloatOpt = Field(None, ge=0, le=1)
+    authority: float | None = Field(None, ge=0, le=1)
     tier: int | None = Field(None, ge=1, le=5)
     description: str | None = None
 
@@ -219,7 +63,7 @@ class UpdateAuthorityResponse(BaseModel):
     """Response for authority update."""
 
     host: str
-    authority: RoundedFloatOpt
+    authority: float | None
     tier: int | None
     description: str | None
 
@@ -253,7 +97,9 @@ class LLMFailureStatsResponse(BaseModel):
 
 
 @router.get("/authorities", response_model=APIResponse[list[AuthorityResponse]])
+@limiter.limit("30/minute")
 async def list_authorities(
+    request: Request,
     needs_review_only: bool = False,
     _: str = Depends(verify_api_key),
     repo: SourceAuthorityRepo = Depends(get_source_authority_repo),
@@ -294,9 +140,11 @@ async def list_authorities(
 
 
 @router.patch("/authorities/{host}", response_model=APIResponse[UpdateAuthorityResponse])
+@limiter.limit("10/minute")
 async def update_authority(
+    request: Request,
     host: str,
-    request: UpdateAuthorityRequest,
+    body: UpdateAuthorityRequest,
     _: str = Depends(verify_admin_api_key),  # Security: write operation requires admin
     repo: SourceAuthorityRepo = Depends(get_source_authority_repo),
 ) -> APIResponse[UpdateAuthorityResponse]:
@@ -306,7 +154,7 @@ async def update_authority(
 
     Args:
         host: The source hostname.
-        request: Authority update data.
+        body: Authority update data.
         _: Verified API key.
         repo: Source authority repository.
 
@@ -317,7 +165,7 @@ async def update_authority(
         HTTPException: If no updates provided.
 
     """
-    if request.authority is None and request.tier is None and request.description is None:
+    if body.authority is None and body.tier is None and body.description is None:
         raise HTTPException(
             status_code=400,
             detail="At least one field must be updated",
@@ -325,10 +173,8 @@ async def update_authority(
 
     # Get current authority to preserve values
     authority = await repo.get_or_create(host)
-    new_authority = (
-        request.authority if request.authority is not None else float(authority.authority)
-    )
-    new_tier = request.tier if request.tier is not None else authority.tier
+    new_authority = body.authority if body.authority is not None else float(authority.authority)
+    new_tier = body.tier if body.tier is not None else authority.tier
 
     # Update
     await repo.update_authority(
@@ -336,7 +182,7 @@ async def update_authority(
         authority=new_authority,
         tier=new_tier,
         needs_review=False,  # Mark as reviewed
-        description=request.description,
+        description=body.description,
     )
 
     log.info(
@@ -349,77 +195,20 @@ async def update_authority(
     return success_response(
         UpdateAuthorityResponse(
             host=host,
-            authority=request.authority,
-            tier=request.tier,
-            description=request.description,
+            authority=body.authority,
+            tier=body.tier,
+            description=body.description,
         )
     )
-
-
-# ── Pipeline Trigger ─────────────────────────────────────────────
-
-
-@router.post("/pipeline/trigger", response_model=APIResponse[TriggerResponse])
-async def trigger_pipeline(
-    request: TriggerRequest,
-    _: str = Depends(verify_admin_api_key),
-    cache: CachePool = Depends(get_cache_client),
-    scheduler: SourceScheduler = Depends(get_source_scheduler),
-) -> APIResponse[TriggerResponse]:
-    """Trigger a pipeline run to crawl news sources.
-
-    This endpoint returns immediately with a task_id. The actual crawling
-    happens asynchronously in the background. Clients can poll the task
-    status using the task_id.
-
-    Args:
-        request: Pipeline trigger configuration.
-        _: Verified admin API key.
-        cache: Cache client for task queue.
-        scheduler: Source scheduler for triggering crawls.
-
-    Returns:
-        Task ID and initial status (queued).
-
-    """
-    task_id = str(uuid.uuid4())
-    now = datetime.now(UTC).isoformat()
-
-    # Set initial task status to queued
-    await cache.hset(
-        TASK_STATUS_KEY,
-        task_id,
-        json.dumps(
-            {
-                "task_id": task_id,
-                "status": PipelineTaskStatus.QUEUED.value,
-                "source_id": request.source_id,
-                "queued_at": now,
-            }
-        ),
-    )
-
-    # Start background task (non-blocking)
-    asyncio.create_task(  # noqa: RUF006
-        _execute_pipeline_background(
-            task_id=task_id,
-            source_id=request.source_id,
-            max_items=request.max_items,
-            force=request.force,
-            scheduler=scheduler,
-            cache=cache,
-        )
-    )
-
-    # Return immediately (< 100ms)
-    return success_response(TriggerResponse(task_id=task_id, queued_at=now))
 
 
 # ── LLM Failure Endpoints ───────────────────────────────────────
 
 
 @router.get("/llm-failures", response_model=APIResponse[list[LLMFailureResponse]])
+@limiter.limit("30/minute")
 async def list_llm_failures(
+    request: Request,
     call_point: str | None = Query(
         None, description="Filter by call point (e.g., classifier, analyzer)"
     ),
@@ -427,7 +216,7 @@ async def list_llm_failures(
     since: datetime | None = Query(None, description="ISO timestamp, only records after this time"),
     limit: int = Query(50, ge=1, le=200, description="Max records to return"),
     _: str = Depends(verify_api_key),
-    repo: LLMFailureRepo = Depends(get_llm_failure_repo),
+    repo: LLMFailureRepo = Depends(llm_failure_repo),
 ) -> APIResponse[list[LLMFailureResponse]]:
     """Get LLM failure records with optional filtering.
 
@@ -474,12 +263,14 @@ async def list_llm_failures(
 
 
 @router.get("/llm-failures/stats", response_model=APIResponse[LLMFailureStatsResponse])
+@limiter.limit("30/minute")
 async def get_llm_failure_stats(
+    request: Request,
     since: datetime | None = Query(
         None, description="ISO timestamp, only count records after this time"
     ),
     _: str = Depends(verify_api_key),
-    repo: LLMFailureRepo = Depends(get_llm_failure_repo),
+    repo: LLMFailureRepo = Depends(llm_failure_repo),
 ) -> APIResponse[LLMFailureStatsResponse]:
     """Get LLM failure statistics summary.
 
@@ -514,7 +305,9 @@ async def get_llm_failure_stats(
     response_model=APIResponse[dict],
     summary="Unified LLM usage statistics",
 )
+@limiter.limit("30/minute")
 async def get_llm_usage_unified(
+    request: Request,
     from_: datetime = Query(..., alias="from", description="Start of time range (ISO format)"),
     to: datetime = Query(..., description="End of time range (ISO format)"),
     group_by: str = Query(
@@ -682,7 +475,9 @@ class DeduplicateResponse(BaseModel):
 
 
 @router.post("/articles/deduplicate", response_model=APIResponse[DeduplicateResponse])
+@limiter.limit("10/minute")
 async def deduplicate_articles(
+    request: Request,
     _: str = Depends(verify_admin_api_key),  # Security: write operation requires admin
 ) -> APIResponse[DeduplicateResponse]:
     """Remove duplicate articles, keeping the most recent one per source_url.
@@ -731,7 +526,9 @@ class MemoryDiagnosticResponse(BaseModel):
 
 
 @router.get("/memory/diagnostics", response_model=APIResponse[MemoryDiagnosticResponse])
+@limiter.limit("30/minute")
 async def memory_diagnostics(
+    request: Request,
     _: str = Depends(verify_api_key),
     container: Any = Depends(get_container),
 ) -> APIResponse[MemoryDiagnosticResponse]:
@@ -764,16 +561,15 @@ async def memory_diagnostics(
             pending_count = await ms._consolidation_queue.length()
             slow_path_enabled = ms._config.slow_path_enabled
         except Exception as exc:
-            log.warning("memory_diagnostic_query_failed", error=str(exc), exc_info=True)
+            log.warning("memory_diagnostic_query_failed", error=str(exc))
 
     try:
         scheduler = container._scheduler
         if scheduler is not None:
             jobs = scheduler.get_jobs()
             scheduler_registered = any(j.id == "memory_consolidation" for j in jobs)
-    except Exception as exc:
-        log.warning("scheduler_jobs_check_failed", error=str(exc))
-        scheduler_registered = False
+    except Exception:
+        pass
 
     return success_response(
         MemoryDiagnosticResponse(
@@ -798,7 +594,9 @@ class ConsolidationResult(BaseModel):
     "/memory/trigger-consolidation",
     response_model=APIResponse[ConsolidationResult],
 )
+@limiter.limit("10/minute")
 async def trigger_consolidation(
+    request: Request,
     batch_size: int = Query(10, ge=1, le=100),
     _: str = Depends(verify_admin_api_key),  # Security: write operation requires admin
     container: Any = Depends(get_container),
@@ -845,7 +643,9 @@ class AutoScoreRefreshResponse(BaseModel):
     "/authorities/refresh-auto-scores",
     response_model=APIResponse[AutoScoreRefreshResponse],
 )
+@limiter.limit("10/minute")
 async def refresh_auto_scores(
+    request: Request,
     _: str = Depends(verify_admin_api_key),  # Security: write operation requires admin
     container: Any = Depends(get_container),
 ) -> APIResponse[AutoScoreRefreshResponse]:
@@ -919,116 +719,4 @@ async def refresh_auto_scores(
             sources_updated=update_count,
             triggered_at=datetime.now(UTC).isoformat(),
         )
-    )
-
-
-# ── Causal Inference ─────────────────────────────────
-
-
-class CausalInferenceRequest(BaseModel):
-    """Request model for causal inference."""
-
-    entity_names: list[str] | None = Field(
-        None, description="Optional filter for specific entities"
-    )
-    relation_types: list[str] | None = Field(
-        None, description="Optional filter for relation types (e.g., INVESTS_IN, 合资)"
-    )
-
-
-class CausalInferenceResponse(BaseModel):
-    """Response model for causal inference."""
-
-    edges_created: int
-    edges_filtered: int
-    errors: int
-    relations_analyzed: int
-
-
-@router.post(
-    "/causal/infer",
-    response_model=APIResponse[CausalInferenceResponse],
-    summary="Trigger causal edge inference",
-)
-async def trigger_causal_inference(
-    request: CausalInferenceRequest | None = None,
-    _: str = Depends(verify_admin_api_key),  # Security: write operation requires admin
-    container: Any = Depends(get_container),
-) -> APIResponse[CausalInferenceResponse]:
-    """Trigger LLM-based causal inference from entity relationships.
-
-    Analyzes existing entity relationships (INVESTS_IN, 合资, ACQUIRES, etc.)
-    and infers causal edges (CAUSES, ENABLES, PREVENTS) using LLM semantic analysis.
-
-    Args:
-        request: Optional filter parameters for entity names or relation types.
-        _: Verified admin API key.
-        container: Application container.
-
-    Returns:
-        Statistics of the inference process.
-
-    """
-    # Initialize causal inference service
-    service = await container.init_causal_inference_service()
-    if service is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Causal inference service unavailable (missing graph pool or LLM client)",
-        )
-
-    # Run inference
-    entity_names = request.entity_names if request else None
-    relation_types = request.relation_types if request else None
-
-    stats = await service.infer_and_create_causal_edges(
-        entity_names=entity_names,
-        relation_types=relation_types,
-    )
-
-    return success_response(
-        CausalInferenceResponse(
-            edges_created=stats.get("edges_created", 0),
-            edges_filtered=stats.get("edges_filtered", 0),
-            errors=stats.get("errors", 0),
-            relations_analyzed=stats.get("relations_analyzed", 0),
-        )
-    )
-
-
-@router.get(
-    "/causal/stats",
-    response_model=APIResponse[dict],
-    summary="Get causal graph statistics",
-)
-async def get_causal_stats(
-    _: str = Depends(verify_api_key),
-    container: Any = Depends(get_container),
-) -> APIResponse[dict]:
-    """Get statistics about the causal graph.
-
-    Returns count of causal edges (CAUSES, ENABLES, PREVENTS).
-
-    Args:
-        _: Verified API key.
-        container: Application container.
-
-    Returns:
-        Causal graph statistics.
-
-    """
-    causal_repo = container.causal_repo()
-    if causal_repo is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Causal graph repository unavailable",
-        )
-
-    count = await causal_repo.count_causal_links()
-
-    return success_response(
-        {
-            "causal_edges": count,
-            "edge_types": ["CAUSES", "ENABLES", "PREVENTS"],
-        }
     )

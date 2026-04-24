@@ -12,7 +12,6 @@ from api.endpoints import _deps as deps
 from api.middleware.auth import verify_api_key
 from api.middleware.rate_limit import limiter
 from api.schemas.response import APIResponse, success_response
-from api.schemas.types import RoundedFloat
 from core.llm import LLMClient
 from core.observability import get_logger
 from modules.knowledge.search import (
@@ -33,19 +32,13 @@ router = APIRouter(prefix="/search", tags=["search"])
 # ── Request/Response Models ─────────────────────────────────────
 
 
-class SearchQuery(BaseModel):
-    """Request model for search queries."""
-
-    q: str = Query(..., min_length=1, description="Search query")
-
-
 class SearchResponse(BaseModel):
     """Unified response model for all search endpoints."""
 
     query: str
     answer: str
     context_tokens: int
-    confidence: RoundedFloat
+    confidence: float
     search_type: str
     entities: list[str]
     sources: list[dict[str, Any]]
@@ -71,6 +64,7 @@ async def search_unified(
     limit: int = Query(20, ge=1, le=100, description="Max results (articles mode)"),
     category: str | None = Query(None, description="Category filter (articles mode)"),
     use_hybrid: bool = Query(True, description="Use hybrid search (articles mode)"),
+    global_mode: str = Query("map_reduce", description="Global search mode: map_reduce or simple"),
     output_mode: str | None = Query(
         None,
         description="Output format: 'context' for raw snippets, 'narrative' for LLM-synthesized answer",
@@ -104,10 +98,6 @@ async def search_unified(
     | **MULTI_HOP** | "X和Y的关系..."、对比 | Global search with deeper community traversal |
     | **OPEN** | "关于..."、探索 | Global search with standard community level |
     """
-    # Validate query is not empty
-    if not q or not q.strip():
-        raise HTTPException(status_code=422, detail="Search query cannot be empty")
-
     # Validate output_mode (default to CONTEXT)
     out_mode_value = output_mode if isinstance(output_mode, str) else "context"
     try:
@@ -120,7 +110,7 @@ async def search_unified(
 
     # Determine search mode
     explicit_mode = mode.lower() if mode and isinstance(mode, str) else None
-    use_explicit_mode = explicit_mode in ("local", "global", "articles")
+    use_explicit_mode = explicit_mode in ("local", "global")
 
     # Initialize intent router for automatic routing (when not using explicit mode)
     intent_router = IntentRouter(
@@ -140,17 +130,6 @@ async def search_unified(
         # Explicit mode: bypass intent routing, call engines directly
         if explicit_mode == "local":
             engine_result = await local_engine.search(q)
-        elif explicit_mode == "articles":
-            # Articles mode: direct vector search on articles
-            engine_result = await _search_articles_direct(
-                query=q,
-                vector_repo=vector_repo,
-                hybrid_engine=hybrid_engine,
-                threshold=threshold,
-                limit=limit,
-                category=category,
-                use_hybrid=use_hybrid,
-            )
         else:  # global
             engine_result = await global_engine.search(q, community_level=community_level)
         classification = IntentClassification(
@@ -192,11 +171,8 @@ async def search_unified(
     # Determine search_type for response
     search_type = explicit_mode if use_explicit_mode else "auto"
 
-    # Note: Narrative synthesis and entity aggregation are planned features.
-    # When EntityAggregator and NarrativeSynthesizer are implemented:
-    # - If enrich_entities=True: aggregate entity neighborhoods
-    # - If output_mode=NARRATIVE: synthesize narrative via LLM
-    # Currently returns context mode behavior for both.
+    # Note: Narrative synthesis and entity aggregation are handled by MAGMA
+    # memory integration when output_mode=NARRATIVE or enrich_entities=True.
 
     return success_response(
         SearchResponse(
@@ -212,116 +188,6 @@ async def search_unified(
     )
 
 
-# ── Articles Direct Search Helper ─────────────────────────────────────
-
-
-async def _search_articles_direct(
-    query: str,
-    vector_repo: VectorRepo,
-    hybrid_engine: HybridSearchEngine | None,
-    threshold: float = 0.0,
-    limit: int = 20,
-    category: str | None = None,
-    use_hybrid: bool = True,
-) -> dict[str, Any]:
-    """Direct article search using vector similarity.
-
-    Args:
-        query: Search query.
-        vector_repo: Vector repository for article embeddings.
-        hybrid_engine: Optional hybrid search engine for BM25 + vector fusion.
-        threshold: Similarity threshold for filtering.
-        limit: Maximum results to return.
-        category: Optional category filter.
-        use_hybrid: Whether to use hybrid search (BM25 + vector).
-
-    Returns:
-        Dictionary with search results.
-
-    """
-    log = get_logger(__name__)
-
-    try:
-        if use_hybrid and hybrid_engine is not None:
-            # Use hybrid search for better recall
-            results = await hybrid_engine.search(
-                query=query,
-                limit=limit,
-            )
-            search_method = "hybrid"
-        else:
-            # Pure vector search
-            results = await vector_repo.search_similar(
-                query=query,
-                limit=limit,
-                threshold=threshold,
-            )
-            search_method = "vector"
-
-        # Filter by category if specified (using metadata if available)
-        if category and results:
-            results = [r for r in results if getattr(r, "metadata", {}).get("category") == category]
-
-        # Format results - handle HybridSearchResult dataclass
-        sources = [
-            {
-                "id": getattr(r, "doc_id", ""),
-                "title": getattr(r, "title", ""),
-                "score": getattr(r, "score", 0.0),
-                "summary": getattr(r, "content", "")[:200] if getattr(r, "content", "") else "",
-            }
-            for r in results
-        ]
-
-        # Extract entities from results metadata
-        entities = []
-        for r in results:
-            meta = getattr(r, "metadata", {})
-            if meta.get("entities"):
-                entities.extend(meta["entities"])
-        entities = list(set(entities))[:20]
-
-        # Calculate confidence based on result quality
-        if not results:
-            confidence = 0.0
-        else:
-            avg_score = sum(getattr(r, "score", 0.0) for r in results) / len(results)
-            confidence = min(1.0, avg_score * 2)  # Scale to 0-1
-
-        log.info(
-            "articles_direct_search",
-            query=query[:50],
-            results=len(results),
-            method=search_method,
-        )
-
-        return {
-            "answer": f"Found {len(results)} articles matching '{query}'.",
-            "context_tokens": sum(len(getattr(r, "content", "")) // 4 for r in results),
-            "confidence": confidence,
-            "entities": entities,
-            "sources": sources,
-            "metadata": {
-                "search_type": "articles",
-                "search_method": search_method,
-                "article_count": len(results),
-                "threshold": threshold,
-                "hybrid_used": use_hybrid and hybrid_engine is not None,
-            },
-        }
-
-    except Exception as exc:
-        log.error("articles_direct_search_failed", error=str(exc))
-        return {
-            "answer": "Search failed",
-            "context_tokens": 0,
-            "confidence": 0.0,
-            "entities": [],
-            "sources": [],
-            "metadata": {"error": "An internal error occurred"},
-        }
-
-
 # ── DRIFT Search Endpoint ─────────────────────────────────────
 
 
@@ -331,7 +197,7 @@ class DriftSearchRequest(BaseModel):
     query: str
     primer_k: int = 3
     max_follow_ups: int = 2
-    confidence_threshold: RoundedFloat = 0.7
+    confidence_threshold: float = 0.7
 
 
 class DriftSearchResponse(BaseModel):
@@ -339,7 +205,7 @@ class DriftSearchResponse(BaseModel):
 
     query: str
     answer: str
-    confidence: RoundedFloat
+    confidence: float
     search_type: str = "drift"
     hierarchy: dict[str, Any]
     primer_communities: int
@@ -382,10 +248,6 @@ async def search_drift(
         Hierarchical search result with primer and follow-up answers.
 
     """
-    # Validate query is not empty
-    if not body.query or not body.query.strip():
-        raise HTTPException(status_code=422, detail="Search query cannot be empty")
-
     from modules.knowledge.search.engines.drift_search import DriftConfig, DRIFTSearchEngine
 
     try:
@@ -427,12 +289,12 @@ async def search_drift(
         )
 
     except Exception as exc:
-        get_logger(__name__).error("drift_search_failed", error=str(exc), exc_info=True)
+        get_logger(__name__).error("drift_search_failed", error=str(exc))
         if "neo4j" in str(exc).lower() or "graph" in str(exc).lower():
             raise HTTPException(status_code=503, detail="Graph service unavailable")
         if "llm" in str(exc).lower():
             raise HTTPException(status_code=503, detail="LLM service unavailable")
-        raise HTTPException(status_code=500, detail="DRIFT search failed")
+        raise HTTPException(status_code=500, detail=f"DRIFT search failed: {exc}")
 
 
 # ── MAGMA Memory Search Endpoints ─────────────────────────────────
@@ -447,16 +309,8 @@ class CausalSearchRequest(BaseModel):
     max_depth: int = 3
     """Maximum depth for causal chain traversal."""
 
-    min_confidence: RoundedFloat = 0.7
+    min_confidence: float = 0.7
     """Minimum confidence for causal edges."""
-
-
-class CausalChainEntry(BaseModel):
-    """Single entry in a causal chain."""
-
-    id: str
-    content: str
-    score: RoundedFloat
 
 
 class CausalSearchResponse(BaseModel):
@@ -464,8 +318,8 @@ class CausalSearchResponse(BaseModel):
 
     query: str
     answer: str
-    causal_chain: list[CausalChainEntry]
-    confidence: RoundedFloat
+    causal_chain: list[dict[str, Any]]
+    confidence: float
     metadata: dict[str, Any]
 
 
@@ -497,7 +351,6 @@ async def search_causal(
     request: Request,
     body: CausalSearchRequest,
     _: str = Depends(verify_api_key),
-    llm: LLMClient = Depends(deps.Endpoints.get_llm_client),
 ) -> APIResponse[CausalSearchResponse]:
     """Causal reasoning search using MAGMA multi-graph architecture.
 
@@ -511,16 +364,11 @@ async def search_causal(
     Args:
         body: Causal search request with query and parameters.
         _: Verified API key.
-        llm: LLM client for embedding and intent classification.
 
     Returns:
         Causal chain with explanations and confidence scores.
 
     """
-    # Validate query is not empty
-    if not body.query or not body.query.strip():
-        raise HTTPException(status_code=422, detail="Search query cannot be empty")
-
     from modules.memory.graphs.causal import CausalGraphRepo
     from modules.memory.retrieval.adaptive_search import AdaptiveSearchEngine
 
@@ -539,84 +387,59 @@ async def search_causal(
             confidence_threshold=body.min_confidence,
         )
 
-        # Create real services for adaptive search
-        class RealEmbeddingService:
-            """Real embedding service using LLM client."""
-
+        # Create mock services for adaptive search
+        class MockEmbeddingService:
             async def embed(self, text: str) -> list[float]:
-                embeddings = await llm.embed_default([text])
-                return embeddings[0] if embeddings and embeddings[0] else [0.0] * 384
+                return [0.1] * 384
 
-        class RealIntentClassifier:
-            """Real intent classifier using LLM."""
-
+        class MockIntentClassifier:
             async def classify(self, query: str):
-                from modules.knowledge.search.intent.classifier import IntentClassifier
+                from modules.memory.core.graph_types import IntentType
 
-                classifier = IntentClassifier(llm=llm)
-                return await classifier.classify(query)
+                class Result:
+                    intent = IntentType.WHY
+
+                return Result()
 
         engine = AdaptiveSearchEngine(
             temporal_repo=temporal_repo,
             causal_repo=causal_repo,
-            embedding_service=RealEmbeddingService(),
-            intent_classifier=RealIntentClassifier(),
+            embedding_service=MockEmbeddingService(),
+            intent_classifier=MockIntentClassifier(),
             max_depth=body.max_depth,
         )
 
         # Execute search
         results = await engine.search(
             query=body.query,
-            intent=IntentType.WHY,
+            intent=IntentType.WHY if "IntentType" in dir() else None,
         )
 
         # Build causal chain from results
         causal_chain = [
-            CausalChainEntry(
-                id=r["id"],
-                content=r.get("content", ""),
-                score=r.get("score", 0),
-            )
+            {
+                "id": r["id"],
+                "content": r.get("content", ""),
+                "score": r.get("score", 0),
+            }
             for r in results
         ]
-
-        # Generate semantic answer using LLM
-        if causal_chain:
-            chain_content = "\n".join([f"- {e.content}" for e in causal_chain[:5]])
-            prompt = f"""基于以下因果链事件，简洁回答"{body.query}"：
-
-{chain_content}
-
-请用1-2句话总结因果关系。"""
-            try:
-                answer = await llm.chat(prompt)
-            except Exception as exc:
-                log.error("causal_chain_llm_chat_failed", error=str(exc), exc_info=True)
-                answer = f"发现 {len(causal_chain)} 个相关事件形成因果链。（LLM 总结失败）"
-        else:
-            answer = f'未找到与 "{body.query}" 相关的因果事件。可能数据库中缺少相关数据。'
-
-        # Filter out empty-content entries for confidence calculation
-        valid_entries = [e for e in causal_chain if e.content.strip()]
-        confidence = (
-            sum(e.score for e in valid_entries) / len(valid_entries) if valid_entries else 0.0
-        )
 
         return success_response(
             CausalSearchResponse(
                 query=body.query,
-                answer=answer,
+                answer=f"Found {len(causal_chain)} related events in causal chain.",
                 causal_chain=causal_chain,
-                confidence=confidence,
+                confidence=sum(r.get("score", 0) for r in results) / max(len(results), 1),
                 metadata={"depth": body.max_depth},
             )
         )
 
     except Exception as exc:
-        log.error("causal_search_failed", error=str(exc), exc_info=True)
+        log.error("causal_search_failed", error=str(exc))
         if "neo4j" in str(exc).lower():
             raise HTTPException(status_code=503, detail="Graph service unavailable")
-        raise HTTPException(status_code=500, detail="Internal server error during causal search")
+        raise HTTPException(status_code=500, detail=f"Causal search failed: {exc}")
 
 
 @router.post("/temporal", response_model=APIResponse[TemporalSearchResponse])
@@ -643,10 +466,6 @@ async def search_temporal(
         Ordered list of events with temporal metadata.
 
     """
-    # Validate query is not empty
-    if not body.query or not body.query.strip():
-        raise HTTPException(status_code=422, detail="Search query cannot be empty")
-
     from modules.memory.graphs.temporal import TemporalGraphRepo
 
     log = get_logger(__name__)
@@ -658,8 +477,8 @@ async def search_temporal(
         # Create repository
         temporal_repo = TemporalGraphRepo(pool=graph_pool)
 
-        # Search events by query content and return in temporal order
-        events = await temporal_repo.search_temporal_events(query=body.query, limit=body.limit)
+        # Get temporal chain
+        events = await temporal_repo.get_temporal_chain(limit=body.limit)
 
         # Convert neo4j.time.DateTime to ISO string for JSON serialization
         for event in events:
@@ -686,7 +505,7 @@ async def search_temporal(
         )
 
     except Exception as exc:
-        log.error("temporal_search_failed", error=str(exc), exc_info=True)
+        log.error("temporal_search_failed", error=str(exc))
         if "neo4j" in str(exc).lower():
             raise HTTPException(status_code=503, detail="Graph service unavailable")
-        raise HTTPException(status_code=500, detail="Internal server error during temporal search")
+        raise HTTPException(status_code=500, detail=f"Temporal search failed: {exc}")

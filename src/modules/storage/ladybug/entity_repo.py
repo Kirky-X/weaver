@@ -181,16 +181,19 @@ class LadybugEntityRepo(BaseEntityRepo):
         self,
         entity_ids: list[str],
     ) -> list[dict[str, Any]]:
-        """Find multiple entities by their IDs."""
+        """Find multiple entities by their IDs using a single batch query."""
         if not entity_ids:
             return []
 
-        results = []
-        for eid in entity_ids:
-            entity = await self.find_entity_by_id(eid)
-            if entity:
-                results.append(entity)
-        return results
+        query = """
+        MATCH (e:Entity)
+        WHERE e.id IN $ids
+        RETURN e.id AS neo4j_id, e.id AS id, e.canonical_name AS canonical_name,
+               e.type AS type, e.description AS description, e.tier AS tier,
+               e.created_at AS created_at, e.updated_at AS updated_at
+        """
+        result = await self._pool.execute_query(query, {"ids": entity_ids})
+        return [dict(r) for r in result]
 
     async def add_alias(
         self,
@@ -198,9 +201,10 @@ class LadybugEntityRepo(BaseEntityRepo):
         entity_type: str,
         alias: str,
     ) -> bool:
-        """Add an alias to an existing entity.
+        """No-op: LadybugDB doesn't support array types well.
 
-        Note: LadybugDB doesn't support array types well, so we skip this.
+        Returns True without modifying data. Alias support could be
+        implemented with a separate Alias node if needed.
         """
         # LadybugDB doesn't have good array support
         # This could be implemented with a separate Alias node if needed
@@ -483,13 +487,19 @@ class LadybugEntityRepo(BaseEntityRepo):
         names: list[str],
         entity_type: str,
     ) -> list[dict[str, Any]]:
-        """Find multiple entities by names."""
-        results = []
-        for name in names:
-            entity = await self.find_entity(name, entity_type)
-            if entity:
-                results.append(entity)
-        return results
+        """Find multiple entities by names using a single batch query."""
+        if not names:
+            return []
+
+        query = """
+        MATCH (e:Entity)
+        WHERE e.canonical_name IN $names AND e.type = $type
+        RETURN e.id AS neo4j_id, e.id AS id, e.canonical_name AS canonical_name,
+               e.type AS type, e.description AS description, e.tier AS tier,
+               e.created_at AS created_at, e.updated_at AS updated_at
+        """
+        result = await self._pool.execute_query(query, {"names": names, "type": entity_type})
+        return [dict(r) for r in result]
 
     async def find_entities_by_keys(
         self,
@@ -524,18 +534,22 @@ class LadybugEntityRepo(BaseEntityRepo):
     ) -> dict[str, Any] | None:
         """Get the neighborhood of an entity in the graph.
 
-        Retrieves the entity, its associated events, related entities,
-        and the relations connecting them.
+        Retrieves the entity, its related entities (1-hop), and the
+        relations connecting them.
+
+        Note: ``events`` is always an empty list because LadybugDB doesn't
+        have Event nodes in the current schema.
 
         Args:
             entity_name: Canonical name of the entity.
             entity_type: Optional entity type for disambiguation.
-            hops: Number of hops for neighborhood expansion (1 or 2).
+            hops: Number of hops for neighborhood expansion (LadybugDB
+                only supports 1-hop).
             limit: Maximum number of related items to return.
 
         Returns:
-            Dictionary with center, events, related_entities, relations, hops.
-            Returns None if entity not found.
+            Dictionary with center, events (always []), related_entities,
+            relations, hops. Returns None if entity not found.
         """
         # Find the entity first
         entity = await self.find_entity(entity_name, entity_type or "")

@@ -39,6 +39,35 @@ class Neo4jEntityRepo(BaseEntityRepo):
     def __init__(self, pool: GraphPool) -> None:
         self._pool = pool
 
+    @staticmethod
+    def _convert_timestamp(ts: Any) -> str | None:
+        """Convert Neo4j DateTime or int timestamp to ISO format string.
+
+        Handles multiple timestamp formats from Neo4j and LadybugDB:
+        - Neo4j DateTime objects (has isoformat/iso_format)
+        - Integer timestamps (seconds or milliseconds)
+        - Already formatted strings
+
+        Args:
+            ts: Timestamp value to convert.
+
+        Returns:
+            ISO format string or None.
+        """
+        if ts is None:
+            return None
+        if isinstance(ts, int):
+            from datetime import UTC, datetime
+
+            if ts > 1_000_000_000_000:
+                return datetime.fromtimestamp(ts / 1000, tz=UTC).isoformat()
+            return datetime.fromtimestamp(ts, tz=UTC).isoformat()
+        if hasattr(ts, "iso_format"):
+            return ts.iso_format()
+        if hasattr(ts, "isoformat"):
+            return ts.isoformat()
+        return str(ts)
+
     async def ensure_constraints(self) -> None:
         """Create uniqueness constraints if they don't exist.
 
@@ -186,7 +215,10 @@ class Neo4jEntityRepo(BaseEntityRepo):
         params = {"canonical_name": canonical_name, "type": entity_type}
         result = await self._pool.execute_query(query, params)
         if result:
-            return dict(result[0])
+            record = dict(result[0])
+            record["created_at"] = self._convert_timestamp(record.get("created_at"))
+            record["updated_at"] = self._convert_timestamp(record.get("updated_at"))
+            return record
         return None
 
     async def find_entity_by_id(self, neo4j_id: str) -> dict[str, Any] | None:
@@ -212,7 +244,10 @@ class Neo4jEntityRepo(BaseEntityRepo):
         """
         result = await self._pool.execute_query(query, {"neo4j_id": neo4j_id})
         if result:
-            return dict(result[0])
+            record = dict(result[0])
+            record["created_at"] = self._convert_timestamp(record.get("created_at"))
+            record["updated_at"] = self._convert_timestamp(record.get("updated_at"))
+            return record
         return None
 
     async def find_entities_by_ids(
@@ -249,7 +284,14 @@ class Neo4jEntityRepo(BaseEntityRepo):
 
         params = {"ids": neo4j_ids}
         result = await self._pool.execute_query(query, params)
-        return [dict(record) for record in result]
+        return [
+            {
+                **record,
+                "created_at": self._convert_timestamp(record.get("created_at")),
+                "updated_at": self._convert_timestamp(record.get("updated_at")),
+            }
+            for record in (dict(r) for r in result)
+        ]
 
     async def add_alias(
         self,

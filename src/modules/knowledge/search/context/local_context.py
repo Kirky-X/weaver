@@ -19,7 +19,6 @@ from modules.knowledge.search.context.builder import ContextBuilder, SearchConte
 if TYPE_CHECKING:
     from core.protocols import GraphPool
 
-
 log = get_logger(__name__)
 
 

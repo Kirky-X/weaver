@@ -77,6 +77,15 @@ class GraphPool(Protocol):
         - LadybugPool: LadybugDB async connection wrapper
     """
 
+    @property
+    def database_type(self) -> str:
+        """Return the database type identifier (e.g., 'neo4j', 'ladybug').
+
+        Returns:
+            String identifier for the database backend.
+        """
+        ...
+
     async def startup(self) -> None:
         """Initialize the pool."""
         ...
@@ -278,6 +287,29 @@ class CachePool(Protocol):
 
         Returns:
             Last element if list not empty, None otherwise.
+        """
+        ...
+
+    async def lrange(self, name: str, start: int, stop: int) -> list[str]:
+        """Return a slice of a list.
+
+        Args:
+            name: List name.
+            start: Start index (0-based, inclusive).
+            stop: Stop index (exclusive; -1 means to end).
+
+        Returns:
+            List of elements in the specified range.
+        """
+        ...
+
+    async def ltrim(self, name: str, start: int, stop: int) -> None:
+        """Trim a list to the specified range, removing elements outside it.
+
+        Args:
+            name: List name.
+            start: Start index to keep (0-based, inclusive).
+            stop: Stop index to keep (inclusive; -1 means to end).
         """
         ...
 

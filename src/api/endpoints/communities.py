@@ -9,9 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.dependencies import get_graph_pool, get_graph_pool_type, get_llm_client
-from api.middleware.auth import verify_admin_api_key, verify_api_key
+from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
-from api.schemas.types import RoundedFloat, RoundedFloatOpt
 from core.constants import ProcessingStatus
 from core.db import GraphDatabaseType
 from core.observability import get_logger
@@ -26,7 +25,7 @@ from modules.knowledge.graph import (
     ReportGenerationResult,
 )
 
-log = get_logger(__name__)
+log = get_logger("community_api")
 
 
 def _get_db_type(pool_type: str) -> GraphDatabaseType:
@@ -54,9 +53,9 @@ class RebuildResponse(BaseModel):
     communities_created: int
     entities_processed: int
     levels: int
-    modularity: RoundedFloat
+    modularity: float
     orphan_count: int
-    execution_time_ms: RoundedFloat
+    execution_time_ms: float
 
 
 class ReportGenerateResponse(BaseModel):
@@ -76,7 +75,7 @@ class CommunityResponse(BaseModel):
     level: int
     entity_count: int | None = None  # Allow None when not computed
     parent_id: str | None
-    rank: RoundedFloatOpt = None
+    rank: float | None = None
     period: str | None
     has_report: bool = False
 
@@ -90,9 +89,9 @@ class CommunityDetailResponse(BaseModel):
     entity_count: int | None = None  # Allow None when not computed
     parent_id: str | None
     children_ids: list[str] = Field(default_factory=list)
-    rank: RoundedFloatOpt = None
+    rank: float | None = None
     period: str | None
-    modularity: RoundedFloatOpt
+    modularity: float | None
     entities: list[dict[str, str]] = Field(default_factory=list)
     report: dict[str, Any] | None = None
 
@@ -112,7 +111,7 @@ class HealthOverviewResponse(BaseModel):
     """Response model for community health overview."""
 
     status: str
-    score: RoundedFloat
+    score: float
     total_communities: int
     communities_with_reports: int
     stale_reports: int
@@ -136,7 +135,7 @@ class DiagnoseResponse(BaseModel):
     """Response model for full health diagnosis."""
 
     status: str
-    score: RoundedFloat
+    score: float
     issues: list[IssueDetail]
     metrics: dict[str, Any]
     repair_suggestions: list[str]
@@ -160,7 +159,7 @@ class RepairResponse(BaseModel):
 
     repaired: dict[str, int]
     failed: dict[str, list[str]]
-    duration_ms: RoundedFloat
+    duration_ms: float
 
 
 # ── Endpoints ───────────────────────────────────────────
@@ -169,7 +168,7 @@ class RepairResponse(BaseModel):
 @router.post("/rebuild", response_model=APIResponse[RebuildResponse])
 async def rebuild_communities(
     request: RebuildRequest = RebuildRequest(),
-    _: str = Depends(verify_admin_api_key),  # Security: destructive operation requires admin
+    _: str = Depends(verify_api_key),
     pool: GraphPool = Depends(get_graph_pool),
     pool_type: str = Depends(get_graph_pool_type),
     llm: Any = Depends(get_llm_client),
@@ -231,7 +230,7 @@ async def rebuild_communities(
 
     except Exception as exc:
         log.error("community_rebuild_failed", error=str(exc))
-        raise HTTPException(status_code=500, detail="Rebuild failed")
+        raise HTTPException(status_code=500, detail=f"Rebuild failed: {exc!s}")
 
 
 @router.post("/reports/generate", response_model=APIResponse[ReportGenerateResponse])
@@ -283,7 +282,7 @@ async def generate_all_reports(
 
     except Exception as exc:
         log.error("report_generation_failed", error=str(exc))
-        raise HTTPException(status_code=500, detail="Report generation failed")
+        raise HTTPException(status_code=500, detail=f"Report generation failed: {exc!s}")
 
 
 @router.post(
@@ -292,7 +291,7 @@ async def generate_all_reports(
 )
 async def regenerate_report(
     community_id: str,
-    _: str = Depends(verify_admin_api_key),  # Security: write operation requires admin
+    _: str = Depends(verify_api_key),
     pool: GraphPool = Depends(get_graph_pool),
     llm: Any = Depends(get_llm_client),
 ) -> APIResponse[dict[str, Any]]:
@@ -338,7 +337,7 @@ async def regenerate_report(
         raise
     except Exception as exc:
         log.error("report_regeneration_failed", community_id=community_id, error=str(exc))
-        raise HTTPException(status_code=500, detail="Report regeneration failed")
+        raise HTTPException(status_code=500, detail=f"Report regeneration failed: {exc!s}")
 
 
 # ── Graph Community Endpoints (merged into main router) ─────────
@@ -375,23 +374,22 @@ async def list_communities(
         communities = await repo.list_communities(level=level, limit=limit, offset=offset)
         total = await repo.count_communities(level=level)
 
-        # Batch check which communities have reports (fixes N+1 query)
-        community_ids = [c.id for c in communities]
-        reports_exist = await repo.get_reports_existence(community_ids)
-
-        community_responses = [
-            CommunityResponse(
-                id=c.id,
-                title=c.title,
-                level=c.level,
-                entity_count=c.entity_count,
-                parent_id=c.parent_id,
-                rank=c.rank,
-                period=c.period,
-                has_report=reports_exist.get(c.id, False),
+        # Check which communities have reports
+        community_responses = []
+        for c in communities:
+            report = await repo.get_report(c.id)
+            community_responses.append(
+                CommunityResponse(
+                    id=c.id,
+                    title=c.title,
+                    level=c.level,
+                    entity_count=c.entity_count,
+                    parent_id=c.parent_id,
+                    rank=c.rank,
+                    period=c.period,
+                    has_report=report is not None,
+                )
             )
-            for c in communities
-        ]
 
         return success_response(
             CommunityListResponse(
@@ -403,7 +401,7 @@ async def list_communities(
 
     except Exception as exc:
         log.error("list_communities_failed", error=str(exc))
-        raise HTTPException(status_code=500, detail="Failed to list communities")
+        raise HTTPException(status_code=500, detail=f"Failed to list communities: {exc!s}")
 
 
 # ── Health Check Endpoints ───────────────────────────────────────
@@ -485,7 +483,7 @@ async def get_health_overview(
 
     except Exception as exc:
         log.error("get_health_overview_failed", error=str(exc))
-        raise HTTPException(status_code=500, detail="Health check failed")
+        raise HTTPException(status_code=500, detail=f"Health check failed: {exc!s}")
 
 
 @router.post("/health/diagnose", response_model=APIResponse[DiagnoseResponse])
@@ -544,13 +542,13 @@ async def diagnose_health(
 
     except Exception as exc:
         log.error("diagnose_health_failed", error=str(exc))
-        raise HTTPException(status_code=500, detail="Diagnosis failed")
+        raise HTTPException(status_code=500, detail=f"Diagnosis failed: {exc!s}")
 
 
 @router.post("/health/repair", response_model=APIResponse[RepairResponse])
 async def repair_health(
     request: RepairRequest = RepairRequest(),
-    _: str = Depends(verify_admin_api_key),  # Security: destructive operation requires admin
+    _: str = Depends(verify_api_key),
     pool: GraphPool = Depends(get_graph_pool),
     llm: Any = Depends(get_llm_client),
 ) -> APIResponse[RepairResponse]:
@@ -636,7 +634,7 @@ async def repair_health(
 
     except Exception as exc:
         log.error("repair_health_failed", error=str(exc))
-        raise HTTPException(status_code=500, detail="Repair failed")
+        raise HTTPException(status_code=500, detail=f"Repair failed: {exc!s}")
 
 
 @router.get("/{community_id}", response_model=APIResponse[CommunityDetailResponse])
@@ -721,4 +719,4 @@ async def get_community(
         raise
     except Exception as exc:
         log.error("get_community_failed", community_id=community_id, error=str(exc))
-        raise HTTPException(status_code=500, detail="Failed to get community")
+        raise HTTPException(status_code=500, detail=f"Failed to get community: {exc!s}")

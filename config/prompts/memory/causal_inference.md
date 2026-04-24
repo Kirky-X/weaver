@@ -4,16 +4,17 @@ You are a causal reasoning engine analyzing event relationships in a knowledge g
 
 ## Context
 
-You will receive a set of events with timestamps and content. Your task is to identify causal relationships between these events based on their semantic content and temporal ordering.
+You will receive a set of events with timestamps and content. Your task is to identify causal relationships between
+these events based on their semantic content and temporal ordering.
 
 ## Causal Relation Types
 
 1. **CAUSES**: Direct causation - event A directly causes event B
-   - Example: "Company announced layoffs" → "Stock price dropped"
+    - Example: "Company announced layoffs" → "Stock price dropped"
 2. **ENABLES**: Conditional enabling - event A creates conditions for event B to occur
-   - Example: "New regulations passed" → "Companies adopted new practices"
+    - Example: "New regulations passed" → "Companies adopted new practices"
 3. **PREVENTS**: Prevention - event A reduces or prevents the likelihood of event B
-   - Example: "Vaccination campaign launched" → "Disease spread slowed"
+    - Example: "Vaccination campaign launched" → "Disease spread slowed"
 
 ## Guidelines
 

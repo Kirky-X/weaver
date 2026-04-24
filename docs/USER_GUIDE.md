@@ -231,14 +231,14 @@ temporal_decay_half_life_days = 30.0  # 时间衰减半衰期(天)
 
 ### 核心概念
 
-| 概念             | 说明                                   |
-| ---------------- | -------------------------------------- |
-| **Source**       | 新闻源，可以是 RSS/Atom 订阅或网页     |
-| **Article**      | 文章，经过处理的新闻内容               |
-| **Entity**       | 实体，从文章中提取的人、组织、地点等   |
-| **Relationship** | 关系，实体之间的关联                   |
-| **Pipeline**     | 处理流水线，将原始内容转换为结构化数据 |
-| **Community**    | 社区，知识图谱中的实体群组             |
+| 概念               | 说明                     |
+|------------------|------------------------|
+| **Source**       | 新闻源，可以是 RSS/Atom 订阅或网页 |
+| **Article**      | 文章，经过处理的新闻内容           |
+| **Entity**       | 实体，从文章中提取的人、组织、地点等     |
+| **Relationship** | 关系，实体之间的关联             |
+| **Pipeline**     | 处理流水线，将原始内容转换为结构化数据    |
+| **Community**    | 社区，知识图谱中的实体群组          |
 
 ---
 
@@ -298,17 +298,17 @@ curl -X DELETE "http://localhost:8000/api/v1/sources/bbc-news" \
 
 ### 源配置字段说明
 
-| 字段                     | 类型      | 必填 | 说明                                     |
-| ------------------------ | --------- | ---- | ---------------------------------------- |
-| `id`                     | string    | 是   | 唯一标识符，建议使用小写和连字符         |
-| `name`                   | string    | 是   | 显示名称                                 |
-| `url`                    | string    | 是   | RSS/Atom 订阅地址                        |
-| `source_type`            | string    | 否   | 源类型，默认 `rss`                       |
-| `enabled`                | boolean   | 否   | 是否启用，默认 `true`                    |
-| `interval_minutes`       | integer   | 否   | 抓取间隔（分钟），默认 30，范围 5-1440   |
-| `per_host_concurrency`   | integer   | 否   | 每主机最大并发请求数，默认 2，范围 1-10  |
-| `credibility`            | float     | 否   | 预设可信度（0.0-1.0）                    |
-| `tier`                   | integer   | 否   | 层级：1=权威，2=可信，3=普通             |
+| 字段                     | 类型      | 必填 | 说明                       |
+|------------------------|---------|----|--------------------------|
+| `id`                   | string  | 是  | 唯一标识符，建议使用小写和连字符         |
+| `name`                 | string  | 是  | 显示名称                     |
+| `url`                  | string  | 是  | RSS/Atom 订阅地址            |
+| `source_type`          | string  | 否  | 源类型，默认 `rss`             |
+| `enabled`              | boolean | 否  | 是否启用，默认 `true`           |
+| `interval_minutes`     | integer | 否  | 抓取间隔（分钟），默认 30，范围 5-1440 |
+| `per_host_concurrency` | integer | 否  | 每主机最大并发请求数，默认 2，范围 1-10  |
+| `credibility`          | float   | 否  | 预设可信度（0.0-1.0）           |
+| `tier`                 | integer | 否  | 层级：1=权威，2=可信，3=普通        |
 
 ---
 
@@ -430,10 +430,10 @@ curl -X POST "http://localhost:8000/api/v1/pipeline/url" \
 
 **参数说明：**
 
-| 字段             | 类型    | 默认  | 说明                           |
-| ---------------- | ------- | ----- | ------------------------------ |
-| `url`            | string  | 必填  | 要处理的资讯网页 URL           |
-| `whitelist_mode` | boolean | false | 是否启用白名单模式             |
+| 字段               | 类型      | 默认    | 说明           |
+|------------------|---------|-------|--------------|
+| `url`            | string  | 必填    | 要处理的资讯网页 URL |
+| `whitelist_mode` | boolean | false | 是否启用白名单模式    |
 
 ---
 
@@ -459,26 +459,26 @@ curl -X GET "http://localhost:8000/api/v1/search?q=人工智能&mode=articles&th
 
 **mode 参数说明：**
 
-| 模式       | 默认 | 说明                                                  |
-| ---------- | ---- | ----------------------------------------------------- |
-| `local`    |      | 直接向量搜索，适合实体邻里关系查询                    |
-| `global`   |      | 社区级搜索，适合更广泛的上下文查询                    |
-| `auto`     | ✅   | 基于意图的自动路由（默认）                            |
+| 模式       | 默认 | 说明                |
+|----------|----|-------------------|
+| `local`  |    | 直接向量搜索，适合实体邻里关系查询 |
+| `global` |    | 社区级搜索，适合更广泛的上下文查询 |
+| `auto`   | ✅  | 基于意图的自动路由（默认）     |
 
 **其他查询参数：**
 
-| 参数              | 类型    | 默认        | 说明                                       |
-| ----------------- | ------- | ----------- | ------------------------------------------ |
-| `q`               | string  | 必填        | 搜索查询                                   |
-| `mode`            | string  | `auto`      | 搜索模式：local/global/auto                |
-| `community_level` | int     | 0           | 社区层级（global 模式），范围 0-10         |
-| `threshold`       | float   | 0.0         | 相似度阈值（articles 模式），范围 0.0-1.0  |
-| `limit`           | int     | 20          | 最大结果数（articles 模式），范围 1-100    |
-| `category`        | string  | null        | 类别过滤（articles 模式）                  |
-| `use_hybrid`      | boolean | true        | 使用混合搜索（articles 模式）              |
-| `global_mode`     | string  | `map_reduce`| Global 搜索模式：map_reduce 或 simple      |
-| `output_mode`     | string  | `context`   | 输出格式：context（原始片段）或 narrative（LLM 综合答案） |
-| `enrich_entities` | boolean | false       | 启用实体聚合以丰富结果                     |
+| 参数                | 类型      | 默认           | 说明                                      |
+|-------------------|---------|--------------|-----------------------------------------|
+| `q`               | string  | 必填           | 搜索查询                                    |
+| `mode`            | string  | `auto`       | 搜索模式：local/global/auto                  |
+| `community_level` | int     | 0            | 社区层级（global 模式），范围 0-10                 |
+| `threshold`       | float   | 0.0          | 相似度阈值（articles 模式），范围 0.0-1.0           |
+| `limit`           | int     | 20           | 最大结果数（articles 模式），范围 1-100             |
+| `category`        | string  | null         | 类别过滤（articles 模式）                       |
+| `use_hybrid`      | boolean | true         | 使用混合搜索（articles 模式）                     |
+| `global_mode`     | string  | `map_reduce` | Global 搜索模式：map_reduce 或 simple         |
+| `output_mode`     | string  | `context`    | 输出格式：context（原始片段）或 narrative（LLM 综合答案） |
+| `enrich_entities` | boolean | false        | 启用实体聚合以丰富结果                             |
 
 ### DRIFT 迭代式搜索（实验性）
 
@@ -498,12 +498,12 @@ curl -X POST "http://localhost:8000/api/v1/search/drift" \
 
 **DRIFT 搜索参数：**
 
-| 参数                 | 类型    | 默认  | 说明                           |
-| -------------------- | ------- | ----- | ------------------------------ |
-| `query`              | string  | 必填  | 搜索查询                       |
-| `primer_k`           | int     | 3     | 初始社区报告数量               |
-| `max_follow_ups`     | int     | 2     | 最大跟进迭代次数               |
-| `confidence_threshold`| float  | 0.7   | 置信度阈值                     |
+| 参数                     | 类型     | 默认  | 说明       |
+|------------------------|--------|-----|----------|
+| `query`                | string | 必填  | 搜索查询     |
+| `primer_k`             | int    | 3   | 初始社区报告数量 |
+| `max_follow_ups`       | int    | 2   | 最大跟进迭代次数 |
+| `confidence_threshold` | float  | 0.7 | 置信度阈值    |
 
 ### 因果推理搜索
 
@@ -565,16 +565,16 @@ curl -X GET "http://localhost:8000/api/v1/articles?category=政治&min_credibili
 
 **查询参数：**
 
-| 参数            | 类型    | 默认           | 说明                                       |
-| --------------- | ------- | -------------- | ------------------------------------------ |
-| `page`          | int     | 1              | 页码（从 1 开始）                          |
-| `page_size`     | int     | 20             | 每页条数，范围 1-100                         |
-| `category`      | string  | null           | 按类别过滤                                 |
-| `source_host`   | string  | null           | 按来源主机名过滤                           |
-| `min_score`     | float   | null           | 最低分数过滤，范围 0-1                       |
-| `min_credibility`| float  | null           | 最低可信度过滤，范围 0-1                     |
-| `sort_by`       | string  | `publish_time` | 排序字段：publish_time/score/credibility_score/created_at |
-| `sort_order`    | string  | `desc`         | 排序顺序：asc 或 desc                        |
+| 参数                | 类型     | 默认             | 说明                                                   |
+|-------------------|--------|----------------|------------------------------------------------------|
+| `page`            | int    | 1              | 页码（从 1 开始）                                           |
+| `page_size`       | int    | 20             | 每页条数，范围 1-100                                        |
+| `category`        | string | null           | 按类别过滤                                                |
+| `source_host`     | string | null           | 按来源主机名过滤                                             |
+| `min_score`       | float  | null           | 最低分数过滤，范围 0-1                                        |
+| `min_credibility` | float  | null           | 最低可信度过滤，范围 0-1                                       |
+| `sort_by`         | string | `publish_time` | 排序字段：publish_time/score/credibility_score/created_at |
+| `sort_order`      | string | `desc`         | 排序顺序：asc 或 desc                                      |
 
 ### 获取文章详情
 
@@ -685,11 +685,11 @@ curl -X GET "http://localhost:8000/api/v1/admin/communities?level=0&limit=20&off
 
 **查询参数：**
 
-| 参数    | 类型   | 默认 | 说明                          |
-| ------- | ------ | ---- | ----------------------------- |
-| `level` | int    | null | 按社区层级过滤                |
-| `limit` | int    | 20   | 最大结果数，范围 1-100          |
-| `offset`| int    | 0    | 结果偏移量                    |
+| 参数       | 类型  | 默认   | 说明             |
+|----------|-----|------|----------------|
+| `level`  | int | null | 按社区层级过滤        |
+| `limit`  | int | 20   | 最大结果数，范围 1-100 |
+| `offset` | int | 0    | 结果偏移量          |
 
 ### 社区详情
 
@@ -712,10 +712,10 @@ curl -X POST "http://localhost:8000/api/v1/admin/communities/rebuild" \
 
 **重建参数：**
 
-| 参数               | 类型  | 默认 | 说明                          |
-| ------------------ | ----- | ---- | ----------------------------- |
-| `max_cluster_size` | int   | 10   | 最大簇大小，范围 1-100          |
-| `seed`             | int   | 42   | 随机种子（用于可重复性）       |
+| 参数                 | 类型  | 默认 | 说明             |
+|--------------------|-----|----|----------------|
+| `max_cluster_size` | int | 10 | 最大簇大小，范围 1-100 |
+| `seed`             | int | 42 | 随机种子（用于可重复性）   |
 
 ### 生成社区报告
 

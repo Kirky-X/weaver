@@ -1,8 +1,9 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for CausalInferenceService."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from modules.memory.causal import (
     CausalInference,
@@ -136,7 +137,7 @@ class TestCausalInferenceServiceInit:
     def test_ladybug_detection(self):
         """Test LadybugDB pool detection."""
         mock_pool = MagicMock()
-        mock_pool.__class__.__name__ = "LadybugPool"
+        mock_pool.database_type = "ladybug"
         mock_llm = MagicMock()
         mock_repo = MagicMock()
 
@@ -155,7 +156,7 @@ class TestCausalInferenceServiceGetRelations:
     async def test_get_relations_ladybug(self):
         """Test getting relations from LadybugDB."""
         mock_pool = MagicMock()
-        mock_pool.__class__.__name__ = "LadybugPool"
+        mock_pool.database_type = "ladybug"
         mock_pool.execute_query = AsyncMock(
             return_value=[
                 {
@@ -184,7 +185,7 @@ class TestCausalInferenceServiceGetRelations:
     async def test_get_relations_with_filter(self):
         """Test getting relations with entity filter."""
         mock_pool = MagicMock()
-        mock_pool.__class__.__name__ = "LadybugPool"
+        mock_pool.database_type = "ladybug"
         mock_pool.execute_query = AsyncMock(return_value=[])
         mock_llm = MagicMock()
         mock_repo = MagicMock()
@@ -260,7 +261,7 @@ class TestCausalInferenceServiceMainFlow:
     async def test_infer_empty_relations(self):
         """Test inference when no relations are found."""
         mock_pool = MagicMock()
-        mock_pool.__class__.__name__ = "LadybugPool"
+        mock_pool.database_type = "ladybug"
         mock_pool.execute_query = AsyncMock(return_value=[])
         mock_llm = MagicMock()
         mock_repo = MagicMock()
@@ -279,7 +280,7 @@ class TestCausalInferenceServiceMainFlow:
     async def test_infer_below_threshold(self):
         """Test inference filtering below confidence threshold."""
         mock_pool = MagicMock()
-        mock_pool.__class__.__name__ = "LadybugPool"
+        mock_pool.database_type = "ladybug"
         mock_pool.execute_query = AsyncMock(
             return_value=[{"source": "A", "target": "B", "relation_type": "INVESTS_IN"}]
         )

@@ -1,6 +1,7 @@
 # Core Protocols Module
 
-This module defines Python Protocol interfaces for the weaver project's dependency injection and database abstraction layers.
+This module defines Python Protocol interfaces for the weaver project's dependency injection and database abstraction
+layers.
 
 ## Design Philosophy
 
@@ -23,7 +24,7 @@ src/core/protocols/
 ### Pool Protocols (`pools.py`)
 
 | Protocol         | Purpose                    | Key Methods                                                       |
-| ---------------- | -------------------------- | ----------------------------------------------------------------- |
+|------------------|----------------------------|-------------------------------------------------------------------|
 | `RelationalPool` | SQL database connections   | `startup()`, `shutdown()`, `session()`, `engine`                  |
 | `GraphPool`      | Graph database connections | `startup()`, `shutdown()`, `execute_query()`, `session_context()` |
 | `CachePool`      | Cache operations           | `startup()`, `shutdown()`, `get()`, `set()`, `delete()`           |
@@ -31,7 +32,7 @@ src/core/protocols/
 ### Repository Protocols (`repositories.py`)
 
 | Protocol            | Purpose                      | Key Methods                                                             |
-| ------------------- | ---------------------------- | ----------------------------------------------------------------------- |
+|---------------------|------------------------------|-------------------------------------------------------------------------|
 | `EntityRepository`  | Entity CRUD operations       | `find_entity()`, `merge_entity()`, `add_alias()`                        |
 | `VectorRepository`  | Vector similarity operations | `find_similar()`, `find_similar_entities()`, `upsert_article_vectors()` |
 | `ArticleRepository` | Article data access          | `get_by_id()`, `create()`, `update()`                                   |

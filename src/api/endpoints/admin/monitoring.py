@@ -81,10 +81,10 @@ async def get_index_usage(
     pool = container.relational_pool()
 
     # Only works with PostgreSQL
-    if container.relational_pool_type != "postgresql":
+    if container.relational_pool_type != "postgres":
         return success_response(
             [],
-            warning="Index statistics only available for PostgreSQL",
+            message="Index statistics only available for PostgreSQL",
         )
 
     assert isinstance(pool, PostgresPool)
@@ -140,10 +140,10 @@ async def get_table_stats(
     """
     pool = container.relational_pool()
 
-    if container.relational_pool_type != "postgresql":
+    if container.relational_pool_type != "postgres":
         return success_response(
             [],
-            warning="Table statistics only available for PostgreSQL",
+            message="Table statistics only available for PostgreSQL",
         )
 
     assert isinstance(pool, PostgresPool)
@@ -152,13 +152,12 @@ async def get_table_stats(
         result = await session.execute(
             text("""
                 SELECT
-                    t.schemaname || '.' || t.relname AS table,
-                    t.n_live_tup AS rows,
+                    schemaname || '.' || relname AS table,
+                    n_live_tup AS rows,
                     pg_size_pretty(pg_total_relation_size(c.oid)) AS size,
                     pg_size_pretty(pg_indexes_size(c.oid)) AS index_size
                 FROM pg_stat_user_tables t
-                JOIN pg_namespace n ON n.nspname = t.schemaname
-                JOIN pg_class c ON c.relname = t.relname AND c.relnamespace = n.oid
+                JOIN pg_class c ON c.relname = t.relname
                 ORDER BY pg_total_relation_size(c.oid) DESC
                 LIMIT :limit
             """),
@@ -196,27 +195,28 @@ async def get_pool_stats(
     pool = container.relational_pool()
 
     # Get pool statistics from SQLAlchemy
-    if container.relational_pool_type == "postgresql":
+    if container.relational_pool_type == "postgres":
         assert isinstance(pool, PostgresPool)
         engine = pool._engine
         if engine is None:
             return success_response(PoolStats(pool_size=0, checked_in=0, checked_out=0, overflow=0))
 
         pool_obj = engine.sync_engine.pool
+        status = pool_obj.status()
 
         return success_response(
             PoolStats(
-                pool_size=pool_obj.size(),
-                checked_in=pool_obj.checkedin(),
-                checked_out=pool_obj.checkedout(),
-                overflow=pool_obj.overflow(),
+                pool_size=status.size,
+                checked_in=status.checkedin,
+                checked_out=status.checkedout,
+                overflow=status.overflow,
             )
         )
 
     # DuckDB doesn't have connection pool
     return success_response(
         PoolStats(pool_size=1, checked_in=1, checked_out=0, overflow=0),
-        warning="DuckDB uses single connection, no pool statistics",
+        message="DuckDB uses single connection, no pool statistics",
     )
 
 
@@ -241,10 +241,10 @@ async def get_slow_queries(
     """
     pool = container.relational_pool()
 
-    if container.relational_pool_type != "postgresql":
+    if container.relational_pool_type != "postgres":
         return success_response(
             {"slow_queries": []},
-            warning="Slow query statistics only available for PostgreSQL",
+            message="Slow query statistics only available for PostgreSQL",
         )
 
     assert isinstance(pool, PostgresPool)
@@ -283,5 +283,5 @@ async def get_slow_queries(
     except Exception as exc:
         return success_response(
             {"slow_queries": [], "error": str(exc)},
-            warning="pg_stat_statements not available. Enable with: CREATE EXTENSION pg_stat_statements;",
+            message="pg_stat_statements not available. Enable with: CREATE EXTENSION pg_stat_statements;",
         )

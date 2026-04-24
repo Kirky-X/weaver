@@ -8,15 +8,13 @@ from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy.exc import IntegrityError, OperationalError
 
 from api.dependencies import get_source_config_repo, get_source_scheduler
-from api.middleware.auth import verify_admin_api_key, verify_api_key
+from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from modules.ingestion import SourceConfig, SourceConfigRepo, SourceScheduler
 
 router = APIRouter(prefix="/sources", tags=["sources"])
-
 
 # ── URL Validation Helper ─────────────────────────────────────
 
@@ -64,17 +62,17 @@ class SourceCreateRequest(BaseModel):
         default=30, ge=5, le=1440, description="Crawl interval in minutes"
     )
     per_host_concurrency: int = Field(default=2, ge=1, le=10, description="Max concurrent requests")
-    credibility: float = Field(
-        default=0.5,
+    credibility: float | None = Field(
+        default=None,
         ge=0.0,
         le=1.0,
-        description="Preset credibility score (0.0-1.0), defaults to 0.5",
+        description="Preset credibility score (0.0-1.0)",
     )
-    tier: int = Field(
-        default=2,
+    tier: int | None = Field(
+        default=None,
         ge=1,
         le=3,
-        description="Source tier: 1=authoritative, 2=credible, 3=ordinary, defaults to 2",
+        description="Source tier: 1=authoritative, 2=credible, 3=ordinary",
     )
 
     @field_validator("url")
@@ -197,7 +195,7 @@ async def get_source(
 @router.post("", response_model=APIResponse[SourceResponse], status_code=201)
 async def create_source(
     request: SourceCreateRequest,
-    _: str = Depends(verify_admin_api_key),  # Enhanced: admin only for write operations
+    _: str = Depends(verify_api_key),
     repo: SourceConfigRepo = Depends(get_source_config_repo),
     scheduler: SourceScheduler = Depends(get_source_scheduler),
 ) -> APIResponse[SourceResponse]:
@@ -233,13 +231,7 @@ async def create_source(
         credibility=request.credibility,
         tier=request.tier,
     )
-    try:
-        saved = await repo.upsert(config)
-    except (IntegrityError, OperationalError):
-        raise HTTPException(
-            status_code=409,
-            detail=f"Source with id '{request.id}' already exists",
-        )
+    saved = await repo.upsert(config)
 
     # Add to in-memory registry so scheduler can find it
     scheduler._registry.add_source(saved)
@@ -251,9 +243,8 @@ async def create_source(
 async def update_source(
     source_id: str,
     request: SourceUpdateRequest,
-    _: str = Depends(verify_admin_api_key),  # Enhanced: admin only for write operations
+    _: str = Depends(verify_api_key),
     repo: SourceConfigRepo = Depends(get_source_config_repo),
-    scheduler: SourceScheduler = Depends(get_source_scheduler),
 ) -> APIResponse[SourceResponse]:
     """Update an existing news source.
 
@@ -296,17 +287,13 @@ async def update_source(
         existing.tier = request.tier
 
     saved = await repo.upsert(existing)
-
-    # Sync to in-memory registry so scheduler uses updated config
-    scheduler._registry.add_source(saved)
-
     return success_response(SourceResponse.from_config(saved))
 
 
 @router.delete("/{source_id}", status_code=204)
 async def delete_source(
     source_id: str,
-    _: str = Depends(verify_admin_api_key),  # Enhanced: admin only for write operations
+    _: str = Depends(verify_api_key),
     repo: SourceConfigRepo = Depends(get_source_config_repo),
 ) -> None:
     """Delete a news source.

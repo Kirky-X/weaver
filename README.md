@@ -34,12 +34,12 @@
 
 - [✨ 功能特性](#features)
 - [🚀 快速开始](#quick-start)
-  - [📦 环境要求](#requirements)
-  - [🔧 安装](#installation)
-  - [⚙️ 配置](#configuration)
-  - [📅 调度器配置](#scheduler-config)
-  - [🗄️ 数据库迁移](#migration)
-  - [▶️ 启动服务](#start)
+    - [📦 环境要求](#requirements)
+    - [🔧 安装](#installation)
+    - [⚙️ 配置](#configuration)
+    - [📅 调度器配置](#scheduler-config)
+    - [🗄️ 数据库迁移](#migration)
+    - [▶️ 启动服务](#start)
 - [🏗️ 架构设计](#architecture)
 - [📡 API 文档](#api)
 - [🔄 Pipeline 流程](#pipeline)
@@ -62,41 +62,41 @@
 
 ### 🎯 核心功能
 
-| 状态 | 功能               | 描述                                         |
-| :--: | ------------------ | -------------------------------------------- |
-|  ✅  | **RSS 源管理**     | 订阅、调度、解析 RSS/Atom 源，支持增量抓取   |
-|  ✅  | **智能爬取**       | 自动选择 HTTPX 或 Crawl4AI，支持动态页面渲染 |
-|  ✅  | **LLM 处理流水线** | 分类、清洗、摘要、情感分析、实体提取         |
-|  ✅  | **知识图谱**       | Neo4j/LadybugDB 存储实体关系，支持图谱查询   |
-|  ✅  | **向量检索**       | pgvector 支持语义相似度搜索                  |
-|  ✅  | **可信度评估**     | 多维度信号聚合计算新闻可信度                 |
-|  ✅  | **REST API**       | FastAPI 提供完整 API 接口                    |
-|  ✅  | **Smart LLM Router** | 智能 LLM 路由 + Fallback + 使用统计      |
-|  ✅  | **Memory Service** | MAGMA 记忆集成，支持快速检索和因果推理     |
-|  ✅  | **事件驱动架构**   | Blinker 事件总线，组件松耦合通信           |
-|  ✅  | **蒙特卡洛采样**   | 长文档智能采样，节省 60%+ token             |
-|  ✅  | **知识簇缓存**     | 语义搜索结果缓存，命中率 40-70%             |
-|  ✅  | **SSE 流式 API**   | 实时 Pipeline 进度反馈                      |
-|  ✅  | **多模式搜索**     | Fast/Deep 双模式处理                       |
+| 状态 | 功能                   | 描述                             |
+|:--:|----------------------|--------------------------------|
+| ✅  | **RSS 源管理**          | 订阅、调度、解析 RSS/Atom 源，支持增量抓取     |
+| ✅  | **智能爬取**             | 自动选择 HTTPX 或 Crawl4AI，支持动态页面渲染 |
+| ✅  | **LLM 处理流水线**        | 分类、清洗、摘要、情感分析、实体提取             |
+| ✅  | **知识图谱**             | Neo4j/LadybugDB 存储实体关系，支持图谱查询  |
+| ✅  | **向量检索**             | pgvector 支持语义相似度搜索             |
+| ✅  | **可信度评估**            | 多维度信号聚合计算新闻可信度                 |
+| ✅  | **REST API**         | FastAPI 提供完整 API 接口            |
+| ✅  | **Smart LLM Router** | 智能 LLM 路由 + Fallback + 使用统计    |
+| ✅  | **Memory Service**   | MAGMA 记忆集成，支持快速检索和因果推理         |
+| ✅  | **事件驱动架构**           | Blinker 事件总线，组件松耦合通信           |
+| ✅  | **蒙特卡洛采样**           | 长文档智能采样，节省 60%+ token          |
+| ✅  | **知识簇缓存**            | 语义搜索结果缓存，命中率 40-70%            |
+| ✅  | **SSE 流式 API**       | 实时 Pipeline 进度反馈               |
+| ✅  | **多模式搜索**            | Fast/Deep 双模式处理                |
 
 </td>
 <td width="50%" style="vertical-align:top; padding: 16px">
 
 ### ⚡ 技术栈
 
-|     类别      | 技术                                   |
-| :-----------: | -------------------------------------- |
-|    🐍 语言    | Python 3.12+                           |
-|  🌐 Web 框架  | FastAPI + Uvicorn                      |
-| 🐘 关系数据库 | PostgreSQL + pgvector / DuckDB (备选)  |
-|  🔵 图数据库  | Neo4j 5+ / LadybugDB (嵌入式备选)      |
-|    🔴 缓存    | Redis 7+ / Cashews (备选)              |
-|  🕷️ 动态页面  | Crawl4AI                               |
-|  🤖 LLM 框架  | LiteLLM (统一 LLM 接口 + Smart Router) |
-|    📝 NLP     | spaCy                                  |
-|  ⏰ 任务调度  | APScheduler                            |
-|  📈 可观测性  | Prometheus + OpenTelemetry             |
-|  🔔 事件总线  | Blinker (事件驱动架构)                 |
+|    类别     | 技术                                  |
+|:---------:|-------------------------------------|
+|   🐍 语言   | Python 3.12+                        |
+| 🌐 Web 框架 | FastAPI + Uvicorn                   |
+| 🐘 关系数据库  | PostgreSQL + pgvector / DuckDB (备选) |
+|  🔵 图数据库  | Neo4j 5+ / LadybugDB (嵌入式备选)        |
+|   🔴 缓存   | Redis 7+ / Cashews (备选)             |
+| 🕷️ 动态页面  | Crawl4AI                            |
+| 🤖 LLM 框架 | LiteLLM (统一 LLM 接口 + Smart Router)  |
+|  📝 NLP   | spaCy                               |
+|  ⏰ 任务调度   | APScheduler                         |
+|  📈 可观测性  | Prometheus + OpenTelemetry          |
+|  🔔 事件总线  | Blinker (事件驱动架构)                    |
 
 </td>
 </tr>
@@ -108,12 +108,12 @@
 
 ### <span id="requirements">📦 环境要求</span>
 
-| 依赖       | 版本  | 说明                 |
-| ---------- | ----- | -------------------- |
-| Python     | 3.12+ | 运行环境             |
-| PostgreSQL | 15+   | 需安装 pgvector 扩展 (或使用 DuckDB 作为备选) |
-| Neo4j      | 5+    | 图数据库 (或使用 LadybugDB 作为嵌入式备选) |
-| Redis      | 7+    | 缓存与队列 (或使用内置 Cashews 作为备选) |
+| 依赖         | 版本    | 说明                                |
+|------------|-------|-----------------------------------|
+| Python     | 3.12+ | 运行环境                              |
+| PostgreSQL | 16+   | 需安装 pgvector 扩展 (或使用 DuckDB 作为备选) |
+| Neo4j      | 5+    | 图数据库 (或使用 LadybugDB 作为嵌入式备选)      |
+| Redis      | 7+    | 缓存与队列 (或使用内置 Cashews 作为备选)        |
 
 ### <span id="installation">🔧 安装</span>
 
@@ -141,12 +141,12 @@ uv run python -m spacy download en_core_web_sm
 <details style="padding:16px; margin: 16px 0">
 <summary style="cursor:pointer; font-weight:600; color:#1E293B">🔧 SpaCy 模型说明</summary>
 
-| 模型              | 大小   | 依赖                         | 说明                   |
-| ----------------- | ------ | ---------------------------- | ---------------------- |
+| 模型                | 大小     | 依赖                           | 说明          |
+|-------------------|--------|------------------------------|-------------|
 | `zh_core_web_lg`  | ~600MB | spacy-pkuseg                 | 推荐：标准版，精度更高 |
-| `zh_core_web_sm`  | ~40MB  | spacy-pkuseg                 | 轻量级，无需 GPU       |
-| `zh_core_web_trf` | ~400MB | spacy-transformers + PyTorch | 精度最高，需要 GPU     |
-| `en_core_web_sm`  | ~12MB  | -                            | 英文处理               |
+| `zh_core_web_sm`  | ~40MB  | spacy-pkuseg                 | 轻量级，无需 GPU  |
+| `zh_core_web_trf` | ~400MB | spacy-transformers + PyTorch | 精度最高，需要 GPU |
+| `en_core_web_sm`  | ~12MB  | -                            | 英文处理        |
 
 **实体类型映射**：
 
@@ -236,41 +236,41 @@ fallbacks = ["embedding.ollama.nomic-embed-text"]
 <details style="padding:16px; margin: 16px 0">
 <summary style="cursor:pointer; font-weight:600; color:#1E293B">🔧 完整配置选项</summary>
 
-| 配置项                                     | 类型   | 默认值                  | 描述                      |
-| ------------------------------------------ | ------ | ----------------------- | ------------------------- |
-| **PostgreSQL**                             |        |                         |                           |
-| `host`                                     | string | `localhost`             | 数据库主机                |
-| `port`                                     | int    | `5432`                  | 数据库端口                |
-| `database`                                 | string | `weaver`                | 数据库名称                |
-| `user`                                     | string | `postgres`              | 用户名                    |
-| `WEAVER_POSTGRES__PASSWORD`                | string | -                       | 密码(环境变量,必须设置)   |
-| `pool_size`                                | int    | `20`                    | 连接池大小                |
-| **Neo4j**                                  |        |                         |                           |
-| `uri`                                      | string | `bolt://localhost:7687` | 连接地址                  |
-| `user`                                     | string | `neo4j`                 | 用户名                    |
-| `WEAVER_NEO4J__PASSWORD`                   | string | -                       | 密码(环境变量,必须设置)   |
-| `enabled`                                  | bool   | `true`                  | 是否启用                  |
-| **Redis**                                  |        |                         |                           |
-| `host`                                     | string | `localhost`             | Redis 主机                |
-| `port`                                     | int    | `6379`                  | Redis 端口                |
-| `db`                                       | int    | `0`                     | 数据库编号                |
-| **API**                                    |        |                         |                           |
+| 配置项                                        | 类型     | 默认值                     | 描述                |
+|--------------------------------------------|--------|-------------------------|-------------------|
+| **PostgreSQL**                             |        |                         |                   |
+| `host`                                     | string | `localhost`             | 数据库主机             |
+| `port`                                     | int    | `5432`                  | 数据库端口             |
+| `database`                                 | string | `weaver`                | 数据库名称             |
+| `user`                                     | string | `postgres`              | 用户名               |
+| `WEAVER_POSTGRES__PASSWORD`                | string | -                       | 密码(环境变量,必须设置)     |
+| `pool_size`                                | int    | `20`                    | 连接池大小             |
+| **Neo4j**                                  |        |                         |                   |
+| `uri`                                      | string | `bolt://localhost:7687` | 连接地址              |
+| `user`                                     | string | `neo4j`                 | 用户名               |
+| `WEAVER_NEO4J__PASSWORD`                   | string | -                       | 密码(环境变量,必须设置)     |
+| `enabled`                                  | bool   | `true`                  | 是否启用              |
+| **Redis**                                  |        |                         |                   |
+| `host`                                     | string | `localhost`             | Redis 主机          |
+| `port`                                     | int    | `6379`                  | Redis 端口          |
+| `db`                                       | int    | `0`                     | 数据库编号             |
+| **API**                                    |        |                         |                   |
 | `WEAVER_API__API_KEY`                      | string | -                       | API 认证密钥(至少32字符)  |
-| **Fetcher**                                |        |                         |                           |
-| `crawl4ai_headless`                        | bool   | `true`                  | Crawl4AI 无头模式         |
-| `crawl4ai_stealth_enabled`                 | bool   | `true`                  | Crawl4AI 隐身模式         |
-| `crawl4ai_timeout`                         | float  | `30.0`                  | Crawl4AI 超时时间（秒）   |
+| **Fetcher**                                |        |                         |                   |
+| `crawl4ai_headless`                        | bool   | `true`                  | Crawl4AI 无头模式     |
+| `crawl4ai_stealth_enabled`                 | bool   | `true`                  | Crawl4AI 隐身模式     |
+| `crawl4ai_timeout`                         | float  | `30.0`                  | Crawl4AI 超时时间（秒）  |
 | `default_per_host_concurrency`             | int    | 2                       | 每主机默认并发数          |
-| `global_max_concurrency`                   | int    | 32                      | 全局最大并发数            |
-| `httpx_timeout`                            | float  | 15.0                    | HTTPX 超时时间（秒）      |
-| **Scheduler**                              |        |                         |                           |
+| `global_max_concurrency`                   | int    | 32                      | 全局最大并发数           |
+| `httpx_timeout`                            | float  | 15.0                    | HTTPX 超时时间（秒）     |
+| **Scheduler**                              |        |                         |                   |
 | `pipeline_retry_interval_minutes`          | int    | 15                      | Pipeline 重试间隔（分钟） |
-| `pipeline_retry_batch_size`                | int    | 20                      | Pipeline 重试批次大小     |
-| **URL Security**                           |        |                         |                           |
-| `WEAVER_URL_SECURITY__ENABLED`             | bool   | `true`                  | 启用 URL 安全检查         |
-| `WEAVER_URL_SECURITY__URLHAUS_API_KEY`     | string | `""`                    | URLhaus API 密钥          |
-| `WEAVER_URL_SECURITY__CACHE_SAFE_TTL`      | int    | `21600`                 | 安全缓存 TTL（秒）        |
-| `WEAVER_URL_SECURITY__CACHE_MALICIOUS_TTL` | int    | `900`                   | 恶意缓存 TTL（秒）        |
+| `pipeline_retry_batch_size`                | int    | 20                      | Pipeline 重试批次大小   |
+| **URL Security**                           |        |                         |                   |
+| `WEAVER_URL_SECURITY__ENABLED`             | bool   | `true`                  | 启用 URL 安全检查       |
+| `WEAVER_URL_SECURITY__URLHAUS_API_KEY`     | string | `""`                    | URLhaus API 密钥    |
+| `WEAVER_URL_SECURITY__CACHE_SAFE_TTL`      | int    | `21600`                 | 安全缓存 TTL（秒）       |
+| `WEAVER_URL_SECURITY__CACHE_MALICIOUS_TTL` | int    | `900`                   | 恶意缓存 TTL（秒）       |
 
 </details>
 
@@ -278,12 +278,12 @@ fallbacks = ["embedding.ollama.nomic-embed-text"]
 
 Pipeline 处理失败后支持智能重试机制：
 
-| 参数                                    | 类型  | 默认值 | 说明                                                        |
-| --------------------------------------- | ----- | ------ | ----------------------------------------------------------- |
-| `pipeline_retry_interval_minutes`       | int   | 15     | 重试检查间隔（分钟），控制失败任务的重试频率                |
-| `pipeline_retry_batch_size`             | int   | 20     | 每次重试处理的任务数量                                      |
-| `pipeline_retry_dynamic_batch`          | bool  | false  | 是否根据成功率动态调整批次大小                              |
-| `pipeline_retry_success_rate_threshold` | float | 0.8    | 动态调整的触发阈值（0.0-1.0），成功率低于此值时减少批次大小 |
+| 参数                                      | 类型    | 默认值   | 说明                                |
+|-----------------------------------------|-------|-------|-----------------------------------|
+| `pipeline_retry_interval_minutes`       | int   | 15    | 重试检查间隔（分钟），控制失败任务的重试频率            |
+| `pipeline_retry_batch_size`             | int   | 20    | 每次重试处理的任务数量                       |
+| `pipeline_retry_dynamic_batch`          | bool  | false | 是否根据成功率动态调整批次大小                   |
+| `pipeline_retry_success_rate_threshold` | float | 0.8   | 动态调整的触发阈值（0.0-1.0），成功率低于此值时减少批次大小 |
 
 **动态批次逻辑**：
 
@@ -295,9 +295,9 @@ Pipeline 处理失败后支持智能重试机制：
 
 控制实体提取阶段的行为：
 
-| 参数                         | 类型 | 默认值 | 说明                                   |
-| ---------------------------- | ---- | ------ | -------------------------------------- |
-| `disable_data_metrics_nodes` | bool | false  | 是否禁用"数据指标"类型实体的提取和存储 |
+| 参数                           | 类型   | 默认值   | 说明                   |
+|------------------------------|------|-------|----------------------|
+| `disable_data_metrics_nodes` | bool | false | 是否禁用"数据指标"类型实体的提取和存储 |
 
 **配置方式**：
 
@@ -320,17 +320,17 @@ disable_data_metrics_nodes = true
 
 多层 URL 安全检查，保护爬虫免受恶意 URL 攻击：
 
-| 参数                            | 类型   | 默认值  | 说明                                    |
-| ------------------------------- | ------ | ------- | --------------------------------------- |
-| `enabled`                       | bool   | `true`  | 是否启用 URL 安全检查                   |
+| 参数                              | 类型     | 默认值     | 说明                           |
+|---------------------------------|--------|---------|------------------------------|
+| `enabled`                       | bool   | `true`  | 是否启用 URL 安全检查                |
 | `urlhaus_api_key`               | string | `""`    | URLhaus API 密钥（为空则跳过 API 检查） |
-| `urlhaus_api_timeout`           | float  | `5.0`   | URLhaus API 超时（秒）                  |
-| `phishtank_enabled`             | bool   | `true`  | 启用 PhishTank 钓鱼数据库检查           |
-| `phishtank_sync_interval_hours` | int    | `6`     | PhishTank 数据同步间隔（小时）          |
-| `heuristic_enabled`             | bool   | `true`  | 启用启发式 URL 分析                     |
-| `ssl_verify_enabled`            | bool   | `true`  | 启用 SSL 证书验证                       |
-| `cache_safe_ttl_seconds`        | int    | `21600` | 安全结果缓存 TTL（6 小时）              |
-| `cache_malicious_ttl_seconds`   | int    | `900`   | 恶意结果缓存 TTL（15 分钟）             |
+| `urlhaus_api_timeout`           | float  | `5.0`   | URLhaus API 超时（秒）            |
+| `phishtank_enabled`             | bool   | `true`  | 启用 PhishTank 钓鱼数据库检查         |
+| `phishtank_sync_interval_hours` | int    | `6`     | PhishTank 数据同步间隔（小时）         |
+| `heuristic_enabled`             | bool   | `true`  | 启用启发式 URL 分析                 |
+| `ssl_verify_enabled`            | bool   | `true`  | 启用 SSL 证书验证                  |
+| `cache_safe_ttl_seconds`        | int    | `21600` | 安全结果缓存 TTL（6 小时）             |
+| `cache_malicious_ttl_seconds`   | int    | `900`   | 恶意结果缓存 TTL（15 分钟）            |
 
 **安全检查层级**：
 
@@ -423,17 +423,17 @@ graph TB
 
 ### 组件状态
 
-| 组件                    | 描述                        | 状态    |
-| ----------------------- | --------------------------- | ------- |
-| **SmartFetcher**        | HTTPX/Crawl4AI 自动选择     | ✅ 稳定 |
-| **Deduplicator**        | 两级 URL 去重               | ✅ 稳定 |
-| **Pipeline**            | LangGraph 流水线编排        | ✅ 稳定 |
+| 组件                      | 描述                       | 状态   |
+|-------------------------|--------------------------|------|
+| **SmartFetcher**        | HTTPX/Crawl4AI 自动选择      | ✅ 稳定 |
+| **Deduplicator**        | 两级 URL 去重                | ✅ 稳定 |
+| **Pipeline**            | LangGraph 流水线编排          | ✅ 稳定 |
 | **LLM Client**          | 多 Provider 支持 + Fallback | ✅ 稳定 |
-| **Neo4j Writer**        | 实体关系写入                | ✅ 稳定 |
-| **Vector Repo**         | pgvector 向量存储           | ✅ 稳定 |
-| **Credibility Checker** | 多信号可信度评估            | ✅ 稳定 |
-| **URL Security**        | 多层 URL 安全检查           | ✅ 稳定 |
-| **APScheduler**         | 定时任务调度                | ✅ 稳定 |
+| **Neo4j Writer**        | 实体关系写入                   | ✅ 稳定 |
+| **Vector Repo**         | pgvector 向量存储            | ✅ 稳定 |
+| **Credibility Checker** | 多信号可信度评估                 | ✅ 稳定 |
+| **URL Security**        | 多层 URL 安全检查              | ✅ 稳定 |
+| **APScheduler**         | 定时任务调度                   | ✅ 稳定 |
 
 ---
 
@@ -449,48 +449,48 @@ X-API-Key: your-api-key
 
 ### 端点列表
 
-| 端点                                  | 方法   | 描述                                             |
-| ------------------------------------- | ------ | ------------------------------------------------ |
-| `/health`                             | GET    | 健康检查（无需认证）                             |
-| `/api/v1/status`                      | GET    | 系统状态（需认证）                             |
-| `/api/v1/config`                      | GET    | 系统配置（需认证）                             |
-| `/api/v1/sources`                     | GET    | 获取源列表                                       |
-| `/api/v1/sources/{source_id}`         | GET    | 获取指定源                                       |
-| `/api/v1/sources`                     | POST   | 添加新源                                         |
-| `/api/v1/sources/{source_id}`         | PUT    | 更新源配置                                       |
-| `/api/v1/sources/{source_id}`         | DELETE | 删除源                                           |
-| `/api/v1/pipeline/trigger`            | POST   | 触发 Pipeline 任务                               |
-| `/api/v1/pipeline/tasks/{task_id}`    | GET    | 获取任务状态                                     |
-| `/api/v1/pipeline/queue/stats`        | GET    | 获取队列统计                                     |
-| `/api/v1/pipeline/url`                | POST   | 处理单个 URL                                     |
-| `/api/v1/articles`                    | GET    | 查询文章列表（支持分页、过滤、排序）             |
-| `/api/v1/articles/{id}`               | GET    | 获取文章详情                                     |
-| `/api/v1/search`                      | GET    | 统一搜索（mode 参数路由：local/global/articles） |
-| `/api/v1/search/drift`                | POST   | DRIFT 迭代式探索搜索                             |
-| `/api/v1/search/causal`               | POST   | 因果关系搜索                                     |
-| `/api/v1/search/temporal`             | POST   | 时间推理搜索                                     |
-| `/api/v1/graph/entities/{name}`       | GET    | 查询实体及其关系                                 |
-| `/api/v1/graph/articles/{id}/graph`   | GET    | 获取文章的知识图谱                               |
-| `/api/v1/graph/relations`             | GET    | 查询实体关系                                     |
-| `/api/v1/graph/relations/search`      | GET    | 搜索实体关系                                     |
-| `/api/v1/graph/metrics`               | GET    | 图谱指标（health/full/components/orphans/high-degree/modularity/distributions） |
-| `/api/v1/graph/visualization`         | GET    | 获取图谱可视化数据                               |
-| `/api/v1/graph/visualization`         | POST   | 获取子图数据                                     |
-| `/api/v1/admin/authorities`           | GET    | 获取源权威度列表                             |
-| `/api/v1/admin/authorities/{host}`    | PATCH  | 更新源权威度                                 |
-| `/api/v1/admin/llm-failures`          | GET    | LLM 失败记录查询                             |
-| `/api/v1/admin/llm-failures/stats`    | GET    | LLM 失败统计                                 |
-| `/api/v1/admin/llm-usage`             | GET    | LLM 使用统计（支持多维度分组查询）           |
-| `/api/v1/admin/articles/deduplicate`  | POST   | 文章去重                                     |
-| `/api/v1/admin/communities`           | GET    | 社区列表查询                                     |
-| `/api/v1/admin/communities/{id}`      | GET    | 社区详情                                         |
-| `/api/v1/admin/communities/rebuild`   | POST   | 重建社区                                     |
-| `/api/v1/admin/communities/health`    | GET    | 社区健康概览                                 |
-| `/api/v1/admin/communities/health/diagnose` | POST | 社区健康诊断                         |
-| `/api/v1/admin/communities/health/repair` | POST | 社区健康修复                         |
-| `/api/v1/admin/communities/reports/generate` | POST | 生成社区报告                 |
-| `/api/v1/admin/communities/{id}/report/regenerate` | POST | 重新生成社区报告       |
-| `/metrics`                            | GET    | Prometheus 指标                                  |
+| 端点                                                 | 方法     | 描述                                                                        |
+|----------------------------------------------------|--------|---------------------------------------------------------------------------|
+| `/health`                                          | GET    | 健康检查（无需认证）                                                                |
+| `/api/v1/status`                                   | GET    | 系统状态（需认证）                                                                 |
+| `/api/v1/config`                                   | GET    | 系统配置（需认证）                                                                 |
+| `/api/v1/sources`                                  | GET    | 获取源列表                                                                     |
+| `/api/v1/sources/{source_id}`                      | GET    | 获取指定源                                                                     |
+| `/api/v1/sources`                                  | POST   | 添加新源                                                                      |
+| `/api/v1/sources/{source_id}`                      | PUT    | 更新源配置                                                                     |
+| `/api/v1/sources/{source_id}`                      | DELETE | 删除源                                                                       |
+| `/api/v1/pipeline/trigger`                         | POST   | 触发 Pipeline 任务                                                            |
+| `/api/v1/pipeline/tasks/{task_id}`                 | GET    | 获取任务状态                                                                    |
+| `/api/v1/pipeline/queue/stats`                     | GET    | 获取队列统计                                                                    |
+| `/api/v1/pipeline/url`                             | POST   | 处理单个 URL                                                                  |
+| `/api/v1/articles`                                 | GET    | 查询文章列表（支持分页、过滤、排序）                                                        |
+| `/api/v1/articles/{id}`                            | GET    | 获取文章详情                                                                    |
+| `/api/v1/search`                                   | GET    | 统一搜索（mode 参数路由：local/global/articles）                                     |
+| `/api/v1/search/drift`                             | POST   | DRIFT 迭代式探索搜索                                                             |
+| `/api/v1/search/causal`                            | POST   | 因果关系搜索                                                                    |
+| `/api/v1/search/temporal`                          | POST   | 时间推理搜索                                                                    |
+| `/api/v1/graph/entities/{name}`                    | GET    | 查询实体及其关系                                                                  |
+| `/api/v1/graph/articles/{id}/graph`                | GET    | 获取文章的知识图谱                                                                 |
+| `/api/v1/graph/relations`                          | GET    | 查询实体关系                                                                    |
+| `/api/v1/graph/relations/search`                   | GET    | 搜索实体关系                                                                    |
+| `/api/v1/graph/metrics`                            | GET    | 图谱指标（health/full/components/orphans/high-degree/modularity/distributions） |
+| `/api/v1/graph/visualization`                      | GET    | 获取图谱可视化数据                                                                 |
+| `/api/v1/graph/visualization`                      | POST   | 获取子图数据                                                                    |
+| `/api/v1/admin/authorities`                        | GET    | 获取源权威度列表                                                                  |
+| `/api/v1/admin/authorities/{host}`                 | PATCH  | 更新源权威度                                                                    |
+| `/api/v1/admin/llm-failures`                       | GET    | LLM 失败记录查询                                                                |
+| `/api/v1/admin/llm-failures/stats`                 | GET    | LLM 失败统计                                                                  |
+| `/api/v1/admin/llm-usage`                          | GET    | LLM 使用统计（支持多维度分组查询）                                                       |
+| `/api/v1/admin/articles/deduplicate`               | POST   | 文章去重                                                                      |
+| `/api/v1/admin/communities`                        | GET    | 社区列表查询                                                                    |
+| `/api/v1/admin/communities/{id}`                   | GET    | 社区详情                                                                      |
+| `/api/v1/admin/communities/rebuild`                | POST   | 重建社区                                                                      |
+| `/api/v1/admin/communities/health`                 | GET    | 社区健康概览                                                                    |
+| `/api/v1/admin/communities/health/diagnose`        | POST   | 社区健康诊断                                                                    |
+| `/api/v1/admin/communities/health/repair`          | POST   | 社区健康修复                                                                    |
+| `/api/v1/admin/communities/reports/generate`       | POST   | 生成社区报告                                                                    |
+| `/api/v1/admin/communities/{id}/report/regenerate` | POST   | 重新生成社区报告                                                                  |
+| `/metrics`                                         | GET    | Prometheus 指标                                                             |
 
 <details style="padding:16px; margin: 16px 0">
 <summary style="cursor:pointer; font-weight:600; color:#166534">📖 API 示例</summary>
@@ -564,22 +564,24 @@ BatchMerger (Union-Find 相似度聚类)
 - 相似度阈值: 0.80
 - 合并相似文章，保留最完整版本
 
-### Phase 3: 单文章后处理
+### Phase 3: 单文章后处理 (并发执行)
 
 ```mermaid
 flowchart LR
     A[Merged Article] --> B[ReVectorize]
     B --> C[Analyze]
-    C --> D[Credibility]
-    D --> E[QualityScorer]
+    B --> D[QualityScorer]
+    C --> E[Credibility]
+    D --> E
     E --> F[EntityExtractor]
+    F --> G[EntityResolver]
 ```
 
-- **ReVectorize**: 合并后重新生成向量
-- **Analyze**: 摘要、情感分析、关键数据提取
-- **Credibility**: 可信度评分
-- **QualityScorer**: 内容质量评分 (新增)
+- **ReVectorize**: 合并后重新生成向量 (对 terminal 文章跳过)
+- **Analyze + QualityScorer**: 并行执行 - 摘要/情感分析/关键数据提取 + 内容质量评分
+- **Credibility**: 可信度评分 (依赖 Analyze 结果)
 - **EntityExtractor**: spaCy + LLM 实体提取
+- **EntityResolver**: 实体消歧和合并 (新增)
 
 ---
 
@@ -587,27 +589,27 @@ flowchart LR
 
 采用三信号类别自适应可信度评估算法：
 
-| 信号       | 说明                                            |
-| ---------- | ----------------------------------------------- |
+| 信号    | 说明                            |
+|-------|-------------------------------|
 | 来源权威性 | 三级优先级：预设值 > 历史自动计算 > 默认值 0.50 |
-| 内容核查   | LLM 事实一致性检查                              |
-| 时效性     | 发布时间与事件时间差                            |
+| 内容核查  | LLM 事实一致性检查                   |
+| 时效性   | 发布时间与事件时间差                    |
 
 ### 类别自适应权重
 
 权重根据文章类型动态调整：
 
-| 类别           | 来源     | 内容     | 时效性   | 特点             |
-| -------------- | -------- | -------- | -------- | ---------------- |
+| 类别       | 来源       | 内容       | 时效性      | 特点       |
+|----------|----------|----------|----------|----------|
 | 政治/国际/军事 | 0.25     | 0.25     | **0.50** | 突发新闻时效优先 |
-| 经济           | **0.45** | 0.35     | 0.20     | 来源权威优先     |
-| 科技           | 0.30     | **0.50** | 0.20     | 内容质量优先     |
-| 社会/文化/体育 | 0.40     | 0.40     | 0.20     | 均衡分布         |
+| 经济       | **0.45** | 0.35     | 0.20     | 来源权威优先   |
+| 科技       | 0.30     | **0.50** | 0.20     | 内容质量优先   |
+| 社会/文化/体育 | 0.40     | 0.40     | 0.20     | 均衡分布     |
 
 ### 时效性评分规则
 
-| 时间差   | 评分 |
-| -------- | ---- |
+| 时间差    | 评分   |
+|--------|------|
 | ≤6小时   | 1.00 |
 | ≤24小时  | 0.85 |
 | ≤72小时  | 0.65 |
@@ -624,49 +626,53 @@ flowchart LR
 
 ## <span id="llm-callpoints">🤖 LLM 调用点</span>
 
-| 调用点                | 类型      | 说明             |
-| --------------------- | --------- | ---------------- |
-| classifier            | CHAT      | 新闻分类         |
-| cleaner               | CHAT      | 内容清洗         |
-| categorizer           | CHAT      | 分类识别         |
-| merger                | CHAT      | 文章合并         |
-| analyze               | CHAT      | 摘要分析         |
-| credibility_checker   | CHAT      | 可信度检查       |
-| quality_scorer        | CHAT      | 质量评分         |
-| entity_extractor      | CHAT      | 实体提取         |
-| entity_resolver       | CHAT      | 实体消歧         |
-| search_local          | CHAT      | 本地搜索问答     |
-| search_global         | CHAT      | 全局搜索问答     |
-| causal_inference      | CHAT      | 因果推理         |
-| community_report      | CHAT      | 社区报告生成     |
-| community_title       | CHAT      | 社区标题生成     |
-| embedding             | EMBEDDING | 向量生成         |
-| rerank                | RERANK    | 重排序           |
+| 调用点                 | 类型        | 说明     |
+|---------------------|-----------|--------|
+| classifier          | CHAT      | 新闻分类   |
+| cleaner             | CHAT      | 内容清洗   |
+| categorizer         | CHAT      | 分类识别   |
+| merger              | CHAT      | 文章合并   |
+| analyze             | CHAT      | 摘要分析   |
+| credibility_checker | CHAT      | 可信度检查  |
+| quality_scorer      | CHAT      | 质量评分   |
+| entity_extractor    | CHAT      | 实体提取   |
+| entity_resolver     | CHAT      | 实体消歧   |
+| search_local        | CHAT      | 本地搜索问答 |
+| search_global       | CHAT      | 全局搜索问答 |
+| causal_inference    | CHAT      | 因果推理   |
+| community_report    | CHAT      | 社区报告生成 |
+| community_title     | CHAT      | 社区标题生成 |
+| entity_facts        | CHAT      | 事实验证   |
+| narrative_synthesis | CHAT      | 叙述合成   |
+| evidence_sampling   | CHAT      | 证据采样   |
+| roi_summary         | CHAT      | ROI 总结 |
+| embedding           | EMBEDDING | 向量生成   |
+| rerank              | RERANK    | 重排序    |
 
 ---
 
 ## <span id="scheduled-jobs">⏰ 定时任务</span>
 
-| 任务                          | 间隔      | 说明                                         |
-| ----------------------------- | --------- | -------------------------------------------- |
-| sync_pending_to_neo4j         | 10分钟    | 同步待处理记录到 Neo4j                       |
-| retry_neo4j_writes            | 10分钟    | 重试失败的 Neo4j 写入                        |
-| sync_neo4j_with_postgres      | 1小时     | 全量 Neo4j ↔ PostgreSQL 同步                |
-| consistency_check             | 每天 3:00 | 数据一致性检查                               |
-| cleanup_old_synced            | 每天 3:30 | 清理旧同步记录 (保留 7 天)                   |
-| llm_failure_cleanup           | 24小时    | 清理 LLM 失败记录 (保留 3 天)                |
-| llm_usage_raw_cleanup         | 6小时     | 清理 LLM 使用原始记录 (保留 2 天)            |
-| archive_old_neo4j_nodes       | 每周六 2:00 | 归档旧 Neo4j 节点 (90 天)                  |
-| cleanup_orphan_entity_vectors | 每周六 3:00 | 清理孤立实体向量                           |
-| retry_pipeline_processing     | 15分钟    | 重试失败的 Pipeline 处理                     |
-| flush_retry_queue             | 30秒      | 刷新爬虫重试队列                             |
-| llm_usage_aggregate           | 5分钟     | LLM 使用量 Redis → PostgreSQL 聚合           |
-| update_source_auto_scores     | 每天 3:00 | 更新源权威度                                 |
-| community_auto_check          | 30分钟    | 社区检测自动检查（基于实体变化阈值触发重建） |
-| community_health_check        | 6小时     | 社区健康检查和自动修复                       |
-| update_persist_status_metrics | 5分钟     | 更新持久化状态 Prometheus 指标（支撑告警）   |
-| memory_consolidation          | 30分钟    | Memory 慢路径整合 (条件性)                   |
-| startup_sync_pending_to_neo4j | 启动时    | 启动时立即执行一次同步                       |
+| 任务                            | 间隔       | 说明                            |
+|-------------------------------|----------|-------------------------------|
+| sync_pending_to_neo4j         | 10分钟     | 同步待处理记录到 Neo4j                |
+| retry_neo4j_writes            | 10分钟     | 重试失败的 Neo4j 写入                |
+| sync_neo4j_with_postgres      | 1小时      | 全量 Neo4j ↔ PostgreSQL 同步      |
+| consistency_check             | 每天 3:00  | 数据一致性检查                       |
+| cleanup_old_synced            | 每天 3:30  | 清理旧同步记录 (保留 7 天)              |
+| llm_failure_cleanup           | 24小时     | 清理 LLM 失败记录 (保留 3 天)          |
+| llm_usage_raw_cleanup         | 6小时      | 清理 LLM 使用原始记录 (保留 2 天)        |
+| archive_old_neo4j_nodes       | 每周六 2:00 | 归档旧 Neo4j 节点 (90 天)           |
+| cleanup_orphan_entity_vectors | 每周六 3:00 | 清理孤立实体向量                      |
+| retry_pipeline_processing     | 15分钟     | 重试失败的 Pipeline 处理             |
+| flush_retry_queue             | 30秒      | 刷新爬虫重试队列                      |
+| llm_usage_aggregate           | 5分钟      | LLM 使用量 Redis → PostgreSQL 聚合 |
+| update_source_auto_scores     | 每天 3:00  | 更新源权威度                        |
+| community_auto_check          | 30分钟     | 社区检测自动检查（基于实体变化阈值触发重建）        |
+| community_health_check        | 6小时      | 社区健康检查和自动修复                   |
+| update_persist_status_metrics | 5分钟      | 更新持久化状态 Prometheus 指标（支撑告警）   |
+| memory_consolidation          | 30分钟     | Memory 慢路径整合 (条件性)            |
+| startup_sync_pending_to_neo4j | 启动时      | 启动时立即执行一次同步                   |
 
 ---
 
@@ -676,12 +682,12 @@ flowchart LR
 
 Weaver 使用分层测试策略：
 
-| 层级     | 位置                 | 数量  | 特点                    |
-| -------- | -------------------- | ----- | ----------------------- |
-| 单元测试 | `tests/unit/`        | ~245  | Mock 外部依赖，快速执行 |
-| 集成测试 | `tests/integration/` | ~18   | 测试多组件交互          |
-| E2E 测试 | `tests/e2e/`         | ~16   | 完整 API 流程，真实服务 |
-| 性能测试 | `tests/performance/` | ~8    | HNSW 向量索引性能基准   |
+| 层级     | 位置                   | 数量   | 特点             |
+|--------|----------------------|------|----------------|
+| 单元测试   | `tests/unit/`        | ~245 | Mock 外部依赖，快速执行 |
+| 集成测试   | `tests/integration/` | ~18  | 测试多组件交互        |
+| E2E 测试 | `tests/e2e/`         | ~16  | 完整 API 流程，真实服务 |
+| 性能测试   | `tests/performance/` | ~8   | HNSW 向量索引性能基准  |
 
 ### 运行测试
 
@@ -773,14 +779,14 @@ docker compose -f tests/e2e/docker-compose.yml down -v
 
 常用测试 fixtures（定义在 `tests/conftest.py`）：
 
-| Fixture              | 描述                |
-| -------------------- | ------------------- |
-| `mock_redis`         | Redis mock          |
-| `mock_relational_pool` | 关系型数据库 mock |
-| `mock_graph_pool`    | 图数据库 mock       |
-| `mock_llm_client`    | LLM 客户端 mock     |
-| `mock_settings`      | 配置对象 mock       |
-| `sample_article`     | 示例文章数据        |
+| Fixture                | 描述           |
+|------------------------|--------------|
+| `mock_redis`           | Redis mock   |
+| `mock_relational_pool` | 关系型数据库 mock  |
+| `mock_graph_pool`      | 图数据库 mock    |
+| `mock_llm_client`      | LLM 客户端 mock |
+| `mock_settings`        | 配置对象 mock    |
+| `sample_article`       | 示例文章数据       |
 
 ### 测试数据工厂
 

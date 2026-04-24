@@ -4,7 +4,8 @@ This directory contains end-to-end tests that exercise the complete application 
 
 ## Overview
 
-E2E tests validate that the entire system works correctly, from HTTP requests through the API layer, services, and databases.
+E2E tests validate that the entire system works correctly, from HTTP requests through the API layer, services, and
+databases.
 
 ## Requirements
 
@@ -16,11 +17,11 @@ E2E tests validate that the entire system works correctly, from HTTP requests th
 
 E2E tests use dedicated Docker services (separate from development) to ensure isolation:
 
-| Service | Port | Image |
-|---------|------|-------|
-| PostgreSQL | 5433 | pgvector/pgvector:pg16 |
-| Neo4j | 7475, 7688 | neo4j:5.25 |
-| Redis | 6380 | redis:7-alpine |
+| Service    | Port       | Image                  |
+|------------|------------|------------------------|
+| PostgreSQL | 5433       | pgvector/pgvector:pg16 |
+| Neo4j      | 7475, 7688 | neo4j:5.25             |
+| Redis      | 6380       | redis:7-alpine         |
 
 ## Running E2E Tests
 
@@ -65,15 +66,15 @@ tests/e2e/
 
 ## Fixtures
 
-| Fixture | Scope | Description |
-|---------|-------|-------------|
-| `docker_compose` | session | Starts/stops Docker services |
-| `db_migrations` | session | Runs Alembic migrations |
-| `clean_tables` | function | Truncates tables between tests |
-| `e2e_app` | session | Creates FastAPI app |
-| `client` | session | TestClient for API calls |
-| `auth_headers` | function | Authentication headers |
-| `unique_id` | function | Unique ID for test isolation |
+| Fixture          | Scope    | Description                    |
+|------------------|----------|--------------------------------|
+| `docker_compose` | session  | Starts/stops Docker services   |
+| `db_migrations`  | session  | Runs Alembic migrations        |
+| `clean_tables`   | function | Truncates tables between tests |
+| `e2e_app`        | session  | Creates FastAPI app            |
+| `client`         | session  | TestClient for API calls       |
+| `auth_headers`   | function | Authentication headers         |
+| `unique_id`      | function | Unique ID for test isolation   |
 
 ## Markers
 

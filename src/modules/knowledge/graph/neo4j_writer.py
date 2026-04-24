@@ -42,10 +42,12 @@ class Neo4jWriter:
         self,
         pool: GraphPool,
         relation_type_normalizer: RelationTypeNormalizer | None = None,
+        entity_repo: Neo4jEntityRepo | None = None,
+        article_repo: Neo4jArticleRepo | None = None,
     ) -> None:
         self._pool = pool
-        self._entity_repo = Neo4jEntityRepo(pool)
-        self._article_repo = Neo4jArticleRepo(pool)
+        self._entity_repo = entity_repo or Neo4jEntityRepo(pool)
+        self._article_repo = article_repo or Neo4jArticleRepo(pool)
         self._normalizer = relation_type_normalizer
 
     @property
