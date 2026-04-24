@@ -225,17 +225,17 @@ class TestAuthMiddlewareIntegration:
                 assert response.status_code not in (401, 403)
 
     def test_pipeline_trigger_without_api_key_returns_401(self):
-        """Test POST /admin/pipeline/trigger without X-API-Key returns 401."""
+        """Test POST /pipeline/trigger without X-API-Key returns 401."""
         from unittest.mock import MagicMock
 
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
         from api.dependencies import get_cache_client, get_source_scheduler
-        from api.endpoints.admin.admin import router as admin_router
+        from api.endpoints.content.pipeline import router
 
         app = FastAPI()
-        app.include_router(admin_router)
+        app.include_router(router)
 
         mock_cache = MagicMock()
         mock_scheduler = MagicMock()
@@ -243,7 +243,7 @@ class TestAuthMiddlewareIntegration:
         app.dependency_overrides[get_source_scheduler] = lambda: mock_scheduler
 
         with TestClient(app) as client:
-            response = client.post("/admin/pipeline/trigger", json={})
+            response = client.post("/pipeline/trigger", json={})
             assert response.status_code == 401
 
     def test_pipeline_status_without_api_key_returns_401(self):

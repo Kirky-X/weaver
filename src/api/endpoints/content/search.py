@@ -313,12 +313,20 @@ class CausalSearchRequest(BaseModel):
     """Minimum confidence for causal edges."""
 
 
+class CausalChainItem(BaseModel):
+    """Single item in a causal chain."""
+
+    id: str
+    content: str
+    score: float
+
+
 class CausalSearchResponse(BaseModel):
     """Response model for causal search."""
 
     query: str
     answer: str
-    causal_chain: list[dict[str, Any]]
+    causal_chain: list[CausalChainItem]
     confidence: float
     metadata: dict[str, Any]
 
@@ -417,18 +425,18 @@ async def search_causal(
 
         # Build causal chain from results
         causal_chain = [
-            {
-                "id": r["id"],
-                "content": r.get("content", ""),
-                "score": r.get("score", 0),
-            }
+            CausalChainItem(
+                id=r["id"],
+                content=r.get("content", ""),
+                score=r.get("score", 0),
+            )
             for r in results
         ]
 
         return success_response(
             CausalSearchResponse(
                 query=body.query,
-                answer=f"Found {len(causal_chain)} related events in causal chain.",
+                answer=f"找到 {len(causal_chain)} 个相关事件的因果链。",
                 causal_chain=causal_chain,
                 confidence=sum(r.get("score", 0) for r in results) / max(len(results), 1),
                 metadata={"depth": body.max_depth},
@@ -439,7 +447,9 @@ async def search_causal(
         log.error("causal_search_failed", error=str(exc))
         if "neo4j" in str(exc).lower():
             raise HTTPException(status_code=503, detail="Graph service unavailable")
-        raise HTTPException(status_code=500, detail=f"Causal search failed: {exc}")
+        raise HTTPException(
+            status_code=500, detail=f"Internal server error during causal search: {exc}"
+        )
 
 
 @router.post("/temporal", response_model=APIResponse[TemporalSearchResponse])
@@ -508,4 +518,6 @@ async def search_temporal(
         log.error("temporal_search_failed", error=str(exc))
         if "neo4j" in str(exc).lower():
             raise HTTPException(status_code=503, detail="Graph service unavailable")
-        raise HTTPException(status_code=500, detail=f"Temporal search failed: {exc}")
+        raise HTTPException(
+            status_code=500, detail=f"Internal server error during temporal search: {exc}"
+        )

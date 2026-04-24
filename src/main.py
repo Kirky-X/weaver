@@ -87,8 +87,8 @@ async def lifespan(app: FastAPI) -> None:
     set_container(container)
     set_settings(container.settings)
 
-    redis_client = container.redis_client()
-    log.debug("redis_client_set", client_id=id(redis_client))
+    redis_client = container.cache_client()
+    log.debug("cache_client_set", client_id=id(redis_client))
 
     # Register all pools/clients with the centralized Endpoints registry
     # Use Protocol-compatible attribute names

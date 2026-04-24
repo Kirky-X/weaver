@@ -489,7 +489,7 @@ class TestTemporalSearchEndpoint:
         ]
 
         mock_temporal_repo = MagicMock()
-        mock_temporal_repo.search_temporal_events = AsyncMock(return_value=mock_events)
+        mock_temporal_repo.get_temporal_chain = AsyncMock(return_value=mock_events)
 
         with patch(
             "modules.memory.graphs.temporal.TemporalGraphRepo",
@@ -529,7 +529,7 @@ class TestTemporalSearchEndpoint:
         from api.endpoints.content.search import TemporalSearchRequest, search_temporal
 
         mock_temporal_repo = MagicMock()
-        mock_temporal_repo.search_temporal_events = AsyncMock(return_value=[])
+        mock_temporal_repo.get_temporal_chain = AsyncMock(return_value=[])
 
         with patch(
             "modules.memory.graphs.temporal.TemporalGraphRepo",
@@ -573,7 +573,7 @@ class TestTemporalSearchEndpoint:
         ]
 
         mock_temporal_repo = MagicMock()
-        mock_temporal_repo.search_temporal_events = AsyncMock(return_value=mock_events)
+        mock_temporal_repo.get_temporal_chain = AsyncMock(return_value=mock_events)
 
         with patch(
             "modules.memory.graphs.temporal.TemporalGraphRepo",

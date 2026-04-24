@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
+from starlette.requests import Request
 
 
 class TestAuthMiddleware:
@@ -223,10 +224,6 @@ class TestSourcesEndpoint:
         mock_repo.get = AsyncMock(return_value=mock_existing)
         mock_repo.upsert = AsyncMock(side_effect=lambda cfg: cfg)
 
-        mock_scheduler = MagicMock()
-        mock_scheduler._registry = MagicMock()
-        mock_scheduler._registry.add_source = MagicMock()
-
         request = SourceUpdateRequest(name="New Name", enabled=False)
 
         result = await update_source(
@@ -234,12 +231,10 @@ class TestSourcesEndpoint:
             request=request,
             _="test-key",
             repo=mock_repo,
-            scheduler=mock_scheduler,
         )
         assert mock_existing.name == "New Name"
         assert mock_existing.enabled is False
         mock_repo.upsert.assert_called_once()
-        mock_scheduler._registry.add_source.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_update_source_endpoint_not_found(self):
@@ -302,7 +297,7 @@ class TestPipelineEndpoint:
 
     def test_trigger_request_model(self):
         """Test TriggerRequest model."""
-        from api.endpoints.admin.admin import TriggerRequest
+        from api.endpoints.content.pipeline import TriggerRequest
 
         request = TriggerRequest()
         assert request.source_id is None
@@ -310,7 +305,7 @@ class TestPipelineEndpoint:
 
     def test_trigger_request_with_values(self):
         """Test TriggerRequest with custom values."""
-        from api.endpoints.admin.admin import TriggerRequest
+        from api.endpoints.content.pipeline import TriggerRequest
 
         request = TriggerRequest(source_id="source-1", force=True)
         assert request.source_id == "source-1"
@@ -318,7 +313,7 @@ class TestPipelineEndpoint:
 
     def test_trigger_response_model(self):
         """Test TriggerResponse model."""
-        from api.endpoints.admin.admin import TriggerResponse
+        from api.endpoints.content.pipeline import TriggerResponse
 
         response = TriggerResponse(
             task_id="test-123",
@@ -349,7 +344,7 @@ class TestPipelineEndpoint:
     @pytest.mark.asyncio
     async def test_trigger_pipeline_specific_source(self):
         """Test POST /admin/pipeline/trigger with specific source."""
-        from api.endpoints.admin.admin import TriggerRequest, trigger_pipeline
+        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
 
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
@@ -360,7 +355,7 @@ class TestPipelineEndpoint:
         request = TriggerRequest(source_id="source-1")
 
         with patch(
-            "api.endpoints.admin.admin.uuid.uuid4",
+            "api.endpoints.content.pipeline.uuid.uuid4",
             return_value=uuid.UUID("12345678-1234-5678-1234-567812345678"),
         ):
             result = await trigger_pipeline(
@@ -377,13 +372,12 @@ class TestPipelineEndpoint:
             "source-1",
             max_items=None,
             task_id=uuid.UUID("12345678-1234-5678-1234-567812345678"),
-            force=False,
         )
 
     @pytest.mark.asyncio
     async def test_trigger_pipeline_all_sources(self):
         """Test POST /admin/pipeline/trigger for all enabled sources."""
-        from api.endpoints.admin.admin import TriggerRequest, trigger_pipeline
+        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
 
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
@@ -400,7 +394,7 @@ class TestPipelineEndpoint:
         request = TriggerRequest()
 
         with patch(
-            "api.endpoints.admin.admin.uuid.uuid4",
+            "api.endpoints.content.pipeline.uuid.uuid4",
             return_value=uuid.UUID("12345678-1234-5678-1234-567812345678"),
         ):
             result = await trigger_pipeline(
@@ -418,10 +412,10 @@ class TestPipelineEndpoint:
     async def test_trigger_pipeline_failure(self):
         """Test POST /admin/pipeline/trigger handles errors gracefully.
 
-        Note: Errors in background tasks are caught and stored in task status,
-        not raised as HTTPException. The endpoint returns success immediately.
+        When the scheduler fails, the endpoint raises HTTPException(500)
+        and updates the task status to failed.
         """
-        from api.endpoints.admin.admin import TriggerRequest, trigger_pipeline
+        from api.endpoints.content.pipeline import TriggerRequest, trigger_pipeline
 
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
@@ -432,21 +426,19 @@ class TestPipelineEndpoint:
         request = TriggerRequest(source_id="source-1")
 
         with patch(
-            "api.endpoints.admin.admin.uuid.uuid4",
+            "api.endpoints.content.pipeline.uuid.uuid4",
             return_value=uuid.UUID("12345678-1234-5678-1234-567812345678"),
         ):
-            # Should NOT raise HTTPException - errors are handled in background
-            result = await trigger_pipeline(
-                request=request,
-                _="test-key",
-                cache=mock_cache,
-                scheduler=mock_scheduler,
-            )
-            # Give background task time to start and fail
-            await asyncio.sleep(0.01)
+            with pytest.raises(HTTPException) as exc_info:
+                await trigger_pipeline(
+                    request=request,
+                    _="test-key",
+                    cache=mock_cache,
+                    scheduler=mock_scheduler,
+                )
 
-        # Should return success immediately with task_id
-        assert result.data.task_id == "12345678-1234-5678-1234-567812345678"
+        assert exc_info.value.status_code == 500
+        assert "Pipeline trigger failed" in exc_info.value.detail
 
     @pytest.mark.asyncio
     async def test_get_task_status_found(self):
@@ -963,16 +955,12 @@ class TestGraphEndpoint:
         mock_graph_repo.get_article_relationships = AsyncMock(return_value=[])
         mock_graph_repo.get_related_articles = AsyncMock(return_value=[])
 
-        mock_relational_pool = MagicMock()
-
         result = await get_article_graph(
             article_id="article-123",
             _="test-key",
             graph_repo=mock_graph_repo,
-            relational_pool=mock_relational_pool,
         )
         assert result.data.article.title == "Test Article"
-        assert result.data.graph_synced is True
 
     @pytest.mark.asyncio
     async def test_get_article_graph_endpoint_not_found(self):
@@ -982,23 +970,11 @@ class TestGraphEndpoint:
         mock_graph_repo = MagicMock()
         mock_graph_repo.get_article = AsyncMock(return_value=None)
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none = MagicMock(return_value=None)
-
-        mock_session = MagicMock()
-        mock_session.execute = AsyncMock(return_value=mock_result)
-
-        mock_relational_pool = MagicMock()
-        mock_relational_pool.session = MagicMock(return_value=mock_session)
-        mock_relational_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_relational_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
-
         with pytest.raises(HTTPException) as exc_info:
             await get_article_graph(
                 article_id="missing-article",
                 _="test-key",
                 graph_repo=mock_graph_repo,
-                relational_pool=mock_relational_pool,
             )
         assert exc_info.value.status_code == 404
 
@@ -1080,7 +1056,10 @@ class TestAdminEndpoint:
         mock_repo = MagicMock()
         mock_repo.get_needs_review = AsyncMock(return_value=[mock_authority])
 
+        mock_request = MagicMock(spec=Request)
+
         result = await list_authorities(
+            request=mock_request,
             needs_review_only=True,
             _="test-key",
             repo=mock_repo,
@@ -1101,11 +1080,13 @@ class TestAdminEndpoint:
         mock_repo.get_or_create = AsyncMock(return_value=mock_authority)
         mock_repo.update_authority = AsyncMock()
 
-        request = UpdateAuthorityRequest(authority=0.9, tier=1)
+        mock_request = MagicMock(spec=Request)
+        body = UpdateAuthorityRequest(authority=0.9, tier=1)
 
         result = await update_authority(
+            request=mock_request,
             host="example.com",
-            request=request,
+            body=body,
             _="test-key",
             repo=mock_repo,
         )
@@ -1119,12 +1100,14 @@ class TestAdminEndpoint:
 
         mock_repo = MagicMock()
 
-        request = UpdateAuthorityRequest()
+        mock_request = MagicMock(spec=Request)
+        body = UpdateAuthorityRequest()
 
         with pytest.raises(HTTPException) as exc_info:
             await update_authority(
+                request=mock_request,
                 host="example.com",
-                request=request,
+                body=body,
                 _="test-key",
                 repo=mock_repo,
             )

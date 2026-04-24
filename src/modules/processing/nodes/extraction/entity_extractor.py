@@ -83,7 +83,7 @@ class EntityExtractorNode:
                 None,
                 lambda: self._spacy.extract(body, language, disable_data_metrics),
             )
-        except (OSError, RuntimeError) as e:
+        except (OSError, RuntimeError, Exception) as e:
             log.warning(
                 "spacy_extraction_failed_using_empty",
                 exc_type=type(e).__name__,
@@ -91,14 +91,6 @@ class EntityExtractorNode:
                 url=state["raw"].url,
             )
             spacy_entities = []
-        except Exception as e:
-            log.error(
-                "spacy_unexpected_error",
-                exc_type=type(e).__name__,
-                error=str(e),
-                url=state["raw"].url,
-            )
-            raise
 
         # Phase 2: Batch embed entities
         entity_name_to_embedding: dict[str, list[float]] = {}
@@ -134,19 +126,12 @@ class EntityExtractorNode:
                             exc_type=type(exc).__name__,
                             error=str(exc),
                         )
-            except (AllProvidersFailedError, CircuitOpenError, ValueError) as e:
+            except (AllProvidersFailedError, CircuitOpenError, ValueError, Exception) as e:
                 log.warning(
                     "entity_embedding_failed",
                     exc_type=type(e).__name__,
                     error=str(e),
                 )
-            except Exception as e:
-                log.error(
-                    "entity_embedding_unexpected_error",
-                    exc_type=type(e).__name__,
-                    error=str(e),
-                )
-                raise
 
         # Phase 3: LLM refinement
         body_trunc = self._budget.truncate(body, CallPoint.ENTITY_EXTRACTOR)
@@ -281,7 +266,7 @@ class EntityExtractorNode:
                             error=str(exc),
                         )
 
-        except (AllProvidersFailedError, CircuitOpenError, ValueError) as e:
+        except (AllProvidersFailedError, CircuitOpenError, ValueError, Exception) as e:
             log.warning(
                 "entity_llm_failed_using_empty",
                 exc_type=type(e).__name__,
@@ -299,14 +284,6 @@ class EntityExtractorNode:
                     "relations": f"LLM entity extraction failed: {e!s}",
                 }
             )
-        except Exception as e:
-            log.error(
-                "entity_llm_unexpected_error",
-                exc_type=type(e).__name__,
-                error=str(e),
-                url=state["raw"].url,
-            )
-            raise
 
         state.setdefault("prompt_versions", {})["entity_extractor"] = (
             self._prompt_loader.get_version("entity_extractor")

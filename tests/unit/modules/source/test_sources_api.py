@@ -57,8 +57,8 @@ class TestSourceResponseModel:
         )
         assert request.id == "new_source"
         assert request.enabled is True
-        assert request.credibility == 0.5
-        assert request.tier == 2
+        assert request.credibility is None
+        assert request.tier is None
 
     def test_source_create_request_with_credibility(self):
         """Test SourceCreateRequest with credibility and tier."""
@@ -278,7 +278,6 @@ class TestSourcesEndpoint:
             request=request,
             _="test-key",
             repo=mock_repo,
-            scheduler=MagicMock(),  # Mock scheduler
         )
         assert result.data.name == "New Name"
         mock_repo.upsert.assert_called_once()

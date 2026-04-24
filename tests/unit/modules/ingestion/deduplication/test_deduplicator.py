@@ -169,6 +169,7 @@ class TestDeduplicatorDedupUrls:
     def mock_cache(self):
         """Mock Redis client."""
         cache = MagicMock()
+        cache.ping = AsyncMock(return_value=True)
         cache.hexists_many = AsyncMock(return_value=[False, False])
         cache.hset = AsyncMock(return_value=1)
         return cache

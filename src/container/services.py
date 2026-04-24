@@ -548,7 +548,9 @@ class ContainerServicesMixin:
                 source_auth_repo=self.source_authority_repo(),
                 entity_resolver=self.entity_resolver(),
                 cache_client=self._cache_client,
-                community_updater=self.community_updater(),
+                community_updater=(
+                    self.community_updater() if self.graph_pool() is not None else None
+                ),
                 relation_type_normalizer=self.relation_normalizer(),
             )
             log.info("pipeline_initialized")

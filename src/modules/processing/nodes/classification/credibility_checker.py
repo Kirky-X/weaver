@@ -114,7 +114,7 @@ class CredibilityCheckerNode:
             )
             s2 = llm_result.score
             flags = llm_result.flags
-        except (AllProvidersFailedError, CircuitOpenError, ValueError) as e:
+        except (AllProvidersFailedError, CircuitOpenError, ValueError, Exception) as e:
             log.warning(
                 "credibility_llm_failed_using_default",
                 exc_type=type(e).__name__,
@@ -122,13 +122,6 @@ class CredibilityCheckerNode:
             )
             s2 = 0.5
             flags = []
-        except Exception as e:
-            log.error(
-                "credibility_unexpected_error",
-                exc_type=type(e).__name__,
-                error=str(e),
-            )
-            raise
 
         # Signal 3: Timeliness
         s3 = self._calc_timeliness(

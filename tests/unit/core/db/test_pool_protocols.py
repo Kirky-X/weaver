@@ -37,6 +37,10 @@ class MockGraphPool:
     async def shutdown(self) -> None:
         pass
 
+    @property
+    def database_type(self) -> str:
+        return "mock"
+
     async def execute_query(self, query: str, parameters: dict | None = None):
         return [{"result": "ok"}]
 

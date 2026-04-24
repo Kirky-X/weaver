@@ -24,7 +24,7 @@ async def test_scheduled_task_success():
 
 @pytest.mark.asyncio
 async def test_scheduled_task_timeout():
-    """Decorator returns 0 on timeout."""
+    """Decorator returns -1 on timeout."""
 
     @scheduled_task("timeout_job", timeout_seconds=0)
     async def slow_job():
@@ -32,19 +32,19 @@ async def test_scheduled_task_timeout():
         return 99
 
     result = await slow_job()
-    assert result == 0
+    assert result == -1
 
 
 @pytest.mark.asyncio
 async def test_scheduled_task_error():
-    """Decorator returns 0 on exception."""
+    """Decorator returns -2 on exception."""
 
     @scheduled_task("error_job", timeout_seconds=5)
     async def failing_job():
         raise ValueError("boom")
 
     result = await failing_job()
-    assert result == 0
+    assert result == -2
 
 
 @pytest.mark.asyncio

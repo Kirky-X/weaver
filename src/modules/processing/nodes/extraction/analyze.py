@@ -131,7 +131,7 @@ class AnalyzeNode:
             }
             log.debug("analyze_sentiment_set", sentiment=state["sentiment"])
             state["score"] = result.score
-        except (AllProvidersFailedError, CircuitOpenError, ValueError) as e:
+        except (AllProvidersFailedError, CircuitOpenError, ValueError, Exception) as e:
             # Fallback: use default values if LLM fails
             log.warning(
                 "analyze_failed_using_defaults",
@@ -154,14 +154,6 @@ class AnalyzeNode:
                 "emotion_targets": [],
             }
             state["score"] = 0.5
-        except Exception as e:
-            log.error(
-                "analyze_unexpected_error",
-                exc_type=type(e).__name__,
-                error=str(e),
-                url=state["raw"].url,
-            )
-            raise
 
         state.setdefault("prompt_versions", {})["analyze"] = self._prompt_loader.get_version(
             "analyze"

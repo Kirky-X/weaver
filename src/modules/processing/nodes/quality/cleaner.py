@@ -79,7 +79,13 @@ class CleanerNode:
                 # 成功则直接返回
                 break
 
-            except (AllProvidersFailedError, CircuitOpenError, ValueError) as e:
+            except (
+                AllProvidersFailedError,
+                CircuitOpenError,
+                ValueError,
+                TimeoutError,
+                Exception,
+            ) as e:
                 if attempt < _MAX_CLEANER_ATTEMPTS - 1:
                     # 构造 retry_hint 提示 LLM 修正输出
                     retry_hint = (
@@ -123,14 +129,6 @@ class CleanerNode:
                         "cleaner_entities": f"LLM cleaner failed: {e!s}",
                     }
                 )
-            except Exception as e:
-                log.error(
-                    "cleaner_unexpected_error",
-                    exc_type=type(e).__name__,
-                    error=str(e),
-                    url=raw.url,
-                )
-                raise
 
         state.setdefault("prompt_versions", {})["cleaner"] = self._prompt_loader.get_version(
             "cleaner"

@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from core.constants import ProcessingStatus
+from core.constants import ArticleProcessingState, ProcessingStatus
 from modules.ingestion.domain.models import RawArticle
 from modules.processing.pipeline.state import PipelineState
 from modules.processing.pipeline.state_models import (
@@ -289,24 +289,24 @@ class TestValidatedPipelineState:
 
 
 class TestPipelineStage:
-    """Tests for PipelineState enum (formerly PipelineStage)."""
+    """Tests for ArticleProcessingState enum."""
 
     def test_stage_values(self):
         """Test that all expected stages exist."""
-        assert PipelineState.RAW == "raw"
-        assert PipelineState.CLASSIFIED == "classified"
-        assert PipelineState.CLEANED == "cleaned"
-        assert PipelineState.VECTORIZED == "vectorized"
-        assert PipelineState.ANALYZED == "analyzed"
-        assert PipelineState.CREDIBILITY_SCORED == "credibility_scored"
-        assert PipelineState.ENTITY_EXTRACTED == "entity_extracted"
-        assert PipelineState.PERSISTED == "persisted"
-        assert PipelineState.DONE == "done"
-        assert PipelineState.FAILED == "failed"
+        assert ArticleProcessingState.RAW == "raw"
+        assert ArticleProcessingState.CLASSIFIED == "classified"
+        assert ArticleProcessingState.CLEANED == "cleaned"
+        assert ArticleProcessingState.VECTORIZED == "vectorized"
+        assert ArticleProcessingState.ANALYZED == "analyzed"
+        assert ArticleProcessingState.CREDIBILITY_SCORED == "credibility_scored"
+        assert ArticleProcessingState.ENTITY_EXTRACTED == "entity_extracted"
+        assert ArticleProcessingState.PERSISTED == "persisted"
+        assert ArticleProcessingState.DONE == "done"
+        assert ArticleProcessingState.FAILED == "failed"
 
     def test_stage_is_string(self):
         """Test that stages are strings."""
-        assert isinstance(PipelineState.RAW, str)
+        assert isinstance(ArticleProcessingState.RAW, str)
 
 
 class TestPersistStatus:
