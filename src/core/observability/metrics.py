@@ -167,6 +167,18 @@ class MetricsCollector:
         ["status"],
     )
 
+    pipeline_article_latency = Histogram(
+        "pipeline_article_latency_seconds",
+        "Per-article total pipeline processing time",
+        ["category"],
+        buckets=[1, 5, 10, 30, 60, 120, 300],
+    )
+    pipeline_failure_count = Counter(
+        "pipeline_failure_count",
+        "Pipeline failures by stage",
+        ["stage", "error_type"],
+    )
+
     # Pipeline retry metrics
     pipeline_retry_total = Counter(
         "pipeline_retry_total",

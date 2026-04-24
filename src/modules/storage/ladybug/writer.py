@@ -254,6 +254,61 @@ class LadybugWriter:
 
         return entity_ids
 
+    async def write_batch(
+        self,
+        states: list[Any],
+        concurrency: int = 1,  # LadybugDB only supports 1 writer at a time
+    ) -> dict[str, Any]:
+        """Write multiple pipeline states to LadybugDB.
+
+        Note: LadybugDB only supports one write transaction at a time,
+        so we serialize all writes using the global lock.
+
+        Args:
+            states: List of pipeline states to persist.
+            concurrency: Ignored (LadybugDB is single-writer).
+
+        Returns:
+            Dict with:
+            - neo4j_ids: List of all entity IDs created.
+            - article_ids: List of article IDs successfully written.
+            - errors: List of (article_id, error_msg) for failures.
+        """
+        if not states:
+            return {"neo4j_ids": [], "article_ids": [], "errors": []}
+
+        result: dict[str, Any] = {
+            "neo4j_ids": [],
+            "article_ids": [],
+            "errors": [],
+        }
+
+        # LadybugDB only supports serialized writes
+        for state in states:
+            try:
+                async with _write_lock:
+                    ids = await self._write_locked(state)
+                    article_id = str(state.get("article_id", "unknown"))
+                    result["neo4j_ids"].extend(ids)
+                    result["article_ids"].append(article_id)
+            except Exception as exc:
+                article_id = str(state.get("article_id", "unknown"))
+                error_msg = f"{type(exc).__name__}: {exc}"
+                log.error(
+                    "ladybug_batch_write_failed",
+                    article_id=article_id,
+                    error=error_msg,
+                )
+                result["errors"].append((article_id, error_msg))
+
+        log.info(
+            "ladybug_batch_write_complete",
+            total=len(states),
+            success=len(result["article_ids"]),
+            failed=len(result["errors"]),
+        )
+        return result
+
     async def cleanup_orphan_entities(self) -> int:
         """Remove entities with no relationships."""
         return await self.entity_repo.delete_orphan_entities()
