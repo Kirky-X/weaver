@@ -44,8 +44,8 @@ class TestPipelineInit:
         )
 
         assert pipeline._accepting is True
-        assert pipeline._phase1_concurrency == Pipeline.DEFAULT_PHASE1_CONCURRENCY
-        assert pipeline._phase3_concurrency == Pipeline.DEFAULT_PHASE3_CONCURRENCY
+        assert pipeline._phase1_concurrency == 5
+        assert pipeline._phase3_concurrency == 5
 
     def test_init_custom_concurrency(
         self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
@@ -89,9 +89,15 @@ class TestPipelineInit:
         assert pipeline._graph_writer == mock_neo4j_writer
 
     def test_default_concurrency_values(self):
-        """Test default concurrency values."""
-        assert Pipeline.DEFAULT_PHASE1_CONCURRENCY == 20
-        assert Pipeline.DEFAULT_PHASE3_CONCURRENCY == 20
+        """Test default concurrency values fall back to TOML default."""
+        pipeline = Pipeline(
+            llm=MagicMock(),
+            budget=MagicMock(),
+            prompt_loader=MagicMock(),
+            event_bus=MagicMock(),
+        )
+        assert pipeline._phase1_concurrency == 5
+        assert pipeline._phase3_concurrency == 5
 
 
 class TestPipelineStopAccepting:
