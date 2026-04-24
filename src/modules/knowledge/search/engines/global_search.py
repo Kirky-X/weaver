@@ -73,6 +73,7 @@ class GlobalSearchEngine:
         max_communities: int = 10,
         hybrid_engine: HybridSearchEngine | None = None,
         local_engine: Any = None,
+        search_settings: Any = None,
     ) -> None:
         """Initialize global search engine.
 
@@ -83,6 +84,7 @@ class GlobalSearchEngine:
             max_communities: Maximum communities to process.
             hybrid_engine: Optional hybrid search engine for enhanced retrieval.
             local_engine: Optional local search engine for fallback when no relevant communities found.
+            search_settings: Optional SearchSettings for timeout configuration.
         """
         self._llm = llm
         self._default_max_tokens = default_max_tokens
@@ -90,8 +92,14 @@ class GlobalSearchEngine:
         self._hybrid_engine = hybrid_engine
         self._local = local_engine
         self._context_builder = context_builder
+        self._search_settings = search_settings
         # Extract pool from context_builder for DRIFT search compatibility
         self._pool = getattr(context_builder, "_pool", None)
+
+    def _get_timeout(self, field: str, default: float) -> float:
+        if self._search_settings is not None:
+            return getattr(self._search_settings, field, default)
+        return default
 
     async def search(
         self,
@@ -243,7 +251,7 @@ class GlobalSearchEngine:
                                     "user_content": map_prompt,
                                 },
                             ),
-                            timeout=15.0,  # 15 second timeout per community
+                            timeout=self._get_timeout("global_map_community_timeout", 15.0),
                         )
                         answer = response if isinstance(response, str) else str(response)
                     except TimeoutError:
@@ -263,7 +271,7 @@ class GlobalSearchEngine:
                     asyncio.gather(
                         *[process_community(i, c) for i, c in enumerate(sorted_communities)]
                     ),
-                    timeout=30.0,  # 30 second overall timeout for Map phase
+                    timeout=self._get_timeout("global_map_overall_timeout", 30.0),
                 )
             except TimeoutError:
                 log.warning("global_search_map_timeout", query=query[:50])
@@ -314,7 +322,7 @@ class GlobalSearchEngine:
                             "user_content": reduce_prompt,
                         },
                     ),
-                    timeout=15.0,  # 15 second timeout for Reduce phase
+                    timeout=self._get_timeout("global_reduce_timeout", 15.0),
                 )
                 final_answer = (
                     final_response if isinstance(final_response, str) else str(final_response)

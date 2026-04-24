@@ -10,14 +10,11 @@ from core.observability.logging import get_logger
 from modules.processing.queue import QUEUE_KEY, ProcessingQueue
 
 if TYPE_CHECKING:
+    from config.subconfigs import PipelineProcessSettings
     from modules.processing.pipeline.graph import Pipeline
     from modules.storage.postgres.article_repo import ArticleRepo
 
 log = get_logger(__name__)
-
-POLL_INTERVAL = 1.0  # seconds
-BATCH_SIZE = 20
-ERROR_DELAY = 5.0  # seconds after error
 
 
 class PipelineWorker:
@@ -32,10 +29,12 @@ class PipelineWorker:
         queue: ProcessingQueue,
         pipeline: Pipeline,
         article_repo: ArticleRepo,
+        pipeline_settings: PipelineProcessSettings,
     ) -> None:
         self._queue = queue
         self._pipeline = pipeline
         self._article_repo = article_repo
+        self._settings = pipeline_settings
         self._running = False
         self._task: asyncio.Task | None = None
 
@@ -60,9 +59,9 @@ class PipelineWorker:
         """Main consumer loop: dequeue -> reconstruct -> process."""
         while self._running:
             try:
-                items = await self._queue.dequeue_batch(BATCH_SIZE)
+                items = await self._queue.dequeue_batch(self._settings.worker_batch_size)
                 if not items:
-                    await asyncio.sleep(POLL_INTERVAL)
+                    await asyncio.sleep(self._settings.worker_poll_interval)
                     continue
 
                 article_ids = [item[0] for item in items]
@@ -90,12 +89,12 @@ class PipelineWorker:
 
             except Exception as e:
                 log.error("worker_error", error=str(e), exc_info=True)
-                await asyncio.sleep(ERROR_DELAY)
+                await asyncio.sleep(self._settings.worker_error_delay)
 
     async def drain(self) -> None:
         """Process remaining queue items (for shutdown)."""
         while True:
-            items = await self._queue.dequeue_batch(BATCH_SIZE)
+            items = await self._queue.dequeue_batch(self._settings.worker_batch_size)
             if not items:
                 break
 

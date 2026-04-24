@@ -92,7 +92,7 @@ class PersistStatus(str, enum.Enum):
         - PENDING → PROCESSING, FAILED
         - PROCESSING → PG_DONE, FAILED
         - PG_DONE → NEO4J_DONE, NEO4J_FAILED, FAILED
-        - NEO4J_FAILED → PENDING (allows retry)
+        - NEO4J_FAILED → PENDING, PG_DONE (allows retry)
         - FAILED → PENDING (allows retry)
 
         Args:
@@ -111,7 +111,7 @@ class PersistStatus(str, enum.Enum):
             cls.PENDING: {cls.PROCESSING, cls.FAILED},
             cls.PROCESSING: {cls.PG_DONE, cls.FAILED},
             cls.PG_DONE: {cls.NEO4J_DONE, cls.NEO4J_FAILED, cls.FAILED},
-            cls.NEO4J_FAILED: {cls.PENDING},  # Allow retry
+            cls.NEO4J_FAILED: {cls.PENDING, cls.PG_DONE},  # Allow retry
             cls.FAILED: {cls.PENDING},  # Allow retry
             cls.NEO4J_DONE: set(),  # Terminal state
         }
