@@ -61,6 +61,12 @@ user_agent = "Mozilla/5.0 (compatible; NewsBot/1.0)"  # Default HTTP User-Agent
 crawl4ai_headless = true                 # Run browser in headless mode
 crawl4ai_stealth_enabled = true          # Enable stealth mode to avoid bot detection
 crawl4ai_user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+crawl4ai_viewport_width = 1920          # Browser viewport width (pixels)
+crawl4ai_viewport_height = 1080         # Browser viewport height (pixels)
+crawl4ai_locale = "zh-CN"               # Browser locale (language-country code)
+crawl4ai_timezone = "Asia/Shanghai"     # Browser timezone
+crawl4ai_random_delay_min = 0.5         # Min random delay between requests (seconds)
+crawl4ai_random_delay_max = 2.0         # Max random delay between requests (seconds)
 crawl4ai_timeout = 30.0                  # Browser page load timeout (seconds)
 
 # Rate limiting
