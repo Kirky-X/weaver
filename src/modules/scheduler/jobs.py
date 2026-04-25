@@ -18,9 +18,8 @@ from core.db.models import Article, PersistStatus
 from core.observability.logging import get_logger
 from core.observability.metrics import metrics
 from modules.ingestion.deduplication.retry import RetryQueue
-from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 from modules.scheduler.wrapper import scheduled_task
-from modules.storage import ArticleRepo, PendingSyncRepo, SourceAuthorityRepo, VectorRepo
+from modules.storage import PendingSyncRepo, VectorRepo
 
 if TYPE_CHECKING:
     from core.protocols import CachePool, RelationalPool
@@ -46,10 +45,10 @@ class SchedulerJobs:
         self,
         relational_pool: RelationalPool,
         cache: CachePool,
-        graph_writer: Neo4jWriter,
-        vector_repo: VectorRepo,
-        article_repo: ArticleRepo,
-        source_authority_repo: SourceAuthorityRepo,
+        graph_writer: GraphWriter,
+        vector_repo: VectorRepository,
+        article_repo: ArticleRepository,
+        source_authority_repo: SrcAuthRepoProtocol,
         pending_sync_repo: PendingSyncRepo,
         pipeline: Any = None,
         settings: SchedulerSettings | None = None,

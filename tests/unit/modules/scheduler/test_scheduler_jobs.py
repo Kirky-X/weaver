@@ -645,7 +645,7 @@ class TestSyncNeo4jWithPostgres:
         scheduler_jobs_service._article_repo.get_incomplete_articles = AsyncMock(
             return_value=[incomplete_article]
         )
-        scheduler_jobs_service._article_repo.revert_to_pg_done = AsyncMock(return_value=True)
+        scheduler_jobs_service._article_repo.revert_to_stored = AsyncMock(return_value=True)
 
         result = await scheduler_jobs_service.sync_neo4j_with_postgres()
 
@@ -654,16 +654,16 @@ class TestSyncNeo4jWithPostgres:
         assert result["orphan_articles_cleaned"] == 0
         assert result["enrichment_gaps_detected"] == 1
         assert result["enrichment_gaps_reverted"] == 1
-        scheduler_jobs_service._article_repo.revert_to_pg_done.assert_called_once_with(
+        scheduler_jobs_service._article_repo.revert_to_stored.assert_called_once_with(
             incomplete_article.id
         )
 
 
-class TestRevertToPgDone:
-    """Test revert_to_pg_done method on ArticleRepo."""
+class TestRevertToStored:
+    """Test revert_to_stored method on ArticleRepo."""
 
     @pytest.mark.asyncio
-    async def test_revert_to_pg_done_sets_status(self):
+    async def test_revert_to_stored_sets_status(self):
         """Test revert_to_stored sets status to STORED regardless of current state."""
         from modules.storage.postgres.article_repo import ArticleRepo
 
@@ -686,15 +686,15 @@ class TestRevertToPgDone:
         import uuid
 
         article_id = uuid.uuid4()
-        result = await repo.revert_to_pg_done(article_id)
+        result = await repo.revert_to_stored(article_id)
 
         assert result is True
         mock_session.execute.assert_called_once()
         mock_session.commit.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_revert_to_pg_done_not_found(self):
-        """Test revert_to_pg_done returns False when article not found."""
+    async def test_revert_to_stored_not_found(self):
+        """Test revert_to_stored returns False when article not found."""
         from modules.storage.postgres.article_repo import ArticleRepo
 
         mock_result = MagicMock()
@@ -716,7 +716,7 @@ class TestRevertToPgDone:
         import uuid
 
         article_id = uuid.uuid4()
-        result = await repo.revert_to_pg_done(article_id)
+        result = await repo.revert_to_stored(article_id)
 
         assert result is False
 
