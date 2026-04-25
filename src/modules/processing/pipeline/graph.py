@@ -551,8 +551,8 @@ class Pipeline:
             else:
                 states.append(result)
 
-        # Fast mode: persist directly without Phase 2/3
-        await self._persist_batch(states)
+        # Fast mode: persist directly without Phase 2/3 (Pipeline A)
+        await self._persist_batch(states, pipeline_a_mode=True)
 
         # Checkpoint cleanup
         cleanup_tasks = [self._checkpoint_cleanup.execute(state) for state in states]
@@ -791,7 +791,7 @@ class Pipeline:
             try:
                 article_id = await self._article_repo.upsert(state)
                 state["article_id"] = str(article_id)
-                await self._article_repo.update_persist_status(article_id, PersistStatus.PG_DONE)
+                await self._article_repo.update_persist_status(article_id, PersistStatus.STORED)
 
                 if self._vector_repo and "vectors" in state:
                     vectors = state["vectors"]
@@ -836,7 +836,7 @@ class Pipeline:
                 state["neo4j_ids"] = neo4j_ids
                 if self._article_repo:
                     await self._article_repo.update_persist_status(
-                        state["article_id"], PersistStatus.NEO4J_DONE
+                        state["article_id"], PersistStatus.COMPLETE
                     )
             except Exception as exc:
                 log.error(
@@ -863,15 +863,19 @@ class Pipeline:
                             mark_error=str(mark_exc),
                         )
 
-    async def _persist_batch(self, states: list[PipelineState]) -> None:
-        """Persist batch of articles to Postgres and Neo4j.
+    async def _persist_batch(
+        self, states: list[PipelineState], pipeline_a_mode: bool = False
+    ) -> None:
+        """Persist batch of articles to Postgres and optionally Neo4j.
 
         Uses bulk operations for better performance.
 
         Args:
             states: List of pipeline states to persist.
+            pipeline_a_mode: If True, only persist to PG+vector with STORED status,
+                            skip graph write. If False, include graph write with COMPLETE status.
         """
-        log.info("persist_batch_called", count=len(states))
+        log.info("persist_batch_called", count=len(states), pipeline_a_mode=pipeline_a_mode)
         valid_states = [s for s in states if not s.get("terminal")]
         terminal_states = [s for s in states if s.get("terminal")]
 
@@ -906,7 +910,7 @@ class Pipeline:
                 )
                 for state, aid in zip(valid_states, article_ids):
                     state["article_id"] = str(aid)
-                    # persist_status is set to PG_DONE in bulk_upsert._upsert_single
+                    # persist_status is set to STORED in bulk_upsert._upsert_single
 
                 if self._vector_repo:
                     vector_data = []
@@ -987,6 +991,14 @@ class Pipeline:
                             )
                 return
 
+        # In Pipeline A mode, skip graph write and keep status as STORED
+        if pipeline_a_mode:
+            log.info("pipeline_a_mode_skip_graph_write", count=len(valid_states))
+            for state in valid_states:
+                self._batch_completed += 1
+                self._log_progress(state["raw"].url)
+            return
+
         # Debug: check graph_writer availability
         log.debug(
             "persist_batch_graph_writer_check", has_graph_writer=self._graph_writer is not None
@@ -1004,7 +1016,7 @@ class Pipeline:
                         success=len(result.get("article_ids", [])),
                         failed=len(result.get("errors", [])),
                     )
-                    # Update article IDs and persist status
+                    # Update article IDs and persist status to COMPLETE
                     for i, state in enumerate(valid_states):
                         if i < len(result.get("neo4j_ids", [])):
                             state["neo4j_ids"] = result["neo4j_ids"][i]
@@ -1013,7 +1025,7 @@ class Pipeline:
                             import uuid
 
                             await self._article_repo.update_persist_status(
-                                uuid.UUID(article_id), PersistStatus.NEO4J_DONE
+                                uuid.UUID(article_id), PersistStatus.COMPLETE
                             )
                     # Log errors
                     for article_id_str, error_msg in result.get("errors", []):
@@ -1045,7 +1057,7 @@ class Pipeline:
                                 import uuid
 
                                 await self._article_repo.update_persist_status(
-                                    uuid.UUID(state["article_id"]), PersistStatus.NEO4J_DONE
+                                    uuid.UUID(state["article_id"]), PersistStatus.COMPLETE
                                 )
                             self._batch_completed += 1
                             self._log_progress(state["raw"].url)
@@ -1082,7 +1094,7 @@ class Pipeline:
                             import uuid
 
                             await self._article_repo.update_persist_status(
-                                uuid.UUID(state["article_id"]), PersistStatus.NEO4J_DONE
+                                uuid.UUID(state["article_id"]), PersistStatus.COMPLETE
                             )
                         self._batch_completed += 1
                         self._log_progress(state["raw"].url)
@@ -1217,6 +1229,121 @@ class Pipeline:
             "has_score": article.score is not None,
             "has_credibility": article.credibility_score is not None,
         }
+
+    async def process_pending_enrichment(self, article_id: str) -> dict[str, Any]:
+        """Process a single article through Pipeline B enrichment.
+
+        Scans for articles that can be merged with this one, performs
+        semantic merge via BatchMergerNode, runs Phase 3 deep analysis,
+        writes graph, and sets status to COMPLETE.
+
+        Args:
+            article_id: The article ID to process through Pipeline B.
+
+        Returns:
+            Status dict with processing result.
+        """
+        if self._article_repo is None:
+            return {"error": "article_repo not configured"}
+
+        article = await self._article_repo.get_by_id(article_id)
+        if article is None:
+            return {"status": "not_found", "article_id": article_id}
+
+        if article.persist_status != PersistStatus.STORED:
+            return {
+                "status": "skipped",
+                "article_id": article_id,
+                "reason": f"Article is not in STORED state: {article.persist_status}",
+            }
+
+        log.info("pipeline_b_enrichment_start", article_id=article_id)
+
+        try:
+            # Build PipelineState from article
+            from modules.ingestion.domain.models import RawArticle
+
+            raw = RawArticle(
+                url=article.source_url,
+                title=article.title or "",
+                body=article.body or "",
+                source=article.source_host or "",
+                source_host=article.source_host or "",
+                publish_time=article.publish_time,
+            )
+            states = [PipelineState(raw=raw)]
+            states[0]["article_id"] = str(article.id)
+
+            # Step 1: Cross-query for similar articles to merge
+            if self._vector_repo:
+                vectors_data = await self._vector_repo.get_article_vectors(uuid.UUID(article_id))
+                if vectors_data and vectors_data.get("content"):
+                    states[0]["vectors"] = vectors_data
+                    states[0]["category"] = article.category.value if article.category else None
+
+            # Step 2: Run BatchMergerNode to find merge candidates
+            states = await self._batch_merger.execute_batch(states, pipeline_b_mode=True)
+
+            # Step 3: For merged secondaries, delete them and update primary
+            for state in states:
+                if state.get("is_secondary"):
+                    secondary_id = state.get("article_id")
+                    if secondary_id:
+                        if self._vector_repo:
+                            try:
+                                await self._vector_repo.delete_article_vectors(
+                                    uuid.UUID(secondary_id)
+                                )
+                            except Exception:
+                                pass
+                        try:
+                            await self._article_repo.delete(secondary_id)
+                        except Exception as exc:
+                            log.warning(
+                                "pipeline_b_delete_secondary_failed",
+                                article_id=secondary_id,
+                                error=str(exc),
+                            )
+
+            # Step 4: Mark as ENRICHING before Phase 3
+            await self._article_repo.update_persist_status(
+                uuid.UUID(article_id), PersistStatus.ENRICHING
+            )
+
+            # Step 5: Run Phase 3 deep analysis
+            for state in states:
+                if not state.get("is_secondary"):
+                    enriched = await self._phase3_per_article(state)
+                    # Persist Phase 3 results
+                    if self._article_repo:
+                        await self._article_repo.upsert_from_state(enriched)
+                        await self._article_repo.update_persist_status(
+                            uuid.UUID(article_id), PersistStatus.COMPLETE
+                        )
+
+            # Step 6: Graph write
+            if self._graph_writer and not states[0].get("terminal"):
+                try:
+                    await self._graph_writer.write(states[0])
+                except Exception as exc:
+                    log.error(
+                        "pipeline_b_graph_write_failed",
+                        article_id=article_id,
+                        error=str(exc),
+                    )
+
+            log.info("pipeline_b_enrichment_complete", article_id=article_id)
+            return {"status": "complete", "article_id": article_id}
+
+        except Exception as exc:
+            log.error(
+                "pipeline_b_enrichment_failed",
+                article_id=article_id,
+                error=str(exc),
+                traceback=traceback.format_exc(),
+            )
+            # Keep STORED status for retry
+            return {"status": "failed", "article_id": article_id, "error": str(exc)}
 
     async def _maybe_trigger_community_update(self, states: list[PipelineState]) -> None:
         """Check and trigger incremental community update after Phase 4 persist.
