@@ -116,7 +116,7 @@ class TestPersistBatchSagaSuccess:
 
         # Verify Phase 1: PostgreSQL persistence
         mock_article_repo.bulk_upsert.assert_called_once()
-        assert mock_article_repo.update_persist_status.call_count == 6  # 3 PG_DONE + 3 NEO4J_DONE
+        assert mock_article_repo.update_persist_status.call_count == 6  # 3 STORED + 3 COMPLETE
 
         # Verify Phase 2: Neo4j persistence
         mock_graph_writer.write_batch.assert_called_once()
@@ -391,13 +391,13 @@ class TestPersistBatchSagaPhase2Failure:
         # Verify Phase 2 was attempted
         mock_graph_writer.write_batch.assert_called_once()
 
-        # Verify compensation: articles marked as NEO4J_FAILED instead of deleted
+        # Verify compensation: articles marked as FAILED instead of deleted
         assert mock_article_repo.delete.call_count == 0  # New strategy: no deletion
-        # Should have 2 NEO4J_FAILED status updates
+        # Should have 2 FAILED status updates
         neo4j_failed_calls = [
             call
             for call in mock_article_repo.update_persist_status.call_args_list
-            if len(call.args) >= 2 and call.args[1] == PersistStatus.NEO4J_FAILED
+            if len(call.args) >= 2 and call.args[1] == PersistStatus.FAILED
         ]
         assert len(neo4j_failed_calls) == 2
 
@@ -543,14 +543,14 @@ class TestPersistBatchSagaCompensationFailure:
         assert result["compensation_executed"] is True
         assert "Phase 2 batch write failed" in result["error"]
 
-        # Verify compensation was attempted (new strategy: mark as NEO4J_FAILED, not delete)
+        # Verify compensation was attempted (new strategy: mark as FAILED, not delete)
         # Should NOT call delete (old strategy)
         assert mock_article_repo.delete.call_count == 0
-        # Should call update_persist_status with NEO4J_FAILED (new strategy)
+        # Should call update_persist_status with FAILED (new strategy)
         neo4j_failed_calls = [
             call
             for call in mock_article_repo.update_persist_status.call_args_list
-            if len(call.args) >= 2 and call.args[1] == PersistStatus.NEO4J_FAILED
+            if len(call.args) >= 2 and call.args[1] == PersistStatus.FAILED
         ]
         assert len(neo4j_failed_calls) == 2
 
@@ -948,7 +948,7 @@ class TestPersistBatchSagaStatusUpdates:
         mock_graph_writer,
         mock_states,
     ):
-        """Test saga updates status to PG_DONE after Phase 1."""
+        """Test saga updates status to STORED after Phase 1."""
         node = BatchMergerNode(
             llm=mock_llm,
             prompt_loader=mock_prompt_loader,
@@ -958,11 +958,11 @@ class TestPersistBatchSagaStatusUpdates:
 
         await node.persist_batch_saga(mock_states)
 
-        # Verify PG_DONE status updates
+        # Verify STORED status updates
         pg_done_calls = [
             call
             for call in mock_article_repo.update_persist_status.call_args_list
-            if call[0][1] == PersistStatus.PG_DONE
+            if call[0][1] == PersistStatus.STORED
         ]
         assert len(pg_done_calls) == 2
 
@@ -975,7 +975,7 @@ class TestPersistBatchSagaStatusUpdates:
         mock_graph_writer,
         mock_states,
     ):
-        """Test saga updates status to NEO4J_DONE after Phase 2."""
+        """Test saga updates status to COMPLETE after Phase 2."""
         node = BatchMergerNode(
             llm=mock_llm,
             prompt_loader=mock_prompt_loader,
@@ -985,11 +985,11 @@ class TestPersistBatchSagaStatusUpdates:
 
         await node.persist_batch_saga(mock_states)
 
-        # Verify NEO4J_DONE status updates
+        # Verify COMPLETE status updates
         neo4j_done_calls = [
             call
             for call in mock_article_repo.update_persist_status.call_args_list
-            if call[0][1] == PersistStatus.NEO4J_DONE
+            if call[0][1] == PersistStatus.COMPLETE
         ]
         assert len(neo4j_done_calls) == 2
 

@@ -105,7 +105,7 @@ class TestRetryNeo4jWrites:
         mock_article.source_url = "https://example.com/test"
         mock_article.title = "Test Article"
         mock_article.body = "Test body"
-        mock_article.persist_status = PersistStatus.PG_DONE
+        mock_article.persist_status = PersistStatus.STORED
 
         mock_session = AsyncMock()
         mock_result = MagicMock()
@@ -137,7 +137,7 @@ class TestRetryNeo4jWrites:
         mock_article.source_url = "https://example.com/test"
         mock_article.title = "Test Article"
         mock_article.body = "Test body"
-        mock_article.persist_status = PersistStatus.PG_DONE
+        mock_article.persist_status = PersistStatus.STORED
 
         mock_session = AsyncMock()
         mock_result = MagicMock()
@@ -170,7 +170,7 @@ class TestRetryNeo4jWrites:
         mock_article.source_url = "https://example.com/test"
         mock_article.title = "Test Article"
         mock_article.body = "Test body"
-        mock_article.persist_status = PersistStatus.PG_DONE
+        mock_article.persist_status = PersistStatus.STORED
 
         mock_session = AsyncMock()
         mock_result = MagicMock()
@@ -615,7 +615,7 @@ class TestSyncNeo4jWithPostgres:
 
     @pytest.mark.asyncio
     async def test_sync_neo4j_reverts_enrichment_gaps(self, scheduler_jobs_service):
-        """Test enrichment gaps are reverted to PG_DONE."""
+        """Test enrichment gaps are reverted to STORED."""
         import uuid
 
         from core.db import Article, PersistStatus
@@ -635,7 +635,7 @@ class TestSyncNeo4jWithPostgres:
         incomplete_article = MagicMock(spec=Article)
         incomplete_article.id = uuid.uuid4()
         incomplete_article.source_url = "https://example.com/article"
-        incomplete_article.persist_status = PersistStatus.NEO4J_DONE
+        incomplete_article.persist_status = PersistStatus.COMPLETE
         incomplete_article.category = None
         incomplete_article.score = None
         incomplete_article.credibility_score = None
@@ -664,7 +664,7 @@ class TestRevertToPgDone:
 
     @pytest.mark.asyncio
     async def test_revert_to_pg_done_sets_status(self):
-        """Test revert_to_pg_done sets status to PG_DONE regardless of current state."""
+        """Test revert_to_stored sets status to STORED regardless of current state."""
         from modules.storage.postgres.article_repo import ArticleRepo
 
         mock_result = MagicMock()
@@ -726,7 +726,7 @@ class TestGetIncompleteArticles:
 
     @pytest.mark.asyncio
     async def test_get_incomplete_articles_returns_matching_articles(self):
-        """Test get_incomplete_articles returns articles with NEO4J_DONE and all null fields."""
+        """Test get_incomplete_articles returns articles with COMPLETE and all null fields."""
         from modules.storage.postgres.article_repo import ArticleRepo
 
         mock_result = MagicMock()

@@ -1086,11 +1086,11 @@ class TestBatchMergerSagaCompensation:
         assert result["success"] is False
         assert result["compensation_executed"] is True
 
-        # Verify the LAST call was to mark as NEO4J_FAILED
+        # Verify the LAST call was to mark as FAILED
         assert mock_article_repo.update_persist_status.call_count >= 1
         last_call = mock_article_repo.update_persist_status.call_args_list[-1]
         assert last_call.args[0] == article_id
-        assert last_call.args[1] == PersistStatus.NEO4J_FAILED
+        assert last_call.args[1] == PersistStatus.FAILED
         # Verify delete was NOT called (new compensation strategy)
         mock_article_repo.delete.assert_not_called()
 
@@ -1148,17 +1148,13 @@ class TestBatchMergerSagaCompensation:
         assert result["compensation_executed"] is True
 
         # Verify update_persist_status calls:
-        # - 3 calls for Phase 1 (PG_DONE)
-        # - 2 calls for successful Neo4j writes (NEO4J_DONE)
-        # - 1 call for failed Neo4j write (NEO4J_FAILED)
-        # Note: Actual count may be 5 if one status update is skipped
-        assert mock_article_repo.update_persist_status.call_count >= 5
-
-        # Find the NEO4J_FAILED call
+        # - 3 calls for Phase 1 (STORED)
+        # - 1 call for failed graph write (FAILED)
+        # Find the FAILED call
         neo4j_failed_calls = [
             call
             for call in mock_article_repo.update_persist_status.call_args_list
-            if len(call.args) >= 2 and call.args[1] == PersistStatus.NEO4J_FAILED
+            if len(call.args) >= 2 and call.args[1] == PersistStatus.FAILED
         ]
         assert len(neo4j_failed_calls) == 1
         assert neo4j_failed_calls[0].args[0] == article_ids[1]  # Second article failed

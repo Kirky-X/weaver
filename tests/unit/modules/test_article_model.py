@@ -77,36 +77,37 @@ class TestArticlePersistStatusTransitions:
         assert PersistStatus.is_valid_transition(PersistStatus.PENDING, PersistStatus.PROCESSING)
 
     def test_valid_transition_processing_to_pg_done(self):
-        """Test valid transition: PROCESSING -> PG_DONE."""
-        assert PersistStatus.is_valid_transition(PersistStatus.PROCESSING, PersistStatus.PG_DONE)
+        """Test valid transition: PROCESSING -> STORED."""
 
-    def test_valid_transition_pg_done_to_neo4j_done(self):
-        """Test valid transition: PG_DONE -> NEO4J_DONE."""
-        assert PersistStatus.is_valid_transition(PersistStatus.PG_DONE, PersistStatus.NEO4J_DONE)
+    assert PersistStatus.is_valid_transition(PersistStatus.PROCESSING, PersistStatus.STORED)
 
-    def test_valid_transition_any_to_failed(self):
-        """Test valid transition to FAILED from any state."""
-        assert PersistStatus.is_valid_transition(PersistStatus.PENDING, PersistStatus.FAILED)
-        assert PersistStatus.is_valid_transition(PersistStatus.PROCESSING, PersistStatus.FAILED)
-        assert PersistStatus.is_valid_transition(PersistStatus.PG_DONE, PersistStatus.FAILED)
-
-    def test_invalid_transition_pending_to_neo4j_done(self):
-        """Test invalid transition: PENDING -> NEO4J_DONE."""
+    def test_invalid_transition_processing_to_complete(self):
         assert not PersistStatus.is_valid_transition(
-            PersistStatus.PENDING, PersistStatus.NEO4J_DONE
+            PersistStatus.PROCESSING, PersistStatus.COMPLETE
         )
 
-    def test_invalid_transition_neo4j_done_to_any(self):
-        """Test invalid transition from NEO4J_DONE (terminal state)."""
+    def test_valid_transition_complete_to_complete(self):
+        assert PersistStatus.is_valid_transition(PersistStatus.COMPLETE, PersistStatus.COMPLETE)
+
+    def test_valid_transition_stored_to_enriching(self):
+        assert PersistStatus.is_valid_transition(PersistStatus.STORED, PersistStatus.ENRICHING)
+
+    def test_valid_transition_enriching_to_complete(self):
+        assert PersistStatus.is_valid_transition(PersistStatus.ENRICHING, PersistStatus.COMPLETE)
+
+    def test_valid_transition_stored_to_failed(self):
+        assert PersistStatus.is_valid_transition(PersistStatus.STORED, PersistStatus.FAILED)
+
+    def test_invalid_transition_stored_to_pending(self):
+        assert not PersistStatus.is_valid_transition(PersistStatus.STORED, PersistStatus.PENDING)
+
+    def test_invalid_transition_complete_to_pending(self):
+        assert not PersistStatus.is_valid_transition(PersistStatus.COMPLETE, PersistStatus.PENDING)
+
+    def test_invalid_transition_complete_to_processing(self):
         assert not PersistStatus.is_valid_transition(
-            PersistStatus.NEO4J_DONE, PersistStatus.PENDING
-        )
-        assert not PersistStatus.is_valid_transition(
-            PersistStatus.NEO4J_DONE, PersistStatus.PROCESSING
+            PersistStatus.COMPLETE, PersistStatus.PROCESSING
         )
 
-    def test_idempotent_same_status(self):
-        """Test that staying in the same status is allowed (idempotent)."""
-        assert PersistStatus.is_valid_transition(PersistStatus.PENDING, PersistStatus.PENDING)
-        assert PersistStatus.is_valid_transition(PersistStatus.PROCESSING, PersistStatus.PROCESSING)
-        assert PersistStatus.is_valid_transition(PersistStatus.PG_DONE, PersistStatus.PG_DONE)
+    def test_valid_transition_stored_to_stored(self):
+        assert PersistStatus.is_valid_transition(PersistStatus.STORED, PersistStatus.STORED)

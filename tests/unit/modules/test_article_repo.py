@@ -165,7 +165,7 @@ class TestApplyStateToArticle:
         assert article.merged_source_ids[1] == id2
 
     def test_apply_sets_persist_status(self):
-        """Test that _apply_state_to_article sets persist_status to PG_DONE."""
+        """Test that _apply_state_to_article sets persist_status to STORED."""
         article = Article(
             source_url="https://example.com/test",
             title="Test",
@@ -175,7 +175,7 @@ class TestApplyStateToArticle:
 
         _apply_state_to_article(article, state)
 
-        assert article.persist_status == PersistStatus.PG_DONE
+        assert article.persist_status == PersistStatus.STORED
 
     def test_apply_sets_updated_at(self):
         """Test that _apply_state_to_article sets updated_at."""
@@ -317,7 +317,7 @@ class TestArticleRepoUpdatePersistStatus:
     async def test_update_persist_status_invalid_transition(self, article_repo, mock_pool):
         """Test invalid state transition raises error."""
         mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = PersistStatus.NEO4J_DONE
+        mock_result.scalar_one_or_none.return_value = PersistStatus.COMPLETE
 
         mock_session = AsyncMock()
         mock_session.execute.return_value = mock_result

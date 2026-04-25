@@ -33,7 +33,7 @@ def _make_mock_article(
     article.id = id
     article.title = title
     article.body = body
-    article.persist_status = persist_status or PersistStatus.PG_DONE
+    article.persist_status = persist_status or PersistStatus.STORED
     article.source_url = source_url
     article.source_host = source_host
     article.category = category
