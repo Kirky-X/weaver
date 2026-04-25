@@ -1,7 +1,7 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """repair-articles command — fix incomplete terminal-path articles.
 
-Scans articles with persist_status=NEO4J_DONE but NULL enrichment fields
+Scans articles with persist_status=COMPLETE but NULL enrichment fields
 and re-runs the enrichment pipeline to backfill missing data.
 
 Only writes to PostgreSQL (idempotent). Does NOT modify Neo4j nodes.
@@ -246,7 +246,7 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Repair incomplete terminal-path articles (NEO4J_DONE but NULL enrichment)"
+        description="Repair incomplete terminal-path articles (COMPLETE but NULL enrichment)"
     )
     parser.add_argument(
         "--limit",

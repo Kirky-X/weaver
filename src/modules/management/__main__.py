@@ -49,7 +49,7 @@ def main() -> None:
         # Built-in help when no subcommand
         print("Available commands:")
         print("  repair-articles [--limit N] [--force] [--dry-run]")
-        print("    Fix articles with NEO4J_DONE status but NULL enrichment fields.")
+        print("    Fix articles with COMPLETE status but NULL enrichment fields.")
         print()
         print("Usage:")
         print(

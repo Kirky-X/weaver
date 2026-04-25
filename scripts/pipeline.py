@@ -1000,7 +1000,7 @@ async def cmd_process_pending(args: argparse.Namespace) -> int:
             if not state.get("terminal"):
                 article_id_uuid = uuid.UUID(article_id)
                 await article_repo.upsert(state)
-                await article_repo.update_persist_status(article_id_uuid, PersistStatus.PG_DONE)
+                await article_repo.update_persist_status(article_id_uuid, PersistStatus.STORED)
                 print(f"  ✓ PG 持久化完成")
 
                 # Write to LadybugDB
@@ -1008,7 +1008,7 @@ async def cmd_process_pending(args: argparse.Namespace) -> int:
                     neo4j_ids = await graph_writer.write(state)
                     state["neo4j_ids"] = neo4j_ids
                     await article_repo.update_persist_status(
-                        article_id_uuid, PersistStatus.NEO4J_DONE
+                        article_id_uuid, PersistStatus.COMPLETE
                     )
                     print(f"  ✓ Neo4j/LadybugDB 持久化完成")
 
