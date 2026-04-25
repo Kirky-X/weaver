@@ -43,29 +43,36 @@ dependencies = [
     "python-igraph>=0.11.0",
     "leidenalg>=0.11.0",
     "litellm>=1.83.0",
-    # ── Database Fallback ─────────────────────────────────────
-    "duckdb>=1.5.1",
-    "duckdb-engine>=0.17.0",
-    "real-ladybug>=0.15.3",
     # ── Resilience ─────────────────────────────────────────────
     "pybreaker>=1.4.1",
     "blinker>=1.9.0",
     "aiolimiter>=1.2.1",
-    "cashews>=7.5.0",
     "rich>=14.3.3",
     "typer>=0.24.1",
     "pandas>=3.0.2",
-    # ── Local Embedding & Knowledge Cache ─────────────────────
-    "sentence-transformers>=2.2.0",
+    # ── Knowledge Cache ──────────────────────────────────────
     "rapidfuzz>=3.0.0",
     "pycountry>=24.6.1",
     "geonamescache>=2.0.0",
-    "modelscope>=1.10.0",
 ]
 
 [project.optional-dependencies]
+database-fallback = [
+    "duckdb>=1.5.1",
+    "duckdb-engine>=0.17.0",
+    "real-ladybug>=0.15.3",
+]
+local-embedding = [
+    "sentence-transformers>=2.2.0",
+]
+local-models = [
+    "modelscope>=1.10.0",
+]
+cache-fallback = [
+    "cashews>=7.5.0",
+]
 search-enhancement = [
-    "flashrank>=0.2.10", # Optional: cross-encoder reranking for search results
+    "flashrank>=0.2.10",
 ]
 
 [build-system]
@@ -77,16 +84,6 @@ packages = ["src"]
 
 [dependency-groups]
 dev = [
-    "anyio>=4.13.0",
-    "pytest>=9.0.2",
-    "pytest-asyncio>=1.3.0",
-    "pytest-cov>=7.1.0",
-    "pytest-mock>=3.15.1",
-    "pytest-timeout>=2.4.0",
-    "pytest-xdist>=3.8.0",
-    "testcontainers>=4.14.2",
-    # ── Pre-commit hooks ──────────────────────────────────
-    "pre-commit>=4.5.1",
     # ── Code formatting ───────────────────────────────────
     "black>=26.3.1",
     "isort>=8.0.1",
@@ -96,21 +93,27 @@ dev = [
     "types-redis>=4.6.0.20241004",
     "types-PyYAML>=6.0.12.20250915",
     "types-aiofiles>=25.1.0.20251011",
-    # ── Security ───────────────────────────────────────────
+    # ── Security auditing ─────────────────────────────────
     "bandit>=1.9.4",
+    "detect-secrets>=1.5.0",
+    # ── Git workflow ──────────────────────────────────────
+    "pre-commit>=4.5.1",
+    "commitizen>=4.13.9",
     # ── Docstring style ───────────────────────────────────
     "pydocstyle>=6.3.0",
-    # ── Commit validation ──────────────────────────────────
-    "commitizen>=4.13.9",
-    # ── Secret detection (baseline generation) ─────────────
-    "detect-secrets>=1.5.0",
-    "pytest-env>=1.2.0",
-    # ── Test utilities ────────────────────────────────────
-    "nest-asyncio>=1.6.0", # E2E tests: asyncpg + TestClient event loop compat
-    "freezegun>=1.5.5",
 ]
 test = [
+    "anyio>=4.13.0",
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.1.0",
+    "pytest-mock>=3.15.1",
+    "pytest-timeout>=2.4.0",
+    "pytest-xdist>=3.8.0",
+    "pytest-env>=1.2.0",
+    "testcontainers>=4.14.2",
     "freezegun>=1.5.5",
+    "nest-asyncio>=1.6.0",
 ]
 
 # ────────────────────────────────────────────────────────────
