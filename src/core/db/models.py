@@ -73,11 +73,17 @@ class CategoryType(str, enum.Enum):
 
 
 class PersistStatus(str, enum.Enum):
+    """Backend-agnostic article persistence lifecycle.
+
+    States describe data processing stages, not storage backends:
+      PENDING → PROCESSING → STORED → ENRICHING → COMPLETE + FAILED
+    """
+
     PENDING = "pending"
     PROCESSING = "processing"
-    PG_DONE = "pg_done"
-    NEO4J_DONE = "neo4j_done"
-    NEO4J_FAILED = "neo4j_failed"
+    STORED = "stored"
+    ENRICHING = "enriching"
+    COMPLETE = "complete"
     FAILED = "failed"
 
     @classmethod
@@ -90,9 +96,9 @@ class PersistStatus(str, enum.Enum):
 
         Valid transitions:
         - PENDING → PROCESSING, FAILED
-        - PROCESSING → PG_DONE, FAILED
-        - PG_DONE → NEO4J_DONE, NEO4J_FAILED, FAILED
-        - NEO4J_FAILED → PENDING, PG_DONE (allows retry)
+        - PROCESSING → STORED, FAILED
+        - STORED → ENRICHING, FAILED
+        - ENRICHING → COMPLETE, FAILED
         - FAILED → PENDING (allows retry)
 
         Args:
@@ -102,18 +108,16 @@ class PersistStatus(str, enum.Enum):
         Returns:
             True if the transition is valid, False otherwise.
         """
-        # Allow staying in same state (idempotent)
         if from_status == to_status:
             return True
 
-        # Define valid transitions
         valid_transitions = {
             cls.PENDING: {cls.PROCESSING, cls.FAILED},
-            cls.PROCESSING: {cls.PG_DONE, cls.FAILED},
-            cls.PG_DONE: {cls.NEO4J_DONE, cls.NEO4J_FAILED, cls.FAILED},
-            cls.NEO4J_FAILED: {cls.PENDING, cls.PG_DONE},  # Allow retry
+            cls.PROCESSING: {cls.STORED, cls.FAILED},
+            cls.STORED: {cls.ENRICHING, cls.FAILED},
+            cls.ENRICHING: {cls.COMPLETE, cls.FAILED},
             cls.FAILED: {cls.PENDING},  # Allow retry
-            cls.NEO4J_DONE: set(),  # Terminal state
+            cls.COMPLETE: set(),  # Terminal state
         }
 
         allowed = valid_transitions.get(from_status, set())
@@ -173,7 +177,7 @@ class Article(Base):
         UUID(as_uuid=True), ForeignKey("articles.id")
     )
     is_merged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    merged_source_ids: Mapped[list[uuid.UUID] | None] = mapped_column(ARRAY(UUID(as_uuid=True)))
+    merged_source_ids: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
 
     # Summary & analysis
     summary: Mapped[str | None] = mapped_column(Text)
@@ -279,7 +283,7 @@ class Article(Base):
         Index(
             "idx_articles_persist_status",
             "persist_status",
-            postgresql_where=text("persist_status IN ('pending', 'pg_done')"),
+            postgresql_where=text("persist_status IN ('pending', 'stored')"),
         ),
         Index("idx_articles_category_publish", "category", publish_time.desc()),
         Index("idx_articles_host_publish", "source_host", publish_time.desc()),
