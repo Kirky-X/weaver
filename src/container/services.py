@@ -14,7 +14,11 @@ if TYPE_CHECKING:
         EntityRepository,
         VectorRepository,
     )
-    from core.protocols.repositories import ArticleRepository
+    from core.protocols.repositories import (
+        ArticleRepository,
+        GraphArticleRepository,
+        GraphWriter,
+    )
     from core.services.pipeline_service import PipelineServiceImpl
     from core.services.task_registry import InMemoryTaskRegistry
     from modules.analytics import LLMUsageBuffer, LLMUsageRepo
@@ -53,8 +57,8 @@ class ContainerServicesMixin:
     _vector_repo: VectorRepository | None
     _source_authority_repo: SourceAuthorityRepo | None
     _graph_entity_repo: Any
-    _graph_article_repo: Any
-    _graph_writer: Any
+    _graph_article_repo: GraphArticleRepository | None
+    _graph_writer: GraphWriter | None
     _graph_repo: Any
     _entity_resolver: EntityResolver | None
     _smart_fetcher: SmartFetcher | None
@@ -270,7 +274,7 @@ class ContainerServicesMixin:
                 self._graph_entity_repo = Neo4jEntityRepo(graph_pool)
         return self._graph_entity_repo
 
-    def graph_article_repo(self) -> Any | None:
+    def graph_article_repo(self) -> GraphArticleRepository | None:
         """Get graph article repository (Neo4j or LadybugDB implementation)."""
         graph_pool = self.graph_pool()
         if graph_pool is None:
@@ -306,7 +310,7 @@ class ContainerServicesMixin:
             self._causal_repo = CausalGraphRepo(graph_pool)
         return self._causal_repo
 
-    def graph_writer(self) -> Any | None:
+    def graph_writer(self) -> GraphWriter | None:
         """Get graph writer (Neo4j or LadybugDB implementation)."""
         graph_pool = self.graph_pool()
         if graph_pool is None:

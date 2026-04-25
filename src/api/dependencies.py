@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from container import Container
     from core.llm import LLMClient
     from core.protocols import CachePool, GraphPool, RelationalPool
+    from core.protocols.repositories import VectorRepository
     from modules.ingestion import SourceScheduler
     from modules.knowledge.search import GlobalSearchEngine, HybridSearchEngine, LocalSearchEngine
     from modules.storage import SourceAuthorityRepo, VectorRepo
@@ -129,7 +130,7 @@ def get_llm_client() -> LLMClient:
     return Endpoints.get_llm_client()
 
 
-def get_vector_repo() -> VectorRepo:
+def get_vector_repo() -> VectorRepository:
     """FastAPI dependency for vector repository.
 
     Raises:

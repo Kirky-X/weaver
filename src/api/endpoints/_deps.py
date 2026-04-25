@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 from fastapi import HTTPException
 
 from core.observability import get_logger
+from core.protocols.repositories import VectorRepository
 
 if TYPE_CHECKING:
     from core.llm import LLMClient
@@ -150,7 +151,7 @@ class Endpoints:
     # ── Repositories ──────────────────────────────────────────────────
 
     @staticmethod
-    def get_vector_repo() -> VectorRepo:
+    def get_vector_repo() -> VectorRepository:
         """Get vector repository."""
         if Endpoints._vector_repo is None:
             raise HTTPException(503, detail="Vector store not initialized")
