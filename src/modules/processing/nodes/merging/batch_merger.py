@@ -104,11 +104,16 @@ class BatchMergerNode:
         self._article_repo = article_repo
         self._graph_writer = graph_writer
 
-    async def execute_batch(self, states: list[PipelineState]) -> list[PipelineState]:
+    async def execute_batch(
+        self, states: list[PipelineState], pipeline_b_mode: bool = False
+    ) -> list[PipelineState]:
         """Execute batch merging on a list of pipeline states.
 
         Args:
             states: List of PipelineState dicts after vectorization.
+            pipeline_b_mode: If True, return primary/secondary grouping info
+                            for Pipeline B async merge. Secondary states get
+                            is_secondary=True and will be hard-deleted by the caller.
 
         Returns:
             Modified states with merge information.
@@ -135,7 +140,6 @@ class BatchMergerNode:
         if self._vector_repo:
             cross_tasks = [self._cross_query(s, uf, ids) for s in active_states]
             cross_results = await asyncio.gather(*cross_tasks, return_exceptions=True)
-            # Log cross-query failures but continue with available results
             for i, result in enumerate(cross_results):
                 if isinstance(result, Exception):
                     log.warning(
@@ -146,17 +150,16 @@ class BatchMergerNode:
 
         groups = uf.get_groups()
         merge_tasks = []
-        group_info = []  # Track group info for error handling
+        group_info = []
         for root, members in groups.items():
             if len(members) <= 1:
                 continue
             group_states = [s for s in active_states if s["raw"].url in members]
-            merge_tasks.append(self._llm_merge(group_states))
+            merge_tasks.append(self._llm_merge(group_states, pipeline_b_mode=pipeline_b_mode))
             group_info.append((root, len(members)))
 
         if merge_tasks:
             merge_results = await asyncio.gather(*merge_tasks, return_exceptions=True)
-            # Calculate actual merged count (only successful merges)
             merged_count = 0
             for i, result in enumerate(merge_results):
                 if isinstance(result, Exception):
@@ -166,19 +169,15 @@ class BatchMergerNode:
                         member_count=group_info[i][1],
                         error=str(result),
                     )
-                    # Merge failed - articles remain unmerged
                 else:
-                    # Merge succeeded
                     merged_count += group_info[i][1] - 1
         else:
             merged_count = 0
 
-        # Record metrics
         elapsed = time.perf_counter() - start_time
         metrics.dedup_total.labels(stage="vector").inc(merged_count)
         metrics.dedup_processing_time.labels(stage="vector").observe(elapsed)
 
-        # Update ratio gauge
         if len(active_states) > 0:
             ratio = merged_count / len(active_states)
             metrics.dedup_ratio.labels(stage="vector").set(ratio)
@@ -188,6 +187,7 @@ class BatchMergerNode:
             total=len(active_states),
             groups=len([g for g in groups.values() if len(g) > 1]),
             merged=merged_count,
+            pipeline_b_mode=pipeline_b_mode,
         )
         return states
 
@@ -268,8 +268,14 @@ class BatchMergerNode:
                 error=str(exc),
             )
 
-    async def _llm_merge(self, group_states: list[PipelineState]) -> None:
-        """Merge a group of similar articles via LLM."""
+    async def _llm_merge(
+        self, group_states: list[PipelineState], pipeline_b_mode: bool = False
+    ) -> None:
+        """Merge a group of similar articles via LLM.
+
+        In pipeline_b_mode, secondary states are marked with is_secondary=True
+        instead of is_merged (they will be hard-deleted by the caller).
+        """
         articles_payload = [
             {
                 "title": s["cleaned"]["title"],
@@ -296,18 +302,20 @@ class BatchMergerNode:
         )
         primary["cleaned"]["body"] = result.merged_body
         primary["cleaned"]["title"] = result.merged_title
-        # Invalidate summary and related fields after merge since body/content changed.
-        # The merged body comes from multiple articles, so the original summary
-        # (from one article) no longer matches. Remove all summary-derived fields
-        # to prevent data inconsistency in the persisted article.
         for key in ("summary_info", "sentiment", "credibility", "quality_score"):
             primary.pop(key, None)
-        primary["merged_source_ids"] = [s["raw"].url for s in group_states if s is not primary]
 
-        for s in group_states:
-            if s is not primary:
-                s["is_merged"] = True
-                s["merged_into"] = primary["raw"].url
+        if pipeline_b_mode:
+            primary["merged_source_ids"] = [s["raw"].url for s in group_states]
+            for s in group_states:
+                if s is not primary:
+                    s["is_secondary"] = True
+        else:
+            primary["merged_source_ids"] = [s["raw"].url for s in group_states if s is not primary]
+            for s in group_states:
+                if s is not primary:
+                    s["is_merged"] = True
+                    s["merged_into"] = primary["raw"].url
 
         primary.setdefault("prompt_versions", {})["merger"] = self._prompt_loader.get_version(
             "merger"
@@ -383,7 +391,7 @@ class BatchMergerNode:
             # Update persist status and link IDs to states
             for state, aid in zip(new_states, article_ids):
                 state["article_id"] = str(aid)
-                await self._article_repo.update_persist_status(aid, PersistStatus.PG_DONE)
+                await self._article_repo.update_persist_status(aid, PersistStatus.STORED)
 
             # Persist vectors
             if self._vector_repo:
@@ -469,7 +477,7 @@ class BatchMergerNode:
                         try:
                             await self._article_repo.update_persist_status(
                                 uuid.UUID(article_id_str),
-                                PersistStatus.NEO4J_DONE,
+                                PersistStatus.COMPLETE,
                             )
                         except Exception as status_exc:
                             log.warning(
@@ -492,10 +500,10 @@ class BatchMergerNode:
                         try:
                             if article_id_str and article_id_str != "unknown":
                                 pg_id = uuid.UUID(article_id_str)
-                                # Mark as NEO4J_FAILED instead of deleting
+                                # Mark as FAILED instead of deleting
                                 await self._article_repo.update_persist_status(
                                     pg_id,
-                                    PersistStatus.NEO4J_FAILED,
+                                    PersistStatus.FAILED,
                                 )
                                 log.info(
                                     "saga_compensation_marked_failed",
@@ -527,13 +535,13 @@ class BatchMergerNode:
                     "saga_phase2_batch_failed",
                     error=error_msg,
                 )
-                # Mark all as NEO4J_FAILED
+                # Mark all as FAILED
                 for state in new_states:
                     if state.get("article_id") and self._article_repo:
                         try:
                             await self._article_repo.update_persist_status(
                                 uuid.UUID(state["article_id"]),
-                                PersistStatus.NEO4J_FAILED,
+                                PersistStatus.FAILED,
                             )
                         except Exception as mark_exc:
                             log.warning(

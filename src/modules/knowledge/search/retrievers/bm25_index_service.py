@@ -162,8 +162,8 @@ class BM25IndexService:
                 .where(
                     Article.persist_status.in_(
                         [
-                            PersistStatus.PG_DONE,
-                            PersistStatus.NEO4J_DONE,
+                            PersistStatus.STORED,
+                            PersistStatus.COMPLETE,
                         ]
                     ),
                     Article.title.isnot(None),
@@ -222,8 +222,8 @@ class BM25IndexService:
                     and_(
                         Article.persist_status.in_(
                             [
-                                PersistStatus.PG_DONE,
-                                PersistStatus.NEO4J_DONE,
+                                PersistStatus.STORED,
+                                PersistStatus.COMPLETE,
                             ]
                         ),
                         Article.updated_at > since,
