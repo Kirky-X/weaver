@@ -50,6 +50,7 @@ extracted_ids = {
 }
 ids_lock = Lock()
 
+
 # ── 测试用例定义 ──────────────────────────────────────────────────
 
 
@@ -863,23 +864,23 @@ def generate_test_cases() -> list[TestCase]:
     # ===== 8. Pipeline =====
     cases.extend(
         [
-    # GET /pipeline/queue/stats - 已删除的旧端点
-    # TestCase(
-    #     "get_queue_stats",
-    #     "pipeline",
-    #     "GET",
-    #     "/pipeline/queue/stats",
-    #     description="get_queue_stats",
-    # ),
-    # POST /admin/pipeline/trigger - 跳过(需要实际爬取,非常慢)
-    # TestCase(
-    #     "trigger_pipeline_empty",
-    #     "pipeline",
-    #     "POST",
-    #     "/admin/pipeline/trigger",
-    #     json_body={},
-    #     description="trigger_pipeline_empty",
-    # ),
+            # GET /pipeline/queue/stats - 已删除的旧端点
+            # TestCase(
+            #     "get_queue_stats",
+            #     "pipeline",
+            #     "GET",
+            #     "/pipeline/queue/stats",
+            #     description="get_queue_stats",
+            # ),
+            # POST /admin/pipeline/trigger - 跳过(需要实际爬取,非常慢)
+            # TestCase(
+            #     "trigger_pipeline_empty",
+            #     "pipeline",
+            #     "POST",
+            #     "/admin/pipeline/trigger",
+            #     json_body={},
+            #     description="trigger_pipeline_empty",
+            # ),
         ]
     )
 
