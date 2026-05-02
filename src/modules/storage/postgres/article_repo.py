@@ -947,20 +947,19 @@ class ArticleRepo:
             # Use recursive CTE to get entire merge chain in single query
             result = await session.execute(
                 text("""
-                    WITH RECURSIVE merge_chain AS (
-                        SELECT id, merged_into, ARRAY[id] as path, false as cycle
-                        FROM articles
-                        WHERE id = :target_id
+                     WITH RECURSIVE merge_chain AS (SELECT id, merged_into, ARRAY[id] as path, false as cycle
+                                                    FROM articles
+                                                    WHERE id = :target_id
 
-                        UNION ALL
+                                                    UNION ALL
 
-                        SELECT a.id, a.merged_into, mc.path || a.id, a.id = ANY(mc.path)
-                        FROM articles a
-                        INNER JOIN merge_chain mc ON a.id = mc.merged_into
-                        WHERE NOT mc.cycle
-                    )
-                    SELECT id, path, cycle FROM merge_chain
-                """),
+                                                    SELECT a.id, a.merged_into, mc.path || a.id, a.id = ANY (mc.path)
+                                                    FROM articles a
+                                                             INNER JOIN merge_chain mc ON a.id = mc.merged_into
+                                                    WHERE NOT mc.cycle)
+                     SELECT id, path, cycle
+                     FROM merge_chain
+                     """),
                 {"target_id": str(target_id)},
             )
 
@@ -1092,17 +1091,17 @@ class ArticleRepo:
         async with self._pool.session() as session:
             # Use ROW_NUMBER() to identify duplicates in single query
             result = await session.execute(text("""
-                    WITH ranked_articles AS (
-                        SELECT id,
-                               source_url,
-                               ROW_NUMBER() OVER (PARTITION BY source_url ORDER BY updated_at DESC) as rn
-                        FROM articles
-                    ),
-                    duplicates AS (
-                        SELECT id FROM ranked_articles WHERE rn > 1
-                    )
-                    DELETE FROM articles WHERE id IN (SELECT id FROM duplicates)
-                """))
+                                                WITH ranked_articles AS (SELECT id,
+                                                                                source_url,
+                                                                                ROW_NUMBER() OVER (PARTITION BY source_url ORDER BY updated_at DESC) as rn
+                                                                         FROM articles),
+                                                     duplicates AS (SELECT id
+                                                                    FROM ranked_articles
+                                                                    WHERE rn > 1)
+                                                DELETE
+                                                FROM articles
+                                                WHERE id IN (SELECT id FROM duplicates)
+                                                """))
 
             removed_count = result.rowcount or 0
 

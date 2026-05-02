@@ -49,15 +49,15 @@ class CausalGraphRepo(BaseGraphRepo):
         indexes = [
             """
             CREATE INDEX causal_source_idx IF NOT EXISTS
-            FOR ()-[r:CAUSES]-() ON r.confidence
+                FOR ()-[r:CAUSES]-() ON r.confidence
             """,
             """
             CREATE INDEX enables_source_idx IF NOT EXISTS
-            FOR ()-[r:ENABLES]-() ON r.confidence
+                FOR ()-[r:ENABLES]-() ON r.confidence
             """,
             """
             CREATE INDEX prevents_source_idx IF NOT EXISTS
-            FOR ()-[r:PREVENTS]-() ON r.confidence
+                FOR ()-[r:PREVENTS]-() ON r.confidence
             """,
         ]
 

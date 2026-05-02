@@ -16,25 +16,53 @@ log = get_logger(__name__)
 # Schema queries ordered by dependency (no FK in DuckDB, but logical order)
 SCHEMA_QUERIES = [
     # ── Sources ────────────────────────────────────────────────
-    """CREATE TABLE IF NOT EXISTS sources (
-        id VARCHAR PRIMARY KEY,
-        name VARCHAR,
-        url VARCHAR,
-        source_type VARCHAR,
-        enabled BOOLEAN DEFAULT true,
-        interval_minutes INTEGER DEFAULT 30,
-        per_host_concurrency INTEGER DEFAULT 2,
-        credibility DECIMAL(3,2) DEFAULT 0.50,
+    """CREATE TABLE IF NOT EXISTS sources
+    (
+        id
+        VARCHAR
+        PRIMARY
+        KEY,
+        name
+        VARCHAR,
+        url
+        VARCHAR,
+        source_type
+        VARCHAR,
+        enabled
+        BOOLEAN
+        DEFAULT
+        true,
+        interval_minutes
+        INTEGER
+        DEFAULT
+        30,
+        per_host_concurrency
+        INTEGER
+        DEFAULT
+        2,
+        credibility
+        DECIMAL
+       (
+        3,
+        2
+       ) DEFAULT 0.50,
         tier INTEGER DEFAULT 2,
         last_crawl_time TIMESTAMP WITH TIME ZONE,
         etag VARCHAR,
         last_modified VARCHAR,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-    )""",
+        updated_at TIMESTAMP
+                             WITH TIME ZONE DEFAULT NOW()
+        )""",
     # ── Articles ────────────────────────────────────────────────
-    """CREATE TABLE IF NOT EXISTS articles (
-        id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    """CREATE TABLE IF NOT EXISTS articles
+    (
+        id
+        UUID
+        DEFAULT
+        gen_random_uuid
+       (
+       ) PRIMARY KEY,
         source_url VARCHAR NOT NULL,
         source_host VARCHAR,
         is_news BOOLEAN DEFAULT false,
@@ -48,21 +76,45 @@ SCHEMA_QUERIES = [
         merged_source_ids UUID[],
         summary VARCHAR,
         event_time TIMESTAMP WITH TIME ZONE,
-        subjects VARCHAR[],
-        key_data VARCHAR[],
-        impact VARCHAR,
-        has_data BOOLEAN DEFAULT false,
-        score DECIMAL(3,2),
-        quality_score DECIMAL(3,2),
+                                 subjects VARCHAR [],
+                                 key_data VARCHAR [],
+                                 impact VARCHAR,
+                                 has_data BOOLEAN DEFAULT false,
+                                 score DECIMAL (3,2),
+        quality_score DECIMAL
+       (
+           3,
+           2
+       ),
         sentiment VARCHAR,
-        sentiment_score DECIMAL(3,2),
+        sentiment_score DECIMAL
+       (
+           3,
+           2
+       ),
         primary_emotion VARCHAR,
-        emotion_targets VARCHAR[],
-        credibility_score DECIMAL(3,2),
-        source_credibility DECIMAL(3,2),
-        cross_verification DECIMAL(3,2),
-        content_check_score DECIMAL(3,2),
-        credibility_flags VARCHAR[],
+        emotion_targets VARCHAR [],
+        credibility_score DECIMAL
+       (
+           3,
+           2
+       ),
+        source_credibility DECIMAL
+       (
+           3,
+           2
+       ),
+        cross_verification DECIMAL
+       (
+           3,
+           2
+       ),
+        content_check_score DECIMAL
+       (
+           3,
+           2
+       ),
+        credibility_flags VARCHAR [],
         verified_by_sources INTEGER DEFAULT 0,
         persist_status VARCHAR DEFAULT 'pending',
         task_id UUID,
@@ -71,23 +123,47 @@ SCHEMA_QUERIES = [
         retry_count INTEGER DEFAULT 0,
         prompt_versions JSON,
         publish_time TIMESTAMP WITH TIME ZONE,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-    )""",
+        created_at TIMESTAMP
+                             WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP
+                             WITH TIME ZONE DEFAULT NOW()
+        )""",
     # ── Source Authorities ──────────────────────────────────────
-    """CREATE TABLE IF NOT EXISTS source_authorities (
-        id BIGINT DEFAULT nextval('source_authorities_seq') PRIMARY KEY,
+    """CREATE TABLE IF NOT EXISTS source_authorities
+    (
+        id
+        BIGINT
+        DEFAULT
+        nextval
+       (
+        'source_authorities_seq'
+       ) PRIMARY KEY,
         host VARCHAR UNIQUE,
-        authority DECIMAL(3,2) DEFAULT 0.50,
+        authority DECIMAL
+       (
+           3,
+           2
+       ) DEFAULT 0.50,
         tier INTEGER DEFAULT 2,
         description VARCHAR,
         needs_review BOOLEAN DEFAULT false,
-        auto_score DECIMAL(3,2),
+        auto_score DECIMAL
+       (
+           3,
+           2
+       ),
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-    )""",
+        )""",
     # ── Pending Sync ────────────────────────────────────────────
-    """CREATE TABLE IF NOT EXISTS pending_sync (
-        id BIGINT DEFAULT nextval('pending_sync_seq') PRIMARY KEY,
+    """CREATE TABLE IF NOT EXISTS pending_sync
+    (
+        id
+        BIGINT
+        DEFAULT
+        nextval
+       (
+        'pending_sync_seq'
+       ) PRIMARY KEY,
         article_id UUID,
         sync_type VARCHAR,
         payload JSON,
@@ -95,26 +171,45 @@ SCHEMA_QUERIES = [
         retry_count INTEGER DEFAULT 0,
         error TEXT,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        synced_at TIMESTAMP WITH TIME ZONE
-    )""",
+        updated_at TIMESTAMP
+                             WITH TIME ZONE DEFAULT NOW(),
+        synced_at TIMESTAMP
+                             WITH TIME ZONE
+                                 )""",
     # ── LLM Failures ────────────────────────────────────────────
-    """CREATE TABLE IF NOT EXISTS llm_failures (
-        id BIGINT DEFAULT nextval('llm_failures_seq') PRIMARY KEY,
+    """CREATE TABLE IF NOT EXISTS llm_failures
+    (
+        id
+        BIGINT
+        DEFAULT
+        nextval
+       (
+        'llm_failures_seq'
+       ) PRIMARY KEY,
         call_point VARCHAR,
         provider VARCHAR,
         error_type VARCHAR,
         error_detail VARCHAR,
-        latency_ms DECIMAL(10,2),
+        latency_ms DECIMAL
+       (
+           10,
+           2
+       ),
         article_id UUID,
         task_id VARCHAR,
         attempt INTEGER,
         fallback_tried BOOLEAN DEFAULT false,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-    )""",
+        )""",
     # ── LLM Usage Raw ───────────────────────────────────────────
-    """CREATE TABLE IF NOT EXISTS llm_usage_raw (
-        id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+    """CREATE TABLE IF NOT EXISTS llm_usage_raw
+    (
+        id
+        UUID
+        DEFAULT
+        gen_random_uuid
+       (
+       ) PRIMARY KEY,
         label VARCHAR,
         call_point VARCHAR,
         llm_type VARCHAR,
@@ -123,22 +218,45 @@ SCHEMA_QUERIES = [
         input_tokens INTEGER,
         output_tokens INTEGER,
         total_tokens INTEGER,
-        latency_ms DECIMAL(10,2),
+        latency_ms DECIMAL
+       (
+           10,
+           2
+       ),
         success BOOLEAN DEFAULT true,
         error_type VARCHAR,
         article_id UUID,
         task_id VARCHAR,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-    )""",
+        )""",
     # ── LLM Usage Hourly ────────────────────────────────────────
-    """CREATE TABLE IF NOT EXISTS llm_usage_hourly (
-        id BIGINT DEFAULT nextval('llm_usage_hourly_seq') PRIMARY KEY,
+    """CREATE TABLE IF NOT EXISTS llm_usage_hourly
+    (
+        id
+        BIGINT
+        DEFAULT
+        nextval
+       (
+        'llm_usage_hourly_seq'
+       ) PRIMARY KEY,
         time_bucket TIMESTAMP WITH TIME ZONE NOT NULL,
-        label VARCHAR(100) NOT NULL,
-        call_point VARCHAR(100) NOT NULL,
-        llm_type VARCHAR(20) NOT NULL,
-        provider VARCHAR(50) NOT NULL,
-        model VARCHAR(100) NOT NULL,
+                                  label VARCHAR (100) NOT NULL,
+        call_point VARCHAR
+       (
+           100
+       ) NOT NULL,
+        llm_type VARCHAR
+       (
+           20
+       ) NOT NULL,
+        provider VARCHAR
+       (
+           50
+       ) NOT NULL,
+        model VARCHAR
+       (
+           100
+       ) NOT NULL,
         call_count INTEGER DEFAULT 0,
         input_tokens_sum INTEGER DEFAULT 0,
         output_tokens_sum INTEGER DEFAULT 0,
@@ -148,55 +266,123 @@ SCHEMA_QUERIES = [
         latency_max_ms DOUBLE,
         success_count INTEGER DEFAULT 0,
         failure_count INTEGER DEFAULT 0,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        UNIQUE(time_bucket, label, call_point)
-    )""",
+        created_at TIMESTAMP
+                              WITH TIME ZONE DEFAULT NOW(),
+        UNIQUE
+       (
+           time_bucket,
+           label,
+           call_point
+       )
+        )""",
     # ── Relation Types ──────────────────────────────────────────
-    """CREATE TABLE IF NOT EXISTS relation_types (
-        id BIGINT DEFAULT nextval('relation_types_seq') PRIMARY KEY,
-        name VARCHAR(50) UNIQUE,
-        name_en VARCHAR(50) UNIQUE,
-        category VARCHAR(20),
+    """CREATE TABLE IF NOT EXISTS relation_types
+    (
+        id
+        BIGINT
+        DEFAULT
+        nextval
+       (
+        'relation_types_seq'
+       ) PRIMARY KEY,
+        name VARCHAR
+       (
+           50
+       ) UNIQUE,
+        name_en VARCHAR
+       (
+           50
+       ) UNIQUE,
+        category VARCHAR
+       (
+           20
+       ),
         is_symmetric BOOLEAN DEFAULT false,
         is_active BOOLEAN DEFAULT true,
         description VARCHAR,
         sort_order INTEGER DEFAULT 0,
         usage_count INTEGER DEFAULT 0,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-    )""",
+        updated_at TIMESTAMP
+                             WITH TIME ZONE DEFAULT NOW()
+        )""",
     # ── Relation Type Aliases ───────────────────────────────────
-    """CREATE TABLE IF NOT EXISTS relation_type_aliases (
-        id BIGINT DEFAULT nextval('relation_type_aliases_seq') PRIMARY KEY,
+    """CREATE TABLE IF NOT EXISTS relation_type_aliases
+    (
+        id
+        BIGINT
+        DEFAULT
+        nextval
+       (
+        'relation_type_aliases_seq'
+       ) PRIMARY KEY,
         relation_type_id BIGINT,
-        alias VARCHAR(100),
+        alias VARCHAR
+       (
+           100
+       ),
         created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-    )""",
+        )""",
     # ── Unknown Relation Types ──────────────────────────────────
-    """CREATE TABLE IF NOT EXISTS unknown_relation_types (
-        id BIGINT DEFAULT nextval('unknown_relation_types_seq') PRIMARY KEY,
+    """CREATE TABLE IF NOT EXISTS unknown_relation_types
+    (
+        id
+        BIGINT
+        DEFAULT
+        nextval
+       (
+        'unknown_relation_types_seq'
+       ) PRIMARY KEY,
         name VARCHAR,
         occurrence_count INTEGER DEFAULT 1,
         first_seen TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        last_seen TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-    )""",
+        last_seen TIMESTAMP
+                             WITH TIME ZONE DEFAULT NOW()
+        )""",
     # ── Article Vectors ──────────────────────────────────────────
-    """CREATE TABLE IF NOT EXISTS article_vectors (
-        article_id VARCHAR,
-        vector_type VARCHAR,
-        embedding FLOAT[1024],
-        model_id VARCHAR NOT NULL,
-        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-        PRIMARY KEY (article_id, vector_type)
-    )""",
+    """CREATE TABLE IF NOT EXISTS article_vectors
+    (
+        article_id
+        VARCHAR,
+        vector_type
+        VARCHAR,
+        embedding
+        FLOAT [
+        1024],
+        model_id
+        VARCHAR
+        NOT
+        NULL,
+        created_at
+        TIMESTAMP
+        WITH
+        TIME
+        ZONE
+        DEFAULT
+        NOW
+       (
+       ),
+        PRIMARY KEY
+       (
+           article_id,
+           vector_type
+       )
+        )""",
     # ── Entity Vectors ───────────────────────────────────────────
-    """CREATE TABLE IF NOT EXISTS entity_vectors (
-        id BIGINT DEFAULT nextval('entity_vectors_seq') PRIMARY KEY,
+    """CREATE TABLE IF NOT EXISTS entity_vectors
+    (
+        id
+        BIGINT
+        DEFAULT
+        nextval
+       (
+        'entity_vectors_seq'
+       ) PRIMARY KEY,
         neo4j_id VARCHAR UNIQUE,
-        embedding FLOAT[1024],
+        embedding FLOAT [1024],
         model_id VARCHAR NOT NULL,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-    )""",
+        )""",
 ]
 
 # Sequences for BIGINT PK tables (must be created before tables)
@@ -439,9 +625,9 @@ async def _seed_relation_types(session) -> None:
         aliases = rt_copy.pop("aliases")
         await session.execute(
             text("""
-                INSERT INTO relation_types (name, name_en, category, is_symmetric, sort_order, description, is_active)
-                VALUES (:name, :name_en, :category, :is_symmetric, :sort_order, :description, true)
-            """),
+                 INSERT INTO relation_types (name, name_en, category, is_symmetric, sort_order, description, is_active)
+                 VALUES (:name, :name_en, :category, :is_symmetric, :sort_order, :description, true)
+                 """),
             rt_copy,
         )
         # Get the inserted id

@@ -41,8 +41,10 @@ class LadybugSource:
         # LadybugDB stores node labels in a system table
         # Query existing nodes to get distinct labels
         result = await self._pool.execute_query("""
-            SELECT DISTINCT label FROM nodes ORDER BY label
-        """)
+                                                SELECT DISTINCT label
+                                                FROM nodes
+                                                ORDER BY label
+                                                """)
 
         for row in result:
             label = row.get("label")
@@ -58,9 +60,9 @@ class LadybugSource:
             # Get properties for this label by sampling a node (parameterized)
             sample_result = await self._pool.execute_query(
                 """
-                SELECT properties FROM nodes
-                WHERE label = $1
-                LIMIT 1
+                SELECT properties
+                FROM nodes
+                WHERE label = $1 LIMIT 1
                 """,
                 {"1": label},  # DuckDB uses positional params as keys
             )
@@ -113,8 +115,10 @@ class LadybugSource:
 
         # Get distinct relationship types
         result = await self._pool.execute_query("""
-            SELECT DISTINCT type FROM edges ORDER BY type
-        """)
+                                                SELECT DISTINCT type
+                                                FROM edges
+                                                ORDER BY type
+                                                """)
 
         for row in result:
             rel_type = row.get("type")
@@ -130,9 +134,9 @@ class LadybugSource:
             # Sample a relationship to get source/target labels (parameterized)
             sample_result = await self._pool.execute_query(
                 """
-                SELECT source_label, target_label, properties FROM edges
-                WHERE type = $1
-                LIMIT 1
+                SELECT source_label, target_label, properties
+                FROM edges
+                WHERE type = $1 LIMIT 1
                 """,
                 {"1": rel_type},
             )
@@ -189,11 +193,11 @@ class LadybugSource:
 
         result = await self._pool.execute_query(
             """
-            SELECT node_id, properties FROM nodes
+            SELECT node_id, properties
+            FROM nodes
             WHERE label = $1
             ORDER BY node_id
-            OFFSET $2
-            LIMIT $3
+            OFFSET $2 LIMIT $3
             """,
             {"1": label, "2": offset, "3": limit},
         )
@@ -241,8 +245,7 @@ class LadybugSource:
             FROM edges
             WHERE type = $1
             ORDER BY edge_id
-            OFFSET $2
-            LIMIT $3
+            OFFSET $2 LIMIT $3
             """,
             {"1": rel_type, "2": offset, "3": limit},
         )
@@ -277,7 +280,9 @@ class LadybugSource:
 
         result = await self._pool.execute_query(
             """
-            SELECT COUNT(*) AS count FROM nodes WHERE label = $1
+            SELECT COUNT(*) AS count
+            FROM nodes
+            WHERE label = $1
             """,
             {"1": label},
         )
@@ -297,7 +302,9 @@ class LadybugSource:
 
         result = await self._pool.execute_query(
             """
-            SELECT COUNT(*) AS count FROM edges WHERE type = $1
+            SELECT COUNT(*) AS count
+            FROM edges
+            WHERE type = $1
             """,
             {"1": rel_type},
         )
@@ -307,13 +314,17 @@ class LadybugSource:
     async def get_label_names(self) -> list[str]:
         """Get list of all node label names."""
         result = await self._pool.execute_query("""
-            SELECT DISTINCT label FROM nodes ORDER BY label
-        """)
+                                                SELECT DISTINCT label
+                                                FROM nodes
+                                                ORDER BY label
+                                                """)
         return [row["label"] for row in result]
 
     async def get_rel_type_names(self) -> list[str]:
         """Get list of all relationship type names."""
         result = await self._pool.execute_query("""
-            SELECT DISTINCT type FROM edges ORDER BY type
-        """)
+                                                SELECT DISTINCT type
+                                                FROM edges
+                                                ORDER BY type
+                                                """)
         return [row["type"] for row in result]

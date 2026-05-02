@@ -55,10 +55,11 @@ def upgrade() -> None:
 
     # Step 4: Alter column to new enum type
     op.execute("""
-        ALTER TABLE articles
-        ALTER COLUMN persist_status TYPE persist_status_v2
+               ALTER TABLE articles
+               ALTER
+               COLUMN persist_status TYPE persist_status_v2
         USING persist_status::persist_status_v2;
-    """)
+               """)
 
     # Step 5: Drop old enum type
     op.execute("DROP TYPE IF EXISTS persist_status CASCADE;")
@@ -71,10 +72,11 @@ def upgrade() -> None:
 
     # Step 8: Change merged_source_ids from UUID[] to TEXT[]
     op.execute("""
-        ALTER TABLE articles
-        ALTER COLUMN merged_source_ids TYPE text[]
+               ALTER TABLE articles
+               ALTER
+               COLUMN merged_source_ids TYPE text[]
         USING merged_source_ids::text[];
-    """)
+               """)
 
 
 def downgrade() -> None:
@@ -97,15 +99,15 @@ def downgrade() -> None:
     """)
     # Step 4: Alter column to old enum
     op.execute("""
-        ALTER TABLE articles ALTER COLUMN persist_status TYPE persist_status_old
+               ALTER TABLE articles ALTER COLUMN persist_status TYPE persist_status_old
         USING persist_status::persist_status_old;
-    """)
+               """)
     # Step 5: Drop new enum type
     op.execute("DROP TYPE IF EXISTS persist_status CASCADE;")
     # Step 6: Rename old enum back
     op.execute("ALTER TYPE persist_status_old RENAME TO persist_status;")
     # Step 7: Revert merged_source_ids
     op.execute("""
-        ALTER TABLE articles ALTER COLUMN merged_source_ids TYPE uuid[]
+               ALTER TABLE articles ALTER COLUMN merged_source_ids TYPE uuid[]
         USING merged_source_ids::uuid[];
-    """)
+               """)

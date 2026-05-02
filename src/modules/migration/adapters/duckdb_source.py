@@ -58,12 +58,12 @@ class DuckDBSource:
             with self._engine.connect() as conn:
                 # Get all tables
                 tables_result = conn.execute(text("""
-                    SELECT table_name
-                    FROM information_schema.tables
-                    WHERE table_schema = 'main'
-                    AND table_type = 'BASE TABLE'
-                    ORDER BY table_name
-                """))
+                                                  SELECT table_name
+                                                  FROM information_schema.tables
+                                                  WHERE table_schema = 'main'
+                                                    AND table_type = 'BASE TABLE'
+                                                  ORDER BY table_name
+                                                  """))
                 tables = [row[0] for row in tables_result.fetchall()]
 
                 # Cache table names for reuse by get_table_names()
@@ -83,16 +83,15 @@ class DuckDBSource:
         """Read schema for a single table (sync)."""
         columns_result = conn.execute(
             text("""
-                SELECT
-                    column_name,
-                    data_type,
-                    is_nullable,
-                    column_default
-                FROM information_schema.columns
-                WHERE table_schema = 'main'
-                AND table_name = :table
-                ORDER BY ordinal_position
-            """),
+                 SELECT column_name,
+                        data_type,
+                        is_nullable,
+                        column_default
+                 FROM information_schema.columns
+                 WHERE table_schema = 'main'
+                   AND table_name = :table
+                 ORDER BY ordinal_position
+                 """),
             {"table": table},
         )
 
@@ -259,11 +258,11 @@ class DuckDBSource:
         def _get_tables_sync() -> list[str]:
             with self._engine.connect() as conn:
                 result = conn.execute(text("""
-                    SELECT table_name
-                    FROM information_schema.tables
-                    WHERE table_schema = 'main'
-                    AND table_type = 'BASE TABLE'
-                """))
+                                           SELECT table_name
+                                           FROM information_schema.tables
+                                           WHERE table_schema = 'main'
+                                             AND table_type = 'BASE TABLE'
+                                           """))
                 tables = [row[0] for row in result.fetchall()]
                 self._table_names_cache = tables
                 return tables

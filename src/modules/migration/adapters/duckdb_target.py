@@ -61,12 +61,11 @@ class DuckDBTarget:
                 # Check if table exists
                 exists_result = conn.execute(
                     text("""
-                        SELECT EXISTS (
-                            SELECT FROM information_schema.tables
-                            WHERE table_schema = 'main'
-                            AND table_name = :table
-                        )
-                    """),
+                         SELECT EXISTS (SELECT
+                                        FROM information_schema.tables
+                                        WHERE table_schema = 'main'
+                                          AND table_name = :table)
+                         """),
                     {"table": schema.table},
                 )
                 exists = exists_result.scalar()
@@ -105,12 +104,12 @@ class DuckDBTarget:
         for col in schema.columns:
             col_result = conn.execute(
                 text("""
-                    SELECT column_name
-                    FROM information_schema.columns
-                    WHERE table_schema = 'main'
-                    AND table_name = :table
-                    AND column_name = :column
-                """),
+                     SELECT column_name
+                     FROM information_schema.columns
+                     WHERE table_schema = 'main'
+                       AND table_name = :table
+                       AND column_name = :column
+                     """),
                 {"table": schema.table, "column": col.name},
             )
 

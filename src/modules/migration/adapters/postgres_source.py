@@ -44,12 +44,12 @@ class PostgresSource:
         async with self._engine.connect() as conn:
             # Get all user tables
             tables_result = await conn.execute(text("""
-                    SELECT table_name
-                    FROM information_schema.tables
-                    WHERE table_schema = 'public'
-                    AND table_type = 'BASE TABLE'
-                    ORDER BY table_name
-                """))
+                                                    SELECT table_name
+                                                    FROM information_schema.tables
+                                                    WHERE table_schema = 'public'
+                                                      AND table_type = 'BASE TABLE'
+                                                    ORDER BY table_name
+                                                    """))
             tables = [row[0] for row in tables_result.fetchall()]
 
             for table in tables:
@@ -68,19 +68,18 @@ class PostgresSource:
         # Get columns
         columns_result = await conn.execute(
             text("""
-                SELECT
-                    column_name,
-                    data_type,
-                    is_nullable,
-                    column_default,
-                    character_maximum_length,
-                    numeric_precision,
-                    numeric_scale
-                FROM information_schema.columns
-                WHERE table_schema = 'public'
-                AND table_name = :table
-                ORDER BY ordinal_position
-            """),
+                 SELECT column_name,
+                        data_type,
+                        is_nullable,
+                        column_default,
+                        character_maximum_length,
+                        numeric_precision,
+                        numeric_scale
+                 FROM information_schema.columns
+                 WHERE table_schema = 'public'
+                   AND table_name = :table
+                 ORDER BY ordinal_position
+                 """),
             {"table": table},
         )
 
@@ -112,12 +111,12 @@ class PostgresSource:
         # Get primary key
         pk_result = await conn.execute(
             text("""
-                SELECT a.attname
-                FROM pg_index i
-                JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-                WHERE i.indrelid = :table::regclass
+                 SELECT a.attname
+                 FROM pg_index i
+                          JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY (i.indkey)
+                 WHERE i.indrelid = :table::regclass
                 AND i.indisprimary
-            """),
+                 """),
             {"table": f"public.{table}"},
         )
         pk_row = pk_result.fetchone()
@@ -126,11 +125,11 @@ class PostgresSource:
         # Get indexes
         idx_result = await conn.execute(
             text("""
-                SELECT indexname
-                FROM pg_indexes
-                WHERE schemaname = 'public'
-                AND tablename = :table
-            """),
+                 SELECT indexname
+                 FROM pg_indexes
+                 WHERE schemaname = 'public'
+                   AND tablename = :table
+                 """),
             {"table": table},
         )
         indexes = [row[0] for row in idx_result.fetchall()]
@@ -245,9 +244,9 @@ class PostgresSource:
         """Get list of all table names."""
         async with self._engine.connect() as conn:
             result = await conn.execute(text("""
-                    SELECT table_name
-                    FROM information_schema.tables
-                    WHERE table_schema = 'public'
-                    AND table_type = 'BASE TABLE'
-                """))
+                                             SELECT table_name
+                                             FROM information_schema.tables
+                                             WHERE table_schema = 'public'
+                                               AND table_type = 'BASE TABLE'
+                                             """))
             return [row[0] for row in result.fetchall()]

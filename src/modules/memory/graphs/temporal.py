@@ -53,7 +53,7 @@ class TemporalGraphRepo(BaseGraphRepo):
             # Timestamp index for temporal queries
             """
             CREATE INDEX event_node_timestamp IF NOT EXISTS
-            FOR (e:EventNode) ON (e.timestamp)
+                FOR (e:EventNode) ON (e.timestamp)
             """,
         ]
 

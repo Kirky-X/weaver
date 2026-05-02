@@ -27,7 +27,6 @@ from modules.ingestion.fetching.base import BaseFetcher
 from modules.ingestion.parsing.base import BaseSourceParser
 from modules.ingestion.parsing.newsnow_parser import NewsNowParser
 from modules.ingestion.parsing.plugin import (
-    PluginMetadata,
     discover_plugins_from_directory,
     get_registered_plugins,
     scan_and_load_external_plugins,

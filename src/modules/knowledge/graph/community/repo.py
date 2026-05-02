@@ -188,17 +188,17 @@ class Neo4jCommunityRepo:
         created_at_cypher, updated_at_cypher, now_value = self._format_timestamp_params()
         query = (
             """
-            CREATE (c:Community {
-                id: $id,
-                title: $title,
-                level: $level,
-                parent_id: $parent_id,
-                children_ids: $children_ids,
-                entity_count: $entity_count,
-                rank: $rank,
-                period: $period,
-                modularity: $modularity,
-                created_at: """
+                CREATE (c:Community {
+                    id: $id,
+                    title: $title,
+                    level: $level,
+                    parent_id: $parent_id,
+                    children_ids: $children_ids,
+                    entity_count: $entity_count,
+                    rank: $rank,
+                    period: $period,
+                    modularity: $modularity,
+                    created_at: """
             + created_at_cypher
             + """
             updated_at: """
