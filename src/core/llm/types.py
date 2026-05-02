@@ -137,6 +137,9 @@ class RoutingConfig(BaseModel):
 
     primary: str = ""
     fallbacks: list[str] = []
+    think: bool | None = None
+    max_tokens: int | None = None
+    temperature: float | None = None
 
     def __post_init__(self) -> None:
         """Ensure fallbacks is initialized."""
@@ -150,6 +153,7 @@ class ModelConfig(BaseModel):
     model_id: str = ""
     temperature: float = 0.0
     max_tokens: int | None = None
+    think: bool | None = None
     capabilities: frozenset[Capability] = frozenset()
 
     @field_validator("capabilities", mode="before")

@@ -73,6 +73,7 @@ class LiteLLMCaller:
         user_content: str,
         temperature: float = 0.0,
         max_tokens: int | None = None,
+        think: bool | None = None,
         timeout: float = 120.0,
     ) -> LLMResponse:
         """执行chat调用.
@@ -86,6 +87,7 @@ class LiteLLMCaller:
             user_content: 用户内容
             temperature: 采样温度
             max_tokens: 最大token数
+            think: 是否启用思考模式(None=不传递,由模型默认)
             timeout: 超时时间
 
         Returns:
@@ -106,6 +108,9 @@ class LiteLLMCaller:
             "temperature": temperature,
             "timeout": timeout,
         }
+
+        if think is not None:
+            kwargs["think"] = think
 
         if api_base:
             kwargs["api_base"] = api_base
@@ -138,6 +143,42 @@ class LiteLLMCaller:
                 raise ValueError(f"LLM choice has no message: {model}")
 
             content = getattr(message, "content", None) or ""
+
+            # Defensive: some models may return empty content with reasoning
+            if not content:
+                reasoning = getattr(message, "reasoning_content", None) or ""
+                if reasoning:
+                    lines = [
+                        line.strip()
+                        for line in reasoning.split("\n")
+                        if line.strip()
+                        and not line.strip().startswith(
+                            (
+                                "*",
+                                "#",
+                                "-",
+                                "1.",
+                                "2.",
+                                "3.",
+                                "4.",
+                                "5.",
+                                "6.",
+                                "7.",
+                                "8.",
+                                "9.",
+                            )
+                        )
+                        and "Thinking Process" not in line
+                        and "**" not in line
+                    ]
+                    if lines:
+                        content = lines[-1]
+                        log.warning(
+                            "chat_fallback_to_reasoning",
+                            model=model,
+                            finish_reason=getattr(choice, "finish_reason", None),
+                            fallback_len=len(content),
+                        )
 
             if not content:
                 log.warning(
@@ -441,6 +482,7 @@ class LiteLLMCaller:
                 user_content=payload.get("user_content", ""),
                 temperature=payload.get("temperature", 0.0),
                 max_tokens=payload.get("max_tokens"),
+                think=payload.get("think"),
                 timeout=timeout,
             )
         elif label.llm_type == LLMType.EMBEDDING:

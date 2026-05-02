@@ -314,6 +314,18 @@ class LLMClient:
         # 构建请求payload
         request_payload = dict(payload)
 
+        # Apply call-point level overrides (think, max_tokens, temperature)
+        cp_config = self._router.get_call_point_config(
+            call_point.value if isinstance(call_point, CallPoint) else call_point
+        )
+        if cp_config:
+            if cp_config.think is not None and "think" not in request_payload:
+                request_payload["think"] = cp_config.think
+            if cp_config.max_tokens is not None and "max_tokens" not in request_payload:
+                request_payload["max_tokens"] = cp_config.max_tokens
+            if cp_config.temperature is not None and "temperature" not in request_payload:
+                request_payload["temperature"] = cp_config.temperature
+
         # 如果有prompt_loader,构建system_prompt
         if self._prompts:
             # Extract string value from CallPoint enum if needed

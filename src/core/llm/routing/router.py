@@ -59,6 +59,10 @@ class LabelRouter:
 
         return self._build_chain(routing)
 
+    def get_call_point_config(self, call_point: str) -> RoutingConfig | None:
+        """获取调用点的完整路由配置（含 overrides）."""
+        return self._call_points.get(call_point)
+
     def get_default(self, llm_type: LLMType) -> Label:
         """获取指定类型的默认label.
 
