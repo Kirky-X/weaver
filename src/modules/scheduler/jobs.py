@@ -932,7 +932,7 @@ class SchedulerJobs:
             processed_count = 0
             for article in stored_articles:
                 try:
-                    await self._pipeline.process_pending_enrichment(article.id)
+                    await self._pipeline.process_pending_enrichment(str(article.id))
                     processed_count += 1
                     log.debug(
                         "process_pending_enrichment_success",

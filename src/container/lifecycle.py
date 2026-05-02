@@ -342,6 +342,16 @@ class ContainerLifecycleMixin:
             coalesce=True,
         )
 
+        # Pipeline B — Enrichment (STORED → ENRICHING → COMPLETE)
+        scheduler.add_job(
+            jobs.process_pending_enrichment,
+            IntervalTrigger(minutes=settings.enrichment_interval_minutes),
+            id="process_pending_enrichment",
+            name="Process pending enrichment (Pipeline B)",
+            max_instances=1,
+            coalesce=True,
+        )
+
         # Crawl Retry
         scheduler.add_job(
             jobs.flush_retry_queue,
