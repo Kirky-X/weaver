@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from core.protocols.repositories import VectorRepository
     from modules.ingestion import SourceScheduler
     from modules.knowledge.search import GlobalSearchEngine, HybridSearchEngine, LocalSearchEngine
-    from modules.storage import SourceAuthorityRepo, VectorRepo
+    from modules.storage import SourceAuthorityRepo
     from modules.ingestion import SourceConfigRepo
     from modules.analytics import LLMFailureRepo, LLMUsageRepo
     from modules.storage.graph_repo import GraphRepository
@@ -266,7 +266,7 @@ RelationalPoolDep = Annotated["RelationalPool", Depends(get_relational_pool)]
 GraphPoolDep = Annotated["GraphPool", Depends(get_graph_pool)]
 CachePoolDep = Annotated["CachePool", Depends(get_cache_client)]
 LLMClientDep = Annotated["LLMClient", Depends(get_llm_client)]
-VectorRepoDep = Annotated["VectorRepo", Depends(get_vector_repo)]
+VectorRepoDep = Annotated["VectorRepository", Depends(get_vector_repo)]
 GraphRepoDep = Annotated["GraphRepository", Depends(get_graph_repo)]
 LocalSearchEngineDep = Annotated["LocalSearchEngine", Depends(get_local_search_engine)]
 GlobalSearchEngineDep = Annotated["GlobalSearchEngine", Depends(get_global_search_engine)]

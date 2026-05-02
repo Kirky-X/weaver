@@ -92,17 +92,16 @@ async def get_index_usage(
     async with pool.session() as session:
         result = await session.execute(
             text("""
-                SELECT
-                    schemaname || '.' || relname AS table,
+                 SELECT schemaname || '.' || relname AS table,
                     indexrelname AS index,
                     idx_scan AS scans,
                     idx_tup_read AS tuples_read,
                     idx_tup_fetch AS tuples_fetched,
                     pg_size_pretty(pg_relation_size(indexrelid)) AS size
-                FROM pg_stat_user_indexes
-                ORDER BY idx_scan ASC
-                LIMIT :limit
-            """),
+                 FROM pg_stat_user_indexes
+                 ORDER BY idx_scan ASC
+                     LIMIT :limit
+                 """),
             {"limit": limit},
         )
 
@@ -151,16 +150,16 @@ async def get_table_stats(
     async with pool.session() as session:
         result = await session.execute(
             text("""
-                SELECT
-                    schemaname || '.' || relname AS table,
+                 SELECT schemaname || '.' || relname AS table,
                     n_live_tup AS rows,
                     pg_size_pretty(pg_total_relation_size(c.oid)) AS size,
                     pg_size_pretty(pg_indexes_size(c.oid)) AS index_size
-                FROM pg_stat_user_tables t
-                JOIN pg_class c ON c.relname = t.relname
-                ORDER BY pg_total_relation_size(c.oid) DESC
-                LIMIT :limit
-            """),
+                 FROM pg_stat_user_tables t
+                     JOIN pg_class c
+                 ON c.relname = t.relname
+                 ORDER BY pg_total_relation_size(c.oid) DESC
+                     LIMIT :limit
+                 """),
             {"limit": limit},
         )
 
@@ -253,17 +252,15 @@ async def get_slow_queries(
         async with pool.session() as session:
             result = await session.execute(
                 text("""
-                    SELECT
-                        query,
-                        calls,
-                        mean_exec_time AS avg_duration_ms,
-                        total_exec_time AS total_duration_ms,
-                        rows AS rows_retrieved
-                    FROM pg_stat_statements
-                    WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
-                    ORDER BY mean_exec_time DESC
-                    LIMIT :limit
-                """),
+                     SELECT query,
+                            calls,
+                            mean_exec_time  AS avg_duration_ms,
+                            total_exec_time AS total_duration_ms, rows AS rows_retrieved
+                     FROM pg_stat_statements
+                     WHERE dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+                     ORDER BY mean_exec_time DESC
+                         LIMIT :limit
+                     """),
                 {"limit": limit},
             )
 

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from api.dependencies import get_graph_pool
 from api.middleware.auth import verify_admin_api_key
@@ -12,7 +13,6 @@ from api.schemas.types import RoundedFloat
 from core.observability import get_logger
 from core.protocols import GraphPool
 from modules.knowledge.graph import CommunityHealthChecker
-from pydantic import BaseModel
 
 log = get_logger(__name__)
 

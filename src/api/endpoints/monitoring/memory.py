@@ -6,11 +6,11 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 
 from api.dependencies import get_container
 from api.middleware.auth import verify_admin_api_key
 from api.schemas.response import APIResponse, success_response
-from pydantic import BaseModel
 
 router = APIRouter(prefix="/monitoring/memory", tags=["monitoring", "memory"])
 
