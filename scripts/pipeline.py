@@ -220,7 +220,7 @@ class PipelineAPIClient:
         max_items: int | None = None,
     ) -> str:
         """Trigger pipeline for a source."""
-        url = f"{self.base_url}/api/v1/admin/pipeline/trigger"
+        url = f"{self.base_url}/api/v1/pipeline/trigger"
         payload: dict[str, Any] = {
             "source_id": source_id,
             "force": True,
@@ -510,6 +510,7 @@ async def clear_databases(server_ctx: ServerContext) -> None:
         "llm_usage_hourly",
         "pending_sync",
         "unknown_relation_types",
+        "sources",
     ]
 
     async with pool.session_context() as session:
@@ -693,40 +694,91 @@ async def run_all_sources(
     )
 
 
+async def _wait_for_llm_processing(
+    client: PipelineAPIClient,
+    timeout: int,
+) -> tuple[int, int]:
+    """Wait for full LLM processing. Returns (total, incomplete). incomplete=0 done, -1 timeout."""
+    llm_start = time.time()
+    empty_since = time.time()
+    while time.time() - llm_start < timeout:
+        articles = await client.list_articles(page=1, page_size=1, is_news=True)
+        total = articles.get("total", 0)
+        if total == 0:
+            if time.time() - empty_since > 60:
+                return 0, 0
+            await asyncio.sleep(5)
+            continue
+
+        incomplete = 0
+        page = 1
+        page_size = 100
+        fetched = 0
+        while fetched < total:
+            batch = await client.list_articles(page=page, page_size=page_size, is_news=True)
+            items = batch.get("items", [])
+            if not items:
+                break
+            incomplete += sum(
+                1 for a in items if a.get("credibility_score") is None and a.get("body")
+            )
+            fetched += len(items)
+            page += 1
+
+        if incomplete == 0:
+            return total, 0
+
+        elapsed = int(time.time() - llm_start)
+        print(f"    Waiting... {incomplete}/{total} articles still processing ({elapsed}s)")
+        await asyncio.sleep(10)
+
+    articles = await client.list_articles(page=1, page_size=1, is_news=True)
+    return articles.get("total", 0), -1
+
+
 async def run_newsnow_test(
     client: PipelineAPIClient,
     source_id: str,
     max_items: int,
     timeout: int,
 ) -> TestResult:
-    """Run NewsNow mode test."""
+    """Run NewsNow mode test with full LLM pipeline wait."""
     phase_header("PHASE 1: Source Creation")
     source_config = build_newsnow_source_config(source_id)
     source = await client.create_source(source_config)
     step(f"Created source: {source['id']}", True)
 
-    phase_header("PHASE 2: Pipeline Execution")
+    phase_header("PHASE 2: Pipeline Execution (crawl + queue)")
     task_id = await client.trigger_pipeline(source["id"], max_items)
     step(f"Pipeline triggered", True, f"task_id: {task_id[:8]}...")
 
     status = await client.wait_for_task(task_id, timeout=timeout)
     step(
-        f"Task completed",
+        f"Crawl task completed",
         status.status == "completed",
-        f"status: {status.status}",
+        f"status: {status.status}, processed: {status.total_processed}",
     )
 
     if status.error:
         step(f"Task error", False, status.error)
 
-    phase_header("PHASE 3: Verification")
+    phase_header("PHASE 3: Waiting for LLM Processing (Phase 1→2→3)")
+    total, incomplete = await _wait_for_llm_processing(client, timeout)
+    llm_ok = incomplete == 0
+    step(
+        "LLM pipeline complete",
+        llm_ok,
+        f"{total} articles fully processed" if llm_ok else f"timeout after {timeout}s",
+    )
+
+    phase_header("PHASE 4: Final Verification")
     articles = await client.list_articles(page=1, page_size=1)
     total = articles.get("total", 0)
     step(f"Articles stored", total > 0, f"{total} articles")
 
     return TestResult(
-        success=status.status == "completed" and total > 0,
-        message=f"NewsNow test: {status.status}",
+        success=llm_ok and total > 0,
+        message=f"NewsNow test: crawl={status.status}, llm={'complete' if llm_ok else 'timeout'}",
         articles_count=total,
         details={"task_id": task_id, "source_id": source["id"]},
     )
@@ -738,34 +790,42 @@ async def run_rss_test(
     max_items: int,
     timeout: int,
 ) -> TestResult:
-    """Run RSS mode test."""
     phase_header("PHASE 1: Source Creation")
     source_config = build_rss_source_config(source)
     created = await client.create_source(source_config)
     step(f"Created source: {created['id']}", True)
 
-    phase_header("PHASE 2: Pipeline Execution")
+    phase_header("PHASE 2: Pipeline Execution (crawl + queue)")
     task_id = await client.trigger_pipeline(created["id"], max_items)
     step(f"Pipeline triggered", True, f"task_id: {task_id[:8]}...")
 
     status = await client.wait_for_task(task_id, timeout=timeout)
     step(
-        f"Task completed",
+        f"Crawl task completed",
         status.status == "completed",
-        f"status: {status.status}",
+        f"status: {status.status}, processed: {status.total_processed}",
     )
 
     if status.error:
         step(f"Task error", False, status.error)
 
-    phase_header("PHASE 3: Verification")
+    phase_header("PHASE 3: Waiting for LLM Processing (Phase 1→2→3)")
+    total, incomplete = await _wait_for_llm_processing(client, timeout)
+    llm_ok = incomplete == 0
+    step(
+        "LLM pipeline complete",
+        llm_ok,
+        f"{total} articles fully processed" if llm_ok else f"timeout after {timeout}s",
+    )
+
+    phase_header("PHASE 4: Final Verification")
     articles = await client.list_articles(page=1, page_size=1)
     total = articles.get("total", 0)
     step(f"Articles stored", total > 0, f"{total} articles")
 
     return TestResult(
-        success=status.status == "completed" and total > 0,
-        message=f"RSS test: {status.status}",
+        success=llm_ok and total > 0,
+        message=f"RSS test: crawl={status.status}, llm={'complete' if llm_ok else 'timeout'}",
         articles_count=total,
         details={"task_id": task_id, "source_id": created["id"]},
     )
@@ -778,8 +838,6 @@ async def run_strategy_test(
     timeout: int,
     server_ctx: ServerContext,
 ) -> TestResult:
-    """Run Strategy mode test."""
-    # Verify fallback databases
     phase_header("PHASE 1: Strategy Verification")
     step(
         f"Relational database",
@@ -802,35 +860,48 @@ async def run_strategy_test(
             },
         )
 
-    # Run pipeline test
     phase_header("PHASE 2: Source Creation")
     source_config = build_newsnow_source_config(source_id)
     source = await client.create_source(source_config)
     step(f"Created source: {source['id']}", True)
 
-    phase_header("PHASE 3: Pipeline Execution")
+    phase_header("PHASE 3: Pipeline Execution (crawl + queue)")
     task_id = await client.trigger_pipeline(source["id"], max_items)
     step(f"Pipeline triggered", True, f"task_id: {task_id[:8]}...")
 
     status = await client.wait_for_task(task_id, timeout=timeout)
     step(
-        f"Task completed",
+        f"Crawl task completed",
         status.status == "completed",
-        f"status: {status.status}",
+        f"status: {status.status}, processed: {status.total_processed}",
     )
 
-    phase_header("PHASE 4: Verification")
+    if status.error:
+        step(f"Task error", False, status.error)
+
+    phase_header("PHASE 4: Waiting for LLM Processing (Phase 1→2→3)")
+    total, incomplete = await _wait_for_llm_processing(client, timeout)
+    llm_ok = incomplete == 0
+    step(
+        "LLM pipeline complete",
+        llm_ok,
+        f"{total} articles fully processed" if llm_ok else f"timeout after {timeout}s",
+    )
+
+    phase_header("PHASE 5: Final Verification")
     articles = await client.list_articles(page=1, page_size=1)
     total = articles.get("total", 0)
     step(f"Articles stored", total > 0, f"{total} articles")
 
     return TestResult(
-        success=status.status == "completed" and total > 0,
-        message=f"Strategy test: {status.status}",
+        success=llm_ok and total > 0,
+        message=f"Strategy test: crawl={status.status}, llm={'complete' if llm_ok else 'timeout'}",
         articles_count=total,
         details={
             "relational_type": server_ctx.relational_type,
             "graph_type": server_ctx.graph_type,
+            "task_id": task_id,
+            "source_id": source["id"],
         },
     )
 
@@ -1008,7 +1079,7 @@ async def cmd_process_pending(args: argparse.Namespace) -> int:
                     neo4j_ids = await graph_writer.write(state)
                     state["neo4j_ids"] = neo4j_ids
                     await article_repo.update_persist_status(
-                        article_id_uuid, PersistStatus.COMPLETE
+                        article_id_uuid, PersistStatus.ENRICHING
                     )
                     print(f"  ✓ Neo4j/LadybugDB 持久化完成")
 
@@ -1023,6 +1094,10 @@ async def cmd_process_pending(args: argparse.Namespace) -> int:
                             model_id=vectors.get("model_id", "unknown"),
                         )
                         print(f"  ✓ 向量持久化完成")
+
+                # All enrichment done, mark complete
+                await article_repo.update_persist_status(article_id_uuid, PersistStatus.COMPLETE)
+                print(f"  ✓ 处理完成")
 
             processed_count += 1
 
