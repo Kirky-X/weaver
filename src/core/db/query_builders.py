@@ -264,11 +264,11 @@ class PgVectorQueryBuilder:
     def build_upsert_article_vector_query(self) -> str:
         """Build PostgreSQL upsert with ON CONFLICT."""
         return """
-            INSERT INTO article_vectors (article_id, vector_type, embedding, model_id)
-            VALUES (:article_id, :vector_type, CAST(:embedding AS vector), :model_id)
-            ON CONFLICT (article_id, vector_type)
-            DO UPDATE SET embedding = EXCLUDED.embedding, model_id = EXCLUDED.model_id, updated_at = NOW()
-        """
+               INSERT INTO article_vectors (article_id, vector_type, embedding, model_id)
+               VALUES (:article_id, :vector_type, CAST(:embedding AS vector), :model_id) ON CONFLICT (article_id, vector_type)
+            DO
+               UPDATE SET embedding = EXCLUDED.embedding, model_id = EXCLUDED.model_id, updated_at = NOW() \
+               """
 
     def build_upsert_article_vector_batch_query(self, batch_size: int) -> str:
         """Build PostgreSQL batch upsert with ON CONFLICT."""
@@ -343,11 +343,11 @@ class PgVectorQueryBuilder:
     def build_upsert_entity_vector_query(self) -> str:
         """Build PostgreSQL upsert for entity vectors with ON CONFLICT."""
         return """
-            INSERT INTO entity_vectors (neo4j_id, embedding, model_id)
-            VALUES (:neo4j_id, CAST(:embedding AS vector), :model_id)
-            ON CONFLICT (neo4j_id)
-            DO UPDATE SET embedding = EXCLUDED.embedding, model_id = EXCLUDED.model_id, updated_at = NOW()
-        """
+               INSERT INTO entity_vectors (neo4j_id, embedding, model_id)
+               VALUES (:neo4j_id, CAST(:embedding AS vector), :model_id) ON CONFLICT (neo4j_id)
+            DO
+               UPDATE SET embedding = EXCLUDED.embedding, model_id = EXCLUDED.model_id, updated_at = NOW() \
+               """
 
 
 class DuckDBVectorQueryBuilder:
@@ -385,13 +385,14 @@ class DuckDBVectorQueryBuilder:
         UNIQUE/PRIMARY KEY constraints. article_vectors uses composite PK (article_id, vector_type).
         """
         return """
-            INSERT INTO article_vectors (article_id, vector_type, embedding, model_id)
-            VALUES (:article_id, :vector_type, CAST(:embedding AS FLOAT[1024]), :model_id)
-            ON CONFLICT (article_id, vector_type) DO UPDATE SET
-                embedding = EXCLUDED.embedding,
-                model_id = EXCLUDED.model_id,
-                created_at = NOW()
-        """
+               INSERT INTO article_vectors (article_id, vector_type, embedding, model_id)
+               VALUES (:article_id, :vector_type, CAST(:embedding AS FLOAT[1024]),
+                       :model_id) ON CONFLICT (article_id, vector_type) DO
+               UPDATE SET
+                   embedding = EXCLUDED.embedding,
+                   model_id = EXCLUDED.model_id,
+                   created_at = NOW() \
+               """
 
     def build_upsert_article_vector_batch_query(self, batch_size: int) -> str:
         """DuckDB doesn't support batch upsert efficiently."""
@@ -404,13 +405,13 @@ class DuckDBVectorQueryBuilder:
         UNIQUE/PRIMARY KEY constraints. entity_vectors has PK (id) + UNIQUE (neo4j_id).
         """
         return """
-            INSERT INTO entity_vectors (neo4j_id, embedding, model_id)
-            VALUES (:neo4j_id, CAST(:embedding AS FLOAT[1024]), :model_id)
-            ON CONFLICT (neo4j_id) DO UPDATE SET
-                embedding = EXCLUDED.embedding,
-                model_id = EXCLUDED.model_id,
-                updated_at = NOW()
-        """
+               INSERT INTO entity_vectors (neo4j_id, embedding, model_id)
+               VALUES (:neo4j_id, CAST(:embedding AS FLOAT[1024]), :model_id) ON CONFLICT (neo4j_id) DO
+               UPDATE SET
+                   embedding = EXCLUDED.embedding,
+                   model_id = EXCLUDED.model_id,
+                   updated_at = NOW() \
+               """
 
     def build_find_similar_articles_query(self, config: SimilarityQuery) -> str:
         """Build DuckDB cosine similarity search."""

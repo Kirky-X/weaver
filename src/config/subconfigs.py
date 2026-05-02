@@ -234,6 +234,9 @@ class SchedulerSettings(BaseModel):
     pipeline_retry_stuck_timeout_minutes: int = 30
     pipeline_retry_max_retries: int = 3
 
+    # Pipeline B — Enrichment
+    enrichment_interval_minutes: int = 5
+
     # Cleanup
     cleanup_old_synced_days: int = 7
     cleanup_old_synced_cron_hour: int = 3

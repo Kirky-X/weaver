@@ -198,6 +198,15 @@ class ProviderPool:
                 )
                 continue
 
+            # Merge model_cfg defaults into payload (call-point overrides take priority)
+            merged_payload = dict(payload)
+            if model_cfg.temperature is not None and "temperature" not in merged_payload:
+                merged_payload["temperature"] = model_cfg.temperature
+            if model_cfg.max_tokens is not None and "max_tokens" not in merged_payload:
+                merged_payload["max_tokens"] = model_cfg.max_tokens
+            if model_cfg.think is not None and "think" not in merged_payload:
+                merged_payload["think"] = model_cfg.think
+
             # 检查熔断器
             if self._circuit_breaker.is_open:
                 log.warning(
@@ -210,7 +219,7 @@ class ProviderPool:
             try:
                 response = await self._execute_single(
                     label=label,
-                    payload=payload,
+                    payload=merged_payload,
                     timeout=timeout or self.config.timeout,
                     call_point=call_point,
                     article_id=article_id,
