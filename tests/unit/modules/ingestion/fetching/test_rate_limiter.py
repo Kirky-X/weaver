@@ -6,8 +6,9 @@ import time
 from unittest.mock import MagicMock, patch
 
 import pytest
+from cachetools import LRUCache
 
-from modules.ingestion.fetching.rate_limiter import HostRateLimiter
+from modules.ingestion.fetching.rate_limiter import BoundedLockDict, HostRateLimiter
 
 
 class TestHostRateLimiterInit:
@@ -28,11 +29,17 @@ class TestHostRateLimiterInit:
         assert limiter._delay_max == 2.0
 
     def test_init_internal_state(self):
-        """Test initialization of internal state."""
+        """Test initialization of internal state with bounded containers."""
         limiter = HostRateLimiter()
 
-        assert limiter._last_request == {}
-        assert limiter._locks == {}
+        # Now uses bounded containers to prevent memory leaks
+        assert isinstance(limiter._last_request, LRUCache)
+        assert limiter._last_request.maxsize == 1000
+        assert len(limiter._last_request) == 0
+
+        assert isinstance(limiter._locks, BoundedLockDict)
+        assert limiter._locks._maxsize == 1000
+        assert len(limiter._locks) == 0
 
 
 class TestHostRateLimiterAcquire:

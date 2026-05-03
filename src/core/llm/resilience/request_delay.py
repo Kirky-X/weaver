@@ -6,11 +6,64 @@ from __future__ import annotations
 import asyncio
 import random
 import time
-from collections import defaultdict
+from collections import OrderedDict
+
+from cachetools import LRUCache
 
 from core.observability.logging import get_logger
 
 log = get_logger(__name__)
+
+# Maximum number of provider locks to retain (prevents memory leak)
+MAX_PROVIDER_LOCKS = 1000
+MAX_PROVIDER_TIMESTAMPS = 1000
+
+
+class BoundedLockDict:
+    """Bounded dictionary for asyncio.Lock with LRU eviction.
+
+    Creates locks on demand and evicts least recently used entries
+    when capacity is reached. Safe for async context because eviction
+    only occurs when adding new keys, not when accessing existing ones.
+
+    Args:
+        maxsize: Maximum number of locks to retain.
+    """
+
+    def __init__(self, maxsize: int = 1000) -> None:
+        self._maxsize = maxsize
+        self._locks: OrderedDict[str, asyncio.Lock] = OrderedDict()
+
+    def __getitem__(self, key: str) -> asyncio.Lock:
+        """Get lock for key, creating if necessary.
+
+        Args:
+            key: Provider/host identifier.
+
+        Returns:
+            asyncio.Lock for the key.
+        """
+        if key in self._locks:
+            # Move to end (most recently used)
+            self._locks.move_to_end(key)
+            return self._locks[key]
+
+        # Create new lock
+        if len(self._locks) >= self._maxsize:
+            # Evict oldest (first item)
+            oldest_key = next(iter(self._locks))
+            log.debug("lock_evicted", key=oldest_key, reason="capacity_reached")
+            del self._locks[oldest_key]
+
+        lock = asyncio.Lock()
+        self._locks[key] = lock
+        return lock
+
+    def __contains__(self, key: str) -> bool:
+        return key in self._locks
+
+    def __len__(self) -> int:
+        return len(self._locks)
 
 
 class RequestDelay:
@@ -41,8 +94,8 @@ class RequestDelay:
         self._enabled = enabled
         self._delay_min = delay_min
         self._delay_max = delay_max
-        self._last_request_time: dict[str, float] = defaultdict(float)
-        self._locks: dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self._last_request_time: LRUCache[str, float] = LRUCache(maxsize=MAX_PROVIDER_TIMESTAMPS)
+        self._locks: BoundedLockDict = BoundedLockDict(maxsize=MAX_PROVIDER_LOCKS)
 
     async def acquire(self, provider: str) -> float:
         """在请求前调用此方法,等待必要的延迟时间.
@@ -61,7 +114,7 @@ class RequestDelay:
         async with self._locks[provider]:
             # 计算距离上次请求的时间
             now = time.monotonic()
-            last_time = self._last_request_time[provider]
+            last_time = self._last_request_time.get(provider, 0.0)
             elapsed = now - last_time
 
             # 生成随机延迟

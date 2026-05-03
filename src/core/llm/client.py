@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-import time
 from typing import TYPE_CHECKING, Any, TypeVar
 
+from cachetools import TTLCache
 from pydantic import BaseModel
 
 from core.constants import RedisKeys
@@ -75,9 +75,9 @@ class LLMClient:
         self._prompts = prompt_loader
         self._event_bus = event_bus
 
-        self._response_cache = {}
-        self._cache_max_size = 1000
-        self._cache_ttl = 3600
+        self._response_cache: TTLCache[str, dict[str, Any]] = TTLCache(maxsize=1000, ttl=3600)
+        self._cache_hits: int = 0
+        self._cache_misses: int = 0
 
         # 创建provider池映射,必须传递event_bus
         self._pools: dict[str, ProviderPool] = {}
@@ -180,26 +180,25 @@ class LLMClient:
             cp = call_point
 
         cache_key = f"{parsed_label}:{hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:32]}"
-        now = time.time()
 
+        # TTLCache handles TTL and eviction automatically
         if cache_key in self._response_cache:
             cached = self._response_cache[cache_key]
-            if now - cached["timestamp"] < self._cache_ttl:
-                log.info("llm_cache_hit", label=str(parsed_label))
-                await self._emit_usage_event(
-                    label=parsed_label,
-                    call_point=cp,
-                    latency_ms=0.0,
-                    token_usage=cached.get("token_usage"),
-                    success=True,
-                )
-                if output_model:
-                    return parse_llm_json(cached["content"], output_model)
-                return cached["content"]
-            else:
-                del self._response_cache[cache_key]
+            self._cache_hits += 1
+            log.info("llm_cache_hit", label=str(parsed_label))
+            await self._emit_usage_event(
+                label=parsed_label,
+                call_point=cp,
+                latency_ms=0.0,
+                token_usage=cached.get("token_usage"),
+                success=True,
+            )
+            if output_model:
+                return parse_llm_json(cached["content"], output_model)
+            return cached["content"]
 
         log.debug("llm_cache_miss", label=str(parsed_label))
+        self._cache_misses += 1
 
         # 构建label链
         labels = self._router.resolve(parsed_label)
@@ -233,15 +232,8 @@ class LLMClient:
 
                 self._response_cache[cache_key] = {
                     "content": response.content,
-                    "timestamp": time.time(),
                     "token_usage": response.token_usage,
                 }
-                if len(self._response_cache) > self._cache_max_size:
-                    oldest_key = min(
-                        self._response_cache,
-                        key=lambda k: self._response_cache[k]["timestamp"],
-                    )
-                    del self._response_cache[oldest_key]
 
                 log.debug(
                     "llm_call_complete",
@@ -540,7 +532,19 @@ class LLMClient:
 
     def get_metrics(self) -> dict[str, dict[str, Any]]:
         """获取所有provider的监控指标."""
-        return {name: pool.get_metrics() for name, pool in self._pools.items()}
+        metrics = {name: pool.get_metrics() for name, pool in self._pools.items()}
+        metrics["cache"] = {
+            "size": len(self._response_cache),
+            "maxsize": self._response_cache.maxsize,
+            "hits": self._cache_hits,
+            "misses": self._cache_misses,
+            "hit_rate": (
+                self._cache_hits / (self._cache_hits + self._cache_misses)
+                if (self._cache_hits + self._cache_misses) > 0
+                else 0.0
+            ),
+        }
+        return metrics
 
     def get_pool(self, name: str) -> ProviderPool | None:
         """获取provider池."""

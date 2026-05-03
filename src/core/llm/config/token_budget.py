@@ -6,6 +6,9 @@ from __future__ import annotations
 import tiktoken
 
 from core.llm.types import CallPoint
+from core.observability.logging import get_logger
+
+log = get_logger(__name__)
 
 # Per-call-point token limits
 LIMITS: dict[CallPoint, int] = {
@@ -60,6 +63,7 @@ class TokenBudgetManager:
             settings = get_settings()
             return settings.llm.tokenizer_model
         except Exception:
+            log.warning("Failed to get tokenizer model, falling back to default", exc_info=True)
             return None
 
     def truncate(self, text: str, call_point: CallPoint) -> str:
