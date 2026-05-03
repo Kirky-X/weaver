@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from modules.analytics import LLMFailureRepo, LLMUsageRepo
     from modules.storage.graph_repo import GraphRepository
 
-from api.endpoints._deps import Endpoints
+from api.endpoints.deps_registry import Endpoints
 
 
 def get_container() -> Container:

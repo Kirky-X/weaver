@@ -287,6 +287,7 @@ async def get_task_status(
         stats = await article_repo.get_task_progress_stats(task_uuid)
     except Exception:
         # If stats retrieval fails, use defaults
+        log.warning("task_progress_stats_query_failed", exc_info=True)
         stats = {
             "total_processed": 0,
             "processing_count": 0,

@@ -159,7 +159,7 @@ async def health_check() -> HealthCheckResponse:
         HealthCheckResponse with overall status and individual check results.
 
     """
-    from api.endpoints._deps import Endpoints
+    from api.endpoints.deps_registry import Endpoints
 
     checks: dict[str, ServiceHealthCheck] = {}
     all_healthy = True

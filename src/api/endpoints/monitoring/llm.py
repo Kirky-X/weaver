@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
-from api.endpoints._deps import Endpoints
+from api.endpoints.deps_registry import Endpoints
 from api.middleware.auth import verify_admin_api_key
 from api.schemas.response import APIResponse, success_response
 

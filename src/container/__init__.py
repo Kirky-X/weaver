@@ -109,6 +109,57 @@ class Container(
             raise RuntimeError("Container not configured. Call configure() first.")
         return self._settings
 
+    def is_job_registered(self, job_id: str) -> bool:
+        """Check if a scheduler job is registered.
+
+        Args:
+            job_id: The job identifier to check.
+
+        Returns:
+            True if the job is registered, False otherwise.
+
+        """
+        try:
+            if self._scheduler is not None:
+                jobs = self._scheduler.get_jobs()
+                return any(j.id == job_id for j in jobs)
+        except Exception:
+            log.warning("scheduler_job_check_failed", exc_info=True)
+        return False
+
+    async def memory_diagnostics(self) -> dict[str, Any]:
+        """Get memory service diagnostics.
+
+        Returns:
+            Dictionary with memory service statistics including:
+            - temporal_event_count: Number of temporal events
+            - causal_link_count: Number of causal links
+            - pending_consolidation: Pending consolidation queue length
+            - slow_path_enabled: Whether slow path is enabled
+            - service_initialized: Whether memory service is initialized
+
+        """
+        result: dict[str, Any] = {
+            "service_initialized": False,
+            "temporal_event_count": 0,
+            "causal_link_count": 0,
+            "pending_consolidation": 0,
+            "slow_path_enabled": False,
+        }
+
+        ms = self._memory_service
+        if ms is not None:
+            result["service_initialized"] = True
+            try:
+                result["temporal_event_count"] = await ms._temporal_repo.count_events()
+                result["causal_link_count"] = await ms._causal_repo.count_causal_links()
+                result["pending_consolidation"] = await ms._consolidation_queue.length()
+                result["slow_path_enabled"] = ms._config.slow_path_enabled
+            except Exception as exc:
+                log.warning("memory_diagnostic_query_failed", error=str(exc))
+
+        return result
+
 
 # ── Global container instance with thread-safe access ──────────────────────────
 

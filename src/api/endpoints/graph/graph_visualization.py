@@ -16,6 +16,9 @@ from pydantic import BaseModel, Field
 from api.dependencies import get_graph_repo
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
+from core.observability import get_logger
+
+log = get_logger(__name__)
 
 if TYPE_CHECKING:
     from modules.storage.graph_repo import GraphRepository
@@ -128,6 +131,7 @@ async def get_graph_visualization(
     try:
         edges_data = await graph_repo.get_visualization_edges(list(node_ids), edge_limit)
     except Exception:
+        log.warning("visualization_edges_query_failed", exc_info=True)
         return success_response(
             GraphSnapshotResponse(
                 nodes=nodes,
