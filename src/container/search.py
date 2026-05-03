@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from core.constants import DatabaseType
 from modules.knowledge.search import GlobalSearchEngine, HybridSearchEngine, LocalSearchEngine
 
 if TYPE_CHECKING:
@@ -38,7 +39,7 @@ class ContainerSearchMixin:
             return None
 
         # Build context builders based on graph type
-        if self._strategy.graph_type == "ladybug":
+        if self._strategy.graph_type == DatabaseType.LADYBUG.value:
             from modules.knowledge.search.context.ladybug_global_context import (
                 LadybugGlobalContextBuilder,
             )

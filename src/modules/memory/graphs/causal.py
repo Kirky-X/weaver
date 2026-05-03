@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from core.constants import DatabaseType
 from core.observability.logging import get_logger
 from modules.memory.core.graph_types import CausalRelationType
 from modules.memory.graphs.base import BaseGraphRepo
@@ -37,7 +38,7 @@ class CausalGraphRepo(BaseGraphRepo):
         """
         super().__init__(pool)
         self._confidence_threshold = confidence_threshold
-        self._is_ladybug = pool.database_type == "ladybug"
+        self._is_ladybug = pool.database_type == DatabaseType.LADYBUG.value
 
     async def ensure_constraints(self) -> None:
         """Create indexes for causal edges."""

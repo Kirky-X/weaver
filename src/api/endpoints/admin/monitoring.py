@@ -19,6 +19,7 @@ from sqlalchemy import text
 from api.dependencies import get_container
 from api.middleware.auth import verify_admin_api_key
 from api.schemas.response import APIResponse, success_response
+from core.constants import DatabaseType
 from core.db.postgres import PostgresPool
 
 if TYPE_CHECKING:
@@ -81,7 +82,7 @@ async def get_index_usage(
     pool = container.relational_pool()
 
     # Only works with PostgreSQL
-    if container.relational_pool_type != "postgres":
+    if container.relational_pool_type != DatabaseType.POSTGRES.value:
         return success_response(
             [],
             message="Index statistics only available for PostgreSQL",
@@ -139,7 +140,7 @@ async def get_table_stats(
     """
     pool = container.relational_pool()
 
-    if container.relational_pool_type != "postgres":
+    if container.relational_pool_type != DatabaseType.POSTGRES.value:
         return success_response(
             [],
             message="Table statistics only available for PostgreSQL",
@@ -194,7 +195,7 @@ async def get_pool_stats(
     pool = container.relational_pool()
 
     # Get pool statistics from SQLAlchemy
-    if container.relational_pool_type == "postgres":
+    if container.relational_pool_type == DatabaseType.POSTGRES.value:
         assert isinstance(pool, PostgresPool)
         engine = pool._engine
         if engine is None:
@@ -240,7 +241,7 @@ async def get_slow_queries(
     """
     pool = container.relational_pool()
 
-    if container.relational_pool_type != "postgres":
+    if container.relational_pool_type != DatabaseType.POSTGRES.value:
         return success_response(
             {"slow_queries": []},
             message="Slow query statistics only available for PostgreSQL",

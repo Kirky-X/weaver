@@ -13,6 +13,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
+from core.constants import DatabaseType
+
 from .exceptions import TypeConversionError
 
 # PostgreSQL to DuckDB type mapping
@@ -304,13 +306,13 @@ def get_compatible_type(source_type: str, target_db: str) -> str:
     Returns:
         Compatible type name for target database.
     """
-    if target_db == "duckdb":
+    if target_db == DatabaseType.DUCKDB.value:
         return pg_type_to_duckdb(source_type)
-    if target_db == "postgres":
+    if target_db == DatabaseType.POSTGRES.value:
         return duckdb_type_to_pg(source_type)
-    if target_db == "ladybug":
+    if target_db == DatabaseType.LADYBUG.value:
         return neo4j_type_to_ladybug(source_type)
-    if target_db == "neo4j":
+    if target_db == DatabaseType.NEO4J.value:
         return ladybug_type_to_neo4j(source_type)
 
     return source_type

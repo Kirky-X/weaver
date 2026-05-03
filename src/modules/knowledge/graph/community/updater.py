@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from core.constants import DatabaseType
 from core.observability.logging import get_logger
 
 # Optional: Leiden algorithm for better community detection
@@ -261,6 +262,7 @@ class IncrementalCommunityUpdater:
             result = await self._pool.execute_query(query)
             return result[0]["total"] if result and result[0] else 0
         except Exception:
+            log.warning("community_count_failed", exc_info=True)
             return 0
 
     async def _check_entity_change(self) -> tuple[bool, int, int]:
@@ -281,6 +283,7 @@ class IncrementalCommunityUpdater:
             result = await self._pool.execute_query(current_query)
             current_count = result[0]["total"] if result and result[0] else 0
         except Exception:
+            log.warning("check_entity_count_change_failed", exc_info=True)
             return False, 0, 0
 
         # Get previous count from metadata
@@ -292,6 +295,7 @@ class IncrementalCommunityUpdater:
             result = await self._pool.execute_query(previous_query)
             previous_count = result[0].get("previous_count", 0) if result and result[0] else 0
         except Exception:
+            log.warning("community_metadata_query_failed", exc_info=True)
             return False, current_count, 0
 
         if previous_count is None:
@@ -341,6 +345,7 @@ class IncrementalCommunityUpdater:
             result = await self._pool.execute_query(community_count_query)
             stats.total_communities = result[0]["total"] if result and result[0] else 0
         except Exception:
+            log.warning("community_count_in_stats_failed", exc_info=True)
             stats.total_communities = 0
 
         return stats
@@ -631,7 +636,7 @@ class IncrementalCommunityUpdater:
 
         db_type = (
             GraphDatabaseType.LADYBUG
-            if self._database_type == "ladybug"
+            if self._database_type == DatabaseType.LADYBUG.value
             else GraphDatabaseType.NEO4J
         )
         detector = CommunityDetector(pool=self._pool, llm_client=self._llm, database_type=db_type)
@@ -732,8 +737,8 @@ class IncrementalCommunityUpdater:
         if not community_ids:
             return [], []
 
-        id_expr1 = "e1.id" if self._database_type == "ladybug" else "elementId(e1)"
-        id_expr2 = "e2.id" if self._database_type == "ladybug" else "elementId(e2)"
+        id_expr1 = "e1.id" if self._database_type == DatabaseType.LADYBUG.value else "elementId(e1)"
+        id_expr2 = "e2.id" if self._database_type == DatabaseType.LADYBUG.value else "elementId(e2)"
 
         query = f"""
         MATCH (c:Community)-[:HAS_ENTITY]-(e1:Entity)

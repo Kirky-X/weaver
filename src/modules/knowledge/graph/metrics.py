@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from core.constants import GraphHealthStatus
+from core.constants import DatabaseType, GraphHealthStatus
 from core.db.graph_query_builders import GraphQueryBuilder, create_graph_query_builder
 from core.observability.logging import get_logger
 
@@ -144,7 +144,7 @@ class GraphQualityMetrics:
 
         LadybugDB stores type as edge_type property, Neo4j uses type() function.
         """
-        if self._db_type == "ladybug":
+        if self._db_type == DatabaseType.LADYBUG.value:
             return f"{var}.edge_type"
         return f"type({var})"
 
@@ -204,7 +204,7 @@ class GraphQualityMetrics:
         # - LadybugDB: r.edge_type returns the semantic type (WORKS_AT, PUBLISHES, etc.)
         #   but the relationship table name is RELATED_TO or MENTIONS
         # For LadybugDB, use direct table matching instead of type expression filtering
-        if self._db_type == "ladybug":
+        if self._db_type == DatabaseType.LADYBUG.value:
             relationships_query = """
             MATCH ()-[r:RELATED_TO]->()
             RETURN count(r) AS count
@@ -269,7 +269,7 @@ class GraphQualityMetrics:
         if metrics.total_entities > 0:
             # LadybugDB doesn't support nested aggregation like avg(count(...))
             # Use degree query to get individual degrees, then compute average in Python
-            if self._db_type == "ladybug":
+            if self._db_type == DatabaseType.LADYBUG.value:
                 degree_for_avg_query = """
                 MATCH (e:Entity)
                 OPTIONAL MATCH (e)-[r_out]->(other)
@@ -290,7 +290,7 @@ class GraphQualityMetrics:
             try:
                 degree_result = await self._pool.execute_query(degree_for_avg_query)
                 if degree_result:
-                    if self._db_type == "ladybug":
+                    if self._db_type == DatabaseType.LADYBUG.value:
                         # Compute average in Python for LadybugDB
                         degrees = [r.get("degree", 0) for r in degree_result]
                         metrics.average_degree = sum(degrees) / len(degrees) if degrees else 0.0
@@ -305,7 +305,7 @@ class GraphQualityMetrics:
 
         # Note: degree counts Entity-to-Entity relationships only, excluding MENTIONS
         # LadybugDB doesn't support `WHERE other:Entity` syntax
-        if self._db_type == "ladybug":
+        if self._db_type == DatabaseType.LADYBUG.value:
             degree_query = """
             MATCH (e:Entity)
             OPTIONAL MATCH (e)-[r_out]->(other)

@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+from core.constants import DatabaseType
 from core.llm.types import CallPoint
 from core.observability.logging import get_logger
 from modules.memory.core.graph_types import CausalRelationType
@@ -109,7 +110,7 @@ class CausalInferenceService:
         self._llm = llm_client
         self._causal_repo = causal_repo
         self._config = config or InferenceConfig()
-        self._is_ladybug = pool.database_type == "ladybug"
+        self._is_ladybug = pool.database_type == DatabaseType.LADYBUG.value
 
     async def infer_and_create_causal_edges(
         self,

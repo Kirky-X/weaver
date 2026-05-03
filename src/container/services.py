@@ -264,7 +264,7 @@ class ContainerServicesMixin:
         if self._strategy is None:
             return None
         if self._graph_entity_repo is None:
-            if self._strategy.graph_type == "ladybug":
+            if self._strategy.graph_type == DatabaseType.LADYBUG.value:
                 from modules.storage.ladybug import LadybugEntityRepo
 
                 self._graph_entity_repo = LadybugEntityRepo(graph_pool)
@@ -282,7 +282,7 @@ class ContainerServicesMixin:
         if self._strategy is None:
             return None
         if self._graph_article_repo is None:
-            if self._strategy.graph_type == "ladybug":
+            if self._strategy.graph_type == DatabaseType.LADYBUG.value:
                 from modules.storage.ladybug import LadybugArticleRepo
 
                 self._graph_article_repo = LadybugArticleRepo(graph_pool)
@@ -319,7 +319,7 @@ class ContainerServicesMixin:
             return None
         if self._graph_writer is None:
             rt_normalizer = self.relation_normalizer()
-            if self._strategy.graph_type == "ladybug":
+            if self._strategy.graph_type == DatabaseType.LADYBUG.value:
                 from modules.storage.ladybug import LadybugWriter
 
                 self._graph_writer = LadybugWriter(graph_pool, rt_normalizer)
@@ -344,14 +344,14 @@ class ContainerServicesMixin:
             # When Neo4j is primary, configure LadybugDB as lazy fallback
             fallback_pool_factory = None
             fallback_query_builder = None
-            if self._strategy.graph_type == "neo4j":
+            if self._strategy.graph_type == DatabaseType.NEO4J.value:
                 from core.db.ladybug_pool import LadybugPool
 
                 def _create_ladybug_fallback() -> LadybugPool:
                     return LadybugPool(db_path=self._settings.ladybug.db_path)
 
                 fallback_pool_factory = _create_ladybug_fallback
-                fallback_query_builder = create_graph_query_builder("ladybug")
+                fallback_query_builder = create_graph_query_builder(DatabaseType.LADYBUG.value)
 
             self._graph_repo = GraphRepository(
                 graph_pool, query_builder, fallback_pool_factory, fallback_query_builder

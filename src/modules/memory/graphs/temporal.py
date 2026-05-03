@@ -11,6 +11,7 @@ import json
 import time
 from typing import Any
 
+from core.constants import DatabaseType
 from core.observability.logging import get_logger
 from modules.memory.core.event_node import EventNode
 from modules.memory.graphs.base import BaseGraphRepo
@@ -35,7 +36,7 @@ class TemporalGraphRepo(BaseGraphRepo):
             pool: Graph database connection pool (Neo4j or LadybugDB).
         """
         super().__init__(pool)
-        self._is_ladybug = pool.database_type == "ladybug"
+        self._is_ladybug = pool.database_type == DatabaseType.LADYBUG.value
 
     async def ensure_constraints(self) -> None:
         """Create EventNode constraints and indexes."""
@@ -146,6 +147,7 @@ class TemporalGraphRepo(BaseGraphRepo):
                 log.debug("temporal_event_exists", event_id=event.id)
                 return True
         except Exception:
+            log.warning("temporal_event_exists_check_failed", event_id=event.id, exc_info=True)
             pass  # Continue to create
 
         # Find the most recent event
@@ -161,6 +163,7 @@ class TemporalGraphRepo(BaseGraphRepo):
         try:
             prev_result = await self._pool.execute_query(find_prev_query)
         except Exception:
+            log.warning("find_previous_event_failed", exc_info=True)
             pass  # No previous events
 
         # Create new event node

@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from api.dependencies import get_graph_pool, get_graph_pool_type, get_llm_client
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
-from core.constants import ProcessingStatus
+from core.constants import DatabaseType, GraphHealthStatus, ProcessingStatus
 from core.db import GraphDatabaseType
 from core.observability import get_logger
 from core.protocols import GraphPool
@@ -30,7 +30,11 @@ log = get_logger("community_api")
 
 def _get_db_type(pool_type: str) -> GraphDatabaseType:
     """Convert pool type string to GraphDatabaseType enum."""
-    return GraphDatabaseType.LADYBUG if pool_type == "ladybug" else GraphDatabaseType.NEO4J
+    return (
+        GraphDatabaseType.LADYBUG
+        if pool_type == DatabaseType.LADYBUG.value
+        else GraphDatabaseType.NEO4J
+    )
 
 
 router = APIRouter(prefix="/admin/communities", tags=["admin", "communities"])
@@ -437,7 +441,7 @@ async def get_health_overview(
         stale = metrics.get("stale_report_count", 0)
 
         if total == 0:
-            status = "critical"
+            status = GraphHealthStatus.CRITICAL.value
             score = 0.0
         else:
             empty_ratio = empty / total if total > 0 else 0
@@ -457,13 +461,13 @@ async def get_health_overview(
             score = max(0.0, min(100.0, score))
 
             if score >= 80:
-                status = "healthy"
+                status = GraphHealthStatus.HEALTHY.value
             elif score >= 60:
-                status = "moderate"
+                status = GraphHealthStatus.MODERATE.value
             elif score >= 40:
-                status = "degraded"
+                status = GraphHealthStatus.DEGRADED.value
             else:
-                status = "critical"
+                status = GraphHealthStatus.CRITICAL.value
 
         # Get hierarchy breaks count
         hierarchy_breaks = await checker._repo.find_hierarchy_breaks()
