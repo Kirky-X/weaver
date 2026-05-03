@@ -83,7 +83,7 @@ class GraphRepository:
             await pool.startup()
 
             # Initialize LadybugDB schema (create EventNode, CAUSES, etc.)
-            from modules.storage.ladybug.schema import initialize_ladybug_schema
+            from core.db.ladybug_schema import initialize_ladybug_schema
 
             await initialize_ladybug_schema(pool)
             log.info("ladybug_schema_initialized_for_fallback")
@@ -486,6 +486,7 @@ class GraphRepository:
 
             return weights
         except Exception:
+            log.warning("calculate_entity_co_occurrence_failed", exc_info=True)
             # Fallback: return empty, stored weight will be used
             return {}
 

@@ -273,6 +273,7 @@ class LadybugTemporalRepo:
             await self._pool.execute_query(query, {"id": event_id})
             return True
         except Exception:
+            log.warning("delete_event_failed", event_id=event_id, exc_info=True)
             return False
 
     async def count_events(self) -> int:

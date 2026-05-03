@@ -21,6 +21,10 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.orm import Session
 
+from core.observability.logging import get_logger
+
+log = get_logger(__name__)
+
 
 class _DuckDBAsyncSession:
     """Wraps sync Session to provide AsyncSession-compatible interface.

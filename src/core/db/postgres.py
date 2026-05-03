@@ -145,6 +145,7 @@ class PostgresPool:
             yield session
             await session.commit()
         except Exception:
+            log.warning("Database session commit failed, rolling back", exc_info=True)
             await session.rollback()
             raise
         finally:

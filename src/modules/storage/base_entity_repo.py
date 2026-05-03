@@ -19,6 +19,10 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from core.protocols import GraphPool
 
+from core.observability.logging import get_logger
+
+log = get_logger(__name__)
+
 # Valid edge type pattern: uppercase letters, underscores, and digits
 _EDGE_TYPE_RE = "^[\u4e00-\u9fffA-Z_][\u4e00-\u9fffA-Z_0-9]*$"
 
@@ -480,7 +484,7 @@ class BaseEntityRepo(ABC):
                 )
                 linked += 1
             except Exception:
-                # Subclass-specific logging handled in override
+                log.warning("merge_mentions_failed", article_id=event.id, exc_info=True)
                 linked += 0
         return linked
 

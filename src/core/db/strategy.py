@@ -52,9 +52,9 @@ async def create_strategy(
     """
     from core.db.duckdb_pool import DuckDBPool
     from core.db.ladybug_pool import LadybugPool
+    from core.db.ladybug_schema import initialize_ladybug_schema
     from core.db.neo4j import Neo4jPool
     from core.db.postgres import PostgresPool
-    from modules.storage.ladybug.schema import initialize_ladybug_schema
 
     # Default fallback settings
     if duckdb_settings is None:
@@ -87,7 +87,7 @@ async def create_strategy(
             raise RuntimeError("PostgreSQL unavailable and DuckDB fallback disabled") from exc
 
         # Fallback to DuckDB
-        from modules.storage.duckdb.schema import initialize_duckdb_schema
+        from core.db.duckdb_schema import initialize_duckdb_schema
 
         duckdb_pool = DuckDBPool(db_path=duckdb_settings.db_path)
         await duckdb_pool.startup()
