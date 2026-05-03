@@ -1292,18 +1292,6 @@ class IncrementalCommunityUpdater:
                 error=str(exc),
             )
 
-    async def _delete_all_communities(self) -> None:
-        """Delete all community nodes and relationships."""
-        query = """
-        MATCH (c:Community)
-        DETACH DELETE c
-        """
-
-        try:
-            await self._pool.execute_query(query)
-        except Exception as exc:
-            log.warning("delete_all_communities_failed", error=str(exc))
-
     async def _delete_communities_by_ids(self, community_ids: list[str]) -> None:
         """Delete specific communities by their IDs to prevent duplicate accumulation.
 

@@ -66,22 +66,3 @@ class LocationHierarchy:
         """
         # Simplified version - can be extended with geonamescache US states data
         return []
-
-    def build_hierarchy_tree(self) -> dict:
-        """Build complete hierarchy tree organized by continent.
-
-        Returns:
-            Dictionary with continents as keys and country lists as values.
-        """
-        tree: dict[str, list[dict]] = {}
-        for iso_code, country in self._country_data.items():
-            continent = country.get("continent", "Unknown")
-            if continent not in tree:
-                tree[continent] = []
-            tree[continent].append(
-                {
-                    "name": country["name"],
-                    "iso_code": iso_code,
-                }
-            )
-        return tree

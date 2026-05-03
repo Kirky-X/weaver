@@ -96,6 +96,10 @@ class GlobalSearchEngine:
         # Extract pool from context_builder for DRIFT search compatibility
         self._pool = getattr(context_builder, "_pool", None)
 
+    @staticmethod
+    def _collect_entities(communities) -> list[str]:
+        return list(set(e for c in communities if c.key_entities for e in c.key_entities))
+
     def _get_timeout(self, field: str, default: float) -> float:
         if self._search_settings is not None:
             return getattr(self._search_settings, field, default)
@@ -183,9 +187,7 @@ class GlobalSearchEngine:
                     answer=f"Found {len(communities)} relevant communities. LLM generation skipped.",
                     context_tokens=total_tokens,
                     confidence=self._estimate_confidence([], community_scores),
-                    entities=list(
-                        set(e for c in communities if c.key_entities for e in c.key_entities)
-                    ),
+                    entities=self._collect_entities(communities),
                     metadata={
                         "search_type": SearchMode.GLOBAL.value,
                         "communities": len(communities),
@@ -287,9 +289,7 @@ class GlobalSearchEngine:
                         len(c.full_content or c.summary or "") // 4 for c in sorted_communities
                     ),
                     sources=[],
-                    entities=list(
-                        set(e for c in sorted_communities if c.key_entities for e in c.key_entities)
-                    ),
+                    entities=self._collect_entities(sorted_communities),
                     confidence=0.5,
                     metadata={
                         "search_type": SearchMode.GLOBAL.value,
@@ -344,9 +344,7 @@ class GlobalSearchEngine:
                 answer=final_answer,
                 context_tokens=total_tokens,
                 sources=[],
-                entities=list(
-                    set(e for c in sorted_communities if c.key_entities for e in c.key_entities)
-                ),
+                entities=self._collect_entities(sorted_communities),
                 confidence=self._estimate_confidence(intermediate_answers, community_scores),
                 metadata={
                     "search_type": SearchMode.GLOBAL.value,

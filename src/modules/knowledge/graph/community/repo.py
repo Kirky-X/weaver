@@ -42,12 +42,6 @@ class Neo4jCommunityRepo:
         """Get current timestamp as integer for LadybugDB."""
         return int(time.time() * 1000)
 
-    def _now_datetime(self) -> str:
-        """Get datetime() expression based on database type."""
-        if self._database_type == GraphDatabaseType.LADYBUG:
-            return str(self._now_ts())
-        return "datetime()"
-
     def _format_timestamp_params(self) -> tuple[str, str, int | None]:
         """Return (created_at_cypher, updated_at_cypher, now_value) based on database type.
 

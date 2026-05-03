@@ -788,23 +788,3 @@ class LLMUsageRepo:
 
         log.info("llm_usage_raw_cleanup_done", days=days, removed=removed)
         return removed
-
-    async def cleanup_hourly_older_than(self, days: int = 365) -> int:
-        """Delete hourly aggregated records older than the specified number of days.
-
-        Args:
-            days: Number of days to retain. Defaults to 365 (1 year).
-
-        Returns:
-            Number of rows deleted.
-        """
-        cutoff = datetime.now(UTC) - timedelta(days=days)
-        async with self._pool.session() as session:
-            result = await session.execute(
-                delete(LLMUsageHourly).where(LLMUsageHourly.time_bucket < cutoff)
-            )
-            await session.commit()
-            removed = result.rowcount
-
-        log.info("llm_usage_hourly_cleanup_done", days=days, removed=removed)
-        return removed
