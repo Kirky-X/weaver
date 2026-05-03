@@ -54,6 +54,7 @@ dependencies = [
     "rapidfuzz>=3.0.0",
     "pycountry>=24.6.1",
     "geonamescache>=2.0.0",
+    "cachetools>=7.1.0",
 ]
 
 [project.optional-dependencies]
