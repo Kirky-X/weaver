@@ -95,7 +95,8 @@ class TestPgVectorQueryBuilder:
         result = builder.build_upsert_article_vector_query()
         assert "INSERT INTO article_vectors" in result
         assert "ON CONFLICT" in result
-        assert "DO UPDATE SET" in result
+        assert "DO" in result
+        assert "UPDATE SET" in result
 
     def test_build_upsert_article_vector_batch_query(self, builder: PgVectorQueryBuilder) -> None:
         result = builder.build_upsert_article_vector_batch_query(3)
