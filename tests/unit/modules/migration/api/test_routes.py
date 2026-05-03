@@ -12,7 +12,6 @@ from fastapi.testclient import TestClient
 
 from modules.migration.api.routes import router
 from tests.helpers import (
-    assert_migration_response,
     create_migration_request_data,
 )
 

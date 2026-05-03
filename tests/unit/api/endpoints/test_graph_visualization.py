@@ -7,7 +7,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from tests.helpers import assert_api_response, assert_graph_response, create_mock_graph_data
+from tests.helpers import assert_api_response
 
 
 def test_hops_whitelist_mapping():

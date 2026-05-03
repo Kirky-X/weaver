@@ -183,65 +183,6 @@ def _build_empty_data() -> dict[str, Any]:
     }
 
 
-def _build_edge_data() -> dict[str, Any]:
-    """边界场景：单条极端值数据。"""
-    return {
-        "query_hourly": [
-            {
-                "time_bucket": "2024-01-01T00:00:00",
-                "call_count": 1,
-                "input_tokens_sum": 1,
-                "output_tokens_sum": 0,
-                "total_tokens_sum": 1,
-                "latency_avg_ms": 0.01,
-                "latency_min_ms": 0.01,
-                "latency_max_ms": 0.01,
-                "success_count": 1,
-                "failure_count": 0,
-            }
-        ],
-        "get_summary": {
-            "total_calls": 1,
-            "total_input_tokens": 1,
-            "total_output_tokens": 0,
-            "total_tokens": 1,
-            "avg_latency_ms": 0.01,
-            "max_latency_ms": 0.01,
-            "min_latency_ms": 0.01,
-            "success_rate": 1.0,
-            "error_types": {},
-        },
-        "get_by_provider": [
-            {
-                "provider": "test",
-                "call_count": 1,
-                "total_tokens": 1,
-                "avg_latency_ms": 0.01,
-                "success_rate": 1.0,
-            }
-        ],
-        "get_by_model": [
-            {
-                "model": "test-model",
-                "provider": "test",
-                "call_count": 1,
-                "total_tokens": 1,
-                "avg_latency_ms": 0.01,
-                "success_rate": 1.0,
-            }
-        ],
-        "get_by_call_point": [
-            {
-                "call_point": "test_point",
-                "call_count": 1,
-                "total_tokens": 1,
-                "avg_latency_ms": 0.01,
-                "success_rate": 1.0,
-            }
-        ],
-    }
-
-
 def build_mock_repo(data: dict[str, Any]) -> MagicMock:
     """根据数据场景构建 mock LLMUsageRepo。"""
     repo = MagicMock()
