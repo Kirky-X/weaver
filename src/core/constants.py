@@ -78,6 +78,15 @@ class ResponseStatus(str, enum.Enum):
     ERROR = "error"
     PARTIAL = "partial"
 
+    @classmethod
+    def from_str(cls, value: str) -> ResponseStatus:
+        """Convert string to ResponseStatus enum."""
+        try:
+            return cls(value.lower())
+        except ValueError:
+            valid_values = [m.value for m in cls]
+            raise ValueError(f"Invalid response status '{value}'. Valid values: {valid_values}")
+
 
 # ── Source Type Constants ──────────────────────────────────────
 
@@ -89,6 +98,15 @@ class SourceType(str, enum.Enum):
     ATOM = "atom"
     HTML = "html"
     JSON = "json"
+
+    @classmethod
+    def from_str(cls, value: str) -> SourceType:
+        """Convert string to SourceType enum."""
+        try:
+            return cls(value.lower())
+        except ValueError:
+            valid_values = [m.value for m in cls]
+            raise ValueError(f"Invalid source type '{value}'. Valid values: {valid_values}")
 
 
 # ── Processing Status Constants ────────────────────────────────
@@ -103,6 +121,25 @@ class ProcessingStatus(str, enum.Enum):
     FAILED = "failed"
     RETRY = "retry"
 
+    @classmethod
+    def from_str(cls, value: str) -> ProcessingStatus:
+        """Convert string to ProcessingStatus enum.
+
+        Args:
+            value: String value to convert.
+
+        Returns:
+            Corresponding ProcessingStatus enum member.
+
+        Raises:
+            ValueError: If value is not a valid processing status.
+        """
+        try:
+            return cls(value.lower())
+        except ValueError:
+            valid_values = [m.value for m in cls]
+            raise ValueError(f"Invalid processing status '{value}'. Valid values: {valid_values}")
+
 
 # ── Health Status Constants ────────────────────────────────────
 
@@ -113,6 +150,15 @@ class HealthStatus(str, enum.Enum):
     HEALTHY = "healthy"
     DEGRADED = "degraded"
     UNHEALTHY = "unhealthy"
+
+    @classmethod
+    def from_str(cls, value: str) -> HealthStatus:
+        """Convert string to HealthStatus enum."""
+        try:
+            return cls(value.lower())
+        except ValueError:
+            valid_values = [m.value for m in cls]
+            raise ValueError(f"Invalid health status '{value}'. Valid values: {valid_values}")
 
 
 # ── LLM Provider Constants ──────────────────────────────────────
@@ -127,6 +173,15 @@ class LLMProvider(str, enum.Enum):
     LOCAL = "local"
     ZHIPU = "zhipu"
     OLLAMA = "ollama"
+
+    @classmethod
+    def from_str(cls, value: str) -> LLMProvider:
+        """Convert string to LLMProvider enum."""
+        try:
+            return cls(value.lower())
+        except ValueError:
+            valid_values = [m.value for m in cls]
+            raise ValueError(f"Invalid LLM provider '{value}'. Valid values: {valid_values}")
 
 
 # ── Pipeline State Constants (Data Level) ───────────────────────
@@ -158,6 +213,15 @@ class GraphHealthStatus(str, enum.Enum):
     DEGRADED = "degraded"
     CRITICAL = "critical"
 
+    @classmethod
+    def from_str(cls, value: str) -> GraphHealthStatus:
+        """Convert string to GraphHealthStatus enum."""
+        try:
+            return cls(value.lower())
+        except ValueError:
+            valid_values = [m.value for m in cls]
+            raise ValueError(f"Invalid graph health status '{value}'. Valid values: {valid_values}")
+
 
 # ── Sentiment Type Constants ─────────────────────────────────────
 
@@ -170,6 +234,15 @@ class SentimentType(str, enum.Enum):
     NEUTRAL = "neutral"
     MIXED = "mixed"
 
+    @classmethod
+    def from_str(cls, value: str) -> SentimentType:
+        """Convert string to SentimentType enum."""
+        try:
+            return cls(value.lower())
+        except ValueError:
+            valid_values = [m.value for m in cls]
+            raise ValueError(f"Invalid sentiment type '{value}'. Valid values: {valid_values}")
+
 
 # ── Search Mode Constants ───────────────────────────────────────
 
@@ -181,6 +254,15 @@ class SearchMode(str, enum.Enum):
     GLOBAL = "global"
     HYBRID = "hybrid"
     ARTICLES = "articles"
+
+    @classmethod
+    def from_str(cls, value: str) -> SearchMode:
+        """Convert string to SearchMode enum."""
+        try:
+            return cls(value.lower())
+        except ValueError:
+            valid_values = [m.value for m in cls]
+            raise ValueError(f"Invalid search mode '{value}'. Valid values: {valid_values}")
 
 
 # ── Pipeline Task Status Constants ───────────────────────────────
@@ -196,6 +278,17 @@ class PipelineTaskStatus(str, enum.Enum):
     CANCELLED = "cancelled"
     FAILED = "failed"
 
+    @classmethod
+    def from_str(cls, value: str) -> PipelineTaskStatus:
+        """Convert string to PipelineTaskStatus enum."""
+        try:
+            return cls(value.lower())
+        except ValueError:
+            valid_values = [m.value for m in cls]
+            raise ValueError(
+                f"Invalid pipeline task status '{value}'. Valid values: {valid_values}"
+            )
+
 
 # ── Relation Type Constants ────────────────────────────────────────
 
@@ -208,6 +301,15 @@ class RelationType(str, enum.Enum):
     REPORTS_ON = "REPORTS_ON"
     MENTIONS = "MENTIONS"
 
+    @classmethod
+    def from_str(cls, value: str) -> RelationType:
+        """Convert string to RelationType enum."""
+        try:
+            return cls(value.upper())
+        except ValueError:
+            valid_values = [m.value for m in cls]
+            raise ValueError(f"Invalid relation type '{value}'. Valid values: {valid_values}")
+
 
 # ── Health Check Status Constants ────────────────────────────────────
 
@@ -219,6 +321,15 @@ class HealthCheckStatus(str, enum.Enum):
     TIMEOUT = "timeout"
     ERROR = "error"
     UNAVAILABLE = "unavailable"
+
+    @classmethod
+    def from_str(cls, value: str) -> HealthCheckStatus:
+        """Convert string to HealthCheckStatus enum."""
+        try:
+            return cls(value.lower())
+        except ValueError:
+            valid_values = [m.value for m in cls]
+            raise ValueError(f"Invalid health check status '{value}'. Valid values: {valid_values}")
 
 
 # ── Migration Status Constants ───────────────────────────────────────
@@ -233,6 +344,25 @@ class MigrationStatus(str, enum.Enum):
     FAILED = "failed"
     CANCELLED = "cancelled"
 
+    @classmethod
+    def from_str(cls, value: str) -> MigrationStatus:
+        """Convert string to MigrationStatus enum.
+
+        Args:
+            value: String value to convert.
+
+        Returns:
+            Corresponding MigrationStatus enum member.
+
+        Raises:
+            ValueError: If value is not a valid migration status.
+        """
+        try:
+            return cls(value.lower())
+        except ValueError:
+            valid_values = [m.value for m in cls]
+            raise ValueError(f"Invalid migration status '{value}'. Valid values: {valid_values}")
+
 
 # ── Task Status Constants ────────────────────────────────────────────
 
@@ -245,6 +375,15 @@ class TaskStatus(str, enum.Enum):
     CANCELLED = "cancelled"
     FAILED = "failed"
     NOT_FOUND = "not_found"
+
+    @classmethod
+    def from_str(cls, value: str) -> TaskStatus:
+        """Convert string to TaskStatus enum."""
+        try:
+            return cls(value.lower())
+        except ValueError:
+            valid_values = [m.value for m in cls]
+            raise ValueError(f"Invalid task status '{value}'. Valid values: {valid_values}")
 
 
 # ── Default Values Constants ───────────────────────────────────────
@@ -290,6 +429,15 @@ class SortOrder(str, enum.Enum):
     ASC = "asc"
     DESC = "desc"
 
+    @classmethod
+    def from_str(cls, value: str) -> SortOrder:
+        """Convert string to SortOrder enum."""
+        try:
+            return cls(value.lower())
+        except ValueError:
+            valid_values = [m.value for m in cls]
+            raise ValueError(f"Invalid sort order '{value}'. Valid values: {valid_values}")
+
 
 # ── Database Type Constants ──────────────────────────────────────
 
@@ -303,6 +451,25 @@ class DatabaseType(str, enum.Enum):
     LADYBUG = "ladybug"
     REDIS = "redis"
 
+    @classmethod
+    def from_str(cls, value: str) -> DatabaseType:
+        """Convert string to DatabaseType enum.
+
+        Args:
+            value: String value to convert.
+
+        Returns:
+            Corresponding DatabaseType enum member.
+
+        Raises:
+            ValueError: If value is not a valid database type.
+        """
+        try:
+            return cls(value.lower())
+        except ValueError:
+            valid_values = [m.value for m in cls]
+            raise ValueError(f"Invalid database type '{value}'. Valid values: {valid_values}")
+
 
 # ── Cache Strategy Constants ─────────────────────────────────────
 
@@ -313,6 +480,15 @@ class CacheStrategy(str, enum.Enum):
     REDIS = "redis"
     CASHUEWS = "cashews"
     HYBRID = "hybrid"
+
+    @classmethod
+    def from_str(cls, value: str) -> CacheStrategy:
+        """Convert string to CacheStrategy enum."""
+        try:
+            return cls(value.lower())
+        except ValueError:
+            valid_values = [m.value for m in cls]
+            raise ValueError(f"Invalid cache strategy '{value}'. Valid values: {valid_values}")
 
 
 # ── LLM Role Constants ───────────────────────────────────────────
@@ -325,6 +501,15 @@ class LLMRole(str, enum.Enum):
     SECONDARY = "secondary"
     EMBEDDING = "embedding"
 
+    @classmethod
+    def from_str(cls, value: str) -> LLMRole:
+        """Convert string to LLMRole enum."""
+        try:
+            return cls(value.lower())
+        except ValueError:
+            valid_values = [m.value for m in cls]
+            raise ValueError(f"Invalid LLM role '{value}'. Valid values: {valid_values}")
+
 
 # ── Embedding Model Constants ────────────────────────────────────
 
@@ -334,6 +519,15 @@ class EmbeddingModel(str, enum.Enum):
 
     DEFAULT = "Qwen3-Embedding-0.6B"
 
+    @classmethod
+    def from_str(cls, value: str) -> EmbeddingModel:
+        """Convert string to EmbeddingModel enum."""
+        try:
+            return cls(value)
+        except ValueError:
+            valid_values = [m.value for m in cls]
+            raise ValueError(f"Invalid embedding model '{value}'. Valid values: {valid_values}")
+
 
 # ── Tiktoken Encoding Constants ──────────────────────────────────
 
@@ -342,3 +536,12 @@ class TiktokenEncoding(str, enum.Enum):
     """Tiktoken encoding names for token counting."""
 
     CL100K_BASE = "cl100k_base"  # Used by GPT-4, GPT-3.5-turbo, text-embedding-ada-002
+
+    @classmethod
+    def from_str(cls, value: str) -> TiktokenEncoding:
+        """Convert string to TiktokenEncoding enum."""
+        try:
+            return cls(value.lower())
+        except ValueError:
+            valid_values = [m.value for m in cls]
+            raise ValueError(f"Invalid tiktoken encoding '{value}'. Valid values: {valid_values}")
