@@ -144,25 +144,6 @@ class URLSecurityCache:
         except Exception as e:
             log.warning("cache_delete_error", url=url, error=str(e))
 
-    async def clear_all(self) -> None:
-        """Clear all cached URL security results."""
-        if not self._enabled:
-            return
-
-        try:
-            # Find all keys with our prefix using scan_iter (non-blocking)
-            keys_to_delete = []
-            async for key in self._redis.scan_iter(f"{self._prefix}*"):
-                keys_to_delete.append(key)
-
-            if keys_to_delete:
-                await self._redis.delete(*keys_to_delete)
-
-            log.info("cache_cleared")
-
-        except Exception as e:
-            log.warning("cache_clear_error", error=str(e))
-
     def _get_ttl_for_risk(self, risk: str) -> int:
         """Get TTL based on risk level.
 

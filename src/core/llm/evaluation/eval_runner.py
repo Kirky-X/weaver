@@ -197,8 +197,3 @@ class EvalRunner:
                     primary_output=str(primary_result) if primary_result else "",
                 )
                 await self._event_bus.publish(event)
-
-    @property
-    def is_enabled(self) -> bool:
-        """Whether shadow evaluation is currently enabled."""
-        return self._config.enabled and bool(self._config.candidate_labels)

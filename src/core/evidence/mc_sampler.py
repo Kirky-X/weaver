@@ -11,7 +11,7 @@ from __future__ import annotations
 import random
 from typing import TYPE_CHECKING
 
-from core.evidence.models import EvidenceScoreOutput, ROISummaryOutput
+from core.evidence.models import EvidenceScoreOutput
 from core.llm.types import CallPoint
 from core.observability.logging import get_logger
 
@@ -355,40 +355,6 @@ class MCSampler:
                 confidence=0.0,
                 key_facts=[],
             )
-
-    async def _synthesize_roi_summary(
-        self,
-        scored_regions: list[tuple[str, EvidenceScoreOutput]],
-        title: str,
-    ) -> ROISummaryOutput:
-        """Synthesize multiple regions into a coherent summary.
-
-        Args:
-            scored_regions: List of (region, score) tuples.
-            title: Document title for context.
-
-        Returns:
-            ROISummaryOutput with synthesized summary.
-        """
-        # Sort regions by relevance score
-        sorted_regions = sorted(
-            scored_regions,
-            key=lambda x: x[1].relevance_score * x[1].information_density,
-            reverse=True,
-        )
-
-        # Combine top regions for synthesis
-        combined_text = "\n\n---\n\n".join(region for region, _ in sorted_regions[:5])
-
-        result: ROISummaryOutput = await self._llm.call_at(
-            CallPoint.ROI_SUMMARY,
-            {
-                "title": title,
-                "samples": combined_text,
-            },
-            output_model=ROISummaryOutput,
-        )
-        return result
 
     def _synthesize_regions(
         self,

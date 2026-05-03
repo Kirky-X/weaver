@@ -134,15 +134,6 @@ class ProviderPool:
         """检查provider是否可用."""
         return not self._circuit_breaker.is_open
 
-    @property
-    def health_status(self) -> str:
-        """获取健康状态."""
-        if self._circuit_breaker.is_open:
-            return "unhealthy"
-        if self._metrics.success_rate < 0.5:
-            return "degraded"
-        return "healthy"
-
     async def execute(
         self,
         labels: list[Label],
