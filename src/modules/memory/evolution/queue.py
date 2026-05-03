@@ -80,4 +80,5 @@ class ConsolidationQueue:
         try:
             return await self._redis.llen(self._pending_key)
         except Exception:
+            log.warning("queue_length_failed", exc_info=True)
             return 0

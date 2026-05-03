@@ -29,6 +29,7 @@ def extract_embedding_model_id(llm_settings: object) -> str:
             if len(parts) >= 3:
                 return parts[2]  # Return model_id (third part)
     except Exception:
+        log.warning("Failed to extract embedding model ID, using default", exc_info=True)
         pass
     # Fallback to default model
     return EmbeddingModel.DEFAULT

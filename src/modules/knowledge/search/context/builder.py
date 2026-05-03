@@ -145,6 +145,7 @@ class SearchContext:
                     TiktokenEncoding.CL100K_BASE
                 )
             except Exception:
+                log.warning("tiktoken_encoding_init_failed", exc_info=True)
                 SearchContext._tiktoken_encoding = None
 
         if SearchContext._tiktoken_encoding:

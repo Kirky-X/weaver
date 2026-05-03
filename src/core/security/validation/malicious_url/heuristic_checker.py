@@ -134,6 +134,7 @@ class HeuristicChecker:
             parsed = urlparse(url)
             decoded_url = unquote(unquote(url))  # Double decode
         except Exception:
+            log.warning("Failed to parse URL in heuristic check", exc_info=True)
             return CheckResult(
                 source=CheckSource.HEURISTIC,
                 risk=URLRisk.MEDIUM,

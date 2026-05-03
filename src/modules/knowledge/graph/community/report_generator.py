@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
+from core.constants import DatabaseType
 from core.db.graph_query_builders import GraphDatabaseType
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
@@ -71,7 +72,7 @@ class CommunityReportGenerator:
     ) -> None:
         self._pool = pool
         # Detect database type for LadybugDB compatibility
-        self._is_ladybug = pool.database_type == "ladybug"
+        self._is_ladybug = pool.database_type == DatabaseType.LADYBUG.value
         db_type = GraphDatabaseType.LADYBUG if self._is_ladybug else GraphDatabaseType.NEO4J
         self._repo = Neo4jCommunityRepo(pool, database_type=db_type)
         self._llm = llm_client

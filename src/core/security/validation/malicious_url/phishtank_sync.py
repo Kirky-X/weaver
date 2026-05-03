@@ -179,6 +179,7 @@ class PhishTankSync:
                 time_str = time_str.replace(" ", "T")
             return datetime.fromisoformat(time_str.replace("Z", "+00:00"))
         except Exception:
+            log.warning("Failed to parse PhishTank timestamp, using fallback", exc_info=True)
             return datetime.now()
 
     async def _save_local_data(self, data: list[dict[str, Any]]) -> None:

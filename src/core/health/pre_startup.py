@@ -111,6 +111,7 @@ class PreStartupHealthChecker:
                             result.details.append("pgvector extension not installed")
                             result.details.append("Run: CREATE EXTENSION IF NOT EXISTS vector;")
                     except Exception:
+                        log.warning("Could not check pgvector extension", exc_info=True)
                         result.details.append("Could not check pgvector extension")
 
                 await engine.dispose()

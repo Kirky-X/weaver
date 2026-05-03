@@ -236,6 +236,25 @@ class RoutingMode(str, Enum):
     FAST = "fast"
     BEST = "best"
 
+    @classmethod
+    def from_str(cls, value: str) -> RoutingMode:
+        """Convert string to RoutingMode enum.
+
+        Args:
+            value: String value to convert.
+
+        Returns:
+            Corresponding RoutingMode enum member.
+
+        Raises:
+            ValueError: If value is not a valid routing mode.
+        """
+        try:
+            return cls(value.lower())
+        except ValueError:
+            valid_values = [m.value for m in cls]
+            raise ValueError(f"Invalid routing mode '{value}'. Valid values: {valid_values}")
+
 
 @dataclass(frozen=True, slots=True)
 class CandidateScore:

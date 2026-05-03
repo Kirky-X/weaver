@@ -349,6 +349,7 @@ class MCSampler:
             )
             return result
         except Exception:
+            log.warning("LLM evidence scoring failed, returning fallback scores", exc_info=True)
             return EvidenceScoreOutput(
                 relevance_score=0.3,
                 information_density=0.3,

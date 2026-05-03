@@ -20,7 +20,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from api.endpoints import _deps as deps
+from api.endpoints import deps_registry as deps
 from api.endpoints.health import health_check
 from api.middleware.api_response import register_exception_handlers
 from api.middleware.auth import verify_admin_api_key, verify_api_key, verify_api_key_optional
@@ -456,9 +456,10 @@ def create_app(container: Container | None = None) -> FastAPI:
                 pyproject = tomllib.load(f)
             version = pyproject.get("project", {}).get("version", "unknown")
         except Exception:
+            log.warning("Failed to read version from pyproject.toml", exc_info=True)
             pass
 
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         relational_type = Endpoints.get_relational_type()
         graph_type = Endpoints.get_graph_type()
@@ -485,7 +486,7 @@ def create_app(container: Container | None = None) -> FastAPI:
         Returns current configuration including available features.
         This endpoint contains sensitive information and requires admin API key.
         """
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         return success_response(
             {
