@@ -27,7 +27,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.endpoints import admin
-from api.endpoints._deps import Endpoints
+from api.endpoints.deps_registry import Endpoints
 from api.middleware.auth import verify_api_key
 
 # ── 常量 ────────────────────────────────────────────────────────

@@ -161,7 +161,7 @@ class TestCircuitBreaker:
 
     async def test_circuit_breaker_record_failure(self):
         """Test circuit breaker records failure."""
-        from core.resilience import CircuitBreaker
+        from core.resilience import CBState, CircuitBreaker
 
         cb = CircuitBreaker(
             threshold=3,
@@ -169,7 +169,8 @@ class TestCircuitBreaker:
         )
         await cb.record_failure()
         await cb.record_failure()
-        assert cb._fail_count == 2
+        # 2 failures, still CLOSED (threshold is 3)
+        assert cb.state == CBState.CLOSED
 
 
 class TestPromptLoader:

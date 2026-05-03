@@ -49,7 +49,7 @@ class TestEndpointsDependencyRegistry:
     @pytest.fixture(autouse=True)
     def cleanup_endpoints(self):
         """自动清理 Endpoints 状态,每个测试后执行"""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         yield  # 运行测试
         # 清理 - 确保测试间隔离
@@ -74,7 +74,7 @@ class TestEndpointsDependencyRegistry:
 
     def test_get_relational_pool_returns_when_set(self):
         """Test get_relational_pool returns pool when set."""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         mock_pool = MagicMock()
         Endpoints._relational_pool = mock_pool
@@ -83,7 +83,7 @@ class TestEndpointsDependencyRegistry:
 
     def test_get_relational_pool_raises_when_not_set(self):
         """Test get_relational_pool raises HTTPException when not set."""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         Endpoints._relational_pool = None
         with pytest.raises(HTTPException) as exc_info:
@@ -92,7 +92,7 @@ class TestEndpointsDependencyRegistry:
 
     def test_get_graph_pool_returns_when_set(self):
         """Test get_graph_pool returns pool when set."""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         mock_pool = MagicMock()
         Endpoints._graph_pool = mock_pool
@@ -101,7 +101,7 @@ class TestEndpointsDependencyRegistry:
 
     def test_get_graph_pool_raises_when_not_set(self):
         """Test get_graph_pool raises HTTPException when not set."""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         Endpoints._graph_pool = None
         with pytest.raises(HTTPException) as exc_info:
@@ -110,7 +110,7 @@ class TestEndpointsDependencyRegistry:
 
     def test_get_cache_returns_when_set(self):
         """Test get_cache_client returns client when set."""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         mock_cache = MagicMock()
         Endpoints._cache = mock_cache
@@ -119,7 +119,7 @@ class TestEndpointsDependencyRegistry:
 
     def test_get_cache_raises_when_not_set(self):
         """Test get_cache_client raises HTTPException when not set."""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         Endpoints._cache = None
         with pytest.raises(HTTPException) as exc_info:
@@ -128,7 +128,7 @@ class TestEndpointsDependencyRegistry:
 
     def test_get_llm_returns_when_set(self):
         """Test get_llm returns client when set."""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         mock_llm = MagicMock()
         Endpoints._llm = mock_llm
@@ -137,7 +137,7 @@ class TestEndpointsDependencyRegistry:
 
     def test_get_llm_raises_when_not_set(self):
         """Test get_llm raises HTTPException when not set."""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         Endpoints._llm = None
         with pytest.raises(HTTPException) as exc_info:
@@ -146,7 +146,7 @@ class TestEndpointsDependencyRegistry:
 
     def test_get_vector_repo_returns_when_set(self):
         """Test get_vector_repo returns repo when set."""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         mock_repo = MagicMock()
         Endpoints._vector_repo = mock_repo
@@ -155,7 +155,7 @@ class TestEndpointsDependencyRegistry:
 
     def test_get_vector_repo_raises_when_not_set(self):
         """Test get_vector_repo raises HTTPException when not set."""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         Endpoints._vector_repo = None
         with pytest.raises(HTTPException) as exc_info:
@@ -164,7 +164,7 @@ class TestEndpointsDependencyRegistry:
 
     def test_get_scheduler_returns_when_set(self):
         """Test get_scheduler returns scheduler when set."""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         mock_scheduler = MagicMock()
         Endpoints._scheduler = mock_scheduler
@@ -173,7 +173,7 @@ class TestEndpointsDependencyRegistry:
 
     def test_get_scheduler_raises_when_not_set(self):
         """Test get_scheduler raises HTTPException when not set."""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         Endpoints._scheduler = None
         with pytest.raises(HTTPException) as exc_info:
@@ -182,7 +182,7 @@ class TestEndpointsDependencyRegistry:
 
     def test_get_source_config_repo_returns_when_set(self):
         """Test get_source_config_repo returns repo when set."""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         mock_repo = MagicMock()
         Endpoints._source_config_repo = mock_repo
@@ -191,7 +191,7 @@ class TestEndpointsDependencyRegistry:
 
     def test_get_source_config_repo_raises_when_not_set(self):
         """Test get_source_config_repo raises HTTPException when not set."""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         Endpoints._source_config_repo = None
         with pytest.raises(HTTPException) as exc_info:
@@ -200,7 +200,7 @@ class TestEndpointsDependencyRegistry:
 
     def test_get_source_authority_repo_returns_when_set(self):
         """Test get_source_authority_repo returns repo when set."""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         mock_repo = MagicMock()
         Endpoints._source_authority_repo = mock_repo
@@ -209,7 +209,7 @@ class TestEndpointsDependencyRegistry:
 
     def test_get_source_authority_repo_raises_when_not_set(self):
         """Test get_source_authority_repo raises HTTPException when not set."""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         Endpoints._source_authority_repo = None
         with pytest.raises(HTTPException) as exc_info:
@@ -224,7 +224,7 @@ class TestDependencyFunctions:
     @pytest.fixture(autouse=True)
     def cleanup_endpoints(self):
         """自动清理 Endpoints 状态,每个测试后执行"""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         yield  # 运行测试
         # 清理 - 确保测试间隔离
@@ -250,7 +250,7 @@ class TestDependencyFunctions:
     def test_get_relational_pool_delegates_to_endpoints(self):
         """Test get_relational_pool delegates to Endpoints."""
         from api.dependencies import get_relational_pool
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         mock_pool = MagicMock()
         Endpoints._relational_pool = mock_pool
@@ -260,7 +260,7 @@ class TestDependencyFunctions:
     def test_get_cache_client_delegates_to_endpoints(self):
         """Test get_cache_client delegates to Endpoints."""
         from api.dependencies import get_cache_client
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         mock_cache = MagicMock()
         Endpoints._cache = mock_cache
@@ -270,7 +270,7 @@ class TestDependencyFunctions:
     def test_get_graph_pool_delegates_to_endpoints(self):
         """Test get_graph_pool delegates to Endpoints."""
         from api.dependencies import get_graph_pool
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         mock_pool = MagicMock()
         Endpoints._graph_pool = mock_pool
@@ -280,7 +280,7 @@ class TestDependencyFunctions:
     def test_get_llm_client_delegates_to_endpoints(self):
         """Test get_llm_client delegates to Endpoints."""
         from api.dependencies import get_llm_client
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         mock_llm = MagicMock()
         Endpoints._llm = mock_llm
@@ -290,7 +290,7 @@ class TestDependencyFunctions:
     def test_get_vector_repo_delegates_to_endpoints(self):
         """Test get_vector_repo delegates to Endpoints."""
         from api.dependencies import get_vector_repo
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         mock_repo = MagicMock()
         Endpoints._vector_repo = mock_repo
@@ -300,7 +300,7 @@ class TestDependencyFunctions:
     def test_get_local_search_engine_delegates_to_endpoints(self):
         """Test get_local_search_engine delegates to Endpoints."""
         from api.dependencies import get_local_search_engine
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         mock_engine = MagicMock()
         Endpoints._local_engine = mock_engine
@@ -310,7 +310,7 @@ class TestDependencyFunctions:
     def test_get_global_search_engine_delegates_to_endpoints(self):
         """Test get_global_search_engine delegates to Endpoints."""
         from api.dependencies import get_global_search_engine
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         mock_engine = MagicMock()
         Endpoints._global_engine = mock_engine
@@ -320,7 +320,7 @@ class TestDependencyFunctions:
     def test_get_hybrid_engine_delegates_to_endpoints(self):
         """Test get_hybrid_engine delegates to Endpoints."""
         from api.dependencies import get_hybrid_engine
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         mock_engine = MagicMock()
         Endpoints._hybrid_engine = mock_engine
@@ -330,7 +330,7 @@ class TestDependencyFunctions:
     def test_get_source_scheduler_delegates_to_endpoints(self):
         """Test get_source_scheduler delegates to Endpoints."""
         from api.dependencies import get_source_scheduler
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         mock_scheduler = MagicMock()
         Endpoints._scheduler = mock_scheduler
@@ -340,7 +340,7 @@ class TestDependencyFunctions:
     def test_get_source_config_repo_delegates_to_endpoints(self):
         """Test get_source_config_repo delegates to Endpoints."""
         from api.dependencies import get_source_config_repo
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         mock_repo = MagicMock()
         Endpoints._source_config_repo = mock_repo
@@ -350,7 +350,7 @@ class TestDependencyFunctions:
     def test_get_source_authority_repo_delegates_to_endpoints(self):
         """Test get_source_authority_repo delegates to Endpoints."""
         from api.dependencies import get_source_authority_repo
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         mock_repo = MagicMock()
         Endpoints._source_authority_repo = mock_repo
@@ -398,7 +398,7 @@ class TestDependencyErrorHandling:
     @pytest.fixture(autouse=True)
     def cleanup_endpoints(self):
         """自动清理 Endpoints 状态,每个测试后执行"""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         yield  # 运行测试
         # 清理 - 确保测试间隔离
@@ -423,7 +423,7 @@ class TestDependencyErrorHandling:
 
     def test_dependency_raises_503_on_uninitialized(self):
         """Test all dependencies raise 503 when not initialized."""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         # Reset all to None
         Endpoints._relational_pool = None
@@ -478,7 +478,7 @@ class TestPipelineServiceDependency:
     @pytest.fixture(autouse=True)
     def cleanup_endpoints(self):
         """自动清理 Endpoints 状态,每个测试后执行"""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         # 清理before测试
         Endpoints._pipeline_service = None
@@ -490,7 +490,7 @@ class TestPipelineServiceDependency:
 
     def test_get_pipeline_service_returns_when_set(self):
         """Test get_pipeline_service returns service when set."""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         mock_service = MagicMock()
         Endpoints._pipeline_service = mock_service
@@ -499,7 +499,7 @@ class TestPipelineServiceDependency:
 
     def test_get_pipeline_service_raises_when_not_set(self):
         """Test get_pipeline_service raises HTTPException when not set."""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         Endpoints._pipeline_service = None
         with pytest.raises(HTTPException) as exc_info:

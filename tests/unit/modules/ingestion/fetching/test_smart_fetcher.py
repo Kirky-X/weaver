@@ -199,7 +199,6 @@ class TestSmartFetcherFetch:
 
         breaker = smart_fetcher._get_breaker("example.com")
         assert breaker.state == CBState.CLOSED
-        assert breaker._fail_count == 0
 
     @pytest.mark.asyncio
     async def test_fetch_failure_records_failure(
@@ -213,7 +212,8 @@ class TestSmartFetcherFetch:
             await smart_fetcher.fetch("https://example.com/article")
 
         breaker = smart_fetcher._get_breaker("example.com")
-        assert breaker._fail_count == 1
+        # After 1 failure, state still CLOSED (threshold is 3)
+        assert breaker.state == CBState.CLOSED
 
     @pytest.mark.asyncio
     async def test_fetch_force_browser_skips_httpx(

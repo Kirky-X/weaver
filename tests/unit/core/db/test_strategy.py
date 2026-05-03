@@ -106,9 +106,7 @@ class TestCreateStrategy:
 
         # Mock initialize_duckdb_schema to avoid actual DB operations
         mock_init_duckdb = AsyncMock()
-        monkeypatch.setattr(
-            "modules.storage.duckdb.schema.initialize_duckdb_schema", mock_init_duckdb
-        )
+        monkeypatch.setattr("core.db.duckdb_schema.initialize_duckdb_schema", mock_init_duckdb)
 
         from core.db.strategy import create_strategy
 
@@ -208,9 +206,7 @@ class TestCreateStrategy:
 
         # Mock initialize_ladybug_schema
         mock_init_schema = AsyncMock()
-        monkeypatch.setattr(
-            "modules.storage.ladybug.schema.initialize_ladybug_schema", mock_init_schema
-        )
+        monkeypatch.setattr("core.db.ladybug_schema.initialize_ladybug_schema", mock_init_schema)
 
         monkeypatch.setattr("core.db.postgres.PostgresPool", lambda **kwargs: mock_pg_pool)
         monkeypatch.setattr("core.db.neo4j.Neo4jPool", mock_neo4j_fail)

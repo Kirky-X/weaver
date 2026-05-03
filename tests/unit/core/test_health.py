@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from api.endpoints._deps import Endpoints
+from api.endpoints.deps_registry import Endpoints
 from api.endpoints.health import (
     check_neo4j_health,
     check_postgres_health,

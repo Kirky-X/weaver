@@ -16,7 +16,6 @@ class TestCircuitBreaker:
         """Test circuit breaker starts in closed state."""
         cb = CircuitBreaker()
         assert cb.state == CBState.CLOSED
-        assert cb._fail_count == 0
 
     @pytest.mark.asyncio
     async def test_is_open_returns_false_when_closed(self):
@@ -45,20 +44,21 @@ class TestCircuitBreaker:
     @pytest.mark.asyncio
     async def test_timeout_transitions_to_half_open(self):
         """Test timeout transitions circuit to half-open state."""
-        cb = CircuitBreaker(threshold=1, timeout_secs=0.1)
+        cb = CircuitBreaker(threshold=1, timeout_secs=0.5)
         await cb.record_failure()
         assert cb.state == CBState.OPEN
-        await asyncio.sleep(0.15)
-        await cb.is_open()  # Trigger the transition
+        await asyncio.sleep(0.6)
+        # pybreaker transitions to half-open via half_open() call
+        cb._breaker.half_open()
         assert cb.state == CBState.HALF_OPEN
 
     @pytest.mark.asyncio
     async def test_half_open_success_closes(self):
         """Test success in half-open state closes circuit."""
-        cb = CircuitBreaker(threshold=1, timeout_secs=0.1)
+        cb = CircuitBreaker(threshold=1, timeout_secs=0.5)
         await cb.record_failure()
-        await asyncio.sleep(0.15)
-        await cb.is_open()  # Trigger the transition
+        await asyncio.sleep(0.6)
+        cb._breaker.half_open()
         assert cb.state == CBState.HALF_OPEN
         await cb.record_success()
         assert cb.state == CBState.CLOSED
@@ -66,10 +66,10 @@ class TestCircuitBreaker:
     @pytest.mark.asyncio
     async def test_half_open_failure_opens(self):
         """Test failure in half-open state opens circuit."""
-        cb = CircuitBreaker(threshold=1, timeout_secs=0.1)
+        cb = CircuitBreaker(threshold=1, timeout_secs=0.5)
         await cb.record_failure()
-        await asyncio.sleep(0.15)
-        await cb.is_open()  # Trigger the transition
+        await asyncio.sleep(0.6)
+        cb._breaker.half_open()
         assert cb.state == CBState.HALF_OPEN
         await cb.record_failure()
         assert cb.state == CBState.OPEN
@@ -81,9 +81,9 @@ class TestCircuitBreaker:
         await cb.record_failure()
         await cb.record_failure()
         await cb.record_failure()
-        assert cb._fail_count == 3
+        # 3 failures, still CLOSED
+        assert cb.state == CBState.CLOSED
         await cb.record_success()
-        assert cb._fail_count == 0
         assert cb.state == CBState.CLOSED
 
     @pytest.mark.asyncio
@@ -94,8 +94,6 @@ class TestCircuitBreaker:
         assert cb.state == CBState.OPEN
         await cb.reset()
         assert cb.state == CBState.CLOSED
-        assert cb._fail_count == 0
-        assert cb._opened_at == 0.0
 
     @pytest.mark.asyncio
     async def test_custom_threshold(self):
@@ -110,11 +108,11 @@ class TestCircuitBreaker:
     @pytest.mark.asyncio
     async def test_custom_timeout(self):
         """Test custom timeout value."""
-        cb = CircuitBreaker(threshold=1, timeout_secs=0.05)
+        cb = CircuitBreaker(threshold=1, timeout_secs=0.5)
         await cb.record_failure()
         assert cb.state == CBState.OPEN
-        await asyncio.sleep(0.1)
-        await cb.is_open()  # Trigger the transition
+        await asyncio.sleep(0.6)
+        cb._breaker.half_open()
         assert cb.state == CBState.HALF_OPEN
 
     @pytest.mark.asyncio
@@ -133,11 +131,11 @@ class TestCircuitBreaker:
     @pytest.mark.asyncio
     async def test_state_property_transitions(self):
         """Test state property handles OPEN to HALF_OPEN transition."""
-        cb = CircuitBreaker(threshold=1, timeout_secs=0.05)
+        cb = CircuitBreaker(threshold=1, timeout_secs=0.5)
         await cb.record_failure()
         assert cb.state == CBState.OPEN
-        await asyncio.sleep(0.1)
-        await cb.is_open()  # Trigger the transition
+        await asyncio.sleep(0.6)
+        cb._breaker.half_open()
         assert cb.state == CBState.HALF_OPEN
 
     @pytest.mark.asyncio

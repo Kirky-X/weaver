@@ -1143,7 +1143,7 @@ class TestSystemConfigEndpoint:
     @pytest.fixture(autouse=True)
     def cleanup_endpoints(self):
         """Reset Endpoints state before and after each test."""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         # Reset before test
         Endpoints._relational_pool = None
@@ -1189,7 +1189,7 @@ class TestSystemConfigEndpoint:
 
     def test_config_endpoint_calls_correct_methods(self):
         """Test that system_config uses existing Endpoints methods (not broken ones)."""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         # Verify the correct methods exist (these are what main.py should call)
         assert hasattr(Endpoints, "get_llm_client")
@@ -1200,7 +1200,7 @@ class TestSystemConfigEndpoint:
 
     def test_config_endpoint_methods_return_expected_types(self):
         """Test that Endpoints getter methods return correct types when uninitialized."""
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         # Type getters should always work even when pools are None
         assert Endpoints.get_relational_type() in ("postgres", "duckdb", "unknown")

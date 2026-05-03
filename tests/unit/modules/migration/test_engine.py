@@ -333,7 +333,7 @@ class TestMigrationResult:
             items=[],
             started_at=datetime.now(),
             completed_at=datetime.now(),
-            status="success",
+            status="completed",
             total_migrated=100,
             total_expected=100,
         )

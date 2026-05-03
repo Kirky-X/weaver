@@ -304,7 +304,7 @@ class TestAdminEndpointDeduplicate:
         with (
             patch("container.get_settings", return_value=mock_settings),
             patch(
-                "api.endpoints._deps.Endpoints.get_relational_pool_optional",
+                "api.endpoints.deps_registry.Endpoints.get_relational_pool_optional",
                 return_value=mock_pool,
             ),
         ):
@@ -443,7 +443,7 @@ class TestAdminEndpointRefreshAutoScores:
             patch("container.get_settings", return_value=mock_settings),
             patch("api.endpoints.admin.admin.get_container", return_value=mock_container),
             patch(
-                "api.endpoints._deps.Endpoints.get_relational_pool_optional",
+                "api.endpoints.deps_registry.Endpoints.get_relational_pool_optional",
                 return_value=mock_pool,
             ),
         ):

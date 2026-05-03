@@ -84,7 +84,7 @@ def mock_spacy_manager():
 @pytest.fixture(autouse=True)
 def reset_endpoints_registry():
     """Reset Endpoints class pool references before and after each test."""
-    from api.endpoints import _deps as deps
+    from api.endpoints import deps_registry as deps
 
     # Reset before test
     deps.Endpoints._relational_pool = None
@@ -234,7 +234,7 @@ class TestLifespan:
                 with patch("main.set_container"):
                     with patch("main.set_settings"):
                         with patch("main.log"):
-                            from api.endpoints import _deps as deps
+                            from api.endpoints import deps_registry as deps
                             from main import lifespan
 
                             app = FastAPI()

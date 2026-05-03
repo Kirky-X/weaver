@@ -142,7 +142,7 @@ async def relational_pool():
     else:
         # Fallback to DuckDB (real embedded database)
         from core.db.duckdb_pool import DuckDBPool
-        from modules.storage.duckdb.schema import initialize_duckdb_schema
+        from core.db.duckdb_schema import initialize_duckdb_schema
 
         # Use temp file path for test isolation (DuckDB will create the file)
         with tempfile.NamedTemporaryFile(suffix=".duckdb", delete=True) as f:
@@ -183,7 +183,7 @@ async def graph_pool():
     else:
         # Fallback to LadybugDB (real embedded graph database)
         from core.db.ladybug_pool import LadybugPool
-        from modules.storage.ladybug.schema import initialize_ladybug_schema
+        from core.db.ladybug_schema import initialize_ladybug_schema
 
         # Use temp file path for test isolation (LadybugDB will create the file)
         with tempfile.NamedTemporaryFile(suffix=".ladybug", delete=True) as f:

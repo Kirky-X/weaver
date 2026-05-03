@@ -11,7 +11,7 @@ from fastapi import HTTPException
 
 pytestmark = pytest.mark.xdist_group(name="endpoints_deps")
 
-from api.endpoints._deps import Endpoints
+from api.endpoints.deps_registry import Endpoints
 from modules.knowledge.search.engines.local_search import SearchResult
 from modules.storage.postgres.vector_repo import SimilarArticle
 
