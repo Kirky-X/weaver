@@ -132,6 +132,20 @@ class MemoryIngestEvent(BaseEvent):
     state: dict = field(default_factory=dict)
 
 
+@dataclass
+class CircuitStateEvent(BaseEvent):
+    """Emitted when a circuit breaker transitions between states.
+
+    States: CLOSED → OPEN → HALF_OPEN → CLOSED
+    """
+
+    provider: str = ""
+    from_state: str = ""  # "closed", "open", "half_open"
+    to_state: str = ""  # "closed", "open", "half_open"
+    threshold: int = 5
+    timeout_secs: float = 60.0
+
+
 # ── Event Bus (Blinker-backed) ────────────────────────────────────────
 
 EventHandler = Callable[[Any], Coroutine[Any, Any, None]]
@@ -245,3 +259,26 @@ class EventBus:
                 span.record_exception(exc)
             finally:
                 clear_task_context()
+
+    def emit(self, event: BaseEvent) -> None:
+        """Synchronously emit an event (non-blocking).
+
+        Creates a task to publish the event asynchronously.
+        Use this when you can't await (e.g., in synchronous contexts).
+
+        Args:
+            event: The event instance to emit.
+        """
+        try:
+            asyncio.create_task(self.publish(event))
+        except RuntimeError:
+            # No running event loop, log warning
+            log.warning(
+                "emit_no_event_loop",
+                event_type=type(event).__name__,
+            )
+
+
+# ── Global Event Bus Instance ─────────────────────────────────────
+
+event_bus = EventBus()
