@@ -363,6 +363,10 @@ class LiteLLMCaller:
                 estimated_tokens = token_counter(text=all_text)
             except Exception:
                 # token_counter 可能因模型不支持而失败, 使用简单估算
+                log.warning(
+                    "llm_token_counter_fallback",
+                    exc_info=True,
+                )
                 estimated_tokens = len(all_text.split())
 
             log.debug(

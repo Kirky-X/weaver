@@ -94,7 +94,7 @@ class URLSecurityCache:
             return None
 
         except Exception as e:
-            log.warning("cache_get_error", url=url, error=str(e))
+            log.warning("cache_get_error", url=url, error=str(e), exc_info=True)
             return None
 
     async def set(self, url: str, result: dict[str, Any], risk: str) -> None:
@@ -122,7 +122,7 @@ class URLSecurityCache:
             log.debug("cache_set", url=url, risk=risk, ttl=ttl)
 
         except Exception as e:
-            log.warning("cache_set_error", url=url, error=str(e))
+            log.warning("cache_set_error", url=url, error=str(e), exc_info=True)
 
     async def delete(self, url: str) -> None:
         """Delete cached result for URL.
@@ -142,7 +142,7 @@ class URLSecurityCache:
                 await self._redis.execute_command("DEL", key)
 
         except Exception as e:
-            log.warning("cache_delete_error", url=url, error=str(e))
+            log.warning("cache_delete_error", url=url, error=str(e), exc_info=True)
 
     def _get_ttl_for_risk(self, risk: str) -> int:
         """Get TTL based on risk level.
