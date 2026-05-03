@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, field_validator
 from api.dependencies import get_source_config_repo, get_source_scheduler
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
+from core.constants import SourceType
 from modules.ingestion import SourceConfig, SourceConfigRepo, SourceScheduler
 
 router = APIRouter(prefix="/sources", tags=["sources"])
@@ -56,7 +57,7 @@ class SourceCreateRequest(BaseModel):
     id: str = Field(..., description="Unique source identifier")
     name: str = Field(..., description="Human-readable name")
     url: str = Field(..., description="Feed URL (RSS/Atom)")
-    source_type: str = Field(default="rss", description="Type of source")
+    source_type: str = Field(default=SourceType.RSS.value, description="Type of source")
     enabled: bool = Field(default=True, description="Whether the source is active")
     interval_minutes: int = Field(
         default=30, ge=5, le=1440, description="Crawl interval in minutes"

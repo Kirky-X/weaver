@@ -169,4 +169,4 @@ class MigrationResult:
     @property
     def success(self) -> bool:
         """Check if migration was successful."""
-        return self.status == MigrationStatus.COMPLETED.value or self.status == "success"
+        return self.status == MigrationStatus.COMPLETED.value

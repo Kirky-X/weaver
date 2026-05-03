@@ -11,8 +11,11 @@ from typing import Any
 from sqlalchemy import text
 
 from core.db.safe_query import validate_sql_identifier
+from core.observability.logging import get_logger
 from modules.migration.exceptions import ValidationFailedError
 from modules.migration.models import MigrationSchema
+
+log = get_logger(__name__)
 
 
 class PostgresTarget:
@@ -97,6 +100,7 @@ class PostgresTarget:
                     text(f'CREATE INDEX IF NOT EXISTS "{idx_name}" ON "{schema.table}"')
                 )
             except Exception:
+                log.warning("create_index_failed", index=idx_name, exc_info=True)
                 pass  # Index might already exist or have different definition
 
     async def _ensure_columns(self, conn: Any, schema: MigrationSchema) -> None:
@@ -177,6 +181,7 @@ class PostgresTarget:
                     await conn.execute(sql, row)
                     written += 1
                 except Exception:
+                    log.warning("migration_row_write_failed", exc_info=True)
                     # Log and continue on individual row errors
                     pass
 

@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Any
 
 from fastapi import Depends
 
+from core.constants import MigrationStatus
+
 if TYPE_CHECKING:
     from container import Container
 
@@ -17,7 +19,7 @@ def get_container() -> Container:
 
     This will be overridden by the actual dependency injection.
     """
-    from api.endpoints._deps import get_container as _get_container
+    from api.endpoints.deps_registry import get_container as _get_container
 
     return _get_container()
 
@@ -49,7 +51,7 @@ class MigrationService:
         task_id = str(uuid.uuid4())[:8]
         self._tasks[task_id] = {
             "config": config,
-            "status": "pending",
+            "status": MigrationStatus.PENDING.value,
             "engine": None,
             "created_at": datetime.now(),
             "started_at": None,
@@ -69,7 +71,7 @@ class MigrationService:
         if not task:
             return
 
-        task["status"] = "running"
+        task["status"] = MigrationStatus.RUNNING.value
         task["started_at"] = datetime.now()
 
         try:
@@ -91,10 +93,10 @@ class MigrationService:
 
             result = await engine.run()
             self._results[task_id] = result
-            task["status"] = "completed"
+            task["status"] = MigrationStatus.COMPLETED.value
 
         except Exception as exc:
-            task["status"] = "failed"
+            task["status"] = MigrationStatus.FAILED.value
             task["error"] = str(exc)
             raise
 
@@ -114,7 +116,7 @@ class MigrationService:
         engine = task.get("engine")
         if engine:
             engine.cancel()
-            task["status"] = "cancelled"
+            task["status"] = MigrationStatus.CANCELLED.value
             return True
 
         return False

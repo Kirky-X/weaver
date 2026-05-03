@@ -29,6 +29,8 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON, TypeDecorator
 
+from core.constants import SourceType
+
 
 class JSONCompatible(TypeDecorator):
     """TypeDecorator that uses JSONB for PostgreSQL and JSON for other dialects.
@@ -444,7 +446,9 @@ class Source(Base):
     id: Mapped[str] = mapped_column(String(100), primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     url: Mapped[str] = mapped_column(Text, nullable=False)
-    source_type: Mapped[str] = mapped_column(String(50), nullable=False, default="rss")
+    source_type: Mapped[str] = mapped_column(
+        String(50), nullable=False, default=SourceType.RSS.value
+    )
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
     per_host_concurrency: Mapped[int] = mapped_column(Integer, nullable=False, default=2)

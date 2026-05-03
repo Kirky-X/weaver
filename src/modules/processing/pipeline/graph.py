@@ -1295,7 +1295,11 @@ class Pipeline:
                                     uuid.UUID(secondary_id)
                                 )
                             except Exception:
-                                pass
+                                log.error(
+                                    "pipeline_vector_delete_failed",
+                                    article_id=secondary_id,
+                                    exc_info=True,
+                                )
                         try:
                             await self._article_repo.delete(secondary_id)
                         except Exception as exc:

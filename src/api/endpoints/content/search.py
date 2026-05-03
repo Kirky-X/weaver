@@ -8,10 +8,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from api.endpoints import _deps as deps
+from api.endpoints import deps_registry as deps
 from api.middleware.auth import verify_api_key
 from api.middleware.rate_limit import limiter
 from api.schemas.response import APIResponse, success_response
+from core.constants import SearchMode
 from core.llm import LLMClient
 from core.observability import get_logger
 from modules.knowledge.search import (
@@ -110,7 +111,7 @@ async def search_unified(
 
     # Determine search mode
     explicit_mode = mode.lower() if mode and isinstance(mode, str) else None
-    use_explicit_mode = explicit_mode in ("local", "global")
+    use_explicit_mode = explicit_mode in (SearchMode.LOCAL.value, SearchMode.GLOBAL.value)
 
     # Initialize intent router for automatic routing (when not using explicit mode)
     intent_router = IntentRouter(
@@ -128,7 +129,7 @@ async def search_unified(
     # Get result based on mode
     if use_explicit_mode:
         # Explicit mode: bypass intent routing, call engines directly
-        if explicit_mode == "local":
+        if explicit_mode == SearchMode.LOCAL.value:
             engine_result = await local_engine.search(q)
         else:  # global
             engine_result = await global_engine.search(q, community_level=community_level)

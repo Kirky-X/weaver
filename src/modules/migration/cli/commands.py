@@ -8,6 +8,8 @@ from typing import Any
 import typer
 from rich.console import Console
 
+from core.constants import DatabaseType
+
 app = typer.Typer(
     name="migration",
     help="Database migration tools for Weaver",
@@ -55,11 +57,11 @@ def migrate_relational(
     source = source.lower()
     target = target.lower()
 
-    if source not in ("postgres", "duckdb"):
+    if source not in (DatabaseType.POSTGRES.value, DatabaseType.DUCKDB.value):
         console.print(f"[red]Invalid source: {source}. Must be 'postgres' or 'duckdb'[/red]")
         raise typer.Exit(1)
 
-    if target not in ("postgres", "duckdb"):
+    if target not in (DatabaseType.POSTGRES.value, DatabaseType.DUCKDB.value):
         console.print(f"[red]Invalid target: {target}. Must be 'postgres' or 'duckdb'[/red]")
         raise typer.Exit(1)
 
@@ -165,11 +167,11 @@ def migrate_graph(
     source = source.lower()
     target = target.lower()
 
-    if source not in ("neo4j", "ladybug"):
+    if source not in (DatabaseType.NEO4J.value, DatabaseType.LADYBUG.value):
         console.print(f"[red]Invalid source: {source}. Must be 'neo4j' or 'ladybug'[/red]")
         raise typer.Exit(1)
 
-    if target not in ("neo4j", "ladybug"):
+    if target not in (DatabaseType.NEO4J.value, DatabaseType.LADYBUG.value):
         console.print(f"[red]Invalid target: {target}. Must be 'neo4j' or 'ladybug'[/red]")
         raise typer.Exit(1)
 

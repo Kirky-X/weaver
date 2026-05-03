@@ -6,7 +6,7 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING, Any
 
-from core.constants import DatabaseType
+from core.constants import DatabaseType, HealthCheckStatus
 from modules.analytics import LLMUsageBuffer
 
 if TYPE_CHECKING:
@@ -540,7 +540,7 @@ class ContainerLifecycleMixin:
             }
         except Exception as exc:
             log.error("community_health_check_failed", error=str(exc))
-            return {"status": "error", "error": str(exc)}
+            return {"status": HealthCheckStatus.ERROR.value, "error": str(exc)}
 
     # ── Memory Service ─────────────────────────────────────────
 

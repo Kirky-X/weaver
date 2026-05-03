@@ -50,6 +50,7 @@ class LadybugTarget:
                     ON nodes(label, properties->'{schema.primary_key}')
                 """)
             except Exception:
+                log.warning("create_node_index_failed", schema_label=schema.label, exc_info=True)
                 pass  # Index may already exist
 
     async def ensure_rel_schema(self, schemas: list[RelSchema]) -> None:

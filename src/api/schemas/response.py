@@ -8,6 +8,8 @@ from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, Field
 
+from core.constants import ResponseStatus
+
 T = TypeVar("T")
 
 
@@ -24,7 +26,7 @@ class APIResponse(BaseModel, Generic[T]):
     """
 
     code: int = Field(default=0, description="Response code, 0 for success")
-    message: str = Field(default="success", description="Response message")
+    message: str = Field(default=ResponseStatus.SUCCESS.value, description="Response message")
     data: T | None = Field(default=None, description="Response payload")
     warning: str | None = Field(default=None, description="Optional warning message")
     timestamp: datetime = Field(
@@ -149,7 +151,7 @@ def success_response[T](
     """
     return APIResponse(
         code=ResponseCode.SUCCESS,
-        message=message or "success",
+        message=message or ResponseStatus.SUCCESS.value,
         data=data,
         warning=warning,
     )

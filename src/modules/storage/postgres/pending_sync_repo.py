@@ -9,6 +9,7 @@ from typing import Any
 
 from sqlalchemy import and_, delete, select, update
 
+from core.constants import ProcessingStatus
 from core.db.models import PendingSync
 from core.observability.logging import get_logger
 from core.protocols import RelationalPool
@@ -46,7 +47,7 @@ class PendingSyncRepo:
                     and_(
                         PendingSync.article_id == article_id,
                         PendingSync.sync_type == sync_type,
-                        PendingSync.status == "pending",
+                        PendingSync.status == ProcessingStatus.PENDING.value,
                     )
                 )
             )
@@ -65,7 +66,7 @@ class PendingSyncRepo:
                     article_id=article_id,
                     sync_type=sync_type,
                     payload=payload,
-                    status="pending",
+                    status=ProcessingStatus.PENDING.value,
                 )
                 session.add(record)
                 await session.commit()
@@ -83,7 +84,7 @@ class PendingSyncRepo:
         async with self._pool.session() as session:
             result = await session.execute(
                 select(PendingSync)
-                .where(PendingSync.status == "pending")
+                .where(PendingSync.status == ProcessingStatus.PENDING.value)
                 .order_by(PendingSync.created_at.asc())
                 .limit(limit)
             )
@@ -114,7 +115,7 @@ class PendingSyncRepo:
             result = await session.execute(select(PendingSync).where(PendingSync.id == id))
             record = result.scalar_one_or_none()
             if record:
-                record.status = "failed"
+                record.status = ProcessingStatus.FAILED.value
                 record.error = error
                 record.retry_count = record.retry_count + 1
                 await session.commit()
@@ -158,7 +159,7 @@ class PendingSyncRepo:
             result = await session.execute(
                 select(PendingSync).where(
                     and_(
-                        PendingSync.status == "pending",
+                        PendingSync.status == ProcessingStatus.PENDING.value,
                         PendingSync.created_at < threshold,
                     )
                 )
@@ -231,7 +232,7 @@ class PendingSyncRepo:
                 select(PendingSync).where(
                     and_(
                         PendingSync.article_id == article_id,
-                        PendingSync.status == "pending",
+                        PendingSync.status == ProcessingStatus.PENDING.value,
                     )
                 )
             )
