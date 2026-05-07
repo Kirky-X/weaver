@@ -1321,8 +1321,8 @@ Examples:
     test_parser.add_argument(
         "--timeout",
         type=int,
-        default=300,
-        help="Pipeline timeout in seconds (default: 300)",
+        default=3600,
+        help="Pipeline timeout in seconds (default: 3600)",
     )
     test_parser.add_argument(
         "--port",

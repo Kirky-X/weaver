@@ -835,6 +835,10 @@ class Pipeline:
                 neo4j_ids = await self._graph_writer.write(state)
                 state["neo4j_ids"] = neo4j_ids
                 if self._article_repo:
+                    # Valid transition: STORED → ENRICHING → COMPLETE
+                    await self._article_repo.update_persist_status(
+                        state["article_id"], PersistStatus.ENRICHING
+                    )
                     await self._article_repo.update_persist_status(
                         state["article_id"], PersistStatus.COMPLETE
                     )
@@ -1024,6 +1028,10 @@ class Pipeline:
                         if article_id and self._article_repo:
                             import uuid
 
+                            # Valid transition: STORED → ENRICHING → COMPLETE
+                            await self._article_repo.update_persist_status(
+                                uuid.UUID(article_id), PersistStatus.ENRICHING
+                            )
                             await self._article_repo.update_persist_status(
                                 uuid.UUID(article_id), PersistStatus.COMPLETE
                             )
@@ -1056,6 +1064,10 @@ class Pipeline:
                             if self._article_repo and state.get("article_id"):
                                 import uuid
 
+                                # Valid transition: STORED → ENRICHING → COMPLETE
+                                await self._article_repo.update_persist_status(
+                                    uuid.UUID(state["article_id"]), PersistStatus.ENRICHING
+                                )
                                 await self._article_repo.update_persist_status(
                                     uuid.UUID(state["article_id"]), PersistStatus.COMPLETE
                                 )
@@ -1093,6 +1105,10 @@ class Pipeline:
                         if self._article_repo and state.get("article_id"):
                             import uuid
 
+                            # Valid transition: STORED → ENRICHING → COMPLETE
+                            await self._article_repo.update_persist_status(
+                                uuid.UUID(state["article_id"]), PersistStatus.ENRICHING
+                            )
                             await self._article_repo.update_persist_status(
                                 uuid.UUID(state["article_id"]), PersistStatus.COMPLETE
                             )

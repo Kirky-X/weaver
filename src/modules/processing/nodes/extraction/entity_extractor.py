@@ -106,11 +106,9 @@ class EntityExtractorNode:
                 if self._vector_repo:
                     try:
                         # Get embedding model from settings
-                        model_id = (
-                            self._settings.llm.embedding_model
-                            if self._settings
-                            else "Qwen3-Embedding-0.6B"
-                        )
+                        from core.utils.model_id import extract_embedding_model_id
+
+                        model_id = extract_embedding_model_id(self._settings.llm)
                         await self._vector_repo.upsert_entity_vectors(
                             list(
                                 zip(
@@ -218,11 +216,9 @@ class EntityExtractorNode:
                         # Persist to database
                         if entity_vectors_to_upsert:
                             # Get embedding model from settings
-                            model_id = (
-                                self._settings.llm.embedding_model
-                                if self._settings
-                                else "Qwen3-Embedding-0.6B"
-                            )
+                            from core.utils.model_id import extract_embedding_model_id
+
+                            model_id = extract_embedding_model_id(self._settings.llm)
                             await self._vector_repo.upsert_entity_vectors(
                                 entity_vectors_to_upsert,
                                 model_id=model_id,
