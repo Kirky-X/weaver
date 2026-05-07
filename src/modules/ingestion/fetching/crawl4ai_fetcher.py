@@ -58,10 +58,8 @@ class Crawl4AIFetcher(BaseFetcher):
             headless=self._headless,
             verbose=False,
             user_agent=self._user_agent,
+            enable_stealth=self._stealth_enabled,
         )
-
-        if self._stealth_enabled:
-            config.extra_args = {"enable_stealth": True}
 
         self._crawler = AsyncWebCrawler(config=config)
         await self._crawler.start()

@@ -43,9 +43,25 @@ def parse_llm_json(content: str, model: type[T] | None = None) -> T | dict[str, 
             raise ValueError("Empty content cannot be parsed into model")
         return {}
 
+    # Pre-check: whether content is clearly not JSON (no structured markers)
+    stripped = content.strip()
+    if not stripped.startswith("{") and not stripped.startswith("["):
+        # 尝试从markdown提取
+        extracted = extract_json_from_markdown(content)
+        if extracted != stripped:
+            # Found JSON in markdown, use extracted content
+            stripped = extracted
+        elif model:
+            # Neither JSON marker nor markdown wrapper, model output format error
+            raise ValueError(
+                f"LLM output is not JSON format. "
+                f"Content starts with: '{stripped[:50]}...' "
+                f"Expected JSON object or array for {model.__name__}"
+            )
+
     try:
         # json_repair 返回修复后的对象
-        repaired = repair_json(content)
+        repaired = repair_json(stripped)
 
         # 如果返回字符串,需要再次解析
         if isinstance(repaired, str):

@@ -180,11 +180,11 @@ class LiteLLMCaller:
                             fallback_len=len(content),
                         )
 
+            # Empty content throws exception to trigger ProviderPool fallback mechanism
             if not content:
-                log.warning(
-                    "chat_empty_response",
-                    model=model,
-                    finish_reason=getattr(choice, "finish_reason", None),
+                raise ValueError(
+                    f"LLM returned empty content for model={model}, "
+                    f"finish_reason={getattr(choice, 'finish_reason', None)}"
                 )
 
             usage = response.usage
