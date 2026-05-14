@@ -317,6 +317,8 @@ class LLMClient:
                 request_payload["max_tokens"] = cp_config.max_tokens
             if cp_config.temperature is not None and "temperature" not in request_payload:
                 request_payload["temperature"] = cp_config.temperature
+            if cp_config.response_format is not None and "response_format" not in request_payload:
+                request_payload["response_format"] = cp_config.response_format
 
         # 如果有prompt_loader,构建system_prompt
         if self._prompts:
@@ -333,9 +335,17 @@ class LLMClient:
             if "_retry_hint" in request_payload:
                 system_prompt += f"\n\n{request_payload.pop('_retry_hint')}"
 
+            # Preserve call-point overrides (think, max_tokens, temperature, response_format)
+            preserved_overrides = {
+                k: request_payload[k]
+                for k in ("think", "max_tokens", "temperature", "response_format")
+                if k in request_payload
+            }
+
             request_payload = {
                 "system_prompt": system_prompt,
                 "user_content": user_content,
+                **preserved_overrides,  # Merge back overrides
             }
 
         result = await self.call(

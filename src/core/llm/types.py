@@ -140,6 +140,7 @@ class RoutingConfig(BaseModel):
     think: bool | None = None
     max_tokens: int | None = None
     temperature: float | None = None
+    response_format: str | None = None  # "json" for Ollama JSON mode
 
     def __post_init__(self) -> None:
         """Ensure fallbacks is initialized."""

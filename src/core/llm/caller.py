@@ -74,6 +74,7 @@ class LiteLLMCaller:
         temperature: float = 0.0,
         max_tokens: int | None = None,
         think: bool | None = None,
+        response_format: str | None = None,
         timeout: float = 120.0,
     ) -> LLMResponse:
         """执行chat调用.
@@ -88,6 +89,7 @@ class LiteLLMCaller:
             temperature: 采样温度
             max_tokens: 最大token数
             think: 是否启用思考模式(None=不传递,由模型默认)
+            response_format: 响应格式("json" for Ollama JSON mode)
             timeout: 超时时间
 
         Returns:
@@ -116,6 +118,14 @@ class LiteLLMCaller:
             kwargs["api_base"] = api_base
 
         if max_tokens:
+            kwargs["max_tokens"] = max_tokens
+
+        # Ollama JSON mode via OpenAI-compatible response_format
+        if response_format == "json":
+            kwargs["response_format"] = {"type": "json_object"}
+            log.debug(
+                "json_mode_enabled", provider_type=provider_type, model=model, max_tokens=max_tokens
+            )
             kwargs["max_tokens"] = max_tokens
 
         try:
@@ -487,6 +497,7 @@ class LiteLLMCaller:
                 temperature=payload.get("temperature", 0.0),
                 max_tokens=payload.get("max_tokens"),
                 think=payload.get("think"),
+                response_format=payload.get("response_format"),
                 timeout=timeout,
             )
         elif label.llm_type == LLMType.EMBEDDING:
