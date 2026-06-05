@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from core.constants import DatabaseType, MigrationStatus
+from core.constants import MigrationStatus
 from core.observability.logging import get_logger
 from modules.migration.adapters import (
     DuckDBSource,
@@ -30,8 +30,8 @@ from modules.migration.progress import MigrationProgressDisplay
 
 log = get_logger(__name__)
 
-SUPPORTED_RELATIONAL_DBS = [DatabaseType.POSTGRES.value, DatabaseType.DUCKDB.value]
-SUPPORTED_GRAPH_DBS = [DatabaseType.NEO4J.value, DatabaseType.LADYBUG.value]
+SUPPORTED_RELATIONAL_DBS = ["postgres", "duckdb"]
+SUPPORTED_GRAPH_DBS = ["neo4j", "ladybug"]
 
 
 class MigrationEngine:
@@ -82,10 +82,10 @@ class MigrationEngine:
         """Create the appropriate source adapter."""
         source_db = self._config.source_db.lower()
 
-        if source_db == DatabaseType.POSTGRES.value:
+        if source_db == "postgres":
             pool = self._container.relational_pool
             return PostgresSource(pool)
-        elif source_db == DatabaseType.DUCKDB.value:
+        elif source_db == "duckdb":
             pool = self._container.duckdb_pool
             return DuckDBSource(pool)
 
@@ -95,10 +95,10 @@ class MigrationEngine:
         """Create the appropriate target adapter."""
         target_db = self._config.target_db.lower()
 
-        if target_db == DatabaseType.POSTGRES.value:
+        if target_db == "postgres":
             pool = self._container.relational_pool
             return PostgresTarget(pool)
-        elif target_db == DatabaseType.DUCKDB.value:
+        elif target_db == "duckdb":
             pool = self._container.duckdb_pool
             return DuckDBTarget(pool)
 
@@ -108,10 +108,10 @@ class MigrationEngine:
         """Create the appropriate graph source adapter."""
         source_db = self._config.source_db.lower()
 
-        if source_db == DatabaseType.NEO4J.value:
+        if source_db == "neo4j":
             pool = self._container.graph_pool
             return Neo4jSource(pool)
-        elif source_db == DatabaseType.LADYBUG.value:
+        elif source_db == "ladybug":
             pool = self._container.ladybug_pool
             return LadybugSource(pool)
 
@@ -121,10 +121,10 @@ class MigrationEngine:
         """Create the appropriate graph target adapter."""
         target_db = self._config.target_db.lower()
 
-        if target_db == DatabaseType.NEO4J.value:
+        if target_db == "neo4j":
             pool = self._container.graph_pool
             return Neo4jTarget(pool)
-        elif target_db == DatabaseType.LADYBUG.value:
+        elif target_db == "ladybug":
             pool = self._container.ladybug_pool
             return LadybugTarget(pool)
 
@@ -214,7 +214,7 @@ class MigrationEngine:
         total = await source.count(table)
 
         # Initialize progress
-        progress = MigrationProgress(table=table, total=total, status=MigrationStatus.RUNNING.value)
+        progress = MigrationProgress(table=table, total=total, status="running")
         self._progress[table] = progress
         result.items.append(progress)
 
@@ -336,7 +336,7 @@ class MigrationEngine:
         """Migrate nodes with a specific label."""
         total = await source.count_nodes(label)
 
-        progress = MigrationProgress(table=label, total=total, status=MigrationStatus.RUNNING.value)
+        progress = MigrationProgress(table=label, total=total, status="running")
         self._progress[label] = progress
         result.items.append(progress)
 
@@ -382,9 +382,7 @@ class MigrationEngine:
         """Migrate relationships of a specific type."""
         total = await source.count_rels(rel_type)
 
-        progress = MigrationProgress(
-            table=rel_type, total=total, status=MigrationStatus.RUNNING.value
-        )
+        progress = MigrationProgress(table=rel_type, total=total, status="running")
         self._progress[rel_type] = progress
         result.items.append(progress)
 

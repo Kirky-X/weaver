@@ -7,7 +7,6 @@ from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
-from core.constants import DatabaseType, MigrationStatus
 from modules.migration.api.dependencies import MigrationService, get_migration_service
 from modules.migration.api.schemas import (
     ErrorResponse,
@@ -40,7 +39,7 @@ async def start_relational_migration(
 ) -> MigrationStatusResponse:
     """Start a relational database migration (PostgreSQL ↔ DuckDB)."""
     # Validate database types
-    valid_dbs = [DatabaseType.POSTGRES.value, DatabaseType.DUCKDB.value]
+    valid_dbs = ["postgres", "duckdb"]
     if request.source_db.lower() not in valid_dbs:
         raise HTTPException(
             400,
@@ -74,7 +73,7 @@ async def start_relational_migration(
 
     return MigrationStatusResponse(
         task_id=task_id,
-        status=MigrationStatus.PENDING.value,
+        status="pending",
         message=f"Migration from {request.source_db} to {request.target_db} started",
     )
 
@@ -91,7 +90,7 @@ async def start_graph_migration(
 ) -> MigrationStatusResponse:
     """Start a graph database migration (Neo4j ↔ LadybugDB)."""
     # Validate database types
-    valid_dbs = [DatabaseType.NEO4J.value, DatabaseType.LADYBUG.value]
+    valid_dbs = ["neo4j", "ladybug"]
     if request.source_db.lower() not in valid_dbs:
         raise HTTPException(
             400,
@@ -123,7 +122,7 @@ async def start_graph_migration(
 
     return MigrationStatusResponse(
         task_id=task_id,
-        status=MigrationStatus.PENDING.value,
+        status="pending",
         message=f"Graph migration from {request.source_db} to {request.target_db} started",
     )
 
@@ -159,11 +158,7 @@ async def get_migration_progress(
                 "total": data.get("total", 0),
                 "migrated": data.get("migrated", 0),
                 "percent": data.get("percent", 0.0),
-                "status": (
-                    MigrationStatus.COMPLETED.value
-                    if data.get("completed")
-                    else MigrationStatus.RUNNING.value
-                ),
+                "status": "completed" if data.get("completed") else "running",
                 "error": data.get("error"),
             }
         )
@@ -178,12 +173,7 @@ async def get_migration_progress(
     # Calculate elapsed time
     started_at = status.get("started_at") or datetime.now()
     elapsed_seconds = 0.0
-    if started_at and status["status"] in (
-        MigrationStatus.RUNNING.value,
-        MigrationStatus.COMPLETED.value,
-        MigrationStatus.FAILED.value,
-        MigrationStatus.CANCELLED.value,
-    ):
+    if started_at and status["status"] in ("running", "completed", "failed", "cancelled"):
         elapsed_seconds = (datetime.now() - started_at).total_seconds()
 
     return MigrationProgressResponse(
@@ -217,7 +207,7 @@ async def cancel_migration(
 
     return MigrationCancelResponse(
         task_id=task_id,
-        status=MigrationStatus.CANCELLED.value,
+        status="cancelled",
         message="Migration cancelled successfully",
     )
 
