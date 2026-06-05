@@ -96,7 +96,7 @@ async def create_strategy(
         relational_type = "duckdb"
         log.info("duckdb_connected", db_path=duckdb_settings.db_path)
 
-    # 2. Try Neo4j
+    # 2. Try Neo4j or LadybugDB
     graph_pool: GraphPool | None = None
     graph_type: str = "none"
 
@@ -123,6 +123,15 @@ async def create_strategy(
                 graph_pool = ladybug_pool
                 graph_type = "ladybug"
                 log.info("ladybug_connected", db_path=ladybug_settings.db_path)
+    elif ladybug_settings.enabled:
+        # Neo4j disabled, use LadybugDB as primary graph database
+        ladybug_pool = LadybugPool(db_path=ladybug_settings.db_path)
+        await ladybug_pool.startup()
+        # Initialize schema
+        await initialize_ladybug_schema(ladybug_pool)
+        graph_pool = ladybug_pool
+        graph_type = "ladybug"
+        log.info("ladybug_connected_as_primary", db_path=ladybug_settings.db_path)
     else:
         log.info("neo4j_disabled")
 
