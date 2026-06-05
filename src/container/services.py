@@ -14,11 +14,7 @@ if TYPE_CHECKING:
         EntityRepository,
         VectorRepository,
     )
-    from core.protocols.repositories import (
-        ArticleRepository,
-        GraphArticleRepository,
-        GraphWriter,
-    )
+    from core.protocols.repositories import ArticleRepository
     from core.services.pipeline_service import PipelineServiceImpl
     from core.services.task_registry import InMemoryTaskRegistry
     from modules.analytics import LLMUsageBuffer, LLMUsageRepo
@@ -57,8 +53,8 @@ class ContainerServicesMixin:
     _vector_repo: VectorRepository | None
     _source_authority_repo: SourceAuthorityRepo | None
     _graph_entity_repo: Any
-    _graph_article_repo: GraphArticleRepository | None
-    _graph_writer: GraphWriter | None
+    _graph_article_repo: Any
+    _graph_writer: Any
     _graph_repo: Any
     _entity_resolver: EntityResolver | None
     _smart_fetcher: SmartFetcher | None
@@ -264,7 +260,7 @@ class ContainerServicesMixin:
         if self._strategy is None:
             return None
         if self._graph_entity_repo is None:
-            if self._strategy.graph_type == DatabaseType.LADYBUG.value:
+            if self._strategy.graph_type == "ladybug":
                 from modules.storage.ladybug import LadybugEntityRepo
 
                 self._graph_entity_repo = LadybugEntityRepo(graph_pool)
@@ -274,7 +270,7 @@ class ContainerServicesMixin:
                 self._graph_entity_repo = Neo4jEntityRepo(graph_pool)
         return self._graph_entity_repo
 
-    def graph_article_repo(self) -> GraphArticleRepository | None:
+    def graph_article_repo(self) -> Any | None:
         """Get graph article repository (Neo4j or LadybugDB implementation)."""
         graph_pool = self.graph_pool()
         if graph_pool is None:
@@ -282,7 +278,7 @@ class ContainerServicesMixin:
         if self._strategy is None:
             return None
         if self._graph_article_repo is None:
-            if self._strategy.graph_type == DatabaseType.LADYBUG.value:
+            if self._strategy.graph_type == "ladybug":
                 from modules.storage.ladybug import LadybugArticleRepo
 
                 self._graph_article_repo = LadybugArticleRepo(graph_pool)
@@ -310,7 +306,7 @@ class ContainerServicesMixin:
             self._causal_repo = CausalGraphRepo(graph_pool)
         return self._causal_repo
 
-    def graph_writer(self) -> GraphWriter | None:
+    def graph_writer(self) -> Any | None:
         """Get graph writer (Neo4j or LadybugDB implementation)."""
         graph_pool = self.graph_pool()
         if graph_pool is None:
@@ -319,7 +315,7 @@ class ContainerServicesMixin:
             return None
         if self._graph_writer is None:
             rt_normalizer = self.relation_normalizer()
-            if self._strategy.graph_type == DatabaseType.LADYBUG.value:
+            if self._strategy.graph_type == "ladybug":
                 from modules.storage.ladybug import LadybugWriter
 
                 self._graph_writer = LadybugWriter(graph_pool, rt_normalizer)
@@ -344,14 +340,14 @@ class ContainerServicesMixin:
             # When Neo4j is primary, configure LadybugDB as lazy fallback
             fallback_pool_factory = None
             fallback_query_builder = None
-            if self._strategy.graph_type == DatabaseType.NEO4J.value:
+            if self._strategy.graph_type == "neo4j":
                 from core.db.ladybug_pool import LadybugPool
 
                 def _create_ladybug_fallback() -> LadybugPool:
                     return LadybugPool(db_path=self._settings.ladybug.db_path)
 
                 fallback_pool_factory = _create_ladybug_fallback
-                fallback_query_builder = create_graph_query_builder(DatabaseType.LADYBUG.value)
+                fallback_query_builder = create_graph_query_builder("ladybug")
 
             self._graph_repo = GraphRepository(
                 graph_pool, query_builder, fallback_pool_factory, fallback_query_builder
@@ -556,6 +552,7 @@ class ContainerServicesMixin:
                     self.community_updater() if self.graph_pool() is not None else None
                 ),
                 relation_type_normalizer=self.relation_normalizer(),
+                debug=self._debug_mode,
             )
             log.info("pipeline_initialized")
         return self._pipeline

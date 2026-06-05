@@ -48,6 +48,7 @@ class Container(
 
     def __init__(self) -> None:
         self._settings: Settings | None = None
+        self._debug_mode: bool = False
         self._strategy: Any = None
         self._cache_client: Any = None
         self._llm_client: Any = None
@@ -97,9 +98,10 @@ class Container(
         self._pipeline_worker: Any = None
         self._llm_usage_repo: Any = None
 
-    def configure(self, settings: Settings) -> Container:
+    def configure(self, settings: Settings, debug: bool = False) -> Container:
         """Configure the container with settings."""
         self._settings = settings
+        self._debug_mode = debug
         return self
 
     @property

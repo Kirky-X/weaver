@@ -380,6 +380,7 @@ class ServerContext:
     strategy: Any
     relational_type: str
     graph_type: str
+    debug: bool = False
 
 
 async def start_server(port: int = 8000, container: Any = None) -> tuple[Any, asyncio.Task]:
@@ -422,7 +423,7 @@ async def start_server(port: int = 8000, container: Any = None) -> tuple[Any, as
     return server, task
 
 
-async def setup_strategy_mode() -> ServerContext:
+async def setup_strategy_mode(debug: bool = False) -> ServerContext:
     """Setup strategy mode with fallback databases."""
     import container as container_module
     from config.settings import Settings
@@ -434,9 +435,11 @@ async def setup_strategy_mode() -> ServerContext:
     os.environ["REDIS_HOST"] = FALLBACK_REDIS_HOST
 
     print("  Forcing fallback databases (DuckDB + LadybugDB + CashewsRedis)")
+    if debug:
+        print("  Debug mode enabled: will exit immediately on any error")
 
     settings = Settings()
-    container = Container().configure(settings)
+    container = Container().configure(settings, debug=debug)
     await container.startup()
     container_module._container = container
 
@@ -449,10 +452,11 @@ async def setup_strategy_mode() -> ServerContext:
         strategy=strategy,
         relational_type=relational_type,
         graph_type=graph_type,
+        debug=debug,
     )
 
 
-async def setup_normal_mode() -> ServerContext:
+async def setup_normal_mode(debug: bool = False) -> ServerContext:
     """Setup normal mode with fallback databases."""
     import container as container_module
     from config.settings import Settings
@@ -464,8 +468,11 @@ async def setup_normal_mode() -> ServerContext:
     os.environ.setdefault("DUCKDB_ENABLED", "true")
     os.environ.setdefault("LADYBUG_ENABLED", "true")
 
+    if debug:
+        print("  Debug mode enabled: will exit immediately on any error")
+
     settings = Settings()
-    container = Container().configure(settings)
+    container = Container().configure(settings, debug=debug)
     await container.startup()
     container_module._container = container
 
@@ -475,6 +482,7 @@ async def setup_normal_mode() -> ServerContext:
         strategy=strategy,
         relational_type=strategy.relational_type,
         graph_type=strategy.graph_type,
+        debug=debug,
     )
 
 
@@ -933,9 +941,9 @@ async def cmd_test(args: argparse.Namespace) -> int:
         phase_header("PHASE 0: Infrastructure Initialization")
 
         if args.mode == "strategy":
-            server_ctx = await setup_strategy_mode()
+            server_ctx = await setup_strategy_mode(debug=args.debug)
         else:
-            server_ctx = await setup_normal_mode()
+            server_ctx = await setup_normal_mode(debug=args.debug)
 
         step(
             f"Database: {server_ctx.relational_type} + {server_ctx.graph_type}",
@@ -1329,6 +1337,11 @@ Examples:
         type=int,
         default=8000,
         help="API server port (default: 8000)",
+    )
+    test_parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Debug mode: exit immediately on any error",
     )
 
     # Process-pending subcommand
