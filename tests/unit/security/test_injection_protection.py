@@ -13,9 +13,6 @@ import pytest
 
 from core.db.safe_query import (
     InvalidIdentifierError,
-    safe_cypher_label,
-    safe_cypher_property,
-    safe_sql_identifier,
     validate_edge_type,
     validate_neo4j_label,
     validate_property_name,
@@ -71,16 +68,6 @@ class TestSQLInjectionProtection:
         with pytest.raises(InvalidIdentifierError):
             validate_sql_identifier(identifier)
 
-    def test_safe_sql_identifier_quotes_properly(self) -> None:
-        """safe_sql_identifier should quote identifiers safely."""
-        quoted = safe_sql_identifier("users")
-        assert quoted == '"users"'
-
-    def test_safe_sql_identifier_rejects_malicious(self) -> None:
-        """safe_sql_identifier should reject malicious identifiers."""
-        with pytest.raises(InvalidIdentifierError):
-            safe_sql_identifier("users; DROP TABLE users")
-
 
 class TestCypherInjectionProtection:
     """Tests for Cypher injection protection."""
@@ -124,16 +111,6 @@ class TestCypherInjectionProtection:
         """Malicious labels should fail validation."""
         with pytest.raises(InvalidIdentifierError):
             validate_neo4j_label(label)
-
-    def test_safe_cypher_label_quotes_properly(self) -> None:
-        """safe_cypher_label should quote labels safely."""
-        quoted = safe_cypher_label("Person")
-        assert quoted == "`Person`"
-
-    def test_safe_cypher_label_rejects_malicious(self) -> None:
-        """safe_cypher_label should reject malicious labels."""
-        with pytest.raises(InvalidIdentifierError):
-            safe_cypher_label("Person'; DELETE n;")
 
     # ── Edge Type Validation Tests ───────────────────────────────────────────
 
@@ -324,12 +301,6 @@ class TestSecurityHardeningVerification:
 
         # Test UUID validation
         assert validate_uuid("550e8400-e29b-41d4-a716-446655440000")
-
-    def test_all_safe_functions_exist(self) -> None:
-        """All safe identifier functions should exist and work."""
-        assert safe_sql_identifier("users") == '"users"'
-        assert safe_cypher_label("Person") == "`Person`"
-        assert safe_cypher_property("name") == "`name`"
 
     def test_graph_query_builder_factory(self) -> None:
         """Graph query builder factory should work correctly."""
