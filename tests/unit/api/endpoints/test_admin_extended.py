@@ -683,16 +683,8 @@ class TestMemoryDiagnostics:
         self, mock_api_key, mock_request, mock_container
     ):
         """Test diagnostics when memory service is not initialized."""
-        mock_container.memory_diagnostics = AsyncMock(
-            return_value={
-                "service_initialized": False,
-                "temporal_event_count": 0,
-                "causal_link_count": 0,
-                "pending_consolidation": 0,
-                "slow_path_enabled": False,
-            }
-        )
-        mock_container.is_job_registered = MagicMock(return_value=False)
+        mock_container.memory_service = None
+        mock_container._scheduler = None
 
         response = await memory_diagnostics(
             request=mock_request,
@@ -709,16 +701,18 @@ class TestMemoryDiagnostics:
         self, mock_api_key, mock_request, mock_container
     ):
         """Test diagnostics with initialized memory service."""
-        mock_container.memory_diagnostics = AsyncMock(
-            return_value={
-                "service_initialized": True,
-                "temporal_event_count": 1500,
-                "causal_link_count": 3000,
-                "pending_consolidation": 25,
-                "slow_path_enabled": True,
-            }
-        )
-        mock_container.is_job_registered = MagicMock(return_value=True)
+        mock_ms = MagicMock()
+        mock_ms._temporal_repo.count_events = AsyncMock(return_value=1500)
+        mock_ms._causal_repo.count_causal_links = AsyncMock(return_value=3000)
+        mock_ms._consolidation_queue.length = AsyncMock(return_value=25)
+        mock_ms._config.slow_path_enabled = True
+        mock_container.memory_service = mock_ms
+
+        mock_job = MagicMock()
+        mock_job.id = "memory_consolidation"
+        mock_scheduler = MagicMock()
+        mock_scheduler.get_jobs.return_value = [mock_job]
+        mock_container._scheduler = mock_scheduler
 
         response = await memory_diagnostics(
             request=mock_request,
@@ -738,16 +732,13 @@ class TestMemoryDiagnostics:
         self, mock_api_key, mock_request, mock_container
     ):
         """Test diagnostics handles query failures gracefully."""
-        mock_container.memory_diagnostics = AsyncMock(
-            return_value={
-                "service_initialized": True,
-                "temporal_event_count": 0,
-                "causal_link_count": 0,
-                "pending_consolidation": 0,
-                "slow_path_enabled": False,
-            }
-        )
-        mock_container.is_job_registered = MagicMock(return_value=False)
+        mock_ms = MagicMock()
+        mock_ms._temporal_repo.count_events = AsyncMock(side_effect=RuntimeError("DB error"))
+        mock_ms._causal_repo.count_causal_links = AsyncMock(side_effect=RuntimeError("DB error"))
+        mock_ms._consolidation_queue.length = AsyncMock(side_effect=RuntimeError("DB error"))
+        mock_ms._config.slow_path_enabled = False
+        mock_container.memory_service = mock_ms
+        mock_container._scheduler = None
 
         response = await memory_diagnostics(
             request=mock_request,
