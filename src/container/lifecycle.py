@@ -801,6 +801,12 @@ class ContainerLifecycleMixin:
 
         self._setup_scheduler()
 
+        # Register endpoints dependencies (required for API endpoints to work)
+        from api.endpoints.deps_registry import Endpoints
+
+        Endpoints.initialize(self)
+        log.info("endpoints_registered")
+
         if self._live_config:
             try:
                 await self._live_config.start(on_reload=self._on_llm_config_reload)

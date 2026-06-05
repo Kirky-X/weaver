@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 from api.dependencies import get_container, get_source_authority_repo
-from api.endpoints.deps_registry import Endpoints
+from api.endpoints._deps import Endpoints
 from api.middleware.auth import verify_admin_api_key, verify_api_key
 from api.middleware.rate_limit import limiter
 from api.schemas.response import APIResponse, success_response
@@ -545,17 +545,39 @@ async def memory_diagnostics(
         Memory system diagnostic data.
 
     """
-    # Use Container public methods instead of direct attribute access
-    diagnostics = await container.memory_diagnostics()
-    scheduler_registered = container.is_job_registered("memory_consolidation")
+    ms = container.memory_service
+    service_initialized = ms is not None
+
+    temporal_count = 0
+    causal_count = 0
+    pending_count = 0
+    slow_path_enabled = False
+    scheduler_registered = False
+
+    if service_initialized and ms is not None:
+        try:
+            temporal_count = await ms._temporal_repo.count_events()
+            causal_count = await ms._causal_repo.count_causal_links()
+            pending_count = await ms._consolidation_queue.length()
+            slow_path_enabled = ms._config.slow_path_enabled
+        except Exception as exc:
+            log.warning("memory_diagnostic_query_failed", error=str(exc))
+
+    try:
+        scheduler = container._scheduler
+        if scheduler is not None:
+            jobs = scheduler.get_jobs()
+            scheduler_registered = any(j.id == "memory_consolidation" for j in jobs)
+    except Exception:
+        pass
 
     return success_response(
         MemoryDiagnosticResponse(
-            memory_service_initialized=diagnostics["service_initialized"],
-            temporal_event_count=diagnostics["temporal_event_count"],
-            causal_link_count=diagnostics["causal_link_count"],
-            pending_consolidation=diagnostics["pending_consolidation"],
-            slow_path_enabled=diagnostics["slow_path_enabled"],
+            memory_service_initialized=service_initialized,
+            temporal_event_count=temporal_count,
+            causal_link_count=causal_count,
+            pending_consolidation=pending_count,
+            slow_path_enabled=slow_path_enabled,
             scheduler_job_registered=scheduler_registered,
         )
     )
