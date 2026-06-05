@@ -93,20 +93,22 @@ class Pipeline:
         event_bus: EventBus,
         settings: Settings | None = None,
         spacy: SpacyExtractor | None = None,
-        vector_repo: VectorRepository | None = None,
-        article_repo: ArticleRepository | None = None,
-        graph_writer: GraphWriter | None = None,
-        source_auth_repo: SourceAuthorityRepository | None = None,
+        vector_repo: Any = None,
+        article_repo: Any = None,
+        graph_writer: Any = None,
+        source_auth_repo: Any = None,
         entity_resolver: EntityResolver | None = None,
-        cache_client: CachePool | None = None,
+        cache_client: Any = None,
         community_updater: IncrementalCommunityUpdater | None = None,
         phase1_concurrency: int | None = None,
         phase3_concurrency: int | None = None,
         relation_type_normalizer: Any = None,
+        debug: bool = False,
     ) -> None:
         self._accepting = True
         self._event_bus = event_bus
         self._settings = settings
+        self._debug = debug
 
         # Concurrency limits - read from PipelineSettings, fallback to TOML default (5)
         pipeline_settings = settings.pipeline if settings else None
@@ -345,46 +347,51 @@ class Pipeline:
         for i in range(0, len(states), batch_size):
             batch = states[i : i + batch_size]
             batch_tasks = [self._phase1_per_article(s) for s in batch]
-            batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
+            batch_results = await asyncio.gather(*batch_tasks, return_exceptions=not self._debug)
             phase1_results.extend(batch_results)
-        # Fatal provider errors must abort the entire batch immediately
-        _check_fatal_provider_errors(phase1_results, "phase1")
 
-        # Flush Phase 1 stage updates in bulk
-        await self._flush_stage_updates()
+        # Debug mode: exceptions already raised, skip error handling
+        if self._debug:
+            states = list(phase1_results)
+        else:
+            # Fatal provider errors must abort the entire batch immediately
+            _check_fatal_provider_errors(phase1_results, "phase1")
 
-        # Handle errors gracefully - failed articles get error state, others continue
-        states = []
-        for i, result in enumerate(phase1_results):
-            if isinstance(result, Exception):
-                article_id = (
-                    str(article_ids[i])
-                    if article_ids is not None and i < len(article_ids)
-                    else None
-                )
-                log.error(
-                    "phase1_task_failed",
-                    article_index=i,
-                    article_id=article_id,
-                    url=articles[i].url,
-                    error=str(result),
-                    error_type=type(result).__name__,
-                )
-                MetricsCollector.pipeline_failure_count.labels(
-                    stage="phase1",
-                    error_type=type(result).__name__,
-                ).inc()
-                # Create failed state for the article
-                failed_state = PipelineState(raw=articles[i])
-                if article_id:
-                    failed_state["article_id"] = article_id
-                if task_id is not None:
-                    failed_state["task_id"] = str(task_id)
-                failed_state["terminal"] = True
-                failed_state["error"] = str(result)
-                states.append(failed_state)
-            else:
-                states.append(result)
+            # Flush Phase 1 stage updates in bulk
+            await self._flush_stage_updates()
+
+            # Handle errors gracefully - failed articles get error state, others continue
+            states = []
+            for i, result in enumerate(phase1_results):
+                if isinstance(result, Exception):
+                    article_id = (
+                        str(article_ids[i])
+                        if article_ids is not None and i < len(article_ids)
+                        else None
+                    )
+                    log.error(
+                        "phase1_task_failed",
+                        article_index=i,
+                        article_id=article_id,
+                        url=articles[i].url,
+                        error=str(result),
+                        error_type=type(result).__name__,
+                    )
+                    MetricsCollector.pipeline_failure_count.labels(
+                        stage="phase1",
+                        error_type=type(result).__name__,
+                    ).inc()
+                    # Create failed state for the article
+                    failed_state = PipelineState(raw=articles[i])
+                    if article_id:
+                        failed_state["article_id"] = article_id
+                    if task_id is not None:
+                        failed_state["task_id"] = str(task_id)
+                    failed_state["terminal"] = True
+                    failed_state["error"] = str(result)
+                    states.append(failed_state)
+                else:
+                    states.append(result)
 
         # ── Section: Phase 2-6 — Batch merge → Persist → Cleanup ──
         # Phase 2: Batch merger (serial)
@@ -400,37 +407,44 @@ class Pipeline:
             # Phase 3: Per-article post-merge nodes (concurrent)
             pre_phase3_states = list(states)
             phase3_tasks = [self._phase3_per_article(state) for state in states]
-            phase3_results = await asyncio.gather(*phase3_tasks, return_exceptions=True)
-            # Fatal provider errors must abort the entire batch immediately
-            _check_fatal_provider_errors(phase3_results, "phase3")
-            # Handle errors gracefully - preserve original state for failed articles
-            states = []
-            for i, result in enumerate(phase3_results):
-                if isinstance(result, Exception):
-                    log.error(
-                        "phase3_task_failed",
-                        article_index=i,
-                        error=str(result),
-                        error_type=type(result).__name__,
-                    )
-                    log.debug(
-                        "phase3_traceback",
-                        trace="".join(
-                            traceback.format_exception(type(result), result, result.__traceback__)
-                        ),
-                    )
-                    MetricsCollector.pipeline_failure_count.labels(
-                        stage="phase3",
-                        error_type=type(result).__name__,
-                    ).inc()
-                    # Preserve pre-phase3 state so Phase 1/2 results are not lost
-                    # Keep terminal=True from Phase1 if set, otherwise mark non-terminal
-                    original = pre_phase3_states[i]
-                    original.setdefault("terminal", False)
-                    original["phase3_error"] = str(result)
-                    states.append(original)
-                else:
-                    states.append(result)
+            phase3_results = await asyncio.gather(*phase3_tasks, return_exceptions=not self._debug)
+
+            # Debug mode: exceptions already raised, skip error handling
+            if self._debug:
+                states = list(phase3_results)
+            else:
+                # Fatal provider errors must abort the entire batch immediately
+                _check_fatal_provider_errors(phase3_results, "phase3")
+                # Handle errors gracefully - preserve original state for failed articles
+                states = []
+                for i, result in enumerate(phase3_results):
+                    if isinstance(result, Exception):
+                        log.error(
+                            "phase3_task_failed",
+                            article_index=i,
+                            error=str(result),
+                            error_type=type(result).__name__,
+                        )
+                        log.debug(
+                            "phase3_traceback",
+                            trace="".join(
+                                traceback.format_exception(
+                                    type(result), result, result.__traceback__
+                                )
+                            ),
+                        )
+                        MetricsCollector.pipeline_failure_count.labels(
+                            stage="phase3",
+                            error_type=type(result).__name__,
+                        ).inc()
+                        # Preserve pre-phase3 state so Phase 1/2 results are not lost
+                        # Keep terminal=True from Phase1 if set, otherwise mark non-terminal
+                        original = pre_phase3_states[i]
+                        original.setdefault("terminal", False)
+                        original["phase3_error"] = str(result)
+                        states.append(original)
+                    else:
+                        states.append(result)
 
             # Flush Phase 3 stage updates in bulk
             await self._flush_stage_updates()
@@ -522,37 +536,42 @@ class Pipeline:
         for i in range(0, len(states), batch_size):
             batch = states[i : i + batch_size]
             batch_tasks = [self._phase1_per_article(s) for s in batch]
-            batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
+            batch_results = await asyncio.gather(*batch_tasks, return_exceptions=not self._debug)
             phase1_results.extend(batch_results)
-        # Fatal provider errors must abort the entire batch immediately
-        _check_fatal_provider_errors(phase1_results, "phase1_fast")
 
-        # Flush Phase 1 stage updates in bulk
-        await self._flush_stage_updates()
+        # Debug mode: exceptions already raised, skip error handling
+        if self._debug:
+            states = list(phase1_results)
+        else:
+            # Fatal provider errors must abort the entire batch immediately
+            _check_fatal_provider_errors(phase1_results, "phase1_fast")
 
-        # Handle errors gracefully
-        states = []
-        for i, result in enumerate(phase1_results):
-            if isinstance(result, Exception):
-                log.error(
-                    "phase1_task_failed_fast_mode",
-                    article_index=i,
-                    error=str(result),
-                    error_type=type(result).__name__,
-                )
-                MetricsCollector.pipeline_failure_count.labels(
-                    stage="phase1_fast",
-                    error_type=type(result).__name__,
-                ).inc()
-                failed_state = PipelineState(raw=articles[i])
-                failed_state["terminal"] = True
-                failed_state["error"] = str(result)
-                states.append(failed_state)
-            else:
-                states.append(result)
+            # Flush Phase 1 stage updates in bulk
+            await self._flush_stage_updates()
 
-        # Fast mode: persist directly without Phase 2/3 (Pipeline A)
-        await self._persist_batch(states, pipeline_a_mode=True)
+            # Handle errors gracefully
+            states = []
+            for i, result in enumerate(phase1_results):
+                if isinstance(result, Exception):
+                    log.error(
+                        "phase1_task_failed_fast_mode",
+                        article_index=i,
+                        error=str(result),
+                        error_type=type(result).__name__,
+                    )
+                    MetricsCollector.pipeline_failure_count.labels(
+                        stage="phase1_fast",
+                        error_type=type(result).__name__,
+                    ).inc()
+                    failed_state = PipelineState(raw=articles[i])
+                    failed_state["terminal"] = True
+                    failed_state["error"] = str(result)
+                    states.append(failed_state)
+                else:
+                    states.append(result)
+
+        # Fast mode: persist directly without Phase 2/3
+        await self._persist_batch(states)
 
         # Checkpoint cleanup
         cleanup_tasks = [self._checkpoint_cleanup.execute(state) for state in states]
@@ -629,40 +648,45 @@ class Pipeline:
             vectorize_task = asyncio.create_task(run_vectorize(state))
 
             gather_results = await asyncio.gather(
-                categorizer_task, vectorize_task, return_exceptions=True
+                categorizer_task, vectorize_task, return_exceptions=not self._debug
             )
             categorizer_result, vectorize_result = gather_results[0], gather_results[1]
 
-            # Fatal provider errors must propagate immediately
-            _check_fatal_provider_errors(
-                [categorizer_result, vectorize_result],
-                "phase1_categorize_vectorize",
-            )
-
-            # Handle categorizer result
-            if isinstance(categorizer_result, Exception):
-                log.warning(
-                    "categorizer_failed",
-                    error=str(categorizer_result),
-                    url=getattr(state.get("raw"), "url", "unknown"),
-                )
-                categorizer_state: dict[str, Any] = {}
+            # Debug mode: exceptions already raised, use results directly
+            if self._debug:
+                state.update(categorizer_result)
+                state.update(vectorize_result)
             else:
-                categorizer_state = categorizer_result
-
-            # Handle vectorize result
-            if isinstance(vectorize_result, Exception):
-                log.warning(
-                    "vectorize_failed",
-                    error=str(vectorize_result),
-                    url=getattr(state.get("raw"), "url", "unknown"),
+                # Fatal provider errors must propagate immediately
+                _check_fatal_provider_errors(
+                    [categorizer_result, vectorize_result],
+                    "phase1_categorize_vectorize",
                 )
-                vectorize_state: dict[str, Any] = {}
-            else:
-                vectorize_state = vectorize_result
 
-            state.update(categorizer_state)
-            state.update(vectorize_state)
+                # Handle categorizer result
+                if isinstance(categorizer_result, Exception):
+                    log.warning(
+                        "categorizer_failed",
+                        error=str(categorizer_result),
+                        url=getattr(state.get("raw"), "url", "unknown"),
+                    )
+                    categorizer_state: dict[str, Any] = {}
+                else:
+                    categorizer_state = categorizer_result
+
+                # Handle vectorize result
+                if isinstance(vectorize_result, Exception):
+                    log.warning(
+                        "vectorize_failed",
+                        error=str(vectorize_result),
+                        url=getattr(state.get("raw"), "url", "unknown"),
+                    )
+                    vectorize_state: dict[str, Any] = {}
+                else:
+                    vectorize_state = vectorize_result
+
+                state.update(categorizer_state)
+                state.update(vectorize_state)
 
             await self._update_processing_stage(state, PHASE1_STAGES["categorizer"])
             await self._update_processing_stage(state, PHASE1_STAGES["vectorize"])
@@ -716,40 +740,45 @@ class Pipeline:
             quality_task = asyncio.create_task(run_quality_scorer(state))
 
             gather_results = await asyncio.gather(
-                analyze_task, quality_task, return_exceptions=True
+                analyze_task, quality_task, return_exceptions=not self._debug
             )
             analyze_result, quality_result = gather_results[0], gather_results[1]
 
-            # Fatal provider errors must propagate immediately
-            _check_fatal_provider_errors(
-                [analyze_result, quality_result],
-                "phase3_analyze_quality",
-            )
-
-            # Handle analyze result
-            if isinstance(analyze_result, Exception):
-                log.warning(
-                    "analyze_failed",
-                    error=str(analyze_result),
-                    url=getattr(state.get("raw"), "url", "unknown"),
-                )
-                analyze_state: dict[str, Any] = {}
+            # Debug mode: exceptions already raised, use results directly
+            if self._debug:
+                state.update(analyze_result)
+                state.update(quality_result)
             else:
-                analyze_state = analyze_result
-
-            # Handle quality scorer result
-            if isinstance(quality_result, Exception):
-                log.warning(
-                    "quality_scorer_failed",
-                    error=str(quality_result),
-                    url=getattr(state.get("raw"), "url", "unknown"),
+                # Fatal provider errors must propagate immediately
+                _check_fatal_provider_errors(
+                    [analyze_result, quality_result],
+                    "phase3_analyze_quality",
                 )
-                quality_state: dict[str, Any] = {}
-            else:
-                quality_state = quality_result
 
-            state.update(analyze_state)
-            state.update(quality_state)
+                # Handle analyze result
+                if isinstance(analyze_result, Exception):
+                    log.warning(
+                        "analyze_failed",
+                        error=str(analyze_result),
+                        url=getattr(state.get("raw"), "url", "unknown"),
+                    )
+                    analyze_state: dict[str, Any] = {}
+                else:
+                    analyze_state = analyze_result
+
+                # Handle quality scorer result
+                if isinstance(quality_result, Exception):
+                    log.warning(
+                        "quality_scorer_failed",
+                        error=str(quality_result),
+                        url=getattr(state.get("raw"), "url", "unknown"),
+                    )
+                    quality_state: dict[str, Any] = {}
+                else:
+                    quality_state = quality_result
+
+                state.update(analyze_state)
+                state.update(quality_state)
 
             await self._update_processing_stage(state, PHASE3_STAGES["analyze"])
             await self._update_processing_stage(state, PHASE3_STAGES["quality_scorer"])
@@ -791,7 +820,7 @@ class Pipeline:
             try:
                 article_id = await self._article_repo.upsert(state)
                 state["article_id"] = str(article_id)
-                await self._article_repo.update_persist_status(article_id, PersistStatus.STORED)
+                await self._article_repo.update_persist_status(article_id, PersistStatus.PG_DONE)
 
                 if self._vector_repo and "vectors" in state:
                     vectors = state["vectors"]
@@ -835,12 +864,8 @@ class Pipeline:
                 neo4j_ids = await self._graph_writer.write(state)
                 state["neo4j_ids"] = neo4j_ids
                 if self._article_repo:
-                    # Valid transition: STORED → ENRICHING → COMPLETE
                     await self._article_repo.update_persist_status(
-                        state["article_id"], PersistStatus.ENRICHING
-                    )
-                    await self._article_repo.update_persist_status(
-                        state["article_id"], PersistStatus.COMPLETE
+                        state["article_id"], PersistStatus.NEO4J_DONE
                     )
             except Exception as exc:
                 log.error(
@@ -867,19 +892,15 @@ class Pipeline:
                             mark_error=str(mark_exc),
                         )
 
-    async def _persist_batch(
-        self, states: list[PipelineState], pipeline_a_mode: bool = False
-    ) -> None:
-        """Persist batch of articles to Postgres and optionally Neo4j.
+    async def _persist_batch(self, states: list[PipelineState]) -> None:
+        """Persist batch of articles to Postgres and Neo4j.
 
         Uses bulk operations for better performance.
 
         Args:
             states: List of pipeline states to persist.
-            pipeline_a_mode: If True, only persist to PG+vector with STORED status,
-                            skip graph write. If False, include graph write with COMPLETE status.
         """
-        log.info("persist_batch_called", count=len(states), pipeline_a_mode=pipeline_a_mode)
+        log.info("persist_batch_called", count=len(states))
         valid_states = [s for s in states if not s.get("terminal")]
         terminal_states = [s for s in states if s.get("terminal")]
 
@@ -914,7 +935,7 @@ class Pipeline:
                 )
                 for state, aid in zip(valid_states, article_ids):
                     state["article_id"] = str(aid)
-                    # persist_status is set to STORED in bulk_upsert._upsert_single
+                    # persist_status is set to PG_DONE in bulk_upsert._upsert_single
 
                 if self._vector_repo:
                     vector_data = []
@@ -995,14 +1016,6 @@ class Pipeline:
                             )
                 return
 
-        # In Pipeline A mode, skip graph write and keep status as STORED
-        if pipeline_a_mode:
-            log.info("pipeline_a_mode_skip_graph_write", count=len(valid_states))
-            for state in valid_states:
-                self._batch_completed += 1
-                self._log_progress(state["raw"].url)
-            return
-
         # Debug: check graph_writer availability
         log.debug(
             "persist_batch_graph_writer_check", has_graph_writer=self._graph_writer is not None
@@ -1020,7 +1033,7 @@ class Pipeline:
                         success=len(result.get("article_ids", [])),
                         failed=len(result.get("errors", [])),
                     )
-                    # Update article IDs and persist status to COMPLETE
+                    # Update article IDs and persist status
                     for i, state in enumerate(valid_states):
                         if i < len(result.get("neo4j_ids", [])):
                             state["neo4j_ids"] = result["neo4j_ids"][i]
@@ -1028,12 +1041,8 @@ class Pipeline:
                         if article_id and self._article_repo:
                             import uuid
 
-                            # Valid transition: STORED → ENRICHING → COMPLETE
                             await self._article_repo.update_persist_status(
-                                uuid.UUID(article_id), PersistStatus.ENRICHING
-                            )
-                            await self._article_repo.update_persist_status(
-                                uuid.UUID(article_id), PersistStatus.COMPLETE
+                                uuid.UUID(article_id), PersistStatus.NEO4J_DONE
                             )
                     # Log errors
                     for article_id_str, error_msg in result.get("errors", []):
@@ -1064,12 +1073,8 @@ class Pipeline:
                             if self._article_repo and state.get("article_id"):
                                 import uuid
 
-                                # Valid transition: STORED → ENRICHING → COMPLETE
                                 await self._article_repo.update_persist_status(
-                                    uuid.UUID(state["article_id"]), PersistStatus.ENRICHING
-                                )
-                                await self._article_repo.update_persist_status(
-                                    uuid.UUID(state["article_id"]), PersistStatus.COMPLETE
+                                    uuid.UUID(state["article_id"]), PersistStatus.NEO4J_DONE
                                 )
                             self._batch_completed += 1
                             self._log_progress(state["raw"].url)
@@ -1105,12 +1110,8 @@ class Pipeline:
                         if self._article_repo and state.get("article_id"):
                             import uuid
 
-                            # Valid transition: STORED → ENRICHING → COMPLETE
                             await self._article_repo.update_persist_status(
-                                uuid.UUID(state["article_id"]), PersistStatus.ENRICHING
-                            )
-                            await self._article_repo.update_persist_status(
-                                uuid.UUID(state["article_id"]), PersistStatus.COMPLETE
+                                uuid.UUID(state["article_id"]), PersistStatus.NEO4J_DONE
                             )
                         self._batch_completed += 1
                         self._log_progress(state["raw"].url)
@@ -1245,125 +1246,6 @@ class Pipeline:
             "has_score": article.score is not None,
             "has_credibility": article.credibility_score is not None,
         }
-
-    async def process_pending_enrichment(self, article_id: str) -> dict[str, Any]:
-        """Process a single article through Pipeline B enrichment.
-
-        Scans for articles that can be merged with this one, performs
-        semantic merge via BatchMergerNode, runs Phase 3 deep analysis,
-        writes graph, and sets status to COMPLETE.
-
-        Args:
-            article_id: The article ID to process through Pipeline B.
-
-        Returns:
-            Status dict with processing result.
-        """
-        if self._article_repo is None:
-            return {"error": "article_repo not configured"}
-
-        article = await self._article_repo.get_by_id(article_id)
-        if article is None:
-            return {"status": "not_found", "article_id": article_id}
-
-        if article.persist_status != PersistStatus.STORED:
-            return {
-                "status": "skipped",
-                "article_id": article_id,
-                "reason": f"Article is not in STORED state: {article.persist_status}",
-            }
-
-        log.info("pipeline_b_enrichment_start", article_id=article_id)
-
-        try:
-            # Build PipelineState from article
-            from modules.ingestion.domain.models import RawArticle
-
-            raw = RawArticle(
-                url=article.source_url,
-                title=article.title or "",
-                body=article.body or "",
-                source=article.source_host or "",
-                source_host=article.source_host or "",
-                publish_time=article.publish_time,
-            )
-            states = [PipelineState(raw=raw)]
-            states[0]["article_id"] = str(article.id)
-
-            # Step 1: Cross-query for similar articles to merge
-            if self._vector_repo:
-                vectors_data = await self._vector_repo.get_article_vectors(uuid.UUID(article_id))
-                if vectors_data and vectors_data.get("content"):
-                    states[0]["vectors"] = vectors_data
-                    states[0]["category"] = article.category.value if article.category else None
-
-            # Step 2: Run BatchMergerNode to find merge candidates
-            states = await self._batch_merger.execute_batch(states, pipeline_b_mode=True)
-
-            # Step 3: For merged secondaries, delete them and update primary
-            for state in states:
-                if state.get("is_secondary"):
-                    secondary_id = state.get("article_id")
-                    if secondary_id:
-                        if self._vector_repo:
-                            try:
-                                await self._vector_repo.delete_article_vectors(
-                                    uuid.UUID(secondary_id)
-                                )
-                            except Exception:
-                                log.error(
-                                    "pipeline_vector_delete_failed",
-                                    article_id=secondary_id,
-                                    exc_info=True,
-                                )
-                        try:
-                            await self._article_repo.delete(secondary_id)
-                        except Exception as exc:
-                            log.warning(
-                                "pipeline_b_delete_secondary_failed",
-                                article_id=secondary_id,
-                                error=str(exc),
-                            )
-
-            # Step 4: Mark as ENRICHING before Phase 3
-            await self._article_repo.update_persist_status(
-                uuid.UUID(article_id), PersistStatus.ENRICHING
-            )
-
-            # Step 5: Run Phase 3 deep analysis
-            for state in states:
-                if not state.get("is_secondary"):
-                    enriched = await self._phase3_per_article(state)
-                    # Persist Phase 3 results
-                    if self._article_repo:
-                        await self._article_repo.upsert_from_state(enriched)
-                        await self._article_repo.update_persist_status(
-                            uuid.UUID(article_id), PersistStatus.COMPLETE
-                        )
-
-            # Step 6: Graph write
-            if self._graph_writer and not states[0].get("terminal"):
-                try:
-                    await self._graph_writer.write(states[0])
-                except Exception as exc:
-                    log.error(
-                        "pipeline_b_graph_write_failed",
-                        article_id=article_id,
-                        error=str(exc),
-                    )
-
-            log.info("pipeline_b_enrichment_complete", article_id=article_id)
-            return {"status": "complete", "article_id": article_id}
-
-        except Exception as exc:
-            log.error(
-                "pipeline_b_enrichment_failed",
-                article_id=article_id,
-                error=str(exc),
-                traceback=traceback.format_exc(),
-            )
-            # Keep STORED status for retry
-            return {"status": "failed", "article_id": article_id, "error": str(exc)}
 
     async def _maybe_trigger_community_update(self, states: list[PipelineState]) -> None:
         """Check and trigger incremental community update after Phase 4 persist.

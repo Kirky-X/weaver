@@ -18,8 +18,9 @@ from core.db.models import Article, PersistStatus
 from core.observability.logging import get_logger
 from core.observability.metrics import metrics
 from modules.ingestion.deduplication.retry import RetryQueue
+from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 from modules.scheduler.wrapper import scheduled_task
-from modules.storage import PendingSyncRepo, VectorRepo
+from modules.storage import ArticleRepo, PendingSyncRepo, SourceAuthorityRepo, VectorRepo
 
 if TYPE_CHECKING:
     from core.protocols import CachePool, RelationalPool
@@ -45,10 +46,10 @@ class SchedulerJobs:
         self,
         relational_pool: RelationalPool,
         cache: CachePool,
-        graph_writer: GraphWriter,
-        vector_repo: VectorRepository,
-        article_repo: ArticleRepository,
-        source_authority_repo: SrcAuthRepoProtocol,
+        graph_writer: Neo4jWriter,
+        vector_repo: VectorRepo,
+        article_repo: ArticleRepo,
+        source_authority_repo: SourceAuthorityRepo,
         pending_sync_repo: PendingSyncRepo,
         pipeline: Any = None,
         settings: SchedulerSettings | None = None,
@@ -72,7 +73,7 @@ class SchedulerJobs:
     async def retry_neo4j_writes(self) -> int:
         """Retry failed Neo4j writes.
 
-        Scans for articles with persist_status='stored' that have been
+        Scans for articles with persist_status='pg_done' that have been
         in that state for more than 10 minutes, then attempts to write
         to Neo4j again. Prefers pending_sync payload over _reconstruct_state.
 
@@ -82,14 +83,14 @@ class SchedulerJobs:
         log.info("retry_neo4j_writes_start")
 
         async with self._relational_pool.session() as session:
-            # Find articles stuck in stored state for > 10 minutes
+            # Find articles stuck in pg_done state for > 10 minutes
             threshold = datetime.now(UTC) - timedelta(minutes=10)
 
             stmt = (
                 select(Article)
                 .where(
                     and_(
-                        Article.persist_status == PersistStatus.STORED,
+                        Article.persist_status == PersistStatus.PG_DONE,
                         Article.updated_at < threshold,
                     )
                 )
@@ -128,7 +129,7 @@ class SchedulerJobs:
                     await self._graph_writer.write(state)
 
                     # Update status
-                    article.persist_status = PersistStatus.COMPLETE
+                    article.persist_status = PersistStatus.NEO4J_DONE
                     await session.commit()
                     retry_count += 1
                     consecutive_failures = 0
@@ -148,6 +149,7 @@ class SchedulerJobs:
                         article_id=str(article.id),
                         error=str(exc),
                     )
+                    # Leave in pg_done state for next retry
 
             log.info("retry_neo4j_writes_complete", retry_count=retry_count)
             return retry_count
@@ -310,7 +312,7 @@ class SchedulerJobs:
 
         Detects and cleans up three types of inconsistency:
         1. Orphan Neo4j nodes (in Neo4j but not in PostgreSQL)
-        2. Enrichment gaps (COMPLETE status but NULL enrichment fields)
+        2. Enrichment gaps (NEO4J_DONE status but NULL enrichment fields)
         3. Entity count mismatch between Neo4j and PostgreSQL entity_vectors
 
         Returns:
@@ -340,7 +342,7 @@ class SchedulerJobs:
             # 2. Count articles without mentions (orphan relationships)
             orphan_cleaned = await self._graph_writer.article_repo.count_articles_without_mentions()
 
-            # 3. Detect enrichment gaps (COMPLETE but NULL enrichment fields)
+            # 3. Detect enrichment gaps (NEO4J_DONE but NULL enrichment fields)
             incomplete = await self._article_repo.get_incomplete_articles(
                 limit=self._settings.consistency_check_batch_size
             )
@@ -351,8 +353,8 @@ class SchedulerJobs:
                     article_id=str(article.id),
                     url=article.source_url,
                 )
-                # Revert to STORED so retry pipeline picks it up
-                reverted = await self._article_repo.revert_to_stored(article.id)
+                # Revert to PG_DONE so retry pipeline picks it up
+                reverted = await self._article_repo.revert_to_pg_done(article.id)
                 if reverted:
                     reverted_count += 1
                 log.info("enrichment_gap_reverted", article_id=str(article.id))
@@ -480,8 +482,8 @@ class SchedulerJobs:
             # For each task, check if all articles are in terminal states
             # If so, update Redis task status to "completed"
             terminal_statuses = {
-                PersistStatus.COMPLETE,
-                PersistStatus.STORED,
+                PersistStatus.NEO4J_DONE,
+                PersistStatus.PG_DONE,
                 PersistStatus.FAILED,
             }
             for task_id, task_arts in task_articles.items():
@@ -676,8 +678,9 @@ class SchedulerJobs:
                                     error=str(vec_exc),
                                 )
 
+                    # Update article persist status
                     await self._article_repo.update_persist_status(
-                        record.article_id, PersistStatus.ENRICHING
+                        record.article_id, PersistStatus.NEO4J_DONE
                     )
 
                     # Mark record as synced
@@ -902,56 +905,21 @@ class SchedulerJobs:
             log.error("sync_phishtank_data_failed", error=str(exc))
             return False
 
-    @scheduled_task("process_pending_enrichment", timeout_seconds=300)
     async def process_pending_enrichment(self) -> int:
-        """Process articles pending enrichment.
+        """Process pending enrichment for stored articles.
 
-        Scans for articles with persist_status='stored' that have been
-        in that state beyond the configured timeout, then processes
-        them through the enrichment pipeline.
+        Pipeline B: Enrichment (STORED → ENRICHING → COMPLETE)
+        This job handles articles that have been stored but need Phase 3 enrichment.
 
         Returns:
             Number of articles processed.
         """
-        if not self._pipeline:
+        if not self._pipeline or not self._article_repo:
             log.warning("process_pending_enrichment_no_pipeline")
             return 0
 
         log.info("process_pending_enrichment_start")
 
-        try:
-            stored_articles = await self._article_repo.get_by_status(
-                PersistStatus.STORED,
-                limit=self._settings.sync_pending_batch_size,
-            )
-
-            if not stored_articles:
-                log.info("process_pending_enrichment_no_items")
-                return 0
-
-            processed_count = 0
-            for article in stored_articles:
-                try:
-                    await self._pipeline.process_pending_enrichment(str(article.id))
-                    processed_count += 1
-                    log.debug(
-                        "process_pending_enrichment_success",
-                        article_id=str(article.id),
-                    )
-                except Exception as exc:
-                    log.error(
-                        "process_pending_enrichment_failed",
-                        article_id=str(article.id),
-                        error=str(exc),
-                    )
-
-            log.info(
-                "process_pending_enrichment_complete",
-                processed=processed_count,
-                total=len(stored_articles),
-            )
-            return processed_count
-
-        except Exception as exc:
-            log.error("process_pending_enrichment_error", error=str(exc))
-            return 0
+        # Get articles that need enrichment (stored but not enriched)
+        # This delegates to retry_pipeline_processing which handles pending/stuck articles
+        return await self.retry_pipeline_processing()

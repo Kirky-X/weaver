@@ -29,8 +29,6 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON, TypeDecorator
 
-from core.constants import SourceType
-
 
 class JSONCompatible(TypeDecorator):
     """TypeDecorator that uses JSONB for PostgreSQL and JSON for other dialects.
@@ -75,18 +73,14 @@ class CategoryType(str, enum.Enum):
 
 
 class PersistStatus(str, enum.Enum):
-    """Backend-agnostic article persistence lifecycle.
-
-    States describe data processing stages, not storage backends:
-      PENDING → PROCESSING → STORED → ENRICHING → COMPLETE + FAILED
-    """
-
     PENDING = "pending"
     PROCESSING = "processing"
-    STORED = "stored"
-    ENRICHING = "enriching"
-    COMPLETE = "complete"
+    PG_DONE = "pg_done"
+    STORED = "stored"  # Article stored in relational DB, awaiting graph sync
+    NEO4J_DONE = "neo4j_done"
+    NEO4J_FAILED = "neo4j_failed"
     FAILED = "failed"
+    COMPLETE = "complete"  # Legacy status from migration
 
     @classmethod
     def is_valid_transition(
@@ -98,9 +92,9 @@ class PersistStatus(str, enum.Enum):
 
         Valid transitions:
         - PENDING → PROCESSING, FAILED
-        - PROCESSING → STORED, FAILED
-        - STORED → ENRICHING, FAILED
-        - ENRICHING → COMPLETE, FAILED
+        - PROCESSING → PG_DONE, FAILED
+        - PG_DONE → NEO4J_DONE, NEO4J_FAILED, FAILED
+        - NEO4J_FAILED → PENDING, PG_DONE (allows retry)
         - FAILED → PENDING (allows retry)
 
         Args:
@@ -110,16 +104,20 @@ class PersistStatus(str, enum.Enum):
         Returns:
             True if the transition is valid, False otherwise.
         """
+        # Allow staying in same state (idempotent)
         if from_status == to_status:
             return True
 
+        # Define valid transitions
         valid_transitions = {
             cls.PENDING: {cls.PROCESSING, cls.FAILED},
-            cls.PROCESSING: {cls.STORED, cls.FAILED},
-            cls.STORED: {cls.ENRICHING, cls.FAILED},
-            cls.ENRICHING: {cls.COMPLETE, cls.FAILED},
+            cls.PROCESSING: {cls.PG_DONE, cls.STORED, cls.FAILED},
+            cls.PG_DONE: {cls.NEO4J_DONE, cls.NEO4J_FAILED, cls.FAILED, cls.COMPLETE, cls.STORED},
+            cls.STORED: {cls.NEO4J_DONE, cls.NEO4J_FAILED, cls.COMPLETE, cls.FAILED},
+            cls.NEO4J_FAILED: {cls.PENDING, cls.PG_DONE, cls.STORED},  # Allow retry
             cls.FAILED: {cls.PENDING},  # Allow retry
-            cls.COMPLETE: set(),  # Terminal state
+            cls.NEO4J_DONE: set(),  # Terminal state
+            cls.COMPLETE: set(),  # Terminal state (legacy)
         }
 
         allowed = valid_transitions.get(from_status, set())
@@ -179,7 +177,7 @@ class Article(Base):
         UUID(as_uuid=True), ForeignKey("articles.id")
     )
     is_merged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    merged_source_ids: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    merged_source_ids: Mapped[list[uuid.UUID] | None] = mapped_column(ARRAY(UUID(as_uuid=True)))
 
     # Summary & analysis
     summary: Mapped[str | None] = mapped_column(Text)
@@ -285,7 +283,7 @@ class Article(Base):
         Index(
             "idx_articles_persist_status",
             "persist_status",
-            postgresql_where=text("persist_status IN ('pending', 'stored')"),
+            postgresql_where=text("persist_status IN ('pending', 'pg_done')"),
         ),
         Index("idx_articles_category_publish", "category", publish_time.desc()),
         Index("idx_articles_host_publish", "source_host", publish_time.desc()),
@@ -446,9 +444,7 @@ class Source(Base):
     id: Mapped[str] = mapped_column(String(100), primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     url: Mapped[str] = mapped_column(Text, nullable=False)
-    source_type: Mapped[str] = mapped_column(
-        String(50), nullable=False, default=SourceType.RSS.value
-    )
+    source_type: Mapped[str] = mapped_column(String(50), nullable=False, default="rss")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
     per_host_concurrency: Mapped[int] = mapped_column(Integer, nullable=False, default=2)
