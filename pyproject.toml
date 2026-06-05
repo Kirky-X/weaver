@@ -63,12 +63,6 @@ database-fallback = [
     "duckdb-engine>=0.17.0",
     "real-ladybug>=0.15.3",
 ]
-local-embedding = [
-    "sentence-transformers>=2.2.0",
-]
-local-models = [
-    "modelscope>=1.10.0",
-]
 cache-fallback = [
     "cashews>=7.5.0",
 ]
