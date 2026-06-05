@@ -89,11 +89,11 @@ class TestArticlePersistStatusTransitions:
     def test_valid_transition_complete_to_complete(self):
         assert PersistStatus.is_valid_transition(PersistStatus.COMPLETE, PersistStatus.COMPLETE)
 
-    def test_valid_transition_stored_to_enriching(self):
-        assert PersistStatus.is_valid_transition(PersistStatus.STORED, PersistStatus.ENRICHING)
+    def test_valid_transition_stored_to_neo4j_done(self):
+        assert PersistStatus.is_valid_transition(PersistStatus.STORED, PersistStatus.NEO4J_DONE)
 
-    def test_valid_transition_enriching_to_complete(self):
-        assert PersistStatus.is_valid_transition(PersistStatus.ENRICHING, PersistStatus.COMPLETE)
+    def test_valid_transition_pg_done_to_neo4j_done(self):
+        assert PersistStatus.is_valid_transition(PersistStatus.PG_DONE, PersistStatus.NEO4J_DONE)
 
     def test_valid_transition_stored_to_failed(self):
         assert PersistStatus.is_valid_transition(PersistStatus.STORED, PersistStatus.FAILED)
