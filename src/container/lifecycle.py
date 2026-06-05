@@ -342,7 +342,7 @@ class ContainerLifecycleMixin:
             coalesce=True,
         )
 
-        # Pipeline B — Enrichment (STORED → ENRICHING → COMPLETE)
+        # Pipeline B — Enrichment (PG_DONE → NEO4J_DONE)
         scheduler.add_job(
             jobs.process_pending_enrichment,
             IntervalTrigger(minutes=settings.enrichment_interval_minutes),

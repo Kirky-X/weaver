@@ -908,7 +908,7 @@ class SchedulerJobs:
     async def process_pending_enrichment(self) -> int:
         """Process pending enrichment for stored articles.
 
-        Pipeline B: Enrichment (STORED → ENRICHING → COMPLETE)
+        Pipeline B: Enrichment (PG_DONE → NEO4J_DONE)
         This job handles articles that have been stored but need Phase 3 enrichment.
 
         Returns:
