@@ -23,9 +23,6 @@ from core.observability.logging import get_logger
 
 log = get_logger(__name__)
 
-# Valid edge type pattern: uppercase letters, underscores, and digits
-_EDGE_TYPE_RE = "^[\u4e00-\u9fffA-Z_][\u4e00-\u9fffA-Z_0-9]*$"
-
 
 class BaseEntityRepo(ABC):
     """Base class for entity repositories.
@@ -504,19 +501,6 @@ class BaseEntityRepo(ABC):
         import asyncio
 
         await asyncio.sleep(seconds)
-
-    def _validate_edge_type(self, edge_type: str) -> bool:
-        """Validate edge type format.
-
-        Args:
-            edge_type: The edge type to validate.
-
-        Returns:
-            True if valid, False otherwise.
-        """
-        import re
-
-        return bool(re.match(_EDGE_TYPE_RE, edge_type))
 
     # -------------------------------------------------------------------------
     # Abstract methods for subclass-specific queries

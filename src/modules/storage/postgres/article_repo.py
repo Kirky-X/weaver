@@ -292,34 +292,6 @@ class ArticleRepo:
 
         _apply_state_to_article(article, state)
 
-    async def _upsert_single(self, session: AsyncSession, state: PipelineState) -> uuid.UUID:
-        """Upsert a single article within an existing session.
-
-        Uses centralized _apply_state_to_article for field mapping.
-        """
-        raw = state["raw"]
-        # Use normalized URL for consistent deduplication
-        normalized_url = Deduplicator.normalize_url(raw.url)
-
-        result = await session.execute(select(Article).where(Article.source_url == normalized_url))
-        article = result.scalar_one_or_none()
-
-        if article is None:
-            article = Article(
-                source_url=normalized_url,
-                source_host=getattr(raw, "source_host", None)
-                or (raw.get("source_host") if isinstance(raw, dict) else None),
-                is_news=state.get("is_news", True),
-                title=state.get("cleaned", {}).get("title", getattr(raw, "title", "")),
-                body=state.get("cleaned", {}).get("body", getattr(raw, "body", "")),
-            )
-            session.add(article)
-
-        _apply_state_to_article(article, state)
-
-        await session.flush()
-        return article.id
-
     async def upsert(self, state: PipelineState) -> uuid.UUID:
         """Upsert an article from pipeline state.
 
