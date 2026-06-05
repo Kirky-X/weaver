@@ -63,7 +63,7 @@ class TestCreateStrategy:
         """Should create PostgreSQL strategy when database is available."""
         from unittest.mock import AsyncMock, MagicMock
 
-        from config.settings import Neo4jSettings, PostgresSettings
+        from config.settings import LadybugSettings, Neo4jSettings, PostgresSettings
 
         # Mock PostgresPool at its source module
         mock_pg_pool = MagicMock()
@@ -74,10 +74,12 @@ class TestCreateStrategy:
 
         pg_settings = PostgresSettings(host="localhost", password="test")
         neo4j_settings = Neo4jSettings(enabled=False)
+        ladybug_settings = LadybugSettings(enabled=False)
 
         strategy = await create_strategy(
             pg_settings=pg_settings,
             neo4j_settings=neo4j_settings,
+            ladybug_settings=ladybug_settings,
         )
 
         assert strategy.relational_type == "postgresql"
