@@ -35,7 +35,9 @@ from pathlib import Path
 from typing import Any
 
 # Add src to Python path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+_project_root = str(Path(__file__).parent.parent)
+sys.path.insert(0, f"{_project_root}/src")
+sys.path.insert(0, _project_root)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -998,30 +1000,25 @@ async def cmd_regenerate_titles(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success, 1 for failure).
     """
-    from config.settings import Settings
-    from container import Container
     from core.llm.types import CallPoint
+    from scripts._common import init_script_container
 
     print("🔍 Initializing container...")
-    settings = Settings()
 
     # Ensure prompts path is relative to project root
     project_root = Path(__file__).parent.parent
     os.chdir(project_root)
 
-    container = Container().configure(settings)
-
-    # Initialize database strategy
-    await container.init_strategy()
+    ctx = await init_script_container()
 
     # Check graph pool
-    graph_pool = container.graph_pool()
+    graph_pool = ctx.container.graph_pool()
     if graph_pool is None:
         print("❌ Neo4j graph pool not available. This command requires Neo4j.")
         return 1
 
-    # Initialize LLM client
-    llm = await container.init_llm()
+    # Get LLM client (already initialized by init_script_container)
+    llm = await ctx.container.init_llm()
     if llm is None:
         print("❌ LLM client not available.")
         return 1

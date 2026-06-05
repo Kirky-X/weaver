@@ -56,7 +56,9 @@ from typing import Any
 import httpx
 
 # Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+_project_root = str(Path(__file__).parent.parent)
+sys.path.insert(0, f"{_project_root}/src")
+sys.path.insert(0, _project_root)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1131,28 +1133,13 @@ async def cmd_reprocess(args: argparse.Namespace) -> int:
     """Reprocess articles with incomplete LLM fields."""
     from sqlalchemy import case, func, select
 
-    from config.settings import Settings
-    from container import Container, set_container, set_settings
-    from core.observability.logging import configure_logging
     from modules.ingestion.domain.models import RawArticle
-    from modules.storage import ArticleRepo
+    from scripts._common import init_script_container
 
-    # Enable structured logging with debug output for diagnostics
-    configure_logging(debug=True)
-
-    # Load settings and create container
-    settings = Settings()
-    container = Container().configure(settings)
-    set_container(container)
-    set_settings(settings)
+    ctx = await init_script_container(debug_logging=True)
 
     try:
-        # Initialize strategy and LLM
-        await container.init_strategy()
-        await container.init_llm()
-        pipeline = await container.init_pipeline()
-        relational_pool = container.relational_pool()
-        article_repo = ArticleRepo(relational_pool)
+        relational_pool = ctx.container.relational_pool()
 
         # Find incomplete articles
         print("Finding incomplete articles...")
@@ -1209,7 +1196,9 @@ async def cmd_reprocess(args: argparse.Namespace) -> int:
 
         # Process through pipeline
         task_id = uuid.uuid4()
-        states = await pipeline.process_batch(articles, article_ids=article_ids, task_id=task_id)
+        states = await ctx.pipeline.process_batch(
+            articles, article_ids=article_ids, task_id=task_id
+        )
 
         # Report results
         completed = sum(1 for s in states if not s.get("terminal"))
@@ -1247,7 +1236,7 @@ async def cmd_reprocess(args: argparse.Namespace) -> int:
         return 1
 
     finally:
-        await container.shutdown()
+        await ctx.container.shutdown()
 
 
 # ─────────────────────────────────────────────────────────────────────────────

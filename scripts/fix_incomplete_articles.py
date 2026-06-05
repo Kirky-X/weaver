@@ -49,7 +49,9 @@ from pathlib import Path
 from typing import Any
 
 # Add src to path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+_project_root = str(Path(__file__).resolve().parent.parent)
+sys.path.insert(0, f"{_project_root}/src")
+sys.path.insert(0, _project_root)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -426,9 +428,8 @@ async def cmd_fix(args: argparse.Namespace) -> int:
     Returns:
         Exit code (0 for success, 1 for errors).
     """
-    from config.settings import Settings
-    from container import Container, set_container, set_settings
     from core.observability.logging import get_logger
+    from scripts._common import init_script_container
 
     log = get_logger("fix_incomplete_articles")
 
@@ -440,30 +441,15 @@ async def cmd_fix(args: argparse.Namespace) -> int:
     print(f"批次间隔：{args.delay}秒")
     print()
 
-    # Load settings and create container
-    settings = Settings()
-    container = Container().configure(settings)
-    set_container(container)
-    set_settings(settings)
+    ctx = await init_script_container()
 
     try:
-        # Initialize services
-        await container.init_strategy()
-        await container.init_llm()
-        pipeline = await container.init_pipeline()
-        relational_pool = container.relational_pool()
-
-        # Create article repo
-        from modules.storage import ArticleRepo
-
-        article_repo = ArticleRepo(relational_pool)
-
         # Query incomplete articles
         try:
             if args.db == "postgres":
-                articles = await query_incomplete_articles_postgres(settings)
+                articles = await query_incomplete_articles_postgres(ctx.settings)
             elif args.db == "duckdb":
-                articles = await query_incomplete_articles_duckdb(settings)
+                articles = await query_incomplete_articles_duckdb(ctx.settings)
             else:
                 print(f"不支持的数据库类型：{args.db}")
                 return 1
@@ -494,8 +480,8 @@ async def cmd_fix(args: argparse.Namespace) -> int:
         for batch_num, batch in enumerate(batches, 1):
             result = await process_article_batch(
                 batch,
-                pipeline,
-                article_repo,
+                ctx.pipeline,
+                ctx.article_repo,
                 batch_num,
                 total_batches,
             )
@@ -550,7 +536,7 @@ async def cmd_fix(args: argparse.Namespace) -> int:
         return 1
 
     finally:
-        await container.shutdown()
+        await ctx.container.shutdown()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
