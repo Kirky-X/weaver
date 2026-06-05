@@ -645,7 +645,7 @@ class TestSyncNeo4jWithPostgres:
         scheduler_jobs_service._article_repo.get_incomplete_articles = AsyncMock(
             return_value=[incomplete_article]
         )
-        scheduler_jobs_service._article_repo.revert_to_stored = AsyncMock(return_value=True)
+        scheduler_jobs_service._article_repo.revert_to_pg_done = AsyncMock(return_value=True)
 
         result = await scheduler_jobs_service.sync_neo4j_with_postgres()
 
@@ -654,7 +654,7 @@ class TestSyncNeo4jWithPostgres:
         assert result["orphan_articles_cleaned"] == 0
         assert result["enrichment_gaps_detected"] == 1
         assert result["enrichment_gaps_reverted"] == 1
-        scheduler_jobs_service._article_repo.revert_to_stored.assert_called_once_with(
+        scheduler_jobs_service._article_repo.revert_to_pg_done.assert_called_once_with(
             incomplete_article.id
         )
 
