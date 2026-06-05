@@ -6,7 +6,6 @@ from __future__ import annotations
 import pytest
 
 from core.constants import (
-    CacheStrategy,
     DatabaseType,
     EmbeddingModel,
     GraphHealthStatus,
@@ -17,11 +16,9 @@ from core.constants import (
     MigrationStatus,
     PipelineTaskStatus,
     ProcessingStatus,
-    RelationType,
     ResponseStatus,
     SearchMode,
     SentimentType,
-    SortOrder,
     SourceType,
     TaskStatus,
     TiktokenEncoding,
@@ -168,20 +165,6 @@ class TestHealthCheckStatus:
             HealthCheckStatus.from_str("unknown")
 
 
-class TestSortOrder:
-    """Tests for SortOrder enum."""
-
-    def test_from_str_valid_values(self) -> None:
-        """Test from_str with valid values."""
-        assert SortOrder.from_str("asc") == SortOrder.ASC
-        assert SortOrder.from_str("desc") == SortOrder.DESC
-
-    def test_from_str_invalid_raises(self) -> None:
-        """Test from_str raises ValueError for invalid values."""
-        with pytest.raises(ValueError, match="Invalid sort order"):
-            SortOrder.from_str("unknown")
-
-
 class TestSourceType:
     """Tests for SourceType enum."""
 
@@ -265,26 +248,6 @@ class TestPipelineTaskStatus:
             PipelineTaskStatus.from_str("unknown")
 
 
-class TestRelationType:
-    """Tests for RelationType enum."""
-
-    def test_from_str_valid_values(self) -> None:
-        """Test from_str with valid values (uppercase)."""
-        assert RelationType.from_str("RELATED_TO") == RelationType.RELATED_TO
-        assert RelationType.from_str("HAS_ENTITY") == RelationType.HAS_ENTITY
-        assert RelationType.from_str("REPORTS_ON") == RelationType.REPORTS_ON
-        assert RelationType.from_str("MENTIONS") == RelationType.MENTIONS
-
-    def test_from_str_case_insensitive(self) -> None:
-        """Test from_str handles lowercase input."""
-        assert RelationType.from_str("related_to") == RelationType.RELATED_TO
-
-    def test_from_str_invalid_raises(self) -> None:
-        """Test from_str raises ValueError for invalid values."""
-        with pytest.raises(ValueError, match="Invalid relation type"):
-            RelationType.from_str("UNKNOWN")
-
-
 class TestTaskStatus:
     """Tests for TaskStatus enum."""
 
@@ -300,21 +263,6 @@ class TestTaskStatus:
         """Test from_str raises ValueError for invalid values."""
         with pytest.raises(ValueError, match="Invalid task status"):
             TaskStatus.from_str("unknown")
-
-
-class TestCacheStrategy:
-    """Tests for CacheStrategy enum."""
-
-    def test_from_str_valid_values(self) -> None:
-        """Test from_str with valid values."""
-        assert CacheStrategy.from_str("redis") == CacheStrategy.REDIS
-        assert CacheStrategy.from_str("cashews") == CacheStrategy.CASHUEWS
-        assert CacheStrategy.from_str("hybrid") == CacheStrategy.HYBRID
-
-    def test_from_str_invalid_raises(self) -> None:
-        """Test from_str raises ValueError for invalid values."""
-        with pytest.raises(ValueError, match="Invalid cache strategy"):
-            CacheStrategy.from_str("unknown")
 
 
 class TestLLMRole:

@@ -35,12 +35,6 @@ class IntegrityError(Exception):
     pass
 
 
-class SigningKeyError(Exception):
-    """Raised when signing key is missing or invalid."""
-
-    pass
-
-
 # ── Key Management ────────────────────────────────────────────────────────
 
 
@@ -66,8 +60,9 @@ class SigningKey:
         Returns:
             SigningKey instance.
 
-        Raises:
-            SigningKeyError: If key is not set and not in development mode.
+        Note:
+            If key is not set, generates a random key for development
+            and emits a warning. Set the environment variable for production.
         """
         key_str = os.environ.get(env_var)
 
@@ -251,7 +246,6 @@ __all__ = [
     "SIGNATURE_KEY_ENV",
     "IntegrityError",
     "SigningKey",
-    "SigningKeyError",
     "is_signed_json_file",
     "load_signed_json",
     "save_signed_json",

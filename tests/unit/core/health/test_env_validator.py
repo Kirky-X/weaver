@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from core.constants import Defaults, LLMProvider
+from core.constants import LLMProvider
 from core.health.env_validator import (
     Colors,
     EnvironmentValidator,

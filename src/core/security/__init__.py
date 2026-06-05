@@ -19,7 +19,6 @@ from core.security.audit import (
 from core.security.crypto.signing import (
     IntegrityError,
     SigningKey,
-    SigningKeyError,
     load_signed_json,
     save_signed_json,
 )
@@ -40,7 +39,6 @@ __all__ = [
     "SecurityCheckResult",
     "SecurityCheckSeverity",
     "SigningKey",
-    "SigningKeyError",
     "URLRisk",
     "URLValidationError",  # Backward compatibility alias
     "URLValidator",

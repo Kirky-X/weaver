@@ -3,7 +3,6 @@
 
 This module provides type-safe constants for:
 - Redis key prefixes and patterns
-- Pipeline stage names
 - Configuration keys
 - Status values
 
@@ -46,26 +45,6 @@ class RedisKeys:
     def crawl_retry(cls, host: str) -> str:
         """Generate retry queue key for a specific host."""
         return f"{cls.CRAWL_RETRY_PREFIX}{host}"
-
-
-# ── Pipeline Stage Constants ───────────────────────────────────
-
-
-class PipelineStage(str, enum.Enum):
-    """Pipeline processing stages.
-
-    Each stage represents a distinct phase in article processing.
-    """
-
-    FETCH = "fetch"
-    DEDUP = "dedup"
-    CLASSIFY = "classify"
-    CLEAN = "clean"
-    CATEGORIZE = "categorize"
-    VECTORIZE = "vectorize"
-    CREDIBILITY = "credibility"
-    ENRICH = "enrich"
-    PERSIST = "persist"
 
 
 # ── API Response Status Constants ──────────────────────────────
@@ -290,27 +269,6 @@ class PipelineTaskStatus(str, enum.Enum):
             )
 
 
-# ── Relation Type Constants ────────────────────────────────────────
-
-
-class RelationType(str, enum.Enum):
-    """Graph relationship types between entities."""
-
-    RELATED_TO = "RELATED_TO"
-    HAS_ENTITY = "HAS_ENTITY"
-    REPORTS_ON = "REPORTS_ON"
-    MENTIONS = "MENTIONS"
-
-    @classmethod
-    def from_str(cls, value: str) -> RelationType:
-        """Convert string to RelationType enum."""
-        try:
-            return cls(value.upper())
-        except ValueError:
-            valid_values = [m.value for m in cls]
-            raise ValueError(f"Invalid relation type '{value}'. Valid values: {valid_values}")
-
-
 # ── Health Check Status Constants ────────────────────────────────────
 
 
@@ -386,59 +344,6 @@ class TaskStatus(str, enum.Enum):
             raise ValueError(f"Invalid task status '{value}'. Valid values: {valid_values}")
 
 
-# ── Default Values Constants ───────────────────────────────────────
-
-
-class Defaults:
-    """Default values for common operations.
-
-    Use these constants instead of magic numbers to improve
-    code readability and maintainability.
-    """
-
-    # Batch and pagination defaults
-    BATCH_SIZE = 100
-    LIMIT = 1000
-    PAGE_SIZE = 50
-
-    # Timeout defaults (in seconds)
-    TIMEOUT_SECONDS = 30.0
-    CONNECT_TIMEOUT = 10.0
-    READ_TIMEOUT = 60.0
-
-    # Buffer and chunk sizes
-    BUFFER_SIZE = 1024
-    CHUNK_SIZE = 8192
-
-    # Retry defaults
-    MAX_RETRIES = 3
-    RETRY_DELAY = 1.0
-    RETRY_BACKOFF = 2.0
-
-    # Cache defaults
-    CACHE_TTL = 3600  # 1 hour
-    CACHE_MAX_SIZE = 1000
-
-
-# ── Sort Order Constants ─────────────────────────────────────────
-
-
-class SortOrder(str, enum.Enum):
-    """Sort order for query results."""
-
-    ASC = "asc"
-    DESC = "desc"
-
-    @classmethod
-    def from_str(cls, value: str) -> SortOrder:
-        """Convert string to SortOrder enum."""
-        try:
-            return cls(value.lower())
-        except ValueError:
-            valid_values = [m.value for m in cls]
-            raise ValueError(f"Invalid sort order '{value}'. Valid values: {valid_values}")
-
-
 # ── Database Type Constants ──────────────────────────────────────
 
 
@@ -469,26 +374,6 @@ class DatabaseType(str, enum.Enum):
         except ValueError:
             valid_values = [m.value for m in cls]
             raise ValueError(f"Invalid database type '{value}'. Valid values: {valid_values}")
-
-
-# ── Cache Strategy Constants ─────────────────────────────────────
-
-
-class CacheStrategy(str, enum.Enum):
-    """Cache backend strategies."""
-
-    REDIS = "redis"
-    CASHUEWS = "cashews"
-    HYBRID = "hybrid"
-
-    @classmethod
-    def from_str(cls, value: str) -> CacheStrategy:
-        """Convert string to CacheStrategy enum."""
-        try:
-            return cls(value.lower())
-        except ValueError:
-            valid_values = [m.value for m in cls]
-            raise ValueError(f"Invalid cache strategy '{value}'. Valid values: {valid_values}")
 
 
 # ── LLM Role Constants ───────────────────────────────────────────

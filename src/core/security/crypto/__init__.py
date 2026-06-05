@@ -4,7 +4,6 @@
 from core.security.crypto.signing import (
     IntegrityError,
     SigningKey,
-    SigningKeyError,
     is_signed_json_file,
     load_signed_json,
     save_signed_json,
@@ -17,7 +16,6 @@ from core.security.crypto.signing import (
 __all__ = [
     "IntegrityError",
     "SigningKey",
-    "SigningKeyError",
     "is_signed_json_file",
     "load_signed_json",
     "save_signed_json",
