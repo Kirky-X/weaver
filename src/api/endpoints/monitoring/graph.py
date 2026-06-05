@@ -9,6 +9,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.dependencies import get_cache_client, get_graph_pool, get_graph_pool_type
+from api.endpoints._graph_metrics_shared import (
+    GRAPH_METRICS_CACHE_TTL,
+    GRAPH_METRICS_FULL_CACHE_KEY,
+    parse_include_param,
+    should_include,
+)
 from api.middleware.auth import verify_admin_api_key
 from api.schemas.response import APIResponse, success_response
 from api.schemas.types import RoundedFloat, RoundedFloatOpt
@@ -19,10 +25,6 @@ from modules.knowledge.graph import GraphQualityMetrics
 log = get_logger(__name__)
 
 router = APIRouter(prefix="/monitoring/graph", tags=["monitoring", "graph"])
-
-# Cache key and TTL for full metrics view
-GRAPH_METRICS_FULL_CACHE_KEY = "cache:graph_metrics:full"
-GRAPH_METRICS_CACHE_TTL = 300  # 5 minutes
 
 # Relationship type mapping: English -> Chinese
 RELATION_TYPE_ZH = {
@@ -156,7 +158,7 @@ async def _get_full_view(
 ) -> APIResponse[GraphMetricsResponse]:
     """Get full metrics view with optional caching and include filtering."""
     # Parse include parameter
-    include_set = _parse_include_param(include)
+    include_set = parse_include_param(include)
 
     # Try to get from cache if no specific include filter
     cache = get_cache_client()
@@ -179,7 +181,7 @@ async def _get_full_view(
     # Translate relationship types to Chinese
     raw_rel_types = (
         result.relationship_type_distribution
-        if _should_include("distributions", include_set)
+        if should_include("distributions", include_set)
         else {}
     )
     translated_rel_types = {RELATION_TYPE_ZH.get(k, k): v for k, v in raw_rel_types.items()}
@@ -195,10 +197,10 @@ async def _get_full_view(
         modularity_score=result.modularity_score,
         orphan_entities=result.orphan_entities,
         high_degree_entities=(
-            result.high_degree_entities if _should_include("high_degree", include_set) else []
+            result.high_degree_entities if should_include("high_degree", include_set) else []
         ),
         entity_type_distribution=(
-            result.entity_type_distribution if _should_include("distributions", include_set) else {}
+            result.entity_type_distribution if should_include("distributions", include_set) else {}
         ),
         relationship_type_distribution=translated_rel_types,
         computed_at=result.computed_at.isoformat(),
@@ -218,32 +220,3 @@ async def _get_full_view(
             log.warning("cache_write_failed", error=str(exc))  # Cache failure is not critical
 
     return success_response(response_data)
-
-
-def _parse_include_param(include: str | None) -> set[str] | None:
-    """Parse the include query parameter.
-
-    Returns:
-        - None if include is None or 'all' (include everything)
-        - Set of specific includes otherwise
-
-    """
-    if include is None or include.lower() == "all":
-        return None
-    return {item.strip().lower() for item in include.split(",")}
-
-
-def _should_include(item: str, include_set: set[str] | None) -> bool:
-    """Check if an item should be included based on include_set.
-
-    Args:
-        item: The item to check
-        include_set: Set of includes, or None for all
-
-    Returns:
-        True if item should be included
-
-    """
-    if include_set is None:
-        return True
-    return item.lower() in include_set
