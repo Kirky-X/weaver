@@ -37,6 +37,7 @@ from modules.processing.pipeline.state import PipelineState
 
 if TYPE_CHECKING:
     from config.settings import Settings
+    from modules.analytics.sentiment_analyzer import SentimentAnalyzer
 
 log = get_logger(__name__)
 
@@ -105,6 +106,7 @@ class Pipeline:
         phase1_concurrency: int | None = None,
         phase3_concurrency: int | None = None,
         relation_type_normalizer: Any = None,
+        sentiment_analyzer: SentimentAnalyzer | None = None,
         debug: bool = False,
     ) -> None:
         self._accepting = True
@@ -146,7 +148,9 @@ class Pipeline:
         embedding_model = self._extract_embedding_model_id(settings)
         self._re_vectorize = ReVectorizeNode(llm, embedding_model)
 
-        self._analyze = AnalyzeNode(llm, budget, prompt_loader)
+        self._analyze = AnalyzeNode(
+            llm, budget, prompt_loader, sentiment_analyzer=sentiment_analyzer
+        )
         self._quality_scorer = QualityScorerNode(llm, budget, prompt_loader)
         self._credibility = CredibilityCheckerNode(llm, budget, event_bus, source_auth_repo)
         self._entity_extractor = EntityExtractorNode(

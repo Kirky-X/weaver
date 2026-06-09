@@ -518,6 +518,10 @@ class ContainerServicesMixin:
         from core.event import EventBus
         from core.llm.config.token_budget import TokenBudgetManager
         from core.observability import get_logger
+        from modules.analytics.sentiment_analyzer import (
+            SentimentAnalyzer,
+            SentimentAnalyzerConfig,
+        )
         from modules.processing.nlp.spacy_extractor import SpacyExtractor
         from modules.processing.pipeline.graph import Pipeline
 
@@ -533,6 +537,29 @@ class ContainerServicesMixin:
             spacy_extractor = SpacyExtractor(
                 zh_model_path=self._settings.spacy.zh_model_path,
                 en_model_path=self._settings.spacy.en_model_path,
+            )
+
+            # Create SentimentAnalyzer for SKEP integration
+            sentiment_config = SentimentAnalyzerConfig(
+                enabled=getattr(
+                    getattr(self._settings, "paddlenlp_sentiment", None),
+                    "enabled",
+                    True,
+                ),
+                confidence_threshold=getattr(
+                    getattr(self._settings, "paddlenlp_sentiment", None),
+                    "confidence_threshold",
+                    0.6,
+                ),
+                fallback_to_llm=getattr(
+                    getattr(self._settings, "paddlenlp_sentiment", None),
+                    "fallback_to_llm",
+                    True,
+                ),
+            )
+            sentiment_analyzer = SentimentAnalyzer(
+                config=sentiment_config,
+                llm_client=self._llm_client,
             )
 
             self._pipeline = Pipeline(
@@ -552,6 +579,7 @@ class ContainerServicesMixin:
                     self.community_updater() if self.graph_pool() is not None else None
                 ),
                 relation_type_normalizer=self.relation_normalizer(),
+                sentiment_analyzer=sentiment_analyzer,
                 debug=self._debug_mode,
             )
             log.info("pipeline_initialized")

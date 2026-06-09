@@ -19,6 +19,7 @@ from modules.processing.pipeline.state import PipelineState
 
 if TYPE_CHECKING:
     from core.evidence.mc_sampler import MCSampler
+    from modules.analytics.sentiment_analyzer import SentimentAnalyzer
 
 log = get_logger(__name__)
 
@@ -28,6 +29,14 @@ class AnalyzeNode:
 
     Combines three analyses into one call to save tokens and latency.
     Supports Monte Carlo sampling for long documents (>10K characters).
+
+    When a SentimentAnalyzer (SKEP) is provided, sentiment analysis
+    prioritizes SKEP results. If SKEP confidence is high (>= threshold),
+    the SKEP result overrides the LLM sentiment. If SKEP confidence is
+    low, the LLM sentiment result is kept.
+
+    Implements:
+        AnalyzeNode: Pipeline analysis node with SKEP sentiment integration
     """
 
     def __init__(
@@ -38,6 +47,7 @@ class AnalyzeNode:
         mc_sampler: MCSampler | None = None,
         mc_threshold: int = 10000,
         mc_confidence_threshold: float = 0.4,
+        sentiment_analyzer: SentimentAnalyzer | None = None,
     ) -> None:
         self._llm = llm
         self._budget = budget
@@ -45,6 +55,7 @@ class AnalyzeNode:
         self._mc_sampler = mc_sampler
         self._mc_threshold = mc_threshold
         self._mc_confidence_threshold = mc_confidence_threshold
+        self._sentiment_analyzer = sentiment_analyzer
 
     async def execute(self, state: PipelineState) -> PipelineState:
         """Analyze the article for summary, score, and sentiment."""
@@ -131,6 +142,44 @@ class AnalyzeNode:
             }
             log.debug("analyze_sentiment_set", sentiment=state["sentiment"])
             state["score"] = result.score
+
+            # Override sentiment with SKEP if available and confident
+            if self._sentiment_analyzer is not None:
+                try:
+                    text = f"{state['cleaned']['title']} {body}"
+                    skep_result = await self._sentiment_analyzer.analyze(text)
+                    if skep_result.get("source") == "skep":
+                        state["sentiment"] = {
+                            "sentiment": skep_result["sentiment"],
+                            "sentiment_score": skep_result["sentiment_score"],
+                            "primary_emotion": normalize_emotion(result.primary_emotion),
+                            "emotion_targets": result.emotion_targets,
+                        }
+                        log.debug(
+                            "analyze_sentiment_skep_override",
+                            sentiment=state["sentiment"],
+                            source="skep",
+                        )
+                    elif skep_result.get("source") == "llm":
+                        # SKEP fell back to LLM — use SKEP's LLM result
+                        state["sentiment"] = {
+                            "sentiment": skep_result["sentiment"],
+                            "sentiment_score": skep_result["sentiment_score"],
+                            "primary_emotion": normalize_emotion(result.primary_emotion),
+                            "emotion_targets": result.emotion_targets,
+                        }
+                        log.debug(
+                            "analyze_sentiment_skep_llm_fallback",
+                            sentiment=state["sentiment"],
+                            source="skep_llm",
+                        )
+                    # Other sources (skep_fallback, default, error) — keep LLM result
+                except Exception as e:
+                    log.warning(
+                        "analyze_skep_override_failed",
+                        exc_type=type(e).__name__,
+                        error=str(e),
+                    )
         except (AllProvidersFailedError, CircuitOpenError, ValueError, Exception) as e:
             # Fallback: use default values if LLM fails
             log.warning(

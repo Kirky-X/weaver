@@ -374,3 +374,220 @@ class TestAnalyzeNodeIntegration:
         assert "summary_info" in result
         assert "sentiment" in result
         assert result["score"] == 0.8
+
+
+class TestAnalyzeNodeSKEPIntegration:
+    """Tests for SKEP SentimentAnalyzer integration in AnalyzeNode."""
+
+    @pytest.mark.asyncio
+    async def test_skep_high_confidence_overrides_llm_sentiment(
+        self, mock_llm, mock_budget, mock_prompt_loader, sample_raw
+    ):
+        """When SKEP returns high confidence, its result overrides LLM sentiment."""
+        mock_llm.call_at = AsyncMock(
+            return_value=AnalyzeOutput(
+                summary="Test summary",
+                event_time=None,
+                subjects=[],
+                key_data=[],
+                impact="",
+                has_data=False,
+                score=0.5,
+                sentiment="neutral",
+                sentiment_score=0.3,
+                primary_emotion="neutral",
+                emotion_targets=[],
+            )
+        )
+
+        # Mock SentimentAnalyzer with high-confidence SKEP result
+        sentiment_analyzer = AsyncMock()
+        sentiment_analyzer.analyze = AsyncMock(
+            return_value={
+                "sentiment": "positive",
+                "sentiment_score": 0.92,
+                "source": "skep",
+            }
+        )
+
+        node = AnalyzeNode(
+            mock_llm,
+            mock_budget,
+            mock_prompt_loader,
+            sentiment_analyzer=sentiment_analyzer,
+        )
+        state = PipelineState(raw=sample_raw)
+        state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
+
+        result = await node.execute(state)
+
+        # SKEP result should override LLM sentiment
+        assert result["sentiment"]["sentiment"] == "positive"
+        assert result["sentiment"]["sentiment_score"] == 0.92
+        # LLM summary and score should remain unchanged
+        assert result["score"] == 0.5
+        assert result["summary_info"]["summary"] == "Test summary"
+
+    @pytest.mark.asyncio
+    async def test_skep_low_confidence_keeps_llm_sentiment(
+        self, mock_llm, mock_budget, mock_prompt_loader, sample_raw
+    ):
+        """When SKEP returns low confidence (skep_fallback), LLM sentiment is kept."""
+        mock_llm.call_at = AsyncMock(
+            return_value=AnalyzeOutput(
+                summary="Test summary",
+                event_time=None,
+                subjects=[],
+                key_data=[],
+                impact="",
+                has_data=False,
+                score=0.5,
+                sentiment="positive",
+                sentiment_score=0.7,
+                primary_emotion="optimistic",
+                emotion_targets=["AI"],
+            )
+        )
+
+        # Mock SentimentAnalyzer with low-confidence SKEP result (skep_fallback)
+        sentiment_analyzer = AsyncMock()
+        sentiment_analyzer.analyze = AsyncMock(
+            return_value={
+                "sentiment": "neutral",
+                "sentiment_score": 0.3,
+                "source": "skep_fallback",
+                "degraded_fields": ["sentiment"],
+            }
+        )
+
+        node = AnalyzeNode(
+            mock_llm,
+            mock_budget,
+            mock_prompt_loader,
+            sentiment_analyzer=sentiment_analyzer,
+        )
+        state = PipelineState(raw=sample_raw)
+        state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
+
+        result = await node.execute(state)
+
+        # LLM sentiment should be kept (not overridden by skep_fallback)
+        assert result["sentiment"]["sentiment"] == "positive"
+        assert result["sentiment"]["sentiment_score"] == 0.7
+
+    @pytest.mark.asyncio
+    async def test_skep_llm_fallback_overrides_llm_sentiment(
+        self, mock_llm, mock_budget, mock_prompt_loader, sample_raw
+    ):
+        """When SKEP falls back to its own LLM call, that result is used."""
+        mock_llm.call_at = AsyncMock(
+            return_value=AnalyzeOutput(
+                summary="Test summary",
+                event_time=None,
+                subjects=[],
+                key_data=[],
+                impact="",
+                has_data=False,
+                score=0.5,
+                sentiment="neutral",
+                sentiment_score=0.3,
+                primary_emotion="neutral",
+                emotion_targets=[],
+            )
+        )
+
+        # Mock SentimentAnalyzer with LLM fallback result
+        sentiment_analyzer = AsyncMock()
+        sentiment_analyzer.analyze = AsyncMock(
+            return_value={
+                "sentiment": "negative",
+                "sentiment_score": 0.8,
+                "source": "llm",
+            }
+        )
+
+        node = AnalyzeNode(
+            mock_llm,
+            mock_budget,
+            mock_prompt_loader,
+            sentiment_analyzer=sentiment_analyzer,
+        )
+        state = PipelineState(raw=sample_raw)
+        state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
+
+        result = await node.execute(state)
+
+        # SKEP's LLM fallback result should override pipeline LLM sentiment
+        assert result["sentiment"]["sentiment"] == "negative"
+        assert result["sentiment"]["sentiment_score"] == 0.8
+
+    @pytest.mark.asyncio
+    async def test_no_sentiment_analyzer_uses_llm_sentiment(
+        self, mock_llm, mock_budget, mock_prompt_loader, sample_raw
+    ):
+        """Without SentimentAnalyzer, LLM sentiment is used as before."""
+        mock_llm.call_at = AsyncMock(
+            return_value=AnalyzeOutput(
+                summary="Test summary",
+                event_time=None,
+                subjects=[],
+                key_data=[],
+                impact="",
+                has_data=False,
+                score=0.5,
+                sentiment="positive",
+                sentiment_score=0.7,
+                primary_emotion="optimistic",
+                emotion_targets=[],
+            )
+        )
+
+        node = AnalyzeNode(mock_llm, mock_budget, mock_prompt_loader)
+        state = PipelineState(raw=sample_raw)
+        state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
+
+        result = await node.execute(state)
+
+        # LLM sentiment should be used
+        assert result["sentiment"]["sentiment"] == "positive"
+        assert result["sentiment"]["sentiment_score"] == 0.7
+
+    @pytest.mark.asyncio
+    async def test_skep_error_keeps_llm_sentiment(
+        self, mock_llm, mock_budget, mock_prompt_loader, sample_raw
+    ):
+        """When SKEP analysis fails, LLM sentiment is kept."""
+        mock_llm.call_at = AsyncMock(
+            return_value=AnalyzeOutput(
+                summary="Test summary",
+                event_time=None,
+                subjects=[],
+                key_data=[],
+                impact="",
+                has_data=False,
+                score=0.5,
+                sentiment="positive",
+                sentiment_score=0.7,
+                primary_emotion="optimistic",
+                emotion_targets=[],
+            )
+        )
+
+        # Mock SentimentAnalyzer that raises an error
+        sentiment_analyzer = AsyncMock()
+        sentiment_analyzer.analyze = AsyncMock(side_effect=RuntimeError("SKEP model error"))
+
+        node = AnalyzeNode(
+            mock_llm,
+            mock_budget,
+            mock_prompt_loader,
+            sentiment_analyzer=sentiment_analyzer,
+        )
+        state = PipelineState(raw=sample_raw)
+        state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
+
+        result = await node.execute(state)
+
+        # LLM sentiment should be kept despite SKEP error
+        assert result["sentiment"]["sentiment"] == "positive"
+        assert result["sentiment"]["sentiment_score"] == 0.7
