@@ -1007,3 +1007,177 @@ class CommunityVector(Base):
             postgresql_with={"m": 16, "ef_construction": 200},
         ),
     )
+
+
+# ── New tables per design docs ────────────────────────────────
+
+
+class ApiKey(Base):
+    """API key management with scopes, expiry, and rate limits.
+
+    Implements: Weaver-数据库设计文档 §1.6.3
+    """
+
+    __tablename__ = "api_keys"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    key_id: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    key_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    scopes: Mapped[list[str]] = mapped_column(
+        JSONCompatible, nullable=False, server_default=text("'[\"search:read\"]'::jsonb")
+    )
+    rate_limit_per_min: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=100, server_default=text("100")
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    is_revoked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    created_by: Mapped[str | None] = mapped_column(String(100))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+    )
+
+    __table_args__ = (
+        Index("idx_api_keys_key_id", "key_id"),
+        Index(
+            "idx_api_keys_expires",
+            "expires_at",
+            postgresql_where=text("is_revoked = false"),
+        ),
+    )
+
+
+class AlertRule(Base):
+    """Alert rules for entity monitoring.
+
+    Implements: Weaver-数据库设计文档 §12.4
+    """
+
+    __tablename__ = "alert_rules"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    entity_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    metric: Mapped[str] = mapped_column(String(50), nullable=False)
+    operator: Mapped[str] = mapped_column(String(20), nullable=False)
+    threshold: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    channel: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="webhook", server_default=text("'webhook'")
+    )
+    cooldown_minutes: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=60, server_default=text("60")
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=text("true")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+    )
+
+    # Relationships
+    events: Mapped[list[AlertEvent]] = relationship(
+        back_populates="rule", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "metric IN ('reference_count', 'sentiment_change', 'volume_spike')",
+            name="chk_alert_metric_values",
+        ),
+        CheckConstraint(
+            "operator IN ('z_score>', 'pct_change>', 'absolute>')",
+            name="chk_alert_operator_values",
+        ),
+    )
+
+
+class AlertEvent(Base):
+    """Alert events triggered by rules.
+
+    Implements: Weaver-数据库设计文档 §12.4
+    """
+
+    __tablename__ = "alert_events"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    rule_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("alert_rules.id"), nullable=False)
+    entity_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    metric_value: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    triggered_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+    )
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    detail: Mapped[dict[str, Any] | None] = mapped_column(JSONCompatible)
+
+    # Relationships
+    rule: Mapped[AlertRule] = relationship(back_populates="events")
+
+    __table_args__ = (
+        Index("idx_alert_events_triggered", triggered_at.desc()),
+        Index("idx_alert_events_entity", "entity_name", triggered_at.desc()),
+    )
+
+
+class ArticleVersion(Base):
+    """Article version history for tracking content changes.
+
+    Implements: Weaver-数据库设计文档 §9.11.6
+    """
+
+    __tablename__ = "article_versions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    article_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("articles_core.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text)
+    category: Mapped[str | None] = mapped_column(String(20))
+    score: Mapped[float | None] = mapped_column(Numeric(3, 2))
+    changed_fields: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+    )
+
+    __table_args__ = (
+        UniqueConstraint("article_id", "version", name="uq_article_version"),
+        Index("idx_article_versions_id", "article_id", version.desc()),
+    )
+
+
+class PromptTemplate(Base):
+    """Prompt templates for LLM calls.
+
+    Fixes: Migration 01_initial created this table but no ORM model existed.
+    """
+
+    __tablename__ = "prompt_templates"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    template: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+        onupdate=lambda: datetime.now(UTC),
+    )
