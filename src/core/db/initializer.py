@@ -17,11 +17,12 @@ from core.observability.logging import get_logger
 log = get_logger(__name__)
 
 REQUIRED_TABLES = [
-    "articles",
+    "articles_core",
+    "article_bodies",
+    "article_analysis",
     "article_vectors",
     "entity_vectors",
     "source_authorities",
-    "api_keys",
 ]
 
 # Initialization timeouts and delays

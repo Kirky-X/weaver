@@ -92,11 +92,13 @@ class TestConstants:
 
     def test_required_tables(self):
         """Test REQUIRED_TABLES contains expected tables."""
-        assert "articles" in REQUIRED_TABLES
+        assert "articles_core" in REQUIRED_TABLES
+        assert "article_bodies" in REQUIRED_TABLES
+        assert "article_analysis" in REQUIRED_TABLES
         assert "article_vectors" in REQUIRED_TABLES
         assert "entity_vectors" in REQUIRED_TABLES
         assert "source_authorities" in REQUIRED_TABLES
-        assert len(REQUIRED_TABLES) == 4
+        assert len(REQUIRED_TABLES) == 6
 
     def test_neo4j_constraints(self):
         """Test REQUIRED_NEO4J_CONSTRAINTS structure."""
@@ -234,7 +236,9 @@ class TestCheckRequiredTables:
             # Mock fetch to return all required tables
             mock_conn.fetch = AsyncMock(
                 return_value=[
-                    {"tablename": "articles"},
+                    {"tablename": "articles_core"},
+                    {"tablename": "article_bodies"},
+                    {"tablename": "article_analysis"},
                     {"tablename": "article_vectors"},
                     {"tablename": "entity_vectors"},
                     {"tablename": "source_authorities"},
