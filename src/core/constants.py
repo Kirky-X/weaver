@@ -71,12 +71,20 @@ class ResponseStatus(str, enum.Enum):
 
 
 class SourceType(str, enum.Enum):
-    """Supported data source types."""
+    """Supported data source types.
+
+    Implements: Weaver-数据库设计文档 §1.6.3
+    """
 
     RSS = "rss"
     ATOM = "atom"
     HTML = "html"
     JSON = "json"
+    WECHAT = "wechat"
+    TWITTER = "twitter"
+    TELEGRAM = "telegram"
+    PDF = "pdf"
+    API = "api"
 
     @classmethod
     def from_str(cls, value: str) -> SourceType:

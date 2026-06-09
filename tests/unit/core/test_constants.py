@@ -175,6 +175,34 @@ class TestSourceType:
         assert SourceType.from_str("html") == SourceType.HTML
         assert SourceType.from_str("json") == SourceType.JSON
 
+    def test_from_str_extended_values(self) -> None:
+        """Test from_str with new extended values per Weaver-数据库设计文档 §1.6.3."""
+        assert SourceType.from_str("wechat") == SourceType.WECHAT
+        assert SourceType.from_str("twitter") == SourceType.TWITTER
+        assert SourceType.from_str("telegram") == SourceType.TELEGRAM
+        assert SourceType.from_str("pdf") == SourceType.PDF
+        assert SourceType.from_str("api") == SourceType.API
+
+    def test_from_str_case_insensitive(self) -> None:
+        """Test from_str handles case correctly for extended values."""
+        assert SourceType.from_str("WECHAT") == SourceType.WECHAT
+        assert SourceType.from_str("Twitter") == SourceType.TWITTER
+        assert SourceType.from_str("TELEGRAM") == SourceType.TELEGRAM
+        assert SourceType.from_str("PDF") == SourceType.PDF
+        assert SourceType.from_str("API") == SourceType.API
+
+    def test_extended_values_match_strings(self) -> None:
+        """Test extended enum .value matches expected string."""
+        assert SourceType.WECHAT.value == "wechat"
+        assert SourceType.TWITTER.value == "twitter"
+        assert SourceType.TELEGRAM.value == "telegram"
+        assert SourceType.PDF.value == "pdf"
+        assert SourceType.API.value == "api"
+
+    def test_total_member_count(self) -> None:
+        """Test SourceType has exactly 9 members (4 original + 5 extended)."""
+        assert len(SourceType) == 9
+
     def test_from_str_invalid_raises(self) -> None:
         """Test from_str raises ValueError for invalid values."""
         with pytest.raises(ValueError, match="Invalid source type"):
