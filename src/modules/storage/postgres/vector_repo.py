@@ -66,9 +66,11 @@ class VectorRepo:
         self,
         pool: RelationalPool,
         query_builder: VectorQueryBuilder,
+        ef_search_manager: Any = None,
     ) -> None:
         self._pool = pool
         self._query_builder = query_builder
+        self._ef_search_manager = ef_search_manager
 
     async def upsert_article_vectors(
         self,
@@ -224,6 +226,7 @@ class VectorRepo:
         limit: int = 20,
         model_id: str | None = None,
         vector_type: str = "content",
+        search_mode: str | None = None,
     ) -> list[SimilarArticle]:
         """Find similar articles using vector similarity.
 
@@ -234,6 +237,7 @@ class VectorRepo:
             limit: Maximum number of results.
             model_id: Optional model_id filter for embedding homogeneity.
             vector_type: Vector type to filter (default "content").
+            search_mode: Optional search mode for HNSW ef_search optimization.
 
         Returns:
             List of SimilarArticle results with timestamps for temporal decay.
@@ -252,6 +256,10 @@ class VectorRepo:
             # Initialize session with database-specific settings
             for stmt in self._query_builder.get_session_init_statements():
                 await session.execute(text(stmt))
+
+            # Apply ef_search optimization if manager available and mode specified
+            if self._ef_search_manager and search_mode:
+                await self._ef_search_manager.set_ef_search(search_mode)
 
             query = text(self._query_builder.build_find_similar_articles_query(config))
 
