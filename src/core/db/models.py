@@ -963,15 +963,21 @@ class DailyBriefingItem(Base):
 
 
 class AuditLog(Base):
+    """Audit log for security monitoring and compliance.
+
+    Implements: Weaver-数据库设计文档 §12.3
+    """
+
     __tablename__ = "audit_log"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    key_id: Mapped[str] = mapped_column(String(100), nullable=False)
-    action: Mapped[str] = mapped_column(String(50), nullable=False)
-    target_type: Mapped[str | None] = mapped_column(String(50))
-    target_id: Mapped[str | None] = mapped_column(String(100))
+    key_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_type: Mapped[str | None] = mapped_column(String(32))
+    target_id: Mapped[str | None] = mapped_column(Text)
     detail: Mapped[dict[str, Any] | None] = mapped_column(JSONCompatible)
     client_ip: Mapped[str | None] = mapped_column(String(45))
+    user_agent: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -979,8 +985,8 @@ class AuditLog(Base):
     )
 
     __table_args__ = (
-        Index("idx_audit_occurred", "created_at"),
-        Index("idx_audit_key", "key_id"),
+        Index("idx_audit_occurred", created_at.desc()),
+        Index("idx_audit_key", "key_id", created_at.desc()),
     )
 
 
