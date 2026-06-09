@@ -416,6 +416,31 @@ def create_app(container: Container | None = None) -> FastAPI:
 
     app.add_middleware(AuditLogMiddleware)
 
+    # Register traffic anomaly detection middleware if enabled
+    if getattr(getattr(settings, "traffic_anomaly", None), "enabled", False):
+        from api.middleware.traffic_anomaly import (
+            TrafficAnomalyConfig,
+            TrafficAnomalyDetector,
+            TrafficAnomalyMiddleware,
+        )
+
+        traffic_config = TrafficAnomalyConfig(
+            enabled=settings.traffic_anomaly.enabled,
+            default_key_rate_limit=getattr(settings.traffic_anomaly, "default_key_rate_limit", 200),
+            ip_rate_limit=getattr(settings.traffic_anomaly, "ip_rate_limit", 200),
+            burst_threshold=getattr(settings.traffic_anomaly, "burst_threshold", 10),
+            ip_ban_duration_seconds=getattr(
+                settings.traffic_anomaly, "ip_ban_duration_seconds", 900
+            ),
+        )
+        redis_client = container.cache_client() if container else None
+        if redis_client:
+            traffic_detector = TrafficAnomalyDetector(
+                redis=redis_client,
+                config=traffic_config,
+            )
+            app.add_middleware(TrafficAnomalyMiddleware, detector=traffic_detector)
+
     app.include_router(api_router)
 
     # Register Prometheus metrics endpoint
