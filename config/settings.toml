@@ -162,6 +162,18 @@ temporal_decay_enabled = false        # Enable time-based scoring boost for rece
 temporal_decay_half_life_days = 30.0  # Time for decay to reach 50% (days)
 
 # ============================================================
+# HNSW Dynamic ef_search Configuration
+# ============================================================
+
+[search.hnsw.ef_search]
+# HNSW index ef_search values for different search modes
+hybrid = 40                             # Hybrid search (RRF fusion compensates recall)
+local = 120                             # Local neighborhood search (high recall)
+global_value = 60                       # Global community search (moderate recall)
+drift = 80                              # Drift/iterative search (high precision)
+latency = 20                            # Latency-sensitive endpoints (prioritize speed)
+
+# ============================================================
 # Deduplication Configuration
 # ============================================================
 
@@ -185,6 +197,18 @@ otlp_endpoint = "http://localhost:4317" # OpenTelemetry collector URL (empty to 
 
 [entity]
 disable_data_metrics_nodes = true        # 过滤"数据指标"类型实体 (CARDINAL/PERCENT/MONEY)，避免提取数值类无效实体
+
+# ============================================================
+# Entity Extraction Configuration
+# ============================================================
+
+[entity_extraction.gliner]
+# GLiNER zero-shot entity extraction configuration
+enabled = true                          # Enable GLiNER for custom entity types
+model_name = "urchade/gliner_multi-v2.1"  # GLiNER model name
+threshold = 0.5                         # Confidence threshold for entity extraction
+max_input_length = 4096                 # Maximum input text length
+labels = ["事件", "数据指标", "法规与政策", "产品与技术"]  # Custom entity type labels
 
 # ============================================================
 # spaCy Configuration
@@ -219,6 +243,23 @@ shift_window_days = 14                    # Days to look back for shift detectio
 pel_penalty = 5.0                         # PELT algorithm penalty value
 binseg_penalty = 3.0                      # Binseg algorithm penalty value
 
+[paddlenlp.sentiment]
+# PaddleNLP SKEP sentiment analysis settings
+enabled = true                            # Enable PaddleNLP SKEP analysis
+model_name = "skep_ernie_1.0_large_chinese"  # SKEP model name
+max_input_length = 512                    # Maximum input text length
+confidence_threshold = 0.6                # Minimum confidence to use SKEP result
+fallback_to_llm = true                    # Fall back to LLM when confidence is low
+
+[analytics.fake_news_detector]
+# Fake news detector settings (5-dimensional feature fusion)
+enabled = true                            # Enable fake news detection
+model_path = ""                           # LightGBM model path (empty = rule-based fallback)
+confidence_trusted = 0.8                  # Score >= this → trusted
+confidence_suspicious = 0.4               # Score >= this and < trusted → suspicious
+clickbait_similarity_threshold = 0.5      # Title-body cosine similarity threshold
+exaggeration_keywords = ["震惊", "惊天", "竟然", "不敢相信", "绝密", "曝光"]  # Exaggeration markers
+
 # ============================================================
 # Daily Briefing Configuration
 # ============================================================
@@ -228,3 +269,15 @@ binseg_penalty = 3.0                      # Binseg algorithm penalty value
 max_items = 10                            # Maximum items per briefing
 max_per_category = 3                      # Maximum items per category
 lookback_hours = 24                       # Hours to look back for articles
+
+# ============================================================
+# Traffic Anomaly Detection Configuration
+# ============================================================
+
+[traffic_anomaly]
+# Traffic anomaly detection settings (Redis sliding window)
+enabled = false                           # Enable traffic anomaly detection (opt-in)
+default_key_rate_limit = 200              # Per-key rate limit (requests per minute)
+ip_rate_limit = 200                       # Per-IP rate limit (requests per minute)
+burst_threshold = 10                      # Burst detection threshold (requests per second)
+ip_ban_duration_seconds = 900             # IP ban duration (seconds, 15 minutes)

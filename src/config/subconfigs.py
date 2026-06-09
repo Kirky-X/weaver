@@ -496,3 +496,73 @@ class DailyBriefingSettings(BaseModel):
     max_items: int = 10
     max_per_category: int = 3
     lookback_hours: int = 24
+
+
+class FakeNewsDetectorSettings(BaseModel):
+    """Fake news detector configuration (5-dimensional feature fusion).
+
+    Environment variables: WEAVER__ANALYTICS__FAKE_NEWS_DETECTOR__ENABLED, etc.
+    """
+
+    enabled: bool = True
+    model_path: str = ""  # Empty = rule-based fallback
+    confidence_trusted: float = 0.8
+    confidence_suspicious: float = 0.4
+    clickbait_similarity_threshold: float = 0.5
+    exaggeration_keywords: list[str] = Field(
+        default_factory=lambda: ["震惊", "惊天", "竟然", "不敢相信", "绝密", "曝光"]
+    )
+
+
+class PaddleNLPSentimentSettings(BaseModel):
+    """PaddleNLP SKEP sentiment analysis configuration.
+
+    Environment variables: WEAVER__PADDLENLP__SENTIMENT__ENABLED, etc.
+    """
+
+    enabled: bool = True
+    model_name: str = "skep_ernie_1.0_large_chinese"
+    max_input_length: int = 512
+    confidence_threshold: float = 0.6
+    fallback_to_llm: bool = True
+
+
+class GLiNERSettings(BaseModel):
+    """GLiNER zero-shot entity extraction configuration.
+
+    Environment variables: WEAVER__ENTITY_EXTRACTION__GLINER__ENABLED, etc.
+    """
+
+    enabled: bool = True
+    model_name: str = "urchade/gliner_multi-v2.1"
+    threshold: float = 0.5
+    max_input_length: int = 4096
+    labels: list[str] = Field(
+        default_factory=lambda: ["事件", "数据指标", "法规与政策", "产品与技术"]
+    )
+
+
+class HNSWEfSearchSettings(BaseModel):
+    """HNSW dynamic ef_search configuration.
+
+    Environment variables: WEAVER__SEARCH__HNSW__EF_SEARCH__HYBRID, etc.
+    """
+
+    hybrid: int = 40
+    local: int = 120
+    global_value: int = 60
+    drift: int = 80
+    latency: int = 20
+
+
+class TrafficAnomalySettings(BaseModel):
+    """Traffic anomaly detection configuration.
+
+    Environment variables: WEAVER__TRAFFIC_ANOMALY__ENABLED, etc.
+    """
+
+    enabled: bool = False
+    default_key_rate_limit: int = 200
+    ip_rate_limit: int = 200
+    burst_threshold: int = 10
+    ip_ban_duration_seconds: int = 900

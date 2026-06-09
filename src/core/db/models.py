@@ -140,8 +140,217 @@ class VectorType(str, enum.Enum):
 # ── Models ───────────────────────────────────────────────────
 
 
+class ArticleCore(Base):
+    """High-frequency query columns for articles.
+
+    Implements: Vertical split per Weaver-数据库设计文档 §9.1
+    Row width ~500 bytes → ~16 rows/page → full table scan ×3 faster.
+    """
+
+    __tablename__ = "articles_core"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=text("gen_random_uuid()"),
+    )
+    source_url: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    source_host: Mapped[str | None] = mapped_column(String(200))
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    category: Mapped[CategoryType | None] = mapped_column(
+        Enum(
+            CategoryType,
+            name="category_type",
+            create_type=False,
+            values_callable=lambda x: [e.value for e in x],
+        )
+    )
+    language: Mapped[str | None] = mapped_column(String(10))
+    region: Mapped[str | None] = mapped_column(String(50))
+    score: Mapped[float | None] = mapped_column(Numeric(3, 2))
+    sentiment_score: Mapped[float | None] = mapped_column(Numeric(3, 2))
+    credibility_score: Mapped[float | None] = mapped_column(Numeric(3, 2))
+    persist_status: Mapped[PersistStatus] = mapped_column(
+        Enum(
+            PersistStatus,
+            name="persist_status",
+            create_type=False,
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        nullable=False,
+        default=PersistStatus.PENDING,
+    )
+    publish_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Merge related
+    merged_into: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("articles_core.id")
+    )
+    is_merged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    merged_source_ids: Mapped[list[uuid.UUID] | None] = mapped_column(ARRAY(UUID(as_uuid=True)))
+
+    # Content dedup
+    content_hash: Mapped[str | None] = mapped_column(String(64))
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default=text("1")
+    )
+    document_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="news", server_default=text("'news'")
+    )
+    doc_metadata: Mapped[dict[str, Any]] = mapped_column(
+        JSONCompatible, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+
+    # Task tracking
+    task_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+
+    # Processing tracking
+    processing_stage: Mapped[str | None] = mapped_column(String(50))
+    processing_error: Mapped[str | None] = mapped_column(Text)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    # Relationships
+    body: Mapped[ArticleBody | None] = relationship(
+        back_populates="core",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    analysis: Mapped[ArticleAnalysis | None] = relationship(
+        back_populates="core",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    vectors: Mapped[list[ArticleVector]] = relationship(
+        back_populates="article",
+        cascade="all, delete-orphan",
+    )
+
+    # Constraints
+    __table_args__ = (
+        CheckConstraint("score >= 0 AND score <= 1", name="chk_core_score_range"),
+        CheckConstraint(
+            "sentiment_score >= 0 AND sentiment_score <= 1",
+            name="chk_core_sentiment_score_range",
+        ),
+        CheckConstraint(
+            "credibility_score >= 0 AND credibility_score <= 1",
+            name="chk_core_credibility_score_range",
+        ),
+        CheckConstraint("merged_into IS DISTINCT FROM id", name="chk_core_no_self_merge"),
+        Index("idx_core_category", "category"),
+        Index("idx_core_publish_time", publish_time.desc()),
+        Index("idx_core_score", score.desc()),
+        Index("idx_core_credibility", credibility_score.desc()),
+        Index("idx_core_sentiment_score", sentiment_score.desc()),
+        Index("idx_core_merged_into", "merged_into"),
+        Index(
+            "idx_core_persist_status",
+            "persist_status",
+            postgresql_where=text("persist_status IN ('pending', 'pg_done')"),
+        ),
+        Index("idx_core_category_publish", "category", publish_time.desc()),
+        Index("idx_core_host_publish", "source_host", publish_time.desc()),
+        Index("idx_core_status_created", "persist_status", created_at.asc()),
+        Index("idx_core_task_status", "task_id", "persist_status"),
+    )
+
+
+class ArticleBody(Base):
+    """Large text fields for articles, only accessed on detail pages.
+
+    Implements: Vertical split per Weaver-数据库设计文档 §9.1
+    """
+
+    __tablename__ = "article_bodies"
+
+    article_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("articles_core.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    summary: Mapped[str | None] = mapped_column(Text)
+
+    # Relationships
+    core: Mapped[ArticleCore] = relationship(back_populates="body")
+
+
+class ArticleAnalysis(Base):
+    """LLM analysis results for articles.
+
+    Implements: Vertical split per Weaver-数据库设计文档 §9.1
+    Grows with features without affecting core table performance.
+    """
+
+    __tablename__ = "article_analysis"
+
+    article_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("articles_core.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    is_news: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    subjects: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    key_data: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    impact: Mapped[str | None] = mapped_column(Text)
+    has_data: Mapped[bool | None] = mapped_column(Boolean)
+    quality_score: Mapped[float | None] = mapped_column(Numeric(3, 2))
+    sentiment: Mapped[str | None] = mapped_column(String(10))
+    primary_emotion: Mapped[EmotionType | None] = mapped_column(
+        Enum(
+            EmotionType,
+            name="emotion_type",
+            create_type=False,
+            values_callable=lambda x: [e.value for e in x],
+        )
+    )
+    emotion_targets: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    source_credibility: Mapped[float | None] = mapped_column(Numeric(3, 2))
+    cross_verification: Mapped[float | None] = mapped_column(Numeric(3, 2))
+    content_check_score: Mapped[float | None] = mapped_column(Numeric(3, 2))
+    credibility_flags: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    verified_by_sources: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    data_conflicts: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONCompatible, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    event_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    image_forensics: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONCompatible, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    prompt_versions: Mapped[dict[str, Any] | None] = mapped_column(JSONCompatible)
+
+    # Relationships
+    core: Mapped[ArticleCore] = relationship(back_populates="analysis")
+
+    __table_args__ = (
+        CheckConstraint(
+            "quality_score >= 0 AND quality_score <= 1",
+            name="chk_analysis_quality_score_range",
+        ),
+    )
+
+
 class Article(Base):
-    """Main articles table."""
+    """Backward-compatible view joining articles_core + article_bodies + article_analysis.
+
+    After vertical split (migration 06), the `articles` table is replaced by a VIEW.
+    This ORM class maps to that view for backward compatibility.
+    For write operations, use ArticleCore, ArticleBody, ArticleAnalysis directly.
+    """
 
     __tablename__ = "articles"
 
@@ -169,7 +378,7 @@ class Article(Base):
 
     # Merge related
     merged_into: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("articles.id")
+        UUID(as_uuid=True), ForeignKey("articles_core.id")
     )
     is_merged: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     merged_source_ids: Mapped[list[uuid.UUID] | None] = mapped_column(ARRAY(UUID(as_uuid=True)))
@@ -265,10 +474,8 @@ class Article(Base):
         onupdate=lambda: datetime.now(UTC),
     )
 
-    # Relationships
-    vectors: Mapped[list[ArticleVector]] = relationship(
-        back_populates="article", cascade="all, delete-orphan"
-    )
+    # Relationships - vectors relationship moved to ArticleCore after vertical split
+    # Article maps to a backward-compatible view; use ArticleCore for vector access
 
     # Constraints
     __table_args__ = (
@@ -313,7 +520,7 @@ class ArticleVector(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     article_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("articles.id", ondelete="CASCADE"),
+        ForeignKey("articles_core.id", ondelete="CASCADE"),
         nullable=False,
     )
     vector_type: Mapped[VectorType] = mapped_column(
@@ -336,7 +543,7 @@ class ArticleVector(Base):
     )
 
     # Relationships
-    article: Mapped[Article] = relationship(back_populates="vectors")
+    article: Mapped[ArticleCore] = relationship(back_populates="vectors")
 
     __table_args__ = (
         Index(

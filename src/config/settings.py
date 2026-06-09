@@ -41,13 +41,17 @@ from config.subconfigs import (
     DedupSettings,
     DuckDBSettings,
     EntitySettings,
+    FakeNewsDetectorSettings,
     FetcherSettings,
+    GLiNERSettings,
     HealthCheckSettings,
+    HNSWEfSearchSettings,
     IntentRoutingSettings,
     LadybugSettings,
     MemorySettings,
     Neo4jSettings,
     ObservabilitySettings,
+    PaddleNLPSentimentSettings,
     PipelineProcessSettings,
     PipelineUrlEndpointSettings,
     PostgresSettings,
@@ -58,6 +62,7 @@ from config.subconfigs import (
     SpacySettings,
     TemporalInferenceSettings,
     TemporalMemorySettings,
+    TrafficAnomalySettings,
     URLSecuritySettings,
 )
 from core.llm.config.config import LLMSettings
@@ -120,6 +125,13 @@ class Settings(BaseSettings):
     # Analytics settings (loaded from TOML)
     analytics: AnalyticsSettings = Field(default_factory=AnalyticsSettings)
     daily_briefing: DailyBriefingSettings = Field(default_factory=DailyBriefingSettings)
+    paddlenlp_sentiment: PaddleNLPSentimentSettings = Field(
+        default_factory=PaddleNLPSentimentSettings
+    )
+    fake_news_detector: FakeNewsDetectorSettings = Field(default_factory=FakeNewsDetectorSettings)
+    gliner: GLiNERSettings = Field(default_factory=GLiNERSettings)
+    hnsw_ef_search: HNSWEfSearchSettings = Field(default_factory=HNSWEfSearchSettings)
+    traffic_anomaly: TrafficAnomalySettings = Field(default_factory=TrafficAnomalySettings)
 
     # LLM configuration (loaded from separate TOML file)
     llm: LLMSettings = Field(default_factory=LLMSettings)
