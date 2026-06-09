@@ -15,6 +15,7 @@ from core.llm.validation.output_validator import EntityExtractorOutput
 from core.observability.logging import get_logger
 from core.prompt.loader import PromptLoader
 from modules.processing.nlp.spacy_extractor import SpacyExtractor
+from modules.processing.nodes.extraction.gliner_extractor import GLiNERExtractor
 from modules.processing.pipeline.state import PipelineState
 
 if TYPE_CHECKING:
@@ -56,6 +57,7 @@ class EntityExtractorNode:
         settings: Settings | None = None,
         vector_repo: Any = None,
         relation_type_normalizer: RelationTypeNormalizer | None = None,
+        gliner_extractor: GLiNERExtractor | None = None,
     ) -> None:
         self._llm = llm
         self._budget = budget
@@ -64,6 +66,7 @@ class EntityExtractorNode:
         self._settings = settings
         self._vector_repo = vector_repo
         self._relation_type_normalizer = relation_type_normalizer
+        self._gliner_extractor = gliner_extractor
 
     async def execute(self, state: PipelineState) -> PipelineState:
         """Extract entities and relations."""
@@ -92,40 +95,72 @@ class EntityExtractorNode:
             )
             spacy_entities = []
 
+        # Phase 1.5: GLiNER zero-shot extraction (if available)
+        gliner_entities = []
+        if self._gliner_extractor and self._gliner_extractor._config.enabled:
+            try:
+                gliner_entities = await self._gliner_extractor.extract_entities(body)
+                log.debug(
+                    "gliner_extraction_completed",
+                    entity_count=len(gliner_entities),
+                    url=state["raw"].url,
+                )
+            except Exception as e:
+                log.warning(
+                    "gliner_extraction_failed",
+                    exc_type=type(e).__name__,
+                    error=str(e),
+                    url=state["raw"].url,
+                )
+
         # Phase 2: Batch embed entities
         entity_name_to_embedding: dict[str, list[float]] = {}
-        if spacy_entities:
+        if spacy_entities or gliner_entities:
             try:
-                entity_texts = [f"{e.name}（{e.type}）" for e in spacy_entities]
-                entity_embeds = await self._llm.embed_default(entity_texts)
+                # Combine spaCy and GLiNER entities for embedding
+                all_entity_texts = []
+                all_entity_names = []
 
-                for i, e in enumerate(spacy_entities):
-                    if i < len(entity_embeds) and entity_embeds[i]:
-                        entity_name_to_embedding[e.name] = entity_embeds[i]
+                # Add spaCy entities
+                for e in spacy_entities:
+                    all_entity_texts.append(f"{e.name}（{e.type}）")
+                    all_entity_names.append(e.name)
 
-                if self._vector_repo:
-                    try:
-                        # Get embedding model from settings
-                        model_id = (
-                            self._settings.llm.embedding_model
-                            if self._settings
-                            else "Qwen3-Embedding-0.6B"
-                        )
-                        await self._vector_repo.upsert_entity_vectors(
-                            list(
-                                zip(
-                                    [e.name for e in spacy_entities],
-                                    entity_embeds,
-                                )
-                            ),
-                            model_id=model_id,
-                        )
-                    except Exception as exc:
-                        log.warning(
-                            "entity_vector_upsert_failed",
-                            exc_type=type(exc).__name__,
-                            error=str(exc),
-                        )
+                # Add GLiNER entities (convert to same format)
+                for e in gliner_entities:
+                    all_entity_texts.append(f"{e['text']}（{e['type']}）")
+                    all_entity_names.append(e["text"])
+
+                if all_entity_texts:
+                    entity_embeds = await self._llm.embed_default(all_entity_texts)
+
+                    for i, name in enumerate(all_entity_names):
+                        if i < len(entity_embeds) and entity_embeds[i]:
+                            entity_name_to_embedding[name] = entity_embeds[i]
+
+                    if self._vector_repo:
+                        try:
+                            # Get embedding model from settings
+                            model_id = (
+                                self._settings.llm.embedding_model
+                                if self._settings
+                                else "Qwen3-Embedding-0.6B"
+                            )
+                            await self._vector_repo.upsert_entity_vectors(
+                                list(
+                                    zip(
+                                        all_entity_names,
+                                        entity_embeds,
+                                    )
+                                ),
+                                model_id=model_id,
+                            )
+                        except Exception as exc:
+                            log.warning(
+                                "entity_vector_upsert_failed",
+                                exc_type=type(exc).__name__,
+                                error=str(exc),
+                            )
             except (AllProvidersFailedError, CircuitOpenError, ValueError, Exception) as e:
                 log.warning(
                     "entity_embedding_failed",
@@ -158,18 +193,31 @@ class EntityExtractorNode:
                 )
 
         try:
+            # Combine spaCy and GLiNER entities for LLM input
+            all_spacy_entities = [
+                {
+                    "name": e.name,
+                    "type": e.type,
+                    "label": e.label,
+                }
+                for e in spacy_entities
+            ]
+            # Convert GLiNER entities to same format
+            gliner_entities_for_llm = [
+                {
+                    "name": e["text"],
+                    "type": e["type"],
+                    "label": e["type"],
+                }
+                for e in gliner_entities
+            ]
+            all_entities_for_llm = all_spacy_entities + gliner_entities_for_llm
+
             result: EntityExtractorOutput = await self._llm.call_at(
                 CallPoint.ENTITY_EXTRACTOR,
                 {
                     "body": body_trunc,
-                    "spacy_entities": [
-                        {
-                            "name": e.name,
-                            "type": e.type,
-                            "label": e.label,
-                        }
-                        for e in spacy_entities
-                    ],
+                    "spacy_entities": all_entities_for_llm,
                     "article_id": state.get("article_id"),
                     "task_id": state.get("task_id"),
                     "relation_types_block": relation_types_block,
@@ -239,15 +287,17 @@ class EntityExtractorNode:
                         )
 
             # Phase 5: Clean up filtered entities from entity_vectors
-            # Remove entities that were extracted by spaCy but filtered out by LLM
-            if self._vector_repo and spacy_entities:
+            # Remove entities that were extracted by spaCy/GLiNER but filtered out by LLM
+            if self._vector_repo and (spacy_entities or gliner_entities):
                 spacy_names = {e.name for e in spacy_entities}
+                gliner_names = {e["text"] for e in gliner_entities}
+                all_extracted_names = spacy_names | gliner_names
                 llm_names = {
                     e.get("canonical_name") or e.get("name")
                     for e in state["entities"]
                     if e.get("name")
                 }
-                filtered_names = list(spacy_names - llm_names)
+                filtered_names = list(all_extracted_names - llm_names)
                 if filtered_names:
                     try:
                         deleted = await self._vector_repo.delete_entity_vectors_by_neo4j_ids(
