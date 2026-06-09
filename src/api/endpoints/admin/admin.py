@@ -9,7 +9,8 @@ from typing import TYPE_CHECKING, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
-from api.dependencies import get_container, get_source_authority_repo
+# NOTE: Lazy import to avoid circular dependency
+# from api.dependencies import get_container, get_source_authority_repo
 from api.endpoints._deps import Endpoints
 from api.middleware.auth import verify_admin_api_key, verify_api_key
 from api.middleware.rate_limit import limiter
@@ -23,6 +24,21 @@ if TYPE_CHECKING:
 log = get_logger("admin_api")
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+# Lazy import wrappers to avoid circular dependency
+def _get_container():
+    """Lazy import get_container from api.dependencies."""
+    from api.dependencies import get_container
+
+    return get_container()
+
+
+def _get_source_authority_repo():
+    """Lazy import get_source_authority_repo from api.dependencies."""
+    from api.dependencies import get_source_authority_repo
+
+    return get_source_authority_repo()
 
 
 def llm_failure_repo() -> LLMFailureRepo:
@@ -102,7 +118,7 @@ async def list_authorities(
     request: Request,
     needs_review_only: bool = False,
     _: str = Depends(verify_api_key),
-    repo: SourceAuthorityRepo = Depends(get_source_authority_repo),
+    repo: SourceAuthorityRepo = Depends(_get_source_authority_repo),
 ) -> APIResponse[list[AuthorityResponse]]:
     """Get source authorities, optionally filtered by those needing review.
 
@@ -146,7 +162,7 @@ async def update_authority(
     host: str,
     body: UpdateAuthorityRequest,
     _: str = Depends(verify_admin_api_key),  # Security: write operation requires admin
-    repo: SourceAuthorityRepo = Depends(get_source_authority_repo),
+    repo: SourceAuthorityRepo = Depends(_get_source_authority_repo),
 ) -> APIResponse[UpdateAuthorityResponse]:
     """Update authority score for a source host.
 
@@ -412,7 +428,7 @@ class MemoryDiagnosticResponse(BaseModel):
 async def memory_diagnostics(
     request: Request,
     _: str = Depends(verify_api_key),
-    container: Any = Depends(get_container),
+    container: Any = Depends(_get_container),
 ) -> APIResponse[MemoryDiagnosticResponse]:
     """Diagnostic endpoint for memory system health.
 
@@ -481,7 +497,7 @@ async def trigger_consolidation(
     request: Request,
     batch_size: int = Query(10, ge=1, le=100),
     _: str = Depends(verify_admin_api_key),  # Security: write operation requires admin
-    container: Any = Depends(get_container),
+    container: Any = Depends(_get_container),
 ) -> APIResponse[ConsolidationResult]:
     """Manually trigger memory consolidation (slow path).
 
@@ -529,7 +545,7 @@ class AutoScoreRefreshResponse(BaseModel):
 async def refresh_auto_scores(
     request: Request,
     _: str = Depends(verify_admin_api_key),  # Security: write operation requires admin
-    container: Any = Depends(get_container),
+    container: Any = Depends(_get_container),
 ) -> APIResponse[AutoScoreRefreshResponse]:
     """Manually trigger source auto_score recalculation.
 

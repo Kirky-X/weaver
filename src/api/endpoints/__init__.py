@@ -8,25 +8,51 @@ This module contains all API endpoint routers:
 - graph: Graph operations
 - admin: Administrative endpoints
 - monitoring: Monitoring and observation endpoints
+
+NOTE: Uses lazy imports to avoid circular dependencies with api.dependencies.
 """
 
-from api.endpoints.admin import router as admin_router
-from api.endpoints.analytics import router as analytics_router
-from api.endpoints.communities import router as communities_router
-from api.endpoints.content.articles import router as articles_router
-from api.endpoints.content.pipeline import router as pipeline_router
-from api.endpoints.content.search import router as search_router
-from api.endpoints.content.sources import router as sources_router
-from api.endpoints.graph import router as graph_router, visualization_router
-from api.endpoints.monitoring import (
-    causal_router,
-    communities_monitoring_router,
-    graph_monitoring_router,
-    llm_router,
-    memory_router,
-)
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from fastapi import APIRouter
+
+
+def __getattr__(name: str) -> APIRouter:
+    """Lazy import routers to avoid circular dependencies."""
+    router_map = {
+        "admin_router": ("api.endpoints.admin", "router"),
+        "admin_keys_router": ("api.endpoints.admin_keys", "router"),
+        "analytics_router": ("api.endpoints.analytics", "router"),
+        "articles_router": ("api.endpoints.content.articles", "router"),
+        "causal_router": ("api.endpoints.monitoring", "causal_router"),
+        "communities_monitoring_router": (
+            "api.endpoints.monitoring",
+            "communities_monitoring_router",
+        ),
+        "communities_router": ("api.endpoints.communities", "router"),
+        "graph_monitoring_router": ("api.endpoints.monitoring", "graph_monitoring_router"),
+        "graph_router": ("api.endpoints.graph", "router"),
+        "llm_router": ("api.endpoints.monitoring", "llm_router"),
+        "memory_router": ("api.endpoints.monitoring", "memory_router"),
+        "pipeline_router": ("api.endpoints.content.pipeline", "router"),
+        "search_router": ("api.endpoints.content.search", "router"),
+        "sources_router": ("api.endpoints.content.sources", "router"),
+        "visualization_router": ("api.endpoints.graph", "visualization_router"),
+    }
+    if name in router_map:
+        module_path, attr = router_map[name]
+        import importlib
+
+        module = importlib.import_module(module_path)
+        return getattr(module, attr)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
+    "admin_keys_router",
     "admin_router",
     "analytics_router",
     "articles_router",

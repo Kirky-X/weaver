@@ -12,6 +12,8 @@ Example usage:
     app.include_router(api_router)
 """
 
-from api.router import api_router
+# NOTE: Do NOT import api_router here to avoid circular imports.
+# Import directly from api.router where needed:
+#   from api.router import api_router
 
-__all__ = ["api_router"]
+__all__: list[str] = []
