@@ -8,10 +8,19 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, select, update
+from sqlalchemy import and_, case, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.db.models import Article, EmotionType, PersistStatus
+from core.change_detector import ChangeDetector
+from core.db.models import (
+    Article,
+    ArticleAnalysis,
+    ArticleBody,
+    ArticleCore,
+    EmotionType,
+    PersistStatus,
+)
 from core.exceptions import InvalidStateTransitionError
 from core.observability.logging import get_logger
 from core.protocols import RelationalPool
@@ -43,10 +52,131 @@ def _to_emotion(value: str | None) -> EmotionType | None:
     return None
 
 
-def _apply_state_to_article(article: Article, state: PipelineState) -> None:
-    """Apply pipeline state fields to an Article object.
+def _apply_state_to_core(core: ArticleCore, state: PipelineState) -> None:
+    """Apply pipeline state fields to an ArticleCore object.
 
-    This is the centralized field mapping function used by all upsert methods.
+    Args:
+        core: The ArticleCore model instance to update.
+        state: Pipeline state containing article data.
+    """
+    # Simple field mappings for core fields
+    core_fields = {"category", "language", "region", "score", "is_merged"}
+    for state_key, (attr_name, extractor) in STATE_TO_ARTICLE_FIELDS.items():
+        if state_key in state and state_key in core_fields:
+            setattr(core, attr_name, extractor(state[state_key]))
+
+    # Sentiment mapping (score goes to core)
+    if "sentiment" in state:
+        sent = state["sentiment"]
+        core.sentiment_score = sent.get("sentiment_score")
+
+    # Credibility mapping (score goes to core)
+    if "credibility" in state:
+        cred = state["credibility"]
+        core.credibility_score = cred.get("score")
+
+    # Merged source IDs conversion
+    if "merged_source_ids" in state:
+        cleaned_ids = []
+        for sid in state["merged_source_ids"]:
+            try:
+                cleaned_ids.append(uuid.UUID(sid) if isinstance(sid, str) else sid)
+            except (ValueError, AttributeError) as exc:
+                log.warning("invalid_merged_source_id", source_id=sid, error=str(exc))
+        core.merged_source_ids = cleaned_ids
+
+    # Set common fields
+    raw = state.get("raw")
+    if raw:
+        core.publish_time = getattr(raw, "publish_time", None)
+
+    core.updated_at = datetime.now(UTC)
+    core.persist_status = PersistStatus.PG_DONE
+
+
+def _apply_state_to_body(body: ArticleBody, state: PipelineState) -> None:
+    """Apply pipeline state fields to an ArticleBody object.
+
+    Args:
+        body: The ArticleBody model instance to update.
+        state: Pipeline state containing article data.
+    """
+    # Summary info mapping
+    if "summary_info" in state:
+        si = state["summary_info"]
+        body.summary = si.get("summary")
+    elif state.get("merged_source_ids"):
+        # Article was merged — clear stale summary
+        body.summary = None
+
+
+def _apply_state_to_analysis(analysis: ArticleAnalysis, state: PipelineState) -> None:
+    """Apply pipeline state fields to an ArticleAnalysis object.
+
+    Args:
+        analysis: The ArticleAnalysis model instance to update.
+        state: Pipeline state containing article data.
+    """
+    if "is_news" in state:
+        analysis.is_news = state["is_news"]
+
+    # Summary info mapping
+    if "summary_info" in state:
+        si = state["summary_info"]
+        analysis.subjects = si.get("subjects")
+        analysis.key_data = si.get("key_data")
+        analysis.impact = si.get("impact")
+        analysis.has_data = si.get("has_data")
+        if si.get("event_time"):
+            try:
+                analysis.event_time = datetime.fromisoformat(si["event_time"])
+            except (ValueError, TypeError):
+                pass
+    elif state.get("merged_source_ids"):
+        # Article was merged — clear stale analysis
+        analysis.subjects = None
+        analysis.key_data = None
+        analysis.impact = None
+        analysis.has_data = None
+
+    # Sentiment mapping
+    if "sentiment" in state:
+        sent = state["sentiment"]
+        sentiment_value = sent.get("sentiment")
+        analysis.sentiment = (
+            sentiment_value.strip()[:10] if isinstance(sentiment_value, str) else sentiment_value
+        )
+        analysis.primary_emotion = _to_emotion(sent.get("primary_emotion"))
+        analysis.emotion_targets = sent.get("emotion_targets")
+
+    # Credibility mapping
+    if "credibility" in state:
+        cred = state["credibility"]
+        analysis.source_credibility = cred.get("source_credibility")
+        analysis.cross_verification = cred.get("cross_verification")
+        analysis.content_check_score = cred.get("content_check")
+        analysis.credibility_flags = cred.get("flags")
+        analysis.verified_by_sources = cred.get("verified_by_sources", 0)
+
+    # Quality score
+    if "quality_score" in state:
+        analysis.quality_score = state["quality_score"]
+
+    # Data conflicts
+    if "data_conflicts" in state:
+        analysis.data_conflicts = state["data_conflicts"]
+
+    # Prompt versions
+    if "prompt_versions" in state:
+        analysis.prompt_versions = state["prompt_versions"]
+
+
+def _apply_state_to_article(article: Article, state: PipelineState) -> None:
+    """Apply pipeline state fields to an Article object (backward-compatible wrapper).
+
+    Delegates to the split table apply functions for field mapping logic.
+    The Article VIEW is read-only; this wrapper exists for backward compatibility
+    with code that constructs Article objects in-memory (e.g. tests).
 
     Args:
         article: The Article model instance to update.
@@ -71,8 +201,6 @@ def _apply_state_to_article(article: Article, state: PipelineState) -> None:
             except (ValueError, TypeError):
                 pass
     elif state.get("merged_source_ids"):
-        # Article was merged by batch_merger — clear stale summary since the
-        # merged body no longer matches the original single-article summary
         article.summary = None
         article.subjects = None
         article.key_data = None
@@ -135,6 +263,55 @@ class ArticleRepo:
     def __init__(self, pool: RelationalPool) -> None:
         self._pool = pool
 
+    def _build_analysis_values(self, article_id: uuid.UUID, state: PipelineState) -> dict:
+        """Extract analysis fields from PipelineState into a dict for ArticleAnalysis insert.
+
+        Args:
+            article_id: UUID of the article.
+            state: Pipeline state containing analysis data.
+
+        Returns:
+            Dict suitable for ArticleAnalysis insert/upsert.
+        """
+        values: dict[str, Any] = {"article_id": article_id}
+        if "is_news" in state:
+            values["is_news"] = state["is_news"]
+        if "summary_info" in state:
+            si = state["summary_info"]
+            values["subjects"] = si.get("subjects")
+            values["key_data"] = si.get("key_data")
+            values["impact"] = si.get("impact")
+            values["has_data"] = si.get("has_data")
+            if si.get("event_time"):
+                try:
+                    values["event_time"] = datetime.fromisoformat(si["event_time"])
+                except (ValueError, TypeError):
+                    pass
+        if "sentiment" in state:
+            sent = state["sentiment"]
+            sentiment_value = sent.get("sentiment")
+            values["sentiment"] = (
+                sentiment_value.strip()[:10]
+                if isinstance(sentiment_value, str)
+                else sentiment_value
+            )
+            values["primary_emotion"] = _to_emotion(sent.get("primary_emotion"))
+            values["emotion_targets"] = sent.get("emotion_targets")
+        if "credibility" in state:
+            cred = state["credibility"]
+            values["source_credibility"] = cred.get("source_credibility")
+            values["cross_verification"] = cred.get("cross_verification")
+            values["content_check_score"] = cred.get("content_check")
+            values["credibility_flags"] = cred.get("flags")
+            values["verified_by_sources"] = cred.get("verified_by_sources", 0)
+        if "quality_score" in state:
+            values["quality_score"] = state["quality_score"]
+        if "data_conflicts" in state:
+            values["data_conflicts"] = state["data_conflicts"]
+        if "prompt_versions" in state:
+            values["prompt_versions"] = state["prompt_versions"]
+        return values
+
     async def bulk_upsert(self, states: list[PipelineState]) -> list[uuid.UUID]:
         """Bulk upsert articles from pipeline states.
 
@@ -164,6 +341,9 @@ class ArticleRepo:
     async def _upsert_chunk(self, states: list[PipelineState]) -> list[uuid.UUID]:
         """Upsert a chunk of articles within a single transaction.
 
+        Uses INSERT ... ON CONFLICT DO UPDATE for each state individually,
+        eliminating the query-then-write race condition.
+
         Args:
             states: List of pipeline states to upsert.
 
@@ -175,127 +355,128 @@ class ArticleRepo:
         if not valid_states:
             return []
 
-        # Collect all URLs for batch existence check
-        # Use normalized URLs to match insert_raw behavior
-        urls_to_check = []
-        state_by_url: dict[str, PipelineState] = {}
-        for state in valid_states:
-            raw = state.get("raw")
-            if raw and hasattr(raw, "url"):
-                url = raw.url
-            elif isinstance(raw, dict):
-                url = raw.get("url", "")
-            else:
-                continue
-            normalized_url = Deduplicator.normalize_url(url)
-            urls_to_check.append(normalized_url)
-            state_by_url[normalized_url] = state
+        article_ids: list[uuid.UUID] = []
 
         async with self._pool.session() as session:
-            # Batch check existing URLs
-            result = await session.execute(
-                select(Article.source_url, Article.id).where(Article.source_url.in_(urls_to_check))
-            )
-            existing = {row[0]: row[1] for row in result}
+            for state in valid_states:
+                try:
+                    article_id = await self._upsert_single(session, state)
+                    article_ids.append(article_id)
+                except Exception as exc:
+                    raw = state.get("raw")
+                    url = getattr(raw, "url", "unknown") if raw else "unknown"
+                    log.error("bulk_upsert_single_failed", url=url, error=str(exc))
 
-            article_ids: list[uuid.UUID] = []
-            new_articles: list[Article] = []
-
-            for url, state in state_by_url.items():
-                raw = state["raw"]
-                if url in existing:
-                    # Update existing article
-                    article_id = existing[url]
-                    try:
-                        await self._update_single_fields(session, article_id, state)
-                        article_ids.append(article_id)
-                    except Exception as exc:
-                        log.error(
-                            "bulk_upsert_update_failed", article_id=str(article_id), error=str(exc)
-                        )
-                else:
-                    # Prepare new article with normalized URL
-                    try:
-                        article = self._create_article_from_state(state, normalized_url=url)
-                        new_articles.append(article)
-                    except Exception as exc:
-                        log.error("bulk_upsert_create_prepare_failed", url=url, error=str(exc))
-
-            # Batch insert new articles with per-record error isolation
-            if new_articles:
-                for article in new_articles:
-                    try:
-                        session.add(article)
-                        await session.flush()
-                        article_ids.append(article.id)
-                    except Exception as exc:
-                        log.error(
-                            "bulk_upsert_insert_failed",
-                            url=article.source_url,
-                            error=str(exc),
-                        )
-                        # Remove failed article from session without affecting others
-                        session.expunge(article)
-
-            # Single commit for the entire chunk
             await session.commit()
-
             log.debug("bulk_upsert_chunk_complete", count=len(article_ids))
             return article_ids
 
-    def _create_article_from_state(
-        self, state: PipelineState, normalized_url: str | None = None
-    ) -> Article:
-        """Create a new Article object from pipeline state.
-
-        Args:
-            state: Pipeline state containing article data.
-            normalized_url: Optional normalized URL to use instead of raw URL.
-
-        Returns:
-            New Article object (not yet committed).
-        """
-        raw = state["raw"]
-        # Use normalized URL if provided for consistent deduplication
-        source_url = normalized_url or (raw.url if hasattr(raw, "url") else getattr(raw, "url", ""))
-        article = Article(
-            source_url=source_url,
-            source_host=getattr(raw, "source_host", None)
-            or (raw.get("source_host") if isinstance(raw, dict) else None),
-            is_news=state.get("is_news", True),
-            title=state.get("cleaned", {}).get("title", getattr(raw, "title", "")),
-            body=state.get("cleaned", {}).get("body", getattr(raw, "body", "")),
-            publish_time=getattr(raw, "publish_time", None),
-            persist_status=PersistStatus.PG_DONE,
-            updated_at=datetime.now(UTC),
-        )
-        _apply_state_to_article(article, state)
-        return article
-
-    async def _update_single_fields(
-        self, session: AsyncSession, article_id: uuid.UUID, state: PipelineState
-    ) -> None:
-        """Update only the fields present in state (partial update).
-
-        Uses centralized _apply_state_to_article for field mapping.
+    async def _upsert_single(self, session: AsyncSession, state: PipelineState) -> uuid.UUID:
+        """Upsert a single article using ON CONFLICT DO UPDATE.
 
         Args:
             session: SQLAlchemy session.
-            article_id: ID of article to update.
-            state: Pipeline state with fields to update.
-        """
-        result = await session.execute(select(Article).where(Article.id == article_id))
-        article = result.scalar_one_or_none()
-        if not article:
-            return
+            state: Pipeline state containing article data.
 
-        _apply_state_to_article(article, state)
+        Returns:
+            The article UUID.
+        """
+        raw = state["raw"]
+        normalized_url = Deduplicator.normalize_url(raw.url)
+        title = state.get("cleaned", {}).get("title", getattr(raw, "title", ""))
+        body = state.get("cleaned", {}).get("body", getattr(raw, "body", ""))
+        content_hash = ChangeDetector.compute_hash({"title": title, "body": body})
+
+        # Upsert articles_core with ON CONFLICT DO UPDATE
+        core_values = {
+            "source_url": normalized_url,
+            "source_host": (
+                getattr(raw, "source_host", None)
+                or (raw.get("source_host") if isinstance(raw, dict) else None)
+            ),
+            "title": title,
+            "category": state.get("category"),
+            "language": state.get("language", "").strip()[:10] if state.get("language") else None,
+            "region": state.get("region", "").strip()[:50] if state.get("region") else None,
+            "score": state.get("score"),
+            "sentiment_score": state.get("sentiment", {}).get("sentiment_score"),
+            "credibility_score": state.get("credibility", {}).get("score"),
+            "persist_status": PersistStatus.PG_DONE.value,
+            "publish_time": getattr(raw, "publish_time", None),
+            "content_hash": content_hash,
+            "updated_at": datetime.now(UTC),
+        }
+
+        stmt = pg_insert(ArticleCore).values(**core_values)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["source_url"],
+            set_={
+                "title": case(
+                    (ArticleCore.content_hash != content_hash, stmt.excluded.title),
+                    else_=ArticleCore.title,
+                ),
+                "category": case(
+                    (ArticleCore.content_hash != content_hash, stmt.excluded.category),
+                    else_=ArticleCore.category,
+                ),
+                "score": stmt.excluded.score,
+                "sentiment_score": stmt.excluded.sentiment_score,
+                "credibility_score": stmt.excluded.credibility_score,
+                "persist_status": stmt.excluded.persist_status,
+                "publish_time": case(
+                    (stmt.excluded.publish_time.isnot(None), stmt.excluded.publish_time),
+                    else_=ArticleCore.publish_time,
+                ),
+                "content_hash": stmt.excluded.content_hash,
+                "version": (
+                    ArticleCore.version
+                    + case(
+                        (ArticleCore.content_hash != content_hash, 1),
+                        else_=0,
+                    )
+                ),
+                "updated_at": stmt.excluded.updated_at,
+            },
+        )
+        await session.execute(stmt)
+
+        # Get the article ID
+        core_result = await session.execute(
+            select(ArticleCore.id).where(ArticleCore.source_url == normalized_url)
+        )
+        article_id = core_result.scalar_one()
+
+        # Upsert article_bodies
+        body_stmt = pg_insert(ArticleBody).values(
+            article_id=article_id,
+            body=body,
+            summary=state.get("summary_info", {}).get("summary"),
+        )
+        body_stmt = body_stmt.on_conflict_do_update(
+            index_elements=["article_id"],
+            set_={
+                "body": body_stmt.excluded.body,
+                "summary": body_stmt.excluded.summary,
+            },
+        )
+        await session.execute(body_stmt)
+
+        # Upsert article_analysis
+        analysis_values = self._build_analysis_values(article_id, state)
+        analysis_stmt = pg_insert(ArticleAnalysis).values(**analysis_values)
+        analysis_stmt = analysis_stmt.on_conflict_do_update(
+            index_elements=["article_id"],
+            set_={k: analysis_stmt.excluded[k] for k in analysis_values if k != "article_id"},
+        )
+        await session.execute(analysis_stmt)
+
+        return article_id
 
     async def upsert(self, state: PipelineState) -> uuid.UUID:
         """Upsert an article from pipeline state.
 
-        Creates or updates the article record in PostgreSQL.
-        Uses centralized _apply_state_to_article for field mapping.
+        Uses INSERT ... ON CONFLICT DO UPDATE for atomic upsert,
+        eliminating the query-then-write race condition.
 
         Args:
             state: Pipeline state containing article data.
@@ -305,35 +486,15 @@ class ArticleRepo:
         """
         async with self._pool.session() as session:
             try:
-                raw = state["raw"]
-                # Use normalized URL for consistent deduplication
-                normalized_url = Deduplicator.normalize_url(raw.url)
-
-                # Check if exists using normalized URL
-                result = await session.execute(
-                    select(Article).where(Article.source_url == normalized_url)
-                )
-                article = result.scalar_one_or_none()
-
-                if article is None:
-                    article = Article(
-                        source_url=normalized_url,
-                        source_host=getattr(raw, "source_host", None)
-                        or (raw.get("source_host") if isinstance(raw, dict) else None),
-                        is_news=state.get("is_news", True),
-                        title=state.get("cleaned", {}).get("title", getattr(raw, "title", "")),
-                        body=state.get("cleaned", {}).get("body", getattr(raw, "body", "")),
-                    )
-                    session.add(article)
-
-                # Apply all fields using centralized function
-                _apply_state_to_article(article, state)
-
+                article_id = await self._upsert_single(session, state)
                 await session.commit()
-                await session.refresh(article)
 
-                log.info("article_upserted", article_id=str(article.id), url=raw.url)
-                return article.id
+                log.info(
+                    "article_upserted",
+                    article_id=str(article_id),
+                    url=state["raw"].url,
+                )
+                return article_id
             except Exception as exc:
                 log.error("article_upsert_error", error=str(exc), error_type=type(exc).__name__)
                 await session.rollback()
@@ -361,6 +522,9 @@ class ArticleRepo:
     async def get_existing_urls(self, urls: list[str]) -> set[str]:
         """Check which URLs already exist in the database.
 
+        Queries ArticleCore (actual table) rather than the Article VIEW
+        for reliable existence checks.
+
         Args:
             urls: List of URLs to check.
 
@@ -373,7 +537,7 @@ class ArticleRepo:
         normalized_urls = [Deduplicator.normalize_url(u) for u in urls]
         async with self._pool.session() as session:
             result = await session.execute(
-                select(Article.source_url).where(Article.source_url.in_(normalized_urls))
+                select(ArticleCore.source_url).where(ArticleCore.source_url.in_(normalized_urls))
             )
             return {row[0] for row in result}
 
@@ -393,9 +557,9 @@ class ArticleRepo:
         new_status = PersistStatus(status) if isinstance(status, str) else status
 
         async with self._pool.session() as session:
-            # Get current status
+            # Get current status from ArticleCore
             result = await session.execute(
-                select(Article.persist_status).where(Article.id == article_id)
+                select(ArticleCore.persist_status).where(ArticleCore.id == article_id)
             )
             row = result.scalar_one_or_none()
             if row is None:
@@ -414,10 +578,10 @@ class ArticleRepo:
                     to_status=new_status.value,
                 )
 
-            # Update status
+            # Update status on ArticleCore
             await session.execute(
-                update(Article)
-                .where(Article.id == article_id)
+                update(ArticleCore)
+                .where(ArticleCore.id == article_id)
                 .values(
                     persist_status=new_status,
                     updated_at=datetime.now(UTC),
@@ -439,9 +603,9 @@ class ArticleRepo:
         """
         async with self._pool.session() as session:
             result = await session.execute(
-                update(Article)
-                .where(Article.source_url == source_url)
-                .where(Article.persist_status == PersistStatus.PENDING)
+                update(ArticleCore)
+                .where(ArticleCore.source_url == source_url)
+                .where(ArticleCore.persist_status == PersistStatus.PENDING)
                 .values(
                     persist_status=PersistStatus.PG_DONE,
                     updated_at=datetime.now(UTC),
@@ -464,14 +628,22 @@ class ArticleRepo:
         if isinstance(article_id, str):
             article_id = uuid.UUID(article_id)
         async with self._pool.session() as session:
+            # Update credibility_score on ArticleCore
             await session.execute(
-                update(Article)
-                .where(Article.id == article_id)
+                update(ArticleCore)
+                .where(ArticleCore.id == article_id)
                 .values(
                     credibility_score=credibility_score,
+                    updated_at=datetime.now(UTC),
+                )
+            )
+            # Update analysis fields on ArticleAnalysis
+            await session.execute(
+                update(ArticleAnalysis)
+                .where(ArticleAnalysis.article_id == article_id)
+                .values(
                     cross_verification=cross_verification,
                     verified_by_sources=verified_by_sources,
-                    updated_at=datetime.now(UTC),
                 )
             )
             await session.commit()
@@ -513,7 +685,8 @@ class ArticleRepo:
         """Insert a raw article directly into the database.
 
         This is used for initial insertion of crawled articles before
-        they are processed through the pipeline.
+        they are processed through the pipeline. Inserts into ArticleCore
+        and ArticleBody (split tables), not the Article VIEW.
 
         Args:
             article: Raw article data from crawler (RawArticle or NewsItem).
@@ -569,37 +742,49 @@ class ArticleRepo:
             )
 
         normalized_url = Deduplicator.normalize_url(raw.url)
+        content_hash = ChangeDetector.compute_hash(
+            {"title": raw.title or "", "body": effective_body}
+        )
+
         async with self._pool.session() as session:
-            # Check if exists using normalized URL
+            # Check if exists using ArticleCore
             result = await session.execute(
-                select(Article).where(Article.source_url == normalized_url)
+                select(ArticleCore.id).where(ArticleCore.source_url == normalized_url)
             )
-            existing = result.scalar_one_or_none()
+            existing_id = result.scalar_one_or_none()
 
-            if existing:
+            if existing_id:
                 log.debug("article_already_exists", url=raw.url, normalized=normalized_url)
-                return existing.id
+                return existing_id
 
-            # Create new article with raw data
-            # Use normalized URL for consistent deduplication
-            article = Article(
+            # Insert into articles_core
+            core = ArticleCore(
                 source_url=normalized_url,
                 source_host=raw.source_host or "",
                 title=raw.title or "",
-                body=effective_body,
                 is_news=True,
                 persist_status=PersistStatus.PENDING,
+                content_hash=content_hash,
+                task_id=task_id,
                 prompt_versions={"body_source": body_source} if body_source != "full" else None,
             )
-            article.task_id = task_id
             if raw.publish_time:
-                article.publish_time = raw.publish_time
+                core.publish_time = raw.publish_time
 
-            session.add(article)
+            session.add(core)
+            await session.flush()
+
+            # Insert into article_bodies
+            body = ArticleBody(
+                article_id=core.id,
+                body=effective_body,
+            )
+            session.add(body)
+
             await session.commit()
 
-            log.info("article_inserted", url=raw.url, article_id=str(article.id))
-            return article.id
+            log.info("article_inserted", url=raw.url, article_id=str(core.id))
+            return core.id
 
     async def get_by_ids(self, ids: list[str]) -> list[RawArticle]:
         """Fetch RawArticle objects by IDs for queue consumer.
@@ -669,7 +854,7 @@ class ArticleRepo:
             Set of article ID strings.
         """
         async with self._pool.session() as session:
-            result = await session.execute(select(Article.id))
+            result = await session.execute(select(ArticleCore.id))
             return {str(row[0]) for row in result}
 
     async def revert_to_pg_done(self, article_id: uuid.UUID) -> bool:
@@ -683,8 +868,8 @@ class ArticleRepo:
         """
         async with self._pool.session() as session:
             result = await session.execute(
-                update(Article)
-                .where(Article.id == article_id)
+                update(ArticleCore)
+                .where(ArticleCore.id == article_id)
                 .values(
                     persist_status=PersistStatus.PG_DONE,
                     updated_at=datetime.now(UTC),
@@ -741,6 +926,11 @@ class ArticleRepo:
         This method only updates fields that are NULL, leaving existing values
         untouched. Running multiple times produces the same result (idempotent).
 
+        Updates are distributed across split tables:
+        - category, score, credibility_score → ArticleCore
+        - summary → ArticleBody
+        - quality_score → ArticleAnalysis
+
         Args:
             article_id: UUID of the article to update.
             category: Category to set if currently NULL.
@@ -752,31 +942,66 @@ class ArticleRepo:
         Returns:
             True if any field was updated, False otherwise.
         """
-        async with self._pool.session() as session:
-            result = await session.execute(select(Article).where(Article.id == article_id))
-            article = result.scalar_one_or_none()
-            if not article:
-                return False
+        updated = False
 
-            updated = False
-            if category is not None and article.category is None:
-                article.category = category
+        async with self._pool.session() as session:
+            # Update ArticleCore fields
+            core_updates: dict[str, Any] = {}
+            if category is not None or score is not None or credibility_score is not None:
+                result = await session.execute(
+                    select(
+                        ArticleCore.category,
+                        ArticleCore.score,
+                        ArticleCore.credibility_score,
+                    ).where(ArticleCore.id == article_id)
+                )
+                core_row = result.one_or_none()
+                if core_row is not None:
+                    if category is not None and core_row[0] is None:
+                        core_updates["category"] = category
+                    if score is not None and core_row[1] is None:
+                        core_updates["score"] = score
+                    if credibility_score is not None and core_row[2] is None:
+                        core_updates["credibility_score"] = credibility_score
+
+            if core_updates:
+                core_updates["updated_at"] = datetime.now(UTC)
+                await session.execute(
+                    update(ArticleCore).where(ArticleCore.id == article_id).values(**core_updates)
+                )
                 updated = True
-            if score is not None and article.score is None:
-                article.score = score
-                updated = True
-            if credibility_score is not None and article.credibility_score is None:
-                article.credibility_score = credibility_score
-                updated = True
-            if summary is not None and article.summary is None:
-                article.summary = summary
-                updated = True
-            if quality_score is not None and article.quality_score is None:
-                article.quality_score = quality_score
-                updated = True
+
+            # Update ArticleBody fields
+            if summary is not None:
+                result = await session.execute(
+                    select(ArticleBody.summary).where(ArticleBody.article_id == article_id)
+                )
+                current_summary = result.scalar_one_or_none()
+                if current_summary is None:
+                    await session.execute(
+                        update(ArticleBody)
+                        .where(ArticleBody.article_id == article_id)
+                        .values(summary=summary)
+                    )
+                    updated = True
+
+            # Update ArticleAnalysis fields
+            if quality_score is not None:
+                result = await session.execute(
+                    select(ArticleAnalysis.quality_score).where(
+                        ArticleAnalysis.article_id == article_id
+                    )
+                )
+                current_quality = result.scalar_one_or_none()
+                if current_quality is None:
+                    await session.execute(
+                        update(ArticleAnalysis)
+                        .where(ArticleAnalysis.article_id == article_id)
+                        .values(quality_score=quality_score)
+                    )
+                    updated = True
 
             if updated:
-                article.updated_at = datetime.now(UTC)
                 await session.commit()
             return updated
 
@@ -811,8 +1036,8 @@ class ArticleRepo:
         """
         async with self._pool.session() as session:
             await session.execute(
-                update(Article)
-                .where(Article.id == article_id)
+                update(ArticleCore)
+                .where(ArticleCore.id == article_id)
                 .values(
                     processing_stage=stage,
                     updated_at=datetime.now(UTC),
@@ -835,8 +1060,8 @@ class ArticleRepo:
             return
         async with self._pool.session() as session:
             await session.execute(
-                update(Article)
-                .where(Article.id.in_(article_ids))
+                update(ArticleCore)
+                .where(ArticleCore.id.in_(article_ids))
                 .values(
                     processing_stage=stage,
                     updated_at=datetime.now(UTC),
@@ -855,14 +1080,14 @@ class ArticleRepo:
             increment_retry: Whether to increment retry count.
         """
         async with self._pool.session() as session:
-            # Get current retry count
+            # Get current retry count from ArticleCore
             result = await session.execute(
-                select(Article.retry_count).where(Article.id == article_id)
+                select(ArticleCore.retry_count).where(ArticleCore.id == article_id)
             )
             current_retry = result.scalar_one_or_none() or 0
 
             # Build update values
-            update_values = {
+            update_values: dict[str, Any] = {
                 "persist_status": PersistStatus.FAILED,
                 "processing_error": error,
                 "updated_at": datetime.now(UTC),
@@ -871,7 +1096,7 @@ class ArticleRepo:
                 update_values["retry_count"] = current_retry + 1
 
             await session.execute(
-                update(Article).where(Article.id == article_id).values(**update_values)
+                update(ArticleCore).where(ArticleCore.id == article_id).values(**update_values)
             )
             await session.commit()
 
@@ -884,8 +1109,8 @@ class ArticleRepo:
         """
         async with self._pool.session() as session:
             await session.execute(
-                update(Article)
-                .where(Article.id == article_id)
+                update(ArticleCore)
+                .where(ArticleCore.id == article_id)
                 .values(
                     persist_status=PersistStatus.PROCESSING,
                     processing_stage=stage,
@@ -919,13 +1144,13 @@ class ArticleRepo:
             result = await session.execute(
                 text("""
                      WITH RECURSIVE merge_chain AS (SELECT id, merged_into, ARRAY[id] as path, false as cycle
-                                                    FROM articles
+                                                    FROM articles_core
                                                     WHERE id = :target_id
 
                                                     UNION ALL
 
                                                     SELECT a.id, a.merged_into, mc.path || a.id, a.id = ANY (mc.path)
-                                                    FROM articles a
+                                                    FROM articles_core a
                                                              INNER JOIN merge_chain mc ON a.id = mc.merged_into
                                                     WHERE NOT mc.cycle)
                      SELECT id, path, cycle
@@ -987,7 +1212,7 @@ class ArticleRepo:
                 visited.add(current_id)
 
                 result = await session.execute(
-                    select(Article.merged_into).where(Article.id == current_id)
+                    select(ArticleCore.merged_into).where(ArticleCore.id == current_id)
                 )
                 next_id = result.scalar_one_or_none()
 
@@ -1008,19 +1233,21 @@ class ArticleRepo:
             Dictionary with total_processed, processing_count, completed_count,
             failed_count, pending_count.
         """
-        from sqlalchemy import case, func
+        from sqlalchemy import case as sql_case, func
 
         async with self._pool.session() as session:
             result = await session.execute(
                 select(
-                    func.count(Article.id).label("total_processed"),
+                    func.count(ArticleCore.id).label("total_processed"),
                     func.sum(
-                        case((Article.persist_status == PersistStatus.PROCESSING, 1), else_=0)
+                        sql_case(
+                            (ArticleCore.persist_status == PersistStatus.PROCESSING, 1), else_=0
+                        )
                     ).label("processing_count"),
                     func.sum(
-                        case(
+                        sql_case(
                             (
-                                Article.persist_status.in_(
+                                ArticleCore.persist_status.in_(
                                     [PersistStatus.NEO4J_DONE, PersistStatus.PG_DONE]
                                 ),
                                 1,
@@ -1029,12 +1256,12 @@ class ArticleRepo:
                         )
                     ).label("completed_count"),
                     func.sum(
-                        case((Article.persist_status == PersistStatus.FAILED, 1), else_=0)
+                        sql_case((ArticleCore.persist_status == PersistStatus.FAILED, 1), else_=0)
                     ).label("failed_count"),
                     func.sum(
-                        case((Article.persist_status == PersistStatus.PENDING, 1), else_=0)
+                        sql_case((ArticleCore.persist_status == PersistStatus.PENDING, 1), else_=0)
                     ).label("pending_count"),
-                ).where(Article.task_id == task_id)
+                ).where(ArticleCore.task_id == task_id)
             )
             row = result.one()
             return {
@@ -1065,12 +1292,12 @@ class ArticleRepo:
                                                 WITH ranked_articles AS (SELECT id,
                                                                                 source_url,
                                                                                 ROW_NUMBER() OVER (PARTITION BY source_url ORDER BY updated_at DESC) as rn
-                                                                         FROM articles),
+                                                                         FROM articles_core),
                                                      duplicates AS (SELECT id
                                                                     FROM ranked_articles
                                                                     WHERE rn > 1)
                                                 DELETE
-                                                FROM articles
+                                                FROM articles_core
                                                 WHERE id IN (SELECT id FROM duplicates)
                                                 """))
 
@@ -1078,7 +1305,7 @@ class ArticleRepo:
 
             # Count how many unique URLs we kept
             kept_result = await session.execute(
-                text("SELECT COUNT(DISTINCT source_url) FROM articles")
+                text("SELECT COUNT(DISTINCT source_url) FROM articles_core")
             )
             kept_count = kept_result.scalar() or 0
 
@@ -1118,8 +1345,8 @@ class ArticleRepo:
         """
         async with self._pool.session() as session:
             result = await session.execute(
-                update(Article)
-                .where(Article.id == article_id)
+                update(ArticleCore)
+                .where(ArticleCore.id == article_id)
                 .values(persist_status=PersistStatus.PG_DONE)
             )
             await session.commit()

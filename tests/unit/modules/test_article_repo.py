@@ -373,11 +373,9 @@ class TestArticleRepoInsertRaw:
     async def test_insert_raw_returns_existing_id(self, article_repo, mock_pool):
         """Test insert_raw returns existing article ID if URL exists."""
         existing_id = uuid.uuid4()
-        existing_article = MagicMock(spec=Article)
-        existing_article.id = existing_id
 
         mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = existing_article
+        mock_result.scalar_one_or_none.return_value = existing_id
 
         mock_session = AsyncMock()
         mock_session.execute.return_value = mock_result
