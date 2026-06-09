@@ -23,7 +23,6 @@ Examples:
 from __future__ import annotations
 
 import threading
-from pathlib import Path
 
 from dotenv import load_dotenv
 from pydantic import Field
@@ -60,11 +59,11 @@ from config.subconfigs import (
     URLSecuritySettings,
 )
 from core.llm.config.config import LLMSettings
+from core.utils.paths import PROJECT_ROOT
 from modules.processing.pipeline.config import PipelineSettings
 
 # Load environment variables from .env file
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-load_dotenv(_PROJECT_ROOT / ".env", override=True)
+load_dotenv(PROJECT_ROOT / ".env", override=True)
 
 
 class Settings(BaseSettings):
@@ -78,7 +77,7 @@ class Settings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        toml_file=str(_PROJECT_ROOT / "config" / "settings.toml"),
+        toml_file=str(PROJECT_ROOT / "config" / "settings.toml"),
         env_prefix="WEAVER_",
         env_nested_delimiter="__",
         extra="ignore",

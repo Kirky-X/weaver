@@ -105,7 +105,7 @@ class TestRetryNeo4jWrites:
         mock_article.source_url = "https://example.com/test"
         mock_article.title = "Test Article"
         mock_article.body = "Test body"
-        mock_article.persist_status = PersistStatus.STORED
+        mock_article.persist_status = PersistStatus.PG_DONE
 
         mock_session = AsyncMock()
         mock_result = MagicMock()
@@ -137,7 +137,7 @@ class TestRetryNeo4jWrites:
         mock_article.source_url = "https://example.com/test"
         mock_article.title = "Test Article"
         mock_article.body = "Test body"
-        mock_article.persist_status = PersistStatus.STORED
+        mock_article.persist_status = PersistStatus.PG_DONE
 
         mock_session = AsyncMock()
         mock_result = MagicMock()
@@ -170,7 +170,7 @@ class TestRetryNeo4jWrites:
         mock_article.source_url = "https://example.com/test"
         mock_article.title = "Test Article"
         mock_article.body = "Test body"
-        mock_article.persist_status = PersistStatus.STORED
+        mock_article.persist_status = PersistStatus.PG_DONE
 
         mock_session = AsyncMock()
         mock_result = MagicMock()
@@ -188,7 +188,6 @@ class TestRetryNeo4jWrites:
 
         scheduler_jobs_service._graph_writer.write = AsyncMock()
 
-        # Mock pending_sync record with payload
         mock_pending_sync = MagicMock()
         mock_pending_sync.payload = {
             "article_id": str(mock_article.id),
@@ -635,7 +634,7 @@ class TestSyncNeo4jWithPostgres:
         incomplete_article = MagicMock(spec=Article)
         incomplete_article.id = uuid.uuid4()
         incomplete_article.source_url = "https://example.com/article"
-        incomplete_article.persist_status = PersistStatus.COMPLETE
+        incomplete_article.persist_status = PersistStatus.NEO4J_DONE
         incomplete_article.category = None
         incomplete_article.score = None
         incomplete_article.credibility_score = None

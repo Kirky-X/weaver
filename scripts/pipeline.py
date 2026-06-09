@@ -1081,7 +1081,7 @@ async def cmd_process_pending(args: argparse.Namespace) -> int:
             if not state.get("terminal"):
                 article_id_uuid = uuid.UUID(article_id)
                 await article_repo.upsert(state)
-                await article_repo.update_persist_status(article_id_uuid, PersistStatus.STORED)
+                await article_repo.update_persist_status(article_id_uuid, PersistStatus.PG_DONE)
                 print(f"  ✓ PG 持久化完成")
 
                 # Write to LadybugDB
@@ -1106,7 +1106,7 @@ async def cmd_process_pending(args: argparse.Namespace) -> int:
                         print(f"  ✓ 向量持久化完成")
 
                 # All enrichment done, mark complete
-                await article_repo.update_persist_status(article_id_uuid, PersistStatus.COMPLETE)
+                await article_repo.update_persist_status(article_id_uuid, PersistStatus.NEO4J_DONE)
                 print(f"  ✓ 处理完成")
 
             processed_count += 1

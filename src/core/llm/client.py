@@ -14,6 +14,7 @@ from core.constants import RedisKeys
 from core.llm.resilience.pool import ProviderPool
 from core.llm.routing.router import LabelRouter
 from core.llm.types import (
+    CACHE_TTL,
     CallPoint,
     GlobalConfig,
     Label,
@@ -21,6 +22,7 @@ from core.llm.types import (
     ProviderConfig,
     TokenUsage,
 )
+from core.llm.utils.input_truncation import truncate_input
 from core.llm.utils.json_parser import parse_llm_json
 from core.observability.logging import get_logger
 from core.utils.time_utils import get_current_time_with_timezone
@@ -179,13 +181,29 @@ class LLMClient:
         else:
             cp = call_point
 
-        cache_key = f"{parsed_label}:{hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:32]}"
+        cache_key = f"cache:llm:{cp.value}:{hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()}"
+
+        ttl = CACHE_TTL.get(cp.value, CACHE_TTL["default"])
+
+        # Redis cache check (preferred over TTLCache for persistence across restarts)
+        if self._redis:
+            try:
+                cached = await self._redis.get(cache_key)
+                if cached:
+                    data = json.loads(cached)
+                    self._cache_hits += 1
+                    log.info("llm_cache_hit", label=str(parsed_label), source="redis")
+                    if output_model:
+                        return parse_llm_json(data["content"], output_model)
+                    return data["content"]
+            except Exception as exc:
+                log.debug("redis_cache_read_failed", error=str(exc))
 
         # TTLCache handles TTL and eviction automatically
         if cache_key in self._response_cache:
             cached = self._response_cache[cache_key]
             self._cache_hits += 1
-            log.info("llm_cache_hit", label=str(parsed_label))
+            log.info("llm_cache_hit", label=str(parsed_label), source="memory")
             await self._emit_usage_event(
                 label=parsed_label,
                 call_point=cp,
@@ -199,6 +217,15 @@ class LLMClient:
 
         log.debug("llm_cache_miss", label=str(parsed_label))
         self._cache_misses += 1
+
+        # Truncate input body based on call point limits
+        if "body" in payload:
+            truncated_payload = dict(payload)
+            truncated_payload["body"] = truncate_input(
+                cp.value, payload["body"], title=payload.get("title")
+            )
+        else:
+            truncated_payload = payload
 
         # 构建label链
         labels = self._router.resolve(parsed_label)
@@ -223,7 +250,7 @@ class LLMClient:
             try:
                 response = await pool.execute(
                     labels=[label],  # 每个 pool 只执行自己的 label
-                    payload=payload,
+                    payload=truncated_payload,
                     call_point=cp.value,
                     timeout=timeout,
                     article_id=article_id,
@@ -234,6 +261,33 @@ class LLMClient:
                     "content": response.content,
                     "token_usage": response.token_usage,
                 }
+
+                if self._redis:
+                    try:
+                        token_usage_dict = {
+                            "input_tokens": (
+                                response.token_usage.input_tokens if response.token_usage else 0
+                            ),
+                            "output_tokens": (
+                                response.token_usage.output_tokens if response.token_usage else 0
+                            ),
+                            "total_tokens": (
+                                response.token_usage.total_tokens if response.token_usage else 0
+                            ),
+                        }
+                        await self._redis.setex(
+                            cache_key,
+                            ttl,
+                            json.dumps(
+                                {
+                                    "content": response.content,
+                                    "token_usage": token_usage_dict,
+                                },
+                                ensure_ascii=False,
+                            ),
+                        )
+                    except Exception as exc:
+                        log.debug("redis_cache_write_failed", error=str(exc))
 
                 log.debug(
                     "llm_call_complete",

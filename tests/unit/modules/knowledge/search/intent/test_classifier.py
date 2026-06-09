@@ -1,7 +1,7 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved.
-"""Tests for modules.knowledge.search.intent.classifier module."""
+# Copyright (c) 2026 KirkyX. All Rights Reserved
+"""Tests for modules.knowledge.search.intent.classifier module - comprehensive coverage."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -20,12 +20,11 @@ class TestIntentClassifierInit:
         """Test initialization with LLM client."""
         mock_llm = MagicMock()
         classifier = IntentClassifier(mock_llm)
-
         assert classifier._llm is mock_llm
 
 
-class TestClassify:
-    """Test classify method."""
+class TestIntentClassifierClassify:
+    """Test classify method with various intents."""
 
     @pytest.fixture
     def classifier(self):
@@ -108,9 +107,11 @@ class TestClassify:
 
         result = await classifier.classify("Test query")
 
-        # Should return OPEN intent as fallback
         assert result.intent == QueryIntent.OPEN
         assert result.confidence == 0.0
+        assert result.temporal_signals is None
+        assert result.entity_signals is None
+        assert result.keywords is None
 
     @pytest.mark.asyncio
     async def test_classify_with_keywords(self, classifier):
@@ -137,6 +138,49 @@ class TestClassify:
         assert isinstance(result.temporal_signals[0], TemporalSignal)
         assert result.temporal_signals[0].expression == "last week"
 
+    @pytest.mark.asyncio
+    async def test_classify_with_entity_signals(self, classifier):
+        """Test classification with entity signals."""
+        classifier._llm.call = AsyncMock(
+            return_value='{"intent": "entity", "confidence": 0.92, "entity_signals": ["特斯拉", "SpaceX"]}'
+        )
+
+        result = await classifier.classify("特斯拉和SpaceX的关系")
+
+        assert result.entity_signals == ["特斯拉", "SpaceX"]
+
+    @pytest.mark.asyncio
+    async def test_classify_with_all_signals(self, classifier):
+        """Test classification with all signal types."""
+        classifier._llm.call = AsyncMock(
+            return_value='{"intent": "when", "confidence": 0.9, "temporal_signals": [{"expression": "last month", "anchor_type": "relative"}], "entity_signals": ["华为"], "keywords": ["5G", "发布"]}'
+        )
+
+        result = await classifier.classify("华为上个月发布了什么5G产品?")
+
+        assert result.intent == QueryIntent.WHEN
+        assert result.temporal_signals is not None
+        assert result.entity_signals == ["华为"]
+        assert result.keywords == ["5G", "发布"]
+
+    @pytest.mark.asyncio
+    async def test_classify_missing_confidence_defaults(self, classifier):
+        """Test classification with missing confidence defaults to 0.5."""
+        classifier._llm.call = AsyncMock(return_value='{"intent": "open"}')
+
+        result = await classifier.classify("test query")
+
+        assert result.confidence == 0.5
+
+    @pytest.mark.asyncio
+    async def test_classify_missing_intent_defaults(self, classifier):
+        """Test classification with missing intent defaults to OPEN."""
+        classifier._llm.call = AsyncMock(return_value='{"confidence": 0.8}')
+
+        result = await classifier.classify("test query")
+
+        assert result.intent == QueryIntent.OPEN
+
 
 class TestExtractTemporalSignals:
     """Test _extract_temporal_signals method."""
@@ -162,7 +206,6 @@ class TestExtractTemporalSignals:
     def test_extract_empty_signals(self, classifier):
         """Test extracting empty signals list."""
         result = classifier._extract_temporal_signals([])
-
         assert result == []
 
     def test_extract_non_dict_signals_skipped(self, classifier):
@@ -177,6 +220,18 @@ class TestExtractTemporalSignals:
 
         assert len(result) == 1
         assert result[0].expression == "yesterday"
+
+    def test_extract_mixed_valid_invalid(self, classifier):
+        """Test extraction with mixed valid and invalid entries."""
+        signals = [
+            {"expression": "last week", "anchor_type": "relative"},
+            None,
+            {"expression": "tomorrow", "anchor_type": "relative"},
+        ]
+
+        result = classifier._extract_temporal_signals(signals)
+
+        assert len(result) == 2
 
 
 class TestIntentClassification:
@@ -223,6 +278,15 @@ class TestIntentClassification:
 
         assert classification.keywords == ["人工智能", "机器学习"]
 
+    def test_default_values(self):
+        """Test default values."""
+        classification = IntentClassification(intent=QueryIntent.OPEN)
+
+        assert classification.confidence == 0.0
+        assert classification.temporal_signals is None
+        assert classification.entity_signals is None
+        assert classification.keywords is None
+
 
 class TestQueryIntent:
     """Test QueryIntent enum."""
@@ -240,6 +304,8 @@ class TestQueryIntent:
         assert QueryIntent("why") == QueryIntent.WHY
         assert QueryIntent("when") == QueryIntent.WHEN
         assert QueryIntent("entity") == QueryIntent.ENTITY
+        assert QueryIntent("multi_hop") == QueryIntent.MULTI_HOP
+        assert QueryIntent("open") == QueryIntent.OPEN
 
     def test_invalid_intent_raises(self):
         """Test invalid intent raises ValueError."""
@@ -275,35 +341,7 @@ class TestTemporalSignal:
         assert signal.anchor_type == "absolute"
         assert signal.resolved_timestamp == ts
 
-
-class TestIntentClassifierIntegration:
-    """Integration tests."""
-
-    @pytest.mark.asyncio
-    async def test_full_classification_workflow(self):
-        """Test complete classification workflow."""
-        mock_llm = AsyncMock()
-        mock_llm.call = AsyncMock(
-            return_value='{"intent": "entity", "confidence": 0.92, "entity_signals": ["测试实体"], "keywords": ["关键词"]}'
-        )
-
-        classifier = IntentClassifier(mock_llm)
-
-        result = await classifier.classify("测试实体是什么?")
-
-        assert isinstance(result, IntentClassification)
-        assert result.intent == QueryIntent.ENTITY
-        assert result.confidence > 0.9
-
-    @pytest.mark.asyncio
-    async def test_classification_fallback_on_error(self):
-        """Test classification falls back to OPEN on error."""
-        mock_llm = AsyncMock()
-        mock_llm.call = AsyncMock(side_effect=Exception("Connection error"))
-
-        classifier = IntentClassifier(mock_llm)
-
-        result = await classifier.classify("Any query")
-
-        assert result.intent == QueryIntent.OPEN
-        assert result.confidence == 0.0
+    def test_signal_is_string_enum_compatible(self):
+        """Test that QueryIntent works as string."""
+        assert str(QueryIntent.WHY) == "why"
+        assert QueryIntent.WHY == "why"

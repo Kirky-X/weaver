@@ -175,7 +175,7 @@ class TestApplyStateToArticle:
 
         _apply_state_to_article(article, state)
 
-        assert article.persist_status == PersistStatus.STORED
+        assert article.persist_status == PersistStatus.PG_DONE
 
     def test_apply_sets_updated_at(self):
         """Test that _apply_state_to_article sets updated_at."""
@@ -317,7 +317,7 @@ class TestArticleRepoUpdatePersistStatus:
     async def test_update_persist_status_invalid_transition(self, article_repo, mock_pool):
         """Test invalid state transition raises error."""
         mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = PersistStatus.COMPLETE
+        mock_result.scalar_one_or_none.return_value = PersistStatus.NEO4J_DONE
 
         mock_session = AsyncMock()
         mock_session.execute.return_value = mock_result

@@ -391,7 +391,7 @@ class BatchMergerNode:
             # Update persist status and link IDs to states
             for state, aid in zip(new_states, article_ids):
                 state["article_id"] = str(aid)
-                await self._article_repo.update_persist_status(aid, PersistStatus.STORED)
+                await self._article_repo.update_persist_status(aid, PersistStatus.PG_DONE)
 
             # Persist vectors
             if self._vector_repo:
@@ -477,7 +477,7 @@ class BatchMergerNode:
                         try:
                             await self._article_repo.update_persist_status(
                                 uuid.UUID(article_id_str),
-                                PersistStatus.COMPLETE,
+                                PersistStatus.NEO4J_DONE,
                             )
                         except Exception as status_exc:
                             log.warning(

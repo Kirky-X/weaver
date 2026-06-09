@@ -116,7 +116,7 @@ class TestPersistBatchSagaSuccess:
 
         # Verify Phase 1: PostgreSQL persistence
         mock_article_repo.bulk_upsert.assert_called_once()
-        assert mock_article_repo.update_persist_status.call_count == 6  # 3 STORED + 3 COMPLETE
+        assert mock_article_repo.update_persist_status.call_count == 6  # 3 PG_DONE + 3 NEO4J_DONE
 
         # Verify Phase 2: Neo4j persistence
         mock_graph_writer.write_batch.assert_called_once()
@@ -962,7 +962,7 @@ class TestPersistBatchSagaStatusUpdates:
         pg_done_calls = [
             call
             for call in mock_article_repo.update_persist_status.call_args_list
-            if call[0][1] == PersistStatus.STORED
+            if call[0][1] == PersistStatus.PG_DONE
         ]
         assert len(pg_done_calls) == 2
 
@@ -989,7 +989,7 @@ class TestPersistBatchSagaStatusUpdates:
         neo4j_done_calls = [
             call
             for call in mock_article_repo.update_persist_status.call_args_list
-            if call[0][1] == PersistStatus.COMPLETE
+            if call[0][1] == PersistStatus.NEO4J_DONE
         ]
         assert len(neo4j_done_calls) == 2
 

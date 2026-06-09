@@ -31,8 +31,12 @@ from core.db.ladybug_pool import LadybugPool
 from core.db.models import (
     Article,
     ArticleVector,
+    AuditLog,
     Base,
     CategoryType,
+    CommunityVector,
+    DailyBriefing,
+    DailyBriefingItem,
     EmotionType,
     EntityVector,
     LLMFailure,
@@ -40,6 +44,7 @@ from core.db.models import (
     PersistStatus,
     RelationType,
     RelationTypeAlias,
+    SentimentShift,
     SourceAuthority,
     UnknownRelationType,
     VectorType,
@@ -65,8 +70,12 @@ __all__ = [
     # Models
     "Article",
     "ArticleVector",
+    "AuditLog",
     "Base",
     "CategoryType",
+    "CommunityVector",
+    "DailyBriefing",
+    "DailyBriefingItem",
     "DatabaseInitError",
     # Strategy
     "DatabaseStrategy",

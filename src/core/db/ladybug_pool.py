@@ -14,6 +14,8 @@ from typing import Any
 
 import real_ladybug as ladybug
 
+from core.utils.paths import data_path
+
 # Global write lock for LadybugDB (only one write transaction at a time)
 # LadybugDB enforces single-writer at the database level
 _write_lock = asyncio.Lock()
@@ -46,7 +48,7 @@ class LadybugPool:
 
     def __init__(
         self,
-        db_path: str = "data/weaver.lbug",
+        db_path: str = data_path("weaver.lbug"),
         max_db_size: int | None = None,
         buffer_pool_size: int | None = None,
     ):

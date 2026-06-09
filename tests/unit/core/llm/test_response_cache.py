@@ -3,13 +3,20 @@
 
 import hashlib
 import json
-import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
 from cachetools import TTLCache
 
-from core.llm.types import CallPoint, GlobalConfig, Label, LLMType, ProviderConfig, TokenUsage
+from core.llm.types import (
+    CACHE_TTL,
+    CallPoint,
+    GlobalConfig,
+    Label,
+    LLMType,
+    ProviderConfig,
+    TokenUsage,
+)
 
 
 def _make_label(provider: str = "openai", model: str = "gpt-4o") -> Label:
@@ -77,31 +84,27 @@ class TestCacheKeyGeneration:
     """Test cache key generation."""
 
     def test_same_payload_same_key(self):
-        label = _make_label()
         payload = {"messages": [{"role": "user", "content": "hello"}]}
 
-        key1 = f"{label}:{hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:32]}"
-        key2 = f"{label}:{hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:32]}"
+        key1 = f"cache:llm:classifier:{hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()}"
+        key2 = f"cache:llm:classifier:{hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()}"
 
         assert key1 == key2
 
     def test_different_payload_different_key(self):
-        label = _make_label()
         payload1 = {"messages": [{"role": "user", "content": "hello"}]}
         payload2 = {"messages": [{"role": "user", "content": "world"}]}
 
-        key1 = f"{label}:{hashlib.sha256(json.dumps(payload1, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:32]}"
-        key2 = f"{label}:{hashlib.sha256(json.dumps(payload2, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:32]}"
+        key1 = f"cache:llm:classifier:{hashlib.sha256(json.dumps(payload1, sort_keys=True, ensure_ascii=False).encode()).hexdigest()}"
+        key2 = f"cache:llm:classifier:{hashlib.sha256(json.dumps(payload2, sort_keys=True, ensure_ascii=False).encode()).hexdigest()}"
 
         assert key1 != key2
 
-    def test_different_label_different_key(self):
-        label1 = _make_label(provider="openai")
-        label2 = _make_label(provider="anthropic")
+    def test_different_call_point_different_key(self):
         payload = {"messages": [{"role": "user", "content": "hello"}]}
 
-        key1 = f"{label1}:{hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:32]}"
-        key2 = f"{label2}:{hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()[:32]}"
+        key1 = f"cache:llm:classifier:{hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()}"
+        key2 = f"cache:llm:analyze:{hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()}"
 
         assert key1 != key2
 
@@ -171,3 +174,147 @@ class TestLRUEviction:
 
         # key_0 should still be in cache (recently accessed)
         assert "key_0" in client._response_cache
+
+
+def _make_mock_response() -> MagicMock:
+    resp = MagicMock()
+    resp.content = "test response content"
+    resp.token_usage = TokenUsage(input_tokens=10, output_tokens=20)
+    resp.label = _make_label()
+    resp.latency_ms = 100.0
+    resp.model = "gpt-4o"
+    return resp
+
+
+class TestRedisCache:
+    """Test Redis cache integration with LLMClient."""
+
+    @pytest.mark.asyncio
+    async def test_first_call_writes_to_redis(self):
+        """First call should send request and write to Redis cache."""
+        client = _make_client()
+        mock_redis = MagicMock()
+        mock_redis.get = AsyncMock(return_value=None)
+        mock_redis.setex = AsyncMock(return_value=True)
+        client._redis = mock_redis
+
+        with patch.object(
+            client._pools["openai"], "execute", new=AsyncMock(return_value=_make_mock_response())
+        ):
+            result = await client.call(
+                "chat.openai.gpt-4o", {"key": "value"}, call_point="classifier"
+            )
+
+        assert result == "test response content"
+        mock_redis.get.assert_awaited_once()
+        mock_redis.setex.assert_awaited_once()
+        assert client._cache_misses == 1
+
+    @pytest.mark.asyncio
+    async def test_second_call_reads_from_redis(self):
+        """Second call with same payload should return from Redis cache without sending request."""
+        client = _make_client()
+        cached_data = json.dumps(
+            {
+                "content": "cached response from redis",
+                "token_usage": {"input_tokens": 10, "output_tokens": 20, "total_tokens": 30},
+            }
+        )
+        mock_redis = MagicMock()
+        mock_redis.get = AsyncMock(return_value=cached_data)
+        mock_redis.setex = AsyncMock(return_value=True)
+        client._redis = mock_redis
+
+        with patch.object(client._pools["openai"], "execute", new=AsyncMock()) as mock_execute:
+            result = await client.call(
+                "chat.openai.gpt-4o", {"key": "value"}, call_point="classifier"
+            )
+
+        assert result == "cached response from redis"
+        mock_redis.get.assert_awaited_once()
+        mock_execute.assert_not_called()
+        assert client._cache_hits == 1
+
+    @pytest.mark.asyncio
+    async def test_redis_failure_falls_back_to_ttlcache(self):
+        """When Redis fails, should fall back to TTLCache without raising."""
+        client = _make_client()
+        mock_redis = MagicMock()
+        mock_redis.get = AsyncMock(side_effect=ConnectionError("Redis down"))
+        mock_redis.setex = AsyncMock(side_effect=ConnectionError("Redis down"))
+        client._redis = mock_redis
+
+        with patch.object(
+            client._pools["openai"], "execute", new=AsyncMock(return_value=_make_mock_response())
+        ):
+            result = await client.call(
+                "chat.openai.gpt-4o", {"key": "value"}, call_point="classifier"
+            )
+
+        assert result == "test response content"
+        mock_redis.get.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_redis_cache_hit_increments_hit_counter(self):
+        """Redis cache hit should increment _cache_hits counter."""
+        client = _make_client()
+        cached_data = json.dumps(
+            {
+                "content": "cached",
+                "token_usage": None,
+            }
+        )
+        mock_redis = MagicMock()
+        mock_redis.get = AsyncMock(return_value=cached_data)
+        mock_redis.setex = AsyncMock(return_value=True)
+        client._redis = mock_redis
+
+        assert client._cache_hits == 0
+
+        with patch.object(client._pools["openai"], "execute", new=AsyncMock()) as mock_execute:
+            await client.call("chat.openai.gpt-4o", {"key": "value"}, call_point="classifier")
+
+        assert client._cache_hits == 1
+        mock_execute.assert_not_called()
+
+
+class TestTTLGrading:
+    """Test TTL grading by call_point."""
+
+    def test_classifier_ttl_is_7_days(self):
+        assert CACHE_TTL["classifier"] == 7 * 24 * 60 * 60
+
+    def test_quality_scorer_ttl_is_1_day(self):
+        assert CACHE_TTL["quality_scorer"] == 24 * 60 * 60
+
+    def test_analyze_ttl_is_1_day(self):
+        assert CACHE_TTL["analyze"] == 24 * 60 * 60
+
+    def test_categorizer_ttl_is_7_days(self):
+        assert CACHE_TTL["categorizer"] == 7 * 24 * 60 * 60
+
+    def test_summary_ttl_is_7_days(self):
+        assert CACHE_TTL["summary"] == 7 * 24 * 60 * 60
+
+    def test_entity_extractor_ttl_is_7_days(self):
+        assert CACHE_TTL["entity_extractor"] == 7 * 24 * 60 * 60
+
+    def test_default_ttl_is_1_day(self):
+        assert CACHE_TTL["default"] == 24 * 60 * 60
+
+    @pytest.mark.asyncio
+    async def test_redis_setex_uses_correct_ttl_per_call_point(self):
+        """Verify that Redis setex receives the correct TTL for each call_point."""
+        client = _make_client()
+        mock_redis = MagicMock()
+        mock_redis.get = AsyncMock(return_value=None)
+        mock_redis.setex = AsyncMock(return_value=True)
+        client._redis = mock_redis
+
+        with patch.object(
+            client._pools["openai"], "execute", new=AsyncMock(return_value=_make_mock_response())
+        ):
+            await client.call("chat.openai.gpt-4o", {"key": "value"}, call_point="classifier")
+
+        call_kwargs = mock_redis.setex.call_args
+        assert call_kwargs[0][1] == CACHE_TTL["classifier"]  # 7 days

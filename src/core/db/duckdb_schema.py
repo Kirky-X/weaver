@@ -80,6 +80,12 @@ SCHEMA_QUERIES = [
                                  key_data VARCHAR [],
                                  impact VARCHAR,
                                  has_data BOOLEAN DEFAULT false,
+                                 data_conflicts JSON DEFAULT '[]',
+                                 image_forensics JSON DEFAULT '[]',
+                                 document_type VARCHAR DEFAULT 'news',
+                                 doc_metadata JSON DEFAULT '{}',
+                                 content_hash VARCHAR,
+                                 version INTEGER DEFAULT 1,
                                  score DECIMAL (3,2),
         quality_score DECIMAL
        (

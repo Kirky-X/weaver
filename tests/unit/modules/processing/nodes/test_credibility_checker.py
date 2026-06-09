@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.llm import CallPoint
 from core.llm.validation.output_validator import CredibilityOutput
 from modules.ingestion.domain.models import RawArticle
 from modules.processing.nodes.classification.credibility_checker import CredibilityCheckerNode
@@ -279,8 +278,7 @@ class TestCredibilityCheckerNodeBasic:
         assert "timeliness" in result["credibility"]
         assert "flags" in result["credibility"]
 
-        assert "cross_verification" not in result["credibility"]
-        assert "verified_by_sources" not in result["credibility"]
+        assert "cross_verification" in result["credibility"]
 
     @pytest.mark.asyncio
     async def test_credibility_publishes_event(
@@ -366,20 +364,22 @@ class TestCredibilityCheckerNodeErrorHandling:
     async def test_credibility_handles_llm_error(
         self, mock_llm, mock_budget, mock_event_bus, sample_raw
     ):
-        mock_llm.call_at = AsyncMock(side_effect=Exception("LLM service unavailable"))
+        # Rule-based: no LLM dependency, content_check = body-length proxy
         node = CredibilityCheckerNode(
             llm=mock_llm,
             budget=mock_budget,
             event_bus=mock_event_bus,
         )
         state = PipelineState(raw=sample_raw)
+        body = sample_raw.body
+        expected_content = 0.6 if 1000 < len(body) <= 3000 else (0.8 if len(body) > 3000 else 0.4)
         state["cleaned"] = {
             "title": sample_raw.title,
-            "body": sample_raw.body,
+            "body": body,
             "publish_time": None,
         }
         result = await node.execute(state)
-        assert result["credibility"]["content_check"] == 0.5
+        assert result["credibility"]["content_check"] == expected_content
         assert result["credibility"]["flags"] == []
 
     @pytest.mark.asyncio
@@ -430,9 +430,10 @@ class TestCredibilityCheckerNodeIntegration:
             source_host="example.com",
         )
         state = PipelineState(raw=raw)
+        long_body = "A " * 1600
         state["cleaned"] = {
             "title": "Test",
-            "body": "Test",
+            "body": long_body,
             "publish_time": datetime.now(UTC),
         }
         state["summary_info"] = {"event_time": datetime.now(UTC).isoformat()}
@@ -440,8 +441,8 @@ class TestCredibilityCheckerNodeIntegration:
 
         result = await node.execute(state)
         # For 政治: source=0.25, content=0.25, timeliness=0.50
-        # Expected: 1.0*0.25 + 1.0*0.25 + 1.0*0.50 = 1.0
-        expected = 1.0 * 0.25 + 1.0 * 0.25 + 1.0 * 0.50
+        # body-length > 3000 gives cross_verification = 0.8
+        expected = 1.0 * 0.25 + 0.8 * 0.25 + 1.0 * 0.50
         assert abs(result["credibility"]["score"] - expected) < 0.01
 
     @pytest.mark.asyncio
@@ -473,15 +474,13 @@ class TestCredibilityCheckerNodeIntegration:
         state["category"] = "经济"
         result = await node.execute(state)
         # For 经济: source=0.45, content=0.35, timeliness=0.20
-        # Expected: 0.90*0.45 + 0.50*0.35 + 0.70*0.20 = 0.72
-        expected = 0.90 * 0.45 + 0.50 * 0.35 + 0.70 * 0.20
+        # body "Test" is 4 chars -> content_check = 0.4 (body-length proxy)
+        expected = 0.90 * 0.45 + 0.40 * 0.35 + 0.70 * 0.20
         assert abs(result["credibility"]["score"] - expected) < 0.01
 
     @pytest.mark.asyncio
-    async def test_credibility_calls_llm_with_correct_params(
-        self, mock_llm, mock_budget, mock_event_bus, sample_raw
-    ):
-        mock_llm.call_at = AsyncMock(return_value=CredibilityOutput(score=0.7, flags=[]))
+    async def test_credibility_no_llm_call(self, mock_llm, mock_budget, mock_event_bus, sample_raw):
+        """Rule-based: LLM should NOT be called."""
         node = CredibilityCheckerNode(
             llm=mock_llm,
             budget=mock_budget,
@@ -491,10 +490,4 @@ class TestCredibilityCheckerNodeIntegration:
         state["cleaned"] = {"title": "Test Title", "body": "Test Body", "publish_time": None}
         state["summary_info"] = {"summary": "Test Summary"}
         await node.execute(state)
-        mock_llm.call_at.assert_called_once()
-        call_args = mock_llm.call_at.call_args
-        assert call_args[0][0] == CallPoint.CREDIBILITY_CHECKER
-        input_data = call_args[0][1]
-        assert input_data["title"] == "Test Title"
-        assert "body" in input_data
-        assert input_data["summary"] == "Test Summary"
+        mock_llm.call_at.assert_not_called()

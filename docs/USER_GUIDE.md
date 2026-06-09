@@ -204,8 +204,8 @@ rerank_model = "tiny"             # Flashrank 模型 (tiny/small/medium/multilin
 mmr_enabled = false               # 启用 MMR 多样性
 mmr_lambda = 0.7                  # MMR 平衡参数 (0-1)
 bm25_rebuild_interval = 300       # BM25 索引重建间隔(秒)
-temporal_decay_enabled = false    # 启用时间衰减
-temporal_decay_half_life_days = 30.0  # 时间衰减半衰期(天)
+temporal_decay_enabled = true     # ✅ 启用时间衰减（默认开启）
+temporal_decay_half_life_days = 7.0   # 新闻搜索半衰期(天)，分析模式 90 天，因果模式 365 天
 ```
 
 ---

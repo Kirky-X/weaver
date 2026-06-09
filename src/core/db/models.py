@@ -76,11 +76,9 @@ class PersistStatus(str, enum.Enum):
     PENDING = "pending"
     PROCESSING = "processing"
     PG_DONE = "pg_done"
-    STORED = "stored"  # Article stored in relational DB, awaiting graph sync
     NEO4J_DONE = "neo4j_done"
     NEO4J_FAILED = "neo4j_failed"
     FAILED = "failed"
-    COMPLETE = "complete"  # Legacy status from migration
 
     @classmethod
     def is_valid_transition(
@@ -96,6 +94,7 @@ class PersistStatus(str, enum.Enum):
         - PG_DONE → NEO4J_DONE, NEO4J_FAILED, FAILED
         - NEO4J_FAILED → PENDING, PG_DONE (allows retry)
         - FAILED → PENDING (allows retry)
+        - NEO4J_DONE is terminal
 
         Args:
             from_status: Current status.
@@ -104,20 +103,16 @@ class PersistStatus(str, enum.Enum):
         Returns:
             True if the transition is valid, False otherwise.
         """
-        # Allow staying in same state (idempotent)
         if from_status == to_status:
             return True
 
-        # Define valid transitions
         valid_transitions = {
             cls.PENDING: {cls.PROCESSING, cls.FAILED},
-            cls.PROCESSING: {cls.PG_DONE, cls.STORED, cls.FAILED},
-            cls.PG_DONE: {cls.NEO4J_DONE, cls.NEO4J_FAILED, cls.FAILED, cls.COMPLETE, cls.STORED},
-            cls.STORED: {cls.NEO4J_DONE, cls.NEO4J_FAILED, cls.COMPLETE, cls.FAILED},
-            cls.NEO4J_FAILED: {cls.PENDING, cls.PG_DONE, cls.STORED},  # Allow retry
-            cls.FAILED: {cls.PENDING},  # Allow retry
-            cls.NEO4J_DONE: set(),  # Terminal state
-            cls.COMPLETE: set(),  # Terminal state (legacy)
+            cls.PROCESSING: {cls.PG_DONE, cls.FAILED},
+            cls.PG_DONE: {cls.NEO4J_DONE, cls.NEO4J_FAILED, cls.FAILED},
+            cls.NEO4J_FAILED: {cls.PENDING, cls.PG_DONE},
+            cls.FAILED: {cls.PENDING},
+            cls.NEO4J_DONE: set(),
         }
 
         allowed = valid_transitions.get(from_status, set())
@@ -186,6 +181,24 @@ class Article(Base):
     key_data: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
     impact: Mapped[str | None] = mapped_column(Text)
     has_data: Mapped[bool | None] = mapped_column(Boolean)
+
+    # Content enrichment
+    data_conflicts: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONCompatible, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    image_forensics: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONCompatible, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
+    document_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="news", server_default=text("'news'")
+    )
+    doc_metadata: Mapped[dict[str, Any]] = mapped_column(
+        JSONCompatible, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
+    content_hash: Mapped[str | None] = mapped_column(String(64))
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default=text("1")
+    )
 
     # Score (0.00~1.00)
     score: Mapped[float | None] = mapped_column(Numeric(3, 2))
@@ -675,4 +688,115 @@ class LLMCompareHourly(Base):
         Index("ix_llm_compare_hourly_call_point", "call_point"),
         Index("ix_llm_compare_hourly_primary", "primary_model"),
         Index("ix_llm_compare_hourly_candidate", "candidate_model"),
+    )
+
+
+class SentimentShift(Base):
+    __tablename__ = "sentiment_shifts"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    community_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    shift_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    direction: Mapped[str] = mapped_column(String(20), nullable=False)
+    magnitude: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)
+    confidence: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    before_avg: Mapped[float | None] = mapped_column(Numeric(5, 4))
+    after_avg: Mapped[float | None] = mapped_column(Numeric(5, 4))
+    trigger_article_ids: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+    )
+
+    __table_args__ = (
+        Index("idx_shifts_community", "community_id"),
+        Index("idx_shifts_type", "shift_type"),
+        Index("idx_shifts_detected", "detected_at"),
+    )
+
+
+class DailyBriefing(Base):
+    __tablename__ = "daily_briefings"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    briefing_date: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, unique=True
+    )
+    total_items: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    generated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+    )
+
+    items: Mapped[list[DailyBriefingItem]] = relationship(
+        back_populates="briefing", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (Index("idx_briefings_date", "briefing_date"),)
+
+
+class DailyBriefingItem(Base):
+    __tablename__ = "daily_briefing_items"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    briefing_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("daily_briefings.id", ondelete="CASCADE"), nullable=False
+    )
+    article_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("articles.id", ondelete="CASCADE"), nullable=False
+    )
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    category: Mapped[str | None] = mapped_column(String(20))
+    reason: Mapped[str | None] = mapped_column(Text)
+
+    briefing: Mapped[DailyBriefing] = relationship(back_populates="items")
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    key_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    action: Mapped[str] = mapped_column(String(50), nullable=False)
+    target_type: Mapped[str | None] = mapped_column(String(50))
+    target_id: Mapped[str | None] = mapped_column(String(100))
+    detail: Mapped[dict[str, Any] | None] = mapped_column(JSONCompatible)
+    client_ip: Mapped[str | None] = mapped_column(String(45))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+    )
+
+    __table_args__ = (
+        Index("idx_audit_occurred", "created_at"),
+        Index("idx_audit_key", "key_id"),
+    )
+
+
+class CommunityVector(Base):
+    __tablename__ = "community_vectors"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    community_id: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    embedding: Mapped[Any] = mapped_column(Vector(1024), nullable=False)
+    model_id: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="text-embedding-3-large"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+    )
+
+    __table_args__ = (
+        Index(
+            "idx_community_vectors_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_with={"m": 16, "ef_construction": 200},
+        ),
     )

@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from pydantic import Field, field_validator
@@ -23,11 +22,9 @@ from core.llm.types import (
     RoutingMode,
 )
 from core.observability.logging import get_logger
+from core.utils.paths import PROJECT_ROOT
 
 log = get_logger("llm_config")
-
-# Project root for config file paths
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 
 
 class LLMSettings(BaseSettings):
@@ -42,7 +39,7 @@ class LLMSettings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        toml_file=str(_PROJECT_ROOT / "config" / "llm.toml"),
+        toml_file=str(PROJECT_ROOT / "config" / "llm.toml"),
         env_prefix="WEAVER_LLM__",
         env_nested_delimiter="__",
         extra="ignore",
@@ -184,7 +181,7 @@ class LLMSettings(BaseSettings):
         # Load TOML manually to handle hyphenated keys
         import tomllib
 
-        toml_path = _PROJECT_ROOT / "config" / "llm.toml"
+        toml_path = PROJECT_ROOT / "config" / "llm.toml"
         if toml_path.exists():
             with open(toml_path, "rb") as f:
                 toml_data = tomllib.load(f)

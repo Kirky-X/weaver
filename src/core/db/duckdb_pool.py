@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.orm import Session
 
 from core.observability.logging import get_logger
+from core.utils.paths import data_path
 
 log = get_logger(__name__)
 
@@ -112,7 +113,7 @@ class DuckDBPool:
         - RelationalPool: Async SQL database pool with session management
     """
 
-    def __init__(self, db_path: str = "data/weaver.duckdb"):
+    def __init__(self, db_path: str = data_path("weaver.duckdb")):
         self._db_path = db_path
         self._is_memory = db_path == ":memory:"
         self._engine: Engine | None = None

@@ -1,55 +1,46 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Credibility checker pipeline node — multi-signal credibility scoring."""
+"""Rule-based credibility checker — no LLM dependency.
+
+Three signals:
+1. Source authority          (weight: category-adaptive)
+2. Cross-verification        (weight: category-adaptive, body-length proxy)
+3. Timeliness                (weight: category-adaptive)
+"""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from core.event.bus import CredibilityComputedEvent, EventBus
-from core.llm.client import LLMClient
-from core.llm.config.token_budget import TokenBudgetManager
-from core.llm.resilience.circuit_breaker import CircuitOpenError
-from core.llm.resilience.pool import AllProvidersFailedError
-from core.llm.types import CallPoint
-from core.llm.validation.output_validator import CredibilityOutput
 from core.observability.logging import get_logger
-from core.observability.metrics import MetricsCollector
-from modules.processing.pipeline.state import PipelineState
 
 if TYPE_CHECKING:
     from modules.ingestion.scheduling.source_config_repo import SourceConfigRepo
     from modules.storage import SourceAuthorityRepo
 
+from modules.processing.pipeline.state import PipelineState
+
 log = get_logger(__name__)
 
 
-class CredibilityCheckerNode:
-    """Pipeline node: compute credibility score from 3 signals.
+class RuleBasedCredibilityCheckerNode:
+    """Pipeline node: compute credibility score from 3 signals via rules (no LLM).
 
     Signals:
-    1. Source authority          (weight: category-adaptive)
-    2. LLM content check        (weight: category-adaptive)
-    3. Timeliness               (weight: category-adaptive)
+    1. Source authority          (weight: category-adaptive, 3-level priority lookup)
+    2. Cross-verification        (weight: category-adaptive, body-length proxy)
+    3. Timeliness                (weight: category-adaptive, publish/event gap)
 
-    Cross-verification signal removed: BatchMerger merges similar articles,
-    so merged_source_ids cannot distinguish reprints from independent reports.
+    Implements: CredibilityCheckerNode (backward-compatible alias)
     """
 
-    # Category-adaptive weights based on article type
-    # Breaking news: timeliness is most important
-    # Economic news: source authority is most important
-    # Tech news: content quality is most important
     CATEGORY_WEIGHTS: dict[str, dict[str, float]] = {
-        # Breaking news: timeliness priority
         "政治": {"source": 0.25, "content": 0.25, "timeliness": 0.50},
         "国际": {"source": 0.25, "content": 0.25, "timeliness": 0.50},
         "军事": {"source": 0.25, "content": 0.25, "timeliness": 0.50},
-        # Economic: source authority priority
         "经济": {"source": 0.45, "content": 0.35, "timeliness": 0.20},
-        # Tech: content quality priority
         "科技": {"source": 0.30, "content": 0.50, "timeliness": 0.20},
-        # Default: balanced
         "社会": {"source": 0.40, "content": 0.40, "timeliness": 0.20},
         "文化": {"source": 0.40, "content": 0.40, "timeliness": 0.20},
         "体育": {"source": 0.40, "content": 0.40, "timeliness": 0.20},
@@ -59,29 +50,30 @@ class CredibilityCheckerNode:
 
     def __init__(
         self,
-        llm: LLMClient,
-        budget: TokenBudgetManager,
-        event_bus: EventBus,
+        llm: Any = None,
+        budget: Any = None,
+        event_bus: EventBus | None = None,
         source_auth_repo: SourceAuthorityRepo | None = None,
         source_config_repo: SourceConfigRepo | None = None,
     ) -> None:
-        """Initialize credibility checker.
+        """Initialize rule-based credibility checker.
+
+        Note: llm and budget are accepted for backward compatibility
+        but no longer used. All scoring is rule-based.
 
         Args:
-            llm: LLM client for content analysis.
-            budget: Token budget manager for truncation.
+            llm: Ignored (backward compatibility).
+            budget: Ignored (backward compatibility).
             event_bus: Event bus for publishing events.
             source_auth_repo: Repository for source authority scores.
             source_config_repo: Repository for source preset credibility.
         """
-        self._llm = llm
-        self._budget = budget
         self._event_bus = event_bus
         self._source_auth_repo = source_auth_repo
         self._source_config_repo = source_config_repo
 
     async def execute(self, state: PipelineState) -> PipelineState:
-        """Compute credibility score.
+        """Compute credibility score using three rule-based signals.
 
         Uses three-level priority for source authority:
         1. SourceConfig.credibility (preset by admin)
@@ -91,37 +83,20 @@ class CredibilityCheckerNode:
         if state.get("terminal") or state.get("is_merged"):
             return state
 
-        # Get category-adaptive weights
         category = state.get("category")
         weights = self.CATEGORY_WEIGHTS.get(category, self.DEFAULT_WEIGHTS)
 
         # Signal 1: Source authority (three-level priority)
         s1 = await self._get_source_authority(state["raw"].source_host)
 
-        # Signal 2: LLM content check
-        body_trunc = self._budget.truncate(state["cleaned"]["body"], CallPoint.CREDIBILITY_CHECKER)
-        try:
-            llm_result: CredibilityOutput = await self._llm.call_at(
-                CallPoint.CREDIBILITY_CHECKER,
-                {
-                    "title": state["cleaned"]["title"],
-                    "body": body_trunc,
-                    "summary": state.get("summary_info", {}).get("summary", ""),
-                    "article_id": state.get("article_id"),
-                    "task_id": state.get("task_id"),
-                },
-                output_model=CredibilityOutput,
-            )
-            s2 = llm_result.score
-            flags = llm_result.flags
-        except (AllProvidersFailedError, CircuitOpenError, ValueError, Exception) as e:
-            log.warning(
-                "credibility_llm_failed_using_default",
-                exc_type=type(e).__name__,
-                error=str(e),
-            )
-            s2 = 0.5
-            flags = []
+        # Signal 2: Cross-verification via body length (no LLM)
+        body = state.get("cleaned", {}).get("body", "")
+        if len(body) > 3000:
+            s2 = 0.8
+        elif len(body) > 1000:
+            s2 = 0.6
+        else:
+            s2 = 0.4
 
         # Signal 3: Timeliness
         s3 = self._calc_timeliness(
@@ -135,27 +110,25 @@ class CredibilityCheckerNode:
         state["credibility"] = {
             "score": round(score, 2),
             "source_credibility": s1,
+            "cross_verification": s2,
             "content_check": s2,
             "timeliness": s3,
-            "flags": flags,
+            "flags": [],
         }
 
-        # Record metrics
-        MetricsCollector.credibility_score_dist.observe(score)
-
-        # Publish event
-        await self._event_bus.publish(
-            CredibilityComputedEvent(
-                url=state["raw"].url,
-                score=score,
+        if self._event_bus:
+            await self._event_bus.publish(
+                CredibilityComputedEvent(
+                    url=state["raw"].url,
+                    score=score,
+                )
             )
-        )
 
         log.info(
             "credibility_checked",
             url=state["raw"].url,
             score=round(score, 2),
-            flags=flags,
+            flags=[],
             category=category,
         )
         return state
@@ -174,7 +147,6 @@ class CredibilityCheckerNode:
         Returns:
             Source authority score.
         """
-        # Priority 1: Check for preset credibility
         if self._source_config_repo:
             try:
                 preset = await self._source_config_repo.get_credibility(host)
@@ -189,7 +161,6 @@ class CredibilityCheckerNode:
                     error=str(exc),
                 )
 
-        # Priority 2: Check auto-calculated authority
         if self._source_auth_repo:
             try:
                 source_auth = await self._source_auth_repo.get_or_create(
@@ -205,7 +176,6 @@ class CredibilityCheckerNode:
                     error=str(exc),
                 )
 
-        # Priority 3: Default
         return 0.50
 
     @staticmethod
@@ -218,7 +188,7 @@ class CredibilityCheckerNode:
         Shorter gap between publish and event time = higher credibility.
         """
         if not publish_time or not event_time_str:
-            return 0.7  # neutral if unknown
+            return 0.7
 
         try:
             event_time = datetime.fromisoformat(event_time_str)
@@ -237,3 +207,7 @@ class CredibilityCheckerNode:
         if delta_hours <= 168:
             return 0.45
         return 0.30
+
+
+# Backward-compatible alias for Pipeline graph and __init__ exports
+CredibilityCheckerNode = RuleBasedCredibilityCheckerNode

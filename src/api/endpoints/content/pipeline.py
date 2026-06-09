@@ -362,7 +362,7 @@ async def get_queue_stats(
                     case(
                         (
                             Article.persist_status.in_(
-                                [PersistStatus.COMPLETE, PersistStatus.STORED]
+                                [PersistStatus.NEO4J_DONE, PersistStatus.PG_DONE]
                             ),
                             1,
                         ),

@@ -97,6 +97,9 @@ class Container(
         self._processing_queue: Any = None
         self._pipeline_worker: Any = None
         self._llm_usage_repo: Any = None
+        self._conflict_detector: Any = None
+        self._shift_detector: Any = None
+        self._briefing_engine: Any = None
 
     def configure(self, settings: Settings, debug: bool = False) -> Container:
         """Configure the container with settings."""

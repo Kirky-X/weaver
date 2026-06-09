@@ -21,6 +21,7 @@ REQUIRED_TABLES = [
     "article_vectors",
     "entity_vectors",
     "source_authorities",
+    "api_keys",
 ]
 
 # Initialization timeouts and delays

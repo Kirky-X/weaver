@@ -253,7 +253,7 @@ class TestArticleRepoGetPendingNeo4j:
     async def test_get_pending_neo4j(self, repo, mock_pool):
         """Test get_pending_neo4j returns articles with STORED status."""
         mock_article = MagicMock(spec=Article)
-        mock_article.persist_status = PersistStatus.STORED
+        mock_article.persist_status = PersistStatus.PG_DONE
 
         mock_scalars = MagicMock()
         mock_scalars.all.return_value = [mock_article]
@@ -738,7 +738,7 @@ class TestArticleRepoGetIncompleteArticles:
     async def test_get_incomplete_articles(self, repo, mock_pool):
         """Test get_incomplete_articles returns incomplete articles."""
         mock_article = MagicMock(spec=Article)
-        mock_article.persist_status = PersistStatus.COMPLETE
+        mock_article.persist_status = PersistStatus.NEO4J_DONE
         mock_article.category = None  # Missing
 
         mock_scalars = MagicMock()

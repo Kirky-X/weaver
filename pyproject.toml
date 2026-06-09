@@ -55,6 +55,7 @@ dependencies = [
     "pycountry>=24.6.1",
     "geonamescache>=2.0.0",
     "cachetools>=7.1.0",
+    "ruptures>=1.1.10",
 ]
 
 [project.optional-dependencies]

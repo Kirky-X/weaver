@@ -29,6 +29,7 @@ from modules.processing.nodes.extraction.analyze import AnalyzeNode
 from modules.processing.nodes.extraction.entity_extractor import EntityExtractorNode
 from modules.processing.nodes.merging.batch_merger import BatchMergerNode
 from modules.processing.nodes.quality.cleaner import CleanerNode
+from modules.processing.nodes.quality.conflict_detector import ConflictDetectorNode
 from modules.processing.nodes.quality.quality_scorer import QualityScorerNode
 from modules.processing.nodes.vectorization.re_vectorize import ReVectorizeNode
 from modules.processing.nodes.vectorization.vectorize import VectorizeNode
@@ -72,6 +73,7 @@ PHASE3_STAGES = {
     "quality_scorer": "phase3_quality_scorer",
     "credibility": "phase3_credibility",
     "entity_extractor": "phase3_entity_extractor",
+    "conflict_detector": "phase3_conflict_detector",
 }
 
 
@@ -156,6 +158,7 @@ class Pipeline:
             vector_repo,
             relation_type_normalizer=relation_type_normalizer,
         )
+        self._conflict_detector = ConflictDetectorNode(article_repo)
         self._entity_resolver = entity_resolver
         self._checkpoint_cleanup = CheckpointCleanupNode(cache_client)
         self._article_repo = article_repo
@@ -797,7 +800,15 @@ class Pipeline:
             )
             await self._update_processing_stage(state, PHASE3_STAGES["entity_extractor"])
 
-            # === 新增: Entity Resolver 阶段 ===
+            # === Conflict Detector 阶段 ===
+            start = time.monotonic()
+            state = await self._conflict_detector.execute(state)
+            MetricsCollector.pipeline_stage_latency.labels(stage="conflict_detector").observe(
+                time.monotonic() - start
+            )
+            await self._update_processing_stage(state, PHASE3_STAGES["conflict_detector"])
+
+            # === Entity Resolver 阶段 ===
             if state.get("entities") and self._entity_resolver:
                 resolved_entities = await self._entity_resolver.resolve_entities_batch(
                     entities=state["entities"]

@@ -1,0 +1,130 @@
+# Pipeline Configuration — 优化版
+# ============================================================
+# 基于 docs/origin/ 四份文档的 LLM 优化方案
+# 目标：单篇文章 LLM 调用从 10 次降至 2-3 次
+# ============================================================
+
+version = "2.0"
+
+# ============================================================
+# Phase 1: 规则/传统算法层（零 LLM 成本）
+# 所有阶段均可用传统算法替代，LLM 仅兜底
+# ============================================================
+
+[phase1]
+concurrency = 5
+
+[[phase1.stages]]
+name = "classifier_cascade"
+class_path = "modules.processing.pipeline.nodes.classifier_cascade.CascadeClassifierNode"
+enabled = true
+# 级联策略: fastText(置信度≥0.9) → SetFit(置信度≥0.8) → LLM兜底(置信度<0.6)
+# 效果: 60% 请求 fastText, 25% SetFit, 15% LLM
+
+[[phase1.stages]]
+name = "cleaner"
+class_path = "modules.processing.pipeline.nodes.cleaner.CleanerNode"
+enabled = true
+# 主用 trafilatura, LLM 仅在校验失败时启用
+
+[[phase1.stages]]
+name = "categorizer_cascade"
+class_path = "modules.processing.pipeline.nodes.categorizer_cascade.CascadeCategorizerNode"
+enabled = true
+# 同 classifier_cascade 级联策略, 8 分类
+
+[[phase1.stages]]
+name = "vectorize"
+class_path = "modules.processing.pipeline.nodes.vectorize.VectorizeNode"
+enabled = true
+# 保持 LLM embedding（必须）
+
+# ============================================================
+# Phase 2: 缓存层
+# SHA256(body) → Redis MGET → 命中则跳过 LLM
+# ============================================================
+
+[phase2]
+concurrency = 10
+
+[[phase2.stages]]
+name = "content_cache"
+class_path = "modules.processing.pipeline.nodes.content_cache.ContentCacheNode"
+enabled = true
+# 缓存类型: embedding / classifier / categorizer / analyze / entity
+# 后端: Redis MGET 批量查询
+# TTL: 7 天（质量分/可信度 1 天）
+
+# ============================================================
+# Phase 3: LLM 必要层 + 检测层
+# LLM 仅用于 LLMAnalyzer 的摘要生成 + 低置信度兜底
+# ============================================================
+
+[phase3]
+concurrency = 5
+
+[[phase3.stages]]
+name = "analyze"
+class_path = "modules.processing.pipeline.nodes.analyze.AnalyzeNode"
+enabled = true
+# 摘要: LLM 保留（max_tokens=800, 输入截断3000字）
+# 情感: PaddleNLP SKEP 中文情感模型
+# 关键数据: 正则提取
+
+[[phase3.stages]]
+name = "entity_extractor"
+class_path = "modules.processing.pipeline.nodes.entity_extractor.EntityExtractorNode"
+enabled = true
+# 分级策略: spaCy NER(标准类型) + GLiNER(自定义类型) → 向量链接 → LLM 仅 10%
+# 自定义类型: 事件/数据指标/法规与政策
+
+[[phase3.stages]]
+name = "quality_scorer"
+class_path = "modules.processing.pipeline.nodes.quality_scorer.RuleBasedQualityScorer"
+enabled = true
+# 规则评分 5 维: 完整性(0.30)+可信度(0.25)+规范性(0.20)+原创度(0.15)+时效性(0.10)
+
+[[phase3.stages]]
+name = "credibility_checker"
+class_path = "modules.processing.pipeline.nodes.credibility_checker.RuleBasedCredibilityChecker"
+enabled = true
+# 规则评分: 源权威(0.50)+交叉验证(0.30)+内容惩罚
+
+[[phase3.stages]]
+name = "conflict_detector"
+class_path = "modules.processing.pipeline.nodes.quality.conflict_detector.ConflictDetectorNode"
+enabled = true
+# 新增: 数据冲突检测（跨源数值属性对齐 + 15% 偏差阈值）
+
+[[phase3.stages]]
+name = "image_forensic"
+class_path = "modules.processing.pipeline.nodes.quality.image_forensic.ImageForensicNode"
+enabled = true
+# 新增: 图片 Deepfake 检测（DCT + 小波 + EXIF）
+
+[[phase3.stages]]
+name = "re_vectorize"
+class_path = "modules.processing.pipeline.nodes.re_vectorize.ReVectorizeNode"
+enabled = true
+
+# ============================================================
+# Batch Processing — Saga 持久化
+# ============================================================
+
+[batch]
+merger_class = "modules.processing.pipeline.nodes.batch_merger.BatchMergerNode"
+enabled = true
+timeout = 180
+# 优化: Neo4j 写入失败时标记 neo4j_failed 而非 DELETE 回滚
+# 对账任务 sync_neo4j_with_postgres 自动补齐
+
+# ============================================================
+# Monte Carlo Sampling
+# ============================================================
+
+[monte_carlo]
+enabled = true
+threshold = 10000
+sample_size = 5
+region_size = 2000
+confidence_threshold = 0.4

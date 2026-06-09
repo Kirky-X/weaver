@@ -63,6 +63,8 @@ docs/analysis/
 coverage.xml
 htmlcov/
 .gitnexus
+.reasonix
+docs/origin
 
 # API response cache files
 api_responses/

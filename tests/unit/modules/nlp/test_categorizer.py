@@ -23,7 +23,7 @@ def sample_raw():
     """Create sample raw article."""
     return RawArticle(
         url="https://example.com/tech-article",
-        title="New AI Model Achieves Breakthrough Performance",
+        title="Some Observations on Current Events",
         body="A new artificial intelligence model has demonstrated unprecedented capabilities "
         "in natural language understanding and generation.",
         source="tech_news",

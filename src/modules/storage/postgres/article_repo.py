@@ -116,7 +116,7 @@ def _apply_state_to_article(article: Article, state: PipelineState) -> None:
         article.publish_time = getattr(raw, "publish_time", None)
 
     article.updated_at = datetime.now(UTC)
-    article.persist_status = PersistStatus.STORED
+    article.persist_status = PersistStatus.PG_DONE
 
 
 class ArticleRepo:
@@ -266,10 +266,9 @@ class ArticleRepo:
             title=state.get("cleaned", {}).get("title", getattr(raw, "title", "")),
             body=state.get("cleaned", {}).get("body", getattr(raw, "body", "")),
             publish_time=getattr(raw, "publish_time", None),
-            persist_status=PersistStatus.STORED,
+            persist_status=PersistStatus.PG_DONE,
             updated_at=datetime.now(UTC),
         )
-        # Apply additional fields (category, language, region, etc.)
         _apply_state_to_article(article, state)
         return article
 
@@ -427,7 +426,7 @@ class ArticleRepo:
             await session.commit()
 
     async def mark_terminal_by_url(self, source_url: str) -> bool:
-        """Mark a terminal article as STORED by source URL.
+        """Mark a terminal article as PG_DONE by source URL.
 
         Used for articles that failed processing but need persist_status updated
         so they don't stay stuck in PENDING state.
@@ -444,7 +443,7 @@ class ArticleRepo:
                 .where(Article.source_url == source_url)
                 .where(Article.persist_status == PersistStatus.PENDING)
                 .values(
-                    persist_status=PersistStatus.STORED,
+                    persist_status=PersistStatus.PG_DONE,
                     updated_at=datetime.now(UTC),
                 )
             )
@@ -482,7 +481,7 @@ class ArticleRepo:
         async with self._pool.session() as session:
             result = await session.execute(
                 select(Article)
-                .where(Article.persist_status == PersistStatus.STORED)
+                .where(Article.persist_status == PersistStatus.PG_DONE)
                 .order_by(Article.updated_at.asc())
                 .limit(limit)
             )
@@ -674,7 +673,7 @@ class ArticleRepo:
             return {str(row[0]) for row in result}
 
     async def revert_to_pg_done(self, article_id: uuid.UUID) -> bool:
-        """Force-revert an article to STORED for enrichment retry.
+        """Force-revert an article to PG_DONE for enrichment retry.
 
         This bypasses state machine validation because it's a recovery
         action for data integrity issues.
@@ -687,7 +686,7 @@ class ArticleRepo:
                 update(Article)
                 .where(Article.id == article_id)
                 .values(
-                    persist_status=PersistStatus.STORED,
+                    persist_status=PersistStatus.PG_DONE,
                     updated_at=datetime.now(UTC),
                 )
             )
@@ -714,7 +713,7 @@ class ArticleRepo:
                 select(Article)
                 .where(
                     and_(
-                        Article.persist_status == PersistStatus.COMPLETE,
+                        Article.persist_status == PersistStatus.NEO4J_DONE,
                         or_(
                             Article.category.is_(None),
                             Article.score.is_(None),
@@ -1022,7 +1021,7 @@ class ArticleRepo:
                         case(
                             (
                                 Article.persist_status.in_(
-                                    [PersistStatus.COMPLETE, PersistStatus.STORED]
+                                    [PersistStatus.NEO4J_DONE, PersistStatus.PG_DONE]
                                 ),
                                 1,
                             ),
@@ -1109,7 +1108,7 @@ class ArticleRepo:
             return list(result.scalars().all())
 
     async def revert_to_stored(self, article_id: uuid.UUID) -> bool:
-        """Revert article persist_status to STORED for retry.
+        """Revert article persist_status to PG_DONE for retry.
 
         Args:
             article_id: Article UUID.
@@ -1121,7 +1120,7 @@ class ArticleRepo:
             result = await session.execute(
                 update(Article)
                 .where(Article.id == article_id)
-                .values(persist_status=PersistStatus.STORED)
+                .values(persist_status=PersistStatus.PG_DONE)
             )
             await session.commit()
             return result.rowcount > 0

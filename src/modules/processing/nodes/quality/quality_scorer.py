@@ -1,85 +1,119 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Quality scorer pipeline node — LLM-based article quality assessment."""
+"""Rule-based quality scorer — no LLM dependency."""
 
 from __future__ import annotations
 
-from core.llm.client import LLMClient
-from core.llm.config.token_budget import TokenBudgetManager
-from core.llm.types import CallPoint
-from core.llm.validation.output_validator import QualityScorerOutput
 from core.observability.logging import get_logger
-from core.prompt.loader import PromptLoader
 from modules.processing.pipeline.state import PipelineState
 
 log = get_logger(__name__)
 
+# 5-dimension weights (sum = 1.0)
+QUALITY_WEIGHTS = {
+    "completeness": 0.30,
+    "credibility": 0.25,
+    "normativity": 0.20,
+    "originality": 0.15,
+    "timeliness": 0.10,
+}
 
-class QualityScorerNode:
-    """Pipeline node: assess article quality via LLM.
 
-    Evaluates article quality across multiple dimensions:
-    - Information completeness
-    - Content credibility
-    - Language quality
-    - Originality
-    - Timeliness
+class RuleBasedQualityScorerNode:
+    """Pipeline node: assess article quality via rules (no LLM).
 
-    Outputs a single score between 0.00 and 1.00.
+    Uses 5-dimension weighted scoring:
+    - Completeness (30%): Does article have summary, subjects, key_data, impact?
+    - Credibility (25%): Does article have credibility scores?
+    - Normativity (20%): Does article have category, language, region?
+    - Originality (15%): Is article original (not merged)?
+    - Timeliness (10%): Does article have event_time or publish_time?
+
+    Implements: QualityScorerNode (backward-compatible alias)
     """
 
-    def __init__(
-        self,
-        llm: LLMClient,
-        budget: TokenBudgetManager,
-        prompt_loader: PromptLoader,
-    ) -> None:
-        self._llm = llm
-        self._budget = budget
-        self._prompt_loader = prompt_loader
+    def __init__(self, *args, **kwargs) -> None:
+        """No LLM dependency needed.
+
+        Accepts *args, **kwargs for backward compatibility with Pipeline graph
+        which previously passed (llm, budget, prompt_loader).
+        """
 
     async def execute(self, state: PipelineState) -> PipelineState:
-        """Assess article quality and update state with quality score."""
+        """Assess article quality via rules and update state with quality score."""
         if state.get("terminal") or state.get("is_merged"):
-            # Set default quality_score if not already set to avoid null values in DB
             if "quality_score" not in state:
                 state["quality_score"] = 0.5
             return state
 
-        body = self._budget.truncate(state["cleaned"]["body"], CallPoint.QUALITY_SCORER)
+        score = self._compute_score(state)
+        state["quality_score"] = round(score, 2)
 
-        try:
-            result: QualityScorerOutput = await self._llm.call_at(
-                CallPoint.QUALITY_SCORER,
-                {
-                    "title": state["cleaned"]["title"],
-                    "body": body,
-                    "article_id": state.get("article_id"),
-                    "task_id": state.get("task_id"),
-                },
-                output_model=QualityScorerOutput,
-            )
-
-            state["quality_score"] = result.score
-            log.debug("quality_scored", score=result.score, url=state["raw"].url)
-        except Exception as e:
-            import traceback
-
-            log.warning(
-                "quality_scorer_failed_using_default",
-                error=str(e),
-                error_type=type(e).__name__,
-                traceback=traceback.format_exc(),
-                url=state["raw"].url,
-            )
-            state["quality_score"] = 0.5
-
-        state.setdefault("prompt_versions", {})["quality_scorer"] = self._prompt_loader.get_version(
-            "quality_scorer"
-        )
-
+        raw_obj = state.get("raw")
+        url = raw_obj.url if raw_obj else "unknown"
         log.info(
             "quality_assessed",
-            url=state["raw"].url,
-            quality_score=state.get("quality_score"),
+            url=url,
+            quality_score=state["quality_score"],
         )
         return state
+
+    def _compute_score(self, state: PipelineState) -> float:
+        si = state.get("summary_info", {})
+
+        # 1. Completeness (0.30)
+        completeness_fields = [
+            bool(si.get("summary")),
+            bool(si.get("subjects")),
+            bool(si.get("key_data")),
+            si.get("has_data") is not None,
+        ]
+        completeness = sum(completeness_fields) / len(completeness_fields)
+
+        # 2. Credibility (0.25)
+        cred = state.get("credibility", {})
+        credibility_fields = [
+            cred.get("score") is not None,
+            cred.get("source_credibility") is not None,
+            cred.get("cross_verification") is not None,
+        ]
+        credibility = sum(credibility_fields) / len(credibility_fields)
+
+        # 3. Normativity (0.20)
+        norm_fields = [
+            bool(state.get("category")),
+            bool(state.get("language")),
+            bool(state.get("region")),
+        ]
+        normativity = sum(norm_fields) / len(norm_fields)
+
+        # 4. Originality (0.15)
+        originality = 0.0
+        if not state.get("is_merged"):
+            body = state.get("cleaned", {}).get("body", "")
+            if body and len(body) > 100:
+                originality = 1.0
+            elif body:
+                originality = 0.5
+            else:
+                originality = 0.3
+        else:
+            originality = 0.2
+
+        # 5. Timeliness (0.10)
+        timeliness = 0.0
+        if si.get("event_time") or state.get("cleaned", {}).get("publish_time"):
+            timeliness = 1.0
+        else:
+            timeliness = 0.5
+
+        return (
+            completeness * QUALITY_WEIGHTS["completeness"]
+            + credibility * QUALITY_WEIGHTS["credibility"]
+            + normativity * QUALITY_WEIGHTS["normativity"]
+            + originality * QUALITY_WEIGHTS["originality"]
+            + timeliness * QUALITY_WEIGHTS["timeliness"]
+        )
+
+
+# Backward-compatible alias for Pipeline graph and __init__ exports
+QualityScorerNode = RuleBasedQualityScorerNode

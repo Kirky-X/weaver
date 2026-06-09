@@ -55,8 +55,8 @@ class TestTaskProgressStats:
                 [
                     PersistStatus.PENDING,
                     PersistStatus.PROCESSING,
-                    PersistStatus.STORED,
-                    PersistStatus.COMPLETE,
+                    PersistStatus.PG_DONE,
+                    PersistStatus.NEO4J_DONE,
                     PersistStatus.FAILED,
                     PersistStatus.PENDING,
                     PersistStatus.PROCESSING,
@@ -75,7 +75,7 @@ class TestTaskProgressStats:
             assert stats["total_processed"] == 7
             assert stats["pending_count"] == 2
             assert stats["processing_count"] == 2
-            assert stats["completed_count"] == 2  # STORED + COMPLETE
+            assert stats["completed_count"] == 2  # PG_DONE + NEO4J_DONE
             assert stats["failed_count"] == 1
         finally:
             # Cleanup
@@ -98,13 +98,12 @@ class TestTaskProgressStats:
                 source_url=f"https://example.com/task1_{uuid.uuid4().hex[:8]}",
                 title=f"Task1 Article {i}",
                 body="Content",
-                persist_status=PersistStatus.COMPLETE,
+                persist_status=PersistStatus.NEO4J_DONE,
                 task_id=task_id_1,
             )
             for i in range(3)
         ]
 
-        # Create articles for task 2
         articles_t2 = [
             Article(
                 source_url=f"https://example.com/task2_{uuid.uuid4().hex[:8]}",
@@ -153,17 +152,16 @@ class TestTaskProgressStats:
             source_url=f"https://example.com/with_task_{uuid.uuid4().hex[:8]}",
             title="With Task",
             body="Content",
-            persist_status=PersistStatus.COMPLETE,
+            persist_status=PersistStatus.NEO4J_DONE,
             task_id=task_id,
         )
 
-        # Create articles without task_id (backward compatibility)
         articles_without_task = [
             Article(
                 source_url=f"https://example.com/without_task_{i}_{uuid.uuid4().hex[:8]}",
                 title=f"Without Task {i}",
                 body="Content",
-                persist_status=PersistStatus.COMPLETE if i == 0 else PersistStatus.PENDING,
+                persist_status=PersistStatus.NEO4J_DONE if i == 0 else PersistStatus.PENDING,
                 # task_id is None by default
             )
             for i in range(2)
@@ -208,7 +206,7 @@ class TestTaskCompletionDetermination:
                 source_url=f"https://example.com/done_{i}_{uuid.uuid4().hex[:8]}",
                 title=f"Done Article {i}",
                 body="Content",
-                persist_status=PersistStatus.COMPLETE,
+                persist_status=PersistStatus.NEO4J_DONE,
                 task_id=task_id,
             )
             for i in range(3)
@@ -225,7 +223,7 @@ class TestTaskCompletionDetermination:
                     select(Article).where(
                         Article.task_id == task_id,
                         Article.persist_status.notin_(
-                            [PersistStatus.COMPLETE, PersistStatus.FAILED]
+                            [PersistStatus.NEO4J_DONE, PersistStatus.FAILED]
                         ),
                     )
                 )
@@ -251,7 +249,7 @@ class TestTaskCompletionDetermination:
                 source_url=f"https://example.com/done_{uuid.uuid4().hex[:8]}",
                 title="Done",
                 body="Content",
-                persist_status=PersistStatus.COMPLETE,
+                persist_status=PersistStatus.NEO4J_DONE,
                 task_id=task_id,
             ),
             Article(
@@ -273,7 +271,7 @@ class TestTaskCompletionDetermination:
                     select(Article).where(
                         Article.task_id == task_id,
                         Article.persist_status.notin_(
-                            [PersistStatus.COMPLETE, PersistStatus.FAILED]
+                            [PersistStatus.NEO4J_DONE, PersistStatus.FAILED]
                         ),
                     )
                 )
@@ -312,7 +310,7 @@ class TestTaskCompletionDetermination:
                     select(Article).where(
                         Article.task_id == task_id,
                         Article.persist_status.notin_(
-                            [PersistStatus.COMPLETE, PersistStatus.FAILED]
+                            [PersistStatus.NEO4J_DONE, PersistStatus.FAILED]
                         ),
                     )
                 )
@@ -338,7 +336,7 @@ class TestTaskCompletionDetermination:
                 source_url=f"https://example.com/done_{uuid.uuid4().hex[:8]}",
                 title="Done",
                 body="Content",
-                persist_status=PersistStatus.COMPLETE,
+                persist_status=PersistStatus.NEO4J_DONE,
                 task_id=task_id,
             ),
             Article(
@@ -360,7 +358,7 @@ class TestTaskCompletionDetermination:
                     select(Article).where(
                         Article.task_id == task_id,
                         Article.persist_status.notin_(
-                            [PersistStatus.COMPLETE, PersistStatus.FAILED]
+                            [PersistStatus.NEO4J_DONE, PersistStatus.FAILED]
                         ),
                     )
                 )
@@ -402,7 +400,7 @@ class TestTaskCompletionDetermination:
                     select(Article).where(
                         Article.task_id == task_id,
                         Article.persist_status.notin_(
-                            [PersistStatus.COMPLETE, PersistStatus.FAILED]
+                            [PersistStatus.NEO4J_DONE, PersistStatus.FAILED]
                         ),
                     )
                 )

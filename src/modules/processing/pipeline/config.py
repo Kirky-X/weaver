@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, field_validator
@@ -15,11 +14,9 @@ from pydantic_settings import (
 )
 
 from core.observability.logging import get_logger
+from core.utils.paths import PROJECT_ROOT
 
 log = get_logger("pipeline_config")
-
-# Project root for config file paths
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 
 
 class StageConfig(BaseModel):
@@ -75,7 +72,7 @@ class PipelineSettings(BaseSettings):
     """
 
     model_config = SettingsConfigDict(
-        toml_file=str(_PROJECT_ROOT / "config" / "pipeline.toml"),
+        toml_file=str(PROJECT_ROOT / "config" / "pipeline.toml"),
         env_prefix="WEAVER_PIPELINE__",
         env_nested_delimiter="__",
         extra="ignore",

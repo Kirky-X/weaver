@@ -14,13 +14,11 @@ from __future__ import annotations
 
 import os
 import secrets
-from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel, Field
 
-# Project root directory (subconfigs.py is in src/config/)
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+from core.utils.paths import CONFIG_DIR, DATA_DIR, data_path
 
 
 class PostgresSettings(BaseModel):
@@ -65,7 +63,7 @@ class DuckDBSettings(BaseModel):
     """
 
     enabled: bool = True
-    db_path: str = "data/weaver.duckdb"
+    db_path: str = data_path("weaver.duckdb")
 
 
 class LadybugSettings(BaseModel):
@@ -75,7 +73,7 @@ class LadybugSettings(BaseModel):
     """
 
     enabled: bool = True
-    db_path: str = "data/weaver.lbug"
+    db_path: str = data_path("weaver.lbug")
 
 
 class RedisSettings(BaseModel):
@@ -382,7 +380,7 @@ class URLSecuritySettings(BaseModel):
     phishtank_enabled: bool = True
     phishtank_data_url: str = "https://data.phishtank.com/data/online-valid.json"
     phishtank_sync_interval_hours: int = 6
-    phishtank_data_path: str = "data/phishtank.json"
+    phishtank_data_path: str = data_path("phishtank.json")
     heuristic_enabled: bool = True
     heuristic_check_encoded_chars: bool = True
     heuristic_check_suspicious_keywords: bool = True
@@ -415,7 +413,7 @@ class HealthCheckSettings(BaseModel):
 class PromptSettings(BaseModel):
     """Prompt loading settings."""
 
-    dir: str = str(_PROJECT_ROOT / "config" / "prompts")
+    dir: str = str(CONFIG_DIR / "prompts")
 
 
 class IntentRoutingSettings(BaseModel):
@@ -468,7 +466,7 @@ class KnowledgeCacheSettings(BaseModel):
     Environment variables: WEAVER__KNOWLEDGE_CACHE__PATH, WEAVER__KNOWLEDGE_CACHE__MAX_QUERIES
     """
 
-    path: str = "data/.cache/knowledge"
+    path: str = str(DATA_DIR / ".cache" / "knowledge")
     sync_interval: int = 60  # Seconds between Parquet syncs
     sync_threshold: int = 100  # Dirty count triggering immediate sync
     max_queries: int = 5  # FIFO queue size per cluster

@@ -1,16 +1,15 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """API authentication middleware.
 
-Provides API key authentication with optional admin role support.
-Admin API keys are configured via WEAVER_API__ADMIN_API_KEY environment variable
-and grant access to sensitive endpoints like /config.
+Provides API key authentication with database-backed multi-key support.
+Supports key scopes, expiry, revocation, and traffic anomaly detection.
 """
 
 from __future__ import annotations
 
 import secrets
 
-from fastapi import HTTPException, Security
+from fastapi import HTTPException, Request, Security
 from fastapi.security import APIKeyHeader
 
 from core.observability import get_logger
@@ -23,27 +22,55 @@ api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 MIN_API_KEY_LENGTH = 32
 
 
+async def _get_api_key_manager():
+    """Lazy-load ApiKeyManager from container."""
+    try:
+        from container import get_container
+
+        container = get_container()
+        from core.security.api_key_manager import ApiKeyManager
+
+        return ApiKeyManager(container.relational_pool())
+    except Exception:
+        return None
+
+
+async def _get_traffic_detector():
+    """Lazy-load TrafficAnomalyDetector from container."""
+    try:
+        from container import get_container
+
+        container = get_container()
+        from core.security.traffic_detector import TrafficAnomalyDetector
+
+        cache = container.cache_client()
+        return TrafficAnomalyDetector(cache)
+    except Exception:
+        return None
+
+
 async def verify_api_key(
     key: str | None = Security(api_key_header),
+    request: Request | None = None,
 ) -> str:
     """Verify the API key from the request header.
 
-    Uses constant-time comparison to prevent timing attacks.
-    Validates that the expected key is properly configured.
+    Supports two modes:
+    1. Database-backed multi-key (api_keys table) with scopes and expiry
+    2. Legacy single-key fallback (env variable)
 
     Args:
         key: API key from the request header.
+        request: Optional FastAPI request for traffic detection.
 
     Returns:
-        The validated API key.
+        The validated key_id string.
 
     Raises:
-        HTTPException: If the API key is missing, invalid, or not configured.
+        HTTPException: If the API key is missing or invalid.
 
     """
     from container import get_settings
-
-    settings = get_settings()
 
     if key is None:
         raise HTTPException(
@@ -51,42 +78,58 @@ async def verify_api_key(
             detail="Missing API key. Provide X-API-Key header.",
         )
 
-    expected_key = settings.api.get_api_key()
+    # Try database-backed key validation first
+    key_manager = await _get_api_key_manager()
+    if key_manager:
+        key_info = await key_manager.validate_key(key)
+        if key_info:
+            # Traffic anomaly check
+            detector = await _get_traffic_detector()
+            if detector and request:
+                client_ip = request.client.host if request.client else "unknown"
+                decision = await detector.check_request(
+                    key_id=key_info["key_id"],
+                    ip=client_ip,
+                )
+                if decision.action == "block":
+                    raise HTTPException(
+                        status_code=429,
+                        detail=f"Rate limit exceeded: {decision.reason}",
+                    )
 
-    # Accept admin key as valid for regular endpoints (admin has all permissions)
+            return key_info["key_id"]
+
+    # Fallback: legacy env-var-based key
+    settings = get_settings()
+    expected_key = settings.api.get_api_key()
     admin_key = settings.api.admin_api_key
+
+    # Accept admin key for regular endpoints
     if (
         admin_key
         and len(admin_key) >= MIN_API_KEY_LENGTH
         and secrets.compare_digest(key, admin_key)
     ):
-        log.debug("admin_key_accepted_as_regular", key_prefix=key[:8] + "...")
-        return key
+        return "admin"
 
-    # Security check: ensure expected_key is properly configured
     if not expected_key or len(expected_key) < MIN_API_KEY_LENGTH:
-        environment = settings.environment
+        environment = getattr(settings, "environment", "development")
         if environment == "production":
             raise HTTPException(
                 status_code=500,
                 detail="API key not properly configured. "
                 "Set WEAVER_API__API_KEY environment variable with at least 32 characters.",
             )
-        # Development mode: reject weak keys, do not allow fallback
         raise HTTPException(
             status_code=500,
-            detail="API key too short. "
-            f"Current length: {len(expected_key) if expected_key else 0}, "
+            detail=f"API key too short. Current length: {len(expected_key) if expected_key else 0}, "
             f"minimum required: {MIN_API_KEY_LENGTH} characters.",
         )
 
     if not secrets.compare_digest(key, expected_key):
-        raise HTTPException(
-            status_code=403,
-            detail="Invalid API Key",
-        )
+        raise HTTPException(status_code=403, detail="Invalid API Key")
 
-    return key
+    return "legacy"
 
 
 async def verify_admin_api_key(

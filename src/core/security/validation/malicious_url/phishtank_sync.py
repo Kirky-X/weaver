@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 
 from core.observability.logging import get_logger
 from core.security.models import CheckResult, CheckSource, URLRisk
+from core.utils.paths import data_path
 
 log = get_logger(__name__)
 
@@ -68,7 +69,7 @@ class PhishTankSync:
     def __init__(
         self,
         fetcher: Any,
-        data_path: str = "data/phishtank.json",
+        data_path: str = data_path("phishtank.json"),
         sync_interval_hours: int = 6,
         enabled: bool = True,
         data_url: str = "https://data.phishtank.com/data/online-valid.json",

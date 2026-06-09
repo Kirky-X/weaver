@@ -326,6 +326,19 @@ class EvalConfig:
     candidate_models: list[str] = ()  # type: ignore[assignment]
 
 
+# Cache TTL per call point (in seconds)
+CACHE_TTL: dict[str, int] = {
+    "classifier": 7 * 24 * 60 * 60,
+    "categorizer": 7 * 24 * 60 * 60,
+    "quality_scorer": 24 * 60 * 60,
+    "credibility_checker": 24 * 60 * 60,
+    "analyze": 24 * 60 * 60,
+    "summary": 7 * 24 * 60 * 60,
+    "entity_extractor": 7 * 24 * 60 * 60,
+    "default": 24 * 60 * 60,
+}
+
+
 class RoutingInfeasibleError(Exception):
     """Raised when no candidate model satisfies the routing constraints.
 

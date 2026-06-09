@@ -1,5 +1,5 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Unit tests for LocalSearchEngine in knowledge module."""
+"""Unit tests for LocalSearchEngine - comprehensive coverage."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from core.constants import SearchMode
 from modules.knowledge.search.engines.local_search import LocalSearchEngine, SearchResult
 
 
@@ -22,88 +23,51 @@ def mock_llm():
     return AsyncMock()
 
 
-class TestLocalSearchEngineBasic:
-    """Basic functionality tests for LocalSearchEngine."""
-
-    @pytest.mark.asyncio
-    async def test_local_search_initializes(self, mock_context_builder, mock_llm):
-        """Test that local search engine initializes correctly."""
-        engine = LocalSearchEngine(
-            context_builder=mock_context_builder,
-            llm=mock_llm,
-        )
-
-        assert engine is not None
-        assert engine._default_max_tokens == 8000  # default
-
-    @pytest.mark.asyncio
-    async def test_local_search_with_custom_params(self, mock_context_builder, mock_llm):
-        """Test local search engine with custom parameters."""
-        engine = LocalSearchEngine(
-            context_builder=mock_context_builder,
-            llm=mock_llm,
-            default_max_tokens=10000,
-            max_context_tokens=8000,
-        )
-
-        assert engine._default_max_tokens == 10000
-        assert engine._max_context_tokens == 8000
-
-    @pytest.mark.asyncio
-    async def test_local_search_returns_search_result(self, mock_context_builder, mock_llm):
-        """Test that local search returns SearchResult."""
-        # Mock context
-        mock_context = MagicMock()
-        mock_context.total_tokens = 500
-        mock_context.sections = []
-        mock_context.metadata = {"article_count": 0, "total_entities": 0, "total_relationships": 0}
-        mock_context.to_prompt = MagicMock(return_value="Context")
-
-        # Mock LLM response
-        mock_llm.call_at = AsyncMock(return_value="Test answer")
-
-        engine = LocalSearchEngine(
-            context_builder=mock_context_builder,
-            llm=mock_llm,
-        )
-
-        engine._context_builder.build = AsyncMock(return_value=mock_context)
-
-        result = await engine.search("Test query")
-
-        # Verify result type
-        assert isinstance(result, SearchResult)
-        assert result.query == "Test query"
-
-    @pytest.mark.asyncio
-    async def test_local_search_with_hybrid_engine(self, mock_context_builder, mock_llm):
-        """Test local search engine with hybrid engine reference."""
-        mock_hybrid = MagicMock()
-        engine = LocalSearchEngine(
-            context_builder=mock_context_builder,
-            llm=mock_llm,
-            hybrid_engine=mock_hybrid,
-        )
-
-        assert engine._hybrid_engine is mock_hybrid
+def _make_mock_context(
+    total_tokens=500,
+    sections=None,
+    total_entities=0,
+    total_relationships=0,
+    article_count=0,
+):
+    """Create a mock SearchContext."""
+    ctx = MagicMock()
+    ctx.total_tokens = total_tokens
+    ctx.sections = sections or []
+    ctx.metadata = {
+        "article_count": article_count,
+        "total_entities": total_entities,
+        "total_relationships": total_relationships,
+    }
+    ctx.to_prompt = MagicMock(return_value="Context prompt")
+    return ctx
 
 
 class TestLocalSearchEngineSearch:
-    """Tests for search method."""
+    """Tests for search() method."""
 
     @pytest.mark.asyncio
-    async def test_search_with_use_llm_false(self, mock_context_builder, mock_llm):
-        """Test search with use_llm=False returns context info."""
-        mock_context = MagicMock()
-        mock_context.total_tokens = 100
-        mock_context.sections = []
-        mock_context.metadata = {"article_count": 5, "total_entities": 10, "total_relationships": 5}
+    async def test_search_with_llm(self, mock_context_builder, mock_llm):
+        """Test search with LLM generation."""
+        mock_context = _make_mock_context(total_entities=5, total_relationships=3)
+        mock_llm.call_at = AsyncMock(return_value="LLM answer")
 
-        engine = LocalSearchEngine(
-            context_builder=mock_context_builder,
-            llm=mock_llm,
-        )
+        engine = LocalSearchEngine(context_builder=mock_context_builder, llm=mock_llm)
+        engine._context_builder.build = AsyncMock(return_value=mock_context)
 
+        result = await engine.search("test query")
+
+        assert isinstance(result, SearchResult)
+        assert result.answer == "LLM answer"
+        assert result.metadata["llm_used"] is True
+        assert result.metadata["search_type"] == SearchMode.LOCAL.value
+
+    @pytest.mark.asyncio
+    async def test_search_use_llm_false(self, mock_context_builder, mock_llm):
+        """Test search with use_llm=False."""
+        mock_context = _make_mock_context(total_entities=10, total_relationships=5)
+
+        engine = LocalSearchEngine(context_builder=mock_context_builder, llm=mock_llm)
         engine._context_builder.build = AsyncMock(return_value=mock_context)
 
         result = await engine.search("test query", use_llm=False)
@@ -112,118 +76,211 @@ class TestLocalSearchEngineSearch:
         assert result.metadata["llm_used"] is False
 
     @pytest.mark.asyncio
+    async def test_search_with_entity_names(self, mock_context_builder, mock_llm):
+        """Test search with explicit entity names."""
+        mock_context = _make_mock_context()
+        mock_llm.call_at = AsyncMock(return_value="Answer")
+
+        engine = LocalSearchEngine(context_builder=mock_context_builder, llm=mock_llm)
+        engine._context_builder.build = AsyncMock(return_value=mock_context)
+
+        result = await engine.search("query", entity_names=["Entity1", "Entity2"])
+
+        call_kwargs = engine._context_builder.build.call_args[1]
+        assert call_kwargs["entity_names"] == ["Entity1", "Entity2"]
+
+    @pytest.mark.asyncio
     async def test_search_with_relation_types(self, mock_context_builder, mock_llm):
         """Test search with relation_types filter."""
-        mock_context = MagicMock()
-        mock_context.total_tokens = 100
-        mock_context.sections = []
-        mock_context.metadata = {"article_count": 0}
-        mock_context.to_prompt = MagicMock(return_value="Context")
+        mock_context = _make_mock_context()
+        mock_llm.call_at = AsyncMock(return_value="Answer")
 
+        engine = LocalSearchEngine(context_builder=mock_context_builder, llm=mock_llm)
+        engine._context_builder.build = AsyncMock(return_value=mock_context)
+
+        result = await engine.search("test", relation_types=["RELATED_TO", "MENTIONS"])
+
+        call_kwargs = engine._context_builder.build.call_args[1]
+        assert call_kwargs["relation_types"] == ["RELATED_TO", "MENTIONS"]
+
+    @pytest.mark.asyncio
+    async def test_search_with_custom_max_tokens(self, mock_context_builder, mock_llm):
+        """Test search with custom max_tokens."""
+        mock_context = _make_mock_context()
         mock_llm.call_at = AsyncMock(return_value="Answer")
 
         engine = LocalSearchEngine(
             context_builder=mock_context_builder,
             llm=mock_llm,
+            max_context_tokens=5000,
         )
-
         engine._context_builder.build = AsyncMock(return_value=mock_context)
 
-        result = await engine.search("test", relation_types=["RELATED_TO", "MENTIONS"])
+        result = await engine.search("test", max_tokens=3000)
 
-        # Verify context builder was called with relation_types
         call_kwargs = engine._context_builder.build.call_args[1]
-        assert call_kwargs["relation_types"] == ["RELATED_TO", "MENTIONS"]
+        assert call_kwargs["max_tokens"] == 3000
 
     @pytest.mark.asyncio
-    async def test_search_batch(self, mock_context_builder, mock_llm):
-        """Test search_batch method."""
-        mock_context = MagicMock()
-        mock_context.total_tokens = 100
-        mock_context.sections = []
-        mock_context.metadata = {"article_count": 0}
-        mock_context.to_prompt = MagicMock(return_value="Context")
-
-        mock_llm.call_at = AsyncMock(return_value="Batch answer")
-
-        engine = LocalSearchEngine(
-            context_builder=mock_context_builder,
-            llm=mock_llm,
-        )
-
-        engine._context_builder.build = AsyncMock(return_value=mock_context)
-
-        results = await engine.search_batch(["query1", "query2"])
-
-        assert len(results) == 2
-        assert all(isinstance(r, SearchResult) for r in results)
-
-
-class TestLocalSearchEngineErrorHandling:
-    """Error handling tests for LocalSearchEngine."""
-
-    @pytest.mark.asyncio
-    async def test_local_search_handles_llm_error(self, mock_context_builder, mock_llm):
-        """Test local search handles LLM errors."""
-        mock_context = MagicMock()
-        mock_context.total_tokens = 100
-        mock_context.sections = []
-        mock_context.metadata = {"article_count": 0}
-        mock_context.to_prompt = MagicMock(return_value="Context")
-
+    async def test_search_handles_llm_error(self, mock_context_builder, mock_llm):
+        """Test search handles LLM errors gracefully."""
+        mock_context = _make_mock_context()
         mock_llm.call_at = AsyncMock(side_effect=Exception("LLM unavailable"))
 
-        engine = LocalSearchEngine(
-            context_builder=mock_context_builder,
-            llm=mock_llm,
-        )
-
+        engine = LocalSearchEngine(context_builder=mock_context_builder, llm=mock_llm)
         engine._context_builder.build = AsyncMock(return_value=mock_context)
 
-        # Should handle error gracefully
         result = await engine.search("Test query")
-        assert result is not None
+
         assert "failed" in result.answer.lower()
         assert result.confidence == 0.0
 
     @pytest.mark.asyncio
-    async def test_local_search_handles_context_error(self, mock_context_builder, mock_llm):
-        """Test local search handles context building errors."""
+    async def test_search_with_hybrid_engine(self, mock_context_builder, mock_llm):
+        """Test search metadata includes hybrid_used flag."""
+        mock_hybrid = MagicMock()
+        mock_context = _make_mock_context()
+        mock_llm.call_at = AsyncMock(return_value="Answer")
+
         engine = LocalSearchEngine(
             context_builder=mock_context_builder,
             llm=mock_llm,
+            hybrid_engine=mock_hybrid,
         )
+        engine._context_builder.build = AsyncMock(return_value=mock_context)
 
-        engine._context_builder.build = AsyncMock(side_effect=Exception("Context building failed"))
+        result = await engine.search("test query")
 
-        # The search method does not catch context building errors
-        # It's expected to propagate up
-        with pytest.raises(Exception, match="Context building failed"):
-            await engine.search("Test query")
+        assert result.metadata["hybrid_used"] is True
+
+    @pytest.mark.asyncio
+    async def test_search_llm_non_string_response(self, mock_context_builder, mock_llm):
+        """Test search handles non-string LLM response."""
+        mock_context = _make_mock_context()
+        mock_llm.call_at = AsyncMock(return_value={"content": "dict answer"})
+
+        engine = LocalSearchEngine(context_builder=mock_context_builder, llm=mock_llm)
+        engine._context_builder.build = AsyncMock(return_value=mock_context)
+
+        result = await engine.search("test query")
+
+        assert isinstance(result.answer, str)
 
 
-class TestLocalSearchEngineHelperMethods:
-    """Tests for helper methods."""
+class TestLocalSearchEngineSearchBatch:
+    """Tests for search_batch() method."""
 
-    def test_build_prompt(self, mock_context_builder, mock_llm):
-        """Test _build_prompt creates valid prompt."""
+    @pytest.mark.asyncio
+    async def test_search_batch(self, mock_context_builder, mock_llm):
+        """Test search_batch with multiple queries."""
+        mock_context = _make_mock_context()
+        mock_llm.call_at = AsyncMock(return_value="Batch answer")
+
+        engine = LocalSearchEngine(context_builder=mock_context_builder, llm=mock_llm)
+        engine._context_builder.build = AsyncMock(return_value=mock_context)
+
+        results = await engine.search_batch(["query1", "query2", "query3"])
+
+        assert len(results) == 3
+        assert all(isinstance(r, SearchResult) for r in results)
+
+    @pytest.mark.asyncio
+    async def test_search_batch_single_query(self, mock_context_builder, mock_llm):
+        """Test search_batch with single query."""
+        mock_context = _make_mock_context()
+        mock_llm.call_at = AsyncMock(return_value="Answer")
+
+        engine = LocalSearchEngine(context_builder=mock_context_builder, llm=mock_llm)
+        engine._context_builder.build = AsyncMock(return_value=mock_context)
+
+        results = await engine.search_batch(["single query"])
+
+        assert len(results) == 1
+
+    @pytest.mark.asyncio
+    async def test_search_batch_empty_list(self, mock_context_builder, mock_llm):
+        """Test search_batch with empty list."""
+        engine = LocalSearchEngine(context_builder=mock_context_builder, llm=mock_llm)
+
+        results = await engine.search_batch([])
+
+        assert results == []
+
+
+class TestLocalSearchEngineEstimateConfidence:
+    """Tests for _estimate_confidence method."""
+
+    def test_confidence_empty_context(self, mock_context_builder, mock_llm):
+        """Test confidence with empty context."""
+        engine = LocalSearchEngine(context_builder=mock_context_builder, llm=mock_llm)
+
         mock_context = MagicMock()
-        mock_context.to_prompt = MagicMock(return_value="Mock context content")
+        mock_context.sections = []
 
-        engine = LocalSearchEngine(
-            context_builder=mock_context_builder,
-            llm=mock_llm,
-        )
+        assert engine._estimate_confidence(mock_context) == 0.0
 
-        prompt = engine._build_prompt("What is X?", mock_context)
+    def test_confidence_with_entities_and_relationships(self, mock_context_builder, mock_llm):
+        """Test confidence with entities and relationships."""
+        engine = LocalSearchEngine(context_builder=mock_context_builder, llm=mock_llm)
 
-        assert "What is X?" in prompt
-        assert "Mock context content" in prompt
-        # The implementation uses Chinese "回答要求：" (with Chinese colon)
-        assert "回答要求：" in prompt or "Answer:" in prompt
+        mock_context = MagicMock()
+        mock_context.sections = [MagicMock()]
+        mock_context.total_tokens = 1000
+        mock_context.metadata = {"total_entities": 15, "total_relationships": 30}
 
-    def test_extract_entities_from_context(self, mock_context_builder, mock_llm):
-        """Test _extract_entities_from_context extracts entity names."""
+        confidence = engine._estimate_confidence(mock_context)
+
+        # Base 0.5 + min(0.2, 15*0.02) + min(0.2, 30*0.01)
+        assert confidence == pytest.approx(0.5 + 0.2 + 0.2)
+
+    def test_confidence_low_tokens(self, mock_context_builder, mock_llm):
+        """Test confidence reduces for low token count."""
+        engine = LocalSearchEngine(context_builder=mock_context_builder, llm=mock_llm)
+
+        mock_context = MagicMock()
+        mock_context.sections = [MagicMock()]
+        mock_context.total_tokens = 200  # < 500
+        mock_context.metadata = {"total_entities": 5, "total_relationships": 10}
+
+        confidence = engine._estimate_confidence(mock_context)
+
+        # Should be reduced by 0.2
+        assert confidence < 0.5
+
+    def test_confidence_capped_at_one(self, mock_context_builder, mock_llm):
+        """Test confidence is capped at 1.0."""
+        engine = LocalSearchEngine(context_builder=mock_context_builder, llm=mock_llm)
+
+        mock_context = MagicMock()
+        mock_context.sections = [MagicMock()]
+        mock_context.total_tokens = 5000
+        mock_context.metadata = {"total_entities": 100, "total_relationships": 200}
+
+        confidence = engine._estimate_confidence(mock_context)
+
+        assert confidence <= 1.0
+
+    def test_confidence_minimum_zero(self, mock_context_builder, mock_llm):
+        """Test confidence is at least 0.0."""
+        engine = LocalSearchEngine(context_builder=mock_context_builder, llm=mock_llm)
+
+        mock_context = MagicMock()
+        mock_context.sections = [MagicMock()]
+        mock_context.total_tokens = 100
+        mock_context.metadata = {"total_entities": 0, "total_relationships": 0}
+
+        confidence = engine._estimate_confidence(mock_context)
+
+        assert confidence >= 0.0
+
+
+class TestLocalSearchEngineExtractEntities:
+    """Tests for _extract_entities_from_context method."""
+
+    def test_extract_entities_basic(self, mock_context_builder, mock_llm):
+        """Test extracting entity names from context."""
+        engine = LocalSearchEngine(context_builder=mock_context_builder, llm=mock_llm)
+
         mock_section = MagicMock()
         mock_section.metadata = {"entity_count": 3}
         mock_section.content = "- EntityA (Person)\n- EntityB (Organization)\n- Not an entity"
@@ -231,81 +288,122 @@ class TestLocalSearchEngineHelperMethods:
         mock_context = MagicMock()
         mock_context.sections = [mock_section]
 
-        engine = LocalSearchEngine(
-            context_builder=mock_context_builder,
-            llm=mock_llm,
-        )
-
         entities = engine._extract_entities_from_context(mock_context)
 
         assert "EntityA" in entities
         assert "EntityB" in entities
 
+    def test_extract_entities_related_count(self, mock_context_builder, mock_llm):
+        """Test extracting entities using related_count metadata."""
+        engine = LocalSearchEngine(context_builder=mock_context_builder, llm=mock_llm)
+
+        mock_section = MagicMock()
+        mock_section.metadata = {"related_count": 2}
+        mock_section.content = "- EntityC (Event)\n- EntityD (Location)"
+
+        mock_context = MagicMock()
+        mock_context.sections = [mock_section]
+
+        entities = engine._extract_entities_from_context(mock_context)
+
+        assert "EntityC" in entities
+        assert "EntityD" in entities
+
     def test_extract_entities_empty_sections(self, mock_context_builder, mock_llm):
-        """Test _extract_entities_from_context with empty sections."""
+        """Test extracting entities with empty sections."""
+        engine = LocalSearchEngine(context_builder=mock_context_builder, llm=mock_llm)
+
         mock_context = MagicMock()
         mock_context.sections = []
-
-        engine = LocalSearchEngine(
-            context_builder=mock_context_builder,
-            llm=mock_llm,
-        )
 
         entities = engine._extract_entities_from_context(mock_context)
 
         assert entities == []
 
-    def test_estimate_confidence_empty_context(self, mock_context_builder, mock_llm):
-        """Test _estimate_confidence with empty context."""
+    def test_extract_entities_deduplication(self, mock_context_builder, mock_llm):
+        """Test that duplicate entities are deduplicated."""
+        engine = LocalSearchEngine(context_builder=mock_context_builder, llm=mock_llm)
+
+        mock_section1 = MagicMock()
+        mock_section1.metadata = {"entity_count": 1}
+        mock_section1.content = "- EntityA (Person)"
+
+        mock_section2 = MagicMock()
+        mock_section2.metadata = {"entity_count": 1}
+        mock_section2.content = "- EntityA (Person)"
+
         mock_context = MagicMock()
-        mock_context.sections = []
+        mock_context.sections = [mock_section1, mock_section2]
 
-        engine = LocalSearchEngine(
-            context_builder=mock_context_builder,
-            llm=mock_llm,
-        )
+        entities = engine._extract_entities_from_context(mock_context)
 
-        confidence = engine._estimate_confidence(mock_context)
+        assert entities.count("EntityA") == 1
 
-        assert confidence == 0.0
 
-    def test_estimate_confidence_with_entities(self, mock_context_builder, mock_llm):
-        """Test _estimate_confidence with entities and relationships."""
+class TestLocalSearchEngineExtractSources:
+    """Tests for _extract_sources_from_context method."""
+
+    def test_extract_sources_basic(self, mock_context_builder, mock_llm):
+        """Test extracting source articles from context."""
+        engine = LocalSearchEngine(context_builder=mock_context_builder, llm=mock_llm)
+
+        mock_section = MagicMock()
+        mock_section.name = "Article Section"
+        mock_section.content = "- Article Title 1\n- Article Title 2"
+
         mock_context = MagicMock()
-        mock_context.sections = [MagicMock()]
-        mock_context.total_tokens = 1000
-        mock_context.metadata = {"total_entities": 15, "total_relationships": 30}
+        mock_context.sections = [mock_section]
 
-        engine = LocalSearchEngine(
-            context_builder=mock_context_builder,
-            llm=mock_llm,
-        )
+        sources = engine._extract_sources_from_context(mock_context)
 
-        confidence = engine._estimate_confidence(mock_context)
+        assert len(sources) == 2
+        assert sources[0]["title"] == "Article Title 1"
 
-        # Base 0.5 + min(0.2, 15*0.02) + min(0.2, 30*0.01)
-        assert confidence == pytest.approx(0.5 + 0.2 + 0.2)
+    def test_extract_sources_non_article_sections(self, mock_context_builder, mock_llm):
+        """Test that non-article sections are skipped."""
+        engine = LocalSearchEngine(context_builder=mock_context_builder, llm=mock_llm)
 
-    def test_estimate_confidence_low_tokens(self, mock_context_builder, mock_llm):
-        """Test _estimate_confidence reduces confidence for low tokens."""
+        mock_section = MagicMock()
+        mock_section.name = "Entity Section"
+        mock_section.content = "- Entity1\n- Entity2"
+
         mock_context = MagicMock()
-        mock_context.sections = [MagicMock()]
-        mock_context.total_tokens = 200  # < 500
-        mock_context.metadata = {"total_entities": 5, "total_relationships": 10}
+        mock_context.sections = [mock_section]
 
-        engine = LocalSearchEngine(
-            context_builder=mock_context_builder,
-            llm=mock_llm,
-        )
+        sources = engine._extract_sources_from_context(mock_context)
 
-        confidence = engine._estimate_confidence(mock_context)
-
-        # Base 0.5 + bonuses - 0.2 for low tokens
-        assert confidence < 0.5
+        assert sources == []
 
 
-class TestSearchResult:
-    """Tests for SearchResult dataclass."""
+class TestLocalSearchEngineBuildPrompt:
+    """Tests for _build_prompt method."""
+
+    def test_build_prompt_includes_query(self, mock_context_builder, mock_llm):
+        """Test that prompt includes the query."""
+        engine = LocalSearchEngine(context_builder=mock_context_builder, llm=mock_llm)
+
+        mock_context = MagicMock()
+        mock_context.to_prompt = MagicMock(return_value="Context content")
+
+        prompt = engine._build_prompt("What is X?", mock_context)
+
+        assert "What is X?" in prompt
+        assert "Context content" in prompt
+
+    def test_build_prompt_includes_instructions(self, mock_context_builder, mock_llm):
+        """Test that prompt includes answer instructions."""
+        engine = LocalSearchEngine(context_builder=mock_context_builder, llm=mock_llm)
+
+        mock_context = MagicMock()
+        mock_context.to_prompt = MagicMock(return_value="Context")
+
+        prompt = engine._build_prompt("Query", mock_context)
+
+        assert "回答要求" in prompt or "Answer:" in prompt
+
+
+class TestSearchResultExtended:
+    """Extended tests for SearchResult dataclass."""
 
     def test_search_result_defaults(self):
         """Test SearchResult with default values."""

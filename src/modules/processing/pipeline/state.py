@@ -14,13 +14,15 @@ class CredibilityInfo(TypedDict, total=False):
     Attributes:
         score: Final credibility score (0.0-1.0).
         source_credibility: Source authority score.
-        content_check: LLM content analysis score.
+        cross_verification: Cross-verification score (body-length proxy).
+        content_check: Content check score (body-length proxy, no LLM).
         timeliness: Timeliness score.
         flags: List of credibility flags/issues.
     """
 
     score: float
     source_credibility: float
+    cross_verification: float
     content_check: float
     timeliness: float
     flags: list[str]
@@ -83,6 +85,9 @@ class PipelineState(TypedDict, total=False):
     # Records fields that were set to fallback/default values due to LLM failures
     degraded_fields: list[str]  # Field names that used fallback values
     degradation_reasons: dict[str, str]  # Field name -> reason for degradation
+
+    # Conflict detection
+    data_conflicts: list[dict[str, Any]]
 
     # Error tracking
     error: str

@@ -900,9 +900,15 @@ class TestRefreshAutoScores:
             MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))),
         ]
 
-        with patch(
-            "api.endpoints.admin.admin.Endpoints.get_relational_pool_optional",
-            return_value=mock_pool,
+        with (
+            patch(
+                "api.endpoints.admin.admin.Endpoints.get_relational_pool_optional",
+                return_value=mock_pool,
+            ),
+            patch(
+                "api.endpoints.admin.admin.limiter",
+                MagicMock(limit=lambda *a, **kw: lambda f: f),
+            ),
         ):
             response = await refresh_auto_scores(
                 request=mock_request,

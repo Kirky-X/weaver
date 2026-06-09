@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 if TYPE_CHECKING:
     import uuid
 
+    from core.models.shared import ArticleView
+
 
 @runtime_checkable
 class EntityRepository(Protocol):
@@ -223,14 +225,14 @@ class ArticleRepository(Protocol):
         - ArticleRepo: PostgreSQL-based article repository
     """
 
-    async def get_by_id(self, article_id: uuid.UUID) -> dict[str, Any] | None:
+    async def get_by_id(self, article_id: uuid.UUID) -> ArticleView | None:
         """Get an article by ID.
 
         Args:
             article_id: Article UUID.
 
         Returns:
-            Article dict if found, None otherwise.
+            ArticleView if found, None otherwise.
         """
         ...
 

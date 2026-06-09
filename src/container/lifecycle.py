@@ -3,10 +3,10 @@
 
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING, Any
 
 from core.constants import DatabaseType, HealthCheckStatus
+from core.utils.paths import PROJECT_ROOT
 from modules.analytics import LLMUsageBuffer
 
 if TYPE_CHECKING:
@@ -85,6 +85,9 @@ class ContainerLifecycleMixin:
     _graph_writer: Any
     _causal_repo: Any
     _causal_inference_service: Any
+    _conflict_detector: Any
+    _shift_detector: Any
+    _briefing_engine: Any
 
     # ── LLM Init (used by startup) ─────────────────────────────
 
@@ -117,13 +120,9 @@ class ContainerLifecycleMixin:
             )
             log.info("llm_smart_router_initialized")
 
-            from pathlib import Path
-
             from core.llm.config.live_config import LiveConfig
 
-            # Fix: project_root should be Weaver root (src's parent), not src directory
-            project_root = Path(__file__).parent.parent.parent
-            llm_toml_path = project_root / "config" / "llm.toml"
+            llm_toml_path = PROJECT_ROOT / "config" / "llm.toml"
             self._live_config = LiveConfig(config_path=llm_toml_path)
             log.info("llm_live_config_initialized", path=str(llm_toml_path))
 
@@ -670,6 +669,78 @@ class ContainerLifecycleMixin:
             log.error("causal_inference_service_init_failed", error=str(exc))
             return None
 
+    # ── Conflict Detector ──────────────────────────────────────────
+
+    async def init_conflict_detector(self) -> Any | None:
+        """Initialize conflict detector node."""
+        from core.observability import get_logger
+        from modules.processing.nodes.quality.conflict_detector import ConflictDetectorNode
+
+        log = get_logger(__name__)
+        if self._conflict_detector is not None:
+            return self._conflict_detector
+
+        try:
+            article_repo = self.article_repo()
+            self._conflict_detector = ConflictDetectorNode(article_repo=article_repo)
+            log.info("conflict_detector_initialized")
+            return self._conflict_detector
+        except Exception as exc:
+            log.warning("conflict_detector_init_failed", error=str(exc))
+            return None
+
+    def conflict_detector(self) -> Any | None:
+        """Return the conflict detector instance."""
+        return self._conflict_detector
+
+    # ── Shift Detector ──────────────────────────────────────────
+
+    async def init_shift_detector(self) -> Any | None:
+        """Initialize sentiment shift detector."""
+        from core.observability import get_logger
+        from modules.analytics.shift_detector import SentimentShiftDetector, ShiftConfig
+
+        log = get_logger(__name__)
+        if self._shift_detector is not None:
+            return self._shift_detector
+
+        try:
+            config = ShiftConfig()
+            self._shift_detector = SentimentShiftDetector(config=config)
+            log.info("shift_detector_initialized")
+            return self._shift_detector
+        except Exception as exc:
+            log.warning("shift_detector_init_failed", error=str(exc))
+            return None
+
+    def shift_detector(self) -> Any | None:
+        """Return the shift detector instance."""
+        return self._shift_detector
+
+    # ── Briefing Engine ──────────────────────────────────────────
+
+    async def init_briefing_engine(self) -> Any | None:
+        """Initialize daily briefing engine."""
+        from core.observability import get_logger
+        from modules.briefing.engine import BriefingEngine
+
+        log = get_logger(__name__)
+        if self._briefing_engine is not None:
+            return self._briefing_engine
+
+        try:
+            pool = self.relational_pool()
+            self._briefing_engine = BriefingEngine(pool=pool)
+            log.info("briefing_engine_initialized")
+            return self._briefing_engine
+        except Exception as exc:
+            log.warning("briefing_engine_init_failed", error=str(exc))
+            return None
+
+    def briefing_engine(self) -> Any | None:
+        """Return the briefing engine instance."""
+        return self._briefing_engine
+
     def _setup_memory_event_handler(self) -> None:
         from core.event.bus import MemoryIngestEvent
         from core.observability import get_logger
@@ -701,8 +772,6 @@ class ContainerLifecycleMixin:
         log = get_logger(__name__)
         log.info("container_starting")
 
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
         await self.init_strategy()
 
         if self._strategy is not None and self._strategy.relational_type == DatabaseType.POSTGRES:
@@ -710,8 +779,8 @@ class ContainerLifecycleMixin:
 
             await initialize_database(
                 self._settings.postgres.dsn,
-                alembic_ini_path=os.path.join(project_root, "alembic.ini"),
-                script_location=os.path.join(project_root, "src", "alembic"),
+                alembic_ini_path=str(PROJECT_ROOT / "alembic.ini"),
+                script_location=str(PROJECT_ROOT / "src" / "alembic"),
             )
 
         await self.init_cache_client()
@@ -798,6 +867,11 @@ class ContainerLifecycleMixin:
         log.info("llm_compare_handlers_subscribed", event_bus_id=id(self._event_bus))
 
         _ = self.pending_sync_repo()
+
+        # Initialize new modules
+        await self.init_conflict_detector()
+        await self.init_shift_detector()
+        await self.init_briefing_engine()
 
         self._setup_scheduler()
 

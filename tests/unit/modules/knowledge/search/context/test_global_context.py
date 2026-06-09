@@ -1,5 +1,5 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Unit tests for GlobalContextBuilder."""
+"""Unit tests for GlobalContextBuilder - comprehensive coverage."""
 
 from __future__ import annotations
 
@@ -16,30 +16,8 @@ def _make_pool() -> AsyncMock:
     return pool
 
 
-class TestGlobalContextBuilderInit:
-    """Tests for initialization."""
-
-    def test_default_params(self) -> None:
-        pool = _make_pool()
-        builder = GlobalContextBuilder(graph_pool=pool)
-        assert builder._max_communities == 10
-        assert builder._max_entities_per_community == 5
-        assert builder._fallback_enabled is True
-
-    def test_custom_params(self) -> None:
-        pool = _make_pool()
-        builder = GlobalContextBuilder(
-            graph_pool=pool,
-            max_communities=20,
-            max_entities_per_community=10,
-            fallback_enabled=False,
-        )
-        assert builder._max_communities == 20
-        assert builder._fallback_enabled is False
-
-
 class TestGlobalContextBuilderBuild:
-    """Tests for build method."""
+    """Tests for build() method."""
 
     @pytest.mark.asyncio
     async def test_build_no_communities_at_all(self) -> None:
@@ -47,9 +25,8 @@ class TestGlobalContextBuilderBuild:
         pool = _make_pool()
         pool.execute_query = AsyncMock(
             side_effect=[
-                [],  # _find_relevant_communities -> _vector_search_communities
-                [],  # _text_search_communities
-                [],  # _find_entity_article_fallback (disabled)
+                [],  # _vector_search (no llm)
+                [],  # _text_search
                 [{"count": 0}],  # _has_any_communities
             ]
         )
@@ -64,9 +41,9 @@ class TestGlobalContextBuilderBuild:
         pool = _make_pool()
         pool.execute_query = AsyncMock(
             side_effect=[
-                [],  # _vector_search (no llm_client)
-                [],  # _text_search returns empty
-                [{"count": 5}],  # _has_any_communities returns True
+                [],  # _vector_search (no llm)
+                [],  # _text_search
+                [{"count": 5}],  # _has_any_communities
             ]
         )
         builder = GlobalContextBuilder(graph_pool=pool, fallback_enabled=False)
@@ -112,341 +89,9 @@ class TestGlobalContextBuilderBuild:
         assert ctx.metadata["total_communities"] == 1
         assert ctx.metadata["search_method"] == "text_search"
 
-
-class TestFormatCommunities:
-    """Tests for formatting methods."""
-
-    def test_format_communities_section(self) -> None:
-        pool = _make_pool()
-        builder = GlobalContextBuilder(graph_pool=pool)
-        communities = [
-            {"title": "Tech", "summary": "Summary", "entity_count": 5},
-        ]
-        result = builder._format_communities_section(communities)
-        assert "Tech" in result
-        assert "5" in result
-
-    def test_format_entities_section(self) -> None:
-        pool = _make_pool()
-        builder = GlobalContextBuilder(graph_pool=pool)
-        entities = [
-            {"canonical_name": "华为", "type": "组织", "description": "Tech"},
-        ]
-        result = builder._format_entities_section(entities)
-        assert "华为" in result
-
-    def test_format_cross_community_section(self) -> None:
-        pool = _make_pool()
-        builder = GlobalContextBuilder(graph_pool=pool)
-        connections = [
-            {
-                "source_community": "Tech",
-                "target_community": "Finance",
-                "source_entity": "A",
-                "target_entity": "B",
-                "relation_type": "PARTNERS_WITH",
-            },
-        ]
-        result = builder._format_cross_community_section(connections)
-        assert "Tech" in result
-        assert "Finance" in result
-        assert "双向" in result  # PARTNERS_WITH is symmetric
-
-    def test_format_cross_community_asymmetric(self) -> None:
-        pool = _make_pool()
-        builder = GlobalContextBuilder(graph_pool=pool)
-        connections = [
-            {
-                "source_community": "Gov",
-                "target_community": "Tech",
-                "source_entity": "A",
-                "target_entity": "B",
-                "relation_type": "REGULATES",
-            },
-        ]
-        result = builder._format_cross_community_section(connections)
-        assert "单向" in result
-
-
-class TestHasAnyCommunities:
-    """Tests for _has_any_communities."""
-
-    @pytest.mark.asyncio
-    async def test_has_communities(self) -> None:
-        pool = _make_pool()
-        pool.execute_query = AsyncMock(return_value=[{"count": 5}])
-        builder = GlobalContextBuilder(graph_pool=pool)
-        assert await builder._has_any_communities() is True
-
-    @pytest.mark.asyncio
-    async def test_no_communities(self) -> None:
-        pool = _make_pool()
-        pool.execute_query = AsyncMock(return_value=[{"count": 0}])
-        builder = GlobalContextBuilder(graph_pool=pool)
-        assert await builder._has_any_communities() is False
-
-    @pytest.mark.asyncio
-    async def test_error_returns_false(self) -> None:
-        pool = _make_pool()
-        pool.execute_query = AsyncMock(return_value=None)
-        builder = GlobalContextBuilder(graph_pool=pool)
-        assert await builder._has_any_communities() is False
-
-
-class TestEntityArticleFallback:
-    """Tests for _find_entity_article_fallback."""
-
-    @pytest.mark.asyncio
-    async def test_empty_query_tokens(self) -> None:
-        pool = _make_pool()
-        builder = GlobalContextBuilder(graph_pool=pool)
-        result = await builder._find_entity_article_fallback("")
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_fallback_returns_results(self) -> None:
-        pool = _make_pool()
-        pool.execute_query = AsyncMock(
-            return_value=[
-                {
-                    "entity_name": "华为",
-                    "article_id": "a1",
-                    "article_title": "华为新闻",
-                    "entity_description": "科技公司",
-                    "article_score": 0.9,
-                },
-            ]
-        )
-        builder = GlobalContextBuilder(graph_pool=pool)
-        result = await builder._find_entity_article_fallback("华为")
-        assert len(result) == 1
-        assert result[0]["id"].startswith("fallback:")
-
-    @pytest.mark.asyncio
-    async def test_fallback_no_results(self) -> None:
-        pool = _make_pool()
-        pool.execute_query = AsyncMock(return_value=[])
-        builder = GlobalContextBuilder(graph_pool=pool)
-        result = await builder._find_entity_article_fallback("nonexistent")
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_fallback_handles_error(self) -> None:
-        pool = _make_pool()
-        pool.execute_query = AsyncMock(side_effect=Exception("DB error"))
-        builder = GlobalContextBuilder(graph_pool=pool)
-        result = await builder._find_entity_article_fallback("query")
-        assert result == []
-
-
-class TestVectorSearchCommunities:
-    """Tests for _vector_search_communities."""
-
-    @pytest.mark.asyncio
-    async def test_vector_search_no_llm_client(self) -> None:
-        pool = _make_pool()
-        builder = GlobalContextBuilder(graph_pool=pool, llm_client=None)
-        result = await builder._vector_search_communities("test", 0)
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_vector_search_with_results(self) -> None:
-        pool = _make_pool()
-        mock_llm = MagicMock()
-        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 128])
-
-        pool.execute_query = AsyncMock(
-            return_value=[
-                {
-                    "id": "c1",
-                    "title": "Tech Community",
-                    "summary": "A tech summary",
-                    "rank": 5.0,
-                    "entity_count": 10,
-                    "full_content": "Full content here",
-                    "key_entities": ["Entity1"],
-                    "score": 0.85,
-                },
-            ]
-        )
-
-        builder = GlobalContextBuilder(graph_pool=pool, llm_client=mock_llm)
-        result = await builder._vector_search_communities("test query", 0)
-
-        assert len(result) == 1
-        assert result[0]["similarity_score"] == 0.85
-        assert result[0]["title"] == "Tech Community"
-
-    @pytest.mark.asyncio
-    async def test_vector_search_no_embeddings(self) -> None:
-        pool = _make_pool()
-        mock_llm = MagicMock()
-        mock_llm.embed_default = AsyncMock(return_value=[[]])
-
-        builder = GlobalContextBuilder(graph_pool=pool, llm_client=mock_llm)
-        result = await builder._vector_search_communities("test", 0)
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_vector_search_handles_error(self) -> None:
-        pool = _make_pool()
-        mock_llm = MagicMock()
-        mock_llm.embed_default = AsyncMock(side_effect=Exception("Embedding failed"))
-
-        builder = GlobalContextBuilder(graph_pool=pool, llm_client=mock_llm)
-        result = await builder._vector_search_communities("test", 0)
-        assert result == []
-
-
-class TestTextSearchCommunities:
-    """Tests for _text_search_communities."""
-
-    @pytest.mark.asyncio
-    async def test_text_search_with_results(self) -> None:
-        pool = _make_pool()
-        pool.execute_query = AsyncMock(
-            return_value=[
-                {
-                    "id": "c1",
-                    "title": "Tech",
-                    "summary": "Summary",
-                    "rank": 5.0,
-                    "entity_count": 10,
-                },
-            ]
-        )
-
-        builder = GlobalContextBuilder(graph_pool=pool)
-        result = await builder._text_search_communities("tech", 0)
-
-        assert len(result) == 1
-
-    @pytest.mark.asyncio
-    async def test_text_search_fallback_to_top_ranked(self) -> None:
-        pool = _make_pool()
-        pool.execute_query = AsyncMock(
-            side_effect=[
-                [],  # exact match returns empty
-                [
-                    {
-                        "id": "c1",
-                        "title": "Top",
-                        "summary": "Top summary",
-                        "rank": 10.0,
-                        "entity_count": 20,
-                    }
-                ],
-            ]
-        )
-
-        builder = GlobalContextBuilder(graph_pool=pool)
-        result = await builder._text_search_communities("nonexistent", 0)
-
-        assert len(result) == 1
-        assert result[0]["title"] == "Top"
-
-    @pytest.mark.asyncio
-    async def test_text_search_all_fail(self) -> None:
-        pool = _make_pool()
-        pool.execute_query = AsyncMock(side_effect=Exception("DB error"))
-
-        builder = GlobalContextBuilder(graph_pool=pool)
-        result = await builder._text_search_communities("test", 0)
-
-        assert result == []
-
-
-class TestGetKeyEntities:
-    """Tests for _get_key_entities."""
-
-    @pytest.mark.asyncio
-    async def test_get_key_entities_with_results(self) -> None:
-        pool = _make_pool()
-        pool.execute_query = AsyncMock(
-            return_value=[
-                {
-                    "canonical_name": "Entity1",
-                    "type": "ORG",
-                    "description": "Desc",
-                    "degree": 5,
-                    "community_count": 3,
-                },
-            ]
-        )
-
-        builder = GlobalContextBuilder(graph_pool=pool)
-        result = await builder._get_key_entities([{"id": "c1"}])
-
-        assert len(result) == 1
-        assert result[0]["canonical_name"] == "Entity1"
-
-    @pytest.mark.asyncio
-    async def test_get_key_entities_empty_communities(self) -> None:
-        pool = _make_pool()
-        builder = GlobalContextBuilder(graph_pool=pool)
-        result = await builder._get_key_entities([])
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_get_key_entities_no_ids(self) -> None:
-        pool = _make_pool()
-        builder = GlobalContextBuilder(graph_pool=pool)
-        result = await builder._get_key_entities([{"id": None}])
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_get_key_entities_handles_error(self) -> None:
-        pool = _make_pool()
-        pool.execute_query = AsyncMock(side_effect=Exception("DB error"))
-        builder = GlobalContextBuilder(graph_pool=pool)
-        result = await builder._get_key_entities([{"id": "c1"}])
-        assert result == []
-
-
-class TestGetCrossCommunityRelationships:
-    """Tests for _get_cross_community_relationships."""
-
-    @pytest.mark.asyncio
-    async def test_cross_community_with_results(self) -> None:
-        pool = _make_pool()
-        pool.execute_query = AsyncMock(
-            return_value=[
-                {
-                    "source_community": "Tech",
-                    "target_community": "Finance",
-                    "source_entity": "A",
-                    "target_entity": "B",
-                    "relation_type": "INVESTS_IN",
-                },
-            ]
-        )
-
-        builder = GlobalContextBuilder(graph_pool=pool)
-        result = await builder._get_cross_community_relationships([{"id": "c1"}, {"id": "c2"}])
-
-        assert len(result) == 2  # typed + generic results combined
-
-    @pytest.mark.asyncio
-    async def test_cross_community_single_community(self) -> None:
-        pool = _make_pool()
-        builder = GlobalContextBuilder(graph_pool=pool)
-        result = await builder._get_cross_community_relationships([{"id": "c1"}])
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_cross_community_handles_error(self) -> None:
-        pool = _make_pool()
-        pool.execute_query = AsyncMock(side_effect=Exception("DB error"))
-        builder = GlobalContextBuilder(graph_pool=pool)
-        result = await builder._get_cross_community_relationships([{"id": "c1"}, {"id": "c2"}])
-        assert result == []
-
-
-class TestBuildWithFullFlow:
-    """Tests for build method with complete flow."""
-
     @pytest.mark.asyncio
     async def test_build_with_vector_search_results(self) -> None:
+        """Builds context using vector similarity search."""
         pool = _make_pool()
         mock_llm = MagicMock()
         mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 128])
@@ -457,7 +102,6 @@ class TestBuildWithFullFlow:
             nonlocal call_count
             call_count += 1
             if call_count == 1:
-                # vector search communities
                 return [
                     {
                         "id": "c1",
@@ -491,6 +135,7 @@ class TestBuildWithFullFlow:
 
     @pytest.mark.asyncio
     async def test_build_with_fallback(self) -> None:
+        """Builds context using entity-article fallback."""
         pool = _make_pool()
         call_count = 0
 
@@ -500,7 +145,6 @@ class TestBuildWithFullFlow:
             if call_count <= 2:
                 return []  # vector and text search empty
             if call_count == 3:
-                # fallback
                 return [
                     {
                         "entity_name": "华为",
@@ -531,6 +175,7 @@ class TestBuildWithFullFlow:
 
     @pytest.mark.asyncio
     async def test_build_with_cross_community_rels(self) -> None:
+        """Builds context with cross-community relationships."""
         pool = _make_pool()
         call_count = 0
 
@@ -540,7 +185,7 @@ class TestBuildWithFullFlow:
             if call_count == 1:
                 return [
                     {"id": "c1", "title": "Tech", "summary": "S1", "rank": 5.0, "entity_count": 10}
-                ]  # text search
+                ]
             if call_count == 2:
                 return [
                     {
@@ -550,7 +195,7 @@ class TestBuildWithFullFlow:
                         "degree": 5,
                         "community_count": 2,
                     }
-                ]  # key entities
+                ]
             if call_count == 3:
                 return [
                     {
@@ -579,12 +224,412 @@ class TestBuildWithFullFlow:
 
         assert ctx.metadata["total_communities"] == 1
 
+    @pytest.mark.asyncio
+    async def test_build_with_community_level(self) -> None:
+        """Test build with community_level parameter."""
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(
+            side_effect=[
+                [],  # vector search
+                [{"id": "c1", "title": "T", "summary": "S", "rank": 1.0, "entity_count": 5}],
+                [{"canonical_name": "E1", "type": "ORG", "degree": 3, "community_count": 1}],
+                [],  # cross community
+            ]
+        )
+        builder = GlobalContextBuilder(graph_pool=pool, fallback_enabled=False)
+        ctx = await builder.build("test", community_level=1)
 
-class TestBuildMapReduceContext:
+        assert ctx.metadata["community_level"] == 1
+
+    @pytest.mark.asyncio
+    async def test_build_with_custom_max_tokens(self) -> None:
+        """Test build with custom max_tokens."""
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(
+            side_effect=[
+                [],  # vector search
+                [{"id": "c1", "title": "T", "summary": "S", "rank": 1.0, "entity_count": 5}],
+                [{"canonical_name": "E1", "type": "ORG", "degree": 3, "community_count": 1}],
+                [],
+            ]
+        )
+        builder = GlobalContextBuilder(graph_pool=pool, fallback_enabled=False)
+        ctx = await builder.build("test", max_tokens=4000)
+
+        assert ctx.max_tokens == 4000
+
+
+class TestGlobalContextBuilderInit:
+    """Tests for initialization."""
+
+    def test_default_params(self) -> None:
+        pool = _make_pool()
+        builder = GlobalContextBuilder(graph_pool=pool)
+        assert builder._max_communities == 10
+        assert builder._max_entities_per_community == 5
+        assert builder._fallback_enabled is True
+
+    def test_custom_params(self) -> None:
+        pool = _make_pool()
+        builder = GlobalContextBuilder(
+            graph_pool=pool,
+            max_communities=20,
+            max_entities_per_community=10,
+            fallback_enabled=False,
+        )
+        assert builder._max_communities == 20
+        assert builder._fallback_enabled is False
+
+
+class TestGlobalContextBuilderHasAnyCommunities:
+    """Tests for _has_any_communities."""
+
+    @pytest.mark.asyncio
+    async def test_has_communities(self) -> None:
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(return_value=[{"count": 5}])
+        builder = GlobalContextBuilder(graph_pool=pool)
+        assert await builder._has_any_communities() is True
+
+    @pytest.mark.asyncio
+    async def test_no_communities(self) -> None:
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(return_value=[{"count": 0}])
+        builder = GlobalContextBuilder(graph_pool=pool)
+        assert await builder._has_any_communities() is False
+
+    @pytest.mark.asyncio
+    async def test_error_returns_false(self) -> None:
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(return_value=None)
+        builder = GlobalContextBuilder(graph_pool=pool)
+        assert await builder._has_any_communities() is False
+
+    @pytest.mark.asyncio
+    async def test_has_communities_with_level(self) -> None:
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(return_value=[{"count": 3}])
+        builder = GlobalContextBuilder(graph_pool=pool)
+        assert await builder._has_any_communities(level=0) is True
+
+    @pytest.mark.asyncio
+    async def test_malformed_result(self) -> None:
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(return_value=[{"wrong_key": 5}])
+        builder = GlobalContextBuilder(graph_pool=pool)
+        assert await builder._has_any_communities() is False
+
+    @pytest.mark.asyncio
+    async def test_empty_result(self) -> None:
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(return_value=[])
+        builder = GlobalContextBuilder(graph_pool=pool)
+        assert await builder._has_any_communities() is False
+
+
+class TestGlobalContextBuilderVectorSearch:
+    """Tests for _vector_search_communities."""
+
+    @pytest.mark.asyncio
+    async def test_no_llm_client(self) -> None:
+        pool = _make_pool()
+        builder = GlobalContextBuilder(graph_pool=pool, llm_client=None)
+        result = await builder._vector_search_communities("test", 0)
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_with_results(self) -> None:
+        pool = _make_pool()
+        mock_llm = MagicMock()
+        mock_llm.embed_default = AsyncMock(return_value=[[0.1] * 128])
+
+        pool.execute_query = AsyncMock(
+            return_value=[
+                {
+                    "id": "c1",
+                    "title": "Tech Community",
+                    "summary": "A tech summary",
+                    "rank": 5.0,
+                    "entity_count": 10,
+                    "full_content": "Full content here",
+                    "key_entities": ["Entity1"],
+                    "score": 0.85,
+                },
+            ]
+        )
+
+        builder = GlobalContextBuilder(graph_pool=pool, llm_client=mock_llm)
+        result = await builder._vector_search_communities("test query", 0)
+
+        assert len(result) == 1
+        assert result[0]["similarity_score"] == 0.85
+
+    @pytest.mark.asyncio
+    async def test_no_embeddings(self) -> None:
+        pool = _make_pool()
+        mock_llm = MagicMock()
+        mock_llm.embed_default = AsyncMock(return_value=[[]])
+
+        builder = GlobalContextBuilder(graph_pool=pool, llm_client=mock_llm)
+        result = await builder._vector_search_communities("test", 0)
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_handles_error(self) -> None:
+        pool = _make_pool()
+        mock_llm = MagicMock()
+        mock_llm.embed_default = AsyncMock(side_effect=Exception("Embedding failed"))
+
+        builder = GlobalContextBuilder(graph_pool=pool, llm_client=mock_llm)
+        result = await builder._vector_search_communities("test", 0)
+        assert result == []
+
+
+class TestGlobalContextBuilderTextSearch:
+    """Tests for _text_search_communities."""
+
+    @pytest.mark.asyncio
+    async def test_with_results(self) -> None:
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(
+            return_value=[
+                {
+                    "id": "c1",
+                    "title": "Tech",
+                    "summary": "Summary",
+                    "rank": 5.0,
+                    "entity_count": 10,
+                },
+            ]
+        )
+
+        builder = GlobalContextBuilder(graph_pool=pool)
+        result = await builder._text_search_communities("tech", 0)
+
+        assert len(result) == 1
+
+    @pytest.mark.asyncio
+    async def test_fallback_to_top_ranked(self) -> None:
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(
+            side_effect=[
+                [],  # exact match returns empty
+                [
+                    {
+                        "id": "c1",
+                        "title": "Top",
+                        "summary": "Top summary",
+                        "rank": 10.0,
+                        "entity_count": 20,
+                    }
+                ],
+            ]
+        )
+
+        builder = GlobalContextBuilder(graph_pool=pool)
+        result = await builder._text_search_communities("nonexistent", 0)
+
+        assert len(result) == 1
+        assert result[0]["title"] == "Top"
+
+    @pytest.mark.asyncio
+    async def test_all_fail(self) -> None:
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(side_effect=Exception("DB error"))
+
+        builder = GlobalContextBuilder(graph_pool=pool)
+        result = await builder._text_search_communities("test", 0)
+
+        assert result == []
+
+
+class TestGlobalContextBuilderEntityArticleFallback:
+    """Tests for _find_entity_article_fallback."""
+
+    @pytest.mark.asyncio
+    async def test_empty_query_tokens(self) -> None:
+        pool = _make_pool()
+        builder = GlobalContextBuilder(graph_pool=pool)
+        result = await builder._find_entity_article_fallback("")
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_returns_results(self) -> None:
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(
+            return_value=[
+                {
+                    "entity_name": "华为",
+                    "article_id": "a1",
+                    "article_title": "华为新闻",
+                    "entity_description": "科技公司",
+                    "article_score": 0.9,
+                },
+            ]
+        )
+        builder = GlobalContextBuilder(graph_pool=pool)
+        result = await builder._find_entity_article_fallback("华为")
+        assert len(result) == 1
+        assert result[0]["id"].startswith("fallback:")
+
+    @pytest.mark.asyncio
+    async def test_no_results(self) -> None:
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(return_value=[])
+        builder = GlobalContextBuilder(graph_pool=pool)
+        result = await builder._find_entity_article_fallback("nonexistent")
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_handles_error(self) -> None:
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(side_effect=Exception("DB error"))
+        builder = GlobalContextBuilder(graph_pool=pool)
+        result = await builder._find_entity_article_fallback("query")
+        assert result == []
+
+
+class TestGlobalContextBuilderGetKeyEntities:
+    """Tests for _get_key_entities."""
+
+    @pytest.mark.asyncio
+    async def test_with_results(self) -> None:
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(
+            return_value=[
+                {
+                    "canonical_name": "Entity1",
+                    "type": "ORG",
+                    "description": "Desc",
+                    "degree": 5,
+                    "community_count": 3,
+                },
+            ]
+        )
+        builder = GlobalContextBuilder(graph_pool=pool)
+        result = await builder._get_key_entities([{"id": "c1"}])
+        assert len(result) == 1
+
+    @pytest.mark.asyncio
+    async def test_empty_communities(self) -> None:
+        pool = _make_pool()
+        builder = GlobalContextBuilder(graph_pool=pool)
+        result = await builder._get_key_entities([])
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_no_ids(self) -> None:
+        pool = _make_pool()
+        builder = GlobalContextBuilder(graph_pool=pool)
+        result = await builder._get_key_entities([{"id": None}])
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_handles_error(self) -> None:
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(side_effect=Exception("DB error"))
+        builder = GlobalContextBuilder(graph_pool=pool)
+        result = await builder._get_key_entities([{"id": "c1"}])
+        assert result == []
+
+
+class TestGlobalContextBuilderCrossCommunityRels:
+    """Tests for _get_cross_community_relationships."""
+
+    @pytest.mark.asyncio
+    async def test_with_results(self) -> None:
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(
+            return_value=[
+                {
+                    "source_community": "Tech",
+                    "target_community": "Finance",
+                    "source_entity": "A",
+                    "target_entity": "B",
+                    "relation_type": "INVESTS_IN",
+                },
+            ]
+        )
+
+        builder = GlobalContextBuilder(graph_pool=pool)
+        result = await builder._get_cross_community_relationships([{"id": "c1"}, {"id": "c2"}])
+
+        assert len(result) == 2  # typed + generic results combined
+
+    @pytest.mark.asyncio
+    async def test_single_community(self) -> None:
+        pool = _make_pool()
+        builder = GlobalContextBuilder(graph_pool=pool)
+        result = await builder._get_cross_community_relationships([{"id": "c1"}])
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_handles_error(self) -> None:
+        pool = _make_pool()
+        pool.execute_query = AsyncMock(side_effect=Exception("DB error"))
+        builder = GlobalContextBuilder(graph_pool=pool)
+        result = await builder._get_cross_community_relationships([{"id": "c1"}, {"id": "c2"}])
+        assert result == []
+
+
+class TestGlobalContextBuilderFormatMethods:
+    """Tests for formatting methods."""
+
+    def test_format_communities_section(self) -> None:
+        pool = _make_pool()
+        builder = GlobalContextBuilder(graph_pool=pool)
+        communities = [
+            {"title": "Tech", "summary": "Summary", "entity_count": 5},
+        ]
+        result = builder._format_communities_section(communities)
+        assert "Tech" in result
+        assert "5" in result
+
+    def test_format_entities_section(self) -> None:
+        pool = _make_pool()
+        builder = GlobalContextBuilder(graph_pool=pool)
+        entities = [
+            {"canonical_name": "华为", "type": "组织", "description": "Tech"},
+        ]
+        result = builder._format_entities_section(entities)
+        assert "华为" in result
+
+    def test_format_cross_community_section_symmetric(self) -> None:
+        pool = _make_pool()
+        builder = GlobalContextBuilder(graph_pool=pool)
+        connections = [
+            {
+                "source_community": "Tech",
+                "target_community": "Finance",
+                "source_entity": "A",
+                "target_entity": "B",
+                "relation_type": "PARTNERS_WITH",
+            },
+        ]
+        result = builder._format_cross_community_section(connections)
+        assert "双向" in result
+
+    def test_format_cross_community_section_asymmetric(self) -> None:
+        pool = _make_pool()
+        builder = GlobalContextBuilder(graph_pool=pool)
+        connections = [
+            {
+                "source_community": "Gov",
+                "target_community": "Tech",
+                "source_entity": "A",
+                "target_entity": "B",
+                "relation_type": "REGULATES",
+            },
+        ]
+        result = builder._format_cross_community_section(connections)
+        assert "单向" in result
+
+
+class TestGlobalContextBuilderBuildMapReduceContext:
     """Tests for build_map_reduce_context."""
 
     @pytest.mark.asyncio
-    async def test_map_reduce_with_communities(self) -> None:
+    async def test_with_communities(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(
             return_value=[{"canonical_name": "E1", "type": "ORG", "description": "Desc"}]
@@ -611,11 +656,10 @@ class TestBuildMapReduceContext:
             ),
         ):
             contexts = await builder.build_map_reduce_context("tech")
-
             assert len(contexts) == 1
 
     @pytest.mark.asyncio
-    async def test_map_reduce_no_communities(self) -> None:
+    async def test_no_communities(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(return_value=[])
         builder = GlobalContextBuilder(graph_pool=pool, fallback_enabled=False)
@@ -627,64 +671,35 @@ class TestBuildMapReduceContext:
             return_value=([], False, "none"),
         ):
             contexts = await builder.build_map_reduce_context("test")
-
             assert contexts == []
 
 
-class TestGetCommunityEntities:
+class TestGlobalContextBuilderGetCommunityEntities:
     """Tests for _get_community_entities."""
 
     @pytest.mark.asyncio
-    async def test_get_community_entities_empty_id(self) -> None:
+    async def test_empty_id(self) -> None:
         pool = _make_pool()
         builder = GlobalContextBuilder(graph_pool=pool)
         result = await builder._get_community_entities("")
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_get_community_entities_with_results(self) -> None:
+    async def test_with_results(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(
             return_value=[
                 {"canonical_name": "Entity1", "type": "ORG", "description": "A company"},
             ]
         )
-
         builder = GlobalContextBuilder(graph_pool=pool)
         result = await builder._get_community_entities("c1")
-
         assert len(result) == 1
 
     @pytest.mark.asyncio
-    async def test_get_community_entities_handles_error(self) -> None:
+    async def test_handles_error(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(side_effect=Exception("DB error"))
         builder = GlobalContextBuilder(graph_pool=pool)
         result = await builder._get_community_entities("c1")
         assert result == []
-
-
-class TestHasAnyCommunitiesExtended:
-    """Extended tests for _has_any_communities."""
-
-    @pytest.mark.asyncio
-    async def test_has_communities_with_level(self) -> None:
-        pool = _make_pool()
-        pool.execute_query = AsyncMock(return_value=[{"count": 3}])
-        builder = GlobalContextBuilder(graph_pool=pool)
-        assert await builder._has_any_communities(level=0) is True
-
-    @pytest.mark.asyncio
-    async def test_has_communities_malformed_result(self) -> None:
-        pool = _make_pool()
-        pool.execute_query = AsyncMock(return_value=[{"wrong_key": 5}])
-        builder = GlobalContextBuilder(graph_pool=pool)
-        # get("count", 0) returns 0 -> False
-        assert await builder._has_any_communities() is False
-
-    @pytest.mark.asyncio
-    async def test_has_communities_empty_result(self) -> None:
-        pool = _make_pool()
-        pool.execute_query = AsyncMock(return_value=[])
-        builder = GlobalContextBuilder(graph_pool=pool)
-        assert await builder._has_any_communities() is False

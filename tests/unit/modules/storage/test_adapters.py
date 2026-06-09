@@ -1,66 +1,48 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Tests for modules.storage.adapters module."""
+"""Tests for modules.storage module exports and patterns."""
 
 import pytest
 
 
-class TestStorageAdaptersImports:
-    """Test that all expected exports are available."""
+class TestStorageInitExports:
+    """Test that __init__.py exports are available."""
 
     def test_import_article_repo(self):
-        """Test ArticleRepo can be imported."""
         from modules.storage import ArticleRepo
 
         assert ArticleRepo is not None
 
     def test_import_neo4j_article_repo(self):
-        """Test Neo4jArticleRepo can be imported."""
         from modules.storage import Neo4jArticleRepo
 
         assert Neo4jArticleRepo is not None
 
     def test_import_neo4j_entity_repo(self):
-        """Test Neo4jEntityRepo can be imported."""
         from modules.storage import Neo4jEntityRepo
 
         assert Neo4jEntityRepo is not None
 
     def test_import_vector_repo(self):
-        """Test VectorRepo can be imported."""
         from modules.storage import VectorRepo
 
         assert VectorRepo is not None
 
     def test_import_pending_sync_repo(self):
-        """Test PendingSyncRepo can be imported."""
         from modules.storage import PendingSyncRepo
 
         assert PendingSyncRepo is not None
 
     def test_import_source_authority_repo(self):
-        """Test SourceAuthorityRepo can be imported."""
         from modules.storage import SourceAuthorityRepo
 
         assert SourceAuthorityRepo is not None
 
-    def test_import_graph_repository_from_module(self):
-        """Test GraphRepository can be imported from graph_repo module."""
-        from modules.storage.graph_repo import GraphRepository
+    def test_all_exports_count(self):
+        from modules.storage import __all__
 
-        assert GraphRepository is not None
+        assert len(__all__) == 6
 
-    def test_import_duckdb_article_repo_from_module(self):
-        """Test DuckDBArticleRepo can be imported from duckdb module."""
-        from modules.storage.duckdb import DuckDBArticleRepo
-
-        assert DuckDBArticleRepo is not None
-
-
-class TestStorageAdaptersAll:
-    """Test __all__ list."""
-
-    def test_all_exports_defined(self):
-        """Test __all__ contains expected exports."""
+    def test_all_exports_match(self):
         from modules.storage import __all__
 
         expected = [
@@ -71,54 +53,118 @@ class TestStorageAdaptersAll:
             "SourceAuthorityRepo",
             "VectorRepo",
         ]
+        assert sorted(__all__) == sorted(expected)
 
-        for item in expected:
-            assert item in __all__
+
+class TestStorageAdaptersModule:
+    """Test the adapters sub-module with extended exports."""
+
+    def test_adapters_all_exports(self):
+        from modules.storage.adapters import __all__
+
+        assert "ArticleRepo" in __all__
+        assert "ArticleRepository" in __all__
+        assert "DuckDBArticleRepo" in __all__
+        assert "GraphRepository" in __all__
+        assert "VectorRepository" in __all__
+        assert "EntityRepository" in __all__
+
+    def test_adapters_re_exports_protocols(self):
+        from modules.storage.adapters import (
+            ArticleRepository,
+            EntityRepository,
+            VectorRepository,
+        )
+
+        assert ArticleRepository is not None
+        assert EntityRepository is not None
+        assert VectorRepository is not None
+
+    def test_adapters_re_exports_duckdb(self):
+        from modules.storage.adapters import (
+            DuckDBArticleRepo,
+            DuckDBLLMUsageRepo,
+            DuckDBPendingSyncRepo,
+            DuckDBSourceAuthorityRepo,
+        )
+
+        assert DuckDBArticleRepo is not None
+        assert DuckDBLLMUsageRepo is not None
+        assert DuckDBPendingSyncRepo is not None
+        assert DuckDBSourceAuthorityRepo is not None
 
 
 class TestRepositoryPatterns:
     """Test repository pattern usage."""
 
     def test_article_repo_exists(self):
-        """Test ArticleRepo class exists."""
         from modules.storage import ArticleRepo
 
         assert ArticleRepo is not None
 
     def test_vector_repo_exists(self):
-        """Test VectorRepo class exists."""
         from modules.storage import VectorRepo
 
         assert VectorRepo is not None
 
     def test_graph_repo_has_expected_methods(self):
-        """Test GraphRepository has expected methods."""
         from modules.storage.graph_repo import GraphRepository
 
-        # Check key methods exist
         assert hasattr(GraphRepository, "get_entity")
         assert hasattr(GraphRepository, "get_article")
         assert hasattr(GraphRepository, "get_related_articles")
         assert hasattr(GraphRepository, "get_visualization_nodes")
 
     def test_neo4j_entity_repo_exists(self):
-        """Test Neo4jEntityRepo class exists."""
         from modules.storage import Neo4jEntityRepo
 
         assert Neo4jEntityRepo is not None
 
 
 class TestProtocolCompliance:
-    """Test that implementations comply with protocols."""
+    """Test that implementations come from correct modules."""
 
     def test_article_repo_from_correct_module(self):
-        """Test ArticleRepo is imported from postgres."""
         from modules.storage.postgres.article_repo import ArticleRepo
 
         assert ArticleRepo.__module__ == "modules.storage.postgres.article_repo"
 
     def test_vector_repo_from_correct_module(self):
-        """Test VectorRepo is imported from postgres."""
         from modules.storage.postgres.vector_repo import VectorRepo
 
         assert VectorRepo.__module__ == "modules.storage.postgres.vector_repo"
+
+    def test_article_repository_from_protocols(self):
+        from core.protocols.repositories import ArticleRepository
+
+        assert ArticleRepository.__module__ == "core.protocols.repositories"
+
+    def test_entity_repository_from_protocols(self):
+        from core.protocols.repositories import EntityRepository
+
+        assert EntityRepository.__module__ == "core.protocols.repositories"
+
+    def test_vector_repository_from_protocols(self):
+        from core.protocols.repositories import VectorRepository
+
+        assert VectorRepository.__module__ == "core.protocols.repositories"
+
+    def test_duckdb_article_repo_from_correct_module(self):
+        from modules.storage.duckdb import DuckDBArticleRepo
+
+        assert DuckDBArticleRepo.__module__.startswith("modules.storage.duckdb")
+
+    def test_graph_repository_from_correct_module(self):
+        from modules.storage.graph_repo import GraphRepository
+
+        assert GraphRepository.__module__ == "modules.storage.graph_repo"
+
+    def test_neo4j_article_repo_from_correct_module(self):
+        from modules.storage.neo4j import Neo4jArticleRepo
+
+        assert Neo4jArticleRepo.__module__.startswith("modules.storage.neo4j")
+
+    def test_neo4j_entity_repo_from_correct_module(self):
+        from modules.storage.neo4j import Neo4jEntityRepo
+
+        assert Neo4jEntityRepo.__module__.startswith("modules.storage.neo4j")

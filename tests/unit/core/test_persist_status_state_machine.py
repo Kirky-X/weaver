@@ -7,6 +7,42 @@ from core.db import PersistStatus
 from core.exceptions import InvalidStateTransitionError
 
 
+class TestPersistStatusEnumSize:
+    """Tests for PersistStatus enum size (6 states only)."""
+
+    def test_enum_has_exactly_six_members(self):
+        """Test that PersistStatus has exactly 6 members."""
+        assert len(list(PersistStatus)) == 6
+
+    def test_stored_not_in_enum(self):
+        """Test that STORED is not a PersistStatus member."""
+        with pytest.raises(AttributeError):
+            _ = PersistStatus.STORED
+
+    def test_complete_not_in_enum(self):
+        """Test that COMPLETE is not a PersistStatus member."""
+        with pytest.raises(AttributeError):
+            _ = PersistStatus.COMPLETE
+
+    def test_all_statuses_present(self):
+        """Test that all 6 expected statuses are present."""
+        expected_names = {
+            "PENDING",
+            "PROCESSING",
+            "PG_DONE",
+            "NEO4J_DONE",
+            "NEO4J_FAILED",
+            "FAILED",
+        }
+        actual_names = {m.name for m in PersistStatus}
+        assert actual_names == expected_names
+
+    def test_enum_value_uniqueness(self):
+        """Test that all enum values are unique."""
+        values = [m.value for m in PersistStatus]
+        assert len(values) == len(set(values))
+
+
 class TestPersistStatusStateMachine:
     """Tests for PersistStatus state machine."""
 
@@ -16,16 +52,17 @@ class TestPersistStatusStateMachine:
             # PENDING → PROCESSING, FAILED
             (PersistStatus.PENDING, PersistStatus.PROCESSING),
             (PersistStatus.PENDING, PersistStatus.FAILED),
-            # PROCESSING → STORED, FAILED
-            (PersistStatus.PROCESSING, PersistStatus.STORED),
+            # PROCESSING → PG_DONE, FAILED
+            (PersistStatus.PROCESSING, PersistStatus.PG_DONE),
             (PersistStatus.PROCESSING, PersistStatus.FAILED),
-            # STORED → NEO4J_DONE, FAILED
-            (PersistStatus.STORED, PersistStatus.NEO4J_DONE),
-            (PersistStatus.STORED, PersistStatus.FAILED),
-            # PG_DONE → NEO4J_DONE, FAILED
+            # PG_DONE → NEO4J_DONE, NEO4J_FAILED, FAILED
             (PersistStatus.PG_DONE, PersistStatus.NEO4J_DONE),
+            (PersistStatus.PG_DONE, PersistStatus.NEO4J_FAILED),
             (PersistStatus.PG_DONE, PersistStatus.FAILED),
-            # FAILED → PENDING (允许重试)
+            # NEO4J_FAILED → PENDING, PG_DONE
+            (PersistStatus.NEO4J_FAILED, PersistStatus.PENDING),
+            (PersistStatus.NEO4J_FAILED, PersistStatus.PG_DONE),
+            # FAILED → PENDING
             (PersistStatus.FAILED, PersistStatus.PENDING),
         ],
     )
@@ -41,31 +78,32 @@ class TestPersistStatusStateMachine:
     @pytest.mark.parametrize(
         "from_status,to_status",
         [
-            # PENDING 跳过中间状态
-            (PersistStatus.PENDING, PersistStatus.STORED),
+            # PENDING cannot skip steps
+            (PersistStatus.PENDING, PersistStatus.PG_DONE),
             (PersistStatus.PENDING, PersistStatus.NEO4J_DONE),
-            (PersistStatus.PENDING, PersistStatus.COMPLETE),
-            # PROCESSING 不允许回退或跳过
+            (PersistStatus.PENDING, PersistStatus.NEO4J_FAILED),
+            # PROCESSING cannot go backward or skip
             (PersistStatus.PROCESSING, PersistStatus.PENDING),
             (PersistStatus.PROCESSING, PersistStatus.NEO4J_DONE),
-            (PersistStatus.PROCESSING, PersistStatus.COMPLETE),
-            # STORED 不允许回退
-            (PersistStatus.STORED, PersistStatus.PENDING),
-            (PersistStatus.STORED, PersistStatus.PROCESSING),
-            # PG_DONE 不允许回退
+            (PersistStatus.PROCESSING, PersistStatus.NEO4J_FAILED),
+            # PG_DONE cannot go backward
             (PersistStatus.PG_DONE, PersistStatus.PENDING),
             (PersistStatus.PG_DONE, PersistStatus.PROCESSING),
-            # COMPLETE 是终态，不允许任何转换
-            (PersistStatus.COMPLETE, PersistStatus.PENDING),
-            (PersistStatus.COMPLETE, PersistStatus.PROCESSING),
-            (PersistStatus.COMPLETE, PersistStatus.STORED),
-            (PersistStatus.COMPLETE, PersistStatus.PG_DONE),
-            (PersistStatus.COMPLETE, PersistStatus.FAILED),
-            # FAILED 只能转换到 PENDING
+            # NEO4J_DONE is terminal
+            (PersistStatus.NEO4J_DONE, PersistStatus.PENDING),
+            (PersistStatus.NEO4J_DONE, PersistStatus.PROCESSING),
+            (PersistStatus.NEO4J_DONE, PersistStatus.PG_DONE),
+            (PersistStatus.NEO4J_DONE, PersistStatus.NEO4J_FAILED),
+            (PersistStatus.NEO4J_DONE, PersistStatus.FAILED),
+            # NEO4J_FAILED cannot go to PROCESSING or NEO4J_DONE
+            (PersistStatus.NEO4J_FAILED, PersistStatus.PROCESSING),
+            (PersistStatus.NEO4J_FAILED, PersistStatus.NEO4J_DONE),
+            (PersistStatus.NEO4J_FAILED, PersistStatus.FAILED),
+            # FAILED can only go to PENDING
             (PersistStatus.FAILED, PersistStatus.PROCESSING),
-            (PersistStatus.FAILED, PersistStatus.STORED),
             (PersistStatus.FAILED, PersistStatus.PG_DONE),
-            (PersistStatus.FAILED, PersistStatus.COMPLETE),
+            (PersistStatus.FAILED, PersistStatus.NEO4J_DONE),
+            (PersistStatus.FAILED, PersistStatus.NEO4J_FAILED),
         ],
     )
     def test_invalid_transitions(self, from_status, to_status):
@@ -83,22 +121,21 @@ class TestPersistStatusStateMachine:
         assert PersistStatus.is_valid_transition(PersistStatus.FAILED, PersistStatus.PENDING)
         assert PersistStatus.is_valid_transition(PersistStatus.PENDING, PersistStatus.PROCESSING)
 
-    def test_failure_from_any_state(self):
+    def test_failure_from_any_non_terminal_state(self):
         """Test that transition to FAILED is allowed from non-terminal states."""
         non_terminal_states = [
             PersistStatus.PENDING,
             PersistStatus.PROCESSING,
             PersistStatus.PG_DONE,
-            PersistStatus.STORED,
             PersistStatus.FAILED,
         ]
 
         for status in non_terminal_states:
             assert PersistStatus.is_valid_transition(status, PersistStatus.FAILED) is True
 
-    def test_terminal_state_immutable(self):
-        """Test that COMPLETE is a terminal state with no outgoing transitions."""
-        terminal_state = PersistStatus.COMPLETE
+    def test_neo4j_done_is_terminal(self):
+        """Test that NEO4J_DONE is a terminal state with no outgoing transitions."""
+        terminal_state = PersistStatus.NEO4J_DONE
 
         for target_status in PersistStatus:
             if target_status != terminal_state:
@@ -113,30 +150,20 @@ class TestPersistStatusStateMachine:
             (PersistStatus.PENDING, PersistStatus.PENDING),
             (PersistStatus.PROCESSING, PersistStatus.PROCESSING),
             (PersistStatus.PG_DONE, PersistStatus.PG_DONE),
-            (PersistStatus.STORED, PersistStatus.STORED),
             (PersistStatus.NEO4J_DONE, PersistStatus.NEO4J_DONE),
             (PersistStatus.NEO4J_FAILED, PersistStatus.NEO4J_FAILED),
             (PersistStatus.FAILED, PersistStatus.FAILED),
-            (PersistStatus.COMPLETE, PersistStatus.COMPLETE),
             # Forward transitions
             (PersistStatus.PENDING, PersistStatus.PROCESSING),
             (PersistStatus.PENDING, PersistStatus.FAILED),
             (PersistStatus.PROCESSING, PersistStatus.PG_DONE),
-            (PersistStatus.PROCESSING, PersistStatus.STORED),
             (PersistStatus.PROCESSING, PersistStatus.FAILED),
             (PersistStatus.PG_DONE, PersistStatus.NEO4J_DONE),
             (PersistStatus.PG_DONE, PersistStatus.NEO4J_FAILED),
             (PersistStatus.PG_DONE, PersistStatus.FAILED),
-            (PersistStatus.PG_DONE, PersistStatus.COMPLETE),
-            (PersistStatus.PG_DONE, PersistStatus.STORED),
-            (PersistStatus.STORED, PersistStatus.NEO4J_DONE),
-            (PersistStatus.STORED, PersistStatus.NEO4J_FAILED),
-            (PersistStatus.STORED, PersistStatus.COMPLETE),
-            (PersistStatus.STORED, PersistStatus.FAILED),
+            # Retry transitions
             (PersistStatus.NEO4J_FAILED, PersistStatus.PENDING),
             (PersistStatus.NEO4J_FAILED, PersistStatus.PG_DONE),
-            (PersistStatus.NEO4J_FAILED, PersistStatus.STORED),
-            # Retry transition
             (PersistStatus.FAILED, PersistStatus.PENDING),
         }
 
@@ -153,9 +180,9 @@ class TestPersistStatusStateMachine:
     @pytest.mark.parametrize(
         "from_status,to_status",
         [
-            (PersistStatus.PENDING, PersistStatus.COMPLETE),
+            (PersistStatus.PENDING, PersistStatus.NEO4J_DONE),
             (PersistStatus.PROCESSING, PersistStatus.PENDING),
-            (PersistStatus.COMPLETE, PersistStatus.PENDING),
+            (PersistStatus.NEO4J_DONE, PersistStatus.PENDING),
         ],
     )
     def test_invalid_transition_error_message(self, from_status, to_status):
@@ -170,10 +197,10 @@ class TestPersistStatusStateMachine:
 
     def test_error_message_format(self):
         """Test that error message follows expected format."""
-        error = InvalidStateTransitionError("pending", "complete")
+        error = InvalidStateTransitionError("pending", "neo4j_done")
 
         expected_message = (
-            "Invalid state transition: cannot transition from 'pending' to 'complete'"
+            "Invalid state transition: cannot transition from 'pending' to 'neo4j_done'"
         )
         assert error.message == expected_message
         assert str(error) == expected_message
@@ -184,11 +211,20 @@ class TestPersistStatusStateMachine:
         assert PersistStatus.is_valid_transition(PersistStatus.FAILED, PersistStatus.PENDING)
         assert PersistStatus.is_valid_transition(PersistStatus.PENDING, PersistStatus.PROCESSING)
 
-    def test_retry_scenario_after_stored_failure(self):
-        """Test retry scenario when enrichment fails after STORED."""
-        assert PersistStatus.is_valid_transition(PersistStatus.STORED, PersistStatus.FAILED)
+    def test_retry_scenario_after_pg_done_failure(self):
+        """Test retry scenario when enrichment fails after PG_DONE."""
+        assert PersistStatus.is_valid_transition(PersistStatus.PG_DONE, PersistStatus.FAILED)
         assert PersistStatus.is_valid_transition(PersistStatus.FAILED, PersistStatus.PENDING)
         assert PersistStatus.is_valid_transition(PersistStatus.PENDING, PersistStatus.PROCESSING)
+
+    def test_retry_scenario_neo4j_failed_to_pending(self):
+        """Test retry scenario: NEO4J_FAILED → PENDING → PROCESSING."""
+        assert PersistStatus.is_valid_transition(PersistStatus.NEO4J_FAILED, PersistStatus.PENDING)
+        assert PersistStatus.is_valid_transition(PersistStatus.PENDING, PersistStatus.PROCESSING)
+
+    def test_retry_scenario_neo4j_failed_to_pg_done(self):
+        """Test retry scenario: NEO4J_FAILED → PG_DONE."""
+        assert PersistStatus.is_valid_transition(PersistStatus.NEO4J_FAILED, PersistStatus.PG_DONE)
 
     @pytest.mark.parametrize("status", list(PersistStatus))
     def test_transition_to_itself_always_valid(self, status):
