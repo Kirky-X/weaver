@@ -479,6 +479,26 @@ class ContainerLifecycleMixin:
                 coalesce=True,
             )
 
+        # Analytics - Daily Briefing Generation
+        scheduler.add_job(
+            jobs.generate_daily_briefing,
+            CronTrigger(hour=7, minute=0),
+            id="daily_briefing_generation",
+            name="Generate daily intelligence briefing",
+            max_instances=1,
+            coalesce=True,
+        )
+
+        # Analytics - Sentiment Shift Detection
+        scheduler.add_job(
+            jobs.detect_sentiment_shifts,
+            IntervalTrigger(minutes=60),
+            id="shift_detection",
+            name="Detect sentiment shifts",
+            max_instances=1,
+            coalesce=True,
+        )
+
         # Startup: run sync once immediately
         scheduler.add_job(
             jobs.sync_pending_to_neo4j,

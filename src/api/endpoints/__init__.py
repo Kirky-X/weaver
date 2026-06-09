@@ -11,6 +11,7 @@ This module contains all API endpoint routers:
 """
 
 from api.endpoints.admin import router as admin_router
+from api.endpoints.analytics import router as analytics_router
 from api.endpoints.communities import router as communities_router
 from api.endpoints.content.articles import router as articles_router
 from api.endpoints.content.pipeline import router as pipeline_router
@@ -27,6 +28,7 @@ from api.endpoints.monitoring import (
 
 __all__ = [
     "admin_router",
+    "analytics_router",
     "articles_router",
     "causal_router",
     "communities_monitoring_router",

@@ -923,3 +923,113 @@ class SchedulerJobs:
         # Get articles that need enrichment (stored but not enriched)
         # This delegates to retry_pipeline_processing which handles pending/stuck articles
         return await self.retry_pipeline_processing()
+
+    @scheduled_task("generate_daily_briefing", timeout_seconds=300)
+    async def generate_daily_briefing(self) -> dict[str, Any]:
+        """Generate daily intelligence briefing.
+
+        Uses BriefingEngine to analyze recent articles and produce
+        a ranked briefing with diversity across categories.
+
+        Returns:
+            Dict with briefing_id, date, and items count.
+        """
+        log.info("generate_daily_briefing_start")
+
+        try:
+            from modules.briefing.engine import BriefingEngine
+
+            engine = BriefingEngine(pool=self._relational_pool)
+            result = await engine.generate()
+
+            log.info(
+                "generate_daily_briefing_complete",
+                briefing_id=result.get("id"),
+                items=len(result.get("items", [])),
+            )
+            return result
+        except Exception as exc:
+            log.error("generate_daily_briefing_failed", error=str(exc))
+            return {"error": str(exc)}
+
+    @scheduled_task("detect_sentiment_shifts", timeout_seconds=300)
+    async def detect_sentiment_shifts(self) -> list[dict[str, Any]]:
+        """Detect sentiment shifts in community data.
+
+        Uses SentimentShiftDetector with PELT + Binseg algorithms
+        to identify significant sentiment changes over time.
+
+        Returns:
+            List of detected shift points.
+        """
+        log.info("detect_sentiment_shifts_start")
+
+        try:
+            from modules.analytics.shift_detector import SentimentShiftDetector, ShiftConfig
+
+            config = ShiftConfig(
+                window_days=self._settings.cleanup_old_synced_days or 14,
+            )
+            detector = SentimentShiftDetector(config=config)
+
+            # Fetch recent sentiment signal from database
+            signal = await self._fetch_sentiment_signal(config.window_days)
+
+            if not signal or len(signal) < config.min_size * 2:
+                log.info("detect_sentiment_shifts_insufficient_data")
+                return []
+
+            shifts = detector.detect(signal)
+
+            log.info(
+                "detect_sentiment_shifts_complete",
+                shifts_count=len(shifts),
+                signal_length=len(signal),
+            )
+            return shifts
+        except Exception as exc:
+            log.error("detect_sentiment_shifts_failed", error=str(exc))
+            return []
+
+    async def _fetch_sentiment_signal(self, window_days: int) -> list[float]:
+        """Fetch daily sentiment scores for shift detection.
+
+        Args:
+            window_days: Number of days to look back.
+
+        Returns:
+            List of daily sentiment scores (0.0-1.0).
+        """
+        try:
+            from datetime import timedelta
+
+            from sqlalchemy import func
+
+            threshold = datetime.now(UTC) - timedelta(days=window_days)
+
+            async with self._relational_pool.session() as session:
+                stmt = (
+                    select(
+                        func.date(Article.created_at).label("day"),
+                        func.avg(Article.credibility_score).label("avg_score"),
+                    )
+                    .where(
+                        and_(
+                            Article.created_at >= threshold,
+                            Article.credibility_score.isnot(None),
+                        )
+                    )
+                    .group_by(func.date(Article.created_at))
+                    .order_by(func.date(Article.created_at))
+                )
+
+                result = await session.execute(stmt)
+                rows = result.all()
+
+                if not rows:
+                    return []
+
+                return [float(row[1] or 0.5) for row in rows]
+        except Exception as exc:
+            log.error("fetch_sentiment_signal_failed", error=str(exc))
+            return []

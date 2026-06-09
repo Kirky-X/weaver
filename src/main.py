@@ -405,6 +405,17 @@ def create_app(container: Container | None = None) -> FastAPI:
         container = Container().configure(settings)
     app.state.container = container
 
+    # Register HMAC signature middleware if enabled
+    if settings.api.hmac_signing_enabled:
+        from api.middleware.hmac_auth import HMACSignatureMiddleware
+
+        app.add_middleware(HMACSignatureMiddleware, secret_key=settings.api.get_api_key())
+
+    # Register audit logging middleware for admin endpoints
+    from api.middleware.audit import AuditLogMiddleware
+
+    app.add_middleware(AuditLogMiddleware)
+
     app.include_router(api_router)
 
     # Register Prometheus metrics endpoint

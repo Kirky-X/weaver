@@ -35,7 +35,9 @@ from pydantic_settings import (
 
 # Import sub-configurations
 from config.subconfigs import (
+    AnalyticsSettings,
     APISettings,
+    DailyBriefingSettings,
     DedupSettings,
     DuckDBSettings,
     EntitySettings,
@@ -114,6 +116,10 @@ class Settings(BaseSettings):
     )
     pipeline: PipelineSettings = Field(default_factory=PipelineSettings)
     pipeline_process: PipelineProcessSettings = Field(default_factory=PipelineProcessSettings)
+
+    # Analytics settings (loaded from TOML)
+    analytics: AnalyticsSettings = Field(default_factory=AnalyticsSettings)
+    daily_briefing: DailyBriefingSettings = Field(default_factory=DailyBriefingSettings)
 
     # LLM configuration (loaded from separate TOML file)
     llm: LLMSettings = Field(default_factory=LLMSettings)

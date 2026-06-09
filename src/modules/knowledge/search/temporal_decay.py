@@ -26,7 +26,7 @@ from datetime import UTC, datetime
 class TemporalDecayConfig:
     """Configuration for temporal decay."""
 
-    enabled: bool = False
+    enabled: bool = True
     """Whether temporal decay is enabled."""
 
     half_life_days: float = 30.0

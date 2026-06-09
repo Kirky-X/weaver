@@ -66,6 +66,11 @@ name = "entity_extractor"
 class_path = "modules.processing.pipeline.nodes.entity_extractor.EntityExtractorNode"
 enabled = true
 
+[[phase3.stages]]
+name = "conflict_detector"
+class_path = "modules.processing.nodes.quality.conflict_detector.ConflictDetectorNode"
+enabled = true
+
 # ============================================================
 # Batch Processing
 # ============================================================

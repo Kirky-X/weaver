@@ -110,6 +110,7 @@ class APISettings(BaseModel):
     port_auto_detect: bool = True  # Enable automatic port detection
     port_max_attempts: int = 100  # Maximum port search attempts
     require_auth_for_metrics: bool = False  # Optional auth for Prometheus metrics endpoint
+    hmac_signing_enabled: bool = False  # Enable HMAC signature verification middleware
     shutdown_timeout: float = 30.0  # Pipeline drain timeout during shutdown
 
     def get_api_key(self) -> str:
@@ -472,3 +473,26 @@ class KnowledgeCacheSettings(BaseModel):
     max_queries: int = 5  # FIFO queue size per cluster
     similarity_threshold: float = 0.85  # Minimum similarity for cache hit
     hotness_threshold: float = 0.3  # Minimum hotness to keep cluster
+
+
+class AnalyticsSettings(BaseModel):
+    """Analytics configuration for sentiment shift detection.
+
+    Environment variables: WEAVER__ANALYTICS__SHIFT_DETECTION_ENABLED, etc.
+    """
+
+    shift_detection_enabled: bool = True
+    shift_window_days: int = 14
+    pel_penalty: float = 5.0
+    binseg_penalty: float = 3.0
+
+
+class DailyBriefingSettings(BaseModel):
+    """Daily briefing generation configuration.
+
+    Environment variables: WEAVER__DAILY_BRIEFING__MAX_ITEMS, etc.
+    """
+
+    max_items: int = 10
+    max_per_category: int = 3
+    lookback_hours: int = 24

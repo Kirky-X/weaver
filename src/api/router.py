@@ -7,6 +7,7 @@ from fastapi import APIRouter
 
 from api.endpoints import (
     admin_router,
+    analytics_router,
     articles_router,
     causal_router,
     communities_monitoring_router,
@@ -31,6 +32,9 @@ api_router.include_router(graph_router)
 api_router.include_router(visualization_router)
 api_router.include_router(admin_router)
 api_router.include_router(communities_router)
+
+# Analytics endpoints
+api_router.include_router(analytics_router)
 
 # Monitoring endpoints (read-only observation)
 api_router.include_router(llm_router)

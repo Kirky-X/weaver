@@ -139,9 +139,9 @@ class TestTemporalDecayConfig:
     """Tests for TemporalDecayConfig dataclass."""
 
     def test_default_values(self) -> None:
-        """Default config should have decay disabled."""
+        """Default config should have decay enabled."""
         config = TemporalDecayConfig()
-        assert config.enabled is False
+        assert config.enabled is True
         assert config.half_life_days == 30.0
 
     def test_custom_values(self) -> None:

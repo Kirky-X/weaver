@@ -207,3 +207,24 @@ models = ["zh_core_web_lg", "en_core_web_sm"]  # Models to check/install
 # zh_model_path = "/path/to/zh_core_web_lg-3.7.0-py3-none-any.whl"
 # English model path (wheel file or directory), higher priority than SPACY_EN_MODEL_PATH env var
 # en_model_path = "/path/to/en_core_web_sm-3.7.0-py3-none-any.whl"
+
+# ============================================================
+# Analytics Configuration
+# ============================================================
+
+[analytics]
+# Sentiment shift detection settings
+shift_detection_enabled = true            # Enable sentiment shift detection
+shift_window_days = 14                    # Days to look back for shift detection
+pel_penalty = 5.0                         # PELT algorithm penalty value
+binseg_penalty = 3.0                      # Binseg algorithm penalty value
+
+# ============================================================
+# Daily Briefing Configuration
+# ============================================================
+
+[daily_briefing]
+# Daily intelligence briefing generation settings
+max_items = 10                            # Maximum items per briefing
+max_per_category = 3                      # Maximum items per category
+lookback_hours = 24                       # Hours to look back for articles
