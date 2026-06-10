@@ -13,6 +13,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     Enum,
     Float,
@@ -633,6 +634,13 @@ class SourceAuthority(Base):
     description: Mapped[str | None] = mapped_column(Text)
     needs_review: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     auto_score: Mapped[float | None] = mapped_column(Numeric(3, 2))
+    # Design doc §4.1: manual scoring and computed final score
+    manual_score: Mapped[float | None] = mapped_column(Numeric(3, 2))
+    final_score: Mapped[float | None] = mapped_column(Numeric(3, 2))
+    article_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+    last_crawled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
@@ -950,11 +958,16 @@ class SentimentShift(Base):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     community_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    # Design doc §12.1: denormalized community name
+    community_title: Mapped[str | None] = mapped_column(String(200))
     shift_type: Mapped[str] = mapped_column(String(20), nullable=False)
     direction: Mapped[str] = mapped_column(String(20), nullable=False)
     magnitude: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)
     confidence: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)
     detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Design doc §12.1: detection time window
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    window_end: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     before_avg: Mapped[float | None] = mapped_column(Numeric(5, 4))
     after_avg: Mapped[float | None] = mapped_column(Numeric(5, 4))
     trigger_article_ids: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
@@ -975,8 +988,12 @@ class DailyBriefing(Base):
     __tablename__ = "daily_briefings"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    briefing_date: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, unique=True
+    briefing_date: Mapped[datetime] = mapped_column(Date, nullable=False, unique=True)
+    # Design doc §12.2: briefing metadata
+    title: Mapped[str | None] = mapped_column(String(200))
+    summary: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="draft", server_default=text("'draft'")
     )
     total_items: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     generated_at: Mapped[datetime] = mapped_column(
@@ -989,7 +1006,13 @@ class DailyBriefing(Base):
         back_populates="briefing", cascade="all, delete-orphan"
     )
 
-    __table_args__ = (Index("idx_briefings_date", "briefing_date"),)
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('draft', 'published', 'archived')",
+            name="chk_briefing_status",
+        ),
+        Index("idx_briefings_date", "briefing_date"),
+    )
 
 
 class DailyBriefingItem(Base):
@@ -1003,6 +1026,9 @@ class DailyBriefingItem(Base):
         UUID(as_uuid=True), ForeignKey("articles.id", ondelete="CASCADE"), nullable=False
     )
     rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Design doc §12.2: scoring fields
+    score: Mapped[float] = mapped_column(Numeric(5, 3), nullable=False)
+    score_breakdown: Mapped[dict[str, Any] | None] = mapped_column(JSONCompatible)
     category: Mapped[str | None] = mapped_column(String(20))
     reason: Mapped[str | None] = mapped_column(Text)
 
@@ -1051,6 +1077,16 @@ class CommunityVector(Base):
     model_id: Mapped[str] = mapped_column(
         String(64), nullable=False, default="text-embedding-3-large"
     )
+    # Design doc §8.6: metadata for text fallback search
+    title: Mapped[str | None] = mapped_column(String(200))
+    summary: Mapped[str | None] = mapped_column(Text)
+    entity_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+    article_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+    rank: Mapped[float | None] = mapped_column(Numeric(3, 2))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
