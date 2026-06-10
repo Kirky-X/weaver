@@ -1,5 +1,5 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Cascade classifier — rule-first, LLM fallback."""
+"""Cascade classifier — rule-first, ML cascade, LLM fallback."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from core.llm.client import LLMClient
     from core.llm.config.token_budget import TokenBudgetManager
     from core.prompt.loader import PromptLoader
+    from modules.processing.nodes.classification.cascade_classifier import CascadeClassifier
 
 log = get_logger(__name__)
 
@@ -72,10 +73,12 @@ class CascadeClassifierNode:
         llm: LLMClient | None = None,
         budget: TokenBudgetManager | None = None,
         prompt_loader: PromptLoader | None = None,
+        cascade: CascadeClassifier | None = None,
     ) -> None:
         self._llm = llm
         self._budget = budget
         self._prompt_loader = prompt_loader
+        self._cascade = cascade
 
     async def execute(self, state: PipelineState) -> PipelineState:
         raw = state["raw"]
@@ -89,6 +92,16 @@ class CascadeClassifierNode:
             state["terminal"] = not is_news_rule
             log.info("cascade_rule_match", title=title, is_news=is_news_rule)
             return state
+
+        # Layer 1-3: ML cascade (fastText → SetFit → fusion)
+        if self._cascade:
+            result = self._cascade.classify(title)
+            if result is not None:
+                label, confidence = result
+                state["is_news"] = label in ("news", "1", "true")
+                state["terminal"] = not state["is_news"]
+                log.info("cascade_ml_match", title=title, label=label, confidence=confidence)
+                return state
 
         if self._llm and self._budget and self._prompt_loader:
             from core.llm.types import CallPoint

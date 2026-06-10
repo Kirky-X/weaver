@@ -62,6 +62,9 @@ dependencies = [
     "paddlenlp>=2.7.0",
     # ── Zero-shot Entity Extraction ──────────────────────────────
     "gliner>=0.2.0",
+    # ── Cascade Classification ──────────────────────────────
+    "fasttext-wheel>=0.9.2",
+    "setfit>=1.1.0",
 ]
 
 [project.optional-dependencies]

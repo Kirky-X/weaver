@@ -48,6 +48,7 @@ class ExperienceStore:
         self,
         event_bus: EventBus,
         warmup_data: dict[str, dict[str, Any]] | None = None,
+        warmup_calls: int = 20,
     ) -> None:
         """Initialize the experience store.
 
@@ -55,10 +56,15 @@ class ExperienceStore:
             event_bus: Event bus to subscribe to LLMUsageEvent.
             warmup_data: Pre-loaded experience data from relational_pool.
                 Format: {"{call_point}.{provider}.{model}": {"call_count": ..., ...}}
+            warmup_calls: Number of calls per call_point before switching
+                from round-robin to Thompson Sampling. Default: 20.
         """
         self._experiences: dict[str, _ModelExperience] = {}
         self._lock = asyncio.Lock()
         self._event_bus = event_bus
+        self._warmup_calls = warmup_calls
+        self._warmup_counts: dict[str, int] = {}
+        self._round_robin_indices: dict[str, int] = {}
 
         # Warmup from historical data
         if warmup_data:
@@ -256,6 +262,49 @@ class ExperienceStore:
         if exp is None:
             return random.betavariate(1.0, 1.0)
         return random.betavariate(exp.alpha, exp.beta)
+
+    def select_provider(self, call_point: str, providers: list[str], model: str) -> str:
+        """Select a provider using round-robin during warmup, Thompson Sampling after.
+
+        During the warmup period (first warmup_calls), cycles through providers
+        in order via round-robin. After warmup, uses Thompson Sampling scores
+        to select the best provider.
+
+        Args:
+            call_point: The call point identifier.
+            providers: List of available provider names.
+            model: The model name.
+
+        Returns:
+            Selected provider name.
+        """
+        if not providers:
+            raise ValueError("providers list must not be empty")
+
+        warmup_key = call_point
+        current_count = self._warmup_counts.get(warmup_key, 0)
+
+        if current_count < self._warmup_calls:
+            # Round-robin during warmup
+            idx = self._round_robin_indices.get(warmup_key, 0)
+            selected = providers[idx % len(providers)]
+            self._round_robin_indices[warmup_key] = (idx + 1) % len(providers)
+            self._warmup_counts[warmup_key] = current_count + 1
+            return selected
+
+        # Thompson Sampling after warmup
+        best_provider = providers[0]
+        best_score = -1.0
+        for provider in providers:
+            score = self.thompson_sample(call_point, provider, model)
+            if score > best_score:
+                best_score = score
+                best_provider = provider
+        return best_provider
+
+    def warmup_complete(self, call_point: str) -> bool:
+        """Check if warmup period is complete for a given call point."""
+        return self._warmup_counts.get(call_point, 0) >= self._warmup_calls
 
     @property
     def experience_count(self) -> int:

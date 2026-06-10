@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 from typing import TYPE_CHECKING, Any, TypeVar
@@ -330,6 +331,114 @@ class LLMClient:
             error_type=type(last_error).__name__,
         )
         raise last_error  # type: ignore[misc]
+
+    async def batch_call(
+        self,
+        label: str | Label,
+        payloads: list[dict[str, Any]],
+        call_point: CallPoint | str,
+        fallback_labels: list[str | Label] | None = None,
+        output_model: type[T] | None = None,
+        timeout: float | None = None,
+    ) -> list[T | str]:
+        """Batch LLM call using Redis MGET/MSET for cache efficiency.
+
+        Checks all cache keys in a single MGET call, then only calls
+        the LLM for uncached items, and stores results via MSET.
+
+        Args:
+            label: 标签或标签字符串
+            payloads: 调用参数列表
+            call_point: 调用点标识
+            fallback_labels: 备用标签列表
+            output_model: 可选的Pydantic模型
+            timeout: 超时覆盖
+
+        Returns:
+            结果列表，顺序与 payloads 对应
+        """
+        if isinstance(call_point, str):
+            try:
+                cp = CallPoint(call_point)
+            except ValueError:
+                cp = CallPoint.CLASSIFIER
+        else:
+            cp = call_point
+
+        ttl = CACHE_TTL.get(cp.value, CACHE_TTL["default"])
+
+        # Generate cache keys for all payloads
+        cache_keys = [
+            f"cache:llm:{cp.value}:{hashlib.sha256(json.dumps(p, sort_keys=True, ensure_ascii=False).encode()).hexdigest()}"
+            for p in payloads
+        ]
+
+        # Batch cache lookup via MGET
+        results: list[T | str | None] = [None] * len(payloads)
+        uncached_indices: list[int] = []
+
+        if self._redis:
+            try:
+                cached_values = await self._redis.mget(cache_keys)
+                for i, cached in enumerate(cached_values):
+                    if cached:
+                        data = json.loads(cached)
+                        content = data["content"]
+                        if output_model:
+                            results[i] = parse_llm_json(content, output_model)
+                        else:
+                            results[i] = content
+                        self._cache_hits += 1
+                    else:
+                        uncached_indices.append(i)
+            except Exception as exc:
+                log.debug("batch_cache_mget_failed", error=str(exc))
+                uncached_indices = list(range(len(payloads)))
+        else:
+            uncached_indices = list(range(len(payloads)))
+
+        # Call LLM for uncached items
+        if uncached_indices:
+            uncached_results: dict[int, T | str] = {}
+            for idx in uncached_indices:
+                try:
+                    result = await self.call(
+                        label=label,
+                        payload=payloads[idx],
+                        call_point=cp,
+                        fallback_labels=fallback_labels,
+                        output_model=output_model,
+                        timeout=timeout,
+                    )
+                    uncached_results[idx] = result
+                    results[idx] = result
+                except Exception:
+                    raise
+
+            # Store uncached results via MSET
+            if self._redis and uncached_results:
+                try:
+                    mapping: dict[str, str] = {}
+                    for idx, result in uncached_results.items():
+                        content = (
+                            result
+                            if isinstance(result, str)
+                            else json.dumps(result, ensure_ascii=False)
+                        )
+                        mapping[cache_keys[idx]] = json.dumps(
+                            {"content": content, "token_usage": {}},
+                            ensure_ascii=False,
+                        )
+                    if mapping:
+                        await self._redis.mset(mapping)
+                        # Set TTL for each key
+                        for key in mapping:
+                            with contextlib.suppress(Exception):
+                                await self._redis.expire(key, ttl)
+                except Exception as exc:
+                    log.debug("batch_cache_mset_failed", error=str(exc))
+
+        return results  # type: ignore[return-value]
 
     async def call_at(
         self,
