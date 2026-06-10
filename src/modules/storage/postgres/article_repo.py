@@ -8,7 +8,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import and_, case, select, update
+from sqlalchemy import and_, case, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,6 +18,7 @@ from core.db.models import (
     ArticleAnalysis,
     ArticleBody,
     ArticleCore,
+    ArticleVersion,
     EmotionType,
     PersistStatus,
 )
@@ -374,6 +375,9 @@ class ArticleRepo:
     async def _upsert_single(self, session: AsyncSession, state: PipelineState) -> uuid.UUID:
         """Upsert a single article using ON CONFLICT DO UPDATE.
 
+        Before updating an existing article, creates a version snapshot
+        of the old values if content has changed.
+
         Args:
             session: SQLAlchemy session.
             state: Pipeline state containing article data.
@@ -386,6 +390,66 @@ class ArticleRepo:
         title = state.get("cleaned", {}).get("title", getattr(raw, "title", ""))
         body = state.get("cleaned", {}).get("body", getattr(raw, "body", ""))
         content_hash = ChangeDetector.compute_hash({"title": title, "body": body})
+
+        # --- Version history: snapshot old values before upsert ---
+        existing_core = await session.execute(
+            select(
+                ArticleCore.id,
+                ArticleCore.title,
+                ArticleCore.category,
+                ArticleCore.score,
+                ArticleCore.content_hash,
+            ).where(ArticleCore.source_url == normalized_url)
+        )
+        existing_row = existing_core.one_or_none()
+
+        if existing_row is not None:
+            existing_id, old_title, old_category, old_score, old_hash = existing_row
+            # Content changed → create version snapshot with old values
+            if old_hash != content_hash:
+                # Get old body/summary from article_bodies
+                body_result = await session.execute(
+                    select(ArticleBody.body, ArticleBody.summary).where(
+                        ArticleBody.article_id == existing_id
+                    )
+                )
+                body_row = body_result.one_or_none()
+                old_body = body_row[0] if body_row else ""
+                old_summary = body_row[1] if body_row else None
+
+                # Detect which fields changed
+                changed_fields = ChangeDetector.detect_changed_fields(
+                    {"title": old_title, "body": old_body, "category": old_category},
+                    {"title": title, "body": body, "category": state.get("category")},
+                )
+
+                # Get next version number
+                max_ver_result = await session.execute(
+                    select(func.max(ArticleVersion.version)).where(
+                        ArticleVersion.article_id == existing_id
+                    )
+                )
+                max_ver = max_ver_result.scalar_one_or_none()
+                next_ver = (max_ver or 0) + 1
+
+                version = ArticleVersion(
+                    article_id=existing_id,
+                    version=next_ver,
+                    title=old_title,
+                    body=old_body,
+                    summary=old_summary,
+                    category=old_category,
+                    score=old_score,
+                    changed_fields=changed_fields or None,
+                )
+                session.add(version)
+
+                log.debug(
+                    "version_snapshot_created",
+                    article_id=str(existing_id),
+                    version=next_ver,
+                    changed_fields=changed_fields,
+                )
 
         # Upsert articles_core with ON CONFLICT DO UPDATE
         core_values = {

@@ -17,7 +17,7 @@ log = get_logger(__name__)
 class SourceAuthorityRepo:
     """Repository for source authority scores.
 
-    Implements: EntityRepository (partial)
+    Implements: SourceAuthorityRepository
 
     Args:
         pool: Relational database connection pool.

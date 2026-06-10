@@ -22,7 +22,7 @@ class DatabaseCircuitBreaker:
     Config: fail_max=3, reset_timeout=30.0
     Uses pybreaker.CircuitBreaker internally.
 
-    Implements: CircuitBreaker (for dependency injection)
+    No matching Protocol yet — standalone circuit breaker component.
     """
 
     def __init__(self, name: str = "database") -> None:

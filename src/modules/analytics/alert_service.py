@@ -4,7 +4,7 @@
 Provides CRUD for alert rules, rule evaluation, event triggering
 with cooldown, and event acknowledgment.
 
-Implements: AlertServiceProtocol
+No matching Protocol yet — standalone service component.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ log = get_logger(__name__)
 class AlertService:
     """Alert rule management and evaluation service.
 
-    Implements: AlertServiceProtocol
+    No matching Protocol yet — standalone service component.
     """
 
     def __init__(self, pool: RelationalPool) -> None:

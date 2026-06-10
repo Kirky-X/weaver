@@ -20,7 +20,7 @@ log = get_logger(__name__)
 class LLMFailureRepo:
     """Repository for LLM failure records.
 
-    Implements: EntityRepository (partial)
+    No matching Protocol yet — standalone repository component.
 
     Args:
         pool: Relational database connection pool.

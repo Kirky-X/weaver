@@ -14,7 +14,7 @@ log = get_logger(__name__)
 class CascadeClassifier:
     """4-layer cascade classifier: fastText → SetFit → fusion → LLM.
 
-    Implements: news classification with progressive confidence thresholds.
+    No matching Protocol yet — standalone classifier component.
     """
 
     FASTTEXT_THRESHOLD = 0.9

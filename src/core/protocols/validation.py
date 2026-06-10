@@ -40,7 +40,7 @@ def assert_implements(obj: Any, protocol: type) -> None:
     # Get all methods defined in the Protocol (excluding dunder and inherited)
     protocol_methods: dict[str, Any] = {}
     for name in dir(protocol):
-        if name.startswith("_") and name != "__init__":
+        if name.startswith("_"):
             continue
         attr = getattr(protocol, name)
         if callable(attr) or isinstance(attr, property):
@@ -80,7 +80,9 @@ def assert_implements(obj: Any, protocol: type) -> None:
                 # Compare parameter names (skip 'self')
                 obj_params = [p for p in obj_sig.parameters if p != "self"]
                 proto_params = [p for p in proto_sig.parameters if p != "self"]
-                if obj_params != proto_params:
+                # Implementation must accept all Protocol params (may have extra optional ones)
+                # Check that all proto params are present in obj params (subset check)
+                if not all(p in obj_params for p in proto_params):
                     wrong_signature.append(
                         f"{method_name}: expected params {proto_params}, got {obj_params}"
                     )

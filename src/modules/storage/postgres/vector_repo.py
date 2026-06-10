@@ -52,10 +52,7 @@ class VectorRepo:
     (pgvector) and DuckDB backends through dependency injection.
 
     Implements:
-        - VectorRepository: Vector similarity search and embedding storage
-
-    Implements:
-        - VectorRepository: Vector similarity search and embedding storage
+        VectorRepository: Vector similarity search and embedding storage
 
     Args:
         pool: Relational database connection pool (PostgreSQL or DuckDB).

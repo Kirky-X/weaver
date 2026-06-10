@@ -20,7 +20,7 @@ log = get_logger(__name__)
 class PendingSyncRepo:
     """Repository for pending Neo4j sync operations.
 
-    Implements: EntityRepository (partial)
+    Implements: PendingSyncRepository
 
     Args:
         pool: Relational database connection pool.

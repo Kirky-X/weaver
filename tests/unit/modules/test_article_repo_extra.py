@@ -112,17 +112,22 @@ class TestArticleRepoUpsert:
         state = {"raw": mock_raw, "is_news": True}
 
         # _upsert_single executes multiple statements:
-        # 1. pg_insert(ArticleCore) ON CONFLICT
-        # 2. select(ArticleCore.id) to get the ID
-        # 3. pg_insert(ArticleBody) ON CONFLICT
-        # 4. pg_insert(ArticleAnalysis) ON CONFLICT
+        # 1. select existing ArticleCore (no existing article → None)
+        # 2. pg_insert(ArticleCore) ON CONFLICT
+        # 3. select(ArticleCore.id) to get the ID
+        # 4. pg_insert(ArticleBody) ON CONFLICT
+        # 5. pg_insert(ArticleAnalysis) ON CONFLICT
         article_id = uuid.uuid4()
+
+        mock_existing_result = MagicMock()
+        mock_existing_result.one_or_none.return_value = None
 
         mock_core_result = MagicMock()
         mock_core_result.scalar_one.return_value = article_id
 
         mock_session = AsyncMock()
         mock_session.execute.side_effect = [
+            mock_existing_result,  # select existing ArticleCore
             MagicMock(),  # pg_insert ArticleCore
             mock_core_result,  # select ArticleCore.id
             MagicMock(),  # pg_insert ArticleBody
@@ -136,7 +141,7 @@ class TestArticleRepoUpsert:
         result = await repo.upsert(state)
 
         assert result == article_id
-        assert mock_session.execute.call_count == 4
+        assert mock_session.execute.call_count == 5
 
     @pytest.mark.asyncio
     async def test_upsert_existing_article(self, repo, mock_pool):
@@ -152,15 +157,34 @@ class TestArticleRepoUpsert:
         state = {"raw": mock_raw, "category": "tech", "is_news": True}
 
         # _upsert_single executes multiple statements:
-        # 1. pg_insert(ArticleCore) ON CONFLICT DO UPDATE
-        # 2. select(ArticleCore.id) to get the ID
-        # 3. pg_insert(ArticleBody) ON CONFLICT
-        # 4. pg_insert(ArticleAnalysis) ON CONFLICT
+        # 1. select existing ArticleCore (found, but same content_hash → no version snapshot)
+        # 2. pg_insert(ArticleCore) ON CONFLICT DO UPDATE
+        # 3. select(ArticleCore.id) to get the ID
+        # 4. pg_insert(ArticleBody) ON CONFLICT
+        # 5. pg_insert(ArticleAnalysis) ON CONFLICT
+
+        # Compute the content_hash that ChangeDetector will produce
+        from core.change_detector import ChangeDetector
+
+        content_hash = ChangeDetector.compute_hash(
+            {"title": "Existing Article", "body": "Article body"}
+        )
+
+        mock_existing_result = MagicMock()
+        mock_existing_result.one_or_none.return_value = (
+            article_id,
+            "Existing Article",
+            "tech",
+            0.85,
+            content_hash,  # Same hash → no version snapshot
+        )
+
         mock_core_result = MagicMock()
         mock_core_result.scalar_one.return_value = article_id
 
         mock_session = AsyncMock()
         mock_session.execute.side_effect = [
+            mock_existing_result,  # select existing ArticleCore
             MagicMock(),  # pg_insert ArticleCore
             mock_core_result,  # select ArticleCore.id
             MagicMock(),  # pg_insert ArticleBody

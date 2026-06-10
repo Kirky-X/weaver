@@ -30,7 +30,7 @@ class LLMUsageRepo:
     - Querying aggregated statistics
     - Cleaning up old raw records
 
-    Implements: EntityRepository (partial)
+    No matching Protocol yet — standalone repository component.
 
     Args:
         pool: Relational database connection pool.

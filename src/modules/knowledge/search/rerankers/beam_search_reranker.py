@@ -22,7 +22,7 @@ log = get_logger(__name__)
 class BeamSearchReranker:
     """Standalone beam search reranker for graph-based result refinement.
 
-    Implements: SearchReranker
+    No matching Protocol yet — standalone reranker component.
 
     Expands candidate entities through graph neighbors, accumulating
     scores and pruning to beam_width at each depth step.

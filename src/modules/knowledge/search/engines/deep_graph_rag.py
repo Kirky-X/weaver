@@ -48,7 +48,7 @@ class DeepGraphRAGResult:
 class DeepGraphRAGEngine:
     """3-stage hierarchical retrieval engine.
 
-    Implements: DeepGraphRAGSearchEngine
+    No matching Protocol yet — standalone search engine component.
 
     Pipeline:
     1. _community_filter: Vector search top communities
