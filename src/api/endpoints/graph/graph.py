@@ -12,6 +12,14 @@ from pydantic import BaseModel
 from api.dependencies import get_graph_repo
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
+from api.schemas.traverse import (
+    EdgeResponse,
+    PathNode,
+    PathResponse,
+    TraverseRequest,
+    TraverseResponse,
+    TraverseResultItem,
+)
 from modules.storage.graph_repo import GraphRepository
 
 router = APIRouter(prefix="/graph", tags=["graph"])
@@ -258,3 +266,78 @@ async def search_relations(
             for r in rows
         ]
     )
+
+
+# ── Traverse Endpoint ────────────────────────────────────────────
+
+
+@router.post("/traverse", response_model=APIResponse[TraverseResponse])
+async def traverse_graph(
+    request: TraverseRequest,
+    _: str = Depends(verify_api_key),
+    graph_repo: GraphRepository = Depends(get_graph_repo),
+) -> APIResponse[TraverseResponse]:
+    """Multi-hop graph traversal from a starting entity.
+
+    Supports relation type filtering, depth limiting, timeout control,
+    path return mode, aggregate mode, and confidence filtering.
+
+    Args:
+        request: Traverse request parameters.
+        _: Verified API key.
+        graph_repo: Graph repository (database-agnostic).
+
+    Returns:
+        Traversal results wrapped in APIResponse.
+
+    """
+    results = await graph_repo.traverse(
+        start_entity=request.start_entity,
+        max_depth=request.max_depth,
+        relation_types=request.relation_types,
+        max_results=request.max_results,
+        timeout_seconds=request.timeout_seconds,
+        return_paths=request.return_paths,
+        mode=request.mode,
+        min_confidence=request.min_confidence,
+    )
+
+    result_items = []
+    for item in results:
+        nodes = [
+            PathNode(
+                id=n.get("id", ""),
+                canonical_name=n.get("canonical_name", ""),
+                type=n.get("type", ""),
+                description=n.get("description"),
+            )
+            for n in item.get("nodes", [])
+        ]
+        edges = [
+            EdgeResponse(
+                source=e.get("source", ""),
+                target=e.get("target", ""),
+                relation_type=e.get("relation_type", ""),
+                weight=e.get("weight"),
+            )
+            for e in item.get("edges", [])
+        ]
+        paths = None
+        if item.get("paths"):
+            paths = [
+                PathResponse(
+                    nodes=p.get("nodes", []),
+                    edges=p.get("edges", []),
+                )
+                for p in item["paths"]
+            ]
+        result_items.append(
+            TraverseResultItem(
+                nodes=nodes,
+                edges=edges,
+                paths=paths,
+                aggregate=item.get("aggregate"),
+            )
+        )
+
+    return success_response(TraverseResponse(results=result_items))

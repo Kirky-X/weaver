@@ -27,31 +27,41 @@ SKIP_PATHS = {"/health", "/metrics"}
 
 
 class HMACSignatureMiddleware(BaseHTTPMiddleware):
-    """HMAC signature verification middleware.
-    
+    """HMAC signature verification middleware with optional dual-factor API key check.
+
     Validates request signatures using HMAC-SHA256 to ensure
     request authenticity and prevent replay attacks.
+
+    When api_key is provided, both HMAC signature and X-API-Key must be present
+    and valid (dual-factor verification). The HMAC signing key is independent
+    from the API key.
     """
 
-    def __init__(self, app, secret_key: str) -> None:
-        """Initialize middleware with secret key.
-        
+    def __init__(self, app, secret_key: str, api_key: str | None = None) -> None:
+        """Initialize middleware with secret key and optional API key.
+
         Args:
             app: ASGI application.
             secret_key: Secret key for HMAC signature calculation.
+            api_key: Optional API key for dual-factor verification.
+                When provided, requests must include both valid HMAC
+                signature and X-API-Key header.
+
         """
         super().__init__(app)
         self.secret_key = secret_key.encode("utf-8")
+        self.api_key = api_key
 
     async def dispatch(self, request: Request, call_next) -> Response:
         """Verify HMAC signature for incoming requests.
-        
+
         Args:
             request: HTTP request.
             call_next: Next middleware/handler in chain.
-            
+
         Returns:
             HTTP response or 401 error if signature verification fails.
+
         """
         # Skip signature verification for certain endpoints
         if request.url.path in SKIP_PATHS:
@@ -133,4 +143,30 @@ class HMACSignatureMiddleware(BaseHTTPMiddleware):
             path=request.url.path,
             method=request.method,
         )
+
+        # Dual-factor: verify API key if configured
+        if self.api_key is not None:
+            request_api_key = request.headers.get("X-API-Key")
+            if not request_api_key:
+                log.warning(
+                    "missing_api_key",
+                    path=request.url.path,
+                    method=request.method,
+                )
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "missing_api_key"},
+                )
+
+            if not hmac.compare_digest(request_api_key, self.api_key):
+                log.warning(
+                    "invalid_api_key",
+                    path=request.url.path,
+                    method=request.method,
+                )
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "invalid_api_key"},
+                )
+
         return await call_next(request)

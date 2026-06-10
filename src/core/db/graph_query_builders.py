@@ -153,6 +153,25 @@ class GraphQueryBuilder(Protocol):
         """Build query to get edges for subgraph visualization."""
         ...
 
+    def build_traverse_query(
+        self,
+        max_depth: int = 3,
+        relation_types: list[str] | None = None,
+        return_paths: bool = False,
+        mode: str = "full",
+        min_confidence: float | None = None,
+    ) -> str:
+        """Build query for multi-hop graph traversal.
+
+        Args:
+            max_depth: Maximum traversal depth (embedded in query pattern).
+            relation_types: Optional list of relation types to filter.
+            return_paths: Whether to return complete paths.
+            mode: Traversal mode - 'full' or 'aggregate'.
+            min_confidence: Minimum confidence score filter.
+        """
+        ...
+
 
 class Neo4jQueryBuilder:
     """Neo4j (Cypher) implementation of GraphQueryBuilder."""
@@ -513,6 +532,72 @@ class Neo4jQueryBuilder:
         LIMIT 500
         """
 
+    def build_traverse_query(
+        self,
+        max_depth: int = 3,
+        relation_types: list[str] | None = None,
+        return_paths: bool = False,
+        mode: str = "full",
+        min_confidence: float | None = None,
+    ) -> str:
+        """Build Neo4j query for multi-hop graph traversal."""
+        confidence_filter = (
+            f" AND coalesce(r.weight, 1.0) >= {min_confidence}"
+            if min_confidence is not None
+            else ""
+        )
+
+        if mode == "aggregate":
+            return f"""
+            MATCH (center:Entity {{canonical_name: $center}})
+            MATCH path = (center)-[r*1..{max_depth}]-(other:Entity)
+            WHERE type(r[-1]) <> 'MENTIONS' AND type(r[-1]) <> 'FOLLOWED_BY'
+            {confidence_filter}
+            WITH count(DISTINCT other) AS total_nodes,
+                 count(DISTINCT r) AS total_edges,
+                 type(r[-1]) AS relation_type
+            RETURN total_nodes, total_edges,
+                   relation_type,
+                   count(*) AS type_count
+            """
+
+        if return_paths:
+            return f"""
+            MATCH (center:Entity {{canonical_name: $center}})
+            MATCH path = (center)-[r*1..{max_depth}]-(other:Entity)
+            WHERE type(r[-1]) <> 'MENTIONS' AND type(r[-1]) <> 'FOLLOWED_BY'
+            {confidence_filter}
+            RETURN other.canonical_name AS node_name,
+                   elementId(other) AS node_id,
+                   other.type AS node_type,
+                   other.description AS node_description,
+                   startNode(r[-1]).canonical_name AS source,
+                   endNode(r[-1]).canonical_name AS target,
+                   type(r[-1]) AS relation_type,
+                   [n IN nodes(path) | n.canonical_name] AS path_nodes,
+                   [rel IN relationships(path) | {{
+                       source: startNode(rel).canonical_name,
+                       target: endNode(rel).canonical_name,
+                       relation_type: type(rel)
+                   }}] AS path_edges
+            LIMIT $limit
+            """
+
+        return f"""
+        MATCH (center:Entity {{canonical_name: $center}})
+        MATCH (center)-[r*1..{max_depth}]-(other:Entity)
+        WHERE type(r[-1]) <> 'MENTIONS' AND type(r[-1]) <> 'FOLLOWED_BY'
+        {confidence_filter}
+        RETURN DISTINCT other.canonical_name AS node_name,
+               elementId(other) AS node_id,
+               other.type AS node_type,
+               other.description AS node_description,
+               startNode(r[-1]).canonical_name AS source,
+               endNode(r[-1]).canonical_name AS target,
+               type(r[-1]) AS relation_type
+        LIMIT $limit
+        """
+
 
 class LadybugQueryBuilder:
     """LadybugDB implementation of GraphQueryBuilder.
@@ -868,6 +953,54 @@ class LadybugQueryBuilder:
                r.edge_type AS relation_type,
                r.weight AS weight
         LIMIT 500
+        """
+
+    def build_traverse_query(
+        self,
+        max_depth: int = 3,
+        relation_types: list[str] | None = None,
+        return_paths: bool = False,
+        mode: str = "full",
+        min_confidence: float | None = None,
+    ) -> str:
+        """Build LadybugDB query for multi-hop graph traversal.
+
+        Note: LadybugDB uses r.edge_type for relationship type, not type(r).
+        Does not support list comprehension for path extraction.
+        """
+        confidence_filter = (
+            f" AND coalesce(r.weight, 1.0) >= {min_confidence}"
+            if min_confidence is not None
+            else ""
+        )
+
+        if mode == "aggregate":
+            return f"""
+            MATCH (center:Entity {{canonical_name: $center}})
+            MATCH (center)-[r*1..{max_depth}]-(other:Entity)
+            WHERE r.edge_type <> 'MENTIONS' AND r.edge_type <> 'FOLLOWED_BY'
+            {confidence_filter}
+            WITH count(DISTINCT other) AS total_nodes,
+                 count(DISTINCT r) AS total_edges,
+                 r.edge_type AS relation_type
+            RETURN total_nodes, total_edges,
+                   relation_type,
+                   count(*) AS type_count
+            """
+
+        return f"""
+        MATCH (center:Entity {{canonical_name: $center}})
+        MATCH (center)-[r*1..{max_depth}]-(other:Entity)
+        WHERE r.edge_type <> 'MENTIONS' AND r.edge_type <> 'FOLLOWED_BY'
+        {confidence_filter}
+        RETURN DISTINCT other.canonical_name AS node_name,
+               other.id AS node_id,
+               other.type AS node_type,
+               other.description AS node_description,
+               startNode(r[-1]).canonical_name AS source,
+               endNode(r[-1]).canonical_name AS target,
+               r.edge_type AS relation_type
+        LIMIT $limit
         """
 
 

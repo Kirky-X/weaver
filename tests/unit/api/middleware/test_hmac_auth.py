@@ -268,6 +268,144 @@ class TestHMACSignatureMiddleware:
         assert response.json()["detail"] == "missing_signature_headers"
 
 
+class TestHMACDualFactorVerification:
+    """Tests for HMAC + API Key dual-factor verification."""
+
+    def setup_method(self) -> None:
+        """Set up test fixtures with separate HMAC and API keys."""
+        self.hmac_secret_key = "hmac-secret-key-for-signing"
+        self.api_key = "test-api-key-with-at-least-32-chars!"
+        self.app = FastAPI()
+        self.app.add_middleware(
+            HMACSignatureMiddleware,
+            secret_key=self.hmac_secret_key,
+            api_key=self.api_key,
+        )
+
+        @self.app.get("/test")
+        async def test_endpoint() -> dict:
+            return {"message": "success"}
+
+        self.client = TestClient(self.app)
+
+    def _calculate_signature(self, timestamp: str, method: str, path: str, body: str = "") -> str:
+        """Calculate HMAC signature for testing."""
+        message = f"{timestamp}:{method}:{path}:{body}"
+        return hmac.new(
+            self.hmac_secret_key.encode("utf-8"),
+            message.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+
+    def _full_headers(self, timestamp: str, signature: str) -> dict:
+        """Create full headers with both HMAC and API key."""
+        return {
+            "X-Signature": signature,
+            "X-Timestamp": timestamp,
+            "X-API-Key": self.api_key,
+        }
+
+    def test_both_hmac_and_api_key_required(self) -> None:
+        """Test that missing either HMAC signature or API key rejects the request."""
+        timestamp = str(time.time())
+        signature = self._calculate_signature(timestamp, "GET", "/test")
+
+        # Missing both
+        response = self.client.get("/test")
+        assert response.status_code == 401
+
+        # Missing API key only
+        response = self.client.get(
+            "/test",
+            headers={"X-Signature": signature, "X-Timestamp": timestamp},
+        )
+        assert response.status_code == 401
+        assert response.json()["detail"] == "missing_api_key"
+
+        # Missing HMAC signature only
+        response = self.client.get(
+            "/test",
+            headers={"X-API-Key": self.api_key},
+        )
+        assert response.status_code == 401
+
+        # Both present - should succeed
+        response = self.client.get(
+            "/test",
+            headers=self._full_headers(timestamp, signature),
+        )
+        assert response.status_code == 200
+
+    def test_hmac_uses_separate_secret_key(self) -> None:
+        """Test that HMAC signing key is independent from API Key."""
+        timestamp = str(time.time())
+
+        # Sign with API key (wrong) - should fail
+        message = f"{timestamp}:GET:/test:"
+        wrong_signature = hmac.new(
+            self.api_key.encode("utf-8"),
+            message.encode("utf-8"),
+            hashlib.sha256,
+        ).hexdigest()
+
+        response = self.client.get(
+            "/test",
+            headers={
+                "X-Signature": wrong_signature,
+                "X-Timestamp": timestamp,
+                "X-API-Key": self.api_key,
+            },
+        )
+        assert response.status_code == 401
+
+        # Sign with HMAC key (correct) - should succeed
+        correct_signature = self._calculate_signature(timestamp, "GET", "/test")
+        response = self.client.get(
+            "/test",
+            headers=self._full_headers(timestamp, correct_signature),
+        )
+        assert response.status_code == 200
+
+    def test_replay_attack_rejected(self) -> None:
+        """Test that replayed requests outside 30s window are rejected."""
+        # Create a valid signature with an old timestamp
+        old_timestamp = str(time.time() - 31)
+        signature = self._calculate_signature(old_timestamp, "GET", "/test")
+
+        # Replay with old timestamp - should be rejected
+        response = self.client.get(
+            "/test",
+            headers=self._full_headers(old_timestamp, signature),
+        )
+        assert response.status_code == 401
+        assert response.json()["detail"] == "signature_expired"
+
+        # Same signature with current timestamp - should also fail
+        # because the signature was computed with the old timestamp
+        current_timestamp = str(time.time())
+        response = self.client.get(
+            "/test",
+            headers=self._full_headers(current_timestamp, signature),
+        )
+        assert response.status_code == 401
+
+    def test_wrong_api_key_rejected(self) -> None:
+        """Test that wrong API key is rejected even with valid HMAC."""
+        timestamp = str(time.time())
+        signature = self._calculate_signature(timestamp, "GET", "/test")
+
+        response = self.client.get(
+            "/test",
+            headers={
+                "X-Signature": signature,
+                "X-Timestamp": timestamp,
+                "X-API-Key": "wrong-api-key-value",
+            },
+        )
+        assert response.status_code == 401
+        assert response.json()["detail"] == "invalid_api_key"
+
+
 class TestHMACSignatureMiddlewareConfiguration:
     """Tests for middleware configuration."""
 
