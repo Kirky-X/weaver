@@ -82,6 +82,9 @@ async def get_briefings(
                 {
                     "id": r.id,
                     "briefing_date": str(r.briefing_date),
+                    "title": r.title,
+                    "summary": r.summary,
+                    "status": r.status,
                     "total_items": r.total_items,
                     "generated_at": r.generated_at.isoformat() if r.generated_at else None,
                 }

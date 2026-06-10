@@ -136,6 +136,9 @@ class BriefingEngine:
 
                 briefing = DailyBriefing(
                     briefing_date=briefing_date,
+                    title=item.get("briefing_title") if items else None,
+                    summary=item.get("briefing_summary") if items else None,
+                    status="generated",
                     total_items=len(items),
                 )
                 session.add(briefing)
@@ -146,6 +149,8 @@ class BriefingEngine:
                         briefing_id=briefing.id,
                         article_id=item.get("article_id") or item.get("id"),
                         rank=i + 1,
+                        score=item.get("score", 0.0),
+                        score_breakdown=item.get("score_breakdown"),
                         category=item.get("category"),
                         reason=item.get("reason"),
                     )

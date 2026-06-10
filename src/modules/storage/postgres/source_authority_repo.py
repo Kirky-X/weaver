@@ -120,14 +120,71 @@ class SourceAuthorityRepo:
 
         Also clears needs_review flag since auto-computed scores
         represent system's assessment, not requiring human review.
+        Recalculates final_score as weighted average of auto and manual scores.
         """
+        async with self._pool.session() as session:
+            # Get current record to compute final_score
+            result = await session.execute(
+                select(SourceAuthority).where(SourceAuthority.host == host)
+            )
+            record = result.scalar_one_or_none()
+
+            values: dict = {
+                "auto_score": auto_score,
+                "needs_review": False,
+                "updated_at": datetime.now(UTC),
+            }
+
+            # Compute final_score: weighted average (70% auto, 30% manual)
+            if record is not None:
+                manual = record.manual_score if record.manual_score is not None else None
+                if manual is not None:
+                    values["final_score"] = round(0.7 * auto_score + 0.3 * manual, 2)
+                else:
+                    values["final_score"] = round(auto_score, 2)
+
+            await session.execute(
+                update(SourceAuthority).where(SourceAuthority.host == host).values(**values)
+            )
+            await session.commit()
+
+    async def update_manual_score(self, host: str, manual_score: float) -> None:
+        """Update manual authority score and recalculate final_score.
+
+        Args:
+            host: Source hostname.
+            manual_score: Manually assigned score (0.0-1.0).
+        """
+        async with self._pool.session() as session:
+            result = await session.execute(
+                select(SourceAuthority).where(SourceAuthority.host == host)
+            )
+            record = result.scalar_one_or_none()
+
+            values: dict = {
+                "manual_score": manual_score,
+                "updated_at": datetime.now(UTC),
+            }
+
+            if record is not None and record.auto_score is not None:
+                values["final_score"] = round(0.7 * record.auto_score + 0.3 * manual_score, 2)
+            else:
+                values["final_score"] = round(manual_score, 2)
+
+            await session.execute(
+                update(SourceAuthority).where(SourceAuthority.host == host).values(**values)
+            )
+            await session.commit()
+
+    async def increment_article_count(self, host: str) -> None:
+        """Increment article_count and update last_crawled_at for a source."""
         async with self._pool.session() as session:
             await session.execute(
                 update(SourceAuthority)
                 .where(SourceAuthority.host == host)
                 .values(
-                    auto_score=auto_score,
-                    needs_review=False,
+                    article_count=SourceAuthority.article_count + 1,
+                    last_crawled_at=datetime.now(UTC),
                     updated_at=datetime.now(UTC),
                 )
             )
