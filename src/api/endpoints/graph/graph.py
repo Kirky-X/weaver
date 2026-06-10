@@ -19,6 +19,7 @@ from api.schemas.traverse import (
     TraverseRequest,
     TraverseResponse,
     TraverseResultItem,
+    TraverseStatistics,
 )
 from modules.storage.graph_repo import GraphRepository
 
@@ -303,6 +304,9 @@ async def traverse_graph(
     )
 
     result_items = []
+    total_nodes = 0
+    total_edges = 0
+    max_depth_found = 0
     for item in results:
         nodes = [
             PathNode(
@@ -331,6 +335,12 @@ async def traverse_graph(
                 )
                 for p in item["paths"]
             ]
+        total_nodes += len(nodes)
+        total_edges += len(edges)
+        # Track max depth from paths
+        if paths:
+            for p in paths:
+                max_depth_found = max(max_depth_found, len(p.nodes) - 1)
         result_items.append(
             TraverseResultItem(
                 nodes=nodes,
@@ -340,4 +350,10 @@ async def traverse_graph(
             )
         )
 
-    return success_response(TraverseResponse(results=result_items))
+    statistics = TraverseStatistics(
+        nodes_visited=total_nodes,
+        edges_traversed=total_edges,
+        depth_reached=max_depth_found if max_depth_found > 0 else request.max_depth,
+    )
+
+    return success_response(TraverseResponse(results=result_items, statistics=statistics))

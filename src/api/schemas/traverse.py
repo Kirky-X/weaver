@@ -101,12 +101,31 @@ class TraverseResultItem(BaseModel):
     aggregate: dict[str, Any] | None = None
 
 
+class TraverseStatistics(BaseModel):
+    """Statistics for a graph traversal operation.
+
+    Attributes:
+        nodes_visited: Total number of nodes visited during traversal.
+        edges_traversed: Total number of edges traversed during traversal.
+        depth_reached: Maximum depth reached during traversal.
+        execution_time_ms: Execution time in milliseconds, if measured.
+
+    """
+
+    nodes_visited: int = 0
+    edges_traversed: int = 0
+    depth_reached: int = 0
+    execution_time_ms: int | None = None
+
+
 class TraverseResponse(BaseModel):
     """Response model for graph traversal.
 
     Attributes:
         results: List of traversal result items.
+        statistics: Traversal statistics (nodes visited, edges traversed, depth reached).
 
     """
 
     results: list[TraverseResultItem] = Field(default_factory=list)
+    statistics: TraverseStatistics = Field(default_factory=TraverseStatistics)
