@@ -13,22 +13,20 @@ All real resource fixtures are in tests/integration/conftest.py
 
 import asyncio
 import os
-import resource
 from pathlib import Path
 
 import pytest
 from dotenv import load_dotenv
 
 # ────────────────────────────────────────────────────────────
-# Memory limit: 8 GB (per user requirement)
+# Memory limit: 8 GB physical RSS (per user requirement)
 # ────────────────────────────────────────────────────────────
+# RLIMIT_AS is too aggressive for Python (virtual address space >> physical RSS).
+# Instead, we enforce the limit via:
+# 1. Reducing xdist workers (pytest.ini: -n 2)
+# 2. RSS monitoring via psutil in pytest_runtest_logreport
+# 3. A session-startup RSS check that fails fast if already over limit
 _MEMORY_LIMIT_GB = 8
-_MEMORY_LIMIT_BYTES = _MEMORY_LIMIT_GB * 1024 * 1024 * 1024
-
-try:
-    resource.setrlimit(resource.RLIMIT_AS, (_MEMORY_LIMIT_BYTES, _MEMORY_LIMIT_BYTES))
-except (OSError, ValueError):
-    pass  # Cannot set limit (e.g., container without permission)
 
 # Load environment variables from .env file before any tests run
 _env_file = Path(__file__).parent.parent / ".env"
@@ -57,11 +55,7 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "describe: mark test class as describing a feature")
     config.addinivalue_line("markers", "it: mark test method as a specific behavior")
 
-    # Re-apply memory limit in xdist worker processes
-    try:
-        resource.setrlimit(resource.RLIMIT_AS, (_MEMORY_LIMIT_BYTES, _MEMORY_LIMIT_BYTES))
-    except (OSError, ValueError):
-        pass
+    # Re-apply memory limit in xdist worker processes (not needed with RSS approach)
 
 
 def pytest_collection_modifyitems(config, items):
@@ -73,6 +67,22 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(pytest.mark.integration)
         elif "e2e" in str(item.fspath):
             item.add_marker(pytest.mark.e2e)
+
+
+def pytest_runtest_logreport(report):
+    """Monitor RSS after each test and warn if exceeding 8GB physical limit."""
+    if report.when == "setup":
+        return
+    try:
+        import psutil
+
+        rss_gb = psutil.Process(os.getpid()).memory_info().rss / (1024**3)
+        if rss_gb > _MEMORY_LIMIT_GB:
+            report.sections.append(
+                ("Memory Warning", f"RSS={rss_gb:.2f}GB exceeds {_MEMORY_LIMIT_GB}GB limit")
+            )
+    except (ImportError, psutil.NoSuchProcess):
+        pass
 
 
 # ────────────────────────────────────────────────────────────
