@@ -252,6 +252,10 @@ class ArticleCore(Base):
             name="chk_core_credibility_score_range",
         ),
         CheckConstraint("merged_into IS DISTINCT FROM id", name="chk_core_no_self_merge"),
+        CheckConstraint(
+            "document_type IN ('news', 'social', 'official', 'research', 'opinion')",
+            name="chk_core_document_type",
+        ),
         # ── Existing indexes ──
         Index("idx_core_category", "category"),
         Index("idx_core_publish_time", publish_time.desc()),
@@ -297,6 +301,12 @@ class ArticleCore(Base):
             "persist_status",
             updated_at.asc(),
             postgresql_where=text("persist_status IN ('pg_done', 'neo4j_failed', 'failed')"),
+        ),
+        # ── GIN indexes for JSONB queries (design doc §9.2) ──
+        Index(
+            "idx_articles_doc_metadata_gin",
+            "doc_metadata",
+            postgresql_using="gin",
         ),
     )
 
@@ -749,6 +759,10 @@ class Source(Base):
             "tier >= 1 AND tier <= 3",
             name="chk_sources_tier_range",
         ),
+        CheckConstraint(
+            "interval_minutes >= 5 AND interval_minutes <= 1440",
+            name="chk_sources_interval_minutes_range",
+        ),
     )
 
 
@@ -978,6 +992,10 @@ class SentimentShift(Base):
     )
 
     __table_args__ = (
+        CheckConstraint(
+            "shift_type IN ('abrupt', 'gradual')",
+            name="chk_shift_type_values",
+        ),
         Index("idx_shifts_community", "community_id"),
         Index("idx_shifts_type", "shift_type"),
         Index("idx_shifts_detected", "detected_at"),
@@ -1035,6 +1053,10 @@ class DailyBriefingItem(Base):
     briefing: Mapped[DailyBriefing] = relationship(back_populates="items")
 
     __table_args__ = (
+        CheckConstraint(
+            "rank >= 1 AND rank <= 10",
+            name="chk_briefing_item_rank_range",
+        ),
         UniqueConstraint("briefing_id", "article_id", name="uq_briefing_item_article"),
         UniqueConstraint("briefing_id", "rank", name="uq_briefing_item_rank"),
     )
@@ -1099,6 +1121,12 @@ class CommunityVector(Base):
             "embedding",
             postgresql_using="hnsw",
             postgresql_with={"m": 16, "ef_construction": 200},
+        ),
+        # GIN index for text search on title (design doc §8.6)
+        Index(
+            "idx_community_vectors_title_gin",
+            "title",
+            postgresql_using="gin",
         ),
     )
 
