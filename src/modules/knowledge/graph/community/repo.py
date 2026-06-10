@@ -1037,3 +1037,60 @@ class Neo4jCommunityRepo:
         """
         result = await self._pool.execute_query(query)
         return [{"level": r.get("level", 0), "count": r.get("count", 0)} for r in result]
+
+    async def get_community_entities(self, community_id: str) -> list[dict[str, Any]]:
+        """Get entities belonging to a community via HAS_ENTITY relationships.
+
+        Args:
+            community_id: Community UUID.
+
+        Returns:
+            List of entity dicts with id, canonical_name, type, degree.
+        """
+        if self._database_type == GraphDatabaseType.LADYBUG:
+            query = """
+            MATCH (c:Community {id: $community_id})-[:HAS_ENTITY]->(e:Entity)
+            RETURN e.id AS id,
+                   e.canonical_name AS canonical_name,
+                   e.type AS type,
+                   e.degree AS degree
+            """
+        else:
+            query = """
+            MATCH (c:Community {id: $community_id})-[:HAS_ENTITY]->(e:Entity)
+            RETURN e.id AS id,
+                   e.canonical_name AS canonical_name,
+                   e.type AS type,
+                   e.degree AS degree
+            """
+        result = await self._pool.execute_query(query, {"community_id": community_id})
+        return [dict(r) for r in result]
+
+    async def search_by_text(self, query_text: str, limit: int = 5) -> list[dict[str, Any]]:
+        """Search communities by text matching on title/summary.
+
+        Args:
+            query_text: Search text.
+            limit: Maximum results.
+
+        Returns:
+            List of community dicts with id, title, score.
+        """
+        if self._database_type == GraphDatabaseType.LADYBUG:
+            query = """
+            MATCH (c:Community)
+            WHERE c.title CONTAINS $query OR c.summary CONTAINS $query
+            RETURN c.id AS id, c.title AS title, c.summary AS summary,
+                   0.5 AS score
+            LIMIT $limit
+            """
+        else:
+            query = """
+            MATCH (c:Community)
+            WHERE c.title CONTAINS $query OR c.summary CONTAINS $query
+            RETURN c.id AS id, c.title AS title, c.summary AS summary,
+                   0.5 AS score
+            LIMIT $limit
+            """
+        result = await self._pool.execute_query(query, {"query": query_text, "limit": limit})
+        return [dict(r) for r in result]

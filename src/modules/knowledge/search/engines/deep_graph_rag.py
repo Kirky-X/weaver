@@ -2,9 +2,9 @@
 """DeepGraphRAGEngine — 3-stage hierarchical retrieval.
 
 Implements a three-stage hierarchical retrieval pipeline:
-1. Community Filtering: Vector search to find relevant communities
-2. Entity Refinement: Filter isolated entities by degree
-3. Entity-Level Search: Fusion scoring with beam reranking
+1. Community Filtering: LLM embed + vector search to find relevant communities
+2. Entity Refinement: Query community_repo for entities, filter by degree
+3. Entity-Level Search: Vector similarity with fusion scoring + beam reranking
 
 Fusion score formula:
     0.4 * similarity + 0.3 * community_relevance + 0.2 * centrality + 0.1 * recency
@@ -48,15 +48,18 @@ class DeepGraphRAGResult:
 class DeepGraphRAGEngine:
     """3-stage hierarchical retrieval engine.
 
-    No matching Protocol yet — standalone search engine component.
+    Implements: DeepGraphRAG Integration — ADD §3.2
 
     Pipeline:
-    1. _community_filter: Vector search top communities
-    2. _entity_refine: Filter isolated entities by degree
-    3. _entity_search: Fusion scoring with optional beam reranking
+    1. _community_filter: LLM embed + vector search top communities
+    2. _entity_refine: Query community_repo for entities, filter by degree
+    3. _entity_search: Vector similarity with fusion scoring + beam reranking
 
     Args:
-        vector_repo: Vector repository for community search.
+        vector_repo: Vector repository for community/entity search.
+        graph_repo: Graph repository for entity queries.
+        community_repo: Community repository for entity retrieval.
+        llm_client: LLM client for embedding generation.
         reranker: Optional BeamSearchReranker for final reranking.
         config: Engine configuration.
     """
@@ -64,10 +67,23 @@ class DeepGraphRAGEngine:
     def __init__(
         self,
         vector_repo: Any = None,
+        graph_repo: Any = None,
+        community_repo: Any = None,
+        llm_client: Any = None,
         reranker: Any = None,
         config: DeepGraphRAGConfig | None = None,
     ) -> None:
+        if graph_repo is None:
+            raise TypeError("graph_repo is required")
+        if community_repo is None:
+            raise TypeError("community_repo is required")
+        if llm_client is None:
+            raise TypeError("llm_client is required")
+
         self._vector_repo = vector_repo
+        self._graph_repo = graph_repo
+        self._community_repo = community_repo
+        self._llm_client = llm_client
         self._reranker = reranker
         self._config = config or DeepGraphRAGConfig()
 
@@ -88,18 +104,27 @@ class DeepGraphRAGEngine:
         log.info("deep_graph_rag_search_started", query=query[:100])
 
         # Stage 1: Community filtering
-        communities = await self._community_filter(embedding, top_k=self._config.community_top_k)
+        communities = await self._community_filter(
+            embedding=embedding, top_k=self._config.community_top_k, query=query
+        )
 
         if not communities:
             log.info("deep_graph_rag_no_communities", query=query[:50])
             return DeepGraphRAGResult(query=query)
 
         # Stage 2: Entity refinement
-        raw_entities = self._collect_entities_from_communities(communities)
-        refined = self._entity_refine(raw_entities)
+        refined = await self._entity_refine(communities)
 
         # Stage 3: Entity-level search with fusion scoring
-        scored = self._entity_search(refined)
+        query_embedding = embedding
+        if query_embedding is None and self._llm_client:
+            try:
+                embed_results = await self._llm_client.embed_default([query])
+                query_embedding = embed_results[0]
+            except Exception:
+                query_embedding = None
+
+        scored = await self._entity_search(refined, query_embedding)
 
         # Optional beam reranking
         if self._reranker and scored:
@@ -131,24 +156,38 @@ class DeepGraphRAGEngine:
 
     async def _community_filter(
         self,
-        embedding: list[float] | None,
+        embedding: list[float] | None = None,
         top_k: int = 5,
+        query: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Stage 1: Vector search for relevant communities.
+        """Stage 1: LLM embed + vector search for relevant communities.
 
         Args:
-            embedding: Query embedding vector.
+            embedding: Pre-computed query embedding vector.
             top_k: Number of top communities to return.
+            query: Search query text for LLM embedding.
 
         Returns:
             List of community dicts with id and score.
         """
-        if not self._vector_repo or not embedding:
+        # Try LLM embed first
+        query_embedding = None
+        if self._llm_client and query:
+            try:
+                embed_results = await self._llm_client.embed_default([query])
+                query_embedding = embed_results[0]
+            except Exception as exc:
+                log.warning("llm_embed_failed_fallback", error=str(exc))
+                query_embedding = embedding  # Fall back to pre-computed
+        else:
+            query_embedding = embedding
+
+        if not self._vector_repo or not query_embedding:
             return []
 
         try:
-            results = await self._vector_repo.find_similar(embedding, limit=top_k)
-            return [
+            results = await self._vector_repo.find_similar(query_embedding, limit=top_k)
+            communities = [
                 {
                     "id": r.get("id", r.get("doc_id", "")),
                     "score": r.get("score", 0.0),
@@ -156,29 +195,72 @@ class DeepGraphRAGEngine:
                 }
                 for r in results
             ]
+
+            # Text fallback when vector search returns empty
+            if not communities and self._community_repo and query:
+                try:
+                    text_results = await self._community_repo.search_by_text(query)
+                    communities = [
+                        {
+                            "id": r.get("id", ""),
+                            "score": r.get("score", 0.5),
+                            "name": r.get("title", ""),
+                        }
+                        for r in text_results
+                    ]
+                except Exception as exc:
+                    log.warning("text_fallback_failed", error=str(exc))
+
+            return communities
         except Exception as exc:
             log.error("community_filter_failed", error=str(exc))
             return []
 
-    def _entity_refine(
+    async def _entity_refine(
         self,
-        entities: list[dict[str, Any]],
+        communities: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        """Stage 2: Filter isolated entities by degree.
+        """Stage 2: Query community_repo for entities, filter by degree.
 
         Args:
-            entities: List of entity dicts with degree field.
+            communities: List of community dicts with id and score.
 
         Returns:
             Filtered entities with degree >= min_degree.
         """
-        return [e for e in entities if e.get("degree", 0) >= self._config.min_degree]
+        all_entities = []
 
-    def _entity_search(
+        if self._community_repo and hasattr(self._community_repo, "get_community_entities"):
+            for c in communities:
+                community_id = c.get("id", "")
+                if not community_id:
+                    continue
+                try:
+                    entities = await self._community_repo.get_community_entities(community_id)
+                    for e in entities:
+                        e.setdefault("community_relevance", c.get("score", 0.0))
+                        all_entities.append(e)
+                except Exception as exc:
+                    log.warning(
+                        "community_entities_query_failed",
+                        community_id=community_id,
+                        error=str(exc),
+                    )
+        else:
+            # Fallback: extract entities from community metadata
+            all_entities = self._collect_entities_from_communities(communities)
+
+        return [e for e in all_entities if e.get("degree", 0) >= self._config.min_degree]
+
+    async def _entity_search(
         self,
         entities: list[dict[str, Any]],
+        query_embedding: list[float] | None = None,
     ) -> list[dict[str, Any]]:
         """Stage 3: Compute fusion scores for entities.
+
+        When vector_repo is available, uses find_similar_entities for actual
+        vector similarity. Otherwise falls back to in-memory fusion scoring.
 
         Fusion formula:
             0.4 * similarity + 0.3 * community_relevance
@@ -186,10 +268,30 @@ class DeepGraphRAGEngine:
 
         Args:
             entities: List of entity dicts with scoring fields.
+            query_embedding: Query embedding for vector similarity.
 
         Returns:
             Entities sorted by fusion_score descending.
         """
+        # If vector_repo available, enhance with actual vector similarity
+        if self._vector_repo and query_embedding:
+            try:
+                similar = await self._vector_repo.find_similar_entities(query_embedding, top_k=20)
+                # Build similarity map from vector results
+                sim_map = {}
+                for r in similar:
+                    eid = r.get("neo4j_id", r.get("id", ""))
+                    sim_map[eid] = r.get("score", 0.0)
+
+                # Update entity similarity scores from vector search
+                for e in entities:
+                    eid = e.get("id", e.get("neo4j_id", ""))
+                    if eid in sim_map:
+                        e["similarity"] = sim_map[eid]
+            except Exception as exc:
+                log.warning("vector_similarity_failed", error=str(exc))
+
+        # Compute fusion scores
         scored = []
         for e in entities:
             fusion_score = (
@@ -207,11 +309,7 @@ class DeepGraphRAGEngine:
         self,
         communities: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        """Collect entities from community results.
-
-        In production, this would query the graph database for entities
-        belonging to the filtered communities. For now, returns entities
-        embedded in community metadata.
+        """Collect entities from community metadata (fallback).
 
         Args:
             communities: List of community dicts.
