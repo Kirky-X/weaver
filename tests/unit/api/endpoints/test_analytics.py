@@ -3,11 +3,20 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.endpoints.analytics import router
+
+
+def _mock_auth(app: FastAPI) -> None:
+    """Override verify_api_key dependency to bypass auth in tests."""
+    from api.middleware.auth import verify_api_key
+
+    app.dependency_overrides[verify_api_key] = lambda: "test-key"
 
 
 class TestAnalyticsShiftsEndpoint:
@@ -17,6 +26,7 @@ class TestAnalyticsShiftsEndpoint:
         """Set up test fixtures."""
         self.app = FastAPI()
         self.app.include_router(router)
+        _mock_auth(self.app)
         self.client = TestClient(self.app)
 
     def test_get_shifts_returns_success_response(self) -> None:
@@ -48,9 +58,7 @@ class TestAnalyticsShiftsEndpoint:
 
     def test_get_shifts_with_all_params(self) -> None:
         """Test that shifts endpoint accepts all parameters."""
-        response = self.client.get(
-            "/analytics/shifts?community_id=test-community&limit=25"
-        )
+        response = self.client.get("/analytics/shifts?community_id=test-community&limit=25")
 
         assert response.status_code == 200
         body = response.json()
@@ -83,6 +91,7 @@ class TestAnalyticsBriefingsEndpoint:
         """Set up test fixtures."""
         self.app = FastAPI()
         self.app.include_router(router)
+        _mock_auth(self.app)
         self.client = TestClient(self.app)
 
     def test_get_briefings_returns_success_response(self) -> None:
@@ -114,9 +123,7 @@ class TestAnalyticsBriefingsEndpoint:
 
     def test_get_briefings_with_all_params(self) -> None:
         """Test that briefings endpoint accepts all parameters."""
-        response = self.client.get(
-            "/analytics/briefings?date=2026-01-15&limit=5"
-        )
+        response = self.client.get("/analytics/briefings?date=2026-01-15&limit=5")
 
         assert response.status_code == 200
         body = response.json()
@@ -156,9 +163,9 @@ class TestAnalyticsRouterRegistration:
     def test_shifts_route_exists(self) -> None:
         """Test that shifts route is registered."""
         routes = [route.path for route in router.routes]
-        assert "/shifts" in routes
+        assert "/analytics/shifts" in routes
 
     def test_briefings_route_exists(self) -> None:
         """Test that briefings route is registered."""
         routes = [route.path for route in router.routes]
-        assert "/briefings" in routes
+        assert "/analytics/briefings" in routes

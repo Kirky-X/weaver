@@ -208,7 +208,12 @@ class TestSpacyModelManagerInstallFromLocal:
         config = SpacyModelConfig()
         manager = SpacyModelManager(config)
 
-        with patch("subprocess.run") as mock_run:
+        with (
+            patch("pathlib.Path.exists", return_value=True),
+            patch("pathlib.Path.is_file", return_value=True),
+            patch("pathlib.Path.suffix", new_callable=lambda: property(lambda self: ".whl")),
+            patch("subprocess.run") as mock_run,
+        ):
             mock_run.return_value = MagicMock(returncode=0)
 
             manager._install_from_local("en_core_web_sm", "/path/model.whl")

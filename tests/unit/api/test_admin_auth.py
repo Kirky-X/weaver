@@ -158,7 +158,7 @@ class TestAdminEndpointAuthorityUpdate:
         with (
             patch("container.get_settings", return_value=mock_settings),
             patch(
-                "api.endpoints.admin.admin.get_source_authority_repo",
+                "api.endpoints.admin.admin._get_source_authority_repo",
                 return_value=mock_repo,
             ),
         ):
@@ -213,7 +213,7 @@ class TestAdminEndpointAuthorityUpdate:
         with (
             patch("container.get_settings", return_value=mock_settings),
             patch(
-                "api.endpoints.admin.admin.get_source_authority_repo",
+                "api.endpoints.admin.admin._get_source_authority_repo",
                 return_value=mock_repo,
             ),
         ):
@@ -441,7 +441,7 @@ class TestAdminEndpointRefreshAutoScores:
 
         with (
             patch("container.get_settings", return_value=mock_settings),
-            patch("api.endpoints.admin.admin.get_container", return_value=mock_container),
+            patch("api.endpoints.admin.admin._get_container", return_value=mock_container),
             patch(
                 "api.endpoints.deps_registry.Endpoints.get_relational_pool_optional",
                 return_value=mock_pool,

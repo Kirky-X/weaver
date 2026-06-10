@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import inspect
 import uuid
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from core.db import Article
+from core.db.models import ArticleCore
 from modules.ingestion.domain.models import RawArticle
 from modules.storage import ArticleRepo
 
@@ -46,6 +47,7 @@ class TestArticleRepoTaskIdInsertion:
             article.id = uuid.uuid4()
 
         mock_session.add = MagicMock(side_effect=mock_add)
+        mock_session.flush = AsyncMock()
 
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
@@ -58,8 +60,19 @@ class TestArticleRepoTaskIdInsertion:
             source_host="example.com",
         )
         task_id = uuid.uuid4()
-        result = await repo.insert_raw(article, task_id=task_id)
-        assert isinstance(result, uuid.UUID)
+
+        # Patch ArticleCore.__init__ to accept is_news (moved to ArticleAnalysis after vertical split)
+        original_init = ArticleCore.__init__
+
+        def patched_init(self, *args, **kwargs):
+            # is_news and prompt_versions moved to ArticleAnalysis after vertical split
+            kwargs.pop("is_news", None)
+            kwargs.pop("prompt_versions", None)
+            original_init(self, *args, **kwargs)
+
+        with patch.object(ArticleCore, "__init__", patched_init):
+            result = await repo.insert_raw(article, task_id=task_id)
+            assert isinstance(result, uuid.UUID)
 
     @pytest.mark.asyncio
     async def test_insert_raw_without_task_id_backward_compat(self):
@@ -77,6 +90,7 @@ class TestArticleRepoTaskIdInsertion:
             article.id = uuid.uuid4()
 
         mock_session.add = MagicMock(side_effect=mock_add)
+        mock_session.flush = AsyncMock()
 
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
@@ -88,8 +102,19 @@ class TestArticleRepoTaskIdInsertion:
             source="test",
             source_host="example.com",
         )
-        result = await repo.insert_raw(article)
-        assert isinstance(result, uuid.UUID)
+
+        # Patch ArticleCore.__init__ to accept is_news (moved to ArticleAnalysis after vertical split)
+        original_init = ArticleCore.__init__
+
+        def patched_init(self, *args, **kwargs):
+            # is_news and prompt_versions moved to ArticleAnalysis after vertical split
+            kwargs.pop("is_news", None)
+            kwargs.pop("prompt_versions", None)
+            original_init(self, *args, **kwargs)
+
+        with patch.object(ArticleCore, "__init__", patched_init):
+            result = await repo.insert_raw(article)
+            assert isinstance(result, uuid.UUID)
 
     @pytest.mark.asyncio
     async def test_insert_raw_returns_existing_id(self):
@@ -98,12 +123,11 @@ class TestArticleRepoTaskIdInsertion:
         repo = ArticleRepo(mock_pool)
 
         existing_id = uuid.uuid4()
-        existing_article = MagicMock(spec=Article)
-        existing_article.id = existing_id
 
         mock_session = AsyncMock()
         mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = existing_article
+        # insert_raw now queries ArticleCore.id (not Article), returns the ID directly
+        mock_result.scalar_one_or_none.return_value = existing_id
         mock_session.execute.return_value = mock_result
 
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)

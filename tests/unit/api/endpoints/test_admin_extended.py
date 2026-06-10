@@ -40,6 +40,16 @@ from api.endpoints.admin.admin import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    """Reset slowapi rate limiter storage between tests to avoid 429 errors."""
+    from api.middleware.rate_limit import limiter
+
+    limiter._storage.reset()
+    yield
+    limiter._storage.reset()
+
+
 @pytest.fixture
 def mock_request():
     """Create a mock Starlette Request for slowapi rate limiter compatibility."""

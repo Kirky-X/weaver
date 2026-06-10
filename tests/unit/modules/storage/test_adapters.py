@@ -152,7 +152,8 @@ class TestProtocolCompliance:
     def test_duckdb_article_repo_from_correct_module(self):
         from modules.storage.duckdb import DuckDBArticleRepo
 
-        assert DuckDBArticleRepo.__module__.startswith("modules.storage.duckdb")
+        # DuckDBArticleRepo is a re-export of ArticleRepo from postgres module
+        assert DuckDBArticleRepo.__module__ == "modules.storage.postgres.article_repo"
 
     def test_graph_repository_from_correct_module(self):
         from modules.storage.graph_repo import GraphRepository

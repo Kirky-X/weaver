@@ -36,6 +36,8 @@ def mock_settings():
     settings.spacy.models = ["en_core_web_lg"]
     settings.spacy.local_paths = {}
     settings.validate_security = MagicMock(return_value=[])
+    settings.traffic_anomaly = MagicMock(enabled=False)
+    settings.api.hmac_signing_enabled = False
     return settings
 
 

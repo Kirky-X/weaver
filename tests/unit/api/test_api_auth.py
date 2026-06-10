@@ -50,7 +50,8 @@ class TestVerifyApiKeyEdgeCases:
 
         with patch("container.get_settings", return_value=mock_settings):
             result = await verify_api_key(key="my-secret-key-1234567890abcdefgh")
-            assert result == "my-secret-key-1234567890abcdefgh"
+            # Legacy env-var key returns "legacy" identifier
+            assert result == "legacy"
 
     @pytest.mark.asyncio
     async def test_compare_digest_called_for_key_comparison(self):
@@ -87,7 +88,8 @@ class TestVerifyApiKeyEdgeCases:
             mock_compare.assert_called_once_with(
                 "correct-key-1234567890abcdefghij", "correct-key-1234567890abcdefghij"
             )
-            assert result == "correct-key-1234567890abcdefghij"
+            # Legacy env-var key returns "legacy" identifier
+            assert result == "legacy"
 
     @pytest.mark.asyncio
     async def test_timing_attack_safety_using_compare_digest(self):

@@ -52,15 +52,15 @@ class TestAuditLogMiddleware:
         )
 
         assert response.status_code == 200
-        
+
         # Verify audit log was called
         mock_log.info.assert_called_once()
         call_args = mock_log.info.call_args
-        
+
         assert call_args[0][0] == "audit_log"
         assert call_args[1]["action"] == "GET:/api/v1/admin/articles"
         assert call_args[1]["target_type"] == "articles"
-        assert call_args[1]["target_id"] == "unknown"
+        assert call_args[1]["target_id"] is None
         assert call_args[1]["status_code"] == 200
         assert "duration_ms" in call_args[1]
 
@@ -73,11 +73,11 @@ class TestAuditLogMiddleware:
         )
 
         assert response.status_code == 200
-        
+
         # Verify audit log was called
         mock_log.info.assert_called_once()
         call_args = mock_log.info.call_args
-        
+
         assert call_args[1]["action"] == "GET:/api/v1/admin/articles/123"
         assert call_args[1]["target_type"] == "articles"
         assert call_args[1]["target_id"] == "123"
@@ -88,7 +88,7 @@ class TestAuditLogMiddleware:
         response = self.client.get("/api/v1/status")
 
         assert response.status_code == 200
-        
+
         # Verify audit log was NOT called
         mock_log.info.assert_not_called()
 
@@ -98,17 +98,19 @@ class TestAuditLogMiddleware:
         response = self.client.get("/health")
 
         assert response.status_code == 200
-        
+
         # Verify audit log was NOT called
         mock_log.info.assert_not_called()
 
     @patch("api.middleware.audit.log")
     def test_failed_request_not_logged(self, mock_log: MagicMock) -> None:
         """Test that failed requests (non-2xx) are not logged."""
+
         # Create a failing endpoint
         @self.app.get("/api/v1/admin/error")
         async def error_endpoint() -> dict:
             from fastapi import HTTPException
+
             raise HTTPException(status_code=500, detail="Internal error")
 
         response = self.client.get(
@@ -117,7 +119,7 @@ class TestAuditLogMiddleware:
         )
 
         assert response.status_code == 500
-        
+
         # Verify audit log was NOT called
         mock_log.info.assert_not_called()
 
@@ -130,7 +132,7 @@ class TestAuditLogMiddleware:
         )
 
         assert response.status_code == 200
-        
+
         # Verify client IP is in log
         call_args = mock_log.info.call_args
         assert "client_ip" in call_args[1]
@@ -144,10 +146,10 @@ class TestAuditLogMiddleware:
         )
 
         assert response.status_code == 200
-        
+
         # Verify key ID is extracted
         call_args = mock_log.info.call_args
-        assert call_args[1]["key_id"] == "test-api-..."
+        assert call_args[1]["key_id"] == "test-api..."
 
     @patch("api.middleware.audit.log")
     def test_anonymous_when_no_auth(self, mock_log: MagicMock) -> None:
@@ -155,7 +157,7 @@ class TestAuditLogMiddleware:
         response = self.client.get("/api/v1/admin/articles")
 
         assert response.status_code == 200
-        
+
         # Verify key ID is anonymous
         call_args = mock_log.info.call_args
         assert call_args[1]["key_id"] == "anonymous"
@@ -169,7 +171,7 @@ class TestAuditLogMiddleware:
         )
 
         assert response.status_code == 200
-        
+
         # Verify query params are in detail
         call_args = mock_log.info.call_args
         detail = call_args[1]["detail"]
@@ -185,7 +187,7 @@ class TestAuditLogMiddleware:
         )
 
         assert response.status_code == 200
-        
+
         # Verify duration is logged
         call_args = mock_log.info.call_args
         assert "duration_ms" in call_args[1]
@@ -196,7 +198,7 @@ class TestAuditLogMiddleware:
         """Test that audit logging errors don't break the request."""
         # Make the logger raise an exception
         mock_log.info.side_effect = Exception("Logging failed")
-        
+
         response = self.client.get(
             "/api/v1/admin/articles",
             headers={"Authorization": "Bearer test-api-key-12345678"},
@@ -204,7 +206,7 @@ class TestAuditLogMiddleware:
 
         # Request should still succeed
         assert response.status_code == 200
-        
+
         # Error should be logged
         mock_log.error.assert_called_once()
         error_call_args = mock_log.error.call_args
@@ -258,7 +260,7 @@ class TestAuditLogMiddlewareConfiguration:
         with patch("api.middleware.audit.log") as mock_log:
             response = client.get("/api/v1/admin/communities/123/members")
             assert response.status_code == 200
-            
+
             call_args = mock_log.info.call_args
             assert call_args[1]["target_type"] == "communities"
             assert call_args[1]["target_id"] == "123"

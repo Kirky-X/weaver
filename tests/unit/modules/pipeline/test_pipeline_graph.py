@@ -349,9 +349,13 @@ class TestPipelinePhase1:
     async def test_phase1_processes_all_nodes(self, pipeline_for_phase1):
         """Test phase1 processes classifier, cleaner, categorizer, vectorize."""
         raw = MagicMock()
-        raw.title = "Test"
-        raw.body = "Body"
-        raw.url = "https://example.com/test"
+        raw.title = (
+            "重大新闻突发事件报道"  # Title with enough news keywords to pass rule classifier
+        )
+        raw.body = "Body content for the article"
+        raw.url = "https://news.example.com/breaking-news"
+        raw.source_host = "example.com"
+        raw.publish_time = None
 
         state = PipelineState(raw=raw)
         result = await pipeline_for_phase1._phase1_per_article(state)
@@ -365,17 +369,21 @@ class TestPipelinePhase1:
     async def test_phase1_stops_on_terminal_after_classifier(self, pipeline_for_phase1):
         """Test phase1 processes classifier then stops when terminal is set."""
         raw = MagicMock()
-        raw.title = "Test"
+        raw.title = "Test"  # len < 5 → rule classifier returns False → terminal=True
         raw.body = "Body"
         raw.url = "https://example.com/test"
+        raw.source_host = "example.com"
+        raw.publish_time = None
 
         state = PipelineState(raw=raw)
 
         result = await pipeline_for_phase1._phase1_per_article(state)
 
-        assert result.get("is_news") is True
-        assert result.get("cleaned") is not None
-        assert result.get("category") is not None
+        # Rule classifier marks short titles as non-news → terminal=True
+        assert result.get("is_news") is False
+        assert result.get("terminal") is True
+        # Cleaner should NOT run when terminal
+        assert result.get("cleaned") is None
 
 
 class TestPipelinePhase3:

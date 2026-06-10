@@ -328,9 +328,8 @@ class TestCredibilityCheckerNodeBasic:
         assert "content_check" in result["credibility"]
         assert "timeliness" in result["credibility"]
         assert "flags" in result["credibility"]
-        # Cross-verification should NOT be present
-        assert "cross_verification" not in result["credibility"]
-        assert "verified_by_sources" not in result["credibility"]
+        # Cross-verification is present (body-length proxy, same as content_check)
+        assert "cross_verification" in result["credibility"]
 
     @pytest.mark.asyncio
     async def test_credibility_publishes_event(
@@ -433,7 +432,7 @@ class TestCredibilityCheckerNodeErrorHandling:
     async def test_credibility_handles_llm_error(
         self, mock_llm, mock_budget, mock_event_bus, sample_raw
     ):
-        """Test that credibility checker handles LLM errors gracefully."""
+        """Test that rule-based checker ignores LLM errors (no LLM dependency)."""
         mock_llm.call_at = AsyncMock(side_effect=Exception("LLM service unavailable"))
 
         node = CredibilityCheckerNode(
@@ -450,8 +449,9 @@ class TestCredibilityCheckerNodeErrorHandling:
 
         result = await node.execute(state)
 
-        # Should use default LLM score of 0.5
-        assert result["credibility"]["content_check"] == 0.5
+        # Rule-based checker still produces results despite LLM error
+        # content_check is based on body length (short body → 0.4)
+        assert result["credibility"]["content_check"] == 0.4
         assert result["credibility"]["flags"] == []
 
     @pytest.mark.asyncio
@@ -495,9 +495,6 @@ class TestCredibilityCheckerNodeIntegration:
         mock_source_auth_repo.get_or_create = AsyncMock(
             return_value=MagicMock(authority=1.0)  # s1 = 1.0
         )
-        mock_llm.call_at = AsyncMock(
-            return_value=CredibilityOutput(score=1.0, flags=[])
-        )  # s2 = 1.0
 
         node = CredibilityCheckerNode(
             llm=mock_llm,
@@ -517,7 +514,7 @@ class TestCredibilityCheckerNodeIntegration:
         state = PipelineState(raw=raw)
         state["cleaned"] = {
             "title": "Test",
-            "body": "Test",
+            "body": "T" * 4000,  # > 3000 chars → s2 = 0.8
             "publish_time": datetime.now(UTC),
         }
         state["summary_info"] = {"event_time": datetime.now(UTC).isoformat()}  # s3 = 1.0
@@ -526,8 +523,8 @@ class TestCredibilityCheckerNodeIntegration:
         result = await node.execute(state)
 
         # For 政治: source=0.25, content=0.25, timeliness=0.50
-        # Expected: 1.0*0.25 + 1.0*0.25 + 1.0*0.50 = 1.0
-        expected = 1.0 * 0.25 + 1.0 * 0.25 + 1.0 * 0.50
+        # Expected: 1.0*0.25 + 0.8*0.25 + 1.0*0.50 = 0.25 + 0.20 + 0.50 = 0.95
+        expected = 1.0 * 0.25 + 0.8 * 0.25 + 1.0 * 0.50
         assert abs(result["credibility"]["score"] - expected) < 0.01
 
     @pytest.mark.asyncio
@@ -536,7 +533,6 @@ class TestCredibilityCheckerNodeIntegration:
     ):
         """Test credibility with economic news - source authority should dominate."""
         mock_source_auth_repo.get_or_create = AsyncMock(return_value=MagicMock(authority=0.90))
-        mock_llm.call_at = AsyncMock(return_value=CredibilityOutput(score=0.50, flags=[]))
 
         node = CredibilityCheckerNode(
             llm=mock_llm,
@@ -556,7 +552,7 @@ class TestCredibilityCheckerNodeIntegration:
         state = PipelineState(raw=raw)
         state["cleaned"] = {
             "title": "Market Update",
-            "body": "Test",
+            "body": "Test",  # <= 1000 chars → s2 = 0.4
             "publish_time": None,
         }
         state["category"] = "经济"
@@ -564,17 +560,16 @@ class TestCredibilityCheckerNodeIntegration:
         result = await node.execute(state)
 
         # For 经济: source=0.45, content=0.35, timeliness=0.20
-        # Expected: 0.90*0.45 + 0.50*0.35 + 0.70*0.20 = 0.405 + 0.175 + 0.14 = 0.72
-        expected = 0.90 * 0.45 + 0.50 * 0.35 + 0.70 * 0.20
+        # s1=0.90 (from repo), s2=0.4 (short body), s3=0.7 (no publish_time)
+        # Expected: 0.90*0.45 + 0.4*0.35 + 0.70*0.20 = 0.405 + 0.14 + 0.14 = 0.685
+        expected = 0.90 * 0.45 + 0.4 * 0.35 + 0.70 * 0.20
         assert abs(result["credibility"]["score"] - expected) < 0.01
 
     @pytest.mark.asyncio
-    async def test_credibility_calls_llm_with_correct_params(
+    async def test_credibility_does_not_call_llm(
         self, mock_llm, mock_budget, mock_event_bus, sample_raw
     ):
-        """Test that credibility checker calls LLM with correct parameters."""
-        mock_llm.call_at = AsyncMock(return_value=CredibilityOutput(score=0.7, flags=[]))
-
+        """Test that rule-based credibility checker does not call LLM."""
         node = CredibilityCheckerNode(
             llm=mock_llm,
             budget=mock_budget,
@@ -586,13 +581,5 @@ class TestCredibilityCheckerNodeIntegration:
 
         await node.execute(state)
 
-        # Verify LLM was called with correct CallPoint
-        mock_llm.call_at.assert_called_once()
-        call_args = mock_llm.call_at.call_args
-        assert call_args[0][0] == CallPoint.CREDIBILITY_CHECKER
-
-        # Verify input data
-        input_data = call_args[0][1]
-        assert input_data["title"] == "Test Title"
-        assert "body" in input_data
-        assert input_data["summary"] == "Test Summary"
+        # Rule-based checker does NOT call LLM
+        mock_llm.call_at.assert_not_called()

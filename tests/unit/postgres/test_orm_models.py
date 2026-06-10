@@ -147,6 +147,7 @@ class TestAuditLogModel:
             "target_id",
             "detail",
             "client_ip",
+            "user_agent",
             "created_at",
         }
         assert cols == expected
@@ -156,7 +157,7 @@ class TestAuditLogModel:
             assert inspect(AuditLog).columns[field].nullable is False, f"{field} should be NOT NULL"
 
     def test_optional_fields(self):
-        for field in ("target_type", "target_id", "detail", "client_ip"):
+        for field in ("target_type", "target_id", "detail", "client_ip", "user_agent"):
             assert inspect(AuditLog).columns[field].nullable is True, f"{field} should be nullable"
 
     def test_indexes(self):

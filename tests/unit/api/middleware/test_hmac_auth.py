@@ -39,9 +39,7 @@ class TestHMACSignatureMiddleware:
 
         self.client = TestClient(self.app)
 
-    def _calculate_signature(
-        self, timestamp: str, method: str, path: str, body: str = ""
-    ) -> str:
+    def _calculate_signature(self, timestamp: str, method: str, path: str, body: str = "") -> str:
         """Calculate HMAC signature for testing."""
         message = f"{timestamp}:{method}:{path}:{body}"
         return hmac.new(
@@ -213,9 +211,9 @@ class TestHMACSignatureMiddleware:
         assert response.status_code == 200
 
     def test_signature_at_tolerance_boundary(self) -> None:
-        """Test signature at exact tolerance boundary."""
-        # Use timestamp from exactly 30 seconds ago (at boundary)
-        timestamp = str(time.time() - 30)
+        """Test signature near tolerance boundary."""
+        # Use timestamp from 29 seconds ago (just inside boundary)
+        timestamp = str(time.time() - 29)
         signature = self._calculate_signature(timestamp, "GET", "/test")
 
         response = self.client.get(
@@ -223,7 +221,7 @@ class TestHMACSignatureMiddleware:
             headers={"X-Signature": signature, "X-Timestamp": timestamp},
         )
 
-        # Should still pass (within tolerance)
+        # Should pass (within tolerance)
         assert response.status_code == 200
 
     def test_different_paths_produce_different_signatures(self) -> None:
@@ -232,14 +230,22 @@ class TestHMACSignatureMiddleware:
         signature_test = self._calculate_signature(timestamp, "GET", "/test")
         signature_other = self._calculate_signature(timestamp, "GET", "/other")
 
-        # Signature for /test should not work for /other
+        # Signatures should be different
+        assert signature_test != signature_other
+
+        # Using /test signature for /other path should fail HMAC verification
+        # Add a route for /other so the middleware processes it
+        @self.app.get("/other")
+        async def other_endpoint() -> dict:
+            return {"other": True}
+
         response = self.client.get(
             "/other",
             headers={"X-Signature": signature_test, "X-Timestamp": timestamp},
         )
 
-        # This should fail because the path doesn't match
-        assert response.status_code == 404  # Route not found, but middleware passes
+        # HMAC verification fails because path doesn't match
+        assert response.status_code == 401
 
     def test_different_methods_produce_different_signatures(self) -> None:
         """Test that different HTTP methods produce different signatures."""

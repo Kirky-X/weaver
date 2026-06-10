@@ -41,7 +41,7 @@ class TestAuthMiddleware:
 
     @pytest.mark.asyncio
     async def test_verify_api_key_valid(self):
-        """Test verify_api_key returns key when valid."""
+        """Test verify_api_key returns key identifier when valid."""
         from api.middleware.auth import verify_api_key
 
         mock_settings = MagicMock()
@@ -49,7 +49,8 @@ class TestAuthMiddleware:
 
         with patch("container.get_settings", return_value=mock_settings):
             result = await verify_api_key(key="valid-api-key-12345678901234567890")
-            assert result == "valid-api-key-12345678901234567890"
+            # Legacy env-var key returns "legacy" identifier
+            assert result == "legacy"
 
     def test_api_key_header_exists(self):
         """Test API key header is defined."""

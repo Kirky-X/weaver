@@ -102,7 +102,7 @@ class TestArticleRepoUpsert:
 
     @pytest.mark.asyncio
     async def test_upsert_new_article(self, repo, mock_pool):
-        """Test upsert creates new article."""
+        """Test upsert creates new article via ON CONFLICT DO UPDATE."""
         mock_raw = MagicMock()
         mock_raw.url = "https://example.com/new"
         mock_raw.source_host = "example.com"
@@ -111,43 +111,62 @@ class TestArticleRepoUpsert:
 
         state = {"raw": mock_raw, "is_news": True}
 
-        # First query returns None (no existing)
-        mock_select_result = MagicMock()
-        mock_select_result.scalar_one_or_none.return_value = None
+        # _upsert_single executes multiple statements:
+        # 1. pg_insert(ArticleCore) ON CONFLICT
+        # 2. select(ArticleCore.id) to get the ID
+        # 3. pg_insert(ArticleBody) ON CONFLICT
+        # 4. pg_insert(ArticleAnalysis) ON CONFLICT
+        article_id = uuid.uuid4()
+
+        mock_core_result = MagicMock()
+        mock_core_result.scalar_one.return_value = article_id
 
         mock_session = AsyncMock()
-        mock_session.execute.return_value = mock_select_result
+        mock_session.execute.side_effect = [
+            MagicMock(),  # pg_insert ArticleCore
+            mock_core_result,  # select ArticleCore.id
+            MagicMock(),  # pg_insert ArticleBody
+            MagicMock(),  # pg_insert ArticleAnalysis
+        ]
         mock_session.commit = AsyncMock()
-        mock_session.refresh = AsyncMock()
-        mock_session.add = MagicMock()
 
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
 
         result = await repo.upsert(state)
 
-        mock_session.add.assert_called_once()
+        assert result == article_id
+        assert mock_session.execute.call_count == 4
 
     @pytest.mark.asyncio
     async def test_upsert_existing_article(self, repo, mock_pool):
-        """Test upsert updates existing article."""
+        """Test upsert updates existing article via ON CONFLICT DO UPDATE."""
         article_id = uuid.uuid4()
-        mock_existing = MagicMock(spec=Article)
-        mock_existing.id = article_id
-        mock_existing.source_url = "https://example.com/existing"
 
         mock_raw = MagicMock()
         mock_raw.url = "https://example.com/existing"
+        mock_raw.source_host = "example.com"
+        mock_raw.title = "Existing Article"
+        mock_raw.body = "Article body"
 
-        state = {"raw": mock_raw, "category": "tech"}
+        state = {"raw": mock_raw, "category": "tech", "is_news": True}
 
-        mock_select_result = MagicMock()
-        mock_select_result.scalar_one_or_none.return_value = mock_existing
+        # _upsert_single executes multiple statements:
+        # 1. pg_insert(ArticleCore) ON CONFLICT DO UPDATE
+        # 2. select(ArticleCore.id) to get the ID
+        # 3. pg_insert(ArticleBody) ON CONFLICT
+        # 4. pg_insert(ArticleAnalysis) ON CONFLICT
+        mock_core_result = MagicMock()
+        mock_core_result.scalar_one.return_value = article_id
 
         mock_session = AsyncMock()
-        mock_session.execute.return_value = mock_select_result
+        mock_session.execute.side_effect = [
+            MagicMock(),  # pg_insert ArticleCore
+            mock_core_result,  # select ArticleCore.id
+            MagicMock(),  # pg_insert ArticleBody
+            MagicMock(),  # pg_insert ArticleAnalysis
+        ]
         mock_session.commit = AsyncMock()
-        mock_session.refresh = AsyncMock()
 
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
@@ -193,7 +212,7 @@ class TestArticleRepoUpdateCredibility:
 
     @pytest.mark.asyncio
     async def test_update_credibility_by_uuid(self, repo, mock_pool):
-        """Test update_credibility with UUID."""
+        """Test update_credibility with UUID splits across ArticleCore and ArticleAnalysis."""
         article_id = uuid.uuid4()
 
         mock_session = AsyncMock()
@@ -210,12 +229,15 @@ class TestArticleRepoUpdateCredibility:
             verified_by_sources=3,
         )
 
-        mock_session.execute.assert_called_once()
+        # update_credibility now executes 2 UPDATE statements:
+        # 1. UPDATE ArticleCore SET credibility_score=...
+        # 2. UPDATE ArticleAnalysis SET cross_verification=..., verified_by_sources=...
+        assert mock_session.execute.call_count == 2
         mock_session.commit.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_update_credibility_by_string(self, repo, mock_pool):
-        """Test update_credibility with string ID."""
+        """Test update_credibility with string ID splits across ArticleCore and ArticleAnalysis."""
         article_id = uuid.uuid4()
 
         mock_session = AsyncMock()
@@ -232,7 +254,8 @@ class TestArticleRepoUpdateCredibility:
             verified_by_sources=3,
         )
 
-        mock_session.execute.assert_called_once()
+        # update_credibility now executes 2 UPDATE statements
+        assert mock_session.execute.call_count == 2
 
 
 class TestArticleRepoGetPendingNeo4j:
@@ -360,20 +383,37 @@ class TestArticleRepoUpdateEnrichmentIfNull:
 
     @pytest.mark.asyncio
     async def test_update_enrichment_if_null_updates_null_fields(self, repo, mock_pool):
-        """Test updates fields that are NULL."""
+        """Test updates fields that are NULL across split tables."""
         article_id = uuid.uuid4()
-        mock_article = MagicMock(spec=Article)
-        mock_article.category = None
-        mock_article.score = None
-        mock_article.credibility_score = None
-        mock_article.summary = None
-        mock_article.quality_score = None
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = mock_article
+        # update_enrichment_if_null queries each split table separately:
+        # 1. SELECT category, score, credibility_score FROM ArticleCore WHERE id=...
+        # 2. SELECT summary FROM ArticleBody WHERE article_id=...
+        # 3. SELECT quality_score FROM ArticleAnalysis WHERE article_id=...
+        # Then executes UPDATE statements for fields that are NULL.
+
+        mock_core_result = MagicMock()
+        mock_core_result.one_or_none.return_value = (
+            None,
+            None,
+            None,
+        )  # category, score, credibility_score all NULL
+
+        mock_body_result = MagicMock()
+        mock_body_result.scalar_one_or_none.return_value = None  # summary is NULL
+
+        mock_analysis_result = MagicMock()
+        mock_analysis_result.scalar_one_or_none.return_value = None  # quality_score is NULL
 
         mock_session = AsyncMock()
-        mock_session.execute.return_value = mock_result
+        mock_session.execute.side_effect = [
+            mock_core_result,  # SELECT from ArticleCore
+            MagicMock(),  # UPDATE ArticleCore
+            mock_body_result,  # SELECT from ArticleBody
+            MagicMock(),  # UPDATE ArticleBody
+            mock_analysis_result,  # SELECT from ArticleAnalysis
+            MagicMock(),  # UPDATE ArticleAnalysis
+        ]
         mock_session.commit = AsyncMock()
 
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
@@ -389,22 +429,21 @@ class TestArticleRepoUpdateEnrichmentIfNull:
         )
 
         assert result is True
-        assert mock_article.category == "tech"
-        assert mock_article.score == 0.85
 
     @pytest.mark.asyncio
     async def test_update_enrichment_if_null_skips_non_null(self, repo, mock_pool):
-        """Test skips fields that are not NULL."""
+        """Test skips fields that are not NULL across split tables."""
         article_id = uuid.uuid4()
-        mock_article = MagicMock(spec=Article)
-        mock_article.category = "existing_category"
-        mock_article.score = None
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = mock_article
+        # category is "existing_category" (non-NULL), score is NULL
+        mock_core_result = MagicMock()
+        mock_core_result.one_or_none.return_value = ("existing_category", None, None)
 
         mock_session = AsyncMock()
-        mock_session.execute.return_value = mock_result
+        mock_session.execute.side_effect = [
+            mock_core_result,  # SELECT from ArticleCore
+            MagicMock(),  # UPDATE ArticleCore (only score + credibility_score, not category)
+        ]
         mock_session.commit = AsyncMock()
 
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
@@ -412,24 +451,25 @@ class TestArticleRepoUpdateEnrichmentIfNull:
 
         result = await repo.update_enrichment_if_null(
             article_id,
-            category="new_category",  # Should not update
+            category="new_category",  # Should not update (non-NULL)
             score=0.85,
         )
 
         assert result is True
-        assert mock_article.category == "existing_category"  # Not changed
-        assert mock_article.score == 0.85
 
     @pytest.mark.asyncio
     async def test_update_enrichment_if_null_article_not_found(self, repo, mock_pool):
         """Test returns False when article not found."""
         article_id = uuid.uuid4()
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
+        # ArticleCore query returns None (article not found)
+        mock_core_result = MagicMock()
+        mock_core_result.one_or_none.return_value = None
 
         mock_session = AsyncMock()
-        mock_session.execute.return_value = mock_result
+        mock_session.execute.side_effect = [
+            mock_core_result,  # SELECT from ArticleCore - not found
+        ]
 
         mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)

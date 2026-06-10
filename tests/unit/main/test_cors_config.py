@@ -25,6 +25,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.testclient import TestClient
 
 
+def _make_mock_settings() -> MagicMock:
+    """Create mock Settings with attributes needed for create_app()."""
+    settings = MagicMock()
+    settings.traffic_anomaly = MagicMock(enabled=False)
+    settings.api.hmac_signing_enabled = False
+    return settings
+
+
 class TestCORSDevelopmentEnvironment:
     """Tests for CORS configuration in development environment."""
 
@@ -42,7 +50,7 @@ class TestCORSDevelopmentEnvironment:
             with patch.dict("os.environ", env_vars, clear=False):
                 from main import create_app
 
-                mock_settings = MagicMock()
+                mock_settings = _make_mock_settings()
                 with patch("main.Settings", return_value=mock_settings):
                     app = create_app()
 
@@ -68,7 +76,7 @@ class TestCORSDevelopmentEnvironment:
         ):
             from main import create_app
 
-            mock_settings = MagicMock()
+            mock_settings = _make_mock_settings()
             with patch("main.Settings", return_value=mock_settings):
                 app = create_app()
 
@@ -91,7 +99,7 @@ class TestCORSDevelopmentEnvironment:
         ):
             from main import create_app
 
-            mock_settings = MagicMock()
+            mock_settings = _make_mock_settings()
             with patch("main.Settings", return_value=mock_settings):
                 app = create_app()
 
@@ -121,7 +129,7 @@ class TestCORSProductionEnvironment:
         ):
             from main import create_app, log
 
-            mock_settings = MagicMock()
+            mock_settings = _make_mock_settings()
             with patch("main.Settings", return_value=mock_settings):
                 with patch.object(log, "warning") as mock_warning:
                     app = create_app()
@@ -164,7 +172,7 @@ class TestCORSProductionEnvironment:
         ):
             from main import create_app, log
 
-            mock_settings = MagicMock()
+            mock_settings = _make_mock_settings()
             mock_settings.environment = "production"
             with patch("main.Settings", return_value=mock_settings):
                 with patch.object(log, "warning") as mock_warning:
@@ -196,7 +204,7 @@ class TestCORSProductionEnvironment:
         ):
             from main import create_app, log
 
-            mock_settings = MagicMock()
+            mock_settings = _make_mock_settings()
             mock_settings.environment = "production"
             # Mock log.warning to track calls
             with patch("main.Settings", return_value=mock_settings):
@@ -231,7 +239,7 @@ class TestCORSPreflightRequests:
         ):
             from main import create_app
 
-            mock_settings = MagicMock()
+            mock_settings = _make_mock_settings()
             with patch("main.Settings", return_value=mock_settings):
                 app = create_app()
                 client = TestClient(app)
@@ -267,7 +275,7 @@ class TestCORSPreflightRequests:
         ):
             from main import create_app
 
-            mock_settings = MagicMock()
+            mock_settings = _make_mock_settings()
             with patch("main.Settings", return_value=mock_settings):
                 app = create_app()
                 client = TestClient(app)
@@ -295,7 +303,7 @@ class TestCORSPreflightRequests:
         ):
             from main import create_app
 
-            mock_settings = MagicMock()
+            mock_settings = _make_mock_settings()
             with patch("main.Settings", return_value=mock_settings):
                 app = create_app()
                 client = TestClient(app)
@@ -333,7 +341,7 @@ class TestCORSSecurityConfiguration:
         ):
             from main import create_app
 
-            mock_settings = MagicMock()
+            mock_settings = _make_mock_settings()
             with patch("main.Settings", return_value=mock_settings):
                 app = create_app()
 
@@ -363,7 +371,7 @@ class TestCORSSecurityConfiguration:
 
             from main import create_app
 
-            mock_settings = MagicMock()
+            mock_settings = _make_mock_settings()
             with patch("main.Settings", return_value=mock_settings):
                 app = create_app()
 
@@ -387,7 +395,7 @@ class TestCORSSecurityConfiguration:
         ):
             from main import create_app
 
-            mock_settings = MagicMock()
+            mock_settings = _make_mock_settings()
             with patch("main.Settings", return_value=mock_settings):
                 app = create_app()
 
@@ -412,7 +420,7 @@ class TestCORSSecurityConfiguration:
         ):
             from main import create_app
 
-            mock_settings = MagicMock()
+            mock_settings = _make_mock_settings()
             with patch("main.Settings", return_value=mock_settings):
                 app = create_app()
 

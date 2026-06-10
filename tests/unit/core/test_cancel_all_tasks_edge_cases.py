@@ -9,7 +9,7 @@ import pytest
 @pytest.mark.asyncio
 async def test_cancel_all_tasks_with_empty_list():
     """Verify cancel_all_tasks handles empty task list gracefully."""
-    from tests.conftest import cancel_all_tasks
+    from tests.conftest import _cancel_all_tasks as cancel_all_tasks
 
     # No background tasks running
     await cancel_all_tasks()
@@ -19,7 +19,7 @@ async def test_cancel_all_tasks_with_empty_list():
 @pytest.mark.asyncio
 async def test_cancel_all_tasks_with_already_cancelled_task():
     """Verify cancel_all_tasks handles already cancelled tasks."""
-    from tests.conftest import cancel_all_tasks
+    from tests.conftest import _cancel_all_tasks as cancel_all_tasks
 
     # Create a task and cancel it immediately
     async def dummy_worker():
@@ -38,7 +38,7 @@ async def test_cancel_all_tasks_with_already_cancelled_task():
 @pytest.mark.asyncio
 async def test_cancel_all_tasks_with_unresponsive_task():
     """Verify cancel_all_tasks handles tasks that don't respond to cancellation."""
-    from tests.conftest import cancel_all_tasks
+    from tests.conftest import _cancel_all_tasks as cancel_all_tasks
 
     # Create a task that catches CancelledError and ignores it (bad pattern)
     unresponsive_task_completed = False
@@ -68,7 +68,7 @@ async def test_cancel_all_tasks_with_unresponsive_task():
 @pytest.mark.asyncio
 async def test_cancel_all_tasks_with_multiple_task_types():
     """Verify cancel_all_tasks handles mix of normal, cancelled, and slow tasks."""
-    from tests.conftest import cancel_all_tasks
+    from tests.conftest import _cancel_all_tasks as cancel_all_tasks
 
     tasks_completed = []
 
@@ -111,7 +111,7 @@ async def test_cancel_all_tasks_with_multiple_task_types():
 @pytest.mark.asyncio
 async def test_cancel_all_tasks_timeout_handling():
     """Verify cancel_all_tasks logs warning on timeout."""
-    from tests.conftest import cancel_all_tasks
+    from tests.conftest import _cancel_all_tasks as cancel_all_tasks
 
     # Create a task that really doesn't want to stop
     async def stubborn_worker():

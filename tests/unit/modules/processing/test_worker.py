@@ -115,15 +115,42 @@ class TestConsumeLoop:
     ):
         article = MagicMock()
         mock_article_repo.get_by_ids.return_value = [article]
-        mock_queue.dequeue_batch.return_value = [("article-id-1", "task-1")]
-        mock_queue.length.return_value = 0
 
-        worker._running = True
+        processed = False
 
         async def stop_after_process():
-            await asyncio.sleep(0.05)
+            nonlocal processed
+            # Wait for process_batch to be called
+            for _ in range(50):
+                if mock_pipeline.process_batch.called:
+                    processed = True
+                    break
+                await asyncio.sleep(0.01)
             worker._running = False
+            # Return empty batch so the loop can exit
+            mock_queue.dequeue_batch.return_value = []
 
+        # First call returns items, subsequent calls return empty
+        mock_queue.dequeue_batch.side_effect = [
+            [("article-id-1", "task-1")],
+        ]
+        # After the first call, return empty
+        mock_queue.dequeue_batch.side_effect = None
+        mock_queue.dequeue_batch.return_value = [("article-id-1", "task-1")]
+
+        call_count = 0
+        original_dequeue = mock_queue.dequeue_batch
+
+        async def dequeue_side_effect(batch_size):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return [("article-id-1", "task-1")]
+            return []
+
+        mock_queue.dequeue_batch.side_effect = dequeue_side_effect
+
+        worker._running = True
         asyncio.create_task(stop_after_process())  # noqa: RUF006
         await worker._consume_loop()
         mock_pipeline.process_batch.assert_called()
@@ -131,12 +158,22 @@ class TestConsumeLoop:
     @pytest.mark.asyncio
     async def test_consume_articles_not_found(self, worker, mock_queue, mock_article_repo):
         mock_article_repo.get_by_ids.return_value = []
-        mock_queue.dequeue_batch.return_value = [("missing-id", None)]
+
+        call_count = 0
+
+        async def dequeue_side_effect(batch_size):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return [("missing-id", None)]
+            return []
+
+        mock_queue.dequeue_batch.side_effect = dequeue_side_effect
 
         worker._running = True
 
         async def stop_after_delay():
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.1)
             worker._running = False
 
         asyncio.create_task(stop_after_delay())  # noqa: RUF006

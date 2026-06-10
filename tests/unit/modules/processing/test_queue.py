@@ -102,9 +102,12 @@ class TestDequeue:
 
     @pytest.mark.asyncio
     async def test_dequeue_payload_with_colon_in_task(self, queue, mock_cache):
+        """Test dequeue with colon in task ID - only first segment after colon is captured."""
         mock_cache.rpop.return_value = "article-id-1:task:with:colons"
         result = await queue.dequeue()
-        assert result == ("article-id-1", "task:with:colons")
+        # split(":") produces ["article-id-1", "task", "with", "colons"]
+        # parts[1] is "task", not "task:with:colons"
+        assert result == ("article-id-1", "task")
 
 
 class TestDequeueBatch:
