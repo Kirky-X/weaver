@@ -78,7 +78,43 @@ class BriefingEngine:
     async def _fetch_articles(self, target_date: date) -> list[dict[str, Any]]:
         """Fetch articles from the last 24 hours."""
         try:
-            return []
+            async with self._pool.session_context() as session:
+                from datetime import datetime, timedelta
+
+                from sqlalchemy import select
+
+                from core.db.models import ArticleCore
+
+                start_dt = datetime(
+                    target_date.year, target_date.month, target_date.day
+                ) - timedelta(hours=24)
+                end_dt = datetime(target_date.year, target_date.month, target_date.day, 23, 59, 59)
+
+                query = (
+                    select(ArticleCore)
+                    .where(
+                        ArticleCore.publish_time >= start_dt,
+                        ArticleCore.publish_time <= end_dt,
+                    )
+                    .order_by(ArticleCore.publish_time.desc())
+                )
+
+                result = await session.execute(query)
+                rows = result.scalars().all()
+
+                return [
+                    {
+                        "article_id": str(r.id),
+                        "title": r.title,
+                        "category": getattr(r, "category", None),
+                        "score": float(r.score) if r.score else 0.0,
+                        "credibility_score": (
+                            float(r.credibility_score) if r.credibility_score else 0.0
+                        ),
+                        "quality_score": float(r.quality_score) if r.quality_score else 0.0,
+                    }
+                    for r in rows
+                ]
         except Exception as exc:
             log.error("fetch_articles_failed", error=str(exc))
             return []

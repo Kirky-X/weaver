@@ -149,6 +149,107 @@ class TestAnalyticsBriefingsEndpoint:
         assert "timestamp" in body
 
 
+class TestAnalyticsShiftsWithData:
+    """Tests for /analytics/shifts endpoint with actual storage data."""
+
+    def setup_method(self) -> None:
+        """Set up test fixtures."""
+        self.app = FastAPI()
+        self.app.include_router(router)
+        _mock_auth(self.app)
+        self.client = TestClient(self.app)
+
+    def test_shifts_endpoint_returns_data(self) -> None:
+        """Test shifts endpoint returns data from storage."""
+        mock_storage = MagicMock()
+        mock_storage.get_shifts = AsyncMock(
+            return_value=[
+                {
+                    "community_id": "comm-1",
+                    "shift_type": "gradual",
+                    "direction": "positive",
+                    "magnitude": 0.15,
+                    "confidence": 0.85,
+                }
+            ]
+        )
+
+        with patch("api.endpoints.analytics._get_analytics_storage", return_value=mock_storage):
+            response = self.client.get("/analytics/shifts")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["data"]["total"] == 1
+        assert len(body["data"]["shifts"]) == 1
+
+    def test_shifts_endpoint_handles_storage_error(self) -> None:
+        """Test shifts endpoint handles storage errors gracefully."""
+        with patch(
+            "api.endpoints.analytics._get_analytics_storage",
+            side_effect=Exception("Storage unavailable"),
+        ):
+            response = self.client.get("/analytics/shifts")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["data"]["shifts"] == []
+        assert body["data"]["total"] == 0
+
+
+class TestAnalyticsBriefingsWithData:
+    """Tests for /analytics/briefings endpoint with actual storage data."""
+
+    def setup_method(self) -> None:
+        """Set up test fixtures."""
+        self.app = FastAPI()
+        self.app.include_router(router)
+        _mock_auth(self.app)
+        self.client = TestClient(self.app)
+
+    def test_briefings_endpoint_returns_data(self) -> None:
+        """Test briefings endpoint returns data from storage."""
+        mock_pool = MagicMock()
+        mock_session = AsyncMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+        mock_pool.session_context.return_value = mock_session
+
+        mock_row = MagicMock()
+        mock_row.id = 1
+        mock_row.briefing_date = "2026-01-15"
+        mock_row.total_items = 5
+        mock_row.generated_at = None
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [mock_row]
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        mock_storage = MagicMock()
+        mock_storage._pool = mock_pool
+
+        with patch("api.endpoints.analytics._get_analytics_storage", return_value=mock_storage):
+            response = self.client.get("/analytics/briefings")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["data"]["total"] == 1
+        assert len(body["data"]["briefings"]) == 1
+
+    def test_briefings_endpoint_handles_storage_error(self) -> None:
+        """Test briefings endpoint handles storage errors gracefully."""
+        mock_storage = MagicMock()
+        mock_storage._pool = MagicMock()
+        mock_storage._pool.session_context.side_effect = Exception("DB error")
+
+        with patch("api.endpoints.analytics._get_analytics_storage", return_value=mock_storage):
+            response = self.client.get("/analytics/briefings")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["data"]["briefings"] == []
+        assert body["data"]["total"] == 0
+
+
 class TestAnalyticsRouterRegistration:
     """Tests for analytics router registration."""
 

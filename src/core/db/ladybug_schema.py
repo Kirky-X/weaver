@@ -146,6 +146,51 @@ SCHEMA_QUERIES = [
         FROM CommunityReport TO Community
     )
     """,
+    # NarrativeNode node table
+    """
+    CREATE NODE TABLE IF NOT EXISTS NarrativeNode (
+        id STRING PRIMARY KEY,
+        source_bias STRING,
+        frame STRING,
+        tone STRING,
+        emphasis STRING,
+        created_at INT64,
+        updated_at INT64
+    )
+    """,
+    # SchemaNode node table
+    """
+    CREATE NODE TABLE IF NOT EXISTS SchemaNode (
+        id STRING PRIMARY KEY,
+        event_type STRING,
+        pattern STRING,
+        confidence DOUBLE,
+        created_at INT64,
+        updated_at INT64
+    )
+    """,
+    # HAS_PARTICIPANT relationship - EventNode has Entity participant
+    """
+    CREATE REL TABLE IF NOT EXISTS HAS_PARTICIPANT (
+        FROM EventNode TO Entity,
+        role STRING,
+        created_at INT64
+    )
+    """,
+    # HAS_SUB_EVENT relationship - EventNode has sub EventNode
+    """
+    CREATE REL TABLE IF NOT EXISTS HAS_SUB_EVENT (
+        FROM EventNode TO EventNode,
+        created_at INT64
+    )
+    """,
+    # HAS_NARRATIVE relationship - EventNode has NarrativeNode
+    """
+    CREATE REL TABLE IF NOT EXISTS HAS_NARRATIVE (
+        FROM EventNode TO NarrativeNode,
+        created_at INT64
+    )
+    """,
 ]
 
 

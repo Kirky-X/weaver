@@ -15,10 +15,13 @@ Operations performed:
 from __future__ import annotations
 
 import json
+import uuid
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Protocol
 
 from core.observability.logging import get_logger
 from modules.memory.core.graph_types import CausalRelationType
+from modules.memory.core.schema_node import SchemaNode
 from modules.memory.evolution.result import ConsolidationResult
 
 if TYPE_CHECKING:
@@ -294,3 +297,120 @@ class StructuralConsolidationWorker:
                 error=str(exc),
             )
             return 0
+
+    # ── Schema Clustering ─────────────────────────────────────────────
+
+    MIN_CLUSTER_SIZE = 3
+    STALE_THRESHOLD_DAYS = 90
+
+    def _cluster_by_type_and_participants(
+        self,
+        events: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Cluster events by type and participants.
+
+        Groups events that share the same event_type and participant set.
+        Clusters with fewer than MIN_CLUSTER_SIZE events are discarded.
+
+        Args:
+            events: List of event dicts with event_type and participants.
+
+        Returns:
+            List of cluster dicts with event_type, participants, and events.
+        """
+        groups: dict[str, list[dict[str, Any]]] = {}
+
+        for event in events:
+            event_type = event.get("event_type", "unknown")
+            participants = event.get("participants", [])
+            # Sort participants for consistent grouping
+            participants_key = ",".join(sorted(participants))
+            group_key = f"{event_type}|{participants_key}"
+
+            if group_key not in groups:
+                groups[group_key] = []
+            groups[group_key].append(event)
+
+        # Filter by minimum cluster size
+        clusters = []
+        for key, group_events in groups.items():
+            if len(group_events) >= self.MIN_CLUSTER_SIZE:
+                event_type, participants_str = key.split("|", 1)
+                participants = participants_str.split(",") if participants_str else []
+                clusters.append(
+                    {
+                        "event_type": event_type,
+                        "participants": participants,
+                        "events": group_events,
+                    }
+                )
+
+        return clusters
+
+    def _update_schema(
+        self,
+        cluster: dict[str, Any],
+    ) -> SchemaNode:
+        """Create a SchemaNode from an event cluster.
+
+        Generalizes the cluster into an abstract schema pattern.
+
+        Args:
+            cluster: Cluster dict with event_type, participants, and events.
+
+        Returns:
+            SchemaNode representing the generalized pattern.
+        """
+        event_type = cluster["event_type"]
+        participants = cluster.get("participants", [])
+        events = cluster.get("events", [])
+
+        # Build pattern from participants
+        pattern = "_vs_".join(sorted(participants)) if participants else event_type
+
+        # Confidence based on cluster size (more events = higher confidence)
+        confidence = min(len(events) / 10.0, 1.0)
+
+        schema_id = f"schema-{uuid.uuid4().hex[:8]}"
+
+        return SchemaNode(
+            id=schema_id,
+            event_type=event_type,
+            pattern=pattern,
+            confidence=confidence,
+        )
+
+    def _mark_stale_events(
+        self,
+        events: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Mark events as stale if not accessed in 90 days.
+
+        Args:
+            events: List of event dicts with last_accessed and stale fields.
+
+        Returns:
+            Updated list of event dicts with stale field set.
+        """
+        now = datetime.now(UTC)
+        threshold = now - timedelta(days=self.STALE_THRESHOLD_DAYS)
+
+        result = []
+        for event in events:
+            updated_event = dict(event)
+            last_accessed_str = event.get("last_accessed")
+
+            if last_accessed_str:
+                try:
+                    last_accessed = datetime.fromisoformat(last_accessed_str)
+                    if last_accessed.tzinfo is None:
+                        last_accessed = last_accessed.replace(tzinfo=UTC)
+                    updated_event["stale"] = last_accessed <= threshold
+                except (ValueError, TypeError):
+                    updated_event["stale"] = False
+            else:
+                updated_event["stale"] = False
+
+            result.append(updated_event)
+
+        return result

@@ -207,3 +207,68 @@ class TestBriefingEngineFetchArticles:
         engine = BriefingEngine(pool=MagicMock())
         result = await engine._fetch_articles(date(2026, 6, 1))
         assert result == []
+
+
+class TestBriefingEngineFetchArticlesWithPool:
+    """Tests for BriefingEngine._fetch_articles with database pool."""
+
+    @pytest.fixture
+    def mock_pool(self):
+        """Create a mock RelationalPool."""
+        pool = MagicMock()
+        mock_session = AsyncMock()
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
+        pool.session_context.return_value = mock_session
+        return pool
+
+    @pytest.fixture
+    def engine(self, mock_pool):
+        """Create a BriefingEngine with mock pool."""
+        return BriefingEngine(pool=mock_pool)
+
+    @pytest.mark.asyncio
+    async def test_fetch_articles_returns_recent_24h(self, engine, mock_pool):
+        """Test _fetch_articles queries last 24 hours of articles."""
+        mock_row1 = MagicMock()
+        mock_row1.id = "art-1"
+        mock_row1.title = "Article 1"
+        mock_row1.category = "tech"
+        mock_row1.score = 0.9
+        mock_row1.credibility_score = 0.8
+        mock_row1.quality_score = 0.7
+
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [mock_row1]
+
+        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+        mock_session.execute = AsyncMock(return_value=mock_result)
+
+        result = await engine._fetch_articles(date(2026, 6, 1))
+
+        mock_session.execute.assert_called_once()
+        assert len(result) == 1
+        assert result[0]["article_id"] == "art-1"
+
+    @pytest.mark.asyncio
+    async def test_generate_produces_briefing(self, engine, mock_pool):
+        """Test generate produces a complete briefing."""
+        articles = [
+            {
+                "article_id": "art-1",
+                "category": "tech",
+                "score": 0.9,
+                "credibility_score": 0.8,
+                "quality_score": 0.7,
+            },
+        ]
+
+        with (
+            patch.object(engine, "_fetch_articles", return_value=articles),
+            patch.object(engine, "_persist", return_value=1),
+        ):
+            result = await engine.generate(date(2026, 6, 1))
+
+        assert result["briefing_date"] == date(2026, 6, 1)
+        assert len(result["items"]) == 1
+        assert result["id"] == 1

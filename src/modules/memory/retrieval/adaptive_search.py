@@ -15,6 +15,7 @@ import time
 from typing import TYPE_CHECKING, Any, Protocol
 
 from core.observability.logging import get_logger
+from modules.knowledge.search.rerankers.beam_search_reranker import BeamSearchReranker
 from modules.memory.core.event_node import EventNode
 from modules.memory.core.graph_types import EdgeType, IntentType
 from modules.memory.core.traversal import calculate_transition_score
@@ -51,6 +52,41 @@ class IntentClassifierProtocol(Protocol):
     """Protocol for intent classifier."""
 
     async def classify(self, query: str) -> Any: ...
+
+
+class _IntentGraphAdapter:
+    """Adapter wrapping temporal/causal repos as a graph for BeamSearchReranker.
+
+    Provides get_neighbors(entity_id) that returns scored neighbor dicts
+    compatible with BeamSearchReranker's expansion logic.
+    """
+
+    def __init__(
+        self,
+        temporal_repo: Any,
+        causal_repo: Any,
+        query_embedding: list[float],
+        intent: IntentType,
+        event_cache: dict[str, dict[str, Any]] | None,
+    ) -> None:
+        self._temporal_repo = temporal_repo
+        self._causal_repo = causal_repo
+        self._query_embedding = query_embedding
+        self._intent = intent
+        self._event_cache = event_cache
+
+    def get_neighbors(self, entity_id: str) -> list[dict[str, Any]]:
+        """Get scored neighbors for an entity (synchronous wrapper).
+
+        Note: This is a synchronous interface for BeamSearchReranker.
+        The async neighbor fetching is done during _beam_search setup.
+        """
+        # Return empty — actual expansion is handled via _expand_neighbors
+        return self._cached_neighbors.get(entity_id, [])
+
+    def set_cached_neighbors(self, neighbors: dict[str, list[dict[str, Any]]]) -> None:
+        """Pre-populate neighbor cache for synchronous access."""
+        self._cached_neighbors = neighbors
 
 
 class AdaptiveSearchEngine:
@@ -114,6 +150,11 @@ class AdaptiveSearchEngine:
         self._default_anchor_limit = default_anchor_limit
         self._event_lookup_limit = event_lookup_limit
         self._event_cache: dict[str, dict[str, Any]] | None = None
+        self._reranker = BeamSearchReranker(
+            beam_width=beam_width,
+            decay_factor=decay_factor,
+            expansion_weight=1.0 - decay_factor,
+        )
 
     async def search(
         self,
@@ -292,7 +333,7 @@ class AdaptiveSearchEngine:
         query_embedding: list[float],
         intent: IntentType,
     ) -> list[dict[str, Any]]:
-        """Execute heuristic beam search traversal.
+        """Execute heuristic beam search traversal using BeamSearchReranker.
 
         Args:
             anchors: Starting anchor event IDs.
@@ -306,10 +347,8 @@ class AdaptiveSearchEngine:
         all_events = await self._temporal_repo.get_temporal_chain(limit=self._event_lookup_limit)
         self._event_cache = {e["id"]: e for e in all_events if e.get("id")}
 
-        max_visited_size = self._beam_width * self._max_depth * 2
-        visited: set[str] = set()
-        # Score anchors based on content relevance instead of fixed 1.0
-        scored_anchors: list[tuple[str, float]] = []
+        # Score anchors based on content relevance
+        candidates: list[dict[str, Any]] = []
         for anchor_id in anchors:
             event_data = await self._get_event_data(anchor_id)
             if event_data:
@@ -325,74 +364,126 @@ class AdaptiveSearchEngine:
                     query_intent=intent,
                     edge_type=EdgeType.TEMPORAL,
                 )
-                scored_anchors.append((anchor_id, anchor_score))
+                candidates.append(
+                    {
+                        "id": anchor_id,
+                        "fusion_score": anchor_score,
+                        "content": event_data.get("content", ""),
+                        "timestamp": event_data.get("timestamp"),
+                    }
+                )
             else:
-                scored_anchors.append((anchor_id, 0.5))
+                candidates.append(
+                    {
+                        "id": anchor_id,
+                        "fusion_score": 0.5,
+                        "content": "",
+                    }
+                )
 
-        frontier = scored_anchors
+        # Pre-fetch neighbors for all events and build graph adapter
+        neighbor_cache = await self._prefetch_neighbors(candidates, intent, query_embedding)
+        graph_adapter = _IntentGraphAdapter(
+            temporal_repo=self._temporal_repo,
+            causal_repo=self._causal_repo,
+            query_embedding=query_embedding,
+            intent=intent,
+            event_cache=self._event_cache,
+        )
+        graph_adapter.set_cached_neighbors(neighbor_cache)
+
+        # Use BeamSearchReranker for traversal
+        reranked = self._reranker.rerank(
+            query="",
+            candidates=candidates,
+            graph=graph_adapter,
+            depth=self._max_depth,
+        )
+
+        # Build results from reranked output
         results: list[dict[str, Any]] = []
+        for item in reranked:
+            event_id = item.get("id", "")
+            event_data = await self._get_event_data(event_id)
+            content = ""
+            timestamp = None
+            if event_data:
+                content = event_data.get("content", "")
+                timestamp = event_data.get("timestamp")
+            elif item.get("content"):
+                content = item["content"]
+                timestamp = item.get("timestamp")
 
-        for depth in range(self._max_depth):
-            if not frontier:
-                break
-
-            candidates: list[tuple[str, float]] = []
-
-            for event_id, cumulative_score in frontier:
-                if event_id in visited:
-                    continue
-                if len(visited) >= max_visited_size:
-                    continue
-                visited.add(event_id)
-
-                # Get event details
-                event_data = await self._get_event_data(event_id)
-                if event_data:
-                    content = event_data.get("content", "")
-                    if content.strip():
-                        results.append(
-                            {
-                                "id": event_id,
-                                "content": content,
-                                "timestamp": event_data.get("timestamp"),
-                                "score": cumulative_score,
-                            }
-                        )
-
-                # Get neighbors based on intent
-                neighbors = await self._get_neighbors_by_intent(event_id, intent)
-
-                for neighbor_id, edge_type in neighbors:
-                    if neighbor_id in visited or len(visited) >= max_visited_size:
-                        continue
-
-                    # Create placeholder EventNode with minimal data for scoring
-                    neighbor_event = EventNode(
-                        id=neighbor_id,
-                        content="",
-                        timestamp=None,
-                        embedding=None,
-                    )
-
-                    score = calculate_transition_score(
-                        neighbor=neighbor_event,
-                        query_embedding=query_embedding,
-                        query_intent=intent,
-                        edge_type=edge_type,
-                    )
-
-                    decayed_score = cumulative_score * self._decay_factor + score
-                    candidates.append((neighbor_id, decayed_score))
-
-            # Beam search: keep top-k
-            candidates.sort(key=lambda x: x[1], reverse=True)
-            frontier = candidates[: self._beam_width]
+            if content.strip():
+                results.append(
+                    {
+                        "id": event_id,
+                        "content": content,
+                        "timestamp": timestamp,
+                        "score": item.get("cumulative_score", item.get("fusion_score", 0.0)),
+                    }
+                )
 
             # Token budget check
             if self._estimate_tokens(results) >= self._token_budget:
                 break
 
         return results
+
+    async def _prefetch_neighbors(
+        self,
+        candidates: list[dict[str, Any]],
+        intent: IntentType,
+        query_embedding: list[float],
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Pre-fetch and score neighbors for all candidate entities.
+
+        Args:
+            candidates: List of candidate dicts with id field.
+            intent: Query intent type.
+            query_embedding: Query embedding vector for scoring.
+
+        Returns:
+            Dict mapping entity_id to list of scored neighbor dicts.
+        """
+        neighbor_cache: dict[str, list[dict[str, Any]]] = {}
+
+        for candidate in candidates:
+            entity_id = candidate.get("id", "")
+            if not entity_id:
+                continue
+
+            try:
+                neighbors = await self._get_neighbors_by_intent(entity_id, intent)
+            except Exception as exc:
+                log.warning("prefetch_neighbors_failed", entity_id=entity_id, error=str(exc))
+                neighbor_cache[entity_id] = []
+                continue
+
+            scored_neighbors = []
+            for neighbor_id, edge_type in neighbors:
+                neighbor_event = EventNode(
+                    id=neighbor_id,
+                    content="",
+                    timestamp=None,
+                    embedding=None,
+                )
+                score = calculate_transition_score(
+                    neighbor=neighbor_event,
+                    query_embedding=query_embedding,
+                    query_intent=intent,
+                    edge_type=edge_type,
+                )
+                scored_neighbors.append(
+                    {
+                        "id": neighbor_id,
+                        "fusion_score": score,
+                    }
+                )
+
+            neighbor_cache[entity_id] = scored_neighbors
+
+        return neighbor_cache
 
     async def _get_event_data(self, event_id: str) -> dict[str, Any] | None:
         """Get event data by ID.
