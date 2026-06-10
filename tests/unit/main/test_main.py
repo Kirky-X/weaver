@@ -1007,7 +1007,7 @@ class TestCreateApp:
                     mock_register.assert_called_once_with(app)
 
     def test_adds_rate_limit_handler(self, mock_settings):
-        """Test that rate limit exception handler is added."""
+        """Test that rate limiting middleware is registered."""
         with patch("main._ensure_spacy_models"):
             with patch("main.Settings", return_value=mock_settings):
                 with patch("main.register_exception_handlers"):
@@ -1015,8 +1015,12 @@ class TestCreateApp:
 
                     app = create_app()
 
-                    # Check RateLimitExceeded handler is registered
-                    assert hasattr(app.state, "limiter")
+                    # Check RateLimitMiddleware is registered
+                    from api.middleware.rate_limit import RateLimitMiddleware
+
+                    # Starlette stores middleware as Middleware objects with .cls attribute
+                    middleware_classes = [m.cls for m in app.user_middleware]
+                    assert RateLimitMiddleware in middleware_classes
 
     def test_stores_container_in_state(self, mock_container, mock_settings):
         """Test that container is stored in app.state."""

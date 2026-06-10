@@ -17,14 +17,12 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
-from slowapi import _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
 
 from api.endpoints import _deps as deps
 from api.endpoints.health import health_check
 from api.middleware.api_response import register_exception_handlers
 from api.middleware.auth import verify_admin_api_key, verify_api_key, verify_api_key_optional
-from api.middleware.rate_limit import limiter
+from api.middleware.rate_limit import RateLimitMiddleware, TokenBucketRateLimiter
 from api.middleware.request_context import RequestContextMiddleware
 from api.router import api_router
 from api.schemas.response import APIResponse, success_response
@@ -397,13 +395,17 @@ def create_app(container: Container | None = None) -> FastAPI:
     # Register centralized exception handlers
     register_exception_handlers(app)
 
-    # Keep RateLimitExceeded handler (from slowapi)
-    app.state.limiter = limiter
-    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
     if container is None:
         container = Container().configure(settings)
     app.state.container = container
+
+    # Register Redis-backed token bucket rate limiting middleware
+    try:
+        redis_client = container.cache_client()
+    except RuntimeError:
+        redis_client = None
+    rate_limiter = TokenBucketRateLimiter(redis=redis_client)
+    app.add_middleware(RateLimitMiddleware, rate_limiter=rate_limiter)
 
     # Register HMAC signature middleware if enabled
     if settings.api.hmac_signing_enabled:

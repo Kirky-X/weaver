@@ -10,7 +10,6 @@ from pydantic import BaseModel
 
 from api.endpoints import _deps as deps
 from api.middleware.auth import verify_api_key
-from api.middleware.rate_limit import limiter
 from api.schemas.response import APIResponse, success_response
 from core.llm import LLMClient
 from core.observability import get_logger
@@ -49,7 +48,6 @@ class SearchResponse(BaseModel):
 
 
 @router.get("", response_model=APIResponse[SearchResponse])
-@limiter.limit("100/minute")
 async def search_unified(
     request: Request,
     q: str = Query(..., description="Search query"),
@@ -216,7 +214,6 @@ class DriftSearchResponse(BaseModel):
 
 
 @router.post("/drift", response_model=APIResponse[DriftSearchResponse])
-@limiter.limit("20/minute")
 async def search_drift(
     request: Request,
     body: DriftSearchRequest,
@@ -354,7 +351,6 @@ class TemporalSearchResponse(BaseModel):
 
 
 @router.post("/causal", response_model=APIResponse[CausalSearchResponse])
-@limiter.limit("10/minute")
 async def search_causal(
     request: Request,
     body: CausalSearchRequest,
@@ -453,7 +449,6 @@ async def search_causal(
 
 
 @router.post("/temporal", response_model=APIResponse[TemporalSearchResponse])
-@limiter.limit("20/minute")
 async def search_temporal(
     request: Request,
     body: TemporalSearchRequest,

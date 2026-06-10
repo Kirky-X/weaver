@@ -42,17 +42,13 @@ from api.endpoints.admin.admin import (
 
 @pytest.fixture(autouse=True)
 def _reset_rate_limiter():
-    """Reset slowapi rate limiter storage between tests to avoid 429 errors."""
-    from api.middleware.rate_limit import limiter
-
-    limiter._storage.reset()
+    """No-op fixture: slowapi rate limiter has been replaced by Redis token bucket."""
     yield
-    limiter._storage.reset()
 
 
 @pytest.fixture
 def mock_request():
-    """Create a mock Starlette Request for slowapi rate limiter compatibility."""
+    """Create a mock Starlette Request for testing."""
     scope = {
         "type": "http",
         "method": "GET",
@@ -914,10 +910,6 @@ class TestRefreshAutoScores:
             patch(
                 "api.endpoints.admin.admin.Endpoints.get_relational_pool_optional",
                 return_value=mock_pool,
-            ),
-            patch(
-                "api.endpoints.admin.admin.limiter",
-                MagicMock(limit=lambda *a, **kw: lambda f: f),
             ),
         ):
             response = await refresh_auto_scores(

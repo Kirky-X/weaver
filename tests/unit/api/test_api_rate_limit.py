@@ -1,77 +1,64 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Unit tests for rate limiting middleware (rate_limit.py)."""
+"""Unit tests for rate limiting middleware (rate_limit.py).
+
+Tests the Redis-backed token bucket rate limiter that replaced slowapi.
+"""
 
 from __future__ import annotations
+
+from unittest.mock import AsyncMock, MagicMock
 
 
 class TestRateLimiterConfiguration:
     """Tests for rate limiting middleware configuration."""
 
-    def test_limiter_is_not_none(self):
-        """Test that the limiter object is defined and not None."""
-        from api.middleware.rate_limit import limiter
+    def test_token_bucket_limiter_is_not_none(self):
+        """Test that TokenBucketRateLimiter can be instantiated."""
+        from api.middleware.rate_limit import TokenBucketRateLimiter
 
+        mock_redis = MagicMock()
+        limiter = TokenBucketRateLimiter(redis=mock_redis)
         assert limiter is not None
 
-    def test_limiter_uses_remote_address_key_func(self):
-        """Test that the limiter uses get_client_key as its key function.
+    def test_rate_limit_middleware_is_not_none(self):
+        """Test that RateLimitMiddleware can be instantiated."""
+        from api.middleware.rate_limit import RateLimitMiddleware, TokenBucketRateLimiter
 
-        The custom get_client_key combines client IP and API key for
-        composite rate limiting, preventing distributed attacks.
-        """
-        from api.middleware.rate_limit import get_client_key, limiter
+        mock_redis = MagicMock()
+        rate_limiter = TokenBucketRateLimiter(redis=mock_redis)
+        mock_app = AsyncMock()
+        middleware = RateLimitMiddleware(mock_app, rate_limiter=rate_limiter)
+        assert middleware is not None
 
-        # slowapi stores key_func as _key_func internally
-        assert limiter._key_func is get_client_key
+    def test_token_bucket_limiter_default_config(self):
+        """Test that TokenBucketRateLimiter uses default config values."""
+        from api.middleware.rate_limit import TokenBucketRateLimiter
 
-    def test_limiter_is_limiter_instance(self):
-        """Test that limiter is a slowapi Limiter instance."""
-        from slowapi import Limiter
+        mock_redis = MagicMock()
+        limiter = TokenBucketRateLimiter(redis=mock_redis)
+        assert limiter._global_max_tokens == 1000
+        assert limiter._global_refill_rate == 1000
+        assert limiter._per_key_max_tokens == 100
+        assert limiter._per_key_refill_rate == 100
 
-        from api.middleware.rate_limit import limiter
+    def test_lua_script_registered_on_init(self):
+        """Test that Lua script is registered with Redis on initialization."""
+        from api.middleware.rate_limit import TokenBucketRateLimiter
 
-        assert isinstance(limiter, Limiter)
+        mock_redis = MagicMock()
+        limiter = TokenBucketRateLimiter(redis=mock_redis)
+        mock_redis.register_script.assert_called_once()
 
-    def test_limiter_key_func_identifies_by_ip(self):
-        """Test that the key function uses the request's remote address.
+    def test_no_redis_graceful_degradation(self):
+        """Test that missing Redis client allows requests (fail-open)."""
+        from api.middleware.rate_limit import TokenBucketRateLimiter
 
-        This is critical for per-client rate limiting enforcement.
-        """
-        from unittest.mock import MagicMock
+        limiter = TokenBucketRateLimiter(redis=None)
+        assert limiter._script is None
 
-        from slowapi.util import get_remote_address
+    def test_module_exports(self):
+        """Test that module exports the expected classes."""
+        from api.middleware.rate_limit import RateLimitMiddleware, TokenBucketRateLimiter
 
-        # Simulate a request with a specific remote address
-        mock_request = MagicMock()
-        mock_request.client = MagicMock()
-        mock_request.client.host = "192.168.1.100"
-
-        ip = get_remote_address(mock_request)
-        assert ip == "192.168.1.100"
-
-    def test_limiter_key_func_uses_client_host(self):
-        """Test that get_remote_address uses the request's client host.
-
-        Note: slowapi's get_remote_address does NOT parse X-Forwarded-For;
-        it returns request.client.host directly. This is the expected behavior.
-        """
-        from unittest.mock import MagicMock
-
-        from slowapi.util import get_remote_address
-
-        mock_request = MagicMock()
-        mock_request.client = MagicMock()
-        mock_request.client.host = "10.0.0.5"
-        mock_request.headers = {"X-Forwarded-For": "203.0.113.50"}
-
-        # slowapi ignores X-Forwarded-For; uses client.host directly
-        ip = get_remote_address(mock_request)
-        assert ip == "10.0.0.5"
-
-    def test_limiter_exported_from_module(self):
-        """Test that limiter can be imported directly from the module."""
-        from api.middleware.rate_limit import limiter
-
-        # Should be importable at module level
-        assert hasattr(limiter, "limit")
-        assert callable(limiter.limit)
+        assert TokenBucketRateLimiter is not None
+        assert RateLimitMiddleware is not None

@@ -13,7 +13,6 @@ from pydantic import BaseModel, Field
 # from api.dependencies import get_container, get_source_authority_repo
 from api.endpoints._deps import Endpoints
 from api.middleware.auth import verify_admin_api_key, verify_api_key
-from api.middleware.rate_limit import limiter
 from api.schemas.response import APIResponse, success_response
 from core.observability import get_logger
 from modules.storage import SourceAuthorityRepo
@@ -113,7 +112,6 @@ class LLMFailureStatsResponse(BaseModel):
 
 
 @router.get("/authorities", response_model=APIResponse[list[AuthorityResponse]])
-@limiter.limit("30/minute")
 async def list_authorities(
     request: Request,
     needs_review_only: bool = False,
@@ -156,7 +154,6 @@ async def list_authorities(
 
 
 @router.patch("/authorities/{host}", response_model=APIResponse[UpdateAuthorityResponse])
-@limiter.limit("10/minute")
 async def update_authority(
     request: Request,
     host: str,
@@ -222,7 +219,6 @@ async def update_authority(
 
 
 @router.get("/llm-failures", response_model=APIResponse[list[LLMFailureResponse]])
-@limiter.limit("30/minute")
 async def list_llm_failures(
     request: Request,
     call_point: str | None = Query(
@@ -279,7 +275,6 @@ async def list_llm_failures(
 
 
 @router.get("/llm-failures/stats", response_model=APIResponse[LLMFailureStatsResponse])
-@limiter.limit("30/minute")
 async def get_llm_failure_stats(
     request: Request,
     since: datetime | None = Query(
@@ -321,7 +316,6 @@ async def get_llm_failure_stats(
     response_model=APIResponse[dict],
     summary="Unified LLM usage statistics",
 )
-@limiter.limit("30/minute")
 async def get_llm_usage_unified(
     request: Request,
     from_: datetime = Query(..., alias="from", description="Start of time range (ISO format)"),
@@ -373,7 +367,6 @@ class DeduplicateResponse(BaseModel):
 
 
 @router.post("/articles/deduplicate", response_model=APIResponse[DeduplicateResponse])
-@limiter.limit("10/minute")
 async def deduplicate_articles(
     request: Request,
     _: str = Depends(verify_admin_api_key),  # Security: write operation requires admin
@@ -424,7 +417,6 @@ class MemoryDiagnosticResponse(BaseModel):
 
 
 @router.get("/memory/diagnostics", response_model=APIResponse[MemoryDiagnosticResponse])
-@limiter.limit("30/minute")
 async def memory_diagnostics(
     request: Request,
     _: str = Depends(verify_api_key),
@@ -492,7 +484,6 @@ class ConsolidationResult(BaseModel):
     "/memory/trigger-consolidation",
     response_model=APIResponse[ConsolidationResult],
 )
-@limiter.limit("10/minute")
 async def trigger_consolidation(
     request: Request,
     batch_size: int = Query(10, ge=1, le=100),
@@ -541,7 +532,6 @@ class AutoScoreRefreshResponse(BaseModel):
     "/authorities/refresh-auto-scores",
     response_model=APIResponse[AutoScoreRefreshResponse],
 )
-@limiter.limit("10/minute")
 async def refresh_auto_scores(
     request: Request,
     _: str = Depends(verify_admin_api_key),  # Security: write operation requires admin
@@ -656,7 +646,6 @@ class ApiKeyItem(BaseModel):
 
 
 @router.post("/api-keys", response_model=APIResponse[CreateApiKeyResponse])
-@limiter.limit("10/minute")
 async def create_api_key(
     request: Request,
     body: CreateApiKeyRequest,

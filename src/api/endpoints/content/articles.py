@@ -13,7 +13,6 @@ from sqlalchemy import asc, desc, select
 
 from api.dependencies import get_relational_pool
 from api.middleware.auth import verify_api_key
-from api.middleware.rate_limit import limiter
 from api.schemas.response import APIResponse, success_response
 from core.db import Article, CategoryType
 from core.observability import get_logger
@@ -109,7 +108,6 @@ def _article_to_dict(article: Article) -> dict[str, Any]:
 
 
 @router.get("", response_model=APIResponse[ArticleListResponse])
-@limiter.limit("100/minute")
 async def list_articles(
     request: Request,
     page: int = Query(1, ge=1, description="Page number"),
