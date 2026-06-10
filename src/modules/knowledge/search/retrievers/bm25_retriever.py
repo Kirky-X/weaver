@@ -15,10 +15,9 @@ from __future__ import annotations
 import pickle
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import bm25s
-import spacy
 
 from core.observability.logging import get_logger
 from core.security.crypto.signing import (
@@ -27,6 +26,9 @@ from core.security.crypto.signing import (
     load_signed_json,
     save_signed_json,
 )
+
+if TYPE_CHECKING:
+    import spacy
 
 
 class RestrictedUnpickler(pickle.Unpickler):
@@ -202,7 +204,9 @@ class BM25Retriever:
         """Load spacy model for tokenization.
 
         Tries models in order from MODEL_MAP, with local wheel support for Chinese.
+        Uses lazy import to avoid loading spaCy (~800MB) at module import time.
         """
+        import spacy as _spacy
 
         if self._nlp is not None:
             return
@@ -213,7 +217,7 @@ class BM25Retriever:
         self._spacy_load_attempted = True
         model_name = self.SUPPORTED_LANGUAGES.get(self._language, "zh_core_web_lg")
         try:
-            self._nlp = spacy.load(model_name, disable=["ner", "parser", "lemmatizer"])
+            self._nlp = _spacy.load(model_name, disable=["ner", "parser", "lemmatizer"])
             log.info("spacy_model_loaded", model=model_name)
         except OSError:
             log.warning("spacy_model_not_found", model=model_name, fallback="simple_tokenizer")

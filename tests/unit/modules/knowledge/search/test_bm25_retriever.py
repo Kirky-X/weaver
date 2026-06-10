@@ -18,14 +18,12 @@ from modules.knowledge.search.retrievers.bm25_retriever import (
 
 
 def _has_zh_spacy() -> bool:
-    """Check if zh_core_web_lg spacy model is available."""
+    """Check if zh_core_web_lg spacy model is available (lightweight check)."""
     try:
-        import spacy
+        import spacy.util
 
-        spacy.load("zh_core_web_lg")
-        return True
-    except OSError:
-        # OSError E050: model not found
+        return spacy.util.is_package("zh_core_web_lg")
+    except Exception:
         return False
 
 
