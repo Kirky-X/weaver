@@ -102,8 +102,9 @@ class Neo4jEntityRepo(BaseEntityRepo):
         On constraint violation (concurrent write), retries with fetch.
 
         If the entity already exists:
-        - tier=1 (authoritative source) can update canonical_name
-        - tier>1 (general source) only adds alias, keeps existing canonical_name
+        - tier upgrade (lower tier = more authoritative) only updates the
+          tier field and updated_at; canonical_name is NOT changed.
+        - tier downgrade or same tier only adds alias, keeps existing data.
 
         Args:
             canonical_name: The canonical/standard name for the entity.
@@ -126,21 +127,20 @@ class Neo4jEntityRepo(BaseEntityRepo):
                     if tier < existing_tier:
                         query = """
                         MATCH (e:Entity {canonical_name: $canonical_name, type: $type})
-                        SET e.canonical_name = $new_name,
-                            e.tier = $tier,
+                        SET e.tier = $tier,
                             e.updated_at = datetime()
                         RETURN elementId(e) AS neo4j_id
                         """
                         params = {
                             "canonical_name": canonical_name,
                             "type": entity_type,
-                            "new_name": canonical_name,
                             "tier": tier,
                         }
                     else:
                         query = """
                         MATCH (e:Entity {canonical_name: $canonical_name, type: $type})
                         SET e.aliases = CASE
+                            WHEN e.aliases IS NULL THEN [$canonical_name]
                             WHEN NOT $canonical_name IN e.aliases
                             THEN e.aliases + [$canonical_name]
                             ELSE e.aliases
@@ -185,6 +185,39 @@ class Neo4jEntityRepo(BaseEntityRepo):
                 if existing:
                     return existing["neo4j_id"]
                 await self._sleep(0.05 * (attempt + 1))
+
+    async def _find_entity_by_name_only(
+        self,
+        canonical_name: str,
+    ) -> dict[str, Any] | None:
+        """Find an entity by canonical name only (no type constraint).
+
+        Args:
+            canonical_name: The canonical name to search for.
+
+        Returns:
+            Entity dict if found, None otherwise.
+        """
+        query = """
+        MATCH (e:Entity {canonical_name: $canonical_name})
+        RETURN elementId(e) AS neo4j_id,
+               e.id AS id,
+               e.canonical_name AS canonical_name,
+               e.type AS type,
+               e.aliases AS aliases,
+               e.description AS description,
+               e.tier AS tier,
+               e.created_at AS created_at,
+               e.updated_at AS updated_at
+        """
+        params = {"canonical_name": canonical_name}
+        result = await self._pool.execute_query(query, params)
+        if result:
+            record = dict(result[0])
+            record["created_at"] = self._convert_timestamp(record.get("created_at"))
+            record["updated_at"] = self._convert_timestamp(record.get("updated_at"))
+            return record
+        return None
 
     async def find_entity(
         self,
@@ -312,6 +345,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
         query = """
         MATCH (e:Entity {canonical_name: $canonical_name, type: $type})
         SET e.aliases = CASE
+            WHEN e.aliases IS NULL THEN [$alias]
             WHEN $alias IN e.aliases THEN e.aliases
             ELSE e.aliases + [$alias]
         END,
@@ -346,6 +380,9 @@ class Neo4jEntityRepo(BaseEntityRepo):
         """
         if not _EDGE_TYPE_PATTERN.match(edge_type):
             raise ValueError(f"Invalid edge type: {edge_type}")
+
+        if "'" in edge_type or "\\" in edge_type:
+            raise ValueError(f"Edge type contains dangerous characters: {edge_type!r}")
 
         query = f"""
         MATCH (from) WHERE elementId(from) = $from_id
@@ -425,6 +462,11 @@ class Neo4jEntityRepo(BaseEntityRepo):
         Returns:
             Number of entities deleted.
         """
+        # Get count first, then delete
+        count = await self.count_orphan_entities()
+        if count == 0:
+            return 0
+
         query = """
         MATCH (e:Entity)
         WHERE NOT ()-[:MENTIONS]->(e)
@@ -432,10 +474,8 @@ class Neo4jEntityRepo(BaseEntityRepo):
           AND NOT ()-[:RELATED_TO]->(e)
         DETACH DELETE e
         """
-        # This query doesn't return count in Neo4j
         await self._pool.execute_query(query)
-        # Return 0 as we can't easily get count
-        return 0
+        return count
 
     async def count_orphan_entities(self) -> int:
         """Count entities that have no MENTIONS or RELATED_TO relationships.
@@ -574,6 +614,8 @@ class Neo4jEntityRepo(BaseEntityRepo):
             for rt in relation_types:
                 if not _EDGE_TYPE_PATTERN.match(rt):
                     raise ValueError(f"Invalid relation type: {rt}")
+                if "'" in rt or "\\" in rt:
+                    raise ValueError(f"Relation type contains dangerous characters: {rt!r}")
 
             # Build dynamic query with type-specific patterns.
             # Each type matches as undirected so we capture both directions.
@@ -635,17 +677,20 @@ class Neo4jEntityRepo(BaseEntityRepo):
                 e.id = entity.id,
                 e.aliases = [entity.canonical_name],
                 e.description = entity.description,
+                e._merge_created = true,
                 e.created_at = datetime(),
                 e.updated_at = datetime()
             ON MATCH SET
                 e.updated_at = datetime(),
+                e._merge_created = false,
                 e.description = CASE
                     WHEN e.description IS NULL AND entity.description IS NOT NULL
                     THEN entity.description
                     ELSE e.description
                 END
-            WITH e, CASE WHEN e.created_at = e.updated_at THEN 1 ELSE 0 END AS is_new
-            RETURN sum(is_new) AS created, count(e) - sum(is_new) AS updated
+            WITH e
+            RETURN sum(CASE WHEN e._merge_created = true THEN 1 ELSE 0 END) AS created,
+                   sum(CASE WHEN e._merge_created = false THEN 1 ELSE 0 END) AS updated
             """
 
             params = {
@@ -692,6 +737,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
             UNWIND $aliases AS alias_data
             MATCH (e:Entity {canonical_name: alias_data.canonical_name, type: alias_data.type})
             SET e.aliases = CASE
+                WHEN e.aliases IS NULL THEN [alias_data.alias]
                 WHEN alias_data.alias IN e.aliases THEN e.aliases
                 ELSE e.aliases + [alias_data.alias]
             END,
@@ -752,6 +798,9 @@ class Neo4jEntityRepo(BaseEntityRepo):
             if not _EDGE_TYPE_PATTERN.match(edge_type):
                 log.warning("merge_relations_batch_invalid_type", edge_type=edge_type)
                 continue
+
+            if "'" in edge_type or "\\" in edge_type:
+                raise ValueError(f"Edge type contains dangerous characters: {edge_type!r}")
 
             for chunk in self._chunk(group, batch_size):
                 query = f"""
@@ -927,8 +976,9 @@ class Neo4jEntityRepo(BaseEntityRepo):
             UNWIND $ids AS id
             MATCH (e)
             WHERE elementId(e) = id
+            WITH e, count(*) AS cnt
             DETACH DELETE e
-            RETURN count(e) AS deleted
+            RETURN sum(cnt) AS deleted
             """
             result = await self._pool.execute_query(query, {"ids": batch})
             if result:
@@ -959,7 +1009,11 @@ class Neo4jEntityRepo(BaseEntityRepo):
             Returns None if entity not found.
         """
         # Find the entity first
-        entity = await self.find_entity(entity_name, entity_type or "")
+        if entity_type:
+            entity = await self.find_entity(entity_name, entity_type)
+        else:
+            # Search without type constraint
+            entity = await self._find_entity_by_name_only(entity_name)
         if not entity:
             return None
 

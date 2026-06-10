@@ -51,7 +51,7 @@ class TestPersistBatchSagaSuccess:
         writer = MagicMock()
         writer.write_batch = AsyncMock(
             return_value={
-                "neo4j_ids": [str(uuid.uuid4()) for _ in range(3)],
+                "neo4j_ids": [[str(uuid.uuid4())] for _ in range(3)],
                 "article_ids": [str(uuid.uuid4()) for _ in range(3)],
                 "errors": [],
             }
@@ -201,7 +201,7 @@ class TestPersistBatchSagaPhase1Failure:
         writer = MagicMock()
         writer.write_batch = AsyncMock(
             return_value={
-                "neo4j_ids": [str(uuid.uuid4()) for _ in range(3)],
+                "neo4j_ids": [[str(uuid.uuid4())] for _ in range(3)],
                 "article_ids": [str(uuid.uuid4()) for _ in range(3)],
                 "errors": [],
             }
@@ -417,7 +417,7 @@ class TestPersistBatchSagaPhase2Failure:
             # Return batch result with partial failure
             article_ids = [str(s.get("article_id", f"pg-{i}")) for i, s in enumerate(states)]
             return {
-                "neo4j_ids": ["node1", "node3"],  # First and third succeed
+                "neo4j_ids": [["node1"], ["node3"]],  # First and third succeed
                 "article_ids": [article_ids[0], article_ids[2]],
                 "errors": [(article_ids[1], "Neo4j failed on second article")],
             }
@@ -584,7 +584,7 @@ class TestPersistBatchSagaIdempotency:
         writer = MagicMock()
         writer.write_batch = AsyncMock(
             return_value={
-                "neo4j_ids": [str(uuid.uuid4()) for _ in range(3)],
+                "neo4j_ids": [[str(uuid.uuid4())] for _ in range(3)],
                 "article_ids": [str(uuid.uuid4()) for _ in range(3)],
                 "errors": [],
             }
@@ -726,7 +726,7 @@ class TestPersistBatchSagaVectorPersistence:
         writer = MagicMock()
         writer.write_batch = AsyncMock(
             return_value={
-                "neo4j_ids": [str(uuid.uuid4()) for _ in range(3)],
+                "neo4j_ids": [[str(uuid.uuid4())] for _ in range(3)],
                 "article_ids": [str(uuid.uuid4()) for _ in range(3)],
                 "errors": [],
             }
@@ -904,7 +904,7 @@ class TestPersistBatchSagaStatusUpdates:
         writer = MagicMock()
         writer.write_batch = AsyncMock(
             return_value={
-                "neo4j_ids": [str(uuid.uuid4()) for _ in range(2)],
+                "neo4j_ids": [[str(uuid.uuid4())] for _ in range(2)],
                 "article_ids": [str(uuid.uuid4()) for _ in range(2)],
                 "errors": [],
             }
@@ -1107,7 +1107,7 @@ class TestPersistBatchSagaIntegration:
         graph_writer = MagicMock()
         graph_writer.write_batch = AsyncMock(
             return_value={
-                "neo4j_ids": [str(uuid.uuid4()) for _ in range(3)],
+                "neo4j_ids": [[str(uuid.uuid4())] for _ in range(3)],
                 "article_ids": [str(uuid.uuid4()) for _ in range(3)],
                 "errors": [],
             }

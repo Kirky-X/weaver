@@ -138,7 +138,8 @@ class Neo4jWriter:
 
         Returns:
             Dict with:
-            - neo4j_ids: List of all entity Neo4j IDs created.
+            - neo4j_ids: List of per-article entity ID lists (list[list[str]]).
+              neo4j_ids[i] contains the entity IDs for the i-th input state.
             - article_ids: List of article IDs successfully written.
             - errors: List of (article_id, error_msg) for failures.
         """
@@ -177,8 +178,7 @@ class Neo4jWriter:
         )
 
         for ids, article_id, error in write_results:
-            if ids:
-                result["neo4j_ids"].extend(ids)
+            result["neo4j_ids"].append(ids)
             if article_id:
                 result["article_ids"].append(article_id)
             if error:

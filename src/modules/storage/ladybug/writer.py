@@ -270,7 +270,8 @@ class LadybugWriter:
 
         Returns:
             Dict with:
-            - neo4j_ids: List of all entity IDs created.
+            - neo4j_ids: List of per-article entity ID lists (list[list[str]]).
+              neo4j_ids[i] contains the entity IDs for the i-th input state.
             - article_ids: List of article IDs successfully written.
             - errors: List of (article_id, error_msg) for failures.
         """
@@ -289,7 +290,7 @@ class LadybugWriter:
                 async with _write_lock:
                     ids = await self._write_locked(state)
                     article_id = str(state.get("article_id", "unknown"))
-                    result["neo4j_ids"].extend(ids)
+                    result["neo4j_ids"].append(ids)
                     result["article_ids"].append(article_id)
             except Exception as exc:
                 article_id = str(state.get("article_id", "unknown"))
@@ -299,6 +300,7 @@ class LadybugWriter:
                     article_id=article_id,
                     error=error_msg,
                 )
+                result["neo4j_ids"].append([])
                 result["errors"].append((article_id, error_msg))
 
         log.info(

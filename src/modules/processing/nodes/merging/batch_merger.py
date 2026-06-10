@@ -523,7 +523,7 @@ class BatchMergerNode:
 
                 log.info(
                     "saga_phase2_complete",
-                    neo4j_count=len(successful_neo4j_ids),
+                    neo4j_count=sum(len(ids) for ids in successful_neo4j_ids),
                 )
 
             except Exception as exc:
@@ -556,6 +556,6 @@ class BatchMergerNode:
         log.info(
             "saga_complete",
             pg_count=len(result["pg_ids"]),
-            neo4j_count=len(result["neo4j_ids"]),
+            neo4j_count=sum(len(ids) for ids in result["neo4j_ids"]),
         )
         return result

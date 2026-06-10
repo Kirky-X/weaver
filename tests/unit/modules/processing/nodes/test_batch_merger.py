@@ -1128,7 +1128,7 @@ class TestBatchMergerSagaCompensation:
         mock_graph_writer = MagicMock()
         mock_graph_writer.write_batch = AsyncMock(
             return_value={
-                "neo4j_ids": ["node1", "node3"],  # 2 succeeded
+                "neo4j_ids": [["node1"], ["node3"]],  # 2 succeeded
                 "article_ids": [str(article_ids[0]), str(article_ids[2])],
                 "errors": [(str(article_ids[1]), "Failed")],  # 1 failed
             }

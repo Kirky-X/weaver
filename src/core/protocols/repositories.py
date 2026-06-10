@@ -431,7 +431,8 @@ class GraphWriter(Protocol):
             concurrency: Maximum concurrent writes.
 
         Returns:
-            Dict with neo4j_ids list and errors list.
+            Dict with neo4j_ids as list[list[str]] (per-article grouping),
+            article_ids list, and errors list.
         """
         ...
 

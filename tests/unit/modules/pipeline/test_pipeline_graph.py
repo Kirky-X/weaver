@@ -358,7 +358,7 @@ class TestPipelinePhase1:
         raw.publish_time = None
 
         state = PipelineState(raw=raw)
-        result = await pipeline_for_phase1._phase1_per_article(state)
+        result = await pipeline_for_phase1._phase1_per_article(state, [])
 
         assert "is_news" in result
         assert "cleaned" in result
@@ -377,7 +377,7 @@ class TestPipelinePhase1:
 
         state = PipelineState(raw=raw)
 
-        result = await pipeline_for_phase1._phase1_per_article(state)
+        result = await pipeline_for_phase1._phase1_per_article(state, [])
 
         # Rule classifier marks short titles as non-news → terminal=True
         assert result.get("is_news") is False
@@ -484,7 +484,7 @@ class TestPipelinePhase3:
         state["cleaned"] = {"title": "Title", "body": "Body"}
         state["category"] = "科技"
 
-        result = await pipeline_for_phase3._phase3_per_article(state)
+        result = await pipeline_for_phase3._phase3_per_article(state, [])
 
         assert "vectors" in result
         assert "summary_info" in result
@@ -496,7 +496,7 @@ class TestPipelinePhase3:
         state = PipelineState(raw=MagicMock())
         state["terminal"] = True
 
-        result = await pipeline_for_phase3._phase3_per_article(state)
+        result = await pipeline_for_phase3._phase3_per_article(state, [])
 
         assert result.get("terminal") is True
 
@@ -539,7 +539,7 @@ class TestPipelinePhase3:
         state["category"] = "科技"
         state["terminal"] = True  # ← terminal article
 
-        result = await pipeline._phase3_per_article(state)
+        result = await pipeline._phase3_per_article(state, [])
 
         # re_vectorize MUST NOT be called for terminal articles
         pipeline._re_vectorize.execute.assert_not_awaited()
@@ -590,7 +590,7 @@ class TestPipelinePhase3:
         state["category"] = "科技"
         # terminal=False (default)
 
-        await pipeline._phase3_per_article(state)
+        await pipeline._phase3_per_article(state, [])
 
         # All nodes MUST be called including re_vectorize
         pipeline._re_vectorize.execute.assert_awaited_once()
@@ -605,194 +605,9 @@ class TestPipelinePhase3:
         state = PipelineState(raw=MagicMock())
         state["is_merged"] = True
 
-        result = await pipeline_for_phase3._phase3_per_article(state)
+        result = await pipeline_for_phase3._phase3_per_article(state, [])
 
         assert result.get("is_merged") is True
-
-
-class TestPipelinePersist:
-    """Test _persist method."""
-
-    @pytest.fixture
-    def mock_llm(self):
-        """Mock LLM client."""
-        return MagicMock()
-
-    @pytest.fixture
-    def mock_budget(self):
-        """Mock token budget manager."""
-        return MagicMock()
-
-    @pytest.fixture
-    def mock_prompt_loader(self):
-        """Mock prompt loader."""
-        return MagicMock()
-
-    @pytest.fixture
-    def mock_event_bus(self):
-        """Mock event bus."""
-        return MagicMock()
-
-    @pytest.mark.asyncio
-    async def test_persist_skips_terminal(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
-    ):
-        """Test persist skips terminal articles."""
-        pipeline = Pipeline(
-            llm=mock_llm,
-            budget=mock_budget,
-            prompt_loader=mock_prompt_loader,
-            event_bus=mock_event_bus,
-        )
-
-        state = PipelineState(raw=MagicMock())
-        state["terminal"] = True
-
-        await pipeline._persist(state)
-
-    @pytest.mark.asyncio
-    async def test_persist_without_repos(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
-    ):
-        """Test persist without article_repo and graph_writer."""
-        pipeline = Pipeline(
-            llm=mock_llm,
-            budget=mock_budget,
-            prompt_loader=mock_prompt_loader,
-            event_bus=mock_event_bus,
-        )
-
-        state = PipelineState(raw=MagicMock())
-        state["cleaned"] = {"title": "Title", "body": "Body"}
-
-        await pipeline._persist(state)
-
-    @pytest.mark.asyncio
-    async def test_persist_with_article_repo(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
-    ):
-        """Test persist with article_repo."""
-        import uuid
-
-        mock_article_repo = MagicMock()
-        mock_article_repo.upsert = AsyncMock(return_value=uuid.uuid4())
-        mock_article_repo.update_persist_status = AsyncMock()
-
-        pipeline = Pipeline(
-            llm=mock_llm,
-            budget=mock_budget,
-            prompt_loader=mock_prompt_loader,
-            event_bus=mock_event_bus,
-            article_repo=mock_article_repo,
-        )
-
-        raw = MagicMock()
-        raw.url = "https://example.com/test"
-
-        state = PipelineState(raw=raw)
-        state["cleaned"] = {"title": "Title", "body": "Body"}
-
-        await pipeline._persist(state)
-
-        assert "article_id" in state
-        mock_article_repo.upsert.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_persist_with_neo4j_writer(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
-    ):
-        """Test persist with graph_writer."""
-        import uuid
-
-        mock_article_repo = MagicMock()
-        mock_article_repo.upsert = AsyncMock(return_value=uuid.uuid4())
-        mock_article_repo.update_persist_status = AsyncMock()
-
-        mock_neo4j_writer = MagicMock()
-        mock_neo4j_writer.write = AsyncMock(return_value=["entity1", "entity2"])
-
-        pipeline = Pipeline(
-            llm=mock_llm,
-            budget=mock_budget,
-            prompt_loader=mock_prompt_loader,
-            event_bus=mock_event_bus,
-            article_repo=mock_article_repo,
-            graph_writer=mock_neo4j_writer,
-        )
-
-        raw = MagicMock()
-        raw.url = "https://example.com/test"
-
-        state = PipelineState(raw=raw)
-        state["cleaned"] = {"title": "Title", "body": "Body"}
-        # Add complete enrichment fields for validation
-        state["category"] = "technology"
-        state["score"] = 0.85
-        state["quality_score"] = 0.90
-        state["summary_info"] = {"summary": "Test summary"}
-        state["credibility"] = {"score": 0.95}
-
-        await pipeline._persist(state)
-
-        assert "neo4j_ids" in state
-
-    @pytest.mark.asyncio
-    async def test_persist_handles_pg_error(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
-    ):
-        """Test persist handles PostgreSQL errors."""
-
-        mock_article_repo = MagicMock()
-        mock_article_repo.upsert = AsyncMock(side_effect=Exception("PG error"))
-        mock_article_repo.mark_failed = AsyncMock()
-
-        pipeline = Pipeline(
-            llm=mock_llm,
-            budget=mock_budget,
-            prompt_loader=mock_prompt_loader,
-            event_bus=mock_event_bus,
-            article_repo=mock_article_repo,
-        )
-
-        raw = MagicMock()
-        raw.url = "https://example.com/test"
-
-        state = PipelineState(raw=raw)
-        state["cleaned"] = {"title": "Title", "body": "Body"}
-
-        await pipeline._persist(state)
-
-    @pytest.mark.asyncio
-    async def test_persist_handles_neo4j_error(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
-    ):
-        """Test persist handles Neo4j errors."""
-        import uuid
-
-        mock_article_repo = MagicMock()
-        mock_article_repo.upsert = AsyncMock(return_value=uuid.uuid4())
-        mock_article_repo.update_persist_status = AsyncMock()
-        mock_article_repo.mark_failed = AsyncMock()
-
-        mock_neo4j_writer = MagicMock()
-        mock_neo4j_writer.write = AsyncMock(side_effect=Exception("Neo4j error"))
-
-        pipeline = Pipeline(
-            llm=mock_llm,
-            budget=mock_budget,
-            prompt_loader=mock_prompt_loader,
-            event_bus=mock_event_bus,
-            article_repo=mock_article_repo,
-            graph_writer=mock_neo4j_writer,
-        )
-
-        raw = MagicMock()
-        raw.url = "https://example.com/test"
-
-        state = PipelineState(raw=raw)
-        state["cleaned"] = {"title": "Title", "body": "Body"}
-
-        await pipeline._persist(state)
 
 
 class TestPipelineUpdateProcessingStage:
@@ -825,14 +640,14 @@ class TestPipelineUpdateProcessingStage:
         state = PipelineState(raw=MagicMock())
         state["article_id"] = "test-id"
 
-        await pipeline_no_repo._update_processing_stage(state, "test_stage")
+        await pipeline_no_repo._update_processing_stage(state, "test_stage", [])
 
     @pytest.mark.asyncio
     async def test_update_stage_no_article_id(self, pipeline_with_repo):
         """Test update stage without article_id."""
         state = PipelineState(raw=MagicMock())
 
-        await pipeline_with_repo._update_processing_stage(state, "test_stage")
+        await pipeline_with_repo._update_processing_stage(state, "test_stage", [])
 
     @pytest.mark.asyncio
     async def test_update_stage_success(self, pipeline_with_repo):
@@ -844,208 +659,17 @@ class TestPipelineUpdateProcessingStage:
         state = PipelineState(raw=MagicMock())
         state["article_id"] = str(article_id)
 
-        await pipeline_with_repo._update_processing_stage(state, "phase1_classifier")
+        pending_updates: list[tuple[str, str]] = []
+        await pipeline_with_repo._update_processing_stage(
+            state, "phase1_classifier", pending_updates
+        )
 
-        # _update_processing_stage now collects updates in _pending_stage_updates
-        assert len(pipeline_with_repo._pending_stage_updates) == 1
-        assert pipeline_with_repo._pending_stage_updates[0] == (
+        # _update_processing_stage now collects updates in the passed list
+        assert len(pending_updates) == 1
+        assert pending_updates[0] == (
             str(article_id),
             "phase1_classifier",
         )
-
-
-class TestPipelineMarkProcessing:
-    """Test _mark_processing method."""
-
-    @pytest.fixture
-    def pipeline_with_repo(self):
-        """Create Pipeline with article_repo."""
-        return Pipeline(
-            llm=MagicMock(),
-            budget=MagicMock(),
-            prompt_loader=MagicMock(),
-            event_bus=MagicMock(),
-            article_repo=MagicMock(),
-        )
-
-    @pytest.mark.asyncio
-    async def test_mark_processing_no_repo(self):
-        """Test mark processing without article_repo."""
-        pipeline = Pipeline(
-            llm=MagicMock(),
-            budget=MagicMock(),
-            prompt_loader=MagicMock(),
-            event_bus=MagicMock(),
-        )
-
-        state = PipelineState(raw=MagicMock())
-        state["article_id"] = "test-id"
-
-        await pipeline._mark_processing(state)
-
-    @pytest.mark.asyncio
-    async def test_mark_processing_no_article_id(self, pipeline_with_repo):
-        """Test mark processing without article_id."""
-        state = PipelineState(raw=MagicMock())
-
-        await pipeline_with_repo._mark_processing(state)
-
-    @pytest.mark.asyncio
-    async def test_mark_processing_success(self, pipeline_with_repo):
-        """Test successful mark processing."""
-        import uuid
-
-        article_id = uuid.uuid4()
-        pipeline_with_repo._article_repo.mark_processing = AsyncMock()
-
-        state = PipelineState(raw=MagicMock())
-        state["article_id"] = str(article_id)
-
-        await pipeline_with_repo._mark_processing(state)
-
-        pipeline_with_repo._article_repo.mark_processing.assert_called_once()
-
-
-class TestPipelinePersistFallback:
-    """Test Neo4j error handling in Pipeline._persist."""
-
-    @pytest.fixture
-    def mock_llm(self):
-        """Mock LLM client."""
-        return MagicMock()
-
-    @pytest.fixture
-    def mock_budget(self):
-        """Mock token budget manager."""
-        return MagicMock()
-
-    @pytest.fixture
-    def mock_prompt_loader(self):
-        """Mock prompt loader."""
-        return MagicMock()
-
-    @pytest.fixture
-    def mock_event_bus(self):
-        """Mock event bus."""
-        return MagicMock()
-
-    @pytest.mark.asyncio
-    async def test_persist_marks_failed_on_neo4j_failure(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
-    ):
-        """Test that mark_failed is called when Neo4j write fails."""
-        import uuid
-
-        article_id = uuid.uuid4()
-        mock_article_repo = MagicMock()
-        mock_article_repo.upsert = AsyncMock(return_value=article_id)
-        mock_article_repo.update_persist_status = AsyncMock()
-        mock_article_repo.mark_failed = AsyncMock()
-
-        mock_neo4j_writer = MagicMock()
-        mock_neo4j_writer.write = AsyncMock(side_effect=Exception("Neo4j connection failed"))
-
-        pipeline = Pipeline(
-            llm=mock_llm,
-            budget=mock_budget,
-            prompt_loader=mock_prompt_loader,
-            event_bus=mock_event_bus,
-            article_repo=mock_article_repo,
-            graph_writer=mock_neo4j_writer,
-        )
-
-        raw = MagicMock()
-        raw.url = "https://example.com/test"
-        state = PipelineState(raw=raw)
-        state["article_id"] = str(article_id)
-        state["entities"] = [{"name": "Test Entity"}]
-        state["relations"] = []
-        state["resolved_entities"] = []
-        state["cleaned"] = {"title": "Title", "body": "Body"}
-
-        await pipeline._persist(state)
-
-        # Article should be marked as failed in Postgres
-        mock_article_repo.mark_failed.assert_called_once()
-        call_args = mock_article_repo.mark_failed.call_args
-        assert call_args[0][0] == article_id
-        assert "Neo4j" in str(call_args[0][1])
-
-    @pytest.mark.asyncio
-    async def test_persist_no_neo4j_writer_only_postgres(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
-    ):
-        """Test that persist only writes to Postgres when Neo4j is not available."""
-        import uuid
-
-        article_id = uuid.uuid4()
-        mock_article_repo = MagicMock()
-        mock_article_repo.upsert = AsyncMock(return_value=article_id)
-        mock_article_repo.update_persist_status = AsyncMock()
-        mock_article_repo.mark_failed = AsyncMock()
-
-        pipeline = Pipeline(
-            llm=mock_llm,
-            budget=mock_budget,
-            prompt_loader=mock_prompt_loader,
-            event_bus=mock_event_bus,
-            article_repo=mock_article_repo,
-            graph_writer=None,
-        )
-
-        raw = MagicMock()
-        raw.url = "https://example.com/test"
-        state = PipelineState(raw=raw)
-        state["article_id"] = str(article_id)
-        state["entities"] = [{"name": "Entity1"}]
-        state["relations"] = [{"source": "e1", "target": "e2"}]
-
-        await pipeline._persist(state)
-
-        # Postgres write should succeed
-        mock_article_repo.upsert.assert_called_once()
-        mock_article_repo.update_persist_status.assert_called_once()
-        # No failure marking
-        mock_article_repo.mark_failed.assert_not_called()
-
-    @pytest.mark.asyncio
-    async def test_persist_success_no_mark_failed(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
-    ):
-        """Test no mark_failed call when both Postgres and Neo4j succeed."""
-        import uuid
-
-        article_id = uuid.uuid4()
-        mock_article_repo = MagicMock()
-        mock_article_repo.upsert = AsyncMock(return_value=article_id)
-        mock_article_repo.update_persist_status = AsyncMock()
-        mock_article_repo.mark_failed = AsyncMock()
-
-        mock_neo4j_writer = MagicMock()
-        mock_neo4j_writer.write = AsyncMock(return_value=["entity1", "entity2"])
-
-        pipeline = Pipeline(
-            llm=mock_llm,
-            budget=mock_budget,
-            prompt_loader=mock_prompt_loader,
-            event_bus=mock_event_bus,
-            article_repo=mock_article_repo,
-            graph_writer=mock_neo4j_writer,
-        )
-
-        raw = MagicMock()
-        raw.url = "https://example.com/test"
-        state = PipelineState(raw=raw)
-        state["article_id"] = str(uuid.uuid4())
-        state["entities"] = []
-        state["relations"] = []
-
-        await pipeline._persist(state)
-
-        # Both writers called, no failure
-        mock_article_repo.upsert.assert_called_once()
-        mock_neo4j_writer.write.assert_called_once()
-        mock_article_repo.mark_failed.assert_not_called()
 
 
 class TestPipelinePersistBatch:
@@ -1083,7 +707,7 @@ class TestPipelinePersistBatch:
             event_bus=mock_event_bus,
         )
 
-        await pipeline._persist_batch([])
+        await pipeline._persist_batch([], 0, 0, 0)
 
     @pytest.mark.asyncio
     async def test_persist_batch_all_terminal(
@@ -1101,7 +725,7 @@ class TestPipelinePersistBatch:
         for state in states:
             state["terminal"] = True
 
-        await pipeline._persist_batch(states)
+        await pipeline._persist_batch(states, len(states), 0, 0)
 
     @pytest.mark.asyncio
     async def test_persist_batch_with_article_repo(
@@ -1129,7 +753,7 @@ class TestPipelinePersistBatch:
         for state in states:
             state["cleaned"] = {"title": "Title", "body": "Body"}
 
-        await pipeline._persist_batch(states)
+        await pipeline._persist_batch(states, len(states), 0, 0)
 
         mock_article_repo.bulk_upsert.assert_called_once()
         for state in states:
@@ -1169,7 +793,7 @@ class TestPipelinePersistBatch:
             "model_id": "test-model",
         }
 
-        await pipeline._persist_batch([state])
+        await pipeline._persist_batch([state], 1, 0, 0)
 
         mock_vector_repo.bulk_upsert_article_vectors.assert_called_once()
 
@@ -1203,7 +827,7 @@ class TestPipelinePersistBatch:
         state = PipelineState(raw=raw)
         state["cleaned"] = {"title": "Title", "body": "Body"}
 
-        await pipeline._persist_batch([state])
+        await pipeline._persist_batch([state], 1, 0, 0)
 
         mock_neo4j_writer.write.assert_called_once()
         assert "neo4j_ids" in state
@@ -1235,7 +859,7 @@ class TestPipelinePersistBatch:
         state["article_id"] = str(article_id)
         state["cleaned"] = {"title": "Title", "body": "Body"}
 
-        await pipeline._persist_batch([state])
+        await pipeline._persist_batch([state], 1, 0, 0)
 
     @pytest.mark.asyncio
     async def test_persist_batch_handles_neo4j_error(
@@ -1268,7 +892,7 @@ class TestPipelinePersistBatch:
         state = PipelineState(raw=raw)
         state["cleaned"] = {"title": "Title", "body": "Body"}
 
-        await pipeline._persist_batch([state])
+        await pipeline._persist_batch([state], 1, 0, 0)
 
         mock_article_repo.mark_failed.assert_called_once()
 
