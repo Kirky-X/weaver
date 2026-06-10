@@ -169,6 +169,19 @@ class KnowledgeCache(KnowledgeCacheProtocol):
         if self._dirty_count > 0:
             self._sync_to_parquet()
 
+    def close(self) -> None:
+        """Close DuckDB connection and stop sync thread.
+
+        Call this explicitly to release resources when done with the cache.
+        """
+        self._shutdown()
+        if hasattr(self, "db") and self.db is not None:
+            try:
+                self.db.close()
+            except Exception:
+                pass
+            self.db = None
+
     # ------------------------------------------------------------------
     # KnowledgeCacheProtocol implementation
     # ------------------------------------------------------------------
