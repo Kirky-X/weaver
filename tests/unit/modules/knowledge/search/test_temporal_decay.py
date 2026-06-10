@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from modules.knowledge.search.temporal_decay import (
+    TemporalAwareRetriever,
     TemporalDecayConfig,
     apply_temporal_decay,
     calculate_age_in_days,
@@ -183,3 +184,58 @@ class TestIntegration:
         assert score1 > 0.9  # 1-day old should have minimal decay
         assert abs(score2 - 0.5) < 0.01  # 30-day old should be ~0.5
         assert abs(score3 - 0.25) < 0.01  # 60-day old should be ~0.25
+
+
+# ---------------------------------------------------------------------------
+# TemporalAwareRetriever tests
+# ---------------------------------------------------------------------------
+
+
+class TestTemporalAwareRetriever:
+    """Tests for TemporalAwareRetriever class per ADD §3.6."""
+
+    def test_instantiation_with_defaults(self):
+        """TemporalAwareRetriever can be instantiated with default params."""
+        retriever = TemporalAwareRetriever()
+        assert retriever._enabled is True
+        assert retriever._half_life_days == 30.0
+
+    def test_instantiation_with_custom_params(self):
+        """TemporalAwareRetriever accepts custom enabled and half_life_days."""
+        retriever = TemporalAwareRetriever(enabled=False, half_life_days=7.0)
+        assert retriever._enabled is False
+        assert retriever._half_life_days == 7.0
+
+    def test_mixed_formula_new_document(self):
+        """New document (age=0) gets base_score * 1.0."""
+        retriever = TemporalAwareRetriever(enabled=True, half_life_days=30.0)
+        result = retriever.score(base_score=1.0, age_in_days=0)
+        assert abs(result - 1.0) < 0.001
+
+    def test_mixed_formula_half_life_document(self):
+        """Half-life document gets base_score * 0.8 (0.6 + 0.4 * 0.5)."""
+        retriever = TemporalAwareRetriever(enabled=True, half_life_days=30.0)
+        result = retriever.score(base_score=1.0, age_in_days=30)
+        # 0.6 + 0.4 * 0.5 = 0.8
+        assert abs(result - 0.8) < 0.01
+
+    def test_mixed_formula_very_old_document(self):
+        """Very old document score never drops below base_score * 0.6."""
+        retriever = TemporalAwareRetriever(enabled=True, half_life_days=30.0)
+        result = retriever.score(base_score=1.0, age_in_days=10000)
+        # 0.6 + 0.4 * ~0 = 0.6
+        assert result >= 0.6
+        assert result < 0.61
+
+    def test_disabled_returns_base_score(self):
+        """When enabled=False, score() returns base_score unchanged."""
+        retriever = TemporalAwareRetriever(enabled=False, half_life_days=30.0)
+        result = retriever.score(base_score=0.85, age_in_days=100)
+        assert result == 0.85
+
+    def test_mixed_formula_preserves_proportion(self):
+        """Score proportion is preserved with mixed formula."""
+        retriever = TemporalAwareRetriever(enabled=True, half_life_days=30.0)
+        result_1 = retriever.score(base_score=1.0, age_in_days=30)
+        result_2 = retriever.score(base_score=2.0, age_in_days=30)
+        assert abs(result_2 - 2 * result_1) < 0.001
