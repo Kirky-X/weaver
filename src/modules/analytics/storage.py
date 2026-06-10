@@ -31,11 +31,14 @@ class AnalyticsStorage:
 
                 record = SentimentShiftModel(
                     community_id=shift["community_id"],
+                    community_title=shift.get("community_title"),
                     shift_type=shift["shift_type"],
                     direction=shift["direction"],
                     magnitude=shift["magnitude"],
                     confidence=shift["confidence"],
                     detected_at=shift.get("detected_at", datetime.now()),
+                    window_start=shift.get("window_start"),
+                    window_end=shift.get("window_end"),
                     before_avg=shift.get("before_avg"),
                     after_avg=shift.get("after_avg"),
                     trigger_article_ids=shift.get("trigger_article_ids", []),
@@ -67,11 +70,14 @@ class AnalyticsStorage:
                 return [
                     {
                         "community_id": r.community_id,
+                        "community_title": r.community_title,
                         "shift_type": r.shift_type,
                         "direction": r.direction,
                         "magnitude": float(r.magnitude) if r.magnitude else 0.0,
                         "confidence": float(r.confidence) if r.confidence else 0.0,
                         "detected_at": r.detected_at.isoformat() if r.detected_at else None,
+                        "window_start": r.window_start.isoformat() if r.window_start else None,
+                        "window_end": r.window_end.isoformat() if r.window_end else None,
                         "before_avg": float(r.before_avg) if r.before_avg else None,
                         "after_avg": float(r.after_avg) if r.after_avg else None,
                     }

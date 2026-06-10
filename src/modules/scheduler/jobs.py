@@ -956,8 +956,8 @@ class SchedulerJobs:
     async def detect_sentiment_shifts(self) -> list[dict[str, Any]]:
         """Detect sentiment shifts in community data.
 
-        Uses SentimentShiftDetector with PELT + Binseg algorithms
-        to identify significant sentiment changes over time.
+        Uses SentimentShiftDetector with PELT + CUSUM dual-layer
+        algorithms to identify significant sentiment changes over time.
 
         Returns:
             List of detected shift points.
