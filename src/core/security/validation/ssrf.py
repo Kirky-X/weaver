@@ -14,11 +14,15 @@ from __future__ import annotations
 import ipaddress
 import socket
 from dataclasses import dataclass, field
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
+
+import httpx
 
 from core.observability.logging import get_logger
 
 log = get_logger(__name__)
+
+MAX_REDIRECT_HOPS = 5
 
 
 class SSRFError(Exception):
@@ -100,6 +104,7 @@ class SSRFChecker:
         self._validate_scheme(parsed.scheme, url)
         self._validate_metadata_host(parsed.hostname or "", url)
         await self._validate_ip_address(parsed.hostname or "", url)
+        await self._check_redirect_chain(url)
 
         log.debug("ssrf_check_passed", url=url)
         return url
@@ -209,6 +214,71 @@ class SSRFChecker:
             raise
         except Exception as e:
             log.warning("dns_resolution_error", hostname=hostname, error=str(e))
+
+    async def _check_redirect_chain(self, url: str) -> None:
+        """Track HTTP redirect chain and validate each redirect target.
+
+        Makes HEAD requests with follow_redirects=False to manually
+        follow each redirect, checking each target URL against blocked
+        IP ranges. This prevents SSRF via open redirect vulnerabilities.
+
+        Args:
+            url: The initial URL to check.
+
+        Raises:
+            SSRFError: If a redirect target is to a blocked IP address,
+                if a circular redirect is detected, or if the redirect
+                chain exceeds MAX_REDIRECT_HOPS.
+        """
+        try:
+            async with httpx.AsyncClient(follow_redirects=False, timeout=10.0) as client:
+                visited: set[str] = set()
+                current = url
+                for _ in range(MAX_REDIRECT_HOPS):
+                    if current in visited:
+                        raise SSRFError(f"Circular redirect detected: {current}", url)
+                    visited.add(current)
+
+                    try:
+                        resp = await client.head(current)
+                    except httpx.HTTPError as e:
+                        log.debug(
+                            "redirect_check_network_error",
+                            url=current,
+                            error=str(e),
+                        )
+                        return  # Network errors during redirect check are non-blocking
+
+                    if resp.status_code not in (301, 302, 303, 307, 308):
+                        return  # No more redirects
+
+                    target = resp.headers.get("location", "")
+                    if not target:
+                        return  # No location header
+
+                    # Resolve relative URLs
+                    target = urljoin(current, target)
+
+                    # Validate the redirect target
+                    parsed_target = urlparse(target)
+                    target_hostname = parsed_target.hostname or ""
+
+                    # Check metadata hosts
+                    self._validate_metadata_host(target_hostname, url)
+
+                    # Check IP address of redirect target
+                    await self._validate_ip_address(target_hostname, url)
+
+                    current = target
+
+                # If we exited the loop, we exceeded max hops
+                raise SSRFError(f"Max redirect hops exceeded ({MAX_REDIRECT_HOPS})", url)
+        except SSRFError:
+            raise
+        except Exception as e:
+            log.debug("redirect_check_error", url=url, error=str(e))
+            # Non-SSRF errors during redirect check are non-blocking
+            return
 
     def _check_blocked_ip(
         self, ip: ipaddress.IPv4Address | ipaddress.IPv6Address, url: str

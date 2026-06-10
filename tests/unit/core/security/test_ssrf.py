@@ -1,6 +1,8 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Unit tests for SSRFChecker."""
 
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 
 from core.security.validation.ssrf import SSRFChecker, SSRFError
@@ -204,3 +206,146 @@ class TestSSRFChecker:
         # 0177.0.0.1 = 127.0.0.1 in octal
         with pytest.raises(SSRFError):
             await checker.validate("http://0177.0.0.1/path")
+
+
+class TestSSRFRedirectTracking:
+    """Tests for SSRF redirect chain tracking.
+
+    Validates that HTTP redirect chains are followed and each
+    redirect target is checked against blocked IP ranges.
+    """
+
+    @pytest.fixture
+    def checker(self) -> SSRFChecker:
+        """Create SSRF checker instance."""
+        return SSRFChecker()
+
+    @pytest.mark.asyncio
+    async def test_redirect_to_internal_ip_blocked(self, checker: SSRFChecker) -> None:
+        """Redirect to internal IP (169.254.169.254) should be blocked."""
+        mock_response = MagicMock()
+        mock_response.status_code = 302
+        mock_response.headers = {"location": "http://169.254.169.254/latest/meta-data/"}
+
+        mock_client = AsyncMock()
+        mock_client.head = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("core.security.validation.ssrf.httpx.AsyncClient", return_value=mock_client):
+            with pytest.raises(SSRFError, match="blocked"):
+                await checker.validate("http://evil.com/redirect")
+
+    @pytest.mark.asyncio
+    async def test_multi_hop_redirect_all_valid(self, checker: SSRFChecker) -> None:
+        """Multi-hop redirect to public IPs should pass."""
+        # First redirect: evil.com -> good.com (public IP)
+        resp1 = MagicMock()
+        resp1.status_code = 302
+        resp1.headers = {"location": "https://good.com/path"}
+
+        # Second redirect: good.com -> final.com (public IP)
+        resp2 = MagicMock()
+        resp2.status_code = 301
+        resp2.headers = {"location": "https://final.com/path"}
+
+        # Final: no more redirects
+        resp3 = MagicMock()
+        resp3.status_code = 200
+
+        mock_client = AsyncMock()
+        mock_client.head = AsyncMock(side_effect=[resp1, resp2, resp3])
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("core.security.validation.ssrf.httpx.AsyncClient", return_value=mock_client):
+            with patch.object(checker, "_validate_ip_address", new_callable=AsyncMock):
+                # All redirect targets resolve to public IPs
+                await checker.validate("http://evil.com/redirect")
+
+    @pytest.mark.asyncio
+    async def test_circular_redirect_detected(self, checker: SSRFChecker) -> None:
+        """Circular redirect should be detected and blocked."""
+        resp_a = MagicMock()
+        resp_a.status_code = 302
+        resp_a.headers = {"location": "http://b.example.com/"}
+
+        resp_b = MagicMock()
+        resp_b.status_code = 302
+        resp_b.headers = {"location": "http://a.example.com/"}
+
+        mock_client = AsyncMock()
+        mock_client.head = AsyncMock(side_effect=[resp_a, resp_b])
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("core.security.validation.ssrf.httpx.AsyncClient", return_value=mock_client):
+            with patch.object(checker, "_validate_ip_address", new_callable=AsyncMock):
+                with pytest.raises(SSRFError, match=r"[Cc]ircular"):
+                    await checker.validate("http://a.example.com/")
+
+    @pytest.mark.asyncio
+    async def test_max_redirect_hops_exceeded(self, checker: SSRFChecker) -> None:
+        """Redirect chain exceeding 5 hops should be blocked."""
+        redirect_responses = []
+        for i in range(6):
+            resp = MagicMock()
+            resp.status_code = 302
+            resp.headers = {"location": f"http://hop{i}.example.com/"}
+            redirect_responses.append(resp)
+
+        mock_client = AsyncMock()
+        mock_client.head = AsyncMock(side_effect=redirect_responses)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("core.security.validation.ssrf.httpx.AsyncClient", return_value=mock_client):
+            with patch.object(checker, "_validate_ip_address", new_callable=AsyncMock):
+                with pytest.raises(SSRFError, match=r"[Mm]ax.*redirect"):
+                    await checker.validate("http://start.example.com/")
+
+    @pytest.mark.asyncio
+    async def test_dns_valid_but_redirect_to_blocked_ip(self, checker: SSRFChecker) -> None:
+        """URL with valid DNS but redirecting to blocked IP should be rejected."""
+        redirect_resp = MagicMock()
+        redirect_resp.status_code = 302
+        redirect_resp.headers = {"location": "http://10.0.0.1/secret"}
+
+        mock_client = AsyncMock()
+        mock_client.head = AsyncMock(return_value=redirect_resp)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("core.security.validation.ssrf.httpx.AsyncClient", return_value=mock_client):
+            with pytest.raises(SSRFError, match="blocked"):
+                await checker.validate("http://legit-looking.com/path")
+
+    @pytest.mark.asyncio
+    async def test_no_redirect_passes(self, checker: SSRFChecker) -> None:
+        """URL with no redirects should pass (redirect check is a no-op)."""
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+
+        mock_client = AsyncMock()
+        mock_client.head = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("core.security.validation.ssrf.httpx.AsyncClient", return_value=mock_client):
+            with patch.object(checker, "_validate_ip_address", new_callable=AsyncMock):
+                await checker.validate("http://example.com/path")
+
+    @pytest.mark.asyncio
+    async def test_redirect_network_error_handled(self, checker: SSRFChecker) -> None:
+        """Network error during redirect check should not block the URL."""
+        import httpx
+
+        mock_client = AsyncMock()
+        mock_client.head = AsyncMock(side_effect=httpx.ConnectError("Connection refused"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with patch("core.security.validation.ssrf.httpx.AsyncClient", return_value=mock_client):
+            with patch.object(checker, "_validate_ip_address", new_callable=AsyncMock):
+                # Should NOT raise - network errors during redirect check are logged but not blocking
+                await checker.validate("http://unreachable.example.com/path")
