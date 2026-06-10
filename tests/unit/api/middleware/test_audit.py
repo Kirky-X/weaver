@@ -103,8 +103,8 @@ class TestAuditLogMiddleware:
         mock_log.info.assert_not_called()
 
     @patch("api.middleware.audit.log")
-    def test_failed_request_not_logged(self, mock_log: MagicMock) -> None:
-        """Test that failed requests (non-2xx) are not logged."""
+    def test_failed_request_is_logged(self, mock_log: MagicMock) -> None:
+        """Test that failed requests (4xx/5xx) are also logged for security audit."""
 
         # Create a failing endpoint
         @self.app.get("/api/v1/admin/error")
@@ -120,8 +120,29 @@ class TestAuditLogMiddleware:
 
         assert response.status_code == 500
 
-        # Verify audit log was NOT called
-        mock_log.info.assert_not_called()
+        # Verify audit log WAS called (failed requests must be recorded)
+        mock_log.info.assert_called_once()
+        call_args = mock_log.info.call_args
+        assert call_args[1]["status_code"] == 500
+
+    @patch("api.middleware.audit.log")
+    def test_unauthorized_request_is_logged(self, mock_log: MagicMock) -> None:
+        """Test that 401 unauthorized requests are logged for security audit."""
+
+        @self.app.get("/api/v1/admin/protected")
+        async def protected_endpoint() -> dict:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+        response = self.client.get("/api/v1/admin/protected")
+
+        assert response.status_code == 401
+
+        # Verify audit log WAS called
+        mock_log.info.assert_called_once()
+        call_args = mock_log.info.call_args
+        assert call_args[1]["status_code"] == 401
 
     @patch("api.middleware.audit.log")
     def test_client_ip_logged(self, mock_log: MagicMock) -> None:

@@ -28,7 +28,7 @@ ADMIN_PREFIX = "/api/v1/admin"
 class AuditLogMiddleware(BaseHTTPMiddleware):
     """Audit logging middleware for admin endpoints.
 
-    Logs successful requests (2xx status codes) to admin endpoints
+    Logs all requests (including 4xx/5xx failures) to admin endpoints
     to the audit_log table for security monitoring and compliance.
 
     Implements: Weaver-数据库设计文档 §12.3
@@ -58,9 +58,8 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         duration_ms = (time.time() - start_time) * 1000
 
-        # Only log successful requests (2xx status codes)
-        if 200 <= response.status_code < 300:
-            await self._log_audit_event(request, response, duration_ms)
+        # Log all admin requests (including failures for security audit)
+        await self._log_audit_event(request, response, duration_ms)
 
         return response
 
