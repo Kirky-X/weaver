@@ -5,8 +5,6 @@ Provides API key authentication with database-backed multi-key support.
 Supports key scopes, expiry, revocation, and traffic anomaly detection.
 """
 
-from __future__ import annotations
-
 import secrets
 
 from fastapi import HTTPException, Request, Security
@@ -51,7 +49,7 @@ async def _get_traffic_detector():
 
 async def verify_api_key(
     key: str | None = Security(api_key_header),
-    request: Request | None = None,
+    request: Request = None,  # type: ignore[assignment]
 ) -> str:
     """Verify the API key from the request header.
 

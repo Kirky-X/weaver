@@ -13,10 +13,22 @@ All real resource fixtures are in tests/integration/conftest.py
 
 import asyncio
 import os
+import resource
 from pathlib import Path
 
 import pytest
 from dotenv import load_dotenv
+
+# ────────────────────────────────────────────────────────────
+# Memory limit: 8 GB (per user requirement)
+# ────────────────────────────────────────────────────────────
+_MEMORY_LIMIT_GB = 8
+_MEMORY_LIMIT_BYTES = _MEMORY_LIMIT_GB * 1024 * 1024 * 1024
+
+try:
+    resource.setrlimit(resource.RLIMIT_AS, (_MEMORY_LIMIT_BYTES, _MEMORY_LIMIT_BYTES))
+except (OSError, ValueError):
+    pass  # Cannot set limit (e.g., container without permission)
 
 # Load environment variables from .env file before any tests run
 _env_file = Path(__file__).parent.parent / ".env"
@@ -33,7 +45,7 @@ os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "true")
 
 
 def pytest_configure(config):
-    """Configure pytest markers."""
+    """Configure pytest markers and enforce memory limit on workers."""
     config.addinivalue_line("markers", "asyncio: mark test as async")
     config.addinivalue_line("markers", "unit: mark test as unit test")
     config.addinivalue_line("markers", "integration: mark test as integration test")
@@ -44,6 +56,12 @@ def pytest_configure(config):
     )
     config.addinivalue_line("markers", "describe: mark test class as describing a feature")
     config.addinivalue_line("markers", "it: mark test method as a specific behavior")
+
+    # Re-apply memory limit in xdist worker processes
+    try:
+        resource.setrlimit(resource.RLIMIT_AS, (_MEMORY_LIMIT_BYTES, _MEMORY_LIMIT_BYTES))
+    except (OSError, ValueError):
+        pass
 
 
 def pytest_collection_modifyitems(config, items):
