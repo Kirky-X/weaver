@@ -8,6 +8,45 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _cleanup_duckdb_connections():
+    """Ensure all DuckDB connections and KnowledgeCache instances are closed."""
+    from modules.knowledge.cache.storage import KnowledgeCache
+
+    # Track created caches and connections for cleanup
+    _caches: list = []
+    _connections: list = []
+    original_init = KnowledgeCache.__init__
+
+    def tracking_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        _caches.append(self)
+
+    KnowledgeCache.__init__ = tracking_init
+    yield
+    KnowledgeCache.__init__ = original_init
+
+    # Cleanup tracked instances
+    for cache in _caches:
+        if hasattr(cache, "db") and cache.db is not None:
+            try:
+                cache.db.close()
+            except Exception:
+                pass
+            cache.db = None
+        if hasattr(cache, "_stop_event"):
+            cache._stop_event.set()
+    _caches.clear()
+
+    # Cleanup any tracked connections
+    for conn in _connections:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    _connections.clear()
+
+
 class TestKnowledgeCachePersistence:
     """Test KnowledgeCache persistence operations."""
 
@@ -64,19 +103,22 @@ class TestKnowledgeCachePersistence:
         # Create parquet file with test data
         parquet_file = tmp_path / "knowledge_clusters.parquet"
         db = duckdb.connect(":memory:")
-        db.execute("""
-            CREATE TABLE knowledge_clusters (
-                id VARCHAR, name VARCHAR, description VARCHAR, content VARCHAR,
-                embedding FLOAT[384], query VARCHAR, hotness FLOAT,
-                create_time TIMESTAMP, last_modified TIMESTAMP, version INTEGER
-            )
-        """)
-        db.execute("""
-            INSERT INTO knowledge_clusters
-            (id, name, description, content, hotness, version)
-            VALUES ('existing1', 'Existing Cluster', 'Desc', 'Content', 0.7, 1)
-        """)
-        db.execute(f"COPY knowledge_clusters TO '{parquet_file}' (FORMAT PARQUET)")
+        try:
+            db.execute("""
+                CREATE TABLE knowledge_clusters (
+                    id VARCHAR, name VARCHAR, description VARCHAR, content VARCHAR,
+                    embedding FLOAT[384], query VARCHAR, hotness FLOAT,
+                    create_time TIMESTAMP, last_modified TIMESTAMP, version INTEGER
+                )
+            """)
+            db.execute("""
+                INSERT INTO knowledge_clusters
+                (id, name, description, content, hotness, version)
+                VALUES ('existing1', 'Existing Cluster', 'Desc', 'Content', 0.7, 1)
+            """)
+            db.execute(f"COPY knowledge_clusters TO '{parquet_file}' (FORMAT PARQUET)")
+        finally:
+            db.close()
 
         with patch("modules.knowledge.cache.storage.KnowledgeCache._start_sync_daemon"):
             with patch("modules.knowledge.cache.storage.KnowledgeCache._shutdown"):
@@ -245,15 +287,18 @@ class TestKnowledgeCacheParquetFormat:
 
                     # Load into a new database
                     new_db = duckdb.connect(":memory:")
-                    parquet_path = cache.parquet_file
-                    new_db.execute(
-                        "CREATE TABLE test AS SELECT * FROM read_parquet(?)",
-                        [parquet_path],
-                    )
+                    try:
+                        parquet_path = cache.parquet_file
+                        new_db.execute(
+                            "CREATE TABLE test AS SELECT * FROM read_parquet(?)",
+                            [parquet_path],
+                        )
 
-                    result = new_db.execute("SELECT * FROM test").fetchone()
+                        result = new_db.execute("SELECT * FROM test").fetchone()
 
-                    assert result is not None
-                    assert result[0] == "test1"
-                    assert result[1] == "Test Cluster"
-                    assert result[6] == 0.75  # hotness
+                        assert result is not None
+                        assert result[0] == "test1"
+                        assert result[1] == "Test Cluster"
+                        assert result[6] == 0.75  # hotness
+                    finally:
+                        new_db.close()

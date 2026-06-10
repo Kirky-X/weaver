@@ -91,7 +91,7 @@ class TestCreateStrategy:
         """Should fallback to DuckDB when PostgreSQL is unavailable."""
         from unittest.mock import AsyncMock, MagicMock
 
-        from config.settings import DuckDBSettings, Neo4jSettings, PostgresSettings
+        from config.settings import DuckDBSettings, LadybugSettings, Neo4jSettings, PostgresSettings
 
         # Mock PostgresPool to fail
         def mock_pg_fail(**kwargs):
@@ -115,11 +115,13 @@ class TestCreateStrategy:
         pg_settings = PostgresSettings(host="localhost", password="test")
         neo4j_settings = Neo4jSettings(enabled=False)
         duckdb_settings = DuckDBSettings(enabled=True)
+        ladybug_settings = LadybugSettings(enabled=False)  # Disable to avoid OOM
 
         strategy = await create_strategy(
             pg_settings=pg_settings,
             neo4j_settings=neo4j_settings,
             duckdb_settings=duckdb_settings,
+            ladybug_settings=ladybug_settings,
         )
 
         assert strategy.relational_type == "duckdb"

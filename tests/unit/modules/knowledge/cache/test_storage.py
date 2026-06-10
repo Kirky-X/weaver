@@ -11,6 +11,34 @@ from core.protocols.knowledge_cache import KnowledgeCluster
 from modules.knowledge.cache.storage import KnowledgeCache
 
 
+@pytest.fixture(autouse=True)
+def _cleanup_knowledge_caches():
+    """Ensure KnowledgeCache resources are released after each test."""
+    # Track created caches for cleanup
+    _caches: list[KnowledgeCache] = []
+    original_init = KnowledgeCache.__init__
+
+    def tracking_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        _caches.append(self)
+
+    KnowledgeCache.__init__ = tracking_init
+    yield
+    KnowledgeCache.__init__ = original_init
+
+    # Cleanup tracked instances
+    for cache in _caches:
+        if hasattr(cache, "db") and cache.db is not None:
+            try:
+                cache.db.close()
+            except Exception:
+                pass
+            cache.db = None
+        if hasattr(cache, "_stop_event"):
+            cache._stop_event.set()
+    _caches.clear()
+
+
 class TestKnowledgeCacheInit:
     """Test KnowledgeCache initialization."""
 
