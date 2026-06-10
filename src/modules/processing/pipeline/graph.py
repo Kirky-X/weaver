@@ -165,7 +165,11 @@ class Pipeline:
             vector_repo,
             relation_type_normalizer=relation_type_normalizer,
         )
-        self._conflict_detector = ConflictDetectorNode(article_repo)
+        self._conflict_detector = ConflictDetectorNode(
+            article_repo=article_repo,
+            vector_repo=vector_repo,
+            llm_client=llm,
+        )
         self._entity_resolver = entity_resolver
         self._checkpoint_cleanup = CheckpointCleanupNode(cache_client)
         self._article_repo = article_repo
