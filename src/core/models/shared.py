@@ -6,12 +6,16 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ArticleView(BaseModel):
+    """Article view model aligned with ADD §1.5.1.
+
+    Implements: Data Contract Layer — ArticleView
+    """
+
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
     source_url: str
     source_host: str | None = None
-    is_news: bool = False
     title: str
     body: str | None = None
     category: str | None = None
@@ -20,61 +24,75 @@ class ArticleView(BaseModel):
     summary: str | None = None
     subjects: list[str] | None = None
     key_data: list[str] | None = None
-    impact: str | None = None
-    has_data: bool | None = None
     score: float | None = None
     quality_score: float | None = None
     data_conflicts: list[dict[str, Any]] = []
-    image_forensics: list[dict[str, Any]] = []
-    document_type: str = "news"
-    doc_metadata: dict[str, Any] = {}
-    content_hash: str | None = None
-    version: int = 1
     sentiment: str | None = None
     sentiment_score: float | None = None
-    primary_emotion: str | None = None
     emotion_targets: list[str] | None = None
     credibility_score: float | None = None
-    source_credibility: float | None = None
     cross_verification: float | None = None
-    content_check_score: float | None = None
-    credibility_flags: list[str] | None = None
     persist_status: str = "pending"
+    verified_by_sources: bool = False
     publish_time: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
 
 class EntityView(BaseModel):
+    """Entity view model aligned with ADD §1.5.1.
+
+    Implements: Data Contract Layer — EntityView
+    """
+
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
-    neo4j_id: str
+    id: str = Field(validation_alias="neo4j_id")
     canonical_name: str = Field(validation_alias="name")
-    entity_type: str
+    type: str = Field(validation_alias="entity_type")
     aliases: list[str] = []
     description: str | None = None
-    tier: int = 2
-    article_count: int = 0
+    degree: int = 0
+    community_id: str | None = None
+    confidence: float = 1.0
+    last_mentioned: datetime | None = None
 
 
 class EventView(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    """Event view model aligned with ADD §1.5.1.
+
+    Implements: Data Contract Layer — EventView
+    """
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: str
-    name: str
-    event_type: str
+    summary: str = Field(validation_alias="name")
+    type: str = Field(validation_alias="event_type")
     description: str | None = None
-    start_time: datetime | None = None
-    end_time: datetime | None = None
+    time: datetime | None = Field(default=None, validation_alias="start_time")
     location: str | None = None
-    article_count: int = 0
+    status: str = "confirmed"
+    importance: float = 0.5
+    participants: list[str] = []
+    narratives: list[str] = []
+    source_article_id: str | None = None
 
 
 class CommunityView(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    """Community view model aligned with ADD §1.5.1.
+
+    Implements: Data Contract Layer — CommunityView
+    """
+
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
     id: str
-    name: str
-    description: str | None = None
-    member_count: int = 0
+    title: str = Field(validation_alias="name")
+    summary: str | None = Field(default=None, validation_alias="description")
     keywords: list[str] = []
+    level: int = 0
+    rank: float = 0.0
+    entity_count: int = 0
+    article_count: int = 0
+    embedding: list[float] | None = None

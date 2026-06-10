@@ -22,6 +22,7 @@ class TestMapperMissingFields:
         assert result.sentiment is None
         assert result.credibility_score is None
         assert result.source_host is None
+        assert result.verified_by_sources is False
 
     def test_neo4j_mapper_minimal_fields(self):
         result = Neo4jEntityMapper.to_view(
@@ -34,8 +35,10 @@ class TestMapperMissingFields:
         assert isinstance(result, EntityView)
         assert result.aliases == []
         assert result.description is None
-        assert result.article_count == 0
-        assert result.tier == 2
+        assert result.degree == 0
+        assert result.community_id is None
+        assert result.confidence == 1.0
+        assert result.last_mentioned is None
 
     def test_postgres_mapper_empty_lists(self):
         result = PostgresArticleMapper.to_view(
@@ -46,8 +49,6 @@ class TestMapperMissingFields:
             }
         )
         assert result.data_conflicts == []
-        assert result.image_forensics == []
-        assert result.doc_metadata == {}
 
     def test_postgres_mapper_null_subjects_and_key_data(self):
         result = PostgresArticleMapper.to_view(
@@ -70,7 +71,4 @@ class TestMapperMissingFields:
             }
         )
         assert result.credibility_score == 0.75
-        assert result.source_credibility is None
         assert result.cross_verification is None
-        assert result.content_check_score is None
-        assert result.credibility_flags is None
