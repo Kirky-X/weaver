@@ -195,16 +195,17 @@ class ModelSelector:
                     degraded_editorial=round(editorial, 4),
                 )
 
-            # Thompson Sampling exploration bonus
-            ts_bonus = self.experience.thompson_sample(call_point, label.provider, label.model)
+            # Thompson Sampling: multiplicative (theta * base_score)
+            theta = self.experience.thompson_sample(call_point, label.provider, label.model)
 
-            total = (
+            base_score = (
                 weight_cfg.editorial * editorial
                 + weight_cfg.reliability * reliability
                 + weight_cfg.cost * norm_costs[key]
                 + weight_cfg.latency * norm_latencies[key]
-                + 0.15 * ts_bonus  # Fixed bonus weight
             )
+
+            total = theta * base_score
 
             scored.append((total, label))
             log.debug(
@@ -215,7 +216,8 @@ class ModelSelector:
                 reliability=round(reliability, 4),
                 cost=round(norm_costs[key], 4),
                 latency=round(norm_latencies[key], 4),
-                thompson=round(ts_bonus, 4),
+                theta=round(theta, 4),
+                base_score=round(base_score, 4),
             )
 
         scored.sort(key=lambda x: x[0], reverse=True)

@@ -29,9 +29,9 @@ class _ModelExperience:
     failure_count: int = 0
     total_latency_ms: float = 0.0
     last_call_time: float = 0.0
-    # Thompson Sampling Beta distribution params
-    alpha: float = 1.0
-    beta: float = 1.0
+    # Thompson Sampling Beta distribution params (prior: Beta(2,2))
+    alpha: float = 2.0
+    beta: float = 2.0
     last_error_type: str = ""
     # Time-weighted tracking: list of (timestamp, latency_ms, success) tuples
     call_history: list[tuple[float, float, bool]] = field(default_factory=list)
@@ -109,8 +109,8 @@ class ExperienceStore:
                     last_error_type=data.get("last_error_type", ""),
                     call_history=call_history,
                 )
-                exp.alpha = max(1.0, exp.success_count + 1.0)
-                exp.beta = max(1.0, exp.failure_count + 1.0)
+                exp.alpha = max(2.0, exp.success_count + 2.0)
+                exp.beta = max(2.0, exp.failure_count + 2.0)
                 self._experiences[key] = exp
 
         # Subscribe to events
@@ -260,15 +260,15 @@ class ExperienceStore:
         key = f"{call_point}.{provider}.{model}"
         exp = self._experiences.get(key)
         if exp is None:
-            return random.betavariate(1.0, 1.0)
+            return random.betavariate(2.0, 2.0)
         return random.betavariate(exp.alpha, exp.beta)
 
     def select_provider(self, call_point: str, providers: list[str], model: str) -> str:
         """Select a provider using round-robin during warmup, Thompson Sampling after.
 
-        During the warmup period (first warmup_calls), cycles through providers
-        in order via round-robin. After warmup, uses Thompson Sampling scores
-        to select the best provider.
+        After warmup, uses Thompson Sampling scores to select the best provider.
+        With exploration_weight=0.15 probability, randomly selects a provider
+        instead of the best-scoring one to encourage exploration.
 
         Args:
             call_point: The call point identifier.
@@ -291,6 +291,10 @@ class ExperienceStore:
             self._round_robin_indices[warmup_key] = (idx + 1) % len(providers)
             self._warmup_counts[warmup_key] = current_count + 1
             return selected
+
+        # 15% random exploration probability
+        if random.random() < 0.15:
+            return random.choice(providers)
 
         # Thompson Sampling after warmup
         best_provider = providers[0]
