@@ -251,6 +251,7 @@ class ArticleCore(Base):
             name="chk_core_credibility_score_range",
         ),
         CheckConstraint("merged_into IS DISTINCT FROM id", name="chk_core_no_self_merge"),
+        # ── Existing indexes ──
         Index("idx_core_category", "category"),
         Index("idx_core_publish_time", publish_time.desc()),
         Index("idx_core_score", score.desc()),
@@ -266,6 +267,36 @@ class ArticleCore(Base):
         Index("idx_core_host_publish", "source_host", publish_time.desc()),
         Index("idx_core_status_created", "persist_status", created_at.asc()),
         Index("idx_core_task_status", "task_id", "persist_status"),
+        # ── Optimization indexes (design doc §9.2) ──
+        Index(
+            "idx_articles_sentiment_time",
+            "sentiment_score",
+            publish_time.desc(),
+            postgresql_where=text("sentiment_score IS NOT NULL"),
+        ),
+        Index(
+            "idx_articles_briefing",
+            publish_time.desc(),
+            score.desc(),
+            postgresql_where=text("score IS NOT NULL"),
+        ),
+        Index(
+            "idx_articles_category_sentiment",
+            "category",
+            sentiment_score.desc(),
+            postgresql_where=text("category IS NOT NULL AND sentiment_score IS NOT NULL"),
+        ),
+        Index(
+            "idx_articles_url_lookup",
+            "source_url",
+            postgresql_include=["id", "title", "publish_time"],
+        ),
+        Index(
+            "idx_articles_retry",
+            "persist_status",
+            updated_at.asc(),
+            postgresql_where=text("persist_status IN ('pg_done', 'neo4j_failed', 'failed')"),
+        ),
     )
 
 
@@ -340,6 +371,13 @@ class ArticleAnalysis(Base):
         CheckConstraint(
             "quality_score >= 0 AND quality_score <= 1",
             name="chk_analysis_quality_score_range",
+        ),
+        # Optimization index: is_news filter (design doc §9.2 #4)
+        # Note: is_news is in article_analysis after vertical split
+        Index(
+            "idx_articles_is_news",
+            "is_news",
+            postgresql_where=text("is_news = true"),
         ),
     )
 
@@ -571,6 +609,15 @@ class EntityVector(Base):
         default=lambda: datetime.now(UTC),
         server_default=text("NOW()"),
         onupdate=lambda: datetime.now(UTC),
+    )
+
+    __table_args__ = (
+        Index(
+            "idx_entity_vectors_hnsw",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_with={"m": 16, "ef_construction": 200},
+        ),
     )
 
 
@@ -960,6 +1007,11 @@ class DailyBriefingItem(Base):
     reason: Mapped[str | None] = mapped_column(Text)
 
     briefing: Mapped[DailyBriefing] = relationship(back_populates="items")
+
+    __table_args__ = (
+        UniqueConstraint("briefing_id", "article_id", name="uq_briefing_item_article"),
+        UniqueConstraint("briefing_id", "rank", name="uq_briefing_item_rank"),
+    )
 
 
 class AuditLog(Base):
