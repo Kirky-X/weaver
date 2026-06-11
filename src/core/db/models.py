@@ -687,7 +687,7 @@ class LLMFailureRecord(Base):
     latency_ms: Mapped[float | None] = mapped_column(Numeric(10, 2))
     article_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("articles.id", ondelete="SET NULL"),
+        ForeignKey("articles_core.id", ondelete="SET NULL"),
         nullable=True,
     )
     task_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
@@ -715,7 +715,7 @@ class PendingSync(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     article_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("articles.id", ondelete="CASCADE"),
+        ForeignKey("articles_core.id", ondelete="CASCADE"),
         nullable=False,
     )
     sync_type: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -1060,7 +1060,7 @@ class DailyBriefingItem(Base):
         BigInteger, ForeignKey("daily_briefings.id", ondelete="CASCADE"), nullable=False
     )
     article_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("articles.id", ondelete="CASCADE"), nullable=False
+        UUID(as_uuid=True), ForeignKey("articles_core.id", ondelete="CASCADE"), nullable=False
     )
     rank: Mapped[int] = mapped_column(Integer, nullable=False)
     # Design doc §12.2: scoring fields
