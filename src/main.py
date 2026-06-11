@@ -325,6 +325,20 @@ def create_app(container: Container | None = None) -> FastAPI:
     for warning in security_warnings:
         log.warning("security_check", warning=warning)
 
+    # Check HMAC secret separation in production
+    if settings.api.hmac_signing_enabled and settings.api.hmac_secret is None:
+        if settings.environment == "production":
+            log.critical(
+                "hmac_secret_not_configured_production",
+                message="HMAC signing key falls back to API key in production. "
+                "Set WEAVER_API__HMAC_SECRET for proper key separation.",
+            )
+        else:
+            log.warning(
+                "hmac_secret_not_configured",
+                message="HMAC signing key falls back to API key. Set WEAVER_API__HMAC_SECRET for proper key separation.",
+            )
+
     app = FastAPI(
         title="Weaver API",
         description="Weaver - Intelligent news discovery and knowledge graph platform",
@@ -410,7 +424,13 @@ def create_app(container: Container | None = None) -> FastAPI:
     if settings.api.hmac_signing_enabled:
         from api.middleware.hmac_auth import HMACSignatureMiddleware
 
-        app.add_middleware(HMACSignatureMiddleware, secret_key=settings.api.get_api_key())
+        hmac_secret = settings.api.hmac_secret or settings.api.get_api_key()
+        if settings.api.hmac_secret is None:
+            log.warning(
+                "hmac_secret_not_configured",
+                message="HMAC signing key falls back to API key. Set WEAVER_API__HMAC_SECRET for proper key separation.",
+            )
+        app.add_middleware(HMACSignatureMiddleware, secret_key=hmac_secret)
 
     # Register audit logging middleware for admin endpoints
     from api.middleware.audit import AuditLogMiddleware

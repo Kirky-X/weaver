@@ -111,6 +111,9 @@ class APISettings(BaseModel):
     port_max_attempts: int = 100  # Maximum port search attempts
     require_auth_for_metrics: bool = False  # Optional auth for Prometheus metrics endpoint
     hmac_signing_enabled: bool = False  # Enable HMAC signature verification middleware
+    hmac_secret: str | None = (
+        None  # Independent HMAC signing key (WEAVER_API__HMAC_SECRET). Falls back to API key if not set.
+    )
     shutdown_timeout: float = 30.0  # Pipeline drain timeout during shutdown
 
     def get_api_key(self) -> str:
