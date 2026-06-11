@@ -2,6 +2,7 @@
 """Rate limiting middleware using Redis-backed token bucket.
 
 Implements:
+    - LocalTokenBucket: In-memory token bucket for fail-close fallback
     - TokenBucketRateLimiter: Core token bucket algorithm with Redis Lua scripts
     - RateLimitMiddleware: ASGI middleware for global + per-key rate limiting
 
@@ -10,7 +11,8 @@ token bucket that provides:
     - Global limit: 1000 requests/second
     - Per-API-Key limit: 100 requests/second
     - HTTP 429 with Retry-After header when limits exceeded
-    - Fail-open behavior when Redis is unavailable
+    - Fail-close behavior when Redis is unavailable (local token bucket fallback)
+    - X-RateLimit-Fallback header when using local fallback
 """
 
 from __future__ import annotations
@@ -65,11 +67,60 @@ _GLOBAL_BUCKET_PREFIX = "ratelimit:global"
 _PER_KEY_BUCKET_PREFIX = "ratelimit:key"
 
 
+class LocalTokenBucket:
+    """In-memory token bucket for fail-close fallback when Redis is unavailable.
+
+    Uses time.monotonic() for monotonic time tracking. Each key gets its
+    own independent bucket state.
+
+    Args:
+        max_tokens: Maximum number of tokens in the bucket.
+        refill_rate: Number of tokens refilled per second.
+
+    """
+
+    def __init__(self, max_tokens: int, refill_rate: int) -> None:
+        self._max_tokens = max_tokens
+        self._refill_rate = refill_rate
+        self._buckets: dict[str, tuple[float, float]] = {}  # key -> (tokens, last_time)
+
+    def acquire(self, key: str = "_default") -> bool:
+        """Try to consume one token from the bucket for the given key.
+
+        Args:
+            key: Bucket key (e.g., client IP or API key).
+
+        Returns:
+            True if a token was available and consumed, False otherwise.
+
+        """
+        now = time.monotonic()
+
+        if key in self._buckets:
+            tokens, last_time = self._buckets[key]
+            elapsed = now - last_time
+            if elapsed > 0:
+                tokens = min(self._max_tokens, tokens + elapsed * self._refill_rate)
+            last_time = now
+        else:
+            tokens = float(self._max_tokens)
+            last_time = now
+
+        if tokens >= 1:
+            tokens -= 1
+            self._buckets[key] = (tokens, last_time)
+            return True
+        else:
+            self._buckets[key] = (tokens, last_time)
+            return False
+
+
 class TokenBucketRateLimiter:
-    """Redis-backed token bucket rate limiter.
+    """Redis-backed token bucket rate limiter with local fallback.
 
     Implements atomic token bucket algorithm using Redis Lua scripts
-    for both global and per-key rate limiting.
+    for both global and per-key rate limiting. When Redis is unavailable,
+    falls back to a local in-memory token bucket (fail-close).
 
     Args:
         redis: CachePool instance (RedisClient or compatible).
@@ -93,11 +144,28 @@ class TokenBucketRateLimiter:
         self._global_refill_rate = global_refill_rate
         self._per_key_max_tokens = per_key_max_tokens
         self._per_key_refill_rate = per_key_refill_rate
+        self._fallback_active: bool = False
+
+        # Local fallback buckets (used when Redis is unavailable)
+        self._local_global_bucket = LocalTokenBucket(
+            max_tokens=global_max_tokens,
+            refill_rate=global_refill_rate,
+        )
+        self._local_per_key_bucket = LocalTokenBucket(
+            max_tokens=per_key_max_tokens,
+            refill_rate=per_key_refill_rate,
+        )
 
         if redis is not None:
             self._script = redis.register_script(TOKEN_BUCKET_LUA_SCRIPT)
         else:
             self._script = None
+            self._fallback_active = True
+
+    @property
+    def fallback_active(self) -> bool:
+        """Whether the rate limiter is using local fallback mode."""
+        return self._fallback_active
 
     async def acquire(
         self,
@@ -115,8 +183,8 @@ class TokenBucketRateLimiter:
             minimum of global and per-key remaining tokens.
 
         """
-        if self._script is None:
-            return True, self._global_max_tokens
+        if self._fallback_active:
+            return self._acquire_local(client_key, api_key)
 
         now = time.time()
         per_key_id = api_key if api_key else client_key
@@ -157,10 +225,44 @@ class TokenBucketRateLimiter:
             remaining = min(global_remaining, per_key_remaining)
             return True, remaining
 
-        except Exception:
-            log.warning("rate_limit_redis_error", exc_info=True)
-            # Fail-open: allow request when Redis is unavailable
-            return True, self._global_max_tokens
+        except Exception as exc:
+            log.critical(
+                "rate_limit_redis_failure_fail_close",
+                error=str(exc),
+                exc_type=type(exc).__name__,
+                client_ip=client_key,
+            )
+            # Fail-close: switch to local token bucket
+            self._fallback_active = True
+            return self._acquire_local(client_key, api_key)
+
+    def _acquire_local(
+        self,
+        client_key: str,
+        api_key: str | None = None,
+    ) -> tuple[bool, int]:
+        """Rate limit using local in-memory token bucket.
+
+        Args:
+            client_key: Client identifier.
+            api_key: Optional API key for per-key limiting.
+
+        Returns:
+            Tuple of (allowed, remaining_tokens).
+
+        """
+        global_allowed = self._local_global_bucket.acquire("_global")
+        if not global_allowed:
+            log.debug("rate_limit_local_global_exceeded", client=client_key)
+            return False, 0
+
+        per_key_id = api_key if api_key else client_key
+        per_key_allowed = self._local_per_key_bucket.acquire(per_key_id)
+        if not per_key_allowed:
+            log.debug("rate_limit_local_per_key_exceeded", key=per_key_id)
+            return False, 0
+
+        return True, self._global_max_tokens
 
 
 class RateLimitMiddleware:
@@ -168,6 +270,7 @@ class RateLimitMiddleware:
 
     Intercepts HTTP requests and enforces global + per-key rate limits.
     Returns HTTP 429 with Retry-After header when limits are exceeded.
+    Adds X-RateLimit-Fallback header when using local fallback mode.
 
     Args:
         app: The ASGI application to wrap.
@@ -195,7 +298,11 @@ class RateLimitMiddleware:
             await self._send_429(send)
             return
 
-        await self._app(scope, receive, send)
+        # If using local fallback, add X-RateLimit-Fallback header
+        if self._rate_limiter.fallback_active:
+            await self._send_with_fallback_header(scope, receive, send)
+        else:
+            await self._app(scope, receive, send)
 
     def _extract_client_key(self, scope: dict) -> str:
         """Extract client IP from ASGI scope."""
@@ -211,6 +318,18 @@ class RateLimitMiddleware:
             if name == b"x-api-key":
                 return value.decode("utf-8", errors="replace")
         return None
+
+    async def _send_with_fallback_header(self, scope: dict, receive: Any, send: Any) -> None:
+        """Forward request to app, injecting X-RateLimit-Fallback header into response."""
+
+        async def send_with_header(message: dict) -> None:
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                headers.append([b"x-ratelimit-fallback", b"local"])
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self._app(scope, receive, send_with_header)
 
     async def _send_429(self, send: Any) -> None:
         """Send HTTP 429 Too Many Requests response."""

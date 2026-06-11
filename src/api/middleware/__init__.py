@@ -11,9 +11,10 @@ Example usage:
 """
 
 from api.middleware.auth import api_key_header, verify_api_key
-from api.middleware.rate_limit import RateLimitMiddleware, TokenBucketRateLimiter
+from api.middleware.rate_limit import LocalTokenBucket, RateLimitMiddleware, TokenBucketRateLimiter
 
 __all__ = [
+    "LocalTokenBucket",
     "RateLimitMiddleware",
     "TokenBucketRateLimiter",
     "api_key_header",
