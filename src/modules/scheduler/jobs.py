@@ -881,6 +881,26 @@ class SchedulerJobs:
         )
         return processed
 
+    @scheduled_task("check_expiring_api_keys", timeout_seconds=300)
+    async def check_expiring_api_keys(self) -> int:
+        """Check for API keys expiring within 7 days and auto-rotate them.
+
+        Returns:
+            Number of keys rotated.
+        """
+        from core.security.api_key_manager import ApiKeyManager
+
+        log.info("check_expiring_api_keys_start")
+
+        try:
+            manager = ApiKeyManager(self._relational_pool)
+            count = await manager.check_expiring_keys(days_before=7)
+            log.info("check_expiring_api_keys_complete", count=count)
+            return count
+        except Exception as exc:
+            log.error("check_expiring_api_keys_failed", error=str(exc))
+            return 0
+
     @scheduled_task("sync_phishtank_data", timeout_seconds=600)
     async def sync_phishtank_data(self) -> bool:
         """Sync PhishTank phishing URL database.

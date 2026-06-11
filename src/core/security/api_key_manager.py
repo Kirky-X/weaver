@@ -229,3 +229,98 @@ class ApiKeyManager:
             )
             row = result.scalar_one_or_none()
             return row if row is not None else 100
+
+    async def _fetch_key(self, key_id: str) -> ApiKey | None:
+        """Fetch an API key by key_id.
+
+        Args:
+            key_id: The key ID to fetch.
+
+        Returns:
+            ApiKey instance or None.
+        """
+        async with self._pool.session() as session:
+            result = await session.execute(select(ApiKey).where(ApiKey.key_id == key_id))
+            return result.scalar_one_or_none()
+
+    async def rotate_key(self, key_id: str) -> dict[str, Any] | None:
+        """Rotate an API key, creating a replacement and marking the old one.
+
+        Creates a new key with the same scopes and rate limit as the old key.
+        Sets rotated_to on the old key to link to the new key.
+
+        Args:
+            key_id: The key ID to rotate.
+
+        Returns:
+            New key info dict if rotated, None if key not found.
+        """
+        old_key = await self._fetch_key(key_id)
+        if old_key is None:
+            log.warning("api_key_rotation_failed_not_found", key_id=key_id)
+            return None
+
+        # Create replacement key with same config
+        new_key_info = await self.create_key(
+            scopes=old_key.scopes,
+            rate_limit_per_min=old_key.rate_limit_per_min,
+            expires_in_days=90,
+            created_by=f"rotation:{key_id}",
+        )
+
+        # Mark old key as rotated
+        async with self._pool.session() as session:
+            await session.execute(
+                update(ApiKey)
+                .where(ApiKey.key_id == key_id)
+                .values(rotated_to=new_key_info["key_id"])
+            )
+            await session.commit()
+
+        log.info(
+            "api_key_rotated",
+            old_key_id=key_id,
+            new_key_id=new_key_info["key_id"],
+        )
+
+        return new_key_info
+
+    async def check_expiring_keys(self, days_before: int = 7) -> int:
+        """Check for keys expiring within days_before days and auto-rotate them.
+
+        Args:
+            days_before: Number of days before expiry to trigger rotation.
+
+        Returns:
+            Number of keys rotated.
+        """
+        threshold = datetime.now(UTC) + timedelta(days=days_before)
+
+        async with self._pool.session() as session:
+            result = await session.execute(
+                select(ApiKey).where(
+                    ApiKey.is_revoked == False,  # noqa: E712
+                    ApiKey.rotated_to.is_(None),
+                    ApiKey.expires_at <= threshold,
+                    ApiKey.expires_at > datetime.now(UTC),
+                )
+            )
+            expiring_keys = result.scalars().all()
+
+        rotated_count = 0
+        for key in expiring_keys:
+            try:
+                new_key = await self.rotate_key(key.key_id)
+                if new_key:
+                    rotated_count += 1
+            except Exception as exc:
+                log.warning(
+                    "api_key_auto_rotation_failed",
+                    key_id=key.key_id,
+                    error=str(exc),
+                )
+
+        if rotated_count > 0:
+            log.info("api_key_auto_rotation_complete", count=rotated_count)
+
+        return rotated_count

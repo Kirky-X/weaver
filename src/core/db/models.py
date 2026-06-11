@@ -253,7 +253,7 @@ class ArticleCore(Base):
         ),
         CheckConstraint("merged_into IS DISTINCT FROM id", name="chk_core_no_self_merge"),
         CheckConstraint(
-            "document_type IN ('news', 'social', 'official', 'research', 'opinion')",
+            "document_type IN ('news', 'policy', 'tweet', 'wechat', 'blog', 'report', 'pdf_doc', 'social_post')",
             name="chk_core_document_type",
         ),
         # ── Existing indexes ──
@@ -993,7 +993,7 @@ class SentimentShift(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "shift_type IN ('abrupt', 'gradual')",
+            "shift_type IN ('mean_shift', 'cumulative_drift', 'variance_change')",
             name="chk_shift_type_values",
         ),
         Index("idx_shifts_community", "community_id"),
@@ -1156,6 +1156,8 @@ class ApiKey(Base):
     is_revoked: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=text("false")
     )
+    # Design doc §1.6.3: key rotation tracking
+    rotated_to: Mapped[str | None] = mapped_column(String(64))
     created_by: Mapped[str | None] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

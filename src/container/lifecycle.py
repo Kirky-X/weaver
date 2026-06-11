@@ -391,6 +391,15 @@ class ContainerLifecycleMixin:
             coalesce=True,
         )
 
+        # API Key Rotation Check
+        scheduler.add_job(
+            jobs.check_expiring_api_keys,
+            CronTrigger(hour=2, minute=0),
+            id="check_expiring_api_keys",
+            name="Check and rotate expiring API keys",
+            max_instances=1,
+        )
+
         # Source Scoring
         scheduler.add_job(
             jobs.update_source_auto_scores,

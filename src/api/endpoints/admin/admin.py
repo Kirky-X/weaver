@@ -732,3 +732,48 @@ async def revoke_api_key(
         raise HTTPException(status_code=404, detail=f"API key {key_id} not found")
 
     return success_response({"key_id": key_id, "revoked": True})
+
+
+class RotateKeyResponse(BaseModel):
+    """Response model for key rotation."""
+
+    old_key_id: str
+    new_key_id: str
+    new_key_value: str
+    scopes: list[str]
+    rate_limit_per_min: int
+    expires_at: str
+
+
+@router.post("/api-keys/{key_id}/rotate", response_model=APIResponse[RotateKeyResponse])
+async def rotate_api_key(
+    request: Request,
+    key_id: str,
+    _: str = Depends(verify_admin_api_key),
+) -> APIResponse[RotateKeyResponse]:
+    """Manually rotate an API key, creating a replacement.
+
+    The old key remains valid during a 24-hour grace period.
+    The new key inherits the same scopes and rate limit.
+    """
+    from container import get_container
+    from core.security.api_key_manager import ApiKeyManager
+
+    container = get_container()
+    pool = container.relational_pool()
+    manager = ApiKeyManager(pool)
+
+    result = await manager.rotate_key(key_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"API key {key_id} not found")
+
+    return success_response(
+        RotateKeyResponse(
+            old_key_id=key_id,
+            new_key_id=result["key_id"],
+            new_key_value=result["key_value"],
+            scopes=result["scopes"],
+            rate_limit_per_min=result["rate_limit_per_min"],
+            expires_at=result["expires_at"],
+        )
+    )
