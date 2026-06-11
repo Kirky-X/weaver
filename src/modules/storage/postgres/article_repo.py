@@ -13,7 +13,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.change_detector import ChangeDetector
-from core.db.models import (
+from core.db import (
     Article,
     ArticleAnalysis,
     ArticleBody,
@@ -23,7 +23,7 @@ from core.db.models import (
     PersistStatus,
 )
 from core.exceptions import InvalidStateTransitionError
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from core.protocols import RelationalPool
 from modules.ingestion.deduplication.deduplicator import Deduplicator
 from modules.processing.pipeline.state import PipelineState
@@ -170,82 +170,6 @@ def _apply_state_to_analysis(analysis: ArticleAnalysis, state: PipelineState) ->
     # Prompt versions
     if "prompt_versions" in state:
         analysis.prompt_versions = state["prompt_versions"]
-
-
-def _apply_state_to_article(article: Article, state: PipelineState) -> None:
-    """Apply pipeline state fields to an Article object (backward-compatible wrapper).
-
-    Delegates to the split table apply functions for field mapping logic.
-    The Article VIEW is read-only; this wrapper exists for backward compatibility
-    with code that constructs Article objects in-memory (e.g. tests).
-
-    Args:
-        article: The Article model instance to update.
-        state: Pipeline state containing article data.
-    """
-    # Simple field mappings
-    for state_key, (attr_name, extractor) in STATE_TO_ARTICLE_FIELDS.items():
-        if state_key in state:
-            setattr(article, attr_name, extractor(state[state_key]))
-
-    # Summary info mapping
-    if "summary_info" in state:
-        si = state["summary_info"]
-        article.summary = si.get("summary")
-        article.subjects = si.get("subjects")
-        article.key_data = si.get("key_data")
-        article.impact = si.get("impact")
-        article.has_data = si.get("has_data")
-        if si.get("event_time"):
-            try:
-                article.event_time = datetime.fromisoformat(si["event_time"])
-            except (ValueError, TypeError):
-                pass
-    elif state.get("merged_source_ids"):
-        article.summary = None
-        article.subjects = None
-        article.key_data = None
-        article.impact = None
-        article.has_data = None
-
-    # Sentiment mapping
-    if "sentiment" in state:
-        sent = state["sentiment"]
-        sentiment_value = sent.get("sentiment")
-        article.sentiment = (
-            sentiment_value.strip()[:10] if isinstance(sentiment_value, str) else sentiment_value
-        )
-        article.sentiment_score = sent.get("sentiment_score")
-        article.primary_emotion = _to_emotion(sent.get("primary_emotion"))
-        article.emotion_targets = sent.get("emotion_targets")
-
-    # Credibility mapping
-    if "credibility" in state:
-        cred = state["credibility"]
-        article.credibility_score = cred.get("score")
-        article.source_credibility = cred.get("source_credibility")
-        article.cross_verification = cred.get("cross_verification")
-        article.content_check_score = cred.get("content_check")
-        article.credibility_flags = cred.get("flags")
-        article.verified_by_sources = cred.get("verified_by_sources", 0)
-
-    # Merged source IDs conversion
-    if "merged_source_ids" in state:
-        cleaned_ids = []
-        for sid in state["merged_source_ids"]:
-            try:
-                cleaned_ids.append(uuid.UUID(sid) if isinstance(sid, str) else sid)
-            except (ValueError, AttributeError) as exc:
-                log.warning("invalid_merged_source_id", source_id=sid, error=str(exc))
-        article.merged_source_ids = cleaned_ids
-
-    # Set common fields
-    raw = state.get("raw")
-    if raw:
-        article.publish_time = getattr(raw, "publish_time", None)
-
-    article.updated_at = datetime.now(UTC)
-    article.persist_status = PersistStatus.PG_DONE
 
 
 class ArticleRepo:

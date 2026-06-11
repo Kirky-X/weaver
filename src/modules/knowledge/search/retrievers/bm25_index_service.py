@@ -15,8 +15,8 @@ from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import and_, select
 
-from core.db.models import Article, PersistStatus
-from core.observability.logging import get_logger
+from core.db import Article, PersistStatus
+from core.observability import get_logger
 from modules.knowledge.search.retrievers.bm25_retriever import BM25Document, BM25Retriever
 
 if TYPE_CHECKING:

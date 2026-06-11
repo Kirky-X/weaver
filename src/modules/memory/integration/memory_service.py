@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.memory.core.event_node import EventNode
 from modules.memory.core.graph_types import IntentType
 from modules.memory.evolution.fast_path import SynapticIngestionService
@@ -31,8 +31,7 @@ from modules.memory.retrieval.adaptive_search import AdaptiveSearchEngine
 
 if TYPE_CHECKING:
     from core.llm.client import LLMClient
-    from core.protocols import CachePool, GraphPool
-    from core.protocols.repositories import EntityRepository, VectorRepository
+    from core.protocols import CachePool, EntityRepository, GraphPool, VectorRepository
     from modules.knowledge.search.intent.classifier import IntentClassifier
 
 log = get_logger(__name__)

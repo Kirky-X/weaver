@@ -10,10 +10,10 @@ Three signals:
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from core.event.bus import CredibilityComputedEvent, EventBus
-from core.observability.logging import get_logger
+from core.event import CredibilityComputedEvent, EventBus
+from core.observability import get_logger
 
 if TYPE_CHECKING:
     from modules.ingestion.scheduling.source_config_repo import SourceConfigRepo
@@ -32,7 +32,7 @@ class RuleBasedCredibilityCheckerNode:
     2. Cross-verification        (weight: category-adaptive, body-length proxy)
     3. Timeliness                (weight: category-adaptive, publish/event gap)
 
-    Implements: CredibilityCheckerNode (backward-compatible alias)
+
     """
 
     CATEGORY_WEIGHTS: dict[str, dict[str, float]] = {
@@ -50,20 +50,13 @@ class RuleBasedCredibilityCheckerNode:
 
     def __init__(
         self,
-        llm: Any = None,
-        budget: Any = None,
         event_bus: EventBus | None = None,
         source_auth_repo: SourceAuthorityRepo | None = None,
         source_config_repo: SourceConfigRepo | None = None,
     ) -> None:
         """Initialize rule-based credibility checker.
 
-        Note: llm and budget are accepted for backward compatibility
-        but no longer used. All scoring is rule-based.
-
         Args:
-            llm: Ignored (backward compatibility).
-            budget: Ignored (backward compatibility).
             event_bus: Event bus for publishing events.
             source_auth_repo: Repository for source authority scores.
             source_config_repo: Repository for source preset credibility.
@@ -207,7 +200,3 @@ class RuleBasedCredibilityCheckerNode:
         if delta_hours <= 168:
             return 0.45
         return 0.30
-
-
-# Backward-compatible alias for Pipeline graph and __init__ exports
-CredibilityCheckerNode = RuleBasedCredibilityCheckerNode

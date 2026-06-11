@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from api.endpoints.deps_registry import Endpoints
 from api.middleware.auth import verify_admin_api_key
 from api.schemas.response import APIResponse, success_response
-from modules.analytics.alert_service import AlertService
+from modules.analytics import AlertService
 
 router = APIRouter(prefix="/monitoring/alerts", tags=["monitoring", "alerts"])
 

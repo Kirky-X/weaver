@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 import ntplib  # type: ignore[import-untyped]
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 if TYPE_CHECKING:
     from core.cache import RedisClient

@@ -13,7 +13,7 @@ from core.constants import DatabaseType
 from core.db.graph_query_builders import GraphDatabaseType
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.knowledge.graph.community.repo import Neo4jCommunityRepo
 
 if TYPE_CHECKING:

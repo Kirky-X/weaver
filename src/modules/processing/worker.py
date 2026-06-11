@@ -6,7 +6,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.processing.queue import QUEUE_KEY, ProcessingQueue
 
 if TYPE_CHECKING:

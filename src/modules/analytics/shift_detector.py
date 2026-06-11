@@ -8,7 +8,7 @@ from typing import Any
 import numpy as np
 import ruptures as rpt
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 log = get_logger(__name__)
 

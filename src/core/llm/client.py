@@ -25,11 +25,11 @@ from core.llm.types import (
 )
 from core.llm.utils.input_truncation import truncate_input
 from core.llm.utils.json_parser import parse_llm_json
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from core.utils.time_utils import get_current_time_with_timezone
 
 if TYPE_CHECKING:
-    from core.event.bus import EventBus
+    from core.event import EventBus
     from core.llm.evaluation.eval_runner import EvalRunner
     from core.llm.routing.smart_router import SmartRouter
     from core.prompt.loader import PromptLoader
@@ -119,7 +119,7 @@ class LLMClient:
             error_type: 错误类型
         """
         try:
-            from core.event.bus import LLMUsageEvent
+            from core.event import LLMUsageEvent
 
             event = LLMUsageEvent(
                 label=str(label),
@@ -746,6 +746,12 @@ class LLMClient:
         Returns:
             配置好的LLMClient实例
         """
-        providers = llm_settings.get_providers()
-        global_config = llm_settings.get_global_config()
+        providers = list(llm_settings.providers.values())
+        global_config = GlobalConfig(
+            circuit_breaker_threshold=llm_settings.circuit_breaker_threshold,
+            circuit_breaker_timeout=llm_settings.circuit_breaker_timeout,
+            default_timeout=llm_settings.default_timeout,
+            defaults=llm_settings.defaults,
+            call_points=llm_settings.call_points,
+        )
         return cls(providers, global_config, event_bus, cache_client, prompt_loader)

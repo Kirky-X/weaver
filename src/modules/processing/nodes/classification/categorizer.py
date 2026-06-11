@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.processing.pipeline.state import PipelineState
 
 if TYPE_CHECKING:
@@ -120,7 +120,7 @@ def _has_chinese(text: str) -> bool:
 class CascadeCategorizerNode:
     """Pipeline node: cascade categorizer with rule-first, LLM-fallback.
 
-    Implements: CategorizerNode (backward-compatible alias)
+    Implements: CascadeCategorizerNode
     """
 
     def __init__(
@@ -227,6 +227,3 @@ class CascadeCategorizerNode:
             return best_category
 
         return None
-
-
-CategorizerNode = CascadeCategorizerNode

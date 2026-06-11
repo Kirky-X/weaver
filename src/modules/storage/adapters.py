@@ -1,7 +1,7 @@
 """Unified storage adapters - Re-exports all storage interfaces and implementations."""
 
 # Base protocols
-from core.protocols.repositories import (
+from core.protocols import (
     ArticleRepository,
     EntityRepository,
     VectorRepository,

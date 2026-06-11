@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 if TYPE_CHECKING:
     from modules.ingestion.parsing.base import BaseSourceParser

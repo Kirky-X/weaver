@@ -16,7 +16,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
 from core.observability import get_logger
-from core.security.traffic_detector import (
+from core.security import (
     TrafficAction,
     TrafficAnomalyConfig,
     TrafficAnomalyDetector,

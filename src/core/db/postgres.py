@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from core.observability.metrics import MetricsCollector
 
 log = get_logger(__name__)

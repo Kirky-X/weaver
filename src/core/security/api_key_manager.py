@@ -20,7 +20,7 @@ from typing import Any
 import bcrypt
 from sqlalchemy import select, update
 
-from core.db.models import ApiKey
+from core.db import ApiKey
 from core.observability import get_logger
 from core.protocols import RelationalPool
 

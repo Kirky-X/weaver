@@ -27,7 +27,7 @@ from typing import Any
 
 import numpy as np
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 if __name__ != "__main__":
     from typing import TYPE_CHECKING

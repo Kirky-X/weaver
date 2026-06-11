@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from fastapi import HTTPException
 
 from core.observability import get_logger
-from core.protocols.repositories import VectorRepository
+from core.protocols import VectorRepository
 
 if TYPE_CHECKING:
     from core.llm import LLMClient

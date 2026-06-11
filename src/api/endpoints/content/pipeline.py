@@ -349,7 +349,7 @@ async def get_queue_stats(
             continue
 
     # Get article-level statistics from relational database
-    from core.db.models import Article, PersistStatus
+    from core.db import Article, PersistStatus
 
     async with relational_pool.session() as session:
         result = await session.execute(

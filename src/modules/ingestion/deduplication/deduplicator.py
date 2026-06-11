@@ -8,7 +8,7 @@ import time
 from typing import TYPE_CHECKING
 from urllib.parse import quote, unquote, urlparse, urlunparse
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from core.observability.metrics import metrics
 
 if TYPE_CHECKING:

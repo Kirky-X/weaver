@@ -12,11 +12,11 @@ from core.llm.caller import LiteLLMCaller
 from core.llm.resilience.circuit_breaker import CircuitOpenError, ProviderCircuitBreaker
 from core.llm.resilience.metrics import ProviderMetrics
 from core.llm.types import GlobalConfig, Label, LLMResponse, ProviderConfig
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from core.resilience.retry import retry_llm
 
 if TYPE_CHECKING:
-    from core.event.bus import EventBus
+    from core.event import EventBus
 
 log = get_logger(__name__)
 
@@ -341,7 +341,7 @@ class ProviderPool:
         fallback_tried: bool,
     ) -> None:
         """发布LLM失败事件到EventBus."""
-        from core.event.bus import LLMFailureEvent
+        from core.event import LLMFailureEvent
 
         error_type = type(error).__name__
         error_detail = str(error)

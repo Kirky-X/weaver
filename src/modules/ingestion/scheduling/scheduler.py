@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.ingestion.domain.models import NewsItem, SourceConfig
 from modules.ingestion.parsing.registry import SourceRegistry
 

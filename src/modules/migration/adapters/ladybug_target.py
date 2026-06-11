@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.migration.exceptions import ValidationFailedError
 from modules.migration.models import NodeSchema, RelSchema
 

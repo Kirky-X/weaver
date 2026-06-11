@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from core.security.models import CheckResult, CheckSource, URLRisk
 from core.utils.paths import data_path
 

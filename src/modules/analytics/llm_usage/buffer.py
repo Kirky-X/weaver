@@ -15,8 +15,8 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from core.event.bus import LLMUsageEvent
-from core.observability.logging import get_logger
+from core.event import LLMUsageEvent
+from core.observability import get_logger
 
 if TYPE_CHECKING:
     from core.protocols import CachePool

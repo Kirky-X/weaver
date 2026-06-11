@@ -19,7 +19,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Protocol
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.memory.core.graph_types import CausalRelationType
 from modules.memory.core.schema_node import SchemaNode
 from modules.memory.evolution.result import ConsolidationResult

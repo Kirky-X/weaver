@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from starlette.requests import Request
     from starlette.responses import Response
 
-    from core.security.audit_log_service import AuditLogService
+    from core.security import AuditLogService
 
 log = get_logger(__name__)
 

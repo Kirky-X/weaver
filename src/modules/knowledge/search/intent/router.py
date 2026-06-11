@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
 
 from core.llm.client import LLMClient
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.knowledge.search.engines.global_search import GlobalSearchEngine
 from modules.knowledge.search.engines.local_search import LocalSearchEngine
 

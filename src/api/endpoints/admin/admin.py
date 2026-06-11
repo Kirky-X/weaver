@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 # NOTE: Lazy import to avoid circular dependency
 # from api.dependencies import get_container, get_source_authority_repo
-from api.endpoints._deps import Endpoints
+from api.endpoints.deps_registry import Endpoints
 from api.middleware.auth import verify_admin_api_key, verify_api_key
 from api.schemas.response import APIResponse, success_response
 from core.observability import get_logger
@@ -552,7 +552,7 @@ async def refresh_auto_scores(
     """
     from sqlalchemy import func, select
 
-    from core.db.models import Article
+    from core.db import Article
 
     pool = Endpoints.get_relational_pool_optional()
     if pool is None:
@@ -656,7 +656,7 @@ async def create_api_key(
     Requires admin privileges. Returns the key_value only once.
     """
     from container import get_container
-    from core.security.api_key_manager import ApiKeyManager
+    from core.security import ApiKeyManager
 
     container = get_container()
     pool = container.relational_pool()
@@ -688,7 +688,7 @@ async def list_api_keys(
 ) -> APIResponse[list[ApiKeyItem]]:
     """List all API keys (without key_value)."""
     from container import get_container
-    from core.security.api_key_manager import ApiKeyManager
+    from core.security import ApiKeyManager
 
     container = get_container()
     pool = container.relational_pool()
@@ -721,7 +721,7 @@ async def revoke_api_key(
 ) -> APIResponse[dict]:
     """Revoke an API key by key_id."""
     from container import get_container
-    from core.security.api_key_manager import ApiKeyManager
+    from core.security import ApiKeyManager
 
     container = get_container()
     pool = container.relational_pool()
@@ -757,7 +757,7 @@ async def rotate_api_key(
     The new key inherits the same scopes and rate limit.
     """
     from container import get_container
-    from core.security.api_key_manager import ApiKeyManager
+    from core.security import ApiKeyManager
 
     container = get_container()
     pool = container.relational_pool()

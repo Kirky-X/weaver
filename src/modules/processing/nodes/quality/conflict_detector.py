@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.processing.pipeline.state import PipelineState
 
 if TYPE_CHECKING:
@@ -197,12 +197,6 @@ class ConflictDetectorNode:
                                     }
                                 )
         return conflicts
-
-    def _detect_conflicts(
-        self, claims: list[dict[str, Any]], similar_articles: list[dict[str, Any]]
-    ) -> list[dict[str, Any]]:
-        """Detect conflicts (backward-compatible wrapper)."""
-        return self._detect_conflicts_from_claims(claims, similar_articles)
 
     async def _find_similar(
         self, category: str | None, article_id: str | None

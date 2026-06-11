@@ -13,7 +13,7 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from core.utils.paths import PROJECT_ROOT
 
 log = get_logger("pipeline_config")

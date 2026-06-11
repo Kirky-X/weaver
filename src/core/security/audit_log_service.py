@@ -10,7 +10,7 @@ from typing import Any
 
 from sqlalchemy import select
 
-from core.db.models import AuditLog
+from core.db import AuditLog
 from core.observability import get_logger
 from core.protocols import RelationalPool
 

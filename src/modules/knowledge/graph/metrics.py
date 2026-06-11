@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from core.constants import DatabaseType, GraphHealthStatus
 from core.db.graph_query_builders import GraphQueryBuilder, create_graph_query_builder
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 if TYPE_CHECKING:
     from core.protocols import GraphPool

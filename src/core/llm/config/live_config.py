@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from core.llm.config.config import LLMSettings
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 log = get_logger(__name__)
 

@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 
 from pybreaker import CircuitBreaker as PyBreaker
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from core.observability.metrics import metrics
 
 if TYPE_CHECKING:
@@ -195,7 +195,7 @@ class CircuitBreaker:
             return
 
         # Import here to avoid circular dependency
-        from core.event.bus import CircuitStateEvent, event_bus
+        from core.event import CircuitStateEvent, event_bus
 
         event = CircuitStateEvent(
             provider=self._provider,

@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 import trafilatura
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.ingestion.domain.models import NewsItem, RawArticle
 from modules.ingestion.fetching.base import BaseFetcher
 from modules.ingestion.fetching.exceptions import FetchError

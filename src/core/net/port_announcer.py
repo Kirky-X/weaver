@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 log = get_logger(__name__)
 

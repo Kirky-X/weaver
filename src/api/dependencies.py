@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from container import Container
     from core.llm import LLMClient
     from core.protocols import CachePool, GraphPool, RelationalPool
-    from core.protocols.repositories import VectorRepository
+    from core.protocols import VectorRepository
     from modules.ingestion import SourceScheduler
     from modules.knowledge.search import GlobalSearchEngine, HybridSearchEngine, LocalSearchEngine
     from modules.storage import SourceAuthorityRepo

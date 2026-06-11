@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.knowledge.graph.location_resolver import LocationResolver
 
 log = get_logger(__name__)

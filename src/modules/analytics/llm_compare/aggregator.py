@@ -12,7 +12,7 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 if TYPE_CHECKING:
     from core.protocols import CachePool, RelationalPool

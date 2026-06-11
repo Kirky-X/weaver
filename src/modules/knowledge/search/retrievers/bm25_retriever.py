@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 import bm25s
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from core.security.crypto.signing import (
     IntegrityError,
     SigningKey,

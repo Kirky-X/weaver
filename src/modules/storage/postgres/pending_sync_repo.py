@@ -10,8 +10,8 @@ from typing import Any
 from sqlalchemy import and_, delete, select, update
 
 from core.constants import ProcessingStatus
-from core.db.models import PendingSync
-from core.observability.logging import get_logger
+from core.db import PendingSync
+from core.observability import get_logger
 from core.protocols import RelationalPool
 
 log = get_logger(__name__)

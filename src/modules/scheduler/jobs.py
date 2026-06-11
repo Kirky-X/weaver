@@ -14,8 +14,8 @@ import json_repair
 from sqlalchemy import and_, select
 
 from config.settings import SchedulerSettings
-from core.db.models import Article, PersistStatus
-from core.observability.logging import get_logger
+from core.db import Article, PersistStatus
+from core.observability import get_logger
 from core.observability.metrics import metrics
 from modules.ingestion.deduplication.retry import RetryQueue
 from modules.knowledge.graph.neo4j_writer import Neo4jWriter
@@ -888,7 +888,7 @@ class SchedulerJobs:
         Returns:
             Number of keys rotated.
         """
-        from core.security.api_key_manager import ApiKeyManager
+        from core.security import ApiKeyManager
 
         log.info("check_expiring_api_keys_start")
 
@@ -957,7 +957,7 @@ class SchedulerJobs:
         log.info("generate_daily_briefing_start")
 
         try:
-            from modules.briefing.engine import DailyBriefingEngine
+            from modules.briefing import DailyBriefingEngine
 
             engine = DailyBriefingEngine(pool=self._relational_pool)
             result = await engine.generate()
@@ -985,7 +985,7 @@ class SchedulerJobs:
         log.info("detect_sentiment_shifts_start")
 
         try:
-            from modules.analytics.shift_detector import SentimentShiftDetector, ShiftConfig
+            from modules.analytics import SentimentShiftDetector, ShiftConfig
 
             config = ShiftConfig(
                 window_days=self._settings.cleanup_old_synced_days or 14,

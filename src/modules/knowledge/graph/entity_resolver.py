@@ -18,7 +18,7 @@ from tenacity import (
 
 from core.llm.client import LLMClient
 from core.llm.utils.json_parser import parse_llm_json
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from core.protocols import EntityRepository, VectorRepository
 from modules.knowledge.graph.name_normalizer import (
     NameNormalizer,

@@ -13,9 +13,9 @@ from dataclasses import dataclass, field
 from time import monotonic
 from typing import Any
 
-from core.event.bus import EventBus, LLMUsageEvent
+from core.event import EventBus, LLMUsageEvent
 from core.llm.types import ExperienceData
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 log = get_logger(__name__)
 

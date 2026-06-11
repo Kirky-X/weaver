@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.storage.ladybug.article_repo import LadybugArticleRepo
 from modules.storage.ladybug.entity_repo import LadybugEntityRepo
 

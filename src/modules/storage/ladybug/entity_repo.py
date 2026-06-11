@@ -13,7 +13,7 @@ import time
 import uuid
 from typing import Any
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.storage.base_entity_repo import BaseEntityRepo
 
 log = get_logger(__name__)

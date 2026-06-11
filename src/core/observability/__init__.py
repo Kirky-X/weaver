@@ -2,7 +2,9 @@
 """Core observability module - Logging, metrics, and tracing."""
 
 from core.observability.logging import (
+    _context_vars as context_vars,
     clear_task_context,
+    configure_logging,
     get_logger,
     set_task_context,
 )
@@ -12,7 +14,9 @@ from core.observability.tracing import configure_tracing, get_tracer
 __all__ = [
     "MetricsCollector",
     "clear_task_context",
+    "configure_logging",
     "configure_tracing",
+    "context_vars",
     "get_logger",
     "get_tracer",
     "metrics",

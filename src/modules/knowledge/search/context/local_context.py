@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from core.db.safe_query import validate_edge_type
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.knowledge.graph.relation_type_normalizer import RelationTypeNormalizer
 from modules.knowledge.search.context.builder import ContextBuilder, SearchContext
 

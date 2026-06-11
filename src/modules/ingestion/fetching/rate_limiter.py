@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 
 from cachetools import LRUCache
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 log = get_logger(__name__)
 

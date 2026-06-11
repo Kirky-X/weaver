@@ -6,7 +6,7 @@ from __future__ import annotations
 import fasttext
 from setfit import SetFitModel
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 log = get_logger(__name__)
 

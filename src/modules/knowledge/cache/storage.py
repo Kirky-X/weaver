@@ -23,8 +23,8 @@ from typing import Any
 
 import duckdb
 
-from core.observability.logging import get_logger
-from core.protocols.knowledge_cache import KnowledgeCacheProtocol, KnowledgeCluster
+from core.observability import get_logger
+from core.protocols import KnowledgeCacheProtocol, KnowledgeCluster
 
 log = get_logger(__name__)
 

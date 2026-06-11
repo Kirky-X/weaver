@@ -12,7 +12,7 @@ from core.llm.resilience.circuit_breaker import CircuitOpenError
 from core.llm.resilience.pool import AllProvidersFailedError
 from core.llm.types import CallPoint
 from core.llm.validation.output_validator import EntityExtractorOutput
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from core.prompt.loader import PromptLoader
 from modules.processing.nlp.spacy_extractor import SpacyExtractor
 from modules.processing.nodes.extraction.gliner_extractor import GLiNERExtractor

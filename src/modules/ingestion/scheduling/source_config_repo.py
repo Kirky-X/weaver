@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 
-from core.db.models import SourceConfig as SourceConfigRow
-from core.observability.logging import get_logger
+from core.db import SourceConfig as SourceConfigRow
+from core.observability import get_logger
 from modules.ingestion.domain.models import SourceConfig
 
 if TYPE_CHECKING:

@@ -6,10 +6,10 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 if TYPE_CHECKING:
-    from core.protocols.pools import CachePool
+    from core.protocols import CachePool
 
 log = get_logger(__name__)
 

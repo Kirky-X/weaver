@@ -1,7 +1,7 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Circuit breaker wrapper using pybreaker.
 
-This module provides backward-compatible ProviderCircuitBreaker wrapping pybreaker.
+ProviderCircuitBreaker wraps pybreaker for LLM provider-level circuit breaking.
 For the unified implementation with event emission and metrics, see:
     core/resilience/circuit_breaker.py  (CircuitBreaker class)
 
@@ -19,7 +19,7 @@ from typing import Any
 from pybreaker import CircuitBreaker as PyBreaker, CircuitBreakerError as PyCircuitBreakerError
 
 from core.llm.types import CircuitState
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 log = get_logger(__name__)
 

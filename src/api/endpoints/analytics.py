@@ -14,7 +14,7 @@ router = APIRouter(prefix="/analytics", tags=["analytics"])
 def _get_analytics_storage():
     """Lazy import and create AnalyticsStorage from container."""
     from api.dependencies import get_relational_pool
-    from modules.analytics.storage import AnalyticsStorage
+    from modules.analytics import AnalyticsStorage
 
     pool = get_relational_pool()
     return AnalyticsStorage(pool=pool)
@@ -23,7 +23,7 @@ def _get_analytics_storage():
 def _get_briefing_engine():
     """Lazy import and create DailyBriefingEngine from container."""
     from api.dependencies import get_relational_pool
-    from modules.briefing.engine import DailyBriefingEngine
+    from modules.briefing import DailyBriefingEngine
 
     pool = get_relational_pool()
     return DailyBriefingEngine(pool=pool)
@@ -63,7 +63,7 @@ async def get_briefings(
     try:
         from datetime import date as date_type
 
-        from core.db.models import DailyBriefing
+        from core.db import DailyBriefing
 
         storage = _get_analytics_storage()
         pool = storage._pool

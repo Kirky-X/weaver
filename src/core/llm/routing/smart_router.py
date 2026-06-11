@@ -12,8 +12,8 @@ from typing import TYPE_CHECKING, Any
 
 from core.llm.routing.model_selector import ModelSelector
 from core.llm.routing.router import LabelRouter
-from core.llm.types import Label, RoutingMode
-from core.observability.logging import get_logger
+from core.llm.types import GlobalConfig, Label, RoutingMode
+from core.observability import get_logger
 
 if TYPE_CHECKING:
     from core.llm.config.config import LLMSettings
@@ -55,7 +55,15 @@ class SmartRouter:
         self._circuit_breakers = circuit_breakers
 
         # Fallback to existing LabelRouter
-        self._label_router = LabelRouter(settings.get_global_config())
+        self._label_router = LabelRouter(
+            GlobalConfig(
+                circuit_breaker_threshold=settings.circuit_breaker_threshold,
+                circuit_breaker_timeout=settings.circuit_breaker_timeout,
+                default_timeout=settings.default_timeout,
+                defaults=settings.defaults,
+                call_points=settings.call_points,
+            )
+        )
 
         # Build ModelSelector
         self._selector = ModelSelector(

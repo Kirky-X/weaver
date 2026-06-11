@@ -19,7 +19,7 @@ from datetime import datetime
 from typing import Any
 
 from core.constants import SearchMode
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.knowledge.search.fusion.rrf import reciprocal_rank_fusion
 from modules.knowledge.search.rerankers.flashrank_reranker import FlashrankReranker
 from modules.knowledge.search.rerankers.mmr_reranker import MMRReranker

@@ -7,8 +7,7 @@ import uuid
 from contextvars import ContextVar
 from typing import Any
 
-from core.observability import get_logger
-from core.observability.logging import _context_vars
+from core.observability import context_vars, get_logger
 
 log = get_logger(__name__)
 
@@ -84,10 +83,9 @@ class RequestContextMiddleware:
         set_request_id(request_id)
 
         # Also set in the existing context_vars for loguru
-        # Note: Accessing _context_vars is necessary here to integrate with loguru's context system
-        ctx = _context_vars.get().copy()
+        ctx = context_vars.get().copy()
         ctx["request_id"] = request_id
-        _context_vars.set(ctx)
+        context_vars.set(ctx)
 
         # Wrap send to add header to response
         header_added = False
@@ -106,6 +104,6 @@ class RequestContextMiddleware:
         finally:
             # Clear context
             set_request_id(None)
-            ctx = _context_vars.get().copy()
+            ctx = context_vars.get().copy()
             ctx.pop("request_id", None)
-            _context_vars.set(ctx)
+            context_vars.set(ctx)

@@ -16,9 +16,9 @@ from typing import Any
 
 from sqlalchemy import String, delete, func, select, text, update
 
-from core.db.models import Article, ArticleVector, EntityVector, VectorType
+from core.db import Article, ArticleVector, EntityVector, VectorType
 from core.db.query_builders import VectorQueryBuilder
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from core.protocols import RelationalPool
 
 log = get_logger(__name__)

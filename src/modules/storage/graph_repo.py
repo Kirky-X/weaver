@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from core.db.graph_query_builders import GraphQueryBuilder
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 if TYPE_CHECKING:
     from core.protocols import GraphPool

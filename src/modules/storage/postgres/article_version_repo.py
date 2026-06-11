@@ -10,8 +10,8 @@ import uuid
 
 from sqlalchemy import func, select
 
-from core.db.models import ArticleVersion
-from core.observability.logging import get_logger
+from core.db import ArticleVersion
+from core.observability import get_logger
 from core.protocols import RelationalPool
 
 log = get_logger(__name__)

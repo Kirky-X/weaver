@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 if __name__ != "__main__":
     from typing import TYPE_CHECKING

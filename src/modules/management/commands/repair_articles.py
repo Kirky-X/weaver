@@ -24,10 +24,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 from config.settings import Settings
 from core.cache import RedisClient
 from core.db import PostgresPool
-from core.event.bus import EventBus
+from core.event import EventBus
 from core.llm.client import LLMClient
 from core.llm.config.token_budget import TokenBudgetManager
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from core.prompt.loader import PromptLoader
 from core.services.pipeline_service import PipelineServiceImpl
 from modules.ingestion.domain.models import RawArticle

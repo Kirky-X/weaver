@@ -120,7 +120,7 @@ class APISettings(BaseModel):
 
         # Generate a secure random key
         generated = secrets.token_urlsafe(32)
-        from core.observability.logging import get_logger
+        from core.observability import get_logger
 
         log = get_logger(__name__)
         log.info(
@@ -195,7 +195,7 @@ class APISettings(BaseModel):
             announcer = PortAnnouncer(write_env_file=write_env)
             announcer.announce(self.host, available_port, original_port)
         except Exception as e:
-            from core.observability.logging import get_logger
+            from core.observability import get_logger
 
             log = get_logger(__name__)
             log.error(
@@ -279,19 +279,13 @@ class FetcherSettings(BaseModel):
     httpx_timeout: float = 15.0
     user_agent: str = "Mozilla/5.0 (compatible; NewsBot/1.0)"
 
-    # crawl4ai browser settings
+    # crawl4ai browser settings (used by init_smart_fetcher)
     crawl4ai_headless: bool = True
     crawl4ai_stealth_enabled: bool = True
     crawl4ai_user_agent: str = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     )
     crawl4ai_timeout: float = 30.0
-    crawl4ai_viewport_width: int = 1920
-    crawl4ai_viewport_height: int = 1080
-    crawl4ai_locale: str = "zh-CN"
-    crawl4ai_timezone: str = "Asia/Shanghai"
-    crawl4ai_random_delay_min: float = 0.5
-    crawl4ai_random_delay_max: float = 2.0
 
     rate_limit_enabled: bool = True
     rate_limit_delay_min: float = 1.0

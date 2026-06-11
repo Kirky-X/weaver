@@ -9,7 +9,7 @@ from typing import Any
 
 from neo4j.exceptions import ConstraintError
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.storage.base_entity_repo import BaseEntityRepo
 
 # Edge type validation pattern (compiled regex)

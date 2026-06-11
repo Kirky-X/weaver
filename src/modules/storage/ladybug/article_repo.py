@@ -11,7 +11,7 @@ import time
 import uuid
 from typing import Any
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 log = get_logger(__name__)
 

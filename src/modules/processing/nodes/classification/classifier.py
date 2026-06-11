@@ -6,7 +6,7 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.processing.pipeline.state import PipelineState
 
 if TYPE_CHECKING:
@@ -63,10 +63,7 @@ NEWS_URL_PATTERNS = [
 
 
 class CascadeClassifierNode:
-    """Pipeline node: cascade classifier with rule-first, LLM-fallback.
-
-    Implements: ClassifierNode (backward-compatible alias)
-    """
+    """Pipeline node: cascade classifier with rule-first, LLM-fallback."""
 
     def __init__(
         self,
@@ -153,6 +150,3 @@ class CascadeClassifierNode:
             return False
 
         return None
-
-
-ClassifierNode = CascadeClassifierNode

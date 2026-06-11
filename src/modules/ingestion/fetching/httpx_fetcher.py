@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from core.observability.metrics import MetricsCollector
 from core.resilience.retry import retry_network
 from modules.ingestion.fetching.base import BaseFetcher
@@ -128,7 +128,7 @@ class HttpxFetcher(BaseFetcher):
             Tuple of (status_code, response_text, response_headers).
 
         Raises:
-            URLValidationError: If URL is blocked for SSRF protection.
+            SSRFError: If URL is blocked for SSRF protection.
             RedirectBlockedError: If a redirect is blocked for security.
         """
         import time
@@ -223,7 +223,7 @@ class HttpxFetcher(BaseFetcher):
             Tuple of (status_code, response_text, response_headers).
 
         Raises:
-            URLValidationError: If URL is blocked for SSRF protection.
+            SSRFError: If URL is blocked for SSRF protection.
             httpx.HTTPStatusError: On HTTP error status.
             httpx.TransportError: On transport error.
         """

@@ -13,12 +13,12 @@ from dataclasses import dataclass, field
 from time import monotonic
 from typing import TYPE_CHECKING, Any
 
-from core.event.bus import LLMCompareEvent
+from core.event import LLMCompareEvent
 from core.llm.types import EvalConfig, Label, TokenUsage
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 if TYPE_CHECKING:
-    from core.event.bus import EventBus
+    from core.event import EventBus
     from core.llm.client import LLMClient
 
 log = get_logger(__name__)

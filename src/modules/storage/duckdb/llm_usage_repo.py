@@ -12,9 +12,9 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import delete, func, select
 
-from core.db.models import LLMUsageRaw
-from core.event.bus import LLMUsageEvent
-from core.observability.logging import get_logger
+from core.db import LLMUsageRaw
+from core.event import LLMUsageEvent
+from core.observability import get_logger
 
 if TYPE_CHECKING:
     from core.db.duckdb_pool import DuckDBPool

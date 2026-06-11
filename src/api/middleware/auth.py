@@ -26,7 +26,7 @@ async def _get_api_key_manager():
         from container import get_container
 
         container = get_container()
-        from core.security.api_key_manager import ApiKeyManager
+        from core.security import ApiKeyManager
 
         return ApiKeyManager(container.relational_pool())
     except Exception:
@@ -39,7 +39,7 @@ async def _get_traffic_detector():
         from container import get_container
 
         container = get_container()
-        from core.security.traffic_detector import TrafficAnomalyDetector
+        from core.security import TrafficAnomalyDetector
 
         cache = container.cache_client()
         return TrafficAnomalyDetector(cache)
@@ -62,7 +62,7 @@ async def verify_api_key(
         request: Optional FastAPI request for traffic detection.
 
     Returns:
-        The validated key_id string.
+        The validated key_id string or "env-key" for env-var-based fallback.
 
     Raises:
         HTTPException: If the API key is missing or invalid.
@@ -97,7 +97,7 @@ async def verify_api_key(
 
             return key_info["key_id"]
 
-    # Fallback: legacy env-var-based key
+    # Fallback: env-var-based key
     settings = get_settings()
     expected_key = settings.api.get_api_key()
     admin_key = settings.api.admin_api_key
@@ -127,7 +127,7 @@ async def verify_api_key(
     if not secrets.compare_digest(key, expected_key):
         raise HTTPException(status_code=403, detail="Invalid API Key")
 
-    return "legacy"
+    return "env-key"
 
 
 async def verify_admin_api_key(

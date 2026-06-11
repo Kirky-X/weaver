@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 
 from core.evidence.models import EvidenceScoreOutput
 from core.llm.types import CallPoint
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 if TYPE_CHECKING:
     from core.llm.client import LLMClient

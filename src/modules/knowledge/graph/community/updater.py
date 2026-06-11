@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from core.constants import DatabaseType
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 # Optional: Leiden algorithm for better community detection
 try:

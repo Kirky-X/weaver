@@ -21,7 +21,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.orm import Session
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from core.utils.paths import data_path
 
 log = get_logger(__name__)

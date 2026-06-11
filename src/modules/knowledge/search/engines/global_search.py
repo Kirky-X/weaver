@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 from core.constants import SearchMode
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.knowledge.search.engines.local_search import SearchResult
 
 if TYPE_CHECKING:

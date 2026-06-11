@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 if TYPE_CHECKING:
     from core.protocols import RelationalPool
@@ -89,7 +89,7 @@ class DailyBriefingEngine:
 
                 from sqlalchemy import select
 
-                from core.db.models import ArticleCore
+                from core.db import ArticleCore
 
                 start_dt = datetime(
                     target_date.year, target_date.month, target_date.day
@@ -131,7 +131,7 @@ class DailyBriefingEngine:
             async with self._pool.session_context() as session:
                 from sqlalchemy import select
 
-                from core.db.models import DailyBriefing, DailyBriefingItem
+                from core.db import DailyBriefing, DailyBriefingItem
 
                 existing = await session.execute(
                     select(DailyBriefing).where(DailyBriefing.briefing_date == briefing_date)
@@ -167,7 +167,3 @@ class DailyBriefingEngine:
         except Exception as exc:
             log.error("persist_briefing_failed", error=str(exc))
             return 0
-
-
-# Backward-compatible alias
-BriefingEngine = DailyBriefingEngine

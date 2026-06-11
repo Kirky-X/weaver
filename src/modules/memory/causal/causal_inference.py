@@ -22,7 +22,7 @@ from typing import Any
 
 from core.constants import DatabaseType
 from core.llm.types import CallPoint
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.memory.core.graph_types import CausalRelationType
 
 log = get_logger(__name__)

@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 if TYPE_CHECKING:
     from core.protocols import RelationalPool
@@ -27,7 +27,7 @@ class AnalyticsStorage:
         """Save a sentiment shift to the database."""
         try:
             async with self._pool.session_context() as session:
-                from core.db.models import SentimentShift as SentimentShiftModel
+                from core.db import SentimentShift as SentimentShiftModel
 
                 record = SentimentShiftModel(
                     community_id=shift["community_id"],
@@ -59,7 +59,7 @@ class AnalyticsStorage:
             async with self._pool.session_context() as session:
                 from sqlalchemy import select
 
-                from core.db.models import SentimentShift as SentimentShiftModel
+                from core.db import SentimentShift as SentimentShiftModel
 
                 query = select(SentimentShiftModel)
                 if community_id:

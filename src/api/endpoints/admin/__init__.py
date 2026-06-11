@@ -21,4 +21,4 @@ def __getattr__(name: str) -> APIRouter:
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-__all__ = ["router"]
+__all__ = ["monitoring_router", "router"]

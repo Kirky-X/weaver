@@ -13,7 +13,7 @@ import igraph as ig
 import leidenalg
 
 from core.db.graph_query_builders import GraphDatabaseType
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.knowledge.graph.community.models import (
     Community,
     CommunityDetectionResult,

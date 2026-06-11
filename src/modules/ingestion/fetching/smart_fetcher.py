@@ -7,7 +7,7 @@ import re
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from core.resilience.circuit_breaker import CircuitBreaker
 from modules.ingestion.fetching.base import BaseFetcher
 from modules.ingestion.fetching.crawl4ai_fetcher import Crawl4AIFetcher
@@ -141,7 +141,7 @@ class SmartFetcher(BaseFetcher):
 
         Raises:
             CircuitOpenError: If circuit breaker is open for the host.
-            URLValidationError: If URL is blocked for security reasons.
+            SSRFError: If URL is blocked for security reasons.
         """
         # Validate URL for SSRF protection
         if self._url_validator:

@@ -12,7 +12,7 @@ from core.llm.resilience.circuit_breaker import CircuitOpenError
 from core.llm.resilience.pool import AllProvidersFailedError
 from core.llm.types import CallPoint
 from core.llm.validation.output_validator import AnalyzeOutput
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from core.prompt.loader import PromptLoader
 from modules.processing.nodes.classification.categorizer import normalize_emotion
 from modules.processing.pipeline.state import PipelineState

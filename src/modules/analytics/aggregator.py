@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import date
 from typing import TYPE_CHECKING, Any
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 if TYPE_CHECKING:
     from core.protocols import RelationalPool
@@ -51,7 +51,7 @@ class SentimentAggregator:
 
                 from sqlalchemy import func, select
 
-                from core.db.models import SentimentShift
+                from core.db import SentimentShift
 
                 start_dt = datetime(start_date.year, start_date.month, start_date.day)
                 end_dt = datetime(end_date.year, end_date.month, end_date.day, 23, 59, 59)

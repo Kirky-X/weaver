@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from core.observability.metrics import MetricsCollector
 from core.security.validation.ssrf import SSRFChecker, SSRFError
 from modules.ingestion.fetching.base import BaseFetcher

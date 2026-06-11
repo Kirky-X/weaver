@@ -9,9 +9,9 @@ from typing import TYPE_CHECKING, Any
 from sqlalchemy import and_, delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 
-from core.db.models import LLMCompareHourly
-from core.event.bus import LLMCompareEvent
-from core.observability.logging import get_logger
+from core.db import LLMCompareHourly
+from core.event import LLMCompareEvent
+from core.observability import get_logger
 
 if TYPE_CHECKING:
     from core.protocols import RelationalPool

@@ -11,10 +11,10 @@ if TYPE_CHECKING:
     from config.settings import Settings
     from core.llm import LLMClient
     from core.protocols import (
+        ArticleRepository,
         EntityRepository,
         VectorRepository,
     )
-    from core.protocols.repositories import ArticleRepository
     from core.services.pipeline_service import PipelineServiceImpl
     from core.services.task_registry import InMemoryTaskRegistry
     from modules.analytics import LLMUsageBuffer, LLMUsageRepo
@@ -58,7 +58,6 @@ class ContainerServicesMixin:
     _graph_repo: Any
     _entity_resolver: EntityResolver | None
     _smart_fetcher: SmartFetcher | None
-    _crawl4ai_fetcher: Any
     _crawler: Crawler | None
     _pipeline: Pipeline | None
     _pipeline_service: PipelineServiceImpl | None
@@ -413,28 +412,6 @@ class ContainerServicesMixin:
 
     # ── Fetcher & Crawler ────────────────────────────────────────
 
-    async def init_crawl4ai_fetcher(self) -> Any:
-        """Initialize Crawl4AIFetcher for JS-rendered pages."""
-        from core.observability import get_logger
-        from modules.ingestion.fetching.crawl4ai_fetcher import Crawl4AIFetcher
-
-        log = get_logger(__name__)
-
-        if self._crawl4ai_fetcher is None:
-            settings = self._settings.fetcher
-            self._crawl4ai_fetcher = Crawl4AIFetcher(
-                headless=settings.crawl4ai_headless,
-                stealth_enabled=settings.crawl4ai_stealth_enabled,
-                user_agent=settings.crawl4ai_user_agent,
-                timeout=settings.crawl4ai_timeout,
-            )
-            log.info(
-                "crawl4ai_fetcher_initialized",
-                headless=settings.crawl4ai_headless,
-                stealth=settings.crawl4ai_stealth_enabled,
-            )
-        return self._crawl4ai_fetcher
-
     async def init_smart_fetcher(self) -> SmartFetcher:
         """Initialize smart fetcher."""
         from core.observability import get_logger
@@ -481,12 +458,6 @@ class ContainerServicesMixin:
                 "smart_fetcher_initialized",
                 circuit_breaker_enabled=settings.circuit_breaker_enabled,
             )
-        return self._smart_fetcher
-
-    def smart_fetcher(self) -> SmartFetcher:
-        """Get smart fetcher."""
-        if self._smart_fetcher is None:
-            raise RuntimeError("Smart fetcher not initialized. Call init_smart_fetcher() first.")
         return self._smart_fetcher
 
     def crawler(self) -> Crawler:

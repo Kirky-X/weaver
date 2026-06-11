@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Any
 
 from core.constants import MigrationStatus
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.migration.adapters import (
     DuckDBSource,
     DuckDBTarget,

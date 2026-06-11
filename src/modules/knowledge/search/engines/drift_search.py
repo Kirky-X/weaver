@@ -15,7 +15,7 @@ from typing import Any
 
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.knowledge.search.engines.local_search import LocalSearchEngine
 
 log = get_logger(__name__)

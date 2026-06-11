@@ -14,7 +14,7 @@ from litellm.utils import token_counter
 from openai import AsyncOpenAI
 
 from core.llm.types import Label, LLMResponse, LLMType, TokenUsage
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 log = get_logger(__name__)
 

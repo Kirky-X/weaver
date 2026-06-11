@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from core.llm.client import LLMClient
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.processing.pipeline.state import PipelineState
 
 log = get_logger(__name__)

@@ -65,7 +65,6 @@ class Container(
         self._graph_repo: Any = None
         self._entity_resolver: Any = None
         self._smart_fetcher: Any = None
-        self._crawl4ai_fetcher: Any = None
         self._crawler: Any = None
         self._pipeline: Any = None
         self._pipeline_service: Any = None

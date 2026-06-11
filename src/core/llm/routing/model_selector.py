@@ -18,7 +18,7 @@ from core.llm.types import (
     RoutingInfeasibleError,
     RoutingMode,
 )
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 if TYPE_CHECKING:
     from core.llm.evaluation.experience import ExperienceStore

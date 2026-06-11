@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
-from api.endpoints import _deps as deps
+from api.endpoints.deps_registry import Endpoints as deps  # noqa: N813
 from api.endpoints.health import health_check
 from api.middleware.api_response import register_exception_handlers
 from api.middleware.auth import verify_admin_api_key, verify_api_key, verify_api_key_optional
@@ -29,8 +29,7 @@ from api.schemas.response import APIResponse, success_response
 from config.settings import Settings
 from container import Container, set_container, set_settings
 from core.nlp.spacy_manager import SpacyModelConfig, SpacyModelManager
-from core.observability import get_logger
-from core.observability.logging import configure_logging
+from core.observability import configure_logging, get_logger
 from core.observability.tracing import configure_tracing, instrument_fastapi
 
 log = get_logger("main")
@@ -97,7 +96,7 @@ async def lifespan(app: FastAPI) -> None:
     log.debug("cache_client_set", client_id=id(redis_client))
 
     # Initialize all endpoint dependencies via centralized registry
-    deps.Endpoints.initialize(container)
+    deps.initialize(container)
     log.debug("endpoints_registry_populated")
 
     log.info(
@@ -478,7 +477,7 @@ def create_app(container: Container | None = None) -> FastAPI:
         except Exception:
             pass
 
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         relational_type = Endpoints.get_relational_type()
         graph_type = Endpoints.get_graph_type()
@@ -505,7 +504,7 @@ def create_app(container: Container | None = None) -> FastAPI:
         Returns current configuration including available features.
         This endpoint contains sensitive information and requires admin API key.
         """
-        from api.endpoints._deps import Endpoints
+        from api.endpoints.deps_registry import Endpoints
 
         return success_response(
             {

@@ -15,7 +15,7 @@ import secrets
 from dataclasses import dataclass
 from typing import Any
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 
 logger = get_logger(__name__)
 

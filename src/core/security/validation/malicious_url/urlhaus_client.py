@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from core.security.models import CheckResult, CheckSource, URLRisk
 
 log = get_logger(__name__)

@@ -110,7 +110,7 @@ relational_pool = container.relational_pool()
 - 管理连接池的启动和关闭
 - 提供服务实例的访问方法
 
-#### Endpoints 类 (\_deps.py)
+#### Endpoints 类 (deps_registry.py)
 
 集中式依赖注册中心,供所有端点模块使用:
 

@@ -707,10 +707,6 @@ class LLMFailureRecord(Base):
     )
 
 
-# Backward-compatible alias
-LLMFailure = LLMFailureRecord
-
-
 class PendingSync(Base):
     """Pending Neo4j sync records for compensation-based sync."""
 

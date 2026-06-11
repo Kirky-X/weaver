@@ -729,7 +729,7 @@ class ContainerLifecycleMixin:
     async def init_shift_detector(self) -> Any | None:
         """Initialize sentiment shift detector."""
         from core.observability import get_logger
-        from modules.analytics.shift_detector import SentimentShiftDetector, ShiftConfig
+        from modules.analytics import SentimentShiftDetector, ShiftConfig
 
         log = get_logger(__name__)
         if self._shift_detector is not None:
@@ -753,7 +753,7 @@ class ContainerLifecycleMixin:
     async def init_briefing_engine(self) -> Any | None:
         """Initialize daily briefing engine."""
         from core.observability import get_logger
-        from modules.briefing.engine import DailyBriefingEngine
+        from modules.briefing import DailyBriefingEngine
 
         log = get_logger(__name__)
         if self._briefing_engine is not None:
@@ -773,7 +773,7 @@ class ContainerLifecycleMixin:
         return self._briefing_engine
 
     def _setup_memory_event_handler(self) -> None:
-        from core.event.bus import MemoryIngestEvent
+        from core.event import MemoryIngestEvent
         from core.observability import get_logger
 
         log = get_logger(__name__)
@@ -879,7 +879,7 @@ class ContainerLifecycleMixin:
         log.info("llm_usage_handlers_subscribed", event_bus_id=id(self._event_bus))
 
         # LLM comparison buffer and handlers
-        from core.event.bus import LLMCompareEvent
+        from core.event import LLMCompareEvent
         from modules.analytics.llm_compare.buffer import EvalCompareBuffer
         from modules.analytics.llm_compare.repo import EvalCompareRepo
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.ingestion.crawling import Crawler
 from modules.ingestion.deduplication import Deduplicator, SimHashDeduplicator, TitleItem
 from modules.ingestion.fetching.exceptions import FetchError

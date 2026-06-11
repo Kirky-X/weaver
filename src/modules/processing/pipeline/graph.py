@@ -10,12 +10,12 @@ import uuid
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any
 
-from core.db.models import PersistStatus
-from core.event.bus import EventBus
+from core.db import PersistStatus
+from core.event import EventBus
 from core.llm.client import LLMClient
 from core.llm.config.token_budget import TokenBudgetManager
 from core.llm.resilience.pool import AllProvidersFailedError
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from core.observability.metrics import MetricsCollector
 from core.prompt.loader import PromptLoader
 from modules.ingestion.domain.models import RawArticle
@@ -25,15 +25,17 @@ from modules.knowledge.graph.community.updater import (
 from modules.knowledge.graph.entity_resolver import EntityResolver
 from modules.processing.nlp.spacy_extractor import SpacyExtractor
 from modules.processing.nodes.checkpoint_cleanup import CheckpointCleanupNode
-from modules.processing.nodes.classification.categorizer import CategorizerNode
-from modules.processing.nodes.classification.classifier import ClassifierNode
-from modules.processing.nodes.classification.credibility_checker import CredibilityCheckerNode
+from modules.processing.nodes.classification.categorizer import CascadeCategorizerNode
+from modules.processing.nodes.classification.classifier import CascadeClassifierNode
+from modules.processing.nodes.classification.credibility_checker import (
+    RuleBasedCredibilityCheckerNode,
+)
 from modules.processing.nodes.extraction.analyze import AnalyzeNode
 from modules.processing.nodes.extraction.entity_extractor import EntityExtractorNode
 from modules.processing.nodes.merging.batch_merger import BatchMergerNode
 from modules.processing.nodes.quality.cleaner import CleanerNode
 from modules.processing.nodes.quality.conflict_detector import ConflictDetectorNode
-from modules.processing.nodes.quality.quality_scorer import QualityScorerNode
+from modules.processing.nodes.quality.quality_scorer import RuleBasedQualityScorerNode
 from modules.processing.nodes.vectorization.re_vectorize import ReVectorizeNode
 from modules.processing.nodes.vectorization.vectorize import VectorizeNode
 from modules.processing.pipeline.state import PipelineState
@@ -141,9 +143,9 @@ class Pipeline:
         )
 
         # Initialize nodes
-        self._classifier = ClassifierNode(llm, budget, prompt_loader)
+        self._classifier = CascadeClassifierNode(llm, budget, prompt_loader)
         self._cleaner = CleanerNode(llm, budget, prompt_loader)
-        self._categorizer = CategorizerNode(llm, prompt_loader)
+        self._categorizer = CascadeCategorizerNode(llm, prompt_loader)
         self._vectorize = VectorizeNode(llm)
         self._batch_merger = BatchMergerNode(llm, prompt_loader, vector_repo)
 
@@ -154,8 +156,8 @@ class Pipeline:
         self._analyze = AnalyzeNode(
             llm, budget, prompt_loader, sentiment_analyzer=sentiment_analyzer
         )
-        self._quality_scorer = QualityScorerNode(llm, budget, prompt_loader)
-        self._credibility = CredibilityCheckerNode(llm, budget, event_bus, source_auth_repo)
+        self._quality_scorer = RuleBasedQualityScorerNode()
+        self._credibility = RuleBasedCredibilityCheckerNode(event_bus, source_auth_repo)
         self._entity_extractor = EntityExtractorNode(
             llm,
             budget,
@@ -244,7 +246,7 @@ class Pipeline:
         Args:
             states: List of completed pipeline states.
         """
-        from core.event.bus import MemoryIngestEvent
+        from core.event import MemoryIngestEvent
 
         events: list[MemoryIngestEvent] = []
         for state in states:

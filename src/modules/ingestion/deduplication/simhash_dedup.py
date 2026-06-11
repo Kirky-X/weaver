@@ -13,7 +13,7 @@ with warnings.catch_warnings():
     warnings.filterwarnings("ignore", category=SyntaxWarning)
     from simhash import Simhash
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from core.observability.metrics import metrics
 
 if TYPE_CHECKING:

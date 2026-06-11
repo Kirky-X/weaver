@@ -51,7 +51,7 @@ class AlertService:
         Returns:
             Dict representation of the created rule.
         """
-        from core.db.models import AlertRule
+        from core.db import AlertRule
 
         async with self._pool.session_context() as session:
             rule = AlertRule(
@@ -82,7 +82,7 @@ class AlertService:
         """Get an alert rule by ID."""
         from sqlalchemy import select
 
-        from core.db.models import AlertRule
+        from core.db import AlertRule
 
         async with self._pool.session_context() as session:
             result = await session.execute(select(AlertRule).where(AlertRule.id == rule_id))
@@ -108,7 +108,7 @@ class AlertService:
         """List alert rules, optionally filtered."""
         from sqlalchemy import select
 
-        from core.db.models import AlertRule
+        from core.db import AlertRule
 
         async with self._pool.session_context() as session:
             query = select(AlertRule)
@@ -137,7 +137,7 @@ class AlertService:
         """Update an alert rule."""
         from sqlalchemy import select
 
-        from core.db.models import AlertRule
+        from core.db import AlertRule
 
         async with self._pool.session_context() as session:
             result = await session.execute(select(AlertRule).where(AlertRule.id == rule_id))
@@ -163,7 +163,7 @@ class AlertService:
         """Delete an alert rule."""
         from sqlalchemy import select
 
-        from core.db.models import AlertRule
+        from core.db import AlertRule
 
         async with self._pool.session_context() as session:
             result = await session.execute(select(AlertRule).where(AlertRule.id == rule_id))
@@ -212,7 +212,7 @@ class AlertService:
         """
         from sqlalchemy import select
 
-        from core.db.models import AlertEvent, AlertRule
+        from core.db import AlertEvent, AlertRule
 
         async with self._pool.session_context() as session:
             # 1. Get the rule
@@ -279,7 +279,7 @@ class AlertService:
         """
         from sqlalchemy import select
 
-        from core.db.models import AlertEvent
+        from core.db import AlertEvent
 
         async with self._pool.session_context() as session:
             result = await session.execute(select(AlertEvent).where(AlertEvent.id == event_id))
@@ -300,7 +300,7 @@ class AlertService:
         """List alert events with optional filters."""
         from sqlalchemy import select
 
-        from core.db.models import AlertEvent
+        from core.db import AlertEvent
 
         async with self._pool.session_context() as session:
             query = select(AlertEvent)

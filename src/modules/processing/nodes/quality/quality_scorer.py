@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.processing.pipeline.state import PipelineState
 
 log = get_logger(__name__)
@@ -28,15 +28,10 @@ class RuleBasedQualityScorerNode:
     - Originality (15%): Is article original (not merged)?
     - Timeliness (10%): Does article have event_time or publish_time?
 
-    Implements: QualityScorerNode (backward-compatible alias)
     """
 
-    def __init__(self, *args, **kwargs) -> None:
-        """No LLM dependency needed.
-
-        Accepts *args, **kwargs for backward compatibility with Pipeline graph
-        which previously passed (llm, budget, prompt_loader).
-        """
+    def __init__(self) -> None:
+        """No LLM dependency needed."""
 
     async def execute(self, state: PipelineState) -> PipelineState:
         """Assess article quality via rules and update state with quality score."""
@@ -113,7 +108,3 @@ class RuleBasedQualityScorerNode:
             + originality * QUALITY_WEIGHTS["originality"]
             + timeliness * QUALITY_WEIGHTS["timeliness"]
         )
-
-
-# Backward-compatible alias for Pipeline graph and __init__ exports
-QualityScorerNode = RuleBasedQualityScorerNode

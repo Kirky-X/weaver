@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.ingestion.domain.models import SourceConfig
 from modules.ingestion.fetching.base import BaseFetcher
 from modules.ingestion.parsing.base import BaseSourceParser

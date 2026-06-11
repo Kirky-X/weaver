@@ -15,8 +15,8 @@ from uuid import UUID
 
 from sqlalchemy import select, update
 
-from core.db.models import RelationType, UnknownRelationType
-from core.observability.logging import get_logger
+from core.db import RelationType, UnknownRelationType
+from core.observability import get_logger
 
 if TYPE_CHECKING:
     from core.protocols import RelationalPool

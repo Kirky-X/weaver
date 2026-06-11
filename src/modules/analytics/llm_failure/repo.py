@@ -9,9 +9,9 @@ from typing import Any
 
 from sqlalchemy import delete
 
-from core.db.models import LLMFailureRecord
-from core.event.bus import LLMFailureEvent
-from core.observability.logging import get_logger
+from core.db import LLMFailureRecord
+from core.event import LLMFailureEvent
+from core.observability import get_logger
 from core.protocols import RelationalPool
 
 log = get_logger(__name__)

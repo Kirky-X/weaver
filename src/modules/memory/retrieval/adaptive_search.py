@@ -14,14 +14,14 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Any, Protocol
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.knowledge.search.rerankers.beam_search_reranker import BeamSearchReranker
 from modules.memory.core.event_node import EventNode
 from modules.memory.core.graph_types import EdgeType, IntentType
 from modules.memory.core.traversal import calculate_transition_score
 
 if TYPE_CHECKING:
-    from core.protocols.knowledge_cache import KnowledgeCacheProtocol
+    from core.protocols import KnowledgeCacheProtocol
     from modules.memory.graphs.causal import CausalGraphRepo
     from modules.memory.graphs.temporal import TemporalGraphRepo
 
@@ -273,7 +273,7 @@ class AdaptiveSearchEngine:
         try:
             import uuid
 
-            from core.protocols.knowledge_cache import KnowledgeCluster
+            from core.protocols import KnowledgeCluster
 
             # Create a cluster from the top result
             if not results:

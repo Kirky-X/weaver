@@ -15,13 +15,12 @@ from pydantic_settings import (
 
 from core.llm.types import (
     EvalConfig,
-    GlobalConfig,
     ModelConfig,
     ProviderConfig,
     RoutingConfig,
     RoutingMode,
 )
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from core.utils.paths import PROJECT_ROOT
 
 log = get_logger("llm_config")
@@ -191,17 +190,3 @@ class LLMSettings(BaseSettings):
                 data["call_points"] = toml_data["call-points"]
 
         super().__init__(**data)
-
-    def get_global_config(self) -> GlobalConfig:
-        """Get GlobalConfig for backward compatibility with LLMClient."""
-        return GlobalConfig(
-            circuit_breaker_threshold=self.circuit_breaker_threshold,
-            circuit_breaker_timeout=self.circuit_breaker_timeout,
-            default_timeout=self.default_timeout,
-            defaults=self.defaults,
-            call_points=self.call_points,
-        )
-
-    def get_providers(self) -> list[ProviderConfig]:
-        """Get list of ProviderConfig for backward compatibility with LLMClient."""
-        return list(self.providers.values())

@@ -8,7 +8,7 @@ from typing import Any, cast
 
 from redis.asyncio import ConnectionPool, Redis
 
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from core.utils.sanitize import sanitize_dsn
 
 log = get_logger(__name__)

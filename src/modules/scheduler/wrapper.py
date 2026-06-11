@@ -9,7 +9,7 @@ import time
 
 from opentelemetry import trace
 
-from core.observability.logging import clear_task_context, get_logger, set_task_context
+from core.observability import clear_task_context, get_logger, set_task_context
 from core.observability.metrics import metrics
 
 log = get_logger(__name__)

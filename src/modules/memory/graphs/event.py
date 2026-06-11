@@ -16,7 +16,7 @@ import time
 from typing import Any
 
 from core.constants import DatabaseType
-from core.observability.logging import get_logger
+from core.observability import get_logger
 from modules.memory.core.narrative_node import NarrativeNode
 from modules.memory.graphs.base import BaseGraphRepo
 

@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from api.endpoints import _deps as deps
+from api.endpoints.deps_registry import Endpoints as deps  # noqa: N813
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from core.llm import LLMClient
@@ -72,11 +72,11 @@ async def search_unified(
         description="Enable entity aggregation to enrich results with entity neighborhoods",
     ),
     _: str = Depends(verify_api_key),
-    local_engine: LocalSearchEngine = Depends(deps.Endpoints.get_local_search_engine),
-    global_engine: GlobalSearchEngine = Depends(deps.Endpoints.get_global_search_engine),
-    vector_repo: VectorRepo = Depends(deps.Endpoints.get_vector_repo),
-    llm: LLMClient = Depends(deps.Endpoints.get_llm_client),
-    hybrid_engine: HybridSearchEngine = Depends(deps.Endpoints.get_hybrid_engine),
+    local_engine: LocalSearchEngine = Depends(deps.get_local_search_engine),
+    global_engine: GlobalSearchEngine = Depends(deps.get_global_search_engine),
+    vector_repo: VectorRepo = Depends(deps.get_vector_repo),
+    llm: LLMClient = Depends(deps.get_llm_client),
+    hybrid_engine: HybridSearchEngine = Depends(deps.get_hybrid_engine),
 ) -> APIResponse[SearchResponse]:
     """Unified search endpoint with MAGMA-inspired intent-aware routing.
 
@@ -218,8 +218,8 @@ async def search_drift(
     request: Request,
     body: DriftSearchRequest,
     _: str = Depends(verify_api_key),
-    local_engine: LocalSearchEngine = Depends(deps.Endpoints.get_local_search_engine),
-    global_engine: GlobalSearchEngine = Depends(deps.Endpoints.get_global_search_engine),
+    local_engine: LocalSearchEngine = Depends(deps.get_local_search_engine),
+    global_engine: GlobalSearchEngine = Depends(deps.get_global_search_engine),
 ) -> APIResponse[DriftSearchResponse]:
     """DRIFT Search - Dynamic Reasoning and Inference Framework.
 
@@ -380,7 +380,7 @@ async def search_causal(
 
     try:
         # Get dependencies
-        graph_pool = deps.Endpoints.get_graph_pool()
+        graph_pool = deps.get_graph_pool()
 
         # Create repositories
         from modules.memory.graphs.temporal import TemporalGraphRepo
@@ -477,7 +477,7 @@ async def search_temporal(
 
     try:
         # Get dependencies
-        graph_pool = deps.Endpoints.get_graph_pool()
+        graph_pool = deps.get_graph_pool()
 
         # Create repository
         temporal_repo = TemporalGraphRepo(pool=graph_pool)

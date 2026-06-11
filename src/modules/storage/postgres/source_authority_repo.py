@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 
 from sqlalchemy import select, update
 
-from core.db.models import SourceAuthority
-from core.observability.logging import get_logger
+from core.db import SourceAuthority
+from core.observability import get_logger
 from core.protocols import RelationalPool
 
 log = get_logger(__name__)
