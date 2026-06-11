@@ -27,6 +27,7 @@ def mock_settings():
     """Create standard mock settings for unit tests."""
     settings = MagicMock()
     settings.api.api_key = "test-api-key"
+    settings.api.get_api_key.return_value = "test-api-key"
     settings.llm.model = "gpt-4"
     settings.llm.provider = "openai"
     settings.llm.providers = {
@@ -38,13 +39,15 @@ def mock_settings():
     settings.neo4j.uri = "bolt://localhost:7687"
     settings.neo4j.user = "neo4j"
     settings.neo4j.password = "password"
+    settings.pipeline_url_endpoint.whitelist_enabled = False
+    settings.pipeline_url_endpoint.allowed_domains = []
     return settings
 
 
 @pytest.fixture
 def mock_llm():
     """Create standard mock LLM client for unit tests."""
-    llm = AsyncMock()
+    llm = MagicMock()
     llm.call = AsyncMock(return_value='{"result": "success"}')
     llm.call_with_fallback = AsyncMock(return_value='{"result": "success"}')
     llm.embed = AsyncMock(return_value=[0.1] * 1536)
@@ -52,13 +55,9 @@ def mock_llm():
 
 
 @pytest.fixture
-def mock_llm_client():
-    """Mock LLM client for testing (alias for compatibility)."""
-    llm = MagicMock()
-    llm.call = AsyncMock(return_value='{"result": "success"}')
-    llm.call_with_fallback = AsyncMock(return_value='{"result": "success"}')
-    llm.embed = AsyncMock(return_value=[0.1] * 1536)
-    return llm
+def auth_headers():
+    """Standard auth headers for API testing."""
+    return {"X-API-Key": "test-api-key"}
 
 
 @pytest.fixture

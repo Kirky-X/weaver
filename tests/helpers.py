@@ -141,6 +141,67 @@ class AsyncIteratorMock:
         return item
 
 
+def create_mock_relational_pool() -> MagicMock:
+    """Create a mock relational pool with fully configured async session context manager.
+
+    Returns:
+        MagicMock pool where pool.session() returns an async context manager
+        with execute, commit, rollback, refresh, add, delete, flush, close methods.
+    """
+    pool = MagicMock()
+    session = MagicMock()
+    session.__aenter__ = AsyncMock(return_value=session)
+    session.__aexit__ = AsyncMock(return_value=None)
+    session.execute = AsyncMock()
+    session.commit = AsyncMock()
+    session.rollback = AsyncMock()
+    session.refresh = AsyncMock()
+    session.add = MagicMock()
+    session.delete = MagicMock()
+    session.flush = AsyncMock()
+    session.close = AsyncMock()
+    pool.session = MagicMock(return_value=session)
+    return pool
+
+
+def create_test_client(router, dependency_overrides: dict | None = None) -> "TestClient":
+    """Create a FastAPI TestClient with standard configuration.
+
+    Automatically overrides verify_api_key and includes the given router.
+
+    Args:
+        router: APIRouter to include in the app.
+        dependency_overrides: Additional dependency overrides to apply.
+
+    Returns:
+        TestClient instance. Caller must manage lifecycle (e.g., `with client:`).
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from api.middleware.auth import verify_api_key
+
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[verify_api_key] = lambda: "test-api-key"
+    if dependency_overrides:
+        app.dependency_overrides.update(dependency_overrides)
+    return TestClient(app)
+
+
+def create_mock_embedding(dimensions: int = 1536, fill_value: float = 0.1) -> list[float]:
+    """Create a mock embedding vector.
+
+    Args:
+        dimensions: Number of dimensions (default: 1536).
+        fill_value: Value to fill each dimension with (default: 0.1).
+
+    Returns:
+        List of floats with the specified dimensions and fill value.
+    """
+    return [fill_value] * dimensions
+
+
 def create_migration_request_data(
     source_db: str = "postgres",
     target_db: str = "duckdb",
