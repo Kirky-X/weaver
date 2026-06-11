@@ -6,7 +6,6 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from api.endpoints import (
-    admin_keys_router,
     admin_router,
     alerts_router,
     analytics_router,
@@ -45,6 +44,3 @@ api_router.include_router(memory_router)
 api_router.include_router(causal_router)
 api_router.include_router(graph_monitoring_router)
 api_router.include_router(communities_monitoring_router)
-
-# API Key management endpoints
-api_router.include_router(admin_keys_router)

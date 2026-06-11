@@ -24,7 +24,6 @@ def __getattr__(name: str) -> APIRouter:
     """Lazy import routers to avoid circular dependencies."""
     router_map = {
         "admin_router": ("api.endpoints.admin", "router"),
-        "admin_keys_router": ("api.endpoints.admin_keys", "router"),
         "alerts_router": ("api.endpoints.monitoring", "alerts_router"),
         "analytics_router": ("api.endpoints.analytics", "router"),
         "articles_router": ("api.endpoints.content.articles", "router"),
@@ -53,7 +52,6 @@ def __getattr__(name: str) -> APIRouter:
 
 
 __all__ = [
-    "admin_keys_router",
     "admin_router",
     "alerts_router",
     "analytics_router",
