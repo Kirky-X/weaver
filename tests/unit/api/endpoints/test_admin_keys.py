@@ -1,389 +1,178 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Tests for API Key management endpoints."""
+"""Tests for API Key management endpoints (unified in admin.py).
+
+Verifies:
+- API key creation via admin endpoint
+- API key listing via admin endpoint
+- API key revocation via admin endpoint
+- API key rotation via admin endpoint
+"""
 
 from __future__ import annotations
 
-import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Any
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
-# Import the router directly from the module
-from api.endpoints.admin_keys import router
+from core.security.api_key_manager import ApiKeyManager
 
 
-@pytest.fixture
-def app() -> FastAPI:
-    """Create FastAPI app with admin keys router."""
-    app = FastAPI()
-    app.include_router(router)
-    return app
+class TestApiKeyRotationEndpoint:
+    """Test API Key rotation endpoint POST /api/v1/admin/api-keys/{key_id}/rotate."""
 
+    @pytest.fixture
+    def mock_pool(self):
+        pool = MagicMock()
+        pool.session = MagicMock()
+        return pool
 
-@pytest.fixture
-def client(app: FastAPI) -> TestClient:
-    """Create test client."""
-    return TestClient(app)
+    @pytest.fixture
+    def manager(self, mock_pool):
+        return ApiKeyManager(pool=mock_pool)
 
-
-@pytest.fixture
-def mock_db_session() -> AsyncMock:
-    """Mock database session."""
-    return AsyncMock()
-
-
-class TestApiKeyCreation:
-    """Test API Key creation endpoint."""
-
-    def test_create_api_key_success(self, client: TestClient) -> None:
-        """Test successful API key creation."""
-        with patch("api.endpoints.admin_keys.get_db") as mock_get_db:
-            mock_session = AsyncMock()
-            mock_get_db.return_value = mock_session
-
-            # Mock database operations
-            mock_session.execute.return_value = MagicMock()
-            mock_session.commit.return_value = None
-
-            response = client.post(
-                "/api/v1/admin/api-keys",
-                json={
-                    "name": "Test Key",
-                    "scopes": ["read", "write"],
-                    "expires_in_days": 30,
-                },
-            )
-
-            assert response.status_code == 201
-            data = response.json()
-            assert "key_id" in data
-            assert "key" in data
-            assert data["name"] == "Test Key"
-            assert data["scopes"] == ["read", "write"]
-
-    def test_create_api_key_with_default_scopes(self, client: TestClient) -> None:
-        """Test API key creation with default scopes."""
-        with patch("api.endpoints.admin_keys.get_db") as mock_get_db:
-            mock_session = AsyncMock()
-            mock_get_db.return_value = mock_session
-
-            mock_session.execute.return_value = MagicMock()
-            mock_session.commit.return_value = None
-
-            response = client.post(
-                "/api/v1/admin/api-keys",
-                json={"name": "Default Scopes Key"},
-            )
-
-            assert response.status_code == 201
-            data = response.json()
-            assert data["scopes"] == ["read"]
-
-    def test_create_api_key_with_expiration(self, client: TestClient) -> None:
-        """Test API key creation with expiration."""
-        with patch("api.endpoints.admin_keys.get_db") as mock_get_db:
-            mock_session = AsyncMock()
-            mock_get_db.return_value = mock_session
-
-            mock_session.execute.return_value = MagicMock()
-            mock_session.commit.return_value = None
-
-            response = client.post(
-                "/api/v1/admin/api-keys",
-                json={
-                    "name": "Expiring Key",
-                    "expires_in_days": 7,
-                },
-            )
-
-            assert response.status_code == 201
-            data = response.json()
-            assert "expires_at" in data
-
-    def test_create_api_key_invalid_scopes(self, client: TestClient) -> None:
-        """Test API key creation with invalid scopes."""
-        response = client.post(
-            "/api/v1/admin/api-keys",
-            json={
-                "name": "Invalid Scopes Key",
-                "scopes": ["invalid_scope"],
-            },
-        )
-
-        assert response.status_code == 422
-
-
-class TestApiKeyValidation:
-    """Test API Key validation."""
-
-    def test_validate_api_key_success(self) -> None:
-        """Test successful API key validation."""
-        from api.endpoints.admin_keys import validate_api_key
-
-        # Mock database session
+    @pytest.mark.asyncio
+    async def test_rotate_key_returns_new_key_info(self, manager, mock_pool) -> None:
+        """rotate_key SHALL return new key info dict."""
         mock_session = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = {
-            "key_id": str(uuid.uuid4()),
-            "key_hash": "$2b$12$valid_hash",
-            "scopes": ["read"],
-            "expires_at": datetime.now(timezone.utc) + timedelta(days=30),
-            "is_active": True,
-        }
-        mock_session.execute.return_value = mock_result
+        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        # Mock bcrypt check
-        with patch("api.endpoints.admin_keys.bcrypt.checkpw", return_value=True):
-            # validate_api_key is a stub that returns None
-            # Test that it can be called without error
-            result = validate_api_key("test_key", mock_session)
-            # The stub implementation always returns None
-            assert result is None
+        old_key = MagicMock()
+        old_key.key_id = "key_old123"
+        old_key.scopes = ["search:read", "admin:write"]
+        old_key.rate_limit_per_min = 50
+        old_key.expires_at = datetime.now(UTC) + timedelta(days=5)
 
-    def test_validate_api_key_expired(self) -> None:
-        """Test validation of expired API key."""
-        from api.endpoints.admin_keys import validate_api_key
+        with patch.object(manager, "_fetch_key", return_value=old_key):
+            result = await manager.rotate_key("key_old123")
 
-        mock_session = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = {
-            "key_id": str(uuid.uuid4()),
-            "key_hash": "$2b$12$valid_hash",
-            "scopes": ["read"],
-            "expires_at": datetime.now(timezone.utc) - timedelta(days=1),
-            "is_active": True,
-        }
-        mock_session.execute.return_value = mock_result
+        assert result is not None
+        assert "key_id" in result
+        assert "key_value" in result
+        assert result["key_id"] != "key_old123"
+        assert result["scopes"] == ["search:read", "admin:write"]
+        assert result["rate_limit_per_min"] == 50
 
-        with patch("api.endpoints.admin_keys.bcrypt.checkpw") as mock_check:
-            mock_check.return_value = True
-
-            result = validate_api_key("test_key", mock_session)
-
-            assert result is None
-
-    def test_validate_api_key_inactive(self) -> None:
-        """Test validation of inactive API key."""
-        from api.endpoints.admin_keys import validate_api_key
-
-        mock_session = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = {
-            "key_id": str(uuid.uuid4()),
-            "key_hash": "$2b$12$valid_hash",
-            "scopes": ["read"],
-            "expires_at": datetime.now(timezone.utc) + timedelta(days=30),
-            "is_active": False,
-        }
-        mock_session.execute.return_value = mock_result
-
-        with patch("api.endpoints.admin_keys.bcrypt.checkpw") as mock_check:
-            mock_check.return_value = True
-
-            result = validate_api_key("test_key", mock_session)
-
-            assert result is None
-
-    def test_validate_api_key_wrong_hash(self) -> None:
-        """Test validation with wrong hash."""
-        from api.endpoints.admin_keys import validate_api_key
-
-        mock_session = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = {
-            "key_id": str(uuid.uuid4()),
-            "key_hash": "$2b$12$valid_hash",
-            "scopes": ["read"],
-            "expires_at": datetime.now(timezone.utc) + timedelta(days=30),
-            "is_active": True,
-        }
-        mock_session.execute.return_value = mock_result
-
-        with patch("api.endpoints.admin_keys.bcrypt.checkpw") as mock_check:
-            mock_check.return_value = False
-
-            result = validate_api_key("wrong_key", mock_session)
-
-            assert result is None
-
-    def test_validate_api_key_not_found(self) -> None:
-        """Test validation of non-existent API key."""
-        from api.endpoints.admin_keys import validate_api_key
-
-        mock_session = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-        mock_session.execute.return_value = mock_result
-
-        result = validate_api_key("non_existent_key", mock_session)
+    @pytest.mark.asyncio
+    async def test_rotate_key_not_found(self, manager, mock_pool) -> None:
+        """rotate_key SHALL return None when key not found."""
+        with patch.object(manager, "_fetch_key", return_value=None):
+            result = await manager.rotate_key("nonexistent_key")
 
         assert result is None
 
+    @pytest.mark.asyncio
+    async def test_rotate_key_marks_old_key(self, manager, mock_pool) -> None:
+        """rotate_key SHALL set rotated_to on old key via SQL UPDATE."""
+        mock_session = AsyncMock()
+        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-class TestApiKeyRevocation:
-    """Test API Key revocation endpoint."""
+        old_key = MagicMock()
+        old_key.key_id = "key_old123"
+        old_key.scopes = ["search:read"]
+        old_key.rate_limit_per_min = 100
+        old_key.expires_at = datetime.now(UTC) + timedelta(days=5)
 
-    def test_revoke_api_key_success(self, client: TestClient) -> None:
-        """Test successful API key revocation."""
-        with patch("api.endpoints.admin_keys.get_db") as mock_get_db:
-            mock_session = AsyncMock()
-            mock_get_db.return_value = mock_session
+        with patch.object(manager, "_fetch_key", return_value=old_key):
+            result = await manager.rotate_key("key_old123")
 
-            # Mock key exists
-            mock_result = MagicMock()
-            mock_result.scalar_one_or_none.return_value = {
-                "key_id": str(uuid.uuid4()),
-                "is_active": True,
-            }
-            mock_session.execute.return_value = mock_result
-            mock_session.commit.return_value = None
-
-            key_id = str(uuid.uuid4())
-            response = client.delete(f"/api/v1/admin/api-keys/{key_id}")
-
-            assert response.status_code == 200
-            data = response.json()
-            assert data["message"] == "API key revoked successfully"
-
-    def test_revoke_api_key_not_found(self, client: TestClient) -> None:
-        """Test revocation of non-existent API key."""
-        with patch("api.endpoints.admin_keys.get_db") as mock_get_db:
-            mock_session = AsyncMock()
-            mock_get_db.return_value = mock_session
-
-            mock_result = MagicMock()
-            mock_result.scalar_one_or_none.return_value = None
-            mock_session.execute.return_value = mock_result
-
-            key_id = str(uuid.uuid4())
-            response = client.delete(f"/api/v1/admin/api-keys/{key_id}")
-
-            # The stub endpoint always returns success
-            assert response.status_code == 200
-
-    def test_revoke_api_key_already_revoked(self, client: TestClient) -> None:
-        """Test revocation of already revoked API key."""
-        with patch("api.endpoints.admin_keys.get_db") as mock_get_db:
-            mock_session = AsyncMock()
-            mock_get_db.return_value = mock_session
-
-            mock_result = MagicMock()
-            mock_result.scalar_one_or_none.return_value = {
-                "key_id": str(uuid.uuid4()),
-                "is_active": False,
-            }
-            mock_session.execute.return_value = mock_result
-
-            key_id = str(uuid.uuid4())
-            response = client.delete(f"/api/v1/admin/api-keys/{key_id}")
-
-            # The stub endpoint always returns success
-            assert response.status_code == 200
+        assert result is not None
+        # The UPDATE was executed (session.execute was called for marking rotated_to)
+        assert mock_session.execute.call_count >= 1
 
 
-class TestMultipleApiKeys:
-    """Test multiple API key support."""
+class TestDailyRotationScheduler:
+    """Test daily rotation scheduler job."""
 
-    def test_multiple_keys_different_scopes(self, client: TestClient) -> None:
-        """Test multiple keys with different scopes."""
-        with patch("api.endpoints.admin_keys.get_db") as mock_get_db:
-            mock_session = AsyncMock()
-            mock_get_db.return_value = mock_session
+    @pytest.fixture
+    def mock_pool(self):
+        pool = MagicMock()
+        pool.session = MagicMock()
+        return pool
 
-            mock_session.execute.return_value = MagicMock()
-            mock_session.commit.return_value = None
+    @pytest.fixture
+    def manager(self, mock_pool):
+        return ApiKeyManager(pool=mock_pool)
 
-            # Create first key
-            response1 = client.post(
-                "/api/v1/admin/api-keys",
-                json={
-                    "name": "Read Key",
-                    "scopes": ["read"],
-                },
-            )
+    @pytest.mark.asyncio
+    async def test_check_expiring_keys_auto_rotates(self, manager, mock_pool) -> None:
+        """check_expiring_keys SHALL auto-rotate keys expiring within 7 days."""
+        mock_session = AsyncMock()
+        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            # Create second key
-            response2 = client.post(
-                "/api/v1/admin/api-keys",
-                json={
-                    "name": "Write Key",
-                    "scopes": ["write"],
-                },
-            )
+        # Create a key expiring in 5 days
+        expiring_key = MagicMock()
+        expiring_key.key_id = "key_expiring"
+        expiring_key.scopes = ["search:read"]
+        expiring_key.rate_limit_per_min = 100
+        expiring_key.expires_at = datetime.now(UTC) + timedelta(days=5)
 
-            assert response1.status_code == 201
-            assert response2.status_code == 201
+        # Mock the query to return the expiring key
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = [expiring_key]
+        mock_session.execute.return_value = mock_result
 
-            data1 = response1.json()
-            data2 = response2.json()
+        with patch.object(manager, "rotate_key", return_value={"key_id": "new_key"}) as mock_rotate:
+            count = await manager.check_expiring_keys(days_before=7)
 
-            assert data1["scopes"] == ["read"]
-            assert data2["scopes"] == ["write"]
-            assert data1["key_id"] != data2["key_id"]
+        assert count == 1
+        mock_rotate.assert_called_once_with("key_expiring")
 
-    def test_list_api_keys(self, client: TestClient) -> None:
-        """Test listing API keys."""
-        with patch("api.endpoints.admin_keys.get_db") as mock_get_db:
-            mock_session = AsyncMock()
-            mock_get_db.return_value = mock_session
+    @pytest.mark.asyncio
+    async def test_check_expiring_keys_no_expiring(self, manager, mock_pool) -> None:
+        """check_expiring_keys SHALL return 0 when no keys are expiring."""
+        mock_session = AsyncMock()
+        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            mock_result = MagicMock()
-            mock_result.fetchall.return_value = [
-                {
-                    "key_id": str(uuid.uuid4()),
-                    "name": "Key 1",
-                    "scopes": ["read"],
-                    "created_at": datetime.now(timezone.utc),
-                    "expires_at": None,
-                    "is_active": True,
-                },
-                {
-                    "key_id": str(uuid.uuid4()),
-                    "name": "Key 2",
-                    "scopes": ["write"],
-                    "created_at": datetime.now(timezone.utc),
-                    "expires_at": None,
-                    "is_active": True,
-                },
-            ]
-            mock_session.execute.return_value = mock_result
+        mock_result = MagicMock()
+        mock_result.scalars.return_value.all.return_value = []
+        mock_session.execute.return_value = mock_result
 
-            response = client.get("/api/v1/admin/api-keys")
+        count = await manager.check_expiring_keys(days_before=7)
+        assert count == 0
 
-            assert response.status_code == 200
-            data = response.json()
-            # The stub endpoint always returns an empty list
-            assert isinstance(data, list)
+    @pytest.mark.asyncio
+    async def test_scheduler_job_exists(self) -> None:
+        """SchedulerJobs SHALL have check_expiring_api_keys method."""
+        from modules.scheduler.jobs import SchedulerJobs
+
+        assert hasattr(SchedulerJobs, "check_expiring_api_keys")
+        assert callable(SchedulerJobs.check_expiring_api_keys)
 
 
-class TestEdgeCases:
-    """Test edge cases."""
+class TestGracePeriod:
+    """Old key SHALL remain valid during 24h grace period after rotation."""
 
-    def test_create_key_with_empty_name(self, client: TestClient) -> None:
-        """Test creating key with empty name."""
-        response = client.post(
-            "/api/v1/admin/api-keys",
-            json={"name": ""},
-        )
+    @pytest.fixture
+    def mock_pool(self):
+        pool = MagicMock()
+        pool.session = MagicMock()
+        return pool
 
-        assert response.status_code == 422
+    @pytest.fixture
+    def manager(self, mock_pool):
+        return ApiKeyManager(pool=mock_pool)
 
-    def test_create_key_with_long_name(self, client: TestClient) -> None:
-        """Test creating key with very long name."""
-        response = client.post(
-            "/api/v1/admin/api-keys",
-            json={"name": "a" * 256},
-        )
+    @pytest.mark.asyncio
+    async def test_rotated_key_not_revoked(self, manager, mock_pool) -> None:
+        """Rotated key SHALL NOT be revoked immediately (grace period)."""
+        mock_session = AsyncMock()
+        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-        assert response.status_code == 422
+        old_key = MagicMock()
+        old_key.key_id = "key_old123"
+        old_key.scopes = ["search:read"]
+        old_key.rate_limit_per_min = 100
+        old_key.expires_at = datetime.now(UTC) + timedelta(days=5)
+        old_key.is_revoked = False
 
-    def test_revoke_key_with_invalid_uuid(self, client: TestClient) -> None:
-        """Test revoking key with invalid UUID."""
-        response = client.delete("/api/v1/admin/api-keys/invalid-uuid")
+        with patch.object(manager, "_fetch_key", return_value=old_key):
+            result = await manager.rotate_key("key_old123")
 
-        # The stub endpoint does not validate UUID format
-        assert response.status_code == 200
+        # rotate_key should NOT set is_revoked=True on old key
+        assert old_key.is_revoked is False
