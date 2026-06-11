@@ -149,7 +149,13 @@ class Pipeline:
         self._classifier = CascadeClassifierNode(
             llm, budget, prompt_loader, cascade=cascade_classifier
         )
-        self._cleaner = CleanerNode(llm, budget, prompt_loader)
+        self._cleaner = CleanerNode(
+            llm,
+            budget,
+            prompt_loader,
+            min_body_chars=settings.cleaner_min_body_chars if settings else 100,
+            min_title_similarity=settings.cleaner_min_title_similarity if settings else 0.7,
+        )
         self._categorizer = CascadeCategorizerNode(llm, prompt_loader, cascade=cascade_classifier)
         self._vectorize = VectorizeNode(llm)
         self._batch_merger = BatchMergerNode(llm, prompt_loader, vector_repo)

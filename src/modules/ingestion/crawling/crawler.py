@@ -83,6 +83,7 @@ class Crawler:
         async def crawl_one(item: NewsItem) -> RawArticle:
             host = urlparse(item.url).netloc
             body = ""
+            html_content: str | None = None
 
             if item.body:
                 # Body already extracted from content:encoded in the RSS feed.
@@ -108,11 +109,13 @@ class Crawler:
                         # Re-fetch with browser rendering
                         async with global_sem, host_sems[host]:
                             _, html, _ = await self._fetcher.fetch(item.url, force_browser=True)
+                            html_content = html
                             body = trafilatura.extract(html, include_comments=False) or ""
             else:
                 # No pre-filled body, fetch the page
                 async with global_sem, host_sems[host]:
                     _, html, _ = await self._fetcher.fetch(item.url)
+                    html_content = html
                     body = trafilatura.extract(html, include_comments=False) or ""
 
                 # Validate extracted content
@@ -125,12 +128,14 @@ class Crawler:
                     # Re-fetch with browser rendering
                     async with global_sem, host_sems[host]:
                         _, html, _ = await self._fetcher.fetch(item.url, force_browser=True)
+                        html_content = html
                         body = trafilatura.extract(html, include_comments=False) or ""
 
             return RawArticle(
                 url=item.url,
                 title=item.title,
                 body=body,
+                html=html_content,
                 source=item.source,
                 publish_time=item.publish_time,
                 source_host=host,

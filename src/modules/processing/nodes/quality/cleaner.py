@@ -1,7 +1,11 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Cleaner pipeline node — LLM-based article content cleaning."""
+"""Cleaner pipeline node — trafilatura primary, LLM fallback for article content cleaning."""
 
 from __future__ import annotations
+
+from difflib import SequenceMatcher
+
+import trafilatura
 
 from core.llm.client import LLMClient
 from core.llm.config.token_budget import TokenBudgetManager
@@ -10,6 +14,7 @@ from core.llm.resilience.pool import AllProvidersFailedError
 from core.llm.types import CallPoint
 from core.llm.validation.output_validator import CleanerOutput
 from core.observability import get_logger
+from core.observability.metrics import metrics
 from core.prompt.loader import PromptLoader
 from modules.processing.pipeline.state import PipelineState
 
@@ -19,24 +24,137 @@ log = get_logger(__name__)
 _MAX_CLEANER_ATTEMPTS = 2
 
 
+def _title_similarity(title_a: str, title_b: str) -> float:
+    """Compute similarity ratio between two titles."""
+    if not title_a or not title_b:
+        return 0.0
+    return SequenceMatcher(None, title_a.lower(), title_b.lower()).ratio()
+
+
 class CleanerNode:
-    """Pipeline node: clean article content via LLM."""
+    """Pipeline node: clean article content via trafilatura (primary) or LLM (fallback).
+
+    Implements: CleanerNode with trafilatura primary path.
+
+    Strategy:
+    1. If raw HTML is available, try trafilatura.extract() first.
+    2. Quality check: body length >= cleaner_min_body_chars AND
+       title similarity >= cleaner_min_title_similarity.
+    3. If trafilatura output passes quality check, use it directly (no LLM call).
+    4. Otherwise, fall back to LLM-based cleaning.
+    """
 
     def __init__(
         self,
         llm: LLMClient,
         budget: TokenBudgetManager,
         prompt_loader: PromptLoader,
+        min_body_chars: int = 100,
+        min_title_similarity: float = 0.7,
     ) -> None:
         self._llm = llm
         self._budget = budget
         self._prompt_loader = prompt_loader
+        self._min_body_chars = min_body_chars
+        self._min_title_similarity = min_title_similarity
 
-    async def execute(self, state: PipelineState) -> PipelineState:
-        """Clean article content."""
-        if state.get("terminal"):
-            return state
+    def _try_trafilatura(self, state: PipelineState) -> bool:
+        """Attempt trafilatura extraction from raw HTML.
 
+        Returns True if trafilatura succeeded and quality check passed.
+        """
+        raw = state["raw"]
+        html_content = getattr(raw, "html", None)
+
+        if not html_content:
+            log.debug("cleaner_trafilatura_skip_no_html", url=raw.url)
+            return False
+
+        try:
+            extracted = trafilatura.extract(
+                html_content,
+                include_comments=False,
+                favor_precision=True,
+            )
+        except Exception as e:
+            log.debug(
+                "cleaner_trafilatura_extract_error",
+                url=raw.url,
+                error=str(e),
+            )
+            return False
+
+        if not extracted:
+            log.debug("cleaner_trafilatura_extract_none", url=raw.url)
+            return False
+
+        # Quality check: body length
+        if len(extracted) < self._min_body_chars:
+            log.debug(
+                "cleaner_trafilatura_body_too_short",
+                url=raw.url,
+                body_len=len(extracted),
+                min_chars=self._min_body_chars,
+            )
+            return False
+
+        # Quality check: title similarity
+        # Use trafilatura bare_extraction for metadata (title)
+        try:
+            bare = trafilatura.bare_extraction(
+                html_content,
+                include_comments=False,
+                favor_precision=True,
+            )
+        except Exception:
+            bare = None
+
+        extracted_title = ""
+        if bare and isinstance(bare, dict):
+            extracted_title = bare.get("title") or ""
+
+        if extracted_title:
+            sim = _title_similarity(raw.title, extracted_title)
+            if sim < self._min_title_similarity:
+                log.debug(
+                    "cleaner_trafilatura_title_mismatch",
+                    url=raw.url,
+                    original_title=raw.title[:50],
+                    extracted_title=extracted_title[:50],
+                    similarity=round(sim, 3),
+                    min_similarity=self._min_title_similarity,
+                )
+                return False
+
+        # Trafilatura succeeded — populate state
+        state["cleaned"] = {
+            "title": extracted_title or raw.title,
+            "body": extracted,
+            "publish_time": raw.publish_time,
+            "source_host": raw.source_host,
+        }
+        if bare and isinstance(bare, dict):
+            author = bare.get("author")
+            if author:
+                state["cleaned"]["author"] = author
+            date = bare.get("date")
+            if date:
+                state["cleaned"]["llm_publish_time"] = str(date)
+
+        state["tags"] = []
+        state["cleaner_entities"] = []
+        state["cleaner_method"] = "trafilatura"
+        metrics.cleaner_method_total.labels(method="trafilatura").inc()
+
+        log.info(
+            "cleaner_trafilatura_success",
+            url=raw.url,
+            body_len=len(extracted),
+        )
+        return True
+
+    async def _clean_via_llm(self, state: PipelineState) -> PipelineState:
+        """Clean article content via LLM (original path)."""
         raw = state["raw"]
         body_trunc = self._budget.truncate(raw.body, CallPoint.CLEANER)
 
@@ -76,6 +194,8 @@ class CleanerNode:
                     }
                     for e in result.entities
                 ]
+                state["cleaner_method"] = "llm"
+                metrics.cleaner_method_total.labels(method="llm").inc()
                 # 成功则直接返回
                 break
 
@@ -118,6 +238,8 @@ class CleanerNode:
                 }
                 state["tags"] = []
                 state["cleaner_entities"] = []
+                state["cleaner_method"] = "llm"
+                metrics.cleaner_method_total.labels(method="llm").inc()
                 state.setdefault("degraded_fields", []).extend(
                     ["cleaned.title", "cleaned.body", "tags", "cleaner_entities"]
                 )
@@ -130,9 +252,35 @@ class CleanerNode:
                     }
                 )
 
+        return state
+
+    async def execute(self, state: PipelineState) -> PipelineState:
+        """Clean article content — trafilatura primary, LLM fallback."""
+        if state.get("terminal"):
+            return state
+
+        # Try trafilatura first
+        if self._try_trafilatura(state):
+            state.setdefault("prompt_versions", {})["cleaner"] = self._prompt_loader.get_version(
+                "cleaner"
+            )
+            log.info(
+                "cleaned",
+                url=state["raw"].url,
+                tags_count=len(state.get("tags", [])),
+                method="trafilatura",
+            )
+            return state
+
+        # Fallback to LLM
+        state = await self._clean_via_llm(state)
         state.setdefault("prompt_versions", {})["cleaner"] = self._prompt_loader.get_version(
             "cleaner"
         )
-
-        log.info("cleaned", url=raw.url, tags_count=len(state.get("tags", [])))
+        log.info(
+            "cleaned",
+            url=state["raw"].url,
+            tags_count=len(state.get("tags", [])),
+            method="llm",
+        )
         return state

@@ -49,6 +49,7 @@ class RawArticle(NewsItem):
 
     Attributes:
         body: Extracted body text (via trafilatura).
+        html: Raw HTML content preserved for re-extraction by Cleaner.
         tier: Source tier (1=authoritative, 2+=general). Lower = more authoritative.
         crawl_status: Status of the crawl operation.
         crawl_error: Error message if crawl failed.
@@ -56,6 +57,7 @@ class RawArticle(NewsItem):
 
     # Override body to be required (no empty default for crawled articles)
     body: str = ""
+    html: str | None = None
     tier: int = 2
     crawl_status: str = "pending"
     crawl_error: str | None = None

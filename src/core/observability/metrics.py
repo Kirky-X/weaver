@@ -239,6 +239,13 @@ class MetricsCollector:
         ["host"],
     )
 
+    # Cleaner method metrics
+    cleaner_method_total = Counter(
+        "cleaner_method_total",
+        "Cleaner extraction method used",
+        ["method"],  # method: trafilatura, llm
+    )
+
     # API key validation metrics
     api_key_validation_duration_seconds = Histogram(
         "api_key_validation_duration_seconds",

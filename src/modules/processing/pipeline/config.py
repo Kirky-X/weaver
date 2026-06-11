@@ -83,6 +83,10 @@ class PipelineSettings(BaseSettings):
     phase3: PhaseConfig = PhaseConfig()
     batch: BatchConfig = BatchConfig()
 
+    # Cleaner settings
+    cleaner_min_body_chars: int = 100
+    cleaner_min_title_similarity: float = 0.7
+
     @field_validator("phase1", "phase3", mode="before")
     @classmethod
     def parse_phase(cls, v: Any) -> PhaseConfig:

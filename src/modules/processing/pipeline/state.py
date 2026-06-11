@@ -45,6 +45,7 @@ class PipelineState(TypedDict, total=False):
     cleaned: dict[str, Any]  # {"title": str, "body": str, "publish_time": ...}
     tags: list[str]
     cleaner_entities: list[dict[str, Any]]  # Entities from cleaner prompt
+    cleaner_method: str  # "trafilatura" or "llm"
 
     # Categorizer
     category: str
