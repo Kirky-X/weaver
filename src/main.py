@@ -464,11 +464,6 @@ def create_app(container: Container | None = None) -> FastAPI:
 
     app.include_router(api_router)
 
-    # Register Prometheus metrics endpoint
-    from api.middleware.prometheus_metrics import metrics_endpoint
-
-    app.add_route("/metrics", metrics_endpoint, methods=["GET"])
-
     @app.get("/health", response_model=APIResponse[dict])
     async def health_check_endpoint() -> APIResponse[dict]:
         """Health check endpoint for load balancers.
