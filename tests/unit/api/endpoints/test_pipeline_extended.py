@@ -38,12 +38,11 @@ class TestURLValidationExtended:
             ),
         ],
     )
-    async def test_should_reject_invalid_url_schemes(self, url: str, expected_detail: str):
+    async def test_should_reject_invalid_url_schemes(
+        self, url: str, expected_detail: str, mock_settings
+    ):
         """Test that non-HTTP/HTTPS schemes are rejected."""
         from api.endpoints.content.pipeline import _validate_url_for_processing
-
-        mock_settings = MagicMock()
-        mock_settings.pipeline_url_endpoint.whitelist_enabled = False
 
         with pytest.raises(HTTPException) as exc_info:
             await _validate_url_for_processing(url, whitelist_mode=False, settings=mock_settings)
@@ -64,12 +63,11 @@ class TestURLValidationExtended:
             ("http://169.254.169.254/latest/meta-data/", "169.254.169.254"),
         ],
     )
-    async def test_should_block_internal_host_prefixes(self, url: str, blocked_host: str):
+    async def test_should_block_internal_host_prefixes(
+        self, url: str, blocked_host: str, mock_settings
+    ):
         """Test that internal host prefixes are blocked (lines 396-401)."""
         from api.endpoints.content.pipeline import _validate_url_for_processing
-
-        mock_settings = MagicMock()
-        mock_settings.pipeline_url_endpoint.whitelist_enabled = False
 
         with pytest.raises(HTTPException) as exc_info:
             await _validate_url_for_processing(url, whitelist_mode=False, settings=mock_settings)
@@ -90,12 +88,9 @@ class TestURLValidationExtended:
             ("http://192.168.255.255/admin", "private"),
         ],
     )
-    async def test_should_block_private_ip_addresses(self, url: str, ip_type: str):
+    async def test_should_block_private_ip_addresses(self, url: str, ip_type: str, mock_settings):
         """Test that private IP addresses are blocked (lines 404-414)."""
         from api.endpoints.content.pipeline import _validate_url_for_processing
-
-        mock_settings = MagicMock()
-        mock_settings.pipeline_url_endpoint.whitelist_enabled = False
 
         with pytest.raises(HTTPException) as exc_info:
             await _validate_url_for_processing(url, whitelist_mode=False, settings=mock_settings)
@@ -105,12 +100,9 @@ class TestURLValidationExtended:
         assert "blocked" in exc_info.value.detail
 
     @pytest.mark.asyncio
-    async def test_should_block_reserved_ip_addresses(self):
+    async def test_should_block_reserved_ip_addresses(self, mock_settings):
         """Test that reserved IP addresses are blocked."""
         from api.endpoints.content.pipeline import _validate_url_for_processing
-
-        mock_settings = MagicMock()
-        mock_settings.pipeline_url_endpoint.whitelist_enabled = False
 
         # Test reserved address (240.0.0.0/4 range)
         url = "http://240.0.0.1/"
@@ -122,12 +114,9 @@ class TestURLValidationExtended:
         assert "blocked" in exc_info.value.detail
 
     @pytest.mark.asyncio
-    async def test_should_block_link_local_ipv6(self):
+    async def test_should_block_link_local_ipv6(self, mock_settings):
         """Test that link-local IPv6 addresses are blocked."""
         from api.endpoints.content.pipeline import _validate_url_for_processing
-
-        mock_settings = MagicMock()
-        mock_settings.pipeline_url_endpoint.whitelist_enabled = False
 
         # fe80::/10 is link-local
         url = "http://[fe80::1]/"
@@ -139,12 +128,9 @@ class TestURLValidationExtended:
         assert "blocked" in exc_info.value.detail
 
     @pytest.mark.asyncio
-    async def test_should_handle_numeric_hostname_like_ip(self):
+    async def test_should_handle_numeric_hostname_like_ip(self, mock_settings):
         """Test handling of numeric hostnames that look like IPs (lines 418-428)."""
         from api.endpoints.content.pipeline import _validate_url_for_processing
-
-        mock_settings = MagicMock()
-        mock_settings.pipeline_url_endpoint.whitelist_enabled = False
 
         # This tests the code path where hostname.replace(".", "").isdigit() is True
         # but the IP validation happens in the nested try-except
@@ -157,12 +143,9 @@ class TestURLValidationExtended:
         assert result == url
 
     @pytest.mark.asyncio
-    async def test_should_allow_valid_public_url(self):
+    async def test_should_allow_valid_public_url(self, mock_settings):
         """Test that valid public URLs are allowed."""
         from api.endpoints.content.pipeline import _validate_url_for_processing
-
-        mock_settings = MagicMock()
-        mock_settings.pipeline_url_endpoint.whitelist_enabled = False
 
         url = "https://example.com/article/123"
         result = await _validate_url_for_processing(
@@ -171,12 +154,9 @@ class TestURLValidationExtended:
         assert result == url
 
     @pytest.mark.asyncio
-    async def test_should_allow_valid_public_url_with_port(self):
+    async def test_should_allow_valid_public_url_with_port(self, mock_settings):
         """Test that valid public URLs with ports are allowed."""
         from api.endpoints.content.pipeline import _validate_url_for_processing
-
-        mock_settings = MagicMock()
-        mock_settings.pipeline_url_endpoint.whitelist_enabled = False
 
         url = "https://example.com:8080/article"
         result = await _validate_url_for_processing(
@@ -185,13 +165,11 @@ class TestURLValidationExtended:
         assert result == url
 
     @pytest.mark.asyncio
-    async def test_whitelist_mode_with_empty_domains_raises_error(self):
+    async def test_whitelist_mode_with_empty_domains_raises_error(self, mock_settings):
         """Test whitelist mode with no configured domains (lines 435-439)."""
         from api.endpoints.content.pipeline import _validate_url_for_processing
 
-        mock_settings = MagicMock()
         mock_settings.pipeline_url_endpoint.whitelist_enabled = True
-        mock_settings.pipeline_url_endpoint.allowed_domains = []
 
         url = "https://example.com/article"
 
@@ -215,12 +193,11 @@ class TestURLValidationExtended:
         ],
     )
     async def test_whitelist_mode_domain_validation(
-        self, url: str, allowed_domains: list[str], should_pass: bool
+        self, url: str, allowed_domains: list[str], should_pass: bool, mock_settings
     ):
         """Test whitelist mode domain matching logic (lines 441-450)."""
         from api.endpoints.content.pipeline import _validate_url_for_processing
 
-        mock_settings = MagicMock()
         mock_settings.pipeline_url_endpoint.whitelist_enabled = True
         mock_settings.pipeline_url_endpoint.allowed_domains = allowed_domains
 

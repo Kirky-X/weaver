@@ -4,10 +4,8 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
-from tests.helpers import assert_api_response
+from tests.helpers import assert_api_response, create_test_client
 
 
 def test_hops_whitelist_mapping():
@@ -65,33 +63,16 @@ def mock_graph_repo():
 
 
 @pytest.fixture
-def auth_headers():
-    """Create authentication headers."""
-    return {"X-API-Key": "test-api-key"}
-
-
-@pytest.fixture
 def client(mock_graph_repo):
     """Create TestClient for graph visualization endpoints."""
     from api.dependencies import get_graph_repo
     from api.endpoints.graph.graph_visualization import router
-    from api.middleware.auth import verify_api_key
 
-    app = FastAPI()
-
-    # Override the dependency to use our mock
-    app.dependency_overrides[get_graph_repo] = lambda: mock_graph_repo
-    # Override auth to bypass API key verification
-    app.dependency_overrides[verify_api_key] = lambda: "test-api-key"
-
-    # Include router without prefix for direct testing
-    app.include_router(router)
-
-    with TestClient(app) as test_client:
+    test_client = create_test_client(
+        router, dependency_overrides={get_graph_repo: lambda: mock_graph_repo}
+    )
+    with test_client:
         yield test_client
-
-    # Cleanup overrides
-    app.dependency_overrides.clear()
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -464,18 +445,19 @@ class TestVisualizationErrors:
     @pytest.mark.asyncio
     async def test_should_handle_missing_api_key(self, client):
         """Test that missing API key returns 401."""
-        # Remove the auth override for this test
         from api.dependencies import get_graph_repo
         from api.endpoints.graph.graph_visualization import router
         from api.middleware.auth import verify_api_key
 
-        app = FastAPI()
-        app.dependency_overrides[get_graph_repo] = lambda: MagicMock()
-        # Don't override verify_api_key - let it fail naturally
-        app.include_router(router)
+        # Create client with repo override but then remove auth override
+        unauthed_client = create_test_client(
+            router,
+            dependency_overrides={get_graph_repo: lambda: MagicMock()},
+        )
+        unauthed_client.app.dependency_overrides.pop(verify_api_key, None)
 
-        with TestClient(app) as test_client:
-            response = test_client.get("/graph/visualization")
+        with unauthed_client:
+            response = unauthed_client.get("/graph/visualization")
             assert response.status_code == 401
 
     @pytest.mark.asyncio

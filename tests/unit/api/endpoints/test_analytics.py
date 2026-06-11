@@ -6,17 +6,9 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
 from api.endpoints.analytics import router
-
-
-def _mock_auth(app: FastAPI) -> None:
-    """Override verify_api_key dependency to bypass auth in tests."""
-    from api.middleware.auth import verify_api_key
-
-    app.dependency_overrides[verify_api_key] = lambda: "test-key"
+from tests.helpers import create_mock_relational_pool, create_test_client
 
 
 class TestAnalyticsShiftsEndpoint:
@@ -24,10 +16,7 @@ class TestAnalyticsShiftsEndpoint:
 
     def setup_method(self) -> None:
         """Set up test fixtures."""
-        self.app = FastAPI()
-        self.app.include_router(router)
-        _mock_auth(self.app)
-        self.client = TestClient(self.app)
+        self.client = create_test_client(router)
 
     def test_get_shifts_returns_success_response(self) -> None:
         """Test that shifts endpoint returns success response."""
@@ -89,10 +78,7 @@ class TestAnalyticsBriefingsEndpoint:
 
     def setup_method(self) -> None:
         """Set up test fixtures."""
-        self.app = FastAPI()
-        self.app.include_router(router)
-        _mock_auth(self.app)
-        self.client = TestClient(self.app)
+        self.client = create_test_client(router)
 
     def test_get_briefings_returns_success_response(self) -> None:
         """Test that briefings endpoint returns success response."""
@@ -154,10 +140,7 @@ class TestAnalyticsShiftsWithData:
 
     def setup_method(self) -> None:
         """Set up test fixtures."""
-        self.app = FastAPI()
-        self.app.include_router(router)
-        _mock_auth(self.app)
-        self.client = TestClient(self.app)
+        self.client = create_test_client(router)
 
     def test_shifts_endpoint_returns_data(self) -> None:
         """Test shifts endpoint returns data from storage."""
@@ -201,18 +184,12 @@ class TestAnalyticsBriefingsWithData:
 
     def setup_method(self) -> None:
         """Set up test fixtures."""
-        self.app = FastAPI()
-        self.app.include_router(router)
-        _mock_auth(self.app)
-        self.client = TestClient(self.app)
+        self.client = create_test_client(router)
 
     def test_briefings_endpoint_returns_data(self) -> None:
         """Test briefings endpoint returns data from storage."""
-        mock_pool = MagicMock()
-        mock_session = AsyncMock()
-        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session.__aexit__ = AsyncMock(return_value=None)
-        mock_pool.session_context.return_value = mock_session
+        mock_pool = create_mock_relational_pool()
+        mock_pool.session_context = mock_pool.session
 
         mock_row = MagicMock()
         mock_row.id = 1
@@ -222,7 +199,7 @@ class TestAnalyticsBriefingsWithData:
 
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = [mock_row]
-        mock_session.execute = AsyncMock(return_value=mock_result)
+        mock_pool.session().execute = AsyncMock(return_value=mock_result)
 
         mock_storage = MagicMock()
         mock_storage._pool = mock_pool

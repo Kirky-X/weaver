@@ -4,10 +4,8 @@
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
-from tests.helpers import assert_api_response
+from tests.helpers import assert_api_response, create_test_client
 
 # ── Fixtures ─────────────────────────────────────────────────────
 
@@ -21,27 +19,16 @@ def mock_graph_repo():
 
 
 @pytest.fixture
-def auth_headers():
-    """Create authentication headers."""
-    return {"X-API-Key": "test-api-key"}
-
-
-@pytest.fixture
 def client(mock_graph_repo):
     """Create TestClient for graph traverse endpoints."""
     from api.dependencies import get_graph_repo
     from api.endpoints.graph.graph import router
-    from api.middleware.auth import verify_api_key
 
-    app = FastAPI()
-    app.dependency_overrides[get_graph_repo] = lambda: mock_graph_repo
-    app.dependency_overrides[verify_api_key] = lambda: "test-api-key"
-    app.include_router(router)
-
-    with TestClient(app) as test_client:
+    test_client = create_test_client(
+        router, dependency_overrides={get_graph_repo: lambda: mock_graph_repo}
+    )
+    with test_client:
         yield test_client
-
-    app.dependency_overrides.clear()
 
 
 # ── Test Data ─────────────────────────────────────────────────────

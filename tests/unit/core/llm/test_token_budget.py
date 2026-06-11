@@ -30,9 +30,6 @@ class TestTokenBudgetManagerInit:
 
     def test_init_reads_from_settings(self):
         """Test initialization reads tokenizer_model from settings."""
-        mock_settings = MagicMock()
-        mock_settings.llm.tokenizer_model = "gpt-3.5-turbo"
-
         with patch.object(
             TokenBudgetManager, "_resolve_from_settings", return_value="gpt-3.5-turbo"
         ):

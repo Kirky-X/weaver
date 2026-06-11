@@ -239,7 +239,7 @@ class TestProcessSingleUrlEndpoint:
     """Tests for POST /pipeline/url endpoint."""
 
     @pytest.mark.asyncio
-    async def test_process_url_returns_task_id(self):
+    async def test_process_url_returns_task_id(self, mock_settings):
         """Test that processing a URL returns a task ID."""
         from api.endpoints.content.pipeline import ProcessUrlRequest, process_single_url
 
@@ -247,10 +247,6 @@ class TestProcessSingleUrlEndpoint:
 
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
-
-        mock_settings = MagicMock()
-        mock_settings.pipeline_url_endpoint.whitelist_enabled = False
-        mock_settings.pipeline_url_endpoint.allowed_domains = []
 
         request = ProcessUrlRequest(url="https://example.com/article/123")
 
@@ -272,12 +268,11 @@ class TestProcessSingleUrlEndpoint:
         assert result.data.status == "queued"
 
     @pytest.mark.asyncio
-    async def test_process_url_blocks_ssrf_localhost(self):
+    async def test_process_url_blocks_ssrf_localhost(self, mock_settings):
         """Test that SSRF URLs are blocked."""
         from api.endpoints.content.pipeline import ProcessUrlRequest, process_single_url
 
         mock_cache = MagicMock()
-        mock_settings = MagicMock()
 
         request = ProcessUrlRequest(url="http://127.0.0.1/admin")
 
@@ -299,12 +294,11 @@ class TestProcessSingleUrlEndpoint:
         assert exc_info.value.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_process_url_blocks_ssrf_private_ip(self):
+    async def test_process_url_blocks_ssrf_private_ip(self, mock_settings):
         """Test that private IP addresses are blocked."""
         from api.endpoints.content.pipeline import ProcessUrlRequest, process_single_url
 
         mock_cache = MagicMock()
-        mock_settings = MagicMock()
 
         request = ProcessUrlRequest(url="http://192.168.1.1/")
 
@@ -326,12 +320,11 @@ class TestProcessSingleUrlEndpoint:
         assert exc_info.value.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_process_url_blocks_ssrf_aws_metadata(self):
+    async def test_process_url_blocks_ssrf_aws_metadata(self, mock_settings):
         """Test that AWS metadata endpoint is blocked."""
         from api.endpoints.content.pipeline import ProcessUrlRequest, process_single_url
 
         mock_cache = MagicMock()
-        mock_settings = MagicMock()
 
         request = ProcessUrlRequest(url="http://169.254.169.254/latest/meta-data/")
 
@@ -353,12 +346,11 @@ class TestProcessSingleUrlEndpoint:
         assert exc_info.value.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_process_url_whitelist_mode_blocks_non_allowed_domain(self):
+    async def test_process_url_whitelist_mode_blocks_non_allowed_domain(self, mock_settings):
         """Test that whitelist mode blocks non-allowed domains."""
         from api.endpoints.content.pipeline import ProcessUrlRequest, process_single_url
 
         mock_cache = MagicMock()
-        mock_settings = MagicMock()
         mock_settings.pipeline_url_endpoint.whitelist_enabled = True
         mock_settings.pipeline_url_endpoint.allowed_domains = ["trusted.com", "news.example.org"]
 
@@ -382,7 +374,7 @@ class TestProcessSingleUrlEndpoint:
         assert exc_info.value.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_process_url_whitelist_mode_allows_subdomain(self):
+    async def test_process_url_whitelist_mode_allows_subdomain(self, mock_settings):
         """Test that whitelist mode allows subdomains of allowed domains."""
         from api.endpoints.content.pipeline import ProcessUrlRequest, process_single_url
 
@@ -391,7 +383,6 @@ class TestProcessSingleUrlEndpoint:
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
 
-        mock_settings = MagicMock()
         mock_settings.pipeline_url_endpoint.whitelist_enabled = True
         mock_settings.pipeline_url_endpoint.allowed_domains = ["example.com"]
 

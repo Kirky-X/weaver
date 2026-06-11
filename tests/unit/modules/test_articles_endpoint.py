@@ -413,12 +413,15 @@ class TestGetArticleDetail:
 
 
 class TestArticlesEndpointHTTPLevel:
-    """HTTP-level tests for articles endpoints via TestClient."""
+    """HTTP-level tests for articles endpoints via TestClient.
+
+    Note: These tests do NOT use create_test_client() because they specifically
+    test authentication behavior. create_test_client() auto-overrides verify_api_key,
+    which would bypass the auth middleware being tested.
+    """
 
     def test_get_articles_requires_authentication(self):
         """Test that GET /articles requires X-API-Key header."""
-        from unittest.mock import MagicMock
-
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
@@ -427,6 +430,7 @@ class TestArticlesEndpointHTTPLevel:
 
         app = FastAPI()
         app.include_router(router)
+
         mock_pool = MagicMock()
         app.dependency_overrides[get_relational_pool] = lambda: mock_pool
 
@@ -436,8 +440,6 @@ class TestArticlesEndpointHTTPLevel:
 
     def test_get_article_detail_requires_authentication(self):
         """Test that GET /articles/{id} requires X-API-Key header."""
-        from unittest.mock import MagicMock
-
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
@@ -446,6 +448,7 @@ class TestArticlesEndpointHTTPLevel:
 
         app = FastAPI()
         app.include_router(router)
+
         mock_pool = MagicMock()
         app.dependency_overrides[get_relational_pool] = lambda: mock_pool
 

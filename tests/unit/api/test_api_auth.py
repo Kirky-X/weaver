@@ -4,21 +4,22 @@
 from __future__ import annotations
 
 import uuid
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException
+
+from tests.helpers import create_test_client
 
 
 class TestVerifyApiKeyEdgeCases:
     """Extended edge-case tests for verify_api_key beyond the basics in test_api.py."""
 
     @pytest.mark.asyncio
-    async def test_empty_string_key_raises_403(self):
+    async def test_empty_string_key_raises_403(self, mock_settings):
         """Test verify_api_key raises 403 when key is an empty string."""
         from api.middleware.auth import verify_api_key
 
-        mock_settings = MagicMock()
         mock_settings.api.get_api_key.return_value = "valid-api-key-12345678901234567890"
 
         with patch("container.get_settings", return_value=mock_settings):
@@ -28,11 +29,10 @@ class TestVerifyApiKeyEdgeCases:
             assert "Invalid API Key" in exc_info.value.detail
 
     @pytest.mark.asyncio
-    async def test_whitespace_only_key_raises_403(self):
+    async def test_whitespace_only_key_raises_403(self, mock_settings):
         """Test verify_api_key raises 403 when key contains only whitespace."""
         from api.middleware.auth import verify_api_key
 
-        mock_settings = MagicMock()
         mock_settings.api.get_api_key.return_value = "valid-api-key-12345678901234567890"
 
         with patch("container.get_settings", return_value=mock_settings):
@@ -41,11 +41,10 @@ class TestVerifyApiKeyEdgeCases:
             assert exc_info.value.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_valid_key_returns_correct_string(self):
+    async def test_valid_key_returns_correct_string(self, mock_settings):
         """Test verify_api_key returns the validated key string."""
         from api.middleware.auth import verify_api_key
 
-        mock_settings = MagicMock()
         mock_settings.api.get_api_key.return_value = "my-secret-key-1234567890abcdefgh"
 
         with patch("container.get_settings", return_value=mock_settings):
@@ -54,11 +53,10 @@ class TestVerifyApiKeyEdgeCases:
             assert result == "legacy"
 
     @pytest.mark.asyncio
-    async def test_compare_digest_called_for_key_comparison(self):
+    async def test_compare_digest_called_for_key_comparison(self, mock_settings):
         """Test that secrets.compare_digest is used (not string equality) for key comparison."""
         from api.middleware.auth import verify_api_key
 
-        mock_settings = MagicMock()
         mock_settings.api.get_api_key.return_value = "expected-key-1234567890abcdefghijkl"
 
         with (
@@ -73,11 +71,10 @@ class TestVerifyApiKeyEdgeCases:
             )
 
     @pytest.mark.asyncio
-    async def test_compare_digest_called_with_valid_key(self):
+    async def test_compare_digest_called_with_valid_key(self, mock_settings):
         """Test compare_digest is called and returns True for valid key."""
         from api.middleware.auth import verify_api_key
 
-        mock_settings = MagicMock()
         mock_settings.api.get_api_key.return_value = "correct-key-1234567890abcdefghij"
 
         with (
@@ -139,22 +136,23 @@ class TestApiKeyHeader:
 
 
 class TestAuthMiddlewareIntegration:
-    """HTTP-level integration tests for auth middleware using FastAPI TestClient."""
+    """HTTP-level integration tests for auth middleware using FastAPI TestClient.
+
+    Note: These tests do NOT use create_test_client() because they specifically
+    test authentication behavior. create_test_client() auto-overrides verify_api_key,
+    which would bypass the auth middleware being tested.
+    """
 
     def test_articles_endpoint_without_api_key_returns_401(self):
         """Test GET /articles without X-API-Key returns 401."""
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
+        from api.dependencies import get_relational_pool
         from api.endpoints.content.articles import router
 
         app = FastAPI()
         app.include_router(router)
-
-        # Override the dependency to return a mock pool
-        from unittest.mock import MagicMock
-
-        from api.dependencies import get_relational_pool
 
         mock_pool = MagicMock()
         app.dependency_overrides[get_relational_pool] = lambda: mock_pool
@@ -165,8 +163,6 @@ class TestAuthMiddlewareIntegration:
 
     def test_articles_endpoint_with_wrong_api_key_returns_403(self):
         """Test GET /articles with invalid X-API-Key returns 403."""
-        from unittest.mock import MagicMock
-
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
@@ -179,7 +175,6 @@ class TestAuthMiddlewareIntegration:
         mock_pool = MagicMock()
         app.dependency_overrides[get_relational_pool] = lambda: mock_pool
 
-        # Override get_settings to return a known API key
         mock_settings = MagicMock()
         mock_settings.api.get_api_key.return_value = "correct-key-1234567890abcdefghij"
 
@@ -192,8 +187,6 @@ class TestAuthMiddlewareIntegration:
 
     def test_articles_endpoint_with_valid_api_key_returns_200_or_503(self):
         """Test GET /articles with correct X-API-Key does not fail on auth (may fail on pool)."""
-        from unittest.mock import AsyncMock, MagicMock
-
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
@@ -228,8 +221,6 @@ class TestAuthMiddlewareIntegration:
 
     def test_pipeline_trigger_without_api_key_returns_401(self):
         """Test POST /pipeline/trigger without X-API-Key returns 401."""
-        from unittest.mock import MagicMock
-
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
@@ -250,8 +241,6 @@ class TestAuthMiddlewareIntegration:
 
     def test_pipeline_status_without_api_key_returns_401(self):
         """Test GET /pipeline/tasks/{task_id} without X-API-Key returns 401."""
-        from unittest.mock import MagicMock
-
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 

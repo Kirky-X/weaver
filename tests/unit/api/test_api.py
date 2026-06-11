@@ -26,11 +26,10 @@ class TestAuthMiddleware:
         assert "Missing API key" in exc_info.value.detail
 
     @pytest.mark.asyncio
-    async def test_verify_api_key_invalid(self):
+    async def test_verify_api_key_invalid(self, mock_settings):
         """Test verify_api_key raises 403 for invalid key."""
         from api.middleware.auth import verify_api_key
 
-        mock_settings = MagicMock()
         mock_settings.api.get_api_key.return_value = "valid-api-key-12345678901234567890"
 
         with patch("container.get_settings", return_value=mock_settings):
@@ -40,11 +39,10 @@ class TestAuthMiddleware:
             assert "Invalid API Key" in exc_info.value.detail
 
     @pytest.mark.asyncio
-    async def test_verify_api_key_valid(self):
+    async def test_verify_api_key_valid(self, mock_settings):
         """Test verify_api_key returns key identifier when valid."""
         from api.middleware.auth import verify_api_key
 
-        mock_settings = MagicMock()
         mock_settings.api.get_api_key.return_value = "valid-api-key-12345678901234567890"
 
         with patch("container.get_settings", return_value=mock_settings):
@@ -491,7 +489,7 @@ class TestPipelineEndpoint:
 
     @pytest.mark.asyncio
     @pytest.mark.skip(reason="get_queue_stats endpoint not implemented yet")
-    async def test_get_queue_stats(self):
+    async def test_get_queue_stats(self, mock_postgres_pool):
         """Test GET /pipeline/queue/stats endpoint."""
         from api.endpoints.content.pipeline import get_queue_stats
 
@@ -504,7 +502,6 @@ class TestPipelineEndpoint:
             }
         )
 
-        mock_session = AsyncMock()
         mock_result = MagicMock()
         mock_result.one.return_value = MagicMock(
             total_articles=10,
@@ -512,16 +509,12 @@ class TestPipelineEndpoint:
             completed_count=7,
             failed_count=1,
         )
-        mock_session.execute = AsyncMock(return_value=mock_result)
-        mock_postgres = MagicMock()
-        mock_postgres.session = MagicMock(return_value=mock_session)
-        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session.__aexit__ = AsyncMock(return_value=None)
+        mock_postgres_pool.session().execute = AsyncMock(return_value=mock_result)
 
         result = await get_queue_stats(
             _="test-key",
             cache=mock_cache,
-            relational_pool=mock_postgres,
+            relational_pool=mock_postgres_pool,
         )
         assert result.data["queue_depth"] == 5
         assert result.data["total_tasks"] == 2
@@ -639,6 +632,7 @@ class TestArticlesEndpoint:
     async def test_list_articles_endpoint(self):
         """Test GET /articles endpoint with filters."""
         from api.endpoints.content.articles import list_articles
+        from tests.helpers import create_mock_relational_pool
 
         mock_article = MagicMock()
         mock_article.id = uuid.UUID("12345678-1234-5678-1234-567812345678")
@@ -673,12 +667,10 @@ class TestArticlesEndpoint:
         mock_articles_result = MagicMock()
         mock_articles_result.scalars.return_value.all.return_value = [mock_article]
 
-        mock_session = AsyncMock()
-        mock_session.execute = AsyncMock(side_effect=[mock_count_result, mock_articles_result])
-
-        mock_pool = MagicMock()
-        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_pool = create_mock_relational_pool()
+        mock_pool.session().execute = AsyncMock(
+            side_effect=[mock_count_result, mock_articles_result]
+        )
 
         from unittest.mock import MagicMock as ReqMock
 
@@ -707,6 +699,7 @@ class TestArticlesEndpoint:
     async def test_get_article_endpoint_found(self):
         """Test GET /articles/{article_id} returns article."""
         from api.endpoints.content.articles import get_article
+        from tests.helpers import create_mock_relational_pool
 
         mock_article = MagicMock()
         mock_article.id = uuid.UUID("12345678-1234-5678-1234-567812345678")
@@ -738,12 +731,8 @@ class TestArticlesEndpoint:
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = mock_article
 
-        mock_session = AsyncMock()
-        mock_session.execute.return_value = mock_result
-
-        mock_pool = MagicMock()
-        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_pool = create_mock_relational_pool()
+        mock_pool.session().execute.return_value = mock_result
 
         result = await get_article(
             article_id="12345678-1234-5678-1234-567812345678",
@@ -771,16 +760,13 @@ class TestArticlesEndpoint:
     async def test_get_article_endpoint_not_found(self):
         """Test GET /articles/{article_id} returns 404 for missing article."""
         from api.endpoints.content.articles import get_article
+        from tests.helpers import create_mock_relational_pool
 
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
 
-        mock_session = AsyncMock()
-        mock_session.execute.return_value = mock_result
-
-        mock_pool = MagicMock()
-        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_pool = create_mock_relational_pool()
+        mock_pool.session().execute.return_value = mock_result
 
         with pytest.raises(HTTPException) as exc_info:
             await get_article(
