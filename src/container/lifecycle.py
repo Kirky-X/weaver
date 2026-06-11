@@ -58,6 +58,33 @@ async def _handle_llm_usage_metrics(event: Any) -> None:
         )
 
 
+class EmbeddingServiceWrapper:
+    """Wraps LLMClient to provide embed() interface for search endpoints.
+
+    Implements: EmbeddingServiceProtocol
+    """
+
+    def __init__(self, llm_client: Any) -> None:
+        self._llm = llm_client
+
+    async def embed(self, text: str) -> list[float]:
+        """Compute embedding for a single text."""
+        embeddings = await self._llm.embed_default([text])
+        return embeddings[0]
+
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """Compute embeddings for multiple texts."""
+        return await self._llm.embed_default(texts)
+
+    def is_ready(self) -> bool:
+        """Check if the embedding service is ready."""
+        return True
+
+    def start_loading(self) -> None:
+        """Start loading the model in background."""
+        pass
+
+
 class ContainerLifecycleMixin:
     """Lifecycle management mixin — startup/shutdown orchestration."""
 
@@ -88,6 +115,10 @@ class ContainerLifecycleMixin:
     _conflict_detector: Any
     _shift_detector: Any
     _briefing_engine: Any
+    _embedding_service: Any
+    _intent_classifier: Any
+    _cascade_classifier: Any
+    _gliner_extractor: Any
 
     # ── LLM Init (used by startup) ─────────────────────────────
 
@@ -216,6 +247,53 @@ class ContainerLifecycleMixin:
         if self._mc_sampler is None and self._settings.pipeline.monte_carlo.enabled:
             raise RuntimeError("MC sampler not initialized. Call init_mc_sampler() first.")
         return self._mc_sampler
+
+    # ── ML Components ──────────────────────────────────────────
+
+    async def init_ml_components(self) -> dict[str, Any]:
+        """Initialize ML components (CascadeClassifier, GLiNERExtractor, MCSampler).
+
+        Uses try/except for each component — failure sets to None with WARNING log.
+        """
+        from core.observability import get_logger
+
+        log = get_logger(__name__)
+
+        result = {}
+
+        # CascadeClassifier (fastText + SetFit)
+        try:
+            from modules.processing.nodes.classification.cascade_classifier import CascadeClassifier
+
+            self._cascade_classifier = CascadeClassifier()
+            result["cascade_classifier"] = True
+            log.info("cascade_classifier_initialized")
+        except Exception as exc:
+            self._cascade_classifier = None
+            result["cascade_classifier"] = False
+            log.warning("cascade_classifier_init_failed", error=str(exc))
+
+        # GLiNERExtractor
+        try:
+            from modules.processing.nodes.extraction.gliner_extractor import GLiNERExtractor
+
+            self._gliner_extractor = GLiNERExtractor()
+            result["gliner_extractor"] = True
+            log.info("gliner_extractor_initialized")
+        except Exception as exc:
+            self._gliner_extractor = None
+            result["gliner_extractor"] = False
+            log.warning("gliner_extractor_init_failed", error=str(exc))
+
+        # MCSampler — already initialized in init_mc_sampler()
+        if self._mc_sampler is None:
+            import contextlib
+
+            with contextlib.suppress(Exception):
+                await self.init_mc_sampler()
+        result["mc_sampler"] = self._mc_sampler is not None
+
+        return result
 
     # ── Scheduler Setup ────────────────────────────────────────
 
@@ -616,14 +694,6 @@ class ContainerLifecycleMixin:
 
             intent_classifier = IntentClassifier(self._llm_client)
 
-            class EmbeddingServiceWrapper:
-                def __init__(self, llm_client: Any) -> None:
-                    self._llm = llm_client
-
-                async def embed(self, text: str) -> list[float]:
-                    embeddings = await self._llm.embed_default([text])
-                    return embeddings[0]
-
             embedding_service = EmbeddingServiceWrapper(self._llm_client)
 
             # Get embedding model ID from configuration
@@ -828,6 +898,7 @@ class ContainerLifecycleMixin:
         )
         await self.init_source_scheduler(processor.on_items_discovered)
 
+        await self.init_ml_components()
         await self.init_pipeline()
         worker = self.pipeline_worker()
         if worker:
@@ -835,6 +906,14 @@ class ContainerLifecycleMixin:
             log.info("pipeline_worker_started")
 
         await self.init_memory_service()
+
+        # Initialize embedding service and intent classifier for search endpoints
+        from modules.knowledge.search.intent.classifier import IntentClassifier
+
+        self._embedding_service = (
+            EmbeddingServiceWrapper(self._llm_client) if self._llm_client else None
+        )
+        self._intent_classifier = IntentClassifier(self._llm_client) if self._llm_client else None
 
         # LLM failure logging
         self._llm_failure_repo = LLMFailureRepo(self.relational_pool())

@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from core.observability import get_logger
 from modules.processing.pipeline.state import PipelineState
@@ -127,9 +127,11 @@ class CascadeCategorizerNode:
         self,
         llm: LLMClient | None = None,
         prompt_loader: PromptLoader | None = None,
+        cascade: Any | None = None,
     ) -> None:
         self._llm = llm
         self._prompt_loader = prompt_loader
+        self._cascade = cascade
 
     async def execute(self, state: PipelineState) -> PipelineState:
         if state.get("terminal"):

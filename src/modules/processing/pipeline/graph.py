@@ -112,6 +112,9 @@ class Pipeline:
         phase3_concurrency: int | None = None,
         relation_type_normalizer: Any = None,
         sentiment_analyzer: SentimentAnalyzer | None = None,
+        cascade_classifier: Any | None = None,
+        gliner_extractor: Any | None = None,
+        mc_sampler: Any | None = None,
         debug: bool = False,
     ) -> None:
         self._accepting = True
@@ -143,9 +146,11 @@ class Pipeline:
         )
 
         # Initialize nodes
-        self._classifier = CascadeClassifierNode(llm, budget, prompt_loader)
+        self._classifier = CascadeClassifierNode(
+            llm, budget, prompt_loader, cascade=cascade_classifier
+        )
         self._cleaner = CleanerNode(llm, budget, prompt_loader)
-        self._categorizer = CascadeCategorizerNode(llm, prompt_loader)
+        self._categorizer = CascadeCategorizerNode(llm, prompt_loader, cascade=cascade_classifier)
         self._vectorize = VectorizeNode(llm)
         self._batch_merger = BatchMergerNode(llm, prompt_loader, vector_repo)
 
@@ -154,7 +159,11 @@ class Pipeline:
         self._re_vectorize = ReVectorizeNode(llm, embedding_model)
 
         self._analyze = AnalyzeNode(
-            llm, budget, prompt_loader, sentiment_analyzer=sentiment_analyzer
+            llm,
+            budget,
+            prompt_loader,
+            mc_sampler=mc_sampler,
+            sentiment_analyzer=sentiment_analyzer,
         )
         self._quality_scorer = RuleBasedQualityScorerNode()
         self._credibility = RuleBasedCredibilityCheckerNode(event_bus, source_auth_repo)
@@ -166,6 +175,7 @@ class Pipeline:
             settings,
             vector_repo,
             relation_type_normalizer=relation_type_normalizer,
+            gliner_extractor=gliner_extractor,
         )
         self._conflict_detector = ConflictDetectorNode(
             article_repo=article_repo,

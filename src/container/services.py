@@ -551,6 +551,9 @@ class ContainerServicesMixin:
                 ),
                 relation_type_normalizer=self.relation_normalizer(),
                 sentiment_analyzer=sentiment_analyzer,
+                cascade_classifier=self._cascade_classifier,
+                gliner_extractor=self._gliner_extractor,
+                mc_sampler=self._mc_sampler,
                 debug=self._debug_mode,
             )
             log.info("pipeline_initialized")
