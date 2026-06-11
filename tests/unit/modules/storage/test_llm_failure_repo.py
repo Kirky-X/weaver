@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.db import LLMFailure
+from core.db import LLMFailureRecord
 from core.event import LLMFailureEvent
 from modules.analytics.llm_failure.repo import LLMFailureRepo
 
@@ -26,7 +26,7 @@ class TestLLMFailureRepoRecord:
 
     @pytest.mark.asyncio
     async def test_record_inserts_correct_fields(self, repo, mock_pool):
-        """Test record() inserts LLMFailure with all event fields."""
+        """Test record() inserts LLMFailureRecord with all event fields."""
         from uuid import uuid4
 
         article_id = str(uuid4())
@@ -51,7 +51,7 @@ class TestLLMFailureRepoRecord:
         mock_session.add.assert_called_once()
         mock_session.commit.assert_called_once()
 
-        added: LLMFailure = mock_session.add.call_args[0][0]
+        added: LLMFailureRecord = mock_session.add.call_args[0][0]
         assert added.call_point == "classifier"
         assert added.provider == "openai"
         assert added.error_type == "RateLimitError"
@@ -83,7 +83,7 @@ class TestLLMFailureRepoRecord:
 
         await repo.record(event)
 
-        added: LLMFailure = mock_session.add.call_args[0][0]
+        added: LLMFailureRecord = mock_session.add.call_args[0][0]
         assert added.article_id is None
 
     @pytest.mark.asyncio
@@ -107,7 +107,7 @@ class TestLLMFailureRepoRecord:
 
         await repo.record(event)
 
-        added: LLMFailure = mock_session.add.call_args[0][0]
+        added: LLMFailureRecord = mock_session.add.call_args[0][0]
         assert added.article_id is None
 
 
@@ -125,7 +125,7 @@ class TestLLMFailureRepoQuery:
     @pytest.mark.asyncio
     async def test_query_returns_matching_records(self, repo, mock_pool):
         """Test query() returns records from database."""
-        mock_failure = MagicMock(spec=LLMFailure)
+        mock_failure = MagicMock(spec=LLMFailureRecord)
         mock_failure.call_point = "classifier"
 
         mock_session = AsyncMock()

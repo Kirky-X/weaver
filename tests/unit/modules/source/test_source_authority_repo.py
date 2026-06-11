@@ -200,6 +200,13 @@ class TestUpdateAutoScore:
         mock_session = AsyncMock()
         mock_pool.session.return_value.__aenter__.return_value = mock_session
 
+        # Mock the query result for record lookup
+        mock_result = MagicMock()
+        mock_record = MagicMock()
+        mock_record.manual_score = None
+        mock_result.scalar_one_or_none.return_value = mock_record
+        mock_session.execute.return_value = mock_result
+
         repo = SourceAuthorityRepo(mock_pool)
         await repo.update_auto_score("example.com", 0.88)
 

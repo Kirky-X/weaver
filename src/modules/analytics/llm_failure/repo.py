@@ -9,7 +9,7 @@ from typing import Any
 
 from sqlalchemy import delete
 
-from core.db.models import LLMFailure
+from core.db.models import LLMFailureRecord
 from core.event.bus import LLMFailureEvent
 from core.observability.logging import get_logger
 from core.protocols import RelationalPool
@@ -44,7 +44,7 @@ class LLMFailureRepo:
 
         async with self._pool.session() as session:
             session.add(
-                LLMFailure(
+                LLMFailureRecord(
                     call_point=event.call_point,
                     provider=event.provider,
                     error_type=event.error_type,
@@ -71,7 +71,7 @@ class LLMFailureRepo:
         status: str | None = None,
         since: datetime | None = None,
         limit: int = 50,
-    ) -> list[LLMFailure]:
+    ) -> list[LLMFailureRecord]:
         """Query LLM failure records with optional filters.
 
         Args:
@@ -87,14 +87,14 @@ class LLMFailureRepo:
 
         limit = min(limit, 200)
 
-        stmt = select(LLMFailure).order_by(LLMFailure.created_at.desc()).limit(limit)
+        stmt = select(LLMFailureRecord).order_by(LLMFailureRecord.created_at.desc()).limit(limit)
 
         if call_point:
-            stmt = stmt.where(LLMFailure.call_point == call_point)
+            stmt = stmt.where(LLMFailureRecord.call_point == call_point)
         if status:
-            stmt = stmt.where(LLMFailure.error_type == status)
+            stmt = stmt.where(LLMFailureRecord.error_type == status)
         if since:
-            stmt = stmt.where(LLMFailure.created_at >= since)
+            stmt = stmt.where(LLMFailureRecord.created_at >= since)
 
         async with self._pool.session() as session:
             result = await session.execute(stmt)
@@ -112,15 +112,15 @@ class LLMFailureRepo:
         from sqlalchemy import func, select
 
         stmt = select(
-            LLMFailure.call_point,
-            LLMFailure.error_type,
+            LLMFailureRecord.call_point,
+            LLMFailureRecord.error_type,
             func.count().label("count"),
         )
 
         if since:
-            stmt = stmt.where(LLMFailure.created_at >= since)
+            stmt = stmt.where(LLMFailureRecord.created_at >= since)
 
-        stmt = stmt.group_by(LLMFailure.call_point, LLMFailure.error_type)
+        stmt = stmt.group_by(LLMFailureRecord.call_point, LLMFailureRecord.error_type)
 
         async with self._pool.session() as session:
             result = await session.execute(stmt)
@@ -136,9 +136,13 @@ class LLMFailureRepo:
 
         # Get last failure timestamp
         last_failure_at: str | None = None
-        last_stmt = select(LLMFailure.created_at).order_by(LLMFailure.created_at.desc()).limit(1)
+        last_stmt = (
+            select(LLMFailureRecord.created_at)
+            .order_by(LLMFailureRecord.created_at.desc())
+            .limit(1)
+        )
         if since:
-            last_stmt = last_stmt.where(LLMFailure.created_at >= since)
+            last_stmt = last_stmt.where(LLMFailureRecord.created_at >= since)
 
         async with self._pool.session() as session:
             last_result = await session.execute(last_stmt)
@@ -164,7 +168,9 @@ class LLMFailureRepo:
         """
         cutoff = datetime.now(UTC) - timedelta(days=days)
         async with self._pool.session() as session:
-            result = await session.execute(delete(LLMFailure).where(LLMFailure.created_at < cutoff))
+            result = await session.execute(
+                delete(LLMFailureRecord).where(LLMFailureRecord.created_at < cutoff)
+            )
             await session.commit()
             removed = result.rowcount
 

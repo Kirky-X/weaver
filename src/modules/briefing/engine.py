@@ -17,8 +17,11 @@ from modules.briefing.scorer import BriefingScorer
 log = get_logger(__name__)
 
 
-class BriefingEngine:
-    """Generate daily briefings from recent articles."""
+class DailyBriefingEngine:
+    """Generate daily briefings from recent articles.
+
+    Implements: Briefing generation with five-dimensional weighted scoring.
+    """
 
     def __init__(
         self,
@@ -47,7 +50,9 @@ class BriefingEngine:
             return {"briefing_date": target_date, "items": []}
 
         for article in articles:
-            article["_score"] = self._scorer.score(article)
+            score, breakdown = self._scorer.score(article)
+            article["_score"] = score
+            article["score_breakdown"] = breakdown
 
         articles.sort(key=lambda a: a.get("_score", 0), reverse=True)
 
@@ -70,6 +75,7 @@ class BriefingEngine:
                     "article_id": a.get("article_id") or a.get("id"),
                     "category": a.get("category"),
                     "score": a.get("_score", 0),
+                    "score_breakdown": a.get("score_breakdown"),
                 }
                 for i, a in enumerate(selected)
             ],
@@ -136,8 +142,8 @@ class BriefingEngine:
 
                 briefing = DailyBriefing(
                     briefing_date=briefing_date,
-                    title=item.get("briefing_title") if items else None,
-                    summary=item.get("briefing_summary") if items else None,
+                    title=items[0].get("briefing_title") if items else None,
+                    summary=items[0].get("briefing_summary") if items else None,
                     status="generated",
                     total_items=len(items),
                 )
@@ -149,7 +155,7 @@ class BriefingEngine:
                         briefing_id=briefing.id,
                         article_id=item.get("article_id") or item.get("id"),
                         rank=i + 1,
-                        score=item.get("score", 0.0),
+                        score=item.get("score", 0.0) or item.get("_score", 0.0),
                         score_breakdown=item.get("score_breakdown"),
                         category=item.get("category"),
                         reason=item.get("reason"),
@@ -161,3 +167,7 @@ class BriefingEngine:
         except Exception as exc:
             log.error("persist_briefing_failed", error=str(exc))
             return 0
+
+
+# Backward-compatible alias
+BriefingEngine = DailyBriefingEngine

@@ -1,5 +1,17 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Tests for CHECK constraints and GIN indexes (Task 7)."""
+"""Tests for CHECK constraints and GIN indexes (Task 7).
+
+Verifies:
+- document_type CHECK constraint with correct values
+- shift_type CHECK constraint with correct values
+- daily_briefing_items.rank CHECK(1-10)
+- daily_briefing_items UNIQUE(briefing_id, article_id) and UNIQUE(briefing_id, rank)
+- daily_briefings.status CHECK
+- doc_metadata GIN index
+- community_vectors title GIN index
+- emotion_type ENUM includes 兴奋
+- interval_minutes CHECK(5-1440)
+"""
 
 from __future__ import annotations
 
@@ -10,9 +22,21 @@ from core.db.models import (
     CommunityVector,
     DailyBriefing,
     DailyBriefingItem,
+    EmotionType,
     SentimentShift,
-    Source,
+    SourceConfig as SourceRow,
 )
+
+
+def _get_constraint(model, constraint_type: str, name_contains: str):
+    """Get a specific constraint from a model by type and name pattern."""
+    for constraint in model.__table__.constraints:
+        if (
+            constraint.__class__.__name__ == constraint_type
+            and name_contains in (constraint.name or "").lower()
+        ):
+            return constraint
+    return None
 
 
 def _get_constraint_names(model, constraint_type: str) -> set[str]:
@@ -35,14 +59,32 @@ def _get_index_names(model) -> set[str]:
 
 
 class TestDocumentTypeCheckConstraint:
-    """document_type SHALL only allow valid values."""
+    """document_type SHALL only allow valid values per design doc."""
 
     def test_document_type_check_exists(self) -> None:
         """ArticleCore SHALL have a CHECK constraint on document_type."""
         check_names = _get_constraint_names(ArticleCore, "CheckConstraint")
-        assert any("document_type" in name.lower() for name in check_names), (
-            f"No document_type CHECK constraint found in ArticleCore. " f"Existing: {check_names}"
-        )
+        assert any(
+            "document_type" in name.lower() for name in check_names
+        ), f"No document_type CHECK constraint found in ArticleCore. Existing: {check_names}"
+
+    def test_document_type_values_match_spec(self) -> None:
+        """document_type CHECK SHALL include design doc values."""
+        constraint = _get_constraint(ArticleCore, "CheckConstraint", "document_type")
+        assert constraint is not None
+        sql_text = str(constraint.sqltext)
+        expected_values = [
+            "news",
+            "policy",
+            "tweet",
+            "wechat",
+            "blog",
+            "report",
+            "pdf_doc",
+            "social_post",
+        ]
+        for val in expected_values:
+            assert val in sql_text, f"document_type CHECK missing '{val}' in: {sql_text}"
 
 
 # ---------------------------------------------------------------------------
@@ -51,14 +93,23 @@ class TestDocumentTypeCheckConstraint:
 
 
 class TestShiftTypeCheckConstraint:
-    """shift_type SHALL only allow valid values."""
+    """shift_type SHALL only allow valid values per design doc."""
 
     def test_shift_type_check_exists(self) -> None:
         """SentimentShift SHALL have a CHECK constraint on shift_type."""
         check_names = _get_constraint_names(SentimentShift, "CheckConstraint")
-        assert any("shift_type" in name.lower() for name in check_names), (
-            f"No shift_type CHECK constraint found in SentimentShift. " f"Existing: {check_names}"
-        )
+        assert any(
+            "shift_type" in name.lower() for name in check_names
+        ), f"No shift_type CHECK constraint found in SentimentShift. Existing: {check_names}"
+
+    def test_shift_type_values_match_spec(self) -> None:
+        """shift_type CHECK SHALL include design doc values."""
+        constraint = _get_constraint(SentimentShift, "CheckConstraint", "shift_type")
+        assert constraint is not None
+        sql_text = str(constraint.sqltext)
+        expected_values = ["mean_shift", "cumulative_drift", "variance_change"]
+        for val in expected_values:
+            assert val in sql_text, f"shift_type CHECK missing '{val}' in: {sql_text}"
 
 
 # ---------------------------------------------------------------------------
@@ -72,13 +123,20 @@ class TestRankCheckConstraint:
     def test_rank_check_exists(self) -> None:
         """DailyBriefingItem SHALL have a CHECK constraint on rank (1-10)."""
         check_names = _get_constraint_names(DailyBriefingItem, "CheckConstraint")
-        assert any("rank" in name.lower() for name in check_names), (
-            f"No rank CHECK constraint found in DailyBriefingItem. " f"Existing: {check_names}"
-        )
+        assert any(
+            "rank" in name.lower() for name in check_names
+        ), f"No rank CHECK constraint found in DailyBriefingItem. Existing: {check_names}"
+
+    def test_rank_check_range(self) -> None:
+        """rank CHECK SHALL enforce range 1-10."""
+        constraint = _get_constraint(DailyBriefingItem, "CheckConstraint", "rank")
+        assert constraint is not None
+        sql_text = str(constraint.sqltext)
+        assert "1" in sql_text and "10" in sql_text, f"rank CHECK not 1-10: {sql_text}"
 
 
 # ---------------------------------------------------------------------------
-# 7.4-7.5: Already exist (verified in models.py)
+# 7.4-7.5: UNIQUE constraints
 # ---------------------------------------------------------------------------
 
 
@@ -97,7 +155,7 @@ class TestExistingUniqueConstraints:
 
 
 # ---------------------------------------------------------------------------
-# 7.6: Already exists (verified in models.py)
+# 7.6: daily_briefings.status CHECK
 # ---------------------------------------------------------------------------
 
 
@@ -108,6 +166,14 @@ class TestBriefingStatusCheckConstraint:
         """DailyBriefing SHALL have a CHECK constraint on status."""
         check_names = _get_constraint_names(DailyBriefing, "CheckConstraint")
         assert "chk_briefing_status" in check_names
+
+    def test_status_values_match_spec(self) -> None:
+        """status CHECK SHALL include draft, published, archived."""
+        constraint = _get_constraint(DailyBriefing, "CheckConstraint", "briefing_status")
+        assert constraint is not None
+        sql_text = str(constraint.sqltext)
+        for val in ["draft", "published", "archived"]:
+            assert val in sql_text, f"status CHECK missing '{val}' in: {sql_text}"
 
 
 # ---------------------------------------------------------------------------
@@ -123,7 +189,7 @@ class TestDocMetadataGinIndex:
         index_names = _get_index_names(ArticleCore)
         assert any(
             "doc_metadata" in name.lower() or "metadata" in name.lower() for name in index_names
-        ), (f"No doc_metadata GIN index found in ArticleCore. " f"Existing: {index_names}")
+        ), f"No doc_metadata GIN index found in ArticleCore. Existing: {index_names}"
 
 
 # ---------------------------------------------------------------------------
@@ -137,13 +203,13 @@ class TestCommunityVectorTitleGinIndex:
     def test_title_gin_index_exists(self) -> None:
         """CommunityVector SHALL have a GIN index on title."""
         index_names = _get_index_names(CommunityVector)
-        assert any("title" in name.lower() for name in index_names), (
-            f"No title GIN index found in CommunityVector. " f"Existing: {index_names}"
-        )
+        assert any(
+            "title" in name.lower() for name in index_names
+        ), f"No title GIN index found in CommunityVector. Existing: {index_names}"
 
 
 # ---------------------------------------------------------------------------
-# 7.9: emotion_type ENUM includes 兴奋 (already exists, verify)
+# 7.9: emotion_type ENUM includes 兴奋
 # ---------------------------------------------------------------------------
 
 
@@ -152,10 +218,26 @@ class TestEmotionTypeEnum:
 
     def test_excited_value_exists(self) -> None:
         """EmotionType SHALL include 兴奋 value."""
-        from core.db.models import EmotionType
-
         assert hasattr(EmotionType, "EXCITED")
         assert EmotionType.EXCITED.value == "兴奋"
+
+    def test_all_ten_values(self) -> None:
+        """EmotionType SHALL have all 10 values per design doc."""
+        expected_values = [
+            "乐观",
+            "振奋",
+            "兴奋",
+            "期待",
+            "平静",
+            "客观",
+            "担忧",
+            "悲观",
+            "愤怒",
+            "恐慌",
+        ]
+        actual_values = [e.value for e in EmotionType]
+        for val in expected_values:
+            assert val in actual_values, f"EmotionType missing '{val}'"
 
 
 # ---------------------------------------------------------------------------
@@ -167,8 +249,17 @@ class TestIntervalMinutesCheckConstraint:
     """interval_minutes SHALL be between 5 and 1440."""
 
     def test_interval_minutes_check_exists(self) -> None:
-        """Source SHALL have a CHECK constraint on interval_minutes (5-1440)."""
-        check_names = _get_constraint_names(Source, "CheckConstraint")
-        assert any("interval" in name.lower() for name in check_names), (
-            f"No interval_minutes CHECK constraint found in Source. " f"Existing: {check_names}"
-        )
+        """SourceConfig SHALL have a CHECK constraint on interval_minutes (5-1440)."""
+        check_names = _get_constraint_names(SourceRow, "CheckConstraint")
+        assert any(
+            "interval" in name.lower() for name in check_names
+        ), f"No interval_minutes CHECK constraint found in SourceConfig. Existing: {check_names}"
+
+    def test_interval_minutes_range(self) -> None:
+        """interval_minutes CHECK SHALL enforce range 5-1440."""
+        constraint = _get_constraint(SourceRow, "CheckConstraint", "interval")
+        assert constraint is not None
+        sql_text = str(constraint.sqltext)
+        assert (
+            "5" in sql_text and "1440" in sql_text
+        ), f"interval_minutes CHECK not 5-1440: {sql_text}"

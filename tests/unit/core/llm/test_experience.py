@@ -146,8 +146,8 @@ class TestThompsonSampling:
     def test_alpha_increases_with_success(self, store_with_warmup):
         """Successful calls increase alpha parameter."""
         exp = store_with_warmup.get_experience("classifier", "aiping", "GLM-Z1")
-        assert exp.thompson_alpha == 96.0  # 95 + 1
-        assert exp.thompson_beta == 6.0  # 5 + 1
+        assert exp.thompson_alpha == 97.0  # 95 + 2 (prior alpha=2)
+        assert exp.thompson_beta == 7.0  # 5 + 2 (prior beta=2)
 
 
 class TestWarmup:
@@ -164,5 +164,5 @@ class TestWarmup:
     def test_warmup_sets_thompson_params(self, store_with_warmup):
         """Warmup data sets correct Thompson params."""
         exp = store_with_warmup.get_experience("classifier", "aiping", "GLM-Z1")
-        assert exp.thompson_alpha == 96.0
-        assert exp.thompson_beta == 6.0
+        assert exp.thompson_alpha == 97.0  # 95 + 2 (prior alpha=2)
+        assert exp.thompson_beta == 7.0  # 5 + 2 (prior beta=2)

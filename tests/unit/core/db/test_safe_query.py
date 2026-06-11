@@ -234,7 +234,7 @@ class TestValidateSQLIdentifierIntegration:
             "source_authorities",
             "llm_failures",
             "llm_usage",
-            "sources",
+            "source_configs",
             "entities",
             "relationships",
         ]

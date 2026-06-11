@@ -489,9 +489,11 @@ class ContainerLifecycleMixin:
             )
 
         # Analytics - Daily Briefing Generation
+        from zoneinfo import ZoneInfo
+
         scheduler.add_job(
             jobs.generate_daily_briefing,
-            CronTrigger(hour=7, minute=0),
+            CronTrigger(hour=7, minute=0, timezone=ZoneInfo("Asia/Shanghai")),
             id="daily_briefing_generation",
             name="Generate daily intelligence briefing",
             max_instances=1,
@@ -751,7 +753,7 @@ class ContainerLifecycleMixin:
     async def init_briefing_engine(self) -> Any | None:
         """Initialize daily briefing engine."""
         from core.observability import get_logger
-        from modules.briefing.engine import BriefingEngine
+        from modules.briefing.engine import DailyBriefingEngine
 
         log = get_logger(__name__)
         if self._briefing_engine is not None:
@@ -759,7 +761,7 @@ class ContainerLifecycleMixin:
 
         try:
             pool = self.relational_pool()
-            self._briefing_engine = BriefingEngine(pool=pool)
+            self._briefing_engine = DailyBriefingEngine(pool=pool)
             log.info("briefing_engine_initialized")
             return self._briefing_engine
         except Exception as exc:

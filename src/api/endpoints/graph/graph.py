@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import urllib.parse
+from collections import deque
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -350,10 +351,32 @@ async def traverse_graph(
             )
         )
 
+    # Compute depth_reached: from paths if available, otherwise BFS from start entity
+    if max_depth_found == 0 and total_edges > 0:
+        # Build adjacency list from all result edges for BFS
+        adj: dict[str, set[str]] = {}
+        for item in results:
+            for e in item.get("edges", []):
+                src = e.get("source", "")
+                tgt = e.get("target", "")
+                if src and tgt:
+                    adj.setdefault(src, set()).add(tgt)
+                    adj.setdefault(tgt, set()).add(src)
+        # BFS from start entity to find actual depth reached
+        visited = {request.start_entity}
+        queue = deque([(request.start_entity, 0)])
+        while queue:
+            node, depth = queue.popleft()
+            max_depth_found = max(max_depth_found, depth)
+            for neighbor in adj.get(node, set()):
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append((neighbor, depth + 1))
+
     statistics = TraverseStatistics(
         nodes_visited=total_nodes,
         edges_traversed=total_edges,
-        depth_reached=max_depth_found if max_depth_found > 0 else request.max_depth,
+        depth_reached=max_depth_found,
     )
 
     return success_response(TraverseResponse(results=result_items, statistics=statistics))

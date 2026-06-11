@@ -7,6 +7,7 @@ dimensions, with Thompson Sampling exploration bonus.
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -82,6 +83,7 @@ class ModelSelector:
         default_factory=lambda: {mode: WeightConfig(**w) for mode, w in DEFAULT_WEIGHTS.items()}
     )
     cost_per_model: dict[str, float] = field(default_factory=dict)
+    exploration_weight: float = 0.15
 
     def select(
         self,
@@ -117,7 +119,13 @@ class ModelSelector:
             )
 
         # Phase 3: Score and sort
-        return self._score_and_rank(call_point, capable, mode)
+        ranked = self._score_and_rank(call_point, capable, mode)
+
+        # Phase 4: Exploration — with probability exploration_weight, shuffle results
+        if self.exploration_weight > 0.0 and random.random() < self.exploration_weight:
+            random.shuffle(ranked)
+
+        return ranked
 
     def _filter_by_circuit_breaker(self, candidates: list[Label]) -> list[Label]:
         """Exclude labels belonging to providers with OPEN circuit breakers."""

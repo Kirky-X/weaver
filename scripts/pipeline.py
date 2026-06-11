@@ -520,7 +520,7 @@ async def clear_databases(server_ctx: ServerContext) -> None:
         "llm_usage_hourly",
         "pending_sync",
         "unknown_relation_types",
-        "sources",
+        "source_configs",
     ]
 
     async with pool.session_context() as session:

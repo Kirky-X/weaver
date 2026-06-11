@@ -16,7 +16,7 @@ log = get_logger(__name__)
 # Schema queries ordered by dependency (no FK in DuckDB, but logical order)
 SCHEMA_QUERIES = [
     # ── Sources ────────────────────────────────────────────────
-    """CREATE TABLE IF NOT EXISTS sources
+    """CREATE TABLE IF NOT EXISTS source_configs
     (
         id
         VARCHAR
@@ -182,15 +182,15 @@ SCHEMA_QUERIES = [
         synced_at TIMESTAMP
                              WITH TIME ZONE
                                  )""",
-    # ── LLM Failures ────────────────────────────────────────────
-    """CREATE TABLE IF NOT EXISTS llm_failures
+    # ── LLM Failure Records ─────────────────────────────────────
+    """CREATE TABLE IF NOT EXISTS llm_failure_records
     (
         id
         BIGINT
         DEFAULT
         nextval
        (
-        'llm_failures_seq'
+        'llm_failure_records_seq'
        ) PRIMARY KEY,
         call_point VARCHAR,
         provider VARCHAR,
@@ -395,7 +395,7 @@ SCHEMA_QUERIES = [
 SEQUENCE_QUERIES = [
     "CREATE SEQUENCE IF NOT EXISTS source_authorities_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS pending_sync_seq START 1",
-    "CREATE SEQUENCE IF NOT EXISTS llm_failures_seq START 1",
+    "CREATE SEQUENCE IF NOT EXISTS llm_failure_records_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS llm_usage_hourly_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS entity_vectors_seq START 1",
     "CREATE SEQUENCE IF NOT EXISTS relation_types_seq START 1",

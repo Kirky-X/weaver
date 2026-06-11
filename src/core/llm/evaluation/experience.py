@@ -49,6 +49,7 @@ class ExperienceStore:
         event_bus: EventBus,
         warmup_data: dict[str, dict[str, Any]] | None = None,
         warmup_calls: int = 20,
+        exploration_weight: float = 0.15,
     ) -> None:
         """Initialize the experience store.
 
@@ -58,6 +59,8 @@ class ExperienceStore:
                 Format: {"{call_point}.{provider}.{model}": {"call_count": ..., ...}}
             warmup_calls: Number of calls per call_point before switching
                 from round-robin to Thompson Sampling. Default: 20.
+            exploration_weight: Probability of random exploration after warmup.
+                Default: 0.15 (15%).
         """
         self._experiences: dict[str, _ModelExperience] = {}
         self._lock = asyncio.Lock()
@@ -65,6 +68,7 @@ class ExperienceStore:
         self._warmup_calls = warmup_calls
         self._warmup_counts: dict[str, int] = {}
         self._round_robin_indices: dict[str, int] = {}
+        self._exploration_weight = exploration_weight
 
         # Warmup from historical data
         if warmup_data:
@@ -292,8 +296,8 @@ class ExperienceStore:
             self._warmup_counts[warmup_key] = current_count + 1
             return selected
 
-        # 15% random exploration probability
-        if random.random() < 0.15:
+        # Random exploration probability
+        if random.random() < self._exploration_weight:
             return random.choice(providers)
 
         # Thompson Sampling after warmup

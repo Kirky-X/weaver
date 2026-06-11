@@ -120,9 +120,9 @@ class TestAnalyticsLLMFailureRepoQuery:
     @pytest.mark.asyncio
     async def test_query_with_filters(self, repo, mock_pool):
         """Test query() with filters."""
-        from core.db import LLMFailure
+        from core.db import LLMFailureRecord
 
-        mock_failure = MagicMock(spec=LLMFailure)
+        mock_failure = MagicMock(spec=LLMFailureRecord)
         mock_failure.call_point = "classifier"
 
         mock_session = AsyncMock()

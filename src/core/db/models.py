@@ -308,6 +308,8 @@ class ArticleCore(Base):
             "doc_metadata",
             postgresql_using="gin",
         ),
+        # ── Composite indexes ──
+        Index("idx_core_document_type_publish", "document_type", publish_time.desc()),
     )
 
 
@@ -389,6 +391,12 @@ class ArticleAnalysis(Base):
             "idx_articles_is_news",
             "is_news",
             postgresql_where=text("is_news = true"),
+        ),
+        # GIN index for JSONB queries on data_conflicts
+        Index(
+            "idx_core_data_conflicts_gin",
+            "data_conflicts",
+            postgresql_using="gin",
         ),
     )
 
@@ -558,6 +566,14 @@ class Article(Base):
         Index("idx_articles_host_publish", "source_host", publish_time.desc()),
         Index("idx_articles_status_created", "persist_status", created_at.asc()),
         Index("idx_articles_task_status", "task_id", "persist_status"),
+        # GIN index for JSONB queries on data_conflicts
+        Index(
+            "idx_articles_data_conflicts_gin",
+            "data_conflicts",
+            postgresql_using="gin",
+        ),
+        # Composite index for document_type + publish_time queries
+        Index("idx_articles_document_type_publish", "document_type", publish_time.desc()),
     )
 
 
@@ -658,10 +674,10 @@ class SourceAuthority(Base):
     )
 
 
-class LLMFailure(Base):
+class LLMFailureRecord(Base):
     """LLM request failure record for persistent logging and 3-day rolling cleanup."""
 
-    __tablename__ = "llm_failures"
+    __tablename__ = "llm_failure_records"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     call_point: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -684,11 +700,15 @@ class LLMFailure(Base):
     )
 
     __table_args__ = (
-        Index("idx_llm_failures_created", "created_at"),
-        Index("idx_llm_failures_article", "article_id"),
-        Index("idx_llm_failures_call_point", "call_point"),
-        Index("idx_llm_failures_provider", "provider"),
+        Index("idx_llm_failure_records_created", "created_at"),
+        Index("idx_llm_failure_records_article", "article_id"),
+        Index("idx_llm_failure_records_call_point", "call_point"),
+        Index("idx_llm_failure_records_provider", "provider"),
     )
+
+
+# Backward-compatible alias
+LLMFailure = LLMFailureRecord
 
 
 class PendingSync(Base):
@@ -721,10 +741,13 @@ class PendingSync(Base):
     )
 
 
-class Source(Base):
-    """News source configuration with preset credibility."""
+class SourceConfig(Base):
+    """News source configuration with preset credibility.
 
-    __tablename__ = "sources"
+    Implements: SourceRepository
+    """
+
+    __tablename__ = "source_configs"
 
     id: Mapped[str] = mapped_column(String(100), primary_key=True)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -753,15 +776,15 @@ class Source(Base):
     __table_args__ = (
         CheckConstraint(
             "credibility >= 0 AND credibility <= 1",
-            name="chk_sources_credibility_range",
+            name="chk_source_configs_credibility_range",
         ),
         CheckConstraint(
             "tier >= 1 AND tier <= 3",
-            name="chk_sources_tier_range",
+            name="chk_source_configs_tier_range",
         ),
         CheckConstraint(
             "interval_minutes >= 5 AND interval_minutes <= 1440",
-            name="chk_sources_interval_minutes_range",
+            name="chk_source_configs_interval_minutes_range",
         ),
     )
 
@@ -1076,6 +1099,8 @@ class AuditLog(Base):
     target_type: Mapped[str | None] = mapped_column(String(32))
     target_id: Mapped[str | None] = mapped_column(Text)
     detail: Mapped[dict[str, Any] | None] = mapped_column(JSONCompatible)
+    # NOTE: Design doc specifies INET type, but kept as String(45) for DuckDB compatibility.
+    # IPv6 addresses can be up to 45 chars. INET would break DuckDB fallback.
     client_ip: Mapped[str | None] = mapped_column(String(45))
     user_agent: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(

@@ -21,12 +21,12 @@ def _get_analytics_storage():
 
 
 def _get_briefing_engine():
-    """Lazy import and create BriefingEngine from container."""
+    """Lazy import and create DailyBriefingEngine from container."""
     from api.dependencies import get_relational_pool
-    from modules.briefing.engine import BriefingEngine
+    from modules.briefing.engine import DailyBriefingEngine
 
     pool = get_relational_pool()
-    return BriefingEngine(pool=pool)
+    return DailyBriefingEngine(pool=pool)
 
 
 @router.get("/shifts", response_model=APIResponse)
@@ -58,6 +58,7 @@ async def get_briefings(
 
     Returns a list of generated daily briefings, optionally filtered by date.
     Results are ordered by generation time (newest first).
+    Each briefing includes its items with score_breakdown.
     """
     try:
         from datetime import date as date_type
@@ -69,8 +70,9 @@ async def get_briefings(
 
         async with pool.session_context() as session:
             from sqlalchemy import select
+            from sqlalchemy.orm import selectinload
 
-            query = select(DailyBriefing)
+            query = select(DailyBriefing).options(selectinload(DailyBriefing.items))
             if date:
                 target_date = date_type.fromisoformat(date)
                 query = query.where(DailyBriefing.briefing_date == target_date)
@@ -87,6 +89,17 @@ async def get_briefings(
                     "status": r.status,
                     "total_items": r.total_items,
                     "generated_at": r.generated_at.isoformat() if r.generated_at else None,
+                    "items": [
+                        {
+                            "rank": item.rank,
+                            "article_id": str(item.article_id),
+                            "category": item.category,
+                            "score": float(item.score) if item.score else None,
+                            "score_breakdown": item.score_breakdown,
+                            "reason": item.reason,
+                        }
+                        for item in r.items
+                    ],
                 }
                 for r in rows
             ]

@@ -216,3 +216,139 @@ class TestTraverseBasic:
         assert call_kwargs["return_paths"] is False
         assert call_kwargs["mode"] == "full"
         assert call_kwargs["min_confidence"] is None
+
+
+class TestTraverseStatistics:
+    """Test that traverse endpoint populates statistics correctly."""
+
+    def test_statistics_populated_with_paths(self, client, auth_headers, mock_graph_repo):
+        """Statistics SHALL be populated when paths are returned."""
+        mock_graph_repo.traverse = AsyncMock(return_value=SAMPLE_TRAVERSE_RESULT)
+
+        request_data = {
+            "start_entity": "EntityA",
+            "max_depth": 3,
+            "return_paths": True,
+        }
+        response = client.post("/graph/traverse", json=request_data, headers=auth_headers)
+
+        data = assert_api_response(response)
+        stats = data["data"]["statistics"]
+        assert stats["nodes_visited"] == 2
+        assert stats["edges_traversed"] == 1
+        assert stats["depth_reached"] == 1  # EntityA -> EntityB = 1 hop
+
+    def test_statistics_populated_without_paths(self, client, auth_headers, mock_graph_repo):
+        """Statistics SHALL be populated even when paths are not returned (BFS fallback)."""
+        result_without_paths = [
+            {
+                "nodes": [
+                    {"id": "e1", "canonical_name": "EntityA", "type": "PERSON"},
+                    {"id": "e2", "canonical_name": "EntityB", "type": "ORG"},
+                ],
+                "edges": [
+                    {"source": "EntityA", "target": "EntityB", "relation_type": "WORKS_AT"},
+                ],
+                "paths": None,
+            }
+        ]
+        mock_graph_repo.traverse = AsyncMock(return_value=result_without_paths)
+
+        request_data = {
+            "start_entity": "EntityA",
+            "max_depth": 3,
+        }
+        response = client.post("/graph/traverse", json=request_data, headers=auth_headers)
+
+        data = assert_api_response(response)
+        stats = data["data"]["statistics"]
+        assert stats["nodes_visited"] == 2
+        assert stats["edges_traversed"] == 1
+        assert stats["depth_reached"] == 1  # BFS from EntityA -> EntityB
+
+    def test_statistics_depth_multi_hop(self, client, auth_headers, mock_graph_repo):
+        """depth_reached SHALL reflect multi-hop traversal depth."""
+        multi_hop_result = [
+            {
+                "nodes": [
+                    {"id": "e1", "canonical_name": "A", "type": "PERSON"},
+                    {"id": "e2", "canonical_name": "B", "type": "ORG"},
+                    {"id": "e3", "canonical_name": "C", "type": "ORG"},
+                ],
+                "edges": [
+                    {"source": "A", "target": "B", "relation_type": "KNOWS"},
+                    {"source": "B", "target": "C", "relation_type": "WORKS_AT"},
+                ],
+                "paths": None,
+            }
+        ]
+        mock_graph_repo.traverse = AsyncMock(return_value=multi_hop_result)
+
+        request_data = {
+            "start_entity": "A",
+            "max_depth": 3,
+        }
+        response = client.post("/graph/traverse", json=request_data, headers=auth_headers)
+
+        data = assert_api_response(response)
+        stats = data["data"]["statistics"]
+        assert stats["nodes_visited"] == 3
+        assert stats["edges_traversed"] == 2
+        assert stats["depth_reached"] == 2  # A -> B -> C = 2 hops
+
+    def test_statistics_empty_results(self, client, auth_headers, mock_graph_repo):
+        """Statistics SHALL default to zeros when no results are found."""
+        mock_graph_repo.traverse = AsyncMock(return_value=[])
+
+        request_data = {
+            "start_entity": "NonExistent",
+            "max_depth": 3,
+        }
+        response = client.post("/graph/traverse", json=request_data, headers=auth_headers)
+
+        data = assert_api_response(response)
+        stats = data["data"]["statistics"]
+        assert stats["nodes_visited"] == 0
+        assert stats["edges_traversed"] == 0
+        assert stats["depth_reached"] == 0
+
+    def test_statistics_depth_from_paths_preferred(self, client, auth_headers, mock_graph_repo):
+        """When paths are available, depth_reached SHALL be computed from paths."""
+        result_with_deep_path = [
+            {
+                "nodes": [
+                    {"id": "e1", "canonical_name": "A", "type": "PERSON"},
+                    {"id": "e2", "canonical_name": "B", "type": "ORG"},
+                    {"id": "e3", "canonical_name": "C", "type": "ORG"},
+                    {"id": "e4", "canonical_name": "D", "type": "ORG"},
+                ],
+                "edges": [
+                    {"source": "A", "target": "B", "relation_type": "KNOWS"},
+                    {"source": "B", "target": "C", "relation_type": "WORKS_AT"},
+                    {"source": "C", "target": "D", "relation_type": "LOCATED_IN"},
+                ],
+                "paths": [
+                    {
+                        "nodes": ["A", "B", "C", "D"],
+                        "edges": [
+                            {"source": "A", "target": "B", "relation_type": "KNOWS"},
+                            {"source": "B", "target": "C", "relation_type": "WORKS_AT"},
+                            {"source": "C", "target": "D", "relation_type": "LOCATED_IN"},
+                        ],
+                    }
+                ],
+            }
+        ]
+        mock_graph_repo.traverse = AsyncMock(return_value=result_with_deep_path)
+
+        request_data = {
+            "start_entity": "A",
+            "max_depth": 5,
+        }
+        response = client.post("/graph/traverse", json=request_data, headers=auth_headers)
+
+        data = assert_api_response(response)
+        stats = data["data"]["statistics"]
+        assert stats["nodes_visited"] == 4
+        assert stats["edges_traversed"] == 3
+        assert stats["depth_reached"] == 3  # A -> B -> C -> D = 3 hops

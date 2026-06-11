@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 
-from core.db.models import Source
+from core.db.models import SourceConfig as SourceConfigRow
 from core.observability.logging import get_logger
 from modules.ingestion.domain.models import SourceConfig
 
@@ -43,7 +43,9 @@ class SourceConfigRepo:
             SourceConfig if found, None otherwise.
         """
         async with self._pool.session() as session:
-            result = await session.execute(select(Source).where(Source.id == source_id))
+            result = await session.execute(
+                select(SourceConfigRow).where(SourceConfigRow.id == source_id)
+            )
             source = result.scalar_one_or_none()
             if source is None:
                 return None
@@ -59,7 +61,9 @@ class SourceConfigRepo:
             SourceConfig if found, None otherwise.
         """
         async with self._pool.session() as session:
-            result = await session.execute(select(Source).where(Source.url == url))
+            result = await session.execute(
+                select(SourceConfigRow).where(SourceConfigRow.url == url)
+            )
             source = result.scalar_one_or_none()
             if source is None:
                 return None
@@ -80,7 +84,9 @@ class SourceConfigRepo:
         async with self._pool.session() as session:
             # Match sources where URL contains the host
             result = await session.execute(
-                select(Source).where(Source.url.contains(host), Source.credibility.is_not(None))
+                select(SourceConfigRow).where(
+                    SourceConfigRow.url.contains(host), SourceConfigRow.credibility.is_not(None)
+                )
             )
             source = result.scalar_one_or_none()
             if source and source.credibility is not None:
@@ -97,10 +103,10 @@ class SourceConfigRepo:
             List of source configurations.
         """
         async with self._pool.session() as session:
-            query = select(Source)
+            query = select(SourceConfigRow)
             if enabled_only:
-                query = query.where(Source.enabled.is_(True))
-            result = await session.execute(query.order_by(Source.name))
+                query = query.where(SourceConfigRow.enabled.is_(True))
+            result = await session.execute(query.order_by(SourceConfigRow.name))
             return [self._to_config(s) for s in result.scalars().all()]
 
     async def upsert(self, config: SourceConfig) -> SourceConfig:
@@ -129,7 +135,7 @@ class SourceConfigRepo:
                 "updated_at": datetime.now(UTC),
             }
 
-            stmt = insert(Source).values(**values)
+            stmt = insert(SourceConfigRow).values(**values)
             stmt = stmt.on_conflict_do_update(
                 index_elements=["id"],
                 set_={
@@ -151,7 +157,9 @@ class SourceConfigRepo:
             await session.commit()
 
             # Fetch the persisted record
-            result = await session.execute(select(Source).where(Source.id == config.id))
+            result = await session.execute(
+                select(SourceConfigRow).where(SourceConfigRow.id == config.id)
+            )
             return self._to_config(result.scalar_one())
 
     async def delete(self, source_id: str) -> bool:
@@ -164,7 +172,9 @@ class SourceConfigRepo:
             True if deleted, False if not found.
         """
         async with self._pool.session() as session:
-            result = await session.execute(select(Source).where(Source.id == source_id))
+            result = await session.execute(
+                select(SourceConfigRow).where(SourceConfigRow.id == source_id)
+            )
             source = result.scalar_one_or_none()
             if source is None:
                 return False
@@ -197,15 +207,17 @@ class SourceConfigRepo:
             values["last_modified"] = last_modified
 
         async with self._pool.session() as session:
-            await session.execute(update(Source).where(Source.id == source_id).values(**values))
+            await session.execute(
+                update(SourceConfigRow).where(SourceConfigRow.id == source_id).values(**values)
+            )
             await session.commit()
 
     @staticmethod
-    def _to_config(source: Source) -> SourceConfig:
+    def _to_config(source: SourceConfigRow) -> SourceConfig:
         """Convert ORM model to dataclass.
 
         Args:
-            source: Source ORM instance.
+            source: SourceConfigRow ORM instance.
 
         Returns:
             SourceConfig dataclass instance.

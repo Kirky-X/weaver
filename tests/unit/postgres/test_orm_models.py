@@ -41,11 +41,14 @@ class TestSentimentShiftModel:
         expected = {
             "id",
             "community_id",
+            "community_title",
             "shift_type",
             "direction",
             "magnitude",
             "confidence",
             "detected_at",
+            "window_start",
+            "window_end",
             "before_avg",
             "after_avg",
             "trigger_article_ids",
@@ -87,7 +90,15 @@ class TestDailyBriefingModel:
 
     def test_columns(self):
         cols = _get_column_names(DailyBriefing)
-        expected = {"id", "briefing_date", "total_items", "generated_at"}
+        expected = {
+            "id",
+            "briefing_date",
+            "title",
+            "summary",
+            "status",
+            "total_items",
+            "generated_at",
+        }
         assert cols == expected
 
     def test_required_fields(self):
@@ -115,7 +126,16 @@ class TestDailyBriefingItemModel:
 
     def test_columns(self):
         cols = _get_column_names(DailyBriefingItem)
-        expected = {"id", "briefing_id", "article_id", "rank", "category", "reason"}
+        expected = {
+            "id",
+            "briefing_id",
+            "article_id",
+            "rank",
+            "score",
+            "score_breakdown",
+            "category",
+            "reason",
+        }
         assert cols == expected
 
     def test_foreign_keys(self):
@@ -174,7 +194,18 @@ class TestCommunityVectorModel:
 
     def test_columns(self):
         cols = _get_column_names(CommunityVector)
-        expected = {"id", "community_id", "embedding", "model_id", "updated_at"}
+        expected = {
+            "id",
+            "community_id",
+            "embedding",
+            "model_id",
+            "title",
+            "summary",
+            "entity_count",
+            "article_count",
+            "rank",
+            "updated_at",
+        }
         assert cols == expected
 
     def test_required_fields(self):

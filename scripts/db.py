@@ -188,7 +188,7 @@ async def _stats_duckdb(settings) -> None:
         # DuckDB tables to check
         tables_to_check = [
             "articles",
-            "sources",
+            "source_configs",
             "article_vectors",
             "entity_vectors",
             "llm_usage_raw",

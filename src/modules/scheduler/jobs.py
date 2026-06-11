@@ -957,9 +957,9 @@ class SchedulerJobs:
         log.info("generate_daily_briefing_start")
 
         try:
-            from modules.briefing.engine import BriefingEngine
+            from modules.briefing.engine import DailyBriefingEngine
 
-            engine = BriefingEngine(pool=self._relational_pool)
+            engine = DailyBriefingEngine(pool=self._relational_pool)
             result = await engine.generate()
 
             log.info(
