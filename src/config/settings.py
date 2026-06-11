@@ -70,7 +70,7 @@ from core.utils.paths import PROJECT_ROOT
 from modules.processing.pipeline.config import PipelineSettings
 
 # Load environment variables from .env file
-load_dotenv(PROJECT_ROOT / ".env", override=True)
+load_dotenv(PROJECT_ROOT / ".env", override=False)
 
 
 class Settings(BaseSettings):

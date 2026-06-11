@@ -7,7 +7,7 @@ They are aggregated in Settings class in settings.py.
 IMPORTANT: These classes use BaseModel (not BaseSettings) because:
 - The parent Settings class handles all environment variable parsing
 - Settings has env_prefix="WEAVER_" and env_nested_delimiter="__"
-- This means WEAVER__POSTGRES__HOST maps to settings.postgres.host
+- This means WEAVER_POSTGRES__HOST maps to settings.postgres.host
 """
 
 from __future__ import annotations
@@ -24,14 +24,14 @@ from core.utils.paths import CONFIG_DIR, DATA_DIR, data_path
 class PostgresSettings(BaseModel):
     """PostgreSQL connection settings.
 
-    Environment variables: WEAVER__POSTGRES__HOST, WEAVER__POSTGRES__PASSWORD, etc.
+    Environment variables: WEAVER_POSTGRES__HOST, WEAVER_POSTGRES__PASSWORD, etc.
     """
 
     host: str = "localhost"
     port: int = 5432
     database: str = "weaver"
     user: str = "postgres"
-    password: str = ""  # Set via WEAVER__POSTGRES__PASSWORD
+    password: str = ""  # Set via WEAVER_POSTGRES__PASSWORD
 
     # Pool settings
     pool_size: int = 20
@@ -47,19 +47,19 @@ class PostgresSettings(BaseModel):
 class Neo4jSettings(BaseModel):
     """Neo4j connection settings.
 
-    Environment variables: WEAVER__NEO4J__URI, WEAVER__NEO4J__USER, WEAVER__NEO4J__PASSWORD, WEAVER__NEO4J__ENABLED
+    Environment variables: WEAVER_NEO4J__URI, WEAVER_NEO4J__USER, WEAVER_NEO4J__PASSWORD, WEAVER_NEO4J__ENABLED
     """
 
     uri: str = "bolt://localhost:7687"
     user: str = "neo4j"
-    password: str = ""  # Set via WEAVER__NEO4J__PASSWORD
+    password: str = ""  # Set via WEAVER_NEO4J__PASSWORD
     enabled: bool = True
 
 
 class DuckDBSettings(BaseModel):
     """DuckDB fallback settings.
 
-    Environment variables: WEAVER__DUCKDB__ENABLED, WEAVER__DUCKDB__DB_PATH
+    Environment variables: WEAVER_DUCKDB__ENABLED, WEAVER_DUCKDB__DB_PATH
     """
 
     enabled: bool = True
@@ -69,7 +69,7 @@ class DuckDBSettings(BaseModel):
 class LadybugSettings(BaseModel):
     """LadybugDB (graph DB) fallback settings.
 
-    Environment variables: WEAVER__LADYBUG__ENABLED, WEAVER__LADYBUG__DB_PATH
+    Environment variables: WEAVER_LADYBUG__ENABLED, WEAVER_LADYBUG__DB_PATH
     """
 
     enabled: bool = True
@@ -79,13 +79,13 @@ class LadybugSettings(BaseModel):
 class RedisSettings(BaseModel):
     """Redis connection settings.
 
-    Environment variables: WEAVER__REDIS__HOST, WEAVER__REDIS__PORT, WEAVER__REDIS__PASSWORD, etc.
+    Environment variables: WEAVER_REDIS__HOST, WEAVER_REDIS__PORT, WEAVER_REDIS__PASSWORD, etc.
     """
 
     host: str = "localhost"
     port: int = 6379
     db: int = 0
-    password: str = ""  # Set via WEAVER__REDIS__PASSWORD (optional)
+    password: str = ""  # Set via WEAVER_REDIS__PASSWORD (optional)
     scan_count: int = 100  # Default Redis SCAN batch size
 
     @property
@@ -99,7 +99,7 @@ class RedisSettings(BaseModel):
 class APISettings(BaseModel):
     """API layer settings.
 
-    Environment variables: WEAVER__API__API_KEY, WEAVER__API__HOST, WEAVER__API__PORT, etc.
+    Environment variables: WEAVER_API__API_KEY, WEAVER_API__HOST, WEAVER_API__PORT, etc.
     """
 
     api_key: str = ""  # Empty default - get_api_key() will generate if not set
@@ -125,7 +125,7 @@ class APISettings(BaseModel):
         log = get_logger(__name__)
         log.info(
             "api_key_generated",
-            message="Generated random API key (set WEAVER__API__API_KEY environment variable to override)",
+            message="Generated random API key (set WEAVER_API__API_KEY environment variable to override)",
             key_prefix=generated[:8] + "...",
         )
         return generated
@@ -139,9 +139,9 @@ class APISettings(BaseModel):
             if environment == "production":
                 raise ValueError(
                     "API_KEY must be set in production environment. "
-                    "Set the WEAVER__API__API_KEY environment variable."
+                    "Set the WEAVER_API__API_KEY environment variable."
                 )
-            warnings.append("Using default API key. Set WEAVER__API__API_KEY for production.")
+            warnings.append("Using default API key. Set WEAVER_API__API_KEY for production.")
 
         if len(actual_key) < 32:
             if environment == "production":
@@ -162,7 +162,7 @@ class APISettings(BaseModel):
         if not self.admin_api_key and environment == "production":
             warnings.append(
                 "Admin API key not configured. Sensitive endpoints (/config) will require regular API key. "
-                "Set WEAVER__API__ADMIN_API_KEY for proper admin access control."
+                "Set WEAVER_API__ADMIN_API_KEY for proper admin access control."
             )
 
         return warnings
@@ -323,7 +323,7 @@ class DedupSettings(BaseModel):
 class ObservabilitySettings(BaseModel):
     """Observability settings (tracing, metrics, logging).
 
-    Environment variables: WEAVER__OBSERVABILITY__OTLP_ENDPOINT
+    Environment variables: WEAVER_OBSERVABILITY__OTLP_ENDPOINT
     """
 
     otlp_endpoint: str = ""
@@ -458,7 +458,7 @@ class PipelineProcessSettings(BaseModel):
 class KnowledgeCacheSettings(BaseModel):
     """Knowledge cluster cache configuration.
 
-    Environment variables: WEAVER__KNOWLEDGE_CACHE__PATH, WEAVER__KNOWLEDGE_CACHE__MAX_QUERIES
+    Environment variables: WEAVER_KNOWLEDGE_CACHE__PATH, WEAVER_KNOWLEDGE_CACHE__MAX_QUERIES
     """
 
     path: str = str(DATA_DIR / ".cache" / "knowledge")
@@ -472,7 +472,7 @@ class KnowledgeCacheSettings(BaseModel):
 class AnalyticsSettings(BaseModel):
     """Analytics configuration for sentiment shift detection.
 
-    Environment variables: WEAVER__ANALYTICS__SHIFT_DETECTION_ENABLED, etc.
+    Environment variables: WEAVER_ANALYTICS__SHIFT_DETECTION_ENABLED, etc.
     """
 
     shift_detection_enabled: bool = True
@@ -495,7 +495,7 @@ class DailyBriefingSettings(BaseModel):
 class FakeNewsDetectorSettings(BaseModel):
     """Fake news detector configuration (5-dimensional feature fusion).
 
-    Environment variables: WEAVER__ANALYTICS__FAKE_NEWS_DETECTOR__ENABLED, etc.
+    Environment variables: WEAVER_ANALYTICS__FAKE_NEWS_DETECTOR__ENABLED, etc.
     """
 
     enabled: bool = True
@@ -524,7 +524,7 @@ class PaddleNLPSentimentSettings(BaseModel):
 class GLiNERSettings(BaseModel):
     """GLiNER zero-shot entity extraction configuration.
 
-    Environment variables: WEAVER__ENTITY_EXTRACTION__GLINER__ENABLED, etc.
+    Environment variables: WEAVER_ENTITY_EXTRACTION__GLINER__ENABLED, etc.
     """
 
     enabled: bool = True
@@ -552,7 +552,7 @@ class HNSWEfSearchSettings(BaseModel):
 class TrafficAnomalySettings(BaseModel):
     """Traffic anomaly detection configuration.
 
-    Environment variables: WEAVER__TRAFFIC_ANOMALY__ENABLED, etc.
+    Environment variables: WEAVER_TRAFFIC_ANOMALY__ENABLED, etc.
     """
 
     enabled: bool = False
