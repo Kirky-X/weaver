@@ -355,6 +355,8 @@ async def search_causal(
     request: Request,
     body: CausalSearchRequest,
     _: str = Depends(verify_api_key),
+    embedding_service: Any | None = Depends(deps.get_embedding_service_optional),
+    intent_classifier: Any | None = Depends(deps.get_intent_classifier_optional),
 ) -> APIResponse[CausalSearchResponse]:
     """Causal reasoning search using MAGMA multi-graph architecture.
 
@@ -368,6 +370,8 @@ async def search_causal(
     Args:
         body: Causal search request with query and parameters.
         _: Verified API key.
+        embedding_service: Embedding service (optional, degrades gracefully).
+        intent_classifier: Intent classifier (optional, degrades gracefully).
 
     Returns:
         Causal chain with explanations and confidence scores.
@@ -391,25 +395,48 @@ async def search_causal(
             confidence_threshold=body.min_confidence,
         )
 
-        # Create mock services for adaptive search
-        class MockEmbeddingService:
-            async def embed(self, text: str) -> list[float]:
-                return [0.1] * 384
+        # Build embedding service: use injected or create zero-vector fallback
+        degraded = embedding_service is None or intent_classifier is None
+        if embedding_service is None:
 
-        class MockIntentClassifier:
-            async def classify(self, query: str):
-                from modules.memory.core.graph_types import IntentType
+            class _FallbackEmbeddingService:
+                async def embed(self, text: str) -> list[float]:
+                    return [0.0] * 384
 
-                class Result:
-                    intent = IntentType.WHY
+                async def embed_batch(self, texts: list[str]) -> list[list[float]]:
+                    return [[0.0] * 384 for _ in texts]
 
-                return Result()
+                def is_ready(self) -> bool:
+                    return False
+
+                def start_loading(self) -> None:
+                    pass
+
+            embedding_svc: Any = _FallbackEmbeddingService()
+        else:
+            embedding_svc = embedding_service
+
+        # Build intent classifier: use injected or default to WHY for causal search
+        if intent_classifier is None:
+
+            class _FallbackIntentClassifier:
+                async def classify(self, query: str):
+                    from modules.memory.core.graph_types import IntentType
+
+                    class _Result:
+                        intent = IntentType.WHY
+
+                    return _Result()
+
+            intent_cls: Any = _FallbackIntentClassifier()
+        else:
+            intent_cls = intent_classifier
 
         engine = AdaptiveSearchEngine(
             temporal_repo=temporal_repo,
             causal_repo=causal_repo,
-            embedding_service=MockEmbeddingService(),
-            intent_classifier=MockIntentClassifier(),
+            embedding_service=embedding_svc,
+            intent_classifier=intent_cls,
             max_depth=body.max_depth,
         )
 
@@ -435,7 +462,7 @@ async def search_causal(
                 answer=f"找到 {len(causal_chain)} 个相关事件的因果链。",
                 causal_chain=causal_chain,
                 confidence=sum(r.get("score", 0) for r in results) / max(len(results), 1),
-                metadata={"depth": body.max_depth},
+                metadata={"depth": body.max_depth, "degraded": degraded},
             )
         )
 

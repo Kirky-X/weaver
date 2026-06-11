@@ -9,7 +9,7 @@ All getters return Protocol types, not concrete implementations.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from fastapi import HTTPException
 
@@ -59,6 +59,8 @@ class Endpoints:
     _llm_usage_repo: LLMUsageRepo | None = None
     _pipeline_service: PipelineServiceImpl | None = None
     _task_registry: InMemoryTaskRegistry | None = None
+    _embedding_service: Any = None
+    _intent_classifier: Any = None
 
     # ── Relational Pool ───────────────────────────────────────────────
 
@@ -238,6 +240,30 @@ class Endpoints:
         """Get cache pool or None if not initialized."""
         return Endpoints._cache
 
+    @staticmethod
+    def get_embedding_service() -> Any:
+        """Get embedding service for search endpoints."""
+        if Endpoints._embedding_service is None:
+            raise HTTPException(503, detail="Embedding service not initialized")
+        return Endpoints._embedding_service
+
+    @staticmethod
+    def get_embedding_service_optional() -> Any | None:
+        """Get embedding service or None if not initialized."""
+        return Endpoints._embedding_service
+
+    @staticmethod
+    def get_intent_classifier() -> Any:
+        """Get intent classifier for search endpoints."""
+        if Endpoints._intent_classifier is None:
+            raise HTTPException(503, detail="Intent classifier not initialized")
+        return Endpoints._intent_classifier
+
+    @staticmethod
+    def get_intent_classifier_optional() -> Any | None:
+        """Get intent classifier or None if not initialized."""
+        return Endpoints._intent_classifier
+
     @classmethod
     def initialize(cls, container: object) -> None:
         """Initialize all endpoints dependencies from container.
@@ -283,6 +309,10 @@ class Endpoints:
         # Pipeline services
         cls._pipeline_service = container.pipeline_service()
         cls._task_registry = container.task_registry()
+
+        # Embedding and intent services (may be None if not configured)
+        cls._embedding_service = getattr(container, "_embedding_service", None)
+        cls._intent_classifier = getattr(container, "_intent_classifier", None)
 
         log.info(
             "endpoints_initialized",
