@@ -22,8 +22,6 @@ Examples:
 
 from __future__ import annotations
 
-import threading
-
 from dotenv import load_dotenv
 from pydantic import Field
 from pydantic_settings import (
@@ -206,30 +204,25 @@ class Settings(BaseSettings):
         return warnings
 
 
-# Global settings instance with thread-safe access
-_settings_instance: Settings | None = None
-_settings_lock = threading.Lock()
-
-
 def get_settings() -> Settings:
-    """Get the global settings instance (thread-safe).
+    """Get the global settings instance.
+
+    Delegates to container.get_settings() for unified singleton management.
+    Creates a new Settings instance if container is not initialized.
 
     Returns:
-        Settings instance, creating on first call.
+        Settings instance.
     """
-    global _settings_instance
-    with _settings_lock:
-        if _settings_instance is None:
-            _settings_instance = Settings()
-        return _settings_instance
+    try:
+        from container import get_settings as container_get_settings
 
+        return container_get_settings()
+    except Exception:
+        from core.observability import get_logger
 
-def set_settings(settings: Settings) -> None:
-    """Set the global settings instance (thread-safe).
-
-    Args:
-        settings: Settings instance to use globally.
-    """
-    global _settings_instance
-    with _settings_lock:
-        _settings_instance = settings
+        log = get_logger(__name__)
+        log.warning(
+            "settings_container_not_initialized",
+            message="Container not initialized when get_settings() called. Creating standalone Settings instance.",
+        )
+        return Settings()
