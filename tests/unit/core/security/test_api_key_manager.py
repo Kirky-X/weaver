@@ -101,12 +101,12 @@ class TestValidateKey:
         added_objects = [call[0][0] for call in session.add.call_args_list]
         api_key_obj = next(obj for obj in added_objects if isinstance(obj, ApiKey))
 
-        # Mock the query to return our ApiKey (validate_key uses scalars().all())
-        mock_result = MagicMock()
-        mock_scalars = MagicMock()
-        mock_scalars.all.return_value = [api_key_obj]
-        mock_result.scalars.return_value = mock_scalars
-        session.execute.return_value = mock_result
+        # New format keys use direct lookup (scalar_one_or_none)
+        mock_direct_result = MagicMock()
+        mock_direct_result.scalar_one_or_none.return_value = api_key_obj
+        # Update result for last_used_at
+        mock_update_result = MagicMock()
+        session.execute.side_effect = [mock_direct_result, mock_update_result]
 
         result = await manager.validate_key(key_value)
         assert result is not None
@@ -117,9 +117,10 @@ class TestValidateKey:
     ) -> None:
         """Invalid key returns None."""
         session = mock_pool.session.return_value
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-        session.execute.return_value = mock_result
+        # Old format key (no key_id prefix) → scan path
+        mock_scan_result = MagicMock()
+        mock_scan_result.scalars.return_value.all.return_value = []
+        session.execute.return_value = mock_scan_result
 
         result = await manager.validate_key("weaver_invalidkey")
         assert result is None

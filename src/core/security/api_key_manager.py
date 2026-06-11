@@ -12,8 +12,9 @@ Implements: Weaver-数据库设计文档 §1.6.3
 
 from __future__ import annotations
 
+import re
 import secrets
-import uuid
+import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -22,9 +23,17 @@ from sqlalchemy import select, update
 
 from core.db import ApiKey
 from core.observability import get_logger
+from core.observability.metrics import metrics
 from core.protocols import RelationalPool
 
 log = get_logger(__name__)
+
+# Prometheus histogram for API key validation duration
+_api_key_validation_duration = metrics.api_key_validation_duration_seconds
+
+# Pattern: weaver_key_{hex_chars}_{secret}
+# key_id format is "key_{token_hex(8)}" = "key_" + 16 hex chars
+_KEY_ID_PREFIX_PATTERN = re.compile(r"^weaver_(key_[0-9a-f]{8,16})_.+$")
 
 
 class ApiKeyManager:
@@ -35,6 +44,24 @@ class ApiKeyManager:
 
     def __init__(self, pool: RelationalPool) -> None:
         self._pool = pool
+
+    @staticmethod
+    def _extract_key_id(key_value: str) -> str | None:
+        """Extract key_id from key_value if it uses the new format.
+
+        New format: weaver_{key_id}_{secret}
+        Old format: weaver_{uuid_hex} (no key_id embedded)
+
+        Args:
+            key_value: Raw API key string.
+
+        Returns:
+            Extracted key_id if new format, None if old format.
+        """
+        if not key_value or not key_value.startswith("weaver_"):
+            return None
+        match = _KEY_ID_PREFIX_PATTERN.match(key_value)
+        return match.group(1) if match else None
 
     @staticmethod
     def _hash_key(key_value: str) -> str:
@@ -81,8 +108,9 @@ class ApiKeyManager:
             Dict with key_id, key_value (show once), scopes, expires_at.
         """
         scopes = scopes or ["search:read"]
-        key_value = f"weaver_{uuid.uuid4().hex}"
         key_id = f"key_{secrets.token_hex(8)}"
+        # New format: weaver_{key_id}_{secret} — enables O(1) direct lookup
+        key_value = f"weaver_{key_id}_{secrets.token_hex(24)}"
         expires_at = datetime.now(UTC) + timedelta(days=expires_in_days)
 
         # Store bcrypt hash — never store raw key
@@ -114,7 +142,8 @@ class ApiKeyManager:
     async def validate_key(self, key_value: str) -> dict[str, Any] | None:
         """Validate an API key and return its info.
 
-        Uses bcrypt comparison to verify the key against stored hashes.
+        Uses key_id extraction for O(1) direct lookup when possible.
+        Falls back to O(n) scan for old-format keys without key_id prefix.
 
         Args:
             key_value: The raw API key to validate.
@@ -122,24 +151,55 @@ class ApiKeyManager:
         Returns:
             Key info dict if valid, None if invalid/expired/revoked.
         """
+        start_time = time.monotonic()
+        extracted_key_id = self._extract_key_id(key_value)
+
         async with self._pool.session() as session:
-            # Fetch all non-revoked, non-expired keys to compare
-            result = await session.execute(
-                select(ApiKey).where(ApiKey.is_revoked == False)  # noqa: E712
-            )
-            candidates = result.scalars().all()
-
             matched_key: ApiKey | None = None
-            for candidate in candidates:
-                if self._verify_key(key_value, candidate.key_hash):
-                    matched_key = candidate
-                    break
+            method: str = "scan"  # default fallback
 
-            if not matched_key:
+            if extracted_key_id is not None:
+                # O(1) direct lookup by key_id
+                method = "direct"
+                result = await session.execute(
+                    select(ApiKey).where(ApiKey.key_id == extracted_key_id)
+                )
+                candidate = result.scalar_one_or_none()
+
+                if candidate is not None:
+                    # Check revoked first
+                    if candidate.is_revoked:
+                        elapsed = time.monotonic() - start_time
+                        _api_key_validation_duration.labels(method=method).observe(elapsed)
+                        return None
+                    # bcrypt verify
+                    if self._verify_key(key_value, candidate.key_hash):
+                        matched_key = candidate
+                    # key_id found but bcrypt mismatch → no fallback, fail fast
+
+            if matched_key is None and extracted_key_id is None:
+                # Old format key: fall back to O(n) scan
+                method = "scan"
+                result = await session.execute(
+                    select(ApiKey).where(ApiKey.is_revoked == False)  # noqa: E712
+                )
+                candidates = result.scalars().all()
+
+                for candidate in candidates:
+                    if self._verify_key(key_value, candidate.key_hash):
+                        matched_key = candidate
+                        break
+
+            if matched_key is None:
+                elapsed = time.monotonic() - start_time
+                _api_key_validation_duration.labels(method=method).observe(elapsed)
                 return None
 
+            # Check expiry
             if matched_key.expires_at < datetime.now(UTC):
                 log.warning("api_key_expired", key_id=matched_key.key_id)
+                elapsed = time.monotonic() - start_time
+                _api_key_validation_duration.labels(method=method).observe(elapsed)
                 return None
 
             # Update last_used_at
@@ -149,6 +209,9 @@ class ApiKeyManager:
                 .values(last_used_at=datetime.now(UTC))
             )
             await session.commit()
+
+            elapsed = time.monotonic() - start_time
+            _api_key_validation_duration.labels(method=method).observe(elapsed)
 
             return {
                 "key_id": matched_key.key_id,
