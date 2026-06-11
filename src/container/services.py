@@ -489,6 +489,10 @@ class ContainerServicesMixin:
         from core.event import EventBus
         from core.llm.config.token_budget import TokenBudgetManager
         from core.observability import get_logger
+        from modules.analytics.fake_news_detector import (
+            FakeNewsDetector,
+            FakeNewsDetectorConfig,
+        )
         from modules.analytics.sentiment_analyzer import (
             SentimentAnalyzer,
             SentimentAnalyzerConfig,
@@ -533,6 +537,13 @@ class ContainerServicesMixin:
                 llm_client=self._llm_client,
             )
 
+            # Create FakeNewsDetector (zero-cost, reuses pipeline state)
+            fake_news_config = FakeNewsDetectorConfig()
+            fake_news_detector = FakeNewsDetector(
+                config=fake_news_config,
+                llm=self._llm_client,
+            )
+
             self._pipeline = Pipeline(
                 llm=self._llm_client,
                 budget=budget,
@@ -554,6 +565,7 @@ class ContainerServicesMixin:
                 cascade_classifier=self._cascade_classifier,
                 gliner_extractor=self._gliner_extractor,
                 mc_sampler=self._mc_sampler,
+                fake_news_detector=fake_news_detector,
                 debug=self._debug_mode,
             )
             log.info("pipeline_initialized")

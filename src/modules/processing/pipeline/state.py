@@ -90,6 +90,11 @@ class PipelineState(TypedDict, total=False):
     # Conflict detection
     data_conflicts: list[dict[str, Any]]
 
+    # Fake news detection
+    fake_news_detection: dict[
+        str, Any
+    ]  # {"fake_score": float, "level": str, "features": dict, ...}
+
     # Error tracking
     error: str
     phase3_error: str

@@ -35,6 +35,7 @@ from modules.processing.nodes.extraction.entity_extractor import EntityExtractor
 from modules.processing.nodes.merging.batch_merger import BatchMergerNode
 from modules.processing.nodes.quality.cleaner import CleanerNode
 from modules.processing.nodes.quality.conflict_detector import ConflictDetectorNode
+from modules.processing.nodes.quality.fake_news_node import FakeNewsDetectorNode
 from modules.processing.nodes.quality.quality_scorer import RuleBasedQualityScorerNode
 from modules.processing.nodes.vectorization.re_vectorize import ReVectorizeNode
 from modules.processing.nodes.vectorization.vectorize import VectorizeNode
@@ -79,6 +80,7 @@ PHASE3_STAGES = {
     "quality_scorer": "phase3_quality_scorer",
     "credibility": "phase3_credibility",
     "entity_extractor": "phase3_entity_extractor",
+    "fake_news_detector": "phase3_fake_news_detector",
     "conflict_detector": "phase3_conflict_detector",
 }
 
@@ -115,6 +117,7 @@ class Pipeline:
         cascade_classifier: Any | None = None,
         gliner_extractor: Any | None = None,
         mc_sampler: Any | None = None,
+        fake_news_detector: Any | None = None,
         debug: bool = False,
     ) -> None:
         self._accepting = True
@@ -187,6 +190,11 @@ class Pipeline:
             article_repo=article_repo,
             vector_repo=vector_repo,
             llm_client=llm,
+        )
+        self._fake_news_node = (
+            FakeNewsDetectorNode(detector=fake_news_detector)
+            if fake_news_detector is not None
+            else None
         )
         self._entity_resolver = entity_resolver
         self._checkpoint_cleanup = CheckpointCleanupNode(cache_client)
@@ -816,6 +824,17 @@ class Pipeline:
             await self._update_processing_stage(
                 state, PHASE3_STAGES["entity_extractor"], pending_updates
             )
+
+            # === Fake News Detector 阶段 ===
+            if self._fake_news_node is not None:
+                start = time.monotonic()
+                state = await self._fake_news_node.execute(state)
+                MetricsCollector.pipeline_stage_latency.labels(stage="fake_news_detector").observe(
+                    time.monotonic() - start
+                )
+                await self._update_processing_stage(
+                    state, PHASE3_STAGES["fake_news_detector"], pending_updates
+                )
 
             # === Conflict Detector 阶段 ===
             start = time.monotonic()
