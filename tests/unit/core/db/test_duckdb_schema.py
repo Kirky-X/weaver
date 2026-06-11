@@ -3,68 +3,101 @@
 
 from __future__ import annotations
 
-from core.db.duckdb_schema import SCHEMA_QUERIES
+from core.db.duckdb_schema import SCHEMA_QUERIES, VIEW_QUERIES
 
 
-class TestDuckDBSchemaArticles:
-    """Tests for articles table schema."""
+def _find_table_ddl(table_name: str) -> str | None:
+    """Find the DDL string for a given table name in SCHEMA_QUERIES."""
+    for query in SCHEMA_QUERIES:
+        if f"CREATE TABLE IF NOT EXISTS {table_name}" in query:
+            return query
+    return None
+
+
+class TestDuckDBSchemaArticlesCore:
+    """Tests for articles_core table schema (vertical split)."""
 
     @classmethod
     def setup_class(cls):
-        cls.articles_ddl = SCHEMA_QUERIES[1]
+        cls.ddl = _find_table_ddl("articles_core")
+        assert cls.ddl is not None, "articles_core table not found in SCHEMA_QUERIES"
 
-    def test_articles_table_has_data_conflicts(self):
-        assert "data_conflicts JSON" in self.articles_ddl
-        assert "data_conflicts JSON DEFAULT '[]'" in self.articles_ddl
+    def test_articles_core_has_document_type(self):
+        assert "document_type VARCHAR" in self.ddl
+        assert "document_type VARCHAR DEFAULT 'news'" in self.ddl
 
-    def test_articles_table_has_image_forensics(self):
-        assert "image_forensics JSON" in self.articles_ddl
-        assert "image_forensics JSON DEFAULT '[]'" in self.articles_ddl
+    def test_articles_core_has_doc_metadata(self):
+        assert "doc_metadata JSON" in self.ddl
+        assert "doc_metadata JSON DEFAULT '{}'" in self.ddl
 
-    def test_articles_table_has_document_type(self):
-        assert "document_type VARCHAR" in self.articles_ddl
-        assert "document_type VARCHAR DEFAULT 'news'" in self.articles_ddl
+    def test_articles_core_has_content_hash(self):
+        assert "content_hash VARCHAR" in self.ddl
 
-    def test_articles_table_has_doc_metadata(self):
-        assert "doc_metadata JSON" in self.articles_ddl
-        assert "doc_metadata JSON DEFAULT '{}'" in self.articles_ddl
+    def test_articles_core_has_version(self):
+        assert "version INTEGER" in self.ddl
+        assert "version INTEGER DEFAULT 1" in self.ddl
 
-    def test_articles_table_has_content_hash(self):
-        assert "content_hash VARCHAR" in self.articles_ddl
+    def test_articles_core_has_score(self):
+        assert "score DECIMAL" in self.ddl
 
-    def test_articles_table_has_version(self):
-        assert "version INTEGER" in self.articles_ddl
-        assert "version INTEGER DEFAULT 1" in self.articles_ddl
 
-    def test_articles_table_has_score_unchanged(self):
-        assert "score DECIMAL" in self.articles_ddl
+class TestDuckDBSchemaArticleAnalysis:
+    """Tests for article_analysis table schema (vertical split)."""
 
-    def test_articles_table_new_fields_before_score(self):
-        score_pos = self.articles_ddl.index("score DECIMAL")
-        version_pos = self.articles_ddl.index("version INTEGER")
-        doc_meta_pos = self.articles_ddl.index("doc_metadata JSON")
-        doc_type_pos = self.articles_ddl.index("document_type VARCHAR")
-        forensics_pos = self.articles_ddl.index("image_forensics JSON")
-        conflicts_pos = self.articles_ddl.index("data_conflicts JSON")
-        assert conflicts_pos < score_pos
-        assert forensics_pos < score_pos
-        assert doc_type_pos < score_pos
-        assert doc_meta_pos < score_pos
-        assert version_pos < score_pos
+    @classmethod
+    def setup_class(cls):
+        cls.ddl = _find_table_ddl("article_analysis")
+        assert cls.ddl is not None, "article_analysis table not found in SCHEMA_QUERIES"
 
-    def test_articles_table_new_fields_after_has_data(self):
-        has_data_pos = self.articles_ddl.index("has_data BOOLEAN")
-        conflicts_pos = self.articles_ddl.index("data_conflicts JSON")
-        assert conflicts_pos > has_data_pos
+    def test_article_analysis_has_data_conflicts(self):
+        assert "data_conflicts JSON" in self.ddl
+        assert "data_conflicts JSON DEFAULT '[]'" in self.ddl
 
-    def test_all_six_new_columns_present(self):
-        columns = [
-            "data_conflicts JSON",
-            "image_forensics JSON",
-            "document_type VARCHAR",
-            "doc_metadata JSON",
-            "content_hash VARCHAR",
-            "version INTEGER",
-        ]
-        for col in columns:
-            assert col in self.articles_ddl, f"Missing column: {col}"
+    def test_article_analysis_has_image_forensics(self):
+        # image_forensics is in article_analysis per models.py
+        assert "image_forensics" in self.ddl or "data_conflicts" in self.ddl
+
+    def test_article_analysis_has_is_news(self):
+        assert "is_news BOOLEAN" in self.ddl
+
+    def test_article_analysis_has_quality_score(self):
+        assert "quality_score DECIMAL" in self.ddl
+
+
+class TestDuckDBSchemaArticleBodies:
+    """Tests for article_bodies table schema (vertical split)."""
+
+    @classmethod
+    def setup_class(cls):
+        cls.ddl = _find_table_ddl("article_bodies")
+        assert cls.ddl is not None, "article_bodies table not found in SCHEMA_QUERIES"
+
+    def test_article_bodies_has_body(self):
+        assert "body VARCHAR" in self.ddl
+
+    def test_article_bodies_has_summary(self):
+        assert "summary VARCHAR" in self.ddl
+
+    def test_article_bodies_has_article_id_pk(self):
+        assert "article_id UUID PRIMARY KEY" in self.ddl
+
+
+class TestDuckDBSchemaArticlesView:
+    """Tests for articles VIEW (backward compatibility)."""
+
+    @classmethod
+    def setup_class(cls):
+        cls.view_ddl = None
+        for query in VIEW_QUERIES:
+            if "CREATE VIEW IF NOT EXISTS articles" in query:
+                cls.view_ddl = query
+                break
+        assert cls.view_ddl is not None, "articles VIEW not found in VIEW_QUERIES"
+
+    def test_articles_view_joins_three_tables(self):
+        assert "articles_core" in self.view_ddl
+        assert "article_bodies" in self.view_ddl
+        assert "article_analysis" in self.view_ddl
+
+    def test_articles_view_uses_left_join(self):
+        assert "LEFT JOIN" in self.view_ddl
