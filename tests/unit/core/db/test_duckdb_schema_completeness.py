@@ -131,9 +131,9 @@ class TestArticlesCoreTable:
     def test_has_column(self, col):
         tables = parse_tables_from_schema()
         assert _has_table(tables, "articles_core"), "articles_core table missing"
-        assert col in tables["articles_core"], (
-            f"Column '{col}' missing from articles_core. " f"Got: {sorted(tables['articles_core'])}"
-        )
+        assert (
+            col in tables["articles_core"]
+        ), f"Column '{col}' missing from articles_core. Got: {sorted(tables['articles_core'])}"
 
     def test_column_count(self):
         tables = parse_tables_from_schema()
@@ -163,10 +163,9 @@ class TestArticleBodiesTable:
     def test_has_column(self, col):
         tables = parse_tables_from_schema()
         assert _has_table(tables, "article_bodies"), "article_bodies table missing"
-        assert col in tables["article_bodies"], (
-            f"Column '{col}' missing from article_bodies. "
-            f"Got: {sorted(tables['article_bodies'])}"
-        )
+        assert (
+            col in tables["article_bodies"]
+        ), f"Column '{col}' missing from article_bodies. Got: {sorted(tables['article_bodies'])}"
 
     def test_column_count(self):
         tables = parse_tables_from_schema()
@@ -324,10 +323,9 @@ class TestDailyBriefingsTable:
     def test_has_column(self, col):
         tables = parse_tables_from_schema()
         assert _has_table(tables, "daily_briefings"), "daily_briefings table missing"
-        assert col in tables["daily_briefings"], (
-            f"Column '{col}' missing from daily_briefings. "
-            f"Got: {sorted(tables['daily_briefings'])}"
-        )
+        assert (
+            col in tables["daily_briefings"]
+        ), f"Column '{col}' missing from daily_briefings. Got: {sorted(tables['daily_briefings'])}"
 
 
 class TestDailyBriefingItemsTable:
@@ -389,9 +387,9 @@ class TestApiKeysTable:
     def test_has_column(self, col):
         tables = parse_tables_from_schema()
         assert _has_table(tables, "api_keys"), "api_keys table missing"
-        assert col in tables["api_keys"], (
-            f"Column '{col}' missing from api_keys. " f"Got: {sorted(tables['api_keys'])}"
-        )
+        assert (
+            col in tables["api_keys"]
+        ), f"Column '{col}' missing from api_keys. Got: {sorted(tables['api_keys'])}"
 
 
 class TestAlertRulesTable:
@@ -421,9 +419,9 @@ class TestAlertRulesTable:
     def test_has_column(self, col):
         tables = parse_tables_from_schema()
         assert _has_table(tables, "alert_rules"), "alert_rules table missing"
-        assert col in tables["alert_rules"], (
-            f"Column '{col}' missing from alert_rules. " f"Got: {sorted(tables['alert_rules'])}"
-        )
+        assert (
+            col in tables["alert_rules"]
+        ), f"Column '{col}' missing from alert_rules. Got: {sorted(tables['alert_rules'])}"
 
 
 class TestAlertEventsTable:
@@ -451,9 +449,9 @@ class TestAlertEventsTable:
     def test_has_column(self, col):
         tables = parse_tables_from_schema()
         assert _has_table(tables, "alert_events"), "alert_events table missing"
-        assert col in tables["alert_events"], (
-            f"Column '{col}' missing from alert_events. " f"Got: {sorted(tables['alert_events'])}"
-        )
+        assert (
+            col in tables["alert_events"]
+        ), f"Column '{col}' missing from alert_events. Got: {sorted(tables['alert_events'])}"
 
 
 class TestArticleVersionsTable:
@@ -521,9 +519,9 @@ class TestAuditLogTable:
     def test_has_column(self, col):
         tables = parse_tables_from_schema()
         assert _has_table(tables, "audit_log"), "audit_log table missing"
-        assert col in tables["audit_log"], (
-            f"Column '{col}' missing from audit_log. " f"Got: {sorted(tables['audit_log'])}"
-        )
+        assert (
+            col in tables["audit_log"]
+        ), f"Column '{col}' missing from audit_log. Got: {sorted(tables['audit_log'])}"
 
 
 class TestLLMCompareHourlyTable:
@@ -577,8 +575,7 @@ class TestArticlesView:
         """An articles VIEW must be defined joining articles_core + article_bodies + article_analysis."""
         views = parse_views_from_module()
         assert "articles" in views, (
-            "articles VIEW is not defined in VIEW_QUERIES. "
-            "Found views: " + ", ".join(sorted(views))
+            "articles VIEW is not defined in VIEW_QUERIES. Found views: " + ", ".join(sorted(views))
             if views
             else "No views found at all."
         )
@@ -692,10 +689,9 @@ class TestSequenceCompleteness:
     def test_existing_table_has_sequence(self, table):
         seq_names = self._parse_sequence_names()
         expected_seq = f"{table}_seq"
-        assert expected_seq in seq_names, (
-            f"Sequence '{expected_seq}' missing from SEQUENCE_QUERIES. "
-            f"Found: {sorted(seq_names)}"
-        )
+        assert (
+            expected_seq in seq_names
+        ), f"Sequence '{expected_seq}' missing from SEQUENCE_QUERIES. Found: {sorted(seq_names)}"
 
     @pytest.mark.parametrize("table", sorted(NEW_SEQUENCE_TABLES))
     def test_new_table_has_sequence(self, table):
