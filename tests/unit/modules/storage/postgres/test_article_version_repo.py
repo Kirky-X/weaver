@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from core.db.models import ArticleVersion
+from core.db import ArticleVersion
 from tests.helpers import create_mock_relational_pool
 
 # ────────────────────────────────────────────────────────────

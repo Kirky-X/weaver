@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 import bcrypt
 import pytest
 
-from core.db.models import ApiKey
+from core.db import ApiKey
 from core.security.api_key_manager import ApiKeyManager
 from tests.helpers import create_mock_relational_pool
 

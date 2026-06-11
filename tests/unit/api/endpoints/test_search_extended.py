@@ -351,7 +351,7 @@ class TestCausalSearchEndpoint:
             return_value=mock_adaptive_engine,
         ):
             with patch(
-                "api.endpoints.content.search.deps.Endpoints.get_graph_pool",
+                "api.endpoints.content.search.deps.get_graph_pool",
                 return_value=mock_graph_pool,
             ):
                 body = CausalSearchRequest(
@@ -391,7 +391,7 @@ class TestCausalSearchEndpoint:
             return_value=mock_adaptive_engine,
         ):
             with patch(
-                "api.endpoints.content.search.deps.Endpoints.get_graph_pool",
+                "api.endpoints.content.search.deps.get_graph_pool",
                 return_value=mock_graph_pool,
             ):
                 body = CausalSearchRequest(
@@ -420,7 +420,7 @@ class TestCausalSearchEndpoint:
         from api.endpoints.content.search import CausalSearchRequest, search_causal
 
         with patch(
-            "api.endpoints.content.search.deps.Endpoints.get_graph_pool",
+            "api.endpoints.content.search.deps.get_graph_pool",
             side_effect=Exception("Neo4j connection refused"),
         ):
             body = CausalSearchRequest(query="Why did X happen?")
@@ -450,7 +450,7 @@ class TestCausalSearchEndpoint:
             side_effect=Exception("Internal error"),
         ):
             with patch(
-                "api.endpoints.content.search.deps.Endpoints.get_graph_pool",
+                "api.endpoints.content.search.deps.get_graph_pool",
                 return_value=mock_graph_pool,
             ):
                 body = CausalSearchRequest(query="test query")
@@ -496,7 +496,7 @@ class TestTemporalSearchEndpoint:
             return_value=mock_temporal_repo,
         ):
             with patch(
-                "api.endpoints.content.search.deps.Endpoints.get_graph_pool",
+                "api.endpoints.content.search.deps.get_graph_pool",
                 return_value=mock_graph_pool,
             ):
                 body = TemporalSearchRequest(
@@ -536,7 +536,7 @@ class TestTemporalSearchEndpoint:
             return_value=mock_temporal_repo,
         ):
             with patch(
-                "api.endpoints.content.search.deps.Endpoints.get_graph_pool",
+                "api.endpoints.content.search.deps.get_graph_pool",
                 return_value=mock_graph_pool,
             ):
                 body = TemporalSearchRequest(
@@ -580,7 +580,7 @@ class TestTemporalSearchEndpoint:
             return_value=mock_temporal_repo,
         ):
             with patch(
-                "api.endpoints.content.search.deps.Endpoints.get_graph_pool",
+                "api.endpoints.content.search.deps.get_graph_pool",
                 return_value=mock_graph_pool,
             ):
                 body = TemporalSearchRequest(
@@ -609,7 +609,7 @@ class TestTemporalSearchEndpoint:
         from api.endpoints.content.search import TemporalSearchRequest, search_temporal
 
         with patch(
-            "api.endpoints.content.search.deps.Endpoints.get_graph_pool",
+            "api.endpoints.content.search.deps.get_graph_pool",
             side_effect=Exception("Neo4j connection timeout"),
         ):
             body = TemporalSearchRequest(query="When did X happen?")
@@ -639,7 +639,7 @@ class TestTemporalSearchEndpoint:
             side_effect=Exception("Database error"),
         ):
             with patch(
-                "api.endpoints.content.search.deps.Endpoints.get_graph_pool",
+                "api.endpoints.content.search.deps.get_graph_pool",
                 return_value=mock_graph_pool,
             ):
                 body = TemporalSearchRequest(query="test query")
@@ -760,7 +760,7 @@ class TestErrorHandling:
                 side_effect=Exception(error_message),
             ):
                 with patch(
-                    "api.endpoints.content.search.deps.Endpoints.get_graph_pool",
+                    "api.endpoints.content.search.deps.get_graph_pool",
                     return_value=mock_graph_pool,
                 ):
                     with pytest.raises(HTTPException) as exc_info:
@@ -776,7 +776,7 @@ class TestErrorHandling:
                 side_effect=Exception(error_message),
             ):
                 with patch(
-                    "api.endpoints.content.search.deps.Endpoints.get_graph_pool",
+                    "api.endpoints.content.search.deps.get_graph_pool",
                     return_value=mock_graph_pool,
                 ):
                     with pytest.raises(HTTPException) as exc_info:

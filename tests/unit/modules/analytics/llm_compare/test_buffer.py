@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.event.bus import LLMCompareEvent
+from core.event import LLMCompareEvent
 from modules.analytics.llm_compare.buffer import (
     DEFAULT_TTL_SECONDS,
     METRICS,

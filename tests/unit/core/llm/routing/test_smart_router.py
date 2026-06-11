@@ -9,7 +9,6 @@ from core.llm.routing.model_selector import ModelSelector
 from core.llm.routing.router import LabelRouter
 from core.llm.routing.smart_router import SmartRouter
 from core.llm.types import (
-    GlobalConfig,
     Label,
     LLMType,
     RoutingConfig,
@@ -24,7 +23,11 @@ class TestSmartRouterInit:
         """Test basic SmartRouter initialization."""
         settings = MagicMock()
         settings.routing = {}
-        settings.get_global_config.return_value = GlobalConfig()
+        settings.circuit_breaker_threshold = 5
+        settings.circuit_breaker_timeout = 60.0
+        settings.default_timeout = 120.0
+        settings.defaults = {}
+        settings.call_points = {}
 
         experience = MagicMock()
         circuit_breakers = {}
@@ -45,7 +48,11 @@ class TestSmartRouterInit:
         """Test initialization with circuit breakers."""
         settings = MagicMock()
         settings.routing = {}
-        settings.get_global_config.return_value = GlobalConfig()
+        settings.circuit_breaker_threshold = 5
+        settings.circuit_breaker_timeout = 60.0
+        settings.default_timeout = 120.0
+        settings.defaults = {}
+        settings.call_points = {}
 
         experience = MagicMock()
         cb1 = MagicMock()
@@ -77,21 +84,22 @@ class TestSmartRouterRoute:
             "embedding": {"mode": "fast"},
             "analyze": {"mode": "best"},
         }
-        settings.get_global_config.return_value = GlobalConfig(
-            defaults={
-                LLMType.CHAT: RoutingConfig(primary="chat.openai.gpt-4"),
-                LLMType.EMBEDDING: RoutingConfig(primary="embedding.openai.text-embedding-3"),
-            },
-            call_points={
-                "classifier": RoutingConfig(
-                    primary="chat.openai.gpt-4",
-                    fallbacks=["chat.anthropic.claude-3"],
-                ),
-                "embedding": RoutingConfig(
-                    primary="embedding.openai.text-embedding-3",
-                ),
-            },
-        )
+        settings.circuit_breaker_threshold = 5
+        settings.circuit_breaker_timeout = 60.0
+        settings.default_timeout = 120.0
+        settings.defaults = {
+            LLMType.CHAT: RoutingConfig(primary="chat.openai.gpt-4"),
+            LLMType.EMBEDDING: RoutingConfig(primary="embedding.openai.text-embedding-3"),
+        }
+        settings.call_points = {
+            "classifier": RoutingConfig(
+                primary="chat.openai.gpt-4",
+                fallbacks=["chat.anthropic.claude-3"],
+            ),
+            "embedding": RoutingConfig(
+                primary="embedding.openai.text-embedding-3",
+            ),
+        }
         return settings
 
     @pytest.fixture
@@ -145,8 +153,8 @@ class TestSmartRouterRoute:
     ):
         """Test routing with invalid mode falls back to AUTO."""
         mock_settings_with_routing.routing["test_point"] = {"mode": "invalid_mode"}
-        mock_settings_with_routing.get_global_config.return_value.call_points["test_point"] = (
-            RoutingConfig(primary="chat.openai.gpt-4")
+        mock_settings_with_routing.call_points["test_point"] = RoutingConfig(
+            primary="chat.openai.gpt-4"
         )
 
         router = SmartRouter(
@@ -179,11 +187,9 @@ class TestSmartRouterRoute:
     ):
         """Test that selector exceptions fallback to static labels."""
         mock_settings_with_routing.routing["error_point"] = {"mode": "auto"}
-        mock_settings_with_routing.get_global_config.return_value.call_points["error_point"] = (
-            RoutingConfig(
-                primary="chat.openai.gpt-4",
-                fallbacks=["chat.anthropic.claude-3"],
-            )
+        mock_settings_with_routing.call_points["error_point"] = RoutingConfig(
+            primary="chat.openai.gpt-4",
+            fallbacks=["chat.anthropic.claude-3"],
         )
 
         # Make selector raise exception
@@ -222,17 +228,18 @@ class TestSmartRouterFallbackRoute:
         """Create SmartRouter for fallback testing."""
         settings = MagicMock()
         settings.routing = {}
-        settings.get_global_config.return_value = GlobalConfig(
-            defaults={
-                LLMType.CHAT: RoutingConfig(primary="chat.openai.gpt-4"),
-            },
-            call_points={
-                "configured_point": RoutingConfig(
-                    primary="chat.anthropic.claude-3",
-                    fallbacks=["chat.openai.gpt-3.5"],
-                ),
-            },
-        )
+        settings.circuit_breaker_threshold = 5
+        settings.circuit_breaker_timeout = 60.0
+        settings.default_timeout = 120.0
+        settings.defaults = {
+            LLMType.CHAT: RoutingConfig(primary="chat.openai.gpt-4"),
+        }
+        settings.call_points = {
+            "configured_point": RoutingConfig(
+                primary="chat.anthropic.claude-3",
+                fallbacks=["chat.openai.gpt-3.5"],
+            ),
+        }
         experience = MagicMock()
         circuit_breakers = {}
 
@@ -262,7 +269,11 @@ class TestSmartRouterFallbackRoute:
         """Test fallback route returns empty when no default configured."""
         settings = MagicMock()
         settings.routing = {}
-        settings.get_global_config.return_value = GlobalConfig()
+        settings.circuit_breaker_threshold = 5
+        settings.circuit_breaker_timeout = 60.0
+        settings.default_timeout = 120.0
+        settings.defaults = {}
+        settings.call_points = {}
         experience = MagicMock()
 
         router = SmartRouter(
@@ -305,14 +316,16 @@ class TestSmartRouterIntegration:
         """Test routing when one provider has open circuit breaker."""
         settings = MagicMock()
         settings.routing = {"classifier": {"mode": "auto"}}
-        settings.get_global_config.return_value = GlobalConfig(
-            call_points={
-                "classifier": RoutingConfig(
-                    primary="chat.openai.gpt-4",
-                    fallbacks=["chat.anthropic.claude-3"],
-                ),
-            },
-        )
+        settings.circuit_breaker_threshold = 5
+        settings.circuit_breaker_timeout = 60.0
+        settings.default_timeout = 120.0
+        settings.defaults = {}
+        settings.call_points = {
+            "classifier": RoutingConfig(
+                primary="chat.openai.gpt-4",
+                fallbacks=["chat.anthropic.claude-3"],
+            ),
+        }
 
         experience = MagicMock()
         experience.avg_latency.return_value = 100.0
@@ -348,13 +361,15 @@ class TestSmartRouterIntegration:
             "cleaner": {"mode": "fast"},
             "embedding": {"mode": "auto"},
         }
-        settings.get_global_config.return_value = GlobalConfig(
-            call_points={
-                "classifier": RoutingConfig(primary="chat.openai.gpt-4"),
-                "cleaner": RoutingConfig(primary="chat.anthropic.claude-3"),
-                "embedding": RoutingConfig(primary="embedding.openai.text-embedding-3"),
-            },
-        )
+        settings.circuit_breaker_threshold = 5
+        settings.circuit_breaker_timeout = 60.0
+        settings.default_timeout = 120.0
+        settings.defaults = {}
+        settings.call_points = {
+            "classifier": RoutingConfig(primary="chat.openai.gpt-4"),
+            "cleaner": RoutingConfig(primary="chat.anthropic.claude-3"),
+            "embedding": RoutingConfig(primary="embedding.openai.text-embedding-3"),
+        }
 
         experience = MagicMock()
         experience.avg_latency.return_value = 100.0
@@ -377,14 +392,16 @@ class TestSmartRouterIntegration:
         """Test that routing preserves score-based ordering."""
         settings = MagicMock()
         settings.routing = {"test": {"mode": "auto"}}
-        settings.get_global_config.return_value = GlobalConfig(
-            call_points={
-                "test": RoutingConfig(
-                    primary="chat.provider1.model-a",
-                    fallbacks=["chat.provider2.model-b"],
-                ),
-            },
-        )
+        settings.circuit_breaker_threshold = 5
+        settings.circuit_breaker_timeout = 60.0
+        settings.default_timeout = 120.0
+        settings.defaults = {}
+        settings.call_points = {
+            "test": RoutingConfig(
+                primary="chat.provider1.model-a",
+                fallbacks=["chat.provider2.model-b"],
+            ),
+        }
 
         experience = MagicMock()
         # Make provider2 have better latency

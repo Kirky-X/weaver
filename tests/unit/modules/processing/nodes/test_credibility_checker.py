@@ -1,5 +1,5 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Unit tests for processing CredibilityCheckerNode."""
+"""Unit tests for processing RuleBasedCredibilityCheckerNode."""
 
 from __future__ import annotations
 
@@ -10,7 +10,9 @@ import pytest
 
 from core.llm.validation.output_validator import CredibilityOutput
 from modules.ingestion.domain.models import RawArticle
-from modules.processing.nodes.classification.credibility_checker import CredibilityCheckerNode
+from modules.processing.nodes.classification.credibility_checker import (
+    RuleBasedCredibilityCheckerNode as CredibilityCheckerNode,
+)
 from modules.processing.pipeline.state import PipelineState
 
 
@@ -172,7 +174,6 @@ class TestSourceAuthorityPriority:
     async def test_priority_1_preset_credibility(
         self,
         mock_llm,
-        mock_budget,
         mock_event_bus,
         mock_source_auth_repo,
         mock_source_config_repo,
@@ -182,8 +183,6 @@ class TestSourceAuthorityPriority:
         mock_llm.call_at = AsyncMock(return_value=CredibilityOutput(score=0.7, flags=[]))
 
         node = CredibilityCheckerNode(
-            llm=mock_llm,
-            budget=mock_budget,
             event_bus=mock_event_bus,
             source_auth_repo=mock_source_auth_repo,
             source_config_repo=mock_source_config_repo,
@@ -202,7 +201,6 @@ class TestSourceAuthorityPriority:
     async def test_priority_2_auto_calculated(
         self,
         mock_llm,
-        mock_budget,
         mock_event_bus,
         mock_source_auth_repo,
         mock_source_config_repo,
@@ -211,8 +209,6 @@ class TestSourceAuthorityPriority:
         mock_source_config_repo.get_credibility = AsyncMock(return_value=None)
         mock_llm.call_at = AsyncMock(return_value=CredibilityOutput(score=0.7, flags=[]))
         node = CredibilityCheckerNode(
-            llm=mock_llm,
-            budget=mock_budget,
             event_bus=mock_event_bus,
             source_auth_repo=mock_source_auth_repo,
             source_config_repo=mock_source_config_repo,
@@ -228,11 +224,9 @@ class TestSourceAuthorityPriority:
         mock_source_auth_repo.get_or_create.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_priority_3_default(self, mock_llm, mock_budget, mock_event_bus, sample_raw):
+    async def test_priority_3_default(self, mock_llm, mock_event_bus, sample_raw):
         mock_llm.call_at = AsyncMock(return_value=CredibilityOutput(score=0.7, flags=[]))
         node = CredibilityCheckerNode(
-            llm=mock_llm,
-            budget=mock_budget,
             event_bus=mock_event_bus,
             source_auth_repo=None,
             source_config_repo=None,
@@ -248,18 +242,16 @@ class TestSourceAuthorityPriority:
 
 
 class TestCredibilityCheckerNodeBasic:
-    """Basic functionality tests for CredibilityCheckerNode."""
+    """Basic functionality tests for RuleBasedCredibilityCheckerNode."""
 
     @pytest.mark.asyncio
     async def test_credibility_successful_computation(
-        self, mock_llm, mock_budget, mock_event_bus, mock_source_auth_repo, sample_raw
+        self, mock_llm, mock_event_bus, mock_source_auth_repo, sample_raw
     ):
         mock_llm.call_at = AsyncMock(
             return_value=CredibilityOutput(score=0.75, flags=["well_sourced"])
         )
         node = CredibilityCheckerNode(
-            llm=mock_llm,
-            budget=mock_budget,
             event_bus=mock_event_bus,
             source_auth_repo=mock_source_auth_repo,
         )
@@ -282,12 +274,10 @@ class TestCredibilityCheckerNodeBasic:
 
     @pytest.mark.asyncio
     async def test_credibility_publishes_event(
-        self, mock_llm, mock_budget, mock_event_bus, mock_source_auth_repo, sample_raw
+        self, mock_llm, mock_event_bus, mock_source_auth_repo, sample_raw
     ):
         mock_llm.call_at = AsyncMock(return_value=CredibilityOutput(score=0.8, flags=[]))
         node = CredibilityCheckerNode(
-            llm=mock_llm,
-            budget=mock_budget,
             event_bus=mock_event_bus,
             source_auth_repo=mock_source_auth_repo,
         )
@@ -302,15 +292,11 @@ class TestCredibilityCheckerNodeBasic:
 
 
 class TestCredibilityCheckerNodeEdgeCases:
-    """Edge case tests for CredibilityCheckerNode."""
+    """Edge case tests for RuleBasedCredibilityCheckerNode."""
 
     @pytest.mark.asyncio
-    async def test_credibility_skips_terminal_state(
-        self, mock_llm, mock_budget, mock_event_bus, sample_raw
-    ):
+    async def test_credibility_skips_terminal_state(self, mock_llm, mock_event_bus, sample_raw):
         node = CredibilityCheckerNode(
-            llm=mock_llm,
-            budget=mock_budget,
             event_bus=mock_event_bus,
         )
         state = PipelineState(raw=sample_raw)
@@ -321,12 +307,8 @@ class TestCredibilityCheckerNodeEdgeCases:
         mock_llm.call_at.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_credibility_skips_merged_articles(
-        self, mock_llm, mock_budget, mock_event_bus, sample_raw
-    ):
+    async def test_credibility_skips_merged_articles(self, mock_llm, mock_event_bus, sample_raw):
         node = CredibilityCheckerNode(
-            llm=mock_llm,
-            budget=mock_budget,
             event_bus=mock_event_bus,
         )
         state = PipelineState(raw=sample_raw)
@@ -337,13 +319,9 @@ class TestCredibilityCheckerNodeEdgeCases:
         mock_llm.call_at.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_credibility_without_source_repo(
-        self, mock_llm, mock_budget, mock_event_bus, sample_raw
-    ):
+    async def test_credibility_without_source_repo(self, mock_llm, mock_event_bus, sample_raw):
         mock_llm.call_at = AsyncMock(return_value=CredibilityOutput(score=0.7, flags=[]))
         node = CredibilityCheckerNode(
-            llm=mock_llm,
-            budget=mock_budget,
             event_bus=mock_event_bus,
             source_auth_repo=None,
         )
@@ -358,16 +336,12 @@ class TestCredibilityCheckerNodeEdgeCases:
 
 
 class TestCredibilityCheckerNodeErrorHandling:
-    """Error handling tests for CredibilityCheckerNode."""
+    """Error handling tests for RuleBasedCredibilityCheckerNode."""
 
     @pytest.mark.asyncio
-    async def test_credibility_handles_llm_error(
-        self, mock_llm, mock_budget, mock_event_bus, sample_raw
-    ):
+    async def test_credibility_handles_llm_error(self, mock_event_bus, sample_raw):
         # Rule-based: no LLM dependency, content_check = body-length proxy
         node = CredibilityCheckerNode(
-            llm=mock_llm,
-            budget=mock_budget,
             event_bus=mock_event_bus,
         )
         state = PipelineState(raw=sample_raw)
@@ -384,15 +358,13 @@ class TestCredibilityCheckerNodeErrorHandling:
 
     @pytest.mark.asyncio
     async def test_credibility_handles_source_repo_error(
-        self, mock_llm, mock_budget, mock_event_bus, mock_source_auth_repo, sample_raw
+        self, mock_llm, mock_event_bus, mock_source_auth_repo, sample_raw
     ):
         mock_source_auth_repo.get_or_create = AsyncMock(
             side_effect=Exception("Database connection failed")
         )
         mock_llm.call_at = AsyncMock(return_value=CredibilityOutput(score=0.7, flags=[]))
         node = CredibilityCheckerNode(
-            llm=mock_llm,
-            budget=mock_budget,
             event_bus=mock_event_bus,
             source_auth_repo=mock_source_auth_repo,
         )
@@ -407,17 +379,15 @@ class TestCredibilityCheckerNodeErrorHandling:
 
 
 class TestCredibilityCheckerNodeIntegration:
-    """Integration tests for CredibilityCheckerNode."""
+    """Integration tests for RuleBasedCredibilityCheckerNode."""
 
     @pytest.mark.asyncio
     async def test_credibility_weighted_aggregation_with_category(
-        self, mock_llm, mock_budget, mock_event_bus, mock_source_auth_repo
+        self, mock_llm, mock_event_bus, mock_source_auth_repo
     ):
         mock_source_auth_repo.get_or_create = AsyncMock(return_value=MagicMock(authority=1.0))
         mock_llm.call_at = AsyncMock(return_value=CredibilityOutput(score=1.0, flags=[]))
         node = CredibilityCheckerNode(
-            llm=mock_llm,
-            budget=mock_budget,
             event_bus=mock_event_bus,
             source_auth_repo=mock_source_auth_repo,
         )
@@ -447,13 +417,11 @@ class TestCredibilityCheckerNodeIntegration:
 
     @pytest.mark.asyncio
     async def test_credibility_economic_category_weights(
-        self, mock_llm, mock_budget, mock_event_bus, mock_source_auth_repo
+        self, mock_llm, mock_event_bus, mock_source_auth_repo
     ):
         mock_source_auth_repo.get_or_create = AsyncMock(return_value=MagicMock(authority=0.90))
         mock_llm.call_at = AsyncMock(return_value=CredibilityOutput(score=0.50, flags=[]))
         node = CredibilityCheckerNode(
-            llm=mock_llm,
-            budget=mock_budget,
             event_bus=mock_event_bus,
             source_auth_repo=mock_source_auth_repo,
         )
@@ -479,11 +447,9 @@ class TestCredibilityCheckerNodeIntegration:
         assert abs(result["credibility"]["score"] - expected) < 0.01
 
     @pytest.mark.asyncio
-    async def test_credibility_no_llm_call(self, mock_llm, mock_budget, mock_event_bus, sample_raw):
+    async def test_credibility_no_llm_call(self, mock_llm, mock_event_bus, sample_raw):
         """Rule-based: LLM should NOT be called."""
         node = CredibilityCheckerNode(
-            llm=mock_llm,
-            budget=mock_budget,
             event_bus=mock_event_bus,
         )
         state = PipelineState(raw=sample_raw)

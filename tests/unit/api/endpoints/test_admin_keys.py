@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.security.api_key_manager import ApiKeyManager
+from core.security import ApiKeyManager
 
 
 class TestApiKeyRotationEndpoint:

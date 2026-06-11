@@ -802,18 +802,6 @@ class TestContainerServicesVectorRepo:
 class TestContainerServicesSmartFetcher:
     """Tests for ContainerServicesMixin smart fetcher methods."""
 
-    def test_smart_fetcher_raises_without_init(self) -> None:
-        c = _make_container()
-        c._smart_fetcher = None
-        with pytest.raises(RuntimeError, match="Smart fetcher"):
-            c.smart_fetcher()
-
-    def test_smart_fetcher_returns_instance(self) -> None:
-        c = _make_container()
-        mock_fetcher = MagicMock()
-        c._smart_fetcher = mock_fetcher
-        assert c.smart_fetcher() is mock_fetcher
-
     @pytest.mark.asyncio
     async def test_init_smart_fetcher_creates_instance(self) -> None:
         c = _make_container()

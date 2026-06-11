@@ -3,7 +3,9 @@
 
 import pytest
 
-from modules.processing.nodes.classification.credibility_checker import CredibilityCheckerNode
+from modules.processing.nodes.classification.credibility_checker import (
+    RuleBasedCredibilityCheckerNode as CredibilityCheckerNode,
+)
 
 
 class TestCredibilityWeights:

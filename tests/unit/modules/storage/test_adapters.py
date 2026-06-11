@@ -40,13 +40,19 @@ class TestStorageInitExports:
     def test_all_exports_count(self):
         from modules.storage import __all__
 
-        assert len(__all__) == 6
+        assert len(__all__) == 12
 
     def test_all_exports_match(self):
         from modules.storage import __all__
 
         expected = [
             "ArticleRepo",
+            "BaseEntityRepo",
+            "DuckDBLLMUsageRepo",
+            "GraphRepository",
+            "LadybugArticleRepo",
+            "LadybugEntityRepo",
+            "LadybugTemporalRepo",
             "Neo4jArticleRepo",
             "Neo4jEntityRepo",
             "PendingSyncRepo",

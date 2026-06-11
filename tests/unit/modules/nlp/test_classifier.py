@@ -1,5 +1,5 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Unit tests for ClassifierNode."""
+"""Unit tests for CascadeClassifierNode."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import pytest
 from core.llm import CallPoint
 from core.llm.validation.output_validator import ClassifierOutput
 from modules.ingestion.domain.models import RawArticle
-from modules.processing.nodes.classification.classifier import ClassifierNode
+from modules.processing.nodes.classification.classifier import CascadeClassifierNode
 from modules.processing.pipeline.state import PipelineState
 
 
@@ -65,8 +65,8 @@ def mock_prompt_loader():
     return loader
 
 
-class TestClassifierNodeBasic:
-    """Basic functionality tests for ClassifierNode."""
+class TestCascadeClassifierNodeBasic:
+    """Basic functionality tests for CascadeClassifierNode."""
 
     @pytest.mark.asyncio
     async def test_classify_news_article(
@@ -75,7 +75,7 @@ class TestClassifierNodeBasic:
         """Test classification of a news article."""
         mock_llm.call_at = AsyncMock(return_value=ClassifierOutput(is_news=True, confidence=0.95))
 
-        node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
+        node = CascadeClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
 
         result = await node.execute(state)
@@ -91,7 +91,7 @@ class TestClassifierNodeBasic:
         """Test classification of non-news content."""
         mock_llm.call_at = AsyncMock(return_value=ClassifierOutput(is_news=False, confidence=0.85))
 
-        node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
+        node = CascadeClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_non_news_raw)
 
         result = await node.execute(state)
@@ -107,7 +107,7 @@ class TestClassifierNodeBasic:
         """Test that classifier records prompt version in state."""
         mock_llm.call_at = AsyncMock(return_value=ClassifierOutput(is_news=True, confidence=0.9))
 
-        node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
+        node = CascadeClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
 
         result = await node.execute(state)
@@ -122,7 +122,7 @@ class TestClassifierNodeBasic:
         """Test that classifier calls LLM with correct parameters."""
         mock_llm.call_at = AsyncMock(return_value=ClassifierOutput(is_news=True, confidence=0.9))
 
-        node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
+        node = CascadeClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
 
         await node.execute(state)
@@ -139,8 +139,8 @@ class TestClassifierNodeBasic:
         assert input_data["title"] == sample_raw.title
 
 
-class TestClassifierNodeEdgeCases:
-    """Edge case tests for ClassifierNode."""
+class TestCascadeClassifierNodeEdgeCases:
+    """Edge case tests for CascadeClassifierNode."""
 
     @pytest.mark.asyncio
     async def test_classify_low_confidence_news(
@@ -149,7 +149,7 @@ class TestClassifierNodeEdgeCases:
         """Test classification with low confidence score."""
         mock_llm.call_at = AsyncMock(return_value=ClassifierOutput(is_news=True, confidence=0.55))
 
-        node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
+        node = CascadeClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
 
         result = await node.execute(state)
@@ -165,7 +165,7 @@ class TestClassifierNodeEdgeCases:
         """Test classification with high confidence non-news."""
         mock_llm.call_at = AsyncMock(return_value=ClassifierOutput(is_news=False, confidence=0.98))
 
-        node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
+        node = CascadeClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_non_news_raw)
 
         result = await node.execute(state)
@@ -188,7 +188,7 @@ class TestClassifierNodeEdgeCases:
 
         mock_llm.call_at = AsyncMock(return_value=ClassifierOutput(is_news=False, confidence=0.7))
 
-        node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
+        node = CascadeClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=short_raw)
 
         result = await node.execute(state)
@@ -209,7 +209,7 @@ class TestClassifierNodeEdgeCases:
 
         mock_llm.call_at = AsyncMock(return_value=ClassifierOutput(is_news=False, confidence=0.6))
 
-        node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
+        node = CascadeClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=empty_title_raw)
 
         result = await node.execute(state)
@@ -217,8 +217,8 @@ class TestClassifierNodeEdgeCases:
         assert result["is_news"] is False
 
 
-class TestClassifierNodeErrorHandling:
-    """Error handling tests for ClassifierNode."""
+class TestCascadeClassifierNodeErrorHandling:
+    """Error handling tests for CascadeClassifierNode."""
 
     @pytest.mark.asyncio
     async def test_classify_handles_llm_error(
@@ -227,7 +227,7 @@ class TestClassifierNodeErrorHandling:
         """Test that classifier handles LLM errors by raising exception."""
         mock_llm.call_at = AsyncMock(side_effect=Exception("LLM service unavailable"))
 
-        node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
+        node = CascadeClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
 
         # Classifier should raise the exception (unlike other nodes)
@@ -243,7 +243,7 @@ class TestClassifierNodeErrorHandling:
 
         mock_llm.call_at = AsyncMock(side_effect=TimeoutError("Request timeout"))
 
-        node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
+        node = CascadeClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
 
         # Should raise the timeout error
@@ -257,7 +257,7 @@ class TestClassifierNodeErrorHandling:
         """Test that classifier handles invalid LLM response."""
         mock_llm.call_at = AsyncMock(side_effect=ValueError("Invalid response format"))
 
-        node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
+        node = CascadeClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
 
         # Should raise the error
@@ -265,8 +265,8 @@ class TestClassifierNodeErrorHandling:
             await node.execute(state)
 
 
-class TestClassifierNodeIntegration:
-    """Integration tests for ClassifierNode."""
+class TestCascadeClassifierNodeIntegration:
+    """Integration tests for CascadeClassifierNode."""
 
     @pytest.mark.asyncio
     async def test_classify_with_token_truncation(
@@ -277,7 +277,7 @@ class TestClassifierNodeIntegration:
 
         mock_llm.call_at = AsyncMock(return_value=ClassifierOutput(is_news=True, confidence=0.9))
 
-        node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
+        node = CascadeClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
 
         await node.execute(state)
@@ -294,7 +294,7 @@ class TestClassifierNodeIntegration:
         """Test that classifier preserves raw data in state."""
         mock_llm.call_at = AsyncMock(return_value=ClassifierOutput(is_news=True, confidence=0.9))
 
-        node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
+        node = CascadeClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
         state = PipelineState(raw=sample_raw)
 
         result = await node.execute(state)
@@ -328,7 +328,7 @@ class TestClassifierNodeIntegration:
                 return_value=ClassifierOutput(is_news=expected_is_news, confidence=confidence)
             )
 
-            node = ClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
+            node = CascadeClassifierNode(mock_llm, mock_budget, mock_prompt_loader)
             state = PipelineState(raw=raw)
 
             result = await node.execute(state)

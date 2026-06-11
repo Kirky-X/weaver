@@ -9,8 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.db import Article
-from core.db.models import ArticleCore
+from core.db import Article, ArticleCore
 from modules.ingestion.domain.models import RawArticle
 from modules.storage import ArticleRepo
 

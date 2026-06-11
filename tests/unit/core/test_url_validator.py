@@ -7,8 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.security import SSRFError, URLValidationError, URLValidator, URLValidatorConfig
-from core.security.models import CheckSource, URLRisk
+from core.security import CheckSource, SSRFError, URLRisk, URLValidator, URLValidatorConfig
 
 
 class TestURLValidator:
@@ -142,22 +141,3 @@ class TestURLValidator:
 
         result = await validator.validate("http://192.168.1.1/")
         assert result.is_safe is True
-
-
-class TestURLValidationError:
-    """Tests for URLValidationError (SSRFError alias)."""
-
-    def test_error_message(self) -> None:
-        """Error should include message."""
-        error = URLValidationError("Test error message")
-        assert error.message == "Test error message"
-
-    def test_error_with_url(self) -> None:
-        """Error can include URL for context."""
-        error = URLValidationError("Test error", url="http://example.com")
-        assert error.url == "http://example.com"
-        assert "Test error" in str(error)
-
-    def test_is_alias_for_ssrf_error(self) -> None:
-        """URLValidationError should be alias for SSRFError."""
-        assert URLValidationError is SSRFError

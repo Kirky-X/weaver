@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.event.bus import LLMCompareEvent
+from core.event import LLMCompareEvent
 from modules.analytics.llm_compare.repo import EvalCompareRepo
 from tests.helpers import create_mock_relational_pool
 

@@ -25,7 +25,7 @@ class TestNPlusOneQueryFix:
     def test_refresh_auto_scores_uses_single_aggregate_query(self) -> None:
         """Verify refresh-auto-scores uses 1 aggregate query instead of N queries."""
         from api.endpoints.admin.admin import refresh_auto_scores
-        from core.db.models import Article
+        from core.db import Article
 
         # Mock pool and session
         mock_pool = create_mock_relational_pool()
@@ -107,7 +107,7 @@ class TestNPlusOneQueryFix:
         """Verify aggregate query filters out NULL credibility scores."""
         from sqlalchemy import func, select
 
-        from core.db.models import Article
+        from core.db import Article
 
         # Build the query as it should be
         hosts = ["host1.com", "host2.com"]
@@ -137,7 +137,7 @@ class TestCountQueryOptimization:
         """Verify count queries use direct COUNT(*) not subquery."""
         from sqlalchemy import func, select
 
-        from core.db.models import Article, PersistStatus
+        from core.db import Article, PersistStatus
 
         # Optimized count query (should use direct COUNT)
         stmt = select(func.count(Article.id)).where(Article.persist_status == PersistStatus.PENDING)
@@ -154,7 +154,7 @@ class TestCountQueryOptimization:
         """Verify deduplication uses efficient GROUP BY + HAVING."""
         from sqlalchemy import func, select
 
-        from core.db.models import Article
+        from core.db import Article
 
         # Find duplicates query
         stmt = (
@@ -187,7 +187,7 @@ class TestSourceURLIndex:
         """Verify Article model has unique constraint on source_url."""
         from sqlalchemy import inspect
 
-        from core.db.models import Article
+        from core.db import Article
 
         # Get column info
         mapper = inspect(Article)
@@ -200,7 +200,7 @@ class TestSourceURLIndex:
         """Verify deduplication query uses source_url for lookups."""
         from sqlalchemy import select
 
-        from core.db.models import Article
+        from core.db import Article
 
         # Query that should use source_url index
         normalized_url = "https://example.com/article"
@@ -217,7 +217,7 @@ class TestGroupByNULLFilter:
     def test_aggregate_query_filters_null_hosts(self) -> None:
         """Verify aggregate queries filter out NULL source_host."""
         from api.endpoints.admin.admin import refresh_auto_scores
-        from core.db.models import Article
+        from core.db import Article
 
         # Mock pool
         mock_pool = create_mock_relational_pool()

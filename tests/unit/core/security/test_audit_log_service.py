@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from core.db.models import AuditLog
+from core.db import AuditLog
 from core.security.audit_log_service import AuditLogService
 from tests.helpers import create_mock_relational_pool
 

@@ -326,7 +326,7 @@ class TestAnalyticsStoragePersistence:
             "after_avg": 0.33,
         }
 
-        with patch("core.db.models.SentimentShift") as mock_model:
+        with patch("core.db.SentimentShift") as mock_model:
             mock_instance = MagicMock()
             mock_model.return_value = mock_instance
             await storage.save_shift(shift_data)
@@ -361,7 +361,7 @@ class TestAnalyticsStoragePersistence:
             "after_avg": 0.65,
         }
 
-        with patch("core.db.models.SentimentShift") as mock_model:
+        with patch("core.db.SentimentShift") as mock_model:
             mock_instance = MagicMock()
             mock_model.return_value = mock_instance
             await storage.save_shift(shift_data)

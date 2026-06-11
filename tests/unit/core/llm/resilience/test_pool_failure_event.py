@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.event.bus import EventBus, LLMFailureEvent
+from core.event import EventBus, LLMFailureEvent
 from core.llm.resilience.pool import AllProvidersFailedError, ProviderPool
 from core.llm.types import Capability, Label, LLMType, ModelConfig, ProviderConfig
 

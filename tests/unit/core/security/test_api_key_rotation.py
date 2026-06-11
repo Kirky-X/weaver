@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core.db.models import ApiKey
+from core.db import ApiKey
 
 
 class TestApiKeyRotatedToField:

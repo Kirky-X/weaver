@@ -11,7 +11,7 @@ import pytest
 from core.llm.validation.output_validator import CategorizerOutput
 from modules.ingestion.domain.models import RawArticle
 from modules.processing.nodes.classification.categorizer import (
-    CategorizerNode,
+    CascadeCategorizerNode as CategorizerNode,
     normalize_category,
     normalize_emotion,
 )

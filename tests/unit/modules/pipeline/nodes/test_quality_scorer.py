@@ -1,15 +1,15 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Unit tests for QualityScorerNode."""
+"""Unit tests for RuleBasedQualityScorerNode."""
 
 from __future__ import annotations
 
 import pytest
 
-from modules.processing.nodes.quality.quality_scorer import QualityScorerNode
+from modules.processing.nodes.quality.quality_scorer import RuleBasedQualityScorerNode
 from modules.processing.pipeline.state import PipelineState
 
 
-class TestQualityScorerNodeBasic:
+class TestRuleBasedQualityScorerNodeBasic:
     """Basic functionality tests."""
 
     @pytest.mark.asyncio
@@ -24,7 +24,7 @@ class TestQualityScorerNodeBasic:
         - timeliness: has publish_time → 1.0 → 1.0 * 0.10 = 0.10
         Total: 0.225 + 0.25 + 0.20 + 0.075 + 0.10 = 0.85
         """
-        node = QualityScorerNode()
+        node = RuleBasedQualityScorerNode()
         state = PipelineState(raw=sample_raw)
         state["summary_info"] = {
             "summary": "A summary",
@@ -49,7 +49,7 @@ class TestQualityScorerNodeBasic:
     @pytest.mark.asyncio
     async def test_default_score_on_terminal(self, sample_raw):
         """Should use default score 0.5 on terminal state."""
-        node = QualityScorerNode()
+        node = RuleBasedQualityScorerNode()
         state = PipelineState(raw=sample_raw)
         state["terminal"] = True
         state["cleaned"] = {"title": "Title", "body": "Body"}
@@ -61,7 +61,7 @@ class TestQualityScorerNodeBasic:
     @pytest.mark.asyncio
     async def test_default_score_on_merged(self, sample_raw):
         """Should use default score 0.5 on merged state."""
-        node = QualityScorerNode()
+        node = RuleBasedQualityScorerNode()
         state = PipelineState(raw=sample_raw)
         state["is_merged"] = True
         state["cleaned"] = {"title": "Title", "body": "Body"}
@@ -71,13 +71,13 @@ class TestQualityScorerNodeBasic:
         assert result["quality_score"] == 0.5
 
 
-class TestQualityScorerNodeEdgeCases:
+class TestRuleBasedQualityScorerNodeEdgeCases:
     """Edge case tests."""
 
     @pytest.mark.asyncio
     async def test_skips_terminal_state(self, sample_raw):
         """Should skip processing if terminal flag is set."""
-        node = QualityScorerNode()
+        node = RuleBasedQualityScorerNode()
         state = PipelineState(raw=sample_raw)
         state["terminal"] = True
         state["cleaned"] = {"title": "Title", "body": "Body"}
@@ -89,7 +89,7 @@ class TestQualityScorerNodeEdgeCases:
     @pytest.mark.asyncio
     async def test_skips_merged_articles(self, sample_raw):
         """Should skip processing for merged articles."""
-        node = QualityScorerNode()
+        node = RuleBasedQualityScorerNode()
         state = PipelineState(raw=sample_raw)
         state["is_merged"] = True
         state["cleaned"] = {"title": "Title", "body": "Body"}
@@ -109,7 +109,7 @@ class TestQualityScorerNodeEdgeCases:
         - timeliness: no time → 0.5 → 0.5 * 0.10 = 0.05
         Total: 0.075 + 0.05 = 0.125 → round = 0.12
         """
-        node = QualityScorerNode()
+        node = RuleBasedQualityScorerNode()
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": "Title", "body": "Body"}
 
@@ -128,7 +128,7 @@ class TestQualityScorerNodeEdgeCases:
         - timeliness: has publish_time → 1.0 → 1.0 * 0.10 = 0.10
         Total: 1.0
         """
-        node = QualityScorerNode()
+        node = RuleBasedQualityScorerNode()
         state = PipelineState(raw=sample_raw)
         state["summary_info"] = {
             "summary": "A summary",
@@ -163,7 +163,7 @@ class TestQualityScorerNodeEdgeCases:
         - timeliness: no time → 0.5 → 0.5 * 0.10 = 0.05
         Total: 0.15 + 0.05 = 0.20
         """
-        node = QualityScorerNode()
+        node = RuleBasedQualityScorerNode()
         state = PipelineState(raw=sample_raw)
         state["cleaned"] = {"title": "Title", "body": "A" * 200}
 
@@ -172,7 +172,7 @@ class TestQualityScorerNodeEdgeCases:
         assert result["quality_score"] == 0.20
 
 
-class TestQualityScorerNodeErrorHandling:
+class TestRuleBasedQualityScorerNodeErrorHandling:
     """Tests for missing data scenarios."""
 
     @pytest.mark.asyncio
@@ -184,7 +184,7 @@ class TestQualityScorerNodeErrorHandling:
         - timeliness: no time → 0.5 → 0.5 * 0.10 = 0.05
         Total: 0.045 + 0.05 = 0.095 → round = 0.1
         """
-        node = QualityScorerNode()
+        node = RuleBasedQualityScorerNode()
         state = PipelineState(raw=sample_raw)
 
         result = await node.execute(state)
@@ -202,7 +202,7 @@ class TestQualityScorerNodeErrorHandling:
         - timeliness: has publish_time → 1.0 → 0.10
         Total: 0.70
         """
-        node = QualityScorerNode()
+        node = RuleBasedQualityScorerNode()
         state = PipelineState(raw=sample_raw)
         state["credibility"] = {
             "score": 0.9,
@@ -233,7 +233,7 @@ class TestQualityScorerNodeErrorHandling:
         - timeliness: has publish_time → 1.0 → 0.10
         Total: 0.75
         """
-        node = QualityScorerNode()
+        node = RuleBasedQualityScorerNode()
         state = PipelineState(raw=sample_raw)
         state["summary_info"] = {
             "summary": "A summary",
@@ -255,13 +255,13 @@ class TestQualityScorerNodeErrorHandling:
         assert result["quality_score"] == 0.75
 
 
-class TestQualityScorerNodeIntegration:
+class TestRuleBasedQualityScorerNodeIntegration:
     """Integration-like tests."""
 
     @pytest.mark.asyncio
     async def test_preserves_existing_state(self, sample_raw):
         """Should preserve existing state fields."""
-        node = QualityScorerNode()
+        node = RuleBasedQualityScorerNode()
         state = PipelineState(raw=sample_raw)
         state["summary_info"] = {
             "summary": "A summary",
@@ -287,7 +287,7 @@ class TestQualityScorerNodeIntegration:
     @pytest.mark.asyncio
     async def test_existing_quality_score_preserved_on_terminal(self, sample_raw):
         """Should not overwrite existing quality_score on terminal state."""
-        node = QualityScorerNode()
+        node = RuleBasedQualityScorerNode()
         state = PipelineState(raw=sample_raw)
         state["terminal"] = True
         state["quality_score"] = 0.9
@@ -306,7 +306,7 @@ class TestQualityScorerNodeIntegration:
         - timeliness: no time → 0.5 → 0.05
         Total: 0.30 + 0.075 + 0.05 = 0.425 → round = 0.42
         """
-        node = QualityScorerNode()
+        node = RuleBasedQualityScorerNode()
         state = PipelineState(raw=sample_raw)
         state["summary_info"] = {
             "summary": "A summary",

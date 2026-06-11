@@ -353,9 +353,3 @@ class TestDailyBriefingEngineClassRename:
         from modules.briefing.engine import DailyBriefingEngine
 
         assert DailyBriefingEngine.__name__ == "DailyBriefingEngine"
-
-    def test_briefing_engine_alias_exists(self):
-        """Test BriefingEngine alias exists for backward compatibility."""
-        from modules.briefing.engine import BriefingEngine
-
-        assert BriefingEngine is DailyBriefingEngine

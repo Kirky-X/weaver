@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.db.models import PersistStatus
+from core.db import PersistStatus
 from core.llm.validation.output_validator import MergerOutput
 from modules.ingestion.domain.models import RawArticle
 from modules.processing.nodes.merging.batch_merger import BatchMergerNode, UnionFind
