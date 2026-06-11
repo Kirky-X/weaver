@@ -4,26 +4,18 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from core.event.bus import LLMCompareEvent
 from modules.analytics.llm_compare.repo import EvalCompareRepo
+from tests.helpers import create_mock_relational_pool
 
 
 @pytest.fixture
 def mock_relational_pool():
     """Create mock relational pool for repo tests."""
-    pool = MagicMock()
-    session = MagicMock()
-    session.__aenter__ = AsyncMock(return_value=session)
-    session.__aexit__ = AsyncMock(return_value=None)
-    session.add = MagicMock()
-    session.execute = AsyncMock()
-    session.commit = AsyncMock()
-    pool.session = MagicMock(return_value=session)
-    return pool
+    return create_mock_relational_pool()
 
 
 @pytest.fixture

@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from modules.analytics.aggregator import SentimentAggregator
+from tests.helpers import create_mock_relational_pool
 
 
 class TestSentimentAggregator:
@@ -56,11 +57,8 @@ class TestSentimentAggregatorWithPool:
     @pytest.fixture
     def mock_pool(self):
         """Create a mock RelationalPool."""
-        pool = MagicMock()
-        mock_session = AsyncMock()
-        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session.__aexit__ = AsyncMock(return_value=None)
-        pool.session_context.return_value = mock_session
+        pool = create_mock_relational_pool()
+        pool.session_context = pool.session
         return pool
 
     @pytest.fixture

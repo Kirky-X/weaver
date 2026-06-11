@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
 from core.db.models import ArticleVersion
+from tests.helpers import create_mock_relational_pool
 
 # ────────────────────────────────────────────────────────────
 # Helpers
@@ -39,25 +40,6 @@ def _make_version(
     )
 
 
-def _make_mock_pool(session: MagicMock) -> MagicMock:
-    """Create a mock RelationalPool that yields the given session."""
-    pool = MagicMock()
-    pool.session = MagicMock(return_value=session)
-    return pool
-
-
-def _make_mock_session() -> MagicMock:
-    """Create a mock async session with standard async context manager."""
-    session = MagicMock()
-    session.__aenter__ = AsyncMock(return_value=session)
-    session.__aexit__ = AsyncMock(return_value=None)
-    session.execute = AsyncMock()
-    session.commit = AsyncMock()
-    session.add = MagicMock()
-    session.flush = AsyncMock()
-    return session
-
-
 # ────────────────────────────────────────────────────────────
 # Tests
 # ────────────────────────────────────────────────────────────
@@ -71,14 +53,14 @@ class TestCreateVersionStoresSnapshot:
         from modules.storage.postgres.article_version_repo import ArticleVersionRepo
 
         article_id = uuid.uuid4()
-        session = _make_mock_session()
+        pool = create_mock_relational_pool()
+        session = pool.session.return_value
 
         # Mock: no existing versions → version 1
         scalar_result = MagicMock()
         scalar_result.scalar_one_or_none.return_value = None
         session.execute.return_value = scalar_result
 
-        pool = _make_mock_pool(session)
         repo = ArticleVersionRepo(pool)
 
         result = await repo.create_version(
@@ -109,12 +91,12 @@ class TestCreateVersionStoresSnapshot:
         from modules.storage.postgres.article_version_repo import ArticleVersionRepo
 
         article_id = uuid.uuid4()
-        session = _make_mock_session()
+        pool = create_mock_relational_pool()
+        session = pool.session.return_value
         scalar_result = MagicMock()
         scalar_result.scalar_one_or_none.return_value = None
         session.execute.return_value = scalar_result
 
-        pool = _make_mock_pool(session)
         repo = ArticleVersionRepo(pool)
 
         await repo.create_version(
@@ -138,7 +120,8 @@ class TestGetVersionHistoryReturnsOrdered:
         from modules.storage.postgres.article_version_repo import ArticleVersionRepo
 
         article_id = uuid.uuid4()
-        session = _make_mock_session()
+        pool = create_mock_relational_pool()
+        session = pool.session.return_value
 
         v1 = _make_version(article_id=article_id, version=1, title="v1")
         v2 = _make_version(article_id=article_id, version=2, title="v2")
@@ -150,7 +133,6 @@ class TestGetVersionHistoryReturnsOrdered:
         result_mock.scalars.return_value = scalars_mock
         session.execute.return_value = result_mock
 
-        pool = _make_mock_pool(session)
         repo = ArticleVersionRepo(pool)
 
         versions = await repo.get_version_history(article_id)
@@ -165,7 +147,8 @@ class TestGetVersionHistoryReturnsOrdered:
         from modules.storage.postgres.article_version_repo import ArticleVersionRepo
 
         article_id = uuid.uuid4()
-        session = _make_mock_session()
+        pool = create_mock_relational_pool()
+        session = pool.session.return_value
 
         v3 = _make_version(article_id=article_id, version=3, title="v3")
 
@@ -175,7 +158,6 @@ class TestGetVersionHistoryReturnsOrdered:
         result_mock.scalars.return_value = scalars_mock
         session.execute.return_value = result_mock
 
-        pool = _make_mock_pool(session)
         repo = ArticleVersionRepo(pool)
 
         versions = await repo.get_version_history(article_id, limit=1)
@@ -188,7 +170,8 @@ class TestGetVersionHistoryReturnsOrdered:
         from modules.storage.postgres.article_version_repo import ArticleVersionRepo
 
         article_id = uuid.uuid4()
-        session = _make_mock_session()
+        pool = create_mock_relational_pool()
+        session = pool.session.return_value
 
         scalars_mock = MagicMock()
         scalars_mock.all.return_value = []
@@ -196,7 +179,6 @@ class TestGetVersionHistoryReturnsOrdered:
         result_mock.scalars.return_value = scalars_mock
         session.execute.return_value = result_mock
 
-        pool = _make_mock_pool(session)
         repo = ArticleVersionRepo(pool)
 
         versions = await repo.get_version_history(article_id)
@@ -212,12 +194,12 @@ class TestChangedFieldsTracking:
         from modules.storage.postgres.article_version_repo import ArticleVersionRepo
 
         article_id = uuid.uuid4()
-        session = _make_mock_session()
+        pool = create_mock_relational_pool()
+        session = pool.session.return_value
         scalar_result = MagicMock()
         scalar_result.scalar_one_or_none.return_value = None
         session.execute.return_value = scalar_result
 
-        pool = _make_mock_pool(session)
         repo = ArticleVersionRepo(pool)
 
         await repo.create_version(
@@ -241,12 +223,12 @@ class TestChangedFieldsTracking:
         from modules.storage.postgres.article_version_repo import ArticleVersionRepo
 
         article_id = uuid.uuid4()
-        session = _make_mock_session()
+        pool = create_mock_relational_pool()
+        session = pool.session.return_value
         scalar_result = MagicMock()
         scalar_result.scalar_one_or_none.return_value = None
         session.execute.return_value = scalar_result
 
-        pool = _make_mock_pool(session)
         repo = ArticleVersionRepo(pool)
 
         await repo.create_version(
@@ -272,12 +254,12 @@ class TestVersionAutoIncrement:
         from modules.storage.postgres.article_version_repo import ArticleVersionRepo
 
         article_id = uuid.uuid4()
-        session = _make_mock_session()
+        pool = create_mock_relational_pool()
+        session = pool.session.return_value
         scalar_result = MagicMock()
         scalar_result.scalar_one_or_none.return_value = None
         session.execute.return_value = scalar_result
 
-        pool = _make_mock_pool(session)
         repo = ArticleVersionRepo(pool)
 
         await repo.create_version(
@@ -298,12 +280,12 @@ class TestVersionAutoIncrement:
         from modules.storage.postgres.article_version_repo import ArticleVersionRepo
 
         article_id = uuid.uuid4()
-        session = _make_mock_session()
+        pool = create_mock_relational_pool()
+        session = pool.session.return_value
         scalar_result = MagicMock()
         scalar_result.scalar_one_or_none.return_value = 2  # existing max version
         session.execute.return_value = scalar_result
 
-        pool = _make_mock_pool(session)
         repo = ArticleVersionRepo(pool)
 
         await repo.create_version(
@@ -328,14 +310,14 @@ class TestGetLatestVersion:
         from modules.storage.postgres.article_version_repo import ArticleVersionRepo
 
         article_id = uuid.uuid4()
-        session = _make_mock_session()
+        pool = create_mock_relational_pool()
+        session = pool.session.return_value
 
         latest = _make_version(article_id=article_id, version=5, title="v5")
         result_mock = MagicMock()
         result_mock.scalar_one_or_none.return_value = latest
         session.execute.return_value = result_mock
 
-        pool = _make_mock_pool(session)
         repo = ArticleVersionRepo(pool)
 
         result = await repo.get_latest_version(article_id)
@@ -349,13 +331,13 @@ class TestGetLatestVersion:
         from modules.storage.postgres.article_version_repo import ArticleVersionRepo
 
         article_id = uuid.uuid4()
-        session = _make_mock_session()
+        pool = create_mock_relational_pool()
+        session = pool.session.return_value
 
         result_mock = MagicMock()
         result_mock.scalar_one_or_none.return_value = None
         session.execute.return_value = result_mock
 
-        pool = _make_mock_pool(session)
         repo = ArticleVersionRepo(pool)
 
         result = await repo.get_latest_version(article_id)

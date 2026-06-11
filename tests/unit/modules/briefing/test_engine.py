@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from modules.briefing.engine import BriefingEngine
+from tests.helpers import create_mock_relational_pool
 
 
 class TestBriefingEngine:
@@ -17,11 +18,8 @@ class TestBriefingEngine:
     @pytest.fixture
     def mock_pool(self):
         """Create a mock RelationalPool."""
-        pool = MagicMock()
-        mock_session = AsyncMock()
-        mock_session.__aenter__.return_value = mock_session
-        mock_session.__aexit__.return_value = None
-        pool.session_context.return_value = mock_session
+        pool = create_mock_relational_pool()
+        pool.session_context = pool.session
         return pool
 
     @pytest.fixture
@@ -61,11 +59,8 @@ class TestBriefingEngineWithArticles:
     @pytest.fixture
     def mock_pool(self):
         """Create a mock RelationalPool."""
-        pool = MagicMock()
-        mock_session = AsyncMock()
-        mock_session.__aenter__.return_value = mock_session
-        mock_session.__aexit__.return_value = None
-        pool.session_context.return_value = mock_session
+        pool = create_mock_relational_pool()
+        pool.session_context = pool.session
         return pool
 
     @pytest.fixture
@@ -147,11 +142,8 @@ class TestBriefingEnginePersist:
     @pytest.fixture
     def mock_pool(self):
         """Create a mock RelationalPool."""
-        pool = MagicMock()
-        mock_session = AsyncMock()
-        mock_session.__aenter__.return_value = mock_session
-        mock_session.__aexit__.return_value = None
-        pool.session_context.return_value = mock_session
+        pool = create_mock_relational_pool()
+        pool.session_context = pool.session
         return pool
 
     @pytest.fixture
@@ -162,7 +154,7 @@ class TestBriefingEnginePersist:
     @pytest.mark.asyncio
     async def test_persist_adds_briefing_and_items(self, engine, mock_pool):
         """Test _persist adds DailyBriefing and DailyBriefingItem records."""
-        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+        mock_session = mock_pool.session.return_value
         mock_result = MagicMock()
         mock_result.scalar_one_or_none.return_value = None
         mock_session.execute.return_value = mock_result
@@ -181,7 +173,7 @@ class TestBriefingEnginePersist:
     @pytest.mark.asyncio
     async def test_persist_returns_zero_on_existing(self, engine, mock_pool):
         """Test _persist returns 0 if briefing already exists."""
-        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+        mock_session = mock_pool.session.return_value
         mock_result = AsyncMock()
         mock_result.scalar_one_or_none.return_value = MagicMock()
         mock_session.execute.return_value = mock_result
@@ -192,7 +184,7 @@ class TestBriefingEnginePersist:
     @pytest.mark.asyncio
     async def test_persist_returns_zero_on_error(self, engine, mock_pool):
         """Test _persist returns 0 on database error."""
-        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+        mock_session = mock_pool.session.return_value
         mock_session.execute.side_effect = Exception("DB error")
         result = await engine._persist(date(2026, 6, 1), [])
         assert result == 0
@@ -215,11 +207,8 @@ class TestBriefingEngineFetchArticlesWithPool:
     @pytest.fixture
     def mock_pool(self):
         """Create a mock RelationalPool."""
-        pool = MagicMock()
-        mock_session = AsyncMock()
-        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session.__aexit__ = AsyncMock(return_value=None)
-        pool.session_context.return_value = mock_session
+        pool = create_mock_relational_pool()
+        pool.session_context = pool.session
         return pool
 
     @pytest.fixture
@@ -241,7 +230,7 @@ class TestBriefingEngineFetchArticlesWithPool:
         mock_result = MagicMock()
         mock_result.scalars.return_value.all.return_value = [mock_row1]
 
-        mock_session = mock_pool.session_context.return_value.__aenter__.return_value
+        mock_session = mock_pool.session.return_value
         mock_session.execute = AsyncMock(return_value=mock_result)
 
         result = await engine._fetch_articles(date(2026, 6, 1))

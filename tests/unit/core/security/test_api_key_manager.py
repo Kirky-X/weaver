@@ -5,27 +5,20 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import bcrypt
 import pytest
 
 from core.db.models import ApiKey
 from core.security.api_key_manager import ApiKeyManager
+from tests.helpers import create_mock_relational_pool
 
 
 @pytest.fixture
 def mock_pool() -> MagicMock:
     """Create a mock RelationalPool with async session support."""
-    pool = MagicMock()
-    session = AsyncMock()
-    session.__aenter__ = AsyncMock(return_value=session)
-    session.__aexit__ = AsyncMock(return_value=False)
-    session.commit = AsyncMock()
-    session.flush = AsyncMock()
-    session.add = MagicMock()
-    pool.session.return_value = session
-    return pool
+    return create_mock_relational_pool()
 
 
 @pytest.fixture

@@ -3,25 +3,19 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
 from core.db.models import AuditLog
 from core.security.audit_log_service import AuditLogService
+from tests.helpers import create_mock_relational_pool
 
 
 @pytest.fixture
 def mock_pool() -> MagicMock:
     """Create a mock RelationalPool with async session support."""
-    pool = MagicMock()
-    session = AsyncMock()
-    session.__aenter__ = AsyncMock(return_value=session)
-    session.__aexit__ = AsyncMock(return_value=False)
-    session.commit = AsyncMock()
-    session.add = MagicMock()
-    pool.session.return_value = session
-    return pool
+    return create_mock_relational_pool()
 
 
 @pytest.fixture

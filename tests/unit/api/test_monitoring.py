@@ -16,13 +16,14 @@ Verifies:
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.endpoints.admin.monitoring import router as monitoring_router
+from tests.helpers import create_mock_relational_pool
 
 
 def create_mock_result(rows):
@@ -52,12 +53,8 @@ def mock_pool():
     """Create mock database pool."""
     from core.db.postgres import PostgresPool
 
-    pool = MagicMock(spec=PostgresPool)
-    session = MagicMock()
-    session.__aenter__ = AsyncMock(return_value=session)
-    session.__aexit__ = AsyncMock(return_value=None)
-    session.execute = AsyncMock()
-    pool.session = MagicMock(return_value=session)
+    pool = create_mock_relational_pool()
+    pool.__class__ = PostgresPool
     pool._engine = MagicMock()
     pool._engine.sync_engine.pool.status.return_value = MagicMock(
         size=10,

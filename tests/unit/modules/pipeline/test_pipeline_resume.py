@@ -1,8 +1,6 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Tests for pipeline resume and retry mechanism."""
 
-from unittest.mock import AsyncMock
-
 import pytest
 
 
@@ -31,16 +29,10 @@ def test_article_has_processing_fields():
 @pytest.mark.asyncio
 async def test_article_repo_has_get_stuck_articles_method():
     """验证 ArticleRepo 有 get_stuck_articles 方法"""
-    from unittest.mock import MagicMock
-
     from modules.storage.postgres.article_repo import ArticleRepo
+    from tests.helpers import create_mock_relational_pool
 
-    mock_pool = MagicMock()
-    mock_session = MagicMock()
-    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-    mock_session.__aexit__ = AsyncMock(return_value=None)
-    mock_pool.session = MagicMock(return_value=mock_session)
-
+    mock_pool = create_mock_relational_pool()
     repo = ArticleRepo(mock_pool)
     assert hasattr(repo, "get_stuck_articles"), "ArticleRepo should have get_stuck_articles method"
     assert callable(repo.get_stuck_articles), "get_stuck_articles should be callable"
@@ -49,16 +41,10 @@ async def test_article_repo_has_get_stuck_articles_method():
 @pytest.mark.asyncio
 async def test_article_repo_has_get_failed_articles_method():
     """验证 ArticleRepo 有 get_failed_articles 方法"""
-    from unittest.mock import MagicMock
-
     from modules.storage.postgres.article_repo import ArticleRepo
+    from tests.helpers import create_mock_relational_pool
 
-    mock_pool = MagicMock()
-    mock_session = MagicMock()
-    mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-    mock_session.__aexit__ = AsyncMock(return_value=None)
-    mock_pool.session = MagicMock(return_value=mock_session)
-
+    mock_pool = create_mock_relational_pool()
     repo = ArticleRepo(mock_pool)
     assert hasattr(
         repo, "get_failed_articles"

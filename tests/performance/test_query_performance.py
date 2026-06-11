@@ -16,6 +16,8 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
+from tests.helpers import create_mock_relational_pool
+
 
 class TestNPlusOneQueryFix:
     """Tests for N+1 query optimization in auto score refresh."""
@@ -26,12 +28,8 @@ class TestNPlusOneQueryFix:
         from core.db.models import Article
 
         # Mock pool and session
-        mock_pool = MagicMock()
-        mock_session = MagicMock()
-        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session.__aexit__ = AsyncMock(return_value=None)
-        mock_session.execute = AsyncMock()
-        mock_pool.session = MagicMock(return_value=mock_session)
+        mock_pool = create_mock_relational_pool()
+        mock_session = mock_pool.session()
 
         # Mock first query: get distinct hosts
         mock_hosts_result = MagicMock()
@@ -222,10 +220,8 @@ class TestGroupByNULLFilter:
         from core.db.models import Article
 
         # Mock pool
-        mock_pool = MagicMock()
-        mock_session = MagicMock()
-        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session.__aexit__ = AsyncMock(return_value=None)
+        mock_pool = create_mock_relational_pool()
+        mock_session = mock_pool.session()
 
         # Mock hosts result includes NULL
         mock_hosts_result = MagicMock()

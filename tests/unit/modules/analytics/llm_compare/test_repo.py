@@ -8,6 +8,7 @@ import pytest
 
 from core.event.bus import LLMCompareEvent
 from modules.analytics.llm_compare.repo import EvalCompareRepo
+from tests.helpers import create_mock_relational_pool
 
 
 class TestEvalCompareRepoInit:
@@ -508,14 +509,8 @@ class TestEvalCompareRepoIntegration:
     @pytest.mark.asyncio
     async def test_full_workflow_insert_and_query(self):
         """Test complete workflow: insert -> upsert -> query -> cleanup."""
-        pool = MagicMock()
-        session = MagicMock()
-        session.__aenter__ = AsyncMock(return_value=session)
-        session.__aexit__ = AsyncMock(return_value=None)
-        session.add = MagicMock()
-        session.execute = AsyncMock()
-        session.commit = AsyncMock()
-        pool.session = MagicMock(return_value=session)
+        pool = create_mock_relational_pool()
+        session = pool.session.return_value
 
         repo = EvalCompareRepo(pool=pool)
 
