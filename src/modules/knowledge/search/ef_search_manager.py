@@ -14,25 +14,15 @@ from __future__ import annotations
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
+from core.constants import SearchMode
 from core.observability import get_logger
 
 if TYPE_CHECKING:
     from core.protocols import RelationalPool
 
 log = get_logger(__name__)
-
-
-class SearchMode(StrEnum):
-    """Search modes for HNSW ef_search optimization."""
-
-    HYBRID = "hybrid"
-    LOCAL = "local"
-    GLOBAL = "global"
-    DRIFT = "drift"
-    LATENCY = "latency"
 
 
 @dataclass

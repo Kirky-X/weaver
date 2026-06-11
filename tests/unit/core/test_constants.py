@@ -110,7 +110,8 @@ class TestSearchMode:
         assert SearchMode.from_str("local") == SearchMode.LOCAL
         assert SearchMode.from_str("global") == SearchMode.GLOBAL
         assert SearchMode.from_str("hybrid") == SearchMode.HYBRID
-        assert SearchMode.from_str("articles") == SearchMode.ARTICLES
+        assert SearchMode.from_str("drift") == SearchMode.DRIFT
+        assert SearchMode.from_str("latency") == SearchMode.LATENCY
 
     def test_from_str_invalid_raises(self) -> None:
         """Test from_str raises ValueError for invalid values."""

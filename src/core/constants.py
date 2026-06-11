@@ -240,7 +240,8 @@ class SearchMode(str, enum.Enum):
     LOCAL = "local"
     GLOBAL = "global"
     HYBRID = "hybrid"
-    ARTICLES = "articles"
+    DRIFT = "drift"
+    LATENCY = "latency"
 
     @classmethod
     def from_str(cls, value: str) -> SearchMode:
