@@ -32,7 +32,7 @@ def mock_event_bus():
 
 
 @pytest.fixture
-def mock_llm_client():
+def mock_llm():
     """Create mock LLM client."""
     client = MagicMock()
     client.call_at = AsyncMock(return_value="test response")
@@ -70,28 +70,28 @@ class TestEvalRunnerConfig:
 class TestEvalRunnerInitialization:
     """Tests for EvalRunner initialization."""
 
-    def test_from_eval_config(self, eval_config, mock_event_bus, mock_llm_client):
+    def test_from_eval_config(self, eval_config, mock_event_bus, mock_llm):
         """EvalRunner creates from EvalConfig."""
         runner = EvalRunner.from_eval_config(
             eval_cfg=eval_config,
-            llm_client=mock_llm_client,
+            llm_client=mock_llm,
             event_bus=mock_event_bus,
         )
 
         assert runner._config.enabled == eval_config.enabled
         assert runner._config.sample_rate == eval_config.sample_rate
         assert runner._event_bus == mock_event_bus
-        assert runner._llm_client == mock_llm_client
+        assert runner._llm_client == mock_llm
 
 
 class TestEvalRunnerSampling:
     """Tests for shadow call sampling logic."""
 
-    def test_should_trigger_respects_rate(self, eval_config, mock_event_bus, mock_llm_client):
+    def test_should_trigger_respects_rate(self, eval_config, mock_event_bus, mock_llm):
         """Sampling respects configured sample_rate."""
         runner = EvalRunner.from_eval_config(
             eval_cfg=eval_config,
-            llm_client=mock_llm_client,
+            llm_client=mock_llm,
             event_bus=mock_event_bus,
         )
 
@@ -100,7 +100,7 @@ class TestEvalRunnerSampling:
         result = runner.should_trigger("classifier")
         assert isinstance(result, bool)
 
-    def test_should_trigger_disabled_returns_false(self, mock_event_bus, mock_llm_client):
+    def test_should_trigger_disabled_returns_false(self, mock_event_bus, mock_llm):
         """Disabled eval never triggers."""
         eval_config = EvalConfig(
             enabled=False,
@@ -111,13 +111,13 @@ class TestEvalRunnerSampling:
         )
         runner = EvalRunner.from_eval_config(
             eval_cfg=eval_config,
-            llm_client=mock_llm_client,
+            llm_client=mock_llm,
             event_bus=mock_event_bus,
         )
 
         assert runner.should_trigger("classifier") is False
 
-    def test_should_trigger_zero_rate_returns_false(self, mock_event_bus, mock_llm_client):
+    def test_should_trigger_zero_rate_returns_false(self, mock_event_bus, mock_llm):
         """Zero sample rate never triggers."""
         eval_config = EvalConfig(
             enabled=True,
@@ -128,19 +128,19 @@ class TestEvalRunnerSampling:
         )
         runner = EvalRunner.from_eval_config(
             eval_cfg=eval_config,
-            llm_client=mock_llm_client,
+            llm_client=mock_llm,
             event_bus=mock_event_bus,
         )
 
         assert runner.should_trigger("classifier") is False
 
     def test_should_trigger_wrong_call_point_returns_false(
-        self, eval_config, mock_event_bus, mock_llm_client
+        self, eval_config, mock_event_bus, mock_llm
     ):
         """Wrong call_point never triggers."""
         runner = EvalRunner.from_eval_config(
             eval_cfg=eval_config,
-            llm_client=mock_llm_client,
+            llm_client=mock_llm,
             event_bus=mock_event_bus,
         )
 
@@ -151,13 +151,11 @@ class TestEvalRunnerShadowCalls:
     """Tests for shadow call execution."""
 
     @pytest.mark.asyncio
-    async def test_trigger_shadow_call_fire_and_forget(
-        self, eval_config, mock_event_bus, mock_llm_client
-    ):
+    async def test_trigger_shadow_call_fire_and_forget(self, eval_config, mock_event_bus, mock_llm):
         """Shadow call is non-blocking (fire-and-forget)."""
         runner = EvalRunner.from_eval_config(
             eval_cfg=eval_config,
-            llm_client=mock_llm_client,
+            llm_client=mock_llm,
             event_bus=mock_event_bus,
         )
 
@@ -178,9 +176,7 @@ class TestEvalRunnerShadowCalls:
         # If we reach here quickly, it's fire-and-forget
 
     @pytest.mark.asyncio
-    async def test_trigger_shadow_call_skips_when_no_candidates(
-        self, mock_event_bus, mock_llm_client
-    ):
+    async def test_trigger_shadow_call_skips_when_no_candidates(self, mock_event_bus, mock_llm):
         """Shadow call skipped when no candidate labels."""
         eval_config = EvalConfig(
             enabled=True,
@@ -191,7 +187,7 @@ class TestEvalRunnerShadowCalls:
         )
         runner = EvalRunner.from_eval_config(
             eval_cfg=eval_config,
-            llm_client=mock_llm_client,
+            llm_client=mock_llm,
             event_bus=mock_event_bus,
         )
 
@@ -209,7 +205,7 @@ class TestEvalRunnerShadowCalls:
         )
 
         # Verify no calls were made
-        mock_llm_client.call_at.assert_not_called()
+        mock_llm.call_at.assert_not_called()
 
 
 class TestEvalRunnerIsolation:
@@ -217,15 +213,15 @@ class TestEvalRunnerIsolation:
 
     @pytest.mark.asyncio
     async def test_shadow_call_failure_does_not_propagate(
-        self, eval_config, mock_event_bus, mock_llm_client
+        self, eval_config, mock_event_bus, mock_llm
     ):
         """Shadow call failure doesn't affect main path."""
         # Make shadow call fail
-        mock_llm_client.call_at.side_effect = Exception("Shadow call failed")
+        mock_llm.call_at.side_effect = Exception("Shadow call failed")
 
         runner = EvalRunner.from_eval_config(
             eval_cfg=eval_config,
-            llm_client=mock_llm_client,
+            llm_client=mock_llm,
             event_bus=mock_event_bus,
         )
 
@@ -246,9 +242,7 @@ class TestEvalRunnerIsolation:
         # Test passes if no exception raised
 
     @pytest.mark.asyncio
-    async def test_shadow_call_timeout_does_not_block(
-        self, eval_config, mock_event_bus, mock_llm_client
-    ):
+    async def test_shadow_call_timeout_does_not_block(self, eval_config, mock_event_bus, mock_llm):
         """Shadow call timeout doesn't block main path."""
         import asyncio
 
@@ -257,11 +251,11 @@ class TestEvalRunnerIsolation:
             await asyncio.sleep(10)  # Very slow
             return "timeout"
 
-        mock_llm_client.call_at.side_effect = hanging_call
+        mock_llm.call_at.side_effect = hanging_call
 
         runner = EvalRunner.from_eval_config(
             eval_cfg=eval_config,
-            llm_client=mock_llm_client,
+            llm_client=mock_llm,
             event_bus=mock_event_bus,
         )
 

@@ -28,24 +28,6 @@ def mock_causal_repo():
 
 
 @pytest.fixture
-def mock_embedding_service():
-    """Create mock embedding service."""
-    service = MagicMock()
-    service.embed = AsyncMock(return_value=[0.1] * 384)
-    return service
-
-
-@pytest.fixture
-def mock_intent_classifier():
-    """Create mock intent classifier."""
-    classifier = MagicMock()
-    classification = MagicMock()
-    classification.intent = IntentType.OPEN
-    classifier.classify = AsyncMock(return_value=classification)
-    return classifier
-
-
-@pytest.fixture
 def engine(
     mock_temporal_repo,
     mock_causal_repo,

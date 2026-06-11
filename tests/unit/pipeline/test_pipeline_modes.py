@@ -48,7 +48,7 @@ def sample_articles_raw() -> list[RawArticle]:
 
 
 @pytest.fixture
-def mock_llm_client() -> MagicMock:
+def mock_llm() -> MagicMock:
     """Create a mock LLM client for testing."""
     from core.llm.types import CallPoint
 
@@ -140,7 +140,7 @@ class TestFastModeLLMCallCount:
     async def test_fast_mode_llm_calls_per_article(
         self,
         sample_article_raw: RawArticle,
-        mock_llm_client: MagicMock,
+        mock_llm: MagicMock,
         mock_token_budget: MagicMock,
         mock_prompt_loader: MagicMock,
         mock_event_bus: MagicMock,
@@ -178,8 +178,8 @@ class TestFastModeLLMCallCount:
                     mock_output.language = "zh"
             return mock_output
 
-        mock_llm_client.call_at = AsyncMock(side_effect=track_call_at)
-        mock_llm_client.embed = AsyncMock(
+        mock_llm.call_at = AsyncMock(side_effect=track_call_at)
+        mock_llm.embed = AsyncMock(
             side_effect=lambda *a, **kw: (
                 call_count.update({"embed": call_count["embed"] + 1}) or [0.1] * 768
             )
@@ -187,7 +187,7 @@ class TestFastModeLLMCallCount:
 
         # Create pipeline with minimal dependencies for fast mode
         pipeline = Pipeline(
-            llm=mock_llm_client,
+            llm=mock_llm,
             budget=mock_token_budget,
             prompt_loader=mock_prompt_loader,
             event_bus=mock_event_bus,
@@ -214,7 +214,7 @@ class TestFastModeLLMCallCount:
     async def test_fast_mode_llm_calls_batch(
         self,
         sample_articles_raw: list[RawArticle],
-        mock_llm_client: MagicMock,
+        mock_llm: MagicMock,
         mock_token_budget: MagicMock,
         mock_prompt_loader: MagicMock,
         mock_event_bus: MagicMock,
@@ -237,10 +237,10 @@ class TestFastModeLLMCallCount:
             mock_output.is_news = True
             return mock_output
 
-        mock_llm_client.call_at = AsyncMock(side_effect=track_call_at)
+        mock_llm.call_at = AsyncMock(side_effect=track_call_at)
 
         pipeline = Pipeline(
-            llm=mock_llm_client,
+            llm=mock_llm,
             budget=mock_token_budget,
             prompt_loader=mock_prompt_loader,
             event_bus=mock_event_bus,
@@ -268,7 +268,7 @@ class TestDeepModeLLMCallCount:
     async def test_deep_mode_llm_calls_per_article(
         self,
         sample_article_raw: RawArticle,
-        mock_llm_client: MagicMock,
+        mock_llm: MagicMock,
         mock_token_budget: MagicMock,
         mock_prompt_loader: MagicMock,
         mock_event_bus: MagicMock,
@@ -307,10 +307,10 @@ class TestDeepModeLLMCallCount:
                     pass
             return mock_output
 
-        mock_llm_client.call_at = AsyncMock(side_effect=track_call_at)
+        mock_llm.call_at = AsyncMock(side_effect=track_call_at)
 
         pipeline = Pipeline(
-            llm=mock_llm_client,
+            llm=mock_llm,
             budget=mock_token_budget,
             prompt_loader=mock_prompt_loader,
             event_bus=mock_event_bus,
@@ -343,7 +343,7 @@ class TestProcessingModeOutput:
     async def test_fast_mode_output_structure(
         self,
         sample_article_raw: RawArticle,
-        mock_llm_client: MagicMock,
+        mock_llm: MagicMock,
         mock_token_budget: MagicMock,
         mock_prompt_loader: MagicMock,
         mock_event_bus: MagicMock,
@@ -352,7 +352,7 @@ class TestProcessingModeOutput:
         from modules.processing.pipeline.graph import Pipeline
 
         pipeline = Pipeline(
-            llm=mock_llm_client,
+            llm=mock_llm,
             budget=mock_token_budget,
             prompt_loader=mock_prompt_loader,
             event_bus=mock_event_bus,
@@ -361,7 +361,7 @@ class TestProcessingModeOutput:
             vector_repo=None,
         )
 
-        # Run fast mode (mock_llm_client already has proper call_at mock)
+        # Run fast mode (mock_llm already has proper call_at mock)
         results = await pipeline.process_batch_fast([sample_article_raw])
 
         # Verify output structure
@@ -375,7 +375,7 @@ class TestProcessingModeOutput:
     async def test_mode_comparison_output(
         self,
         sample_article_raw: RawArticle,
-        mock_llm_client: MagicMock,
+        mock_llm: MagicMock,
         mock_token_budget: MagicMock,
         mock_prompt_loader: MagicMock,
         mock_event_bus: MagicMock,
@@ -385,7 +385,7 @@ class TestProcessingModeOutput:
 
         # Create pipeline
         pipeline = Pipeline(
-            llm=mock_llm_client,
+            llm=mock_llm,
             budget=mock_token_budget,
             prompt_loader=mock_prompt_loader,
             event_bus=mock_event_bus,

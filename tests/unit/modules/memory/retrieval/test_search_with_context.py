@@ -25,7 +25,7 @@ class TestSearchWithContext:
     async def test_search_with_context_raises_without_entity_repo(
         self,
         mock_graph_pool,
-        mock_llm_client,
+        mock_llm,
         mock_redis,
     ) -> None:
         """Test that search_with_context raises error without entity_repo."""
@@ -36,7 +36,7 @@ class TestSearchWithContext:
 
         service = MemoryIntegrationService(
             graph_pool=mock_graph_pool,
-            llm_client=mock_llm_client,
+            llm_client=mock_llm,
             cache=mock_redis,
             embedding_service=MockEmbeddingService(),
             intent_classifier=mock_intent_classifier,
@@ -53,7 +53,7 @@ class TestSearchWithContext:
     async def test_search_with_context_works_with_entity_repo(
         self,
         mock_graph_pool,
-        mock_llm_client,
+        mock_llm,
         mock_redis,
     ) -> None:
         """Test that search_with_context works when entity_repo is provided."""
@@ -69,7 +69,7 @@ class TestSearchWithContext:
 
         service = MemoryIntegrationService(
             graph_pool=mock_graph_pool,
-            llm_client=mock_llm_client,
+            llm_client=mock_llm,
             cache=mock_redis,
             embedding_service=MockEmbeddingService(),
             intent_classifier=mock_intent_classifier,

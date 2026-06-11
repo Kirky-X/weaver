@@ -14,7 +14,7 @@ class TestMCSamplerBenchmark:
     """Benchmark tests to verify token savings from MC sampling."""
 
     @pytest.fixture
-    def mock_llm_client(self):
+    def mock_llm(self):
         """Create mock LLM client with realistic scoring."""
         client = MagicMock()
 
@@ -70,10 +70,10 @@ class TestMCSamplerBenchmark:
 
     @pytest.mark.asyncio
     @pytest.mark.benchmark
-    async def test_token_savings_10k_document(self, mock_llm_client, mock_token_budget, benchmark):
+    async def test_token_savings_10k_document(self, mock_llm, mock_token_budget, benchmark):
         """Benchmark token savings for 10K character document."""
         sampler = MCSampler(
-            llm_client=mock_llm_client,
+            llm_client=mock_llm,
             token_budget_manager=mock_token_budget,
             threshold=5000,  # Trigger sampling
             sample_size=3,
@@ -100,10 +100,10 @@ class TestMCSamplerBenchmark:
 
     @pytest.mark.asyncio
     @pytest.mark.benchmark
-    async def test_token_savings_50k_document(self, mock_llm_client, mock_token_budget):
+    async def test_token_savings_50k_document(self, mock_llm, mock_token_budget):
         """Benchmark token savings for 50K character document."""
         sampler = MCSampler(
-            llm_client=mock_llm_client,
+            llm_client=mock_llm,
             token_budget_manager=mock_token_budget,
             threshold=5000,
             sample_size=5,
@@ -133,10 +133,10 @@ class TestMCSamplerBenchmark:
 
     @pytest.mark.asyncio
     @pytest.mark.benchmark
-    async def test_sampling_latency(self, mock_llm_client, mock_token_budget):
+    async def test_sampling_latency(self, mock_llm, mock_token_budget):
         """Benchmark sampling latency for various document sizes."""
         sampler = MCSampler(
-            llm_client=mock_llm_client,
+            llm_client=mock_llm,
             token_budget_manager=mock_token_budget,
             threshold=1000,
             sample_size=3,
@@ -175,14 +175,14 @@ class TestMCSamplerBenchmark:
 
     @pytest.mark.asyncio
     @pytest.mark.benchmark
-    async def test_sampling_quality_preserves_key_info(self, mock_llm_client, mock_token_budget):
+    async def test_sampling_quality_preserves_key_info(self, mock_llm, mock_token_budget):
         """Verify that sampling preserves key information."""
         # Create document with specific key information
         key_phrase = "关键数据：2024年人工智能市场规模达到5000亿美元"
         doc = ("普通内容，" * 500) + key_phrase + ("更多普通内容，" * 500)
 
         sampler = MCSampler(
-            llm_client=mock_llm_client,
+            llm_client=mock_llm,
             token_budget_manager=mock_token_budget,
             threshold=1000,
             sample_size=5,
@@ -204,12 +204,12 @@ class TestMCSamplerBenchmark:
 
     @pytest.mark.asyncio
     @pytest.mark.benchmark
-    async def test_comparison_with_truncation(self, mock_llm_client, mock_token_budget):
+    async def test_comparison_with_truncation(self, mock_llm, mock_token_budget):
         """Compare MC sampling with simple truncation."""
         doc = self.generate_long_document(20000)
 
         sampler = MCSampler(
-            llm_client=mock_llm_client,
+            llm_client=mock_llm,
             token_budget_manager=mock_token_budget,
             threshold=1000,
             sample_size=5,
@@ -243,7 +243,7 @@ class TestMCSamplerConfigImpact:
     """Test impact of configuration parameters on sampling."""
 
     @pytest.fixture
-    def mock_llm_client(self):
+    def mock_llm(self):
         """Create mock LLM client."""
         client = MagicMock()
         client.call_at = AsyncMock(
@@ -264,14 +264,14 @@ class TestMCSamplerConfigImpact:
         return budget
 
     @pytest.mark.asyncio
-    async def test_sample_size_impact(self, mock_llm_client, mock_token_budget):
+    async def test_sample_size_impact(self, mock_llm, mock_token_budget):
         """Test how sample_size affects results."""
         doc = "测试内容" * 5000
         results = {}
 
         for sample_size in [2, 5, 10]:
             sampler = MCSampler(
-                llm_client=mock_llm_client,
+                llm_client=mock_llm,
                 token_budget_manager=mock_token_budget,
                 threshold=1000,
                 sample_size=sample_size,
@@ -287,14 +287,14 @@ class TestMCSamplerConfigImpact:
         assert results[10] >= results[5]
 
     @pytest.mark.asyncio
-    async def test_region_size_impact(self, mock_llm_client, mock_token_budget):
+    async def test_region_size_impact(self, mock_llm, mock_token_budget):
         """Test how region_size affects results."""
         doc = "测试内容" * 5000
         results = {}
 
         for region_size in [500, 1000, 2000]:
             sampler = MCSampler(
-                llm_client=mock_llm_client,
+                llm_client=mock_llm,
                 token_budget_manager=mock_token_budget,
                 threshold=1000,
                 sample_size=3,

@@ -23,12 +23,6 @@ def sample_raw():
 
 
 @pytest.fixture
-def mock_llm():
-    """Mock LLM client for pipeline tests."""
-    return AsyncMock()
-
-
-@pytest.fixture
 def mock_budget():
     """Mock token budget manager for pipeline tests."""
     budget = MagicMock()
