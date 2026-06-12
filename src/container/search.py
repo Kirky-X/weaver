@@ -138,6 +138,7 @@ class ContainerSearchMixin:
 
                     mmr_reranker = MMRReranker(
                         lambda_param=self._settings.search.mmr_lambda,
+                        similarity_mode=self._settings.search.mmr_similarity_mode,
                     )
                 except Exception as exc:
                     log.warning("mmr_reranker_init_failed", error=str(exc), exc_info=True)

@@ -306,8 +306,9 @@ class SearchSettings(BaseModel):
     hybrid_enabled: bool = True
     rerank_enabled: bool = True
     rerank_model: str = "tiny"
-    mmr_enabled: bool = False
+    mmr_enabled: bool = True
     mmr_lambda: float = 0.7
+    mmr_similarity_mode: str = "jaccard"
     bm25_rebuild_interval: int = 300
     temporal_decay_enabled: bool = False
     temporal_decay_half_life_days: float = 30.0

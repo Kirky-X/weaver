@@ -35,8 +35,9 @@ class HybridSearchConfig:
     hybrid_enabled: bool = True
     rerank_enabled: bool = True
     rerank_model: str = "tiny"
-    mmr_enabled: bool = False
+    mmr_enabled: bool = True
     mmr_lambda: float = 0.7
+    mmr_similarity_mode: str = "jaccard"
     vector_weight: float = 1.0
     bm25_weight: float = 1.0
     graph_weight: float = 1.0
