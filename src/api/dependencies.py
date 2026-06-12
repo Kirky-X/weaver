@@ -16,7 +16,7 @@ Example:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import Depends, HTTPException
 
@@ -258,6 +258,19 @@ def get_llm_usage_repo() -> LLMUsageRepo:
 
     """
     return Endpoints.get_llm_usage_repo()
+
+
+def get_saga_orchestrator() -> Any:
+    """FastAPI dependency for Saga orchestrator.
+
+    Raises:
+        HTTPException: If orchestrator is not initialized.
+
+    Returns:
+        SagaOrchestrator instance.
+
+    """
+    return Endpoints.get_saga_orchestrator()
 
 
 # ── Type Aliases for Cleaner Signatures ────────────────────────────────

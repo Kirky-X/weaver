@@ -59,6 +59,7 @@ class Endpoints:
     _llm_usage_repo: LLMUsageRepo | None = None
     _pipeline_service: PipelineServiceImpl | None = None
     _task_registry: InMemoryTaskRegistry | None = None
+    _saga_orchestrator: Any = None
     _embedding_service: Any = None
     _intent_classifier: Any = None
 
@@ -223,6 +224,15 @@ class Endpoints:
             raise HTTPException(503, detail="Task registry not initialized")
         return Endpoints._task_registry
 
+    # ── Saga Orchestrator ──────────────────────────────────────────────
+
+    @staticmethod
+    def get_saga_orchestrator() -> Any:
+        """Get the Saga orchestrator for cross-database transaction coordination."""
+        if Endpoints._saga_orchestrator is None:
+            raise HTTPException(503, detail="Saga orchestrator not initialized")
+        return Endpoints._saga_orchestrator
+
     # ── Optional Getters (return None instead of raising) ──────────────
 
     @staticmethod
@@ -309,6 +319,7 @@ class Endpoints:
         # Pipeline services
         cls._pipeline_service = container.pipeline_service()
         cls._task_registry = container.task_registry()
+        cls._saga_orchestrator = container.saga_orchestrator()
 
         # Embedding and intent services (may be None if not configured)
         cls._embedding_service = getattr(container, "_embedding_service", None)

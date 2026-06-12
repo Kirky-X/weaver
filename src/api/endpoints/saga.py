@@ -1,0 +1,150 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
+"""Saga management API endpoints.
+
+Provides endpoints for querying saga status, triggering manual compensation,
+and listing failed sagas.
+"""
+
+from __future__ import annotations
+
+import uuid
+from typing import Any
+
+from fastapi import APIRouter, HTTPException
+
+from api.endpoints.deps_registry import Endpoints
+from core.observability import get_logger
+
+log = get_logger(__name__)
+
+router = APIRouter(prefix="/saga", tags=["saga"])
+
+
+@router.get("/{saga_id}", summary="Get saga status")
+async def get_saga_status(saga_id: uuid.UUID) -> dict[str, Any]:
+    """Get the status of a saga by its ID.
+
+    Args:
+        saga_id: UUID of the saga.
+
+    Returns:
+        Dict with saga status, step details, and error information.
+
+    Raises:
+        HTTPException: 404 if saga not found.
+
+    """
+    orchestrator = Endpoints.get_saga_orchestrator()
+    status = await orchestrator.get_saga_status(saga_id)
+
+    if status.get("status") == "unknown":
+        raise HTTPException(status_code=404, detail=f"Saga {saga_id} not found")
+
+    return status
+
+
+@router.post("/{saga_id}/compensate", summary="Trigger manual compensation")
+async def compensate_saga(saga_id: uuid.UUID) -> dict[str, Any]:
+    """Manually trigger compensation for a saga.
+
+    Used for manual intervention when automatic compensation fails
+    or when an operator needs to roll back a completed saga.
+
+    Args:
+        saga_id: UUID of the saga to compensate.
+
+    Returns:
+        Dict with compensation result.
+
+    Raises:
+        HTTPException: 404 if saga not found, 500 if compensation fails.
+
+    """
+    orchestrator = Endpoints.get_saga_orchestrator()
+    result = await orchestrator.compensate_saga(saga_id)
+
+    if result.status.value == "failed":
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "message": "Compensation failed",
+                "failed_steps": (
+                    result.compensation_result.failed_steps if result.compensation_result else []
+                ),
+            },
+        )
+
+    return {
+        "saga_id": str(result.saga_id),
+        "status": result.status.value,
+        "compensation_completed": (
+            result.compensation_result.completed_steps if result.compensation_result else []
+        ),
+    }
+
+
+@router.get("/article/{article_id}", summary="Get sagas for article")
+async def get_article_sagas(article_id: uuid.UUID) -> dict[str, Any]:
+    """Get all saga log entries for an article.
+
+    Args:
+        article_id: UUID of the article.
+
+    Returns:
+        Dict with list of saga log entries.
+
+    """
+    orchestrator = Endpoints.get_saga_orchestrator()
+    log_repo = orchestrator._log_repo
+    logs = await log_repo.get_by_article_id(article_id)
+
+    entries = []
+    for entry in logs:
+        entries.append(
+            {
+                "id": str(entry.id),
+                "saga_id": str(entry.saga_id),
+                "step_name": entry.step_name,
+                "step_status": entry.step_status,
+                "started_at": entry.started_at.isoformat() if entry.started_at else None,
+                "completed_at": entry.completed_at.isoformat() if entry.completed_at else None,
+                "error_message": entry.error_message,
+                "retry_count": entry.retry_count,
+            }
+        )
+
+    return {"article_id": str(article_id), "saga_logs": entries}
+
+
+@router.get("/failed/list", summary="List failed sagas")
+async def list_failed_sagas(limit: int = 50) -> dict[str, Any]:
+    """List saga log entries with failed status.
+
+    Args:
+        limit: Maximum number of entries to return (default 50, max 200).
+
+    Returns:
+        Dict with list of failed saga log entries.
+
+    """
+    limit = min(limit, 200)
+
+    orchestrator = Endpoints.get_saga_orchestrator()
+    log_repo = orchestrator._log_repo
+    failed_logs = await log_repo.get_failed_logs(limit=limit)
+
+    entries = []
+    for entry in failed_logs:
+        entries.append(
+            {
+                "id": str(entry.id),
+                "saga_id": str(entry.saga_id),
+                "article_id": str(entry.article_id),
+                "step_name": entry.step_name,
+                "step_status": entry.step_status,
+                "error_message": entry.error_message,
+                "retry_count": entry.retry_count,
+            }
+        )
+
+    return {"failed_count": len(entries), "entries": entries}
