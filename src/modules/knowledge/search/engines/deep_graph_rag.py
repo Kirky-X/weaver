@@ -61,6 +61,7 @@ class DeepGraphRAGEngine:
         community_repo: Community repository for entity retrieval.
         llm_client: LLM client for embedding generation.
         reranker: Optional BeamSearchReranker for final reranking.
+        community_vector_repo: Optional community vector repository for dedicated community search.
         config: Engine configuration.
     """
 
@@ -71,6 +72,7 @@ class DeepGraphRAGEngine:
         community_repo: Any = None,
         llm_client: Any = None,
         reranker: Any = None,
+        community_vector_repo: Any = None,
         config: DeepGraphRAGConfig | None = None,
     ) -> None:
         if graph_repo is None:
@@ -85,6 +87,7 @@ class DeepGraphRAGEngine:
         self._community_repo = community_repo
         self._llm_client = llm_client
         self._reranker = reranker
+        self._community_vector_repo = community_vector_repo
         self._config = config or DeepGraphRAGConfig()
 
     async def search(
@@ -182,36 +185,60 @@ class DeepGraphRAGEngine:
         else:
             query_embedding = embedding
 
-        if not self._vector_repo or not query_embedding:
+        if not query_embedding:
             return []
 
         try:
-            results = await self._vector_repo.find_similar(query_embedding, limit=top_k)
-            communities = [
-                {
-                    "id": r.get("id", r.get("doc_id", "")),
-                    "score": r.get("score", 0.0),
-                    "name": r.get("name", ""),
-                }
-                for r in results
-            ]
-
-            # Text fallback when vector search returns empty
-            if not communities and self._community_repo and query:
+            # Priority 1: Use community vector repo if available
+            if self._community_vector_repo:
                 try:
-                    text_results = await self._community_repo.search_by_text(query)
+                    results = await self._community_vector_repo.find_similar_communities(
+                        query_embedding, limit=top_k
+                    )
                     communities = [
                         {
-                            "id": r.get("id", ""),
-                            "score": r.get("score", 0.5),
+                            "id": r.get("community_id", ""),
+                            "score": r.get("score", 0.0),
                             "name": r.get("title", ""),
                         }
-                        for r in text_results
+                        for r in results
                     ]
-                except Exception as exc:
-                    log.warning("text_fallback_failed", error=str(exc))
 
-            return communities
+                    if communities:
+                        return communities
+                except Exception as exc:
+                    log.warning("community_vector_repo_failed", error=str(exc))
+
+            # Priority 2: Fallback to general vector repo
+            if self._vector_repo:
+                results = await self._vector_repo.find_similar(query_embedding, limit=top_k)
+                communities = [
+                    {
+                        "id": r.get("id", r.get("doc_id", "")),
+                        "score": r.get("score", 0.0),
+                        "name": r.get("name", ""),
+                    }
+                    for r in results
+                ]
+
+                # Priority 3: Text fallback when vector search returns empty
+                if not communities and self._community_repo and query:
+                    try:
+                        text_results = await self._community_repo.search_by_text(query)
+                        communities = [
+                            {
+                                "id": r.get("id", ""),
+                                "score": r.get("score", 0.5),
+                                "name": r.get("title", ""),
+                            }
+                            for r in text_results
+                        ]
+                    except Exception as exc:
+                        log.warning("text_fallback_failed", error=str(exc))
+
+                return communities
+
+            return []
         except Exception as exc:
             log.error("community_filter_failed", error=str(exc))
             return []

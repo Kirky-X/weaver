@@ -216,6 +216,35 @@ class VectorRepository(Protocol):
 
 
 @runtime_checkable
+class CommunityVectorRepository(Protocol):
+    """Protocol for community vector repository implementations.
+
+    Any class implementing these methods can be used as a CommunityVectorRepository.
+
+    Implementations:
+        - CommunityVectorRepo: PostgreSQL-based community vector repository
+    """
+
+    async def find_similar_communities(
+        self,
+        embedding: list[float],
+        limit: int = 5,
+        threshold: float = 0.80,
+    ) -> list[dict[str, Any]]:
+        """Find similar communities using vector similarity.
+
+        Args:
+            embedding: Query embedding vector.
+            limit: Maximum number of results.
+            threshold: Minimum similarity threshold.
+
+        Returns:
+            List of community dicts with community_id, score, and title.
+        """
+        ...
+
+
+@runtime_checkable
 class ArticleRepository(Protocol):
     """Protocol for article repository implementations.
 
