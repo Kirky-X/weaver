@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from core.event import EventBus
     from core.llm.evaluation.eval_runner import EvalRunner
     from core.llm.routing.smart_router import SmartRouter
+    from core.llm.routing.tiered_router import TieredRouter
     from core.prompt.loader import PromptLoader
 
 log = get_logger(__name__)
@@ -58,6 +59,7 @@ class LLMClient:
         prompt_loader: PromptLoader | None = None,
         smart_router: SmartRouter | None = None,
         eval_runner: EvalRunner | None = None,
+        tiered_router: TieredRouter | None = None,
     ) -> None:
         """初始化LLM客户端.
 
@@ -69,11 +71,13 @@ class LLMClient:
             prompt_loader: 可选的Prompt 加载器（用于call_at方法）
             smart_router: 可选的智能路由器（动态评分选择模型）
             eval_runner: 可选的影子评测器
+            tiered_router: 可选的分级路由器（难度分级选择模型）
         """
         self._global_config = global_config
         self._router = LabelRouter(global_config)
         self._smart_router = smart_router
         self._eval_runner = eval_runner
+        self._tiered_router = tiered_router
         self._redis = cache_client
         self._prompts = prompt_loader
         self._event_bus = event_bus
@@ -466,6 +470,11 @@ class LLMClient:
         if not labels:
             raise ValueError(f"Call point not configured: {call_point}")
 
+        # TieredRouter: difficulty-based routing overrides label selection
+        tiered_label = self._try_tiered_routing(call_point, payload)
+        if tiered_label is not None:
+            labels = [tiered_label]
+
         # 构建请求payload
         request_payload = dict(payload)
 
@@ -534,6 +543,46 @@ class LLMClient:
             )
 
         return result
+
+    def _try_tiered_routing(
+        self, call_point: str | CallPoint, payload: dict[str, Any]
+    ) -> Label | None:
+        """Try difficulty-based tiered routing for this call point.
+
+        Returns a Label if tiered routing is enabled and configured
+        for this call point, otherwise None (fall through to SmartRouter).
+
+        Args:
+            call_point: Call point name.
+            payload: Request payload (used to extract text for difficulty estimation).
+
+        Returns:
+            Label from tiered routing, or None.
+        """
+        if self._tiered_router is None:
+            return None
+
+        cp_str = call_point.value if isinstance(call_point, CallPoint) else str(call_point)
+
+        # Check if tiered routing is enabled for this call point
+        cp_config = self._router.get_call_point_config(cp_str)
+        if cp_config is None or not cp_config.tiered_routing:
+            return None
+
+        # Extract text from payload for difficulty estimation
+        text = payload.get("body", payload.get("user_content", ""))
+        if not text:
+            return None
+
+        entity_count = payload.get("entity_count", 0)
+        label = self._tiered_router.route(cp_str, text, entity_count=entity_count)
+        if label is not None:
+            log.debug(
+                "tiered_routing_selected",
+                call_point=cp_str,
+                label=str(label),
+            )
+        return label
 
     async def embed(
         self,
