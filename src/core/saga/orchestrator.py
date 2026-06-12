@@ -21,6 +21,7 @@ from typing import Any
 
 from core.observability import get_logger
 from core.observability.metrics import metrics
+from core.saga.alerts import SagaAlertService
 from core.saga.executor import CompensationExecutor
 from core.saga.repository import SagaLogRepo
 
@@ -103,6 +104,7 @@ class SagaOrchestrator:
         max_retries: int = DEFAULT_MAX_RETRIES,
         retry_base_delay: float = DEFAULT_RETRY_BASE_DELAY_SECONDS,
         retry_max_delay: float = DEFAULT_RETRY_MAX_DELAY_SECONDS,
+        alert_service: SagaAlertService | None = None,
     ) -> None:
         self._log_repo = log_repo
         self._timeout_seconds = timeout_seconds
@@ -110,6 +112,7 @@ class SagaOrchestrator:
         self._retry_base_delay = retry_base_delay
         self._retry_max_delay = retry_max_delay
         self._compensation_executor = CompensationExecutor()
+        self._alert_service = alert_service or SagaAlertService()
 
     async def start_saga(
         self,
@@ -188,6 +191,12 @@ class SagaOrchestrator:
                 "saga_timed_out",
                 saga_id=str(saga_id),
                 timeout=self._timeout_seconds,
+            )
+            # Alert on timeout
+            await self._alert_service.alert_saga_timeout(
+                saga_id=str(saga_id),
+                article_id=str(article_id),
+                timeout_seconds=self._timeout_seconds,
             )
             # Compensate completed steps
             comp_result = await self._compensation_executor.execute_compensations(
@@ -299,6 +308,20 @@ class SagaOrchestrator:
             status = SagaStatus.COMPENSATED
         else:
             status = SagaStatus.FAILED
+            # Alert on saga failure (compensation also failed)
+            await self._alert_service.alert_saga_failure(
+                saga_id=str(saga_id),
+                article_id=str(article_id),
+                failed_step=failed_step,
+                error=error,
+            )
+            # Alert on compensation failures
+            for failed in comp_result.failed_steps:
+                await self._alert_service.alert_compensation_failure(
+                    saga_id=str(saga_id),
+                    failed_step=failed["step_name"],
+                    error=failed["error"],
+                )
 
         return SagaResult(
             saga_id=saga_id,

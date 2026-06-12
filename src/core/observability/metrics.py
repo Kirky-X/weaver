@@ -280,6 +280,11 @@ class MetricsCollector:
         "saga_active_count",
         "Currently active saga instances",
     )
+    saga_failure_alerts = Counter(
+        "saga_failure_alerts_total",
+        "Total saga failure alert events",
+        ["failure_type"],  # failure_type: saga_failed, compensation_failed, saga_timeout
+    )
 
 
 # Global metrics instance for use across modules

@@ -10,8 +10,10 @@ across PostgreSQL, Neo4j, and Redis. Includes:
 - CompensationExecutor: Execute compensations in reverse order
 - SagaOrchestrator: Coordinate saga lifecycle
 - SagaLogRepo: Persist saga execution logs
+- SagaAlertService: Alert handling for saga/compensation failures
 """
 
+from core.saga.alerts import SagaAlertService
 from core.saga.compensation import (
     CompensationCommand,
     Neo4jCompensation,
@@ -26,6 +28,7 @@ __all__ = [
     "CompensationExecutor",
     "Neo4jCompensation",
     "PostgresCompensation",
+    "SagaAlertService",
     "SagaLogRepo",
     "SagaOrchestrator",
 ]
