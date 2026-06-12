@@ -4,6 +4,7 @@ from uuid import uuid4
 import pytest
 
 from core.models.shared import EventView
+from tests.unit.core.models._base import ViewModelTestBase
 
 # Fields defined in ADD §1.5.1 that SHALL be present
 REQUIRED_FIELDS = {
@@ -21,15 +22,22 @@ REQUIRED_FIELDS = {
 REMOVED_FIELDS = {"event_type", "name", "start_time", "end_time", "article_count"}
 
 
-class TestEventViewAlignment:
+class TestEventViewAlignment(ViewModelTestBase):
     """Tests for EventView field alignment with ADD §1.5.1."""
 
+    model_class = EventView
+    required_fields = REQUIRED_FIELDS
+    removed_fields = REMOVED_FIELDS
+
+    def _create_minimal_instance(self):
+        return EventView(id="evt_001", summary="Test Event", type="conference")
+
     def test_type_field_exists(self):
-        event = EventView(id="evt_001", summary="Test Event", type="conference")
+        event = self._create_minimal_instance()
         assert event.type == "conference"
 
     def test_summary_field_exists(self):
-        event = EventView(id="evt_001", summary="Test Event", type="conference")
+        event = self._create_minimal_instance()
         assert event.summary == "Test Event"
 
     def test_time_field_exists(self):
@@ -38,27 +46,27 @@ class TestEventViewAlignment:
         assert event.time == now
 
     def test_status_field_exists(self):
-        event = EventView(id="evt_001", summary="Test Event", type="conference")
+        event = self._create_minimal_instance()
         assert hasattr(event, "status")
         assert event.status == "confirmed"
 
     def test_importance_field_exists(self):
-        event = EventView(id="evt_001", summary="Test Event", type="conference")
+        event = self._create_minimal_instance()
         assert hasattr(event, "importance")
         assert event.importance == 0.5
 
     def test_participants_field_exists(self):
-        event = EventView(id="evt_001", summary="Test Event", type="conference")
+        event = self._create_minimal_instance()
         assert hasattr(event, "participants")
         assert event.participants == []
 
     def test_narratives_field_exists(self):
-        event = EventView(id="evt_001", summary="Test Event", type="conference")
+        event = self._create_minimal_instance()
         assert hasattr(event, "narratives")
         assert event.narratives == []
 
     def test_source_article_id_field_exists(self):
-        event = EventView(id="evt_001", summary="Test Event", type="conference")
+        event = self._create_minimal_instance()
         assert hasattr(event, "source_article_id")
         assert event.source_article_id is None
 
@@ -68,16 +76,6 @@ class TestEventViewAlignment:
             id="evt_001", summary="Test Event", type="conference", source_article_id=aid
         )
         assert event.source_article_id == aid
-
-    def test_removed_fields_not_present(self):
-        field_names = set(EventView.model_fields.keys())
-        for field in REMOVED_FIELDS:
-            assert field not in field_names, f"Removed field '{field}' still present in EventView"
-
-    def test_required_fields_present(self):
-        field_names = set(EventView.model_fields.keys())
-        for field in REQUIRED_FIELDS:
-            assert field in field_names, f"Required field '{field}' missing from EventView"
 
     def test_uses_pydantic_v2_config_dict(self):
         assert EventView.model_config.get("from_attributes") is True
@@ -130,6 +128,7 @@ class TestEventViewAlignment:
         assert event.time == now
 
     def test_serialize_to_dict(self):
+        """Override to add specific field assertions."""
         event = EventView(id="evt_001", summary="Test", type="meeting")
         data = event.model_dump()
         assert isinstance(data, dict)
@@ -137,9 +136,3 @@ class TestEventViewAlignment:
         assert data["summary"] == "Test"
         assert data["status"] == "confirmed"
         assert data["importance"] == 0.5
-
-    def test_removed_fields_not_in_dump(self):
-        event = EventView(id="evt_001", summary="Test", type="meeting")
-        data = event.model_dump()
-        for field in REMOVED_FIELDS:
-            assert field not in data, f"Removed field '{field}' still in model_dump()"

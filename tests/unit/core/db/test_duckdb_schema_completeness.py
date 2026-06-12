@@ -701,3 +701,79 @@ class TestSequenceCompleteness:
             f"Sequence '{expected_seq}' missing from SEQUENCE_QUERIES for new table '{table}'. "
             f"Found: {sorted(seq_names)}"
         )
+
+
+# ── DDL-level default and constraint tests ────────────────────
+
+
+def _find_table_ddl(table_name: str) -> str | None:
+    """Find the DDL string for a given table name in SCHEMA_QUERIES."""
+    for query in SCHEMA_QUERIES:
+        if f"CREATE TABLE IF NOT EXISTS {table_name}" in query:
+            return query
+    return None
+
+
+class TestArticlesCoreDDL:
+    """DDL-level assertions for articles_core defaults and constraints."""
+
+    @classmethod
+    def setup_class(cls):
+        cls.ddl = _find_table_ddl("articles_core")
+        assert cls.ddl is not None, "articles_core table not found in SCHEMA_QUERIES"
+
+    def test_document_type_default(self):
+        assert "document_type VARCHAR DEFAULT 'news'" in self.ddl
+
+    def test_doc_metadata_default(self):
+        assert "doc_metadata JSON DEFAULT '{}'" in self.ddl
+
+    def test_version_default(self):
+        assert "version INTEGER DEFAULT 1" in self.ddl
+
+
+class TestArticleAnalysisDDL:
+    """DDL-level assertions for article_analysis defaults."""
+
+    @classmethod
+    def setup_class(cls):
+        cls.ddl = _find_table_ddl("article_analysis")
+        assert cls.ddl is not None, "article_analysis table not found in SCHEMA_QUERIES"
+
+    def test_data_conflicts_default(self):
+        assert "data_conflicts JSON DEFAULT '[]'" in self.ddl
+
+
+class TestArticleBodiesDDL:
+    """DDL-level assertions for article_bodies constraints."""
+
+    @classmethod
+    def setup_class(cls):
+        cls.ddl = _find_table_ddl("article_bodies")
+        assert cls.ddl is not None, "article_bodies table not found in SCHEMA_QUERIES"
+
+    def test_article_id_primary_key(self):
+        assert "article_id UUID PRIMARY KEY" in self.ddl
+
+
+class TestArticlesViewDDL:
+    """DDL-level assertions for articles VIEW join structure."""
+
+    @classmethod
+    def setup_class(cls):
+        from core.db.duckdb_schema import VIEW_QUERIES
+
+        cls.view_ddl = None
+        for query in VIEW_QUERIES:
+            if "CREATE VIEW IF NOT EXISTS articles" in query:
+                cls.view_ddl = query
+                break
+        assert cls.view_ddl is not None, "articles VIEW not found in VIEW_QUERIES"
+
+    def test_joins_three_tables(self):
+        assert "articles_core" in self.view_ddl
+        assert "article_bodies" in self.view_ddl
+        assert "article_analysis" in self.view_ddl
+
+    def test_uses_left_join(self):
+        assert "LEFT JOIN" in self.view_ddl

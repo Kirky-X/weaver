@@ -3,6 +3,7 @@ from datetime import datetime
 import pytest
 
 from core.models.shared import EntityView
+from tests.unit.core.models._base import ViewModelTestBase
 
 # Fields defined in ADD §1.5.1 that SHALL be present
 REQUIRED_FIELDS = {"id", "type", "degree", "community_id", "confidence", "last_mentioned"}
@@ -11,34 +12,41 @@ REQUIRED_FIELDS = {"id", "type", "degree", "community_id", "confidence", "last_m
 REMOVED_FIELDS = {"neo4j_id", "entity_type", "tier", "article_count"}
 
 
-class TestEntityViewAlignment:
+class TestEntityViewAlignment(ViewModelTestBase):
     """Tests for EntityView field alignment with ADD §1.5.1."""
 
+    model_class = EntityView
+    required_fields = REQUIRED_FIELDS
+    removed_fields = REMOVED_FIELDS
+
+    def _create_minimal_instance(self):
+        return EntityView(id="4:abc123", canonical_name="Test Entity", type="PERSON")
+
     def test_id_field_exists(self):
-        entity = EntityView(id="4:abc123", canonical_name="Test Entity", type="PERSON")
+        entity = self._create_minimal_instance()
         assert entity.id == "4:abc123"
 
     def test_type_field_exists(self):
-        entity = EntityView(id="4:abc123", canonical_name="Test Entity", type="PERSON")
+        entity = self._create_minimal_instance()
         assert entity.type == "PERSON"
 
     def test_degree_field_exists(self):
-        entity = EntityView(id="4:abc123", canonical_name="Test Entity", type="PERSON")
+        entity = self._create_minimal_instance()
         assert hasattr(entity, "degree")
         assert entity.degree == 0
 
     def test_community_id_field_exists(self):
-        entity = EntityView(id="4:abc123", canonical_name="Test Entity", type="PERSON")
+        entity = self._create_minimal_instance()
         assert hasattr(entity, "community_id")
         assert entity.community_id is None
 
     def test_confidence_field_exists(self):
-        entity = EntityView(id="4:abc123", canonical_name="Test Entity", type="PERSON")
+        entity = self._create_minimal_instance()
         assert hasattr(entity, "confidence")
         assert entity.confidence == 1.0
 
     def test_last_mentioned_field_exists(self):
-        entity = EntityView(id="4:abc123", canonical_name="Test Entity", type="PERSON")
+        entity = self._create_minimal_instance()
         assert hasattr(entity, "last_mentioned")
         assert entity.last_mentioned is None
 
@@ -48,16 +56,6 @@ class TestEntityViewAlignment:
             id="4:abc123", canonical_name="Test Entity", type="PERSON", last_mentioned=now
         )
         assert entity.last_mentioned == now
-
-    def test_removed_fields_not_present(self):
-        field_names = set(EntityView.model_fields.keys())
-        for field in REMOVED_FIELDS:
-            assert field not in field_names, f"Removed field '{field}' still present in EntityView"
-
-    def test_required_fields_present(self):
-        field_names = set(EntityView.model_fields.keys())
-        for field in REQUIRED_FIELDS:
-            assert field in field_names, f"Required field '{field}' missing from EntityView"
 
     def test_uses_pydantic_v2_config_dict(self):
         assert EntityView.model_config.get("from_attributes") is True
@@ -79,7 +77,7 @@ class TestEntityViewAlignment:
         assert entity.canonical_name == "Aliased Name"
 
     def test_default_values(self):
-        entity = EntityView(id="4:abc123", canonical_name="Test Entity", type="PERSON")
+        entity = self._create_minimal_instance()
         assert entity.aliases == []
         assert entity.description is None
         assert entity.degree == 0
@@ -104,17 +102,12 @@ class TestEntityViewAlignment:
         assert entity.last_mentioned == now
 
     def test_serialize_to_dict(self):
-        entity = EntityView(id="4:abc", canonical_name="Test", type="GPE")
+        """Override to add specific field assertions."""
+        entity = self._create_minimal_instance()
         data = entity.model_dump()
         assert isinstance(data, dict)
-        assert data["id"] == "4:abc"
-        assert data["type"] == "GPE"
-        assert data["canonical_name"] == "Test"
+        assert data["id"] == "4:abc123"
+        assert data["type"] == "PERSON"
+        assert data["canonical_name"] == "Test Entity"
         assert data["degree"] == 0
         assert data["confidence"] == 1.0
-
-    def test_removed_fields_not_in_dump(self):
-        entity = EntityView(id="4:abc", canonical_name="Test", type="GPE")
-        data = entity.model_dump()
-        for field in REMOVED_FIELDS:
-            assert field not in data, f"Removed field '{field}' still in model_dump()"

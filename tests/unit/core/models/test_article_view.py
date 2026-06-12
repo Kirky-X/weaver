@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from core.models.shared import ArticleView
+from tests.unit.core.models._base import ViewModelTestBase
 
 # Fields defined in ADD §1.5.1 that SHALL be present
 REQUIRED_FIELDS = {
@@ -35,15 +36,22 @@ REMOVED_FIELDS = {
 }
 
 
-class TestArticleViewAlignment:
+class TestArticleViewAlignment(ViewModelTestBase):
     """Tests for ArticleView field alignment with ADD §1.5.1."""
 
-    def test_verified_by_sources_field_exists(self):
-        article = ArticleView(
+    model_class = ArticleView
+    required_fields = REQUIRED_FIELDS
+    removed_fields = REMOVED_FIELDS
+
+    def _create_minimal_instance(self):
+        return ArticleView(
             id=uuid4(),
             source_url="https://example.com/article",
             title="Test Article",
         )
+
+    def test_verified_by_sources_field_exists(self):
+        article = self._create_minimal_instance()
         assert hasattr(article, "verified_by_sources")
         assert article.verified_by_sources is False
 
@@ -55,19 +63,6 @@ class TestArticleViewAlignment:
             verified_by_sources=True,
         )
         assert article.verified_by_sources is True
-
-    def test_removed_fields_not_present(self):
-        field_names = set(ArticleView.model_fields.keys())
-        for field in REMOVED_FIELDS:
-            assert field not in field_names, f"Removed field '{field}' still present in ArticleView"
-
-    def test_required_fields_present(self):
-        field_names = set(ArticleView.model_fields.keys())
-        for field in REQUIRED_FIELDS:
-            assert field in field_names, f"Required field '{field}' missing from ArticleView"
-
-    def test_uses_pydantic_v2_config_dict(self):
-        assert ArticleView.model_config.get("from_attributes") is True
 
     def test_has_all_required_fields(self):
         article_id = uuid4()
@@ -90,12 +85,7 @@ class TestArticleViewAlignment:
         assert article.updated_at == now
 
     def test_default_values(self):
-        article_id = uuid4()
-        article = ArticleView(
-            id=article_id,
-            source_url="https://example.com/article",
-            title="Test Article",
-        )
+        article = self._create_minimal_instance()
         assert article.verified_by_sources is False
         assert article.data_conflicts == []
         assert article.source_host is None
@@ -178,26 +168,11 @@ class TestArticleViewAlignment:
         assert article.verified_by_sources is True
 
     def test_serialize_to_dict(self):
-        article_id = uuid4()
-        article = ArticleView(
-            id=article_id,
-            source_url="https://example.com/article",
-            title="Test",
-        )
+        """Override to add specific field assertions."""
+        article = self._create_minimal_instance()
         data = article.model_dump()
         assert isinstance(data, dict)
-        assert data["id"] == article_id
-        assert data["title"] == "Test"
+        assert data["title"] == "Test Article"
         assert data["source_url"] == "https://example.com/article"
         assert data["persist_status"] == "pending"
         assert data["verified_by_sources"] is False
-
-    def test_removed_fields_not_in_dump(self):
-        article = ArticleView(
-            id=uuid4(),
-            source_url="https://example.com/article",
-            title="Test",
-        )
-        data = article.model_dump()
-        for field in REMOVED_FIELDS:
-            assert field not in data, f"Removed field '{field}' still in model_dump()"

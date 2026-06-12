@@ -1,6 +1,7 @@
 import pytest
 
 from core.models.shared import CommunityView
+from tests.unit.core.models._base import ViewModelTestBase
 
 # Fields defined in ADD §1.5.1 that SHALL be present
 REQUIRED_FIELDS = {
@@ -17,8 +18,15 @@ REQUIRED_FIELDS = {
 REMOVED_FIELDS = {"name", "description", "member_count"}
 
 
-class TestCommunityViewAlignment:
+class TestCommunityViewAlignment(ViewModelTestBase):
     """Tests for CommunityView field alignment with ADD §1.5.1."""
+
+    model_class = CommunityView
+    required_fields = REQUIRED_FIELDS
+    removed_fields = REMOVED_FIELDS
+
+    def _create_minimal_instance(self):
+        return CommunityView(id="comm_001", title="Test")
 
     def test_title_field_exists(self):
         community = CommunityView(id="comm_001", title="Tech Community")
@@ -29,45 +37,33 @@ class TestCommunityViewAlignment:
         assert community.summary == "A test community"
 
     def test_level_field_exists(self):
-        community = CommunityView(id="comm_001", title="Test")
+        community = self._create_minimal_instance()
         assert hasattr(community, "level")
         assert community.level == 0
 
     def test_rank_field_exists(self):
-        community = CommunityView(id="comm_001", title="Test")
+        community = self._create_minimal_instance()
         assert hasattr(community, "rank")
         assert community.rank == 0.0
 
     def test_entity_count_field_exists(self):
-        community = CommunityView(id="comm_001", title="Test")
+        community = self._create_minimal_instance()
         assert hasattr(community, "entity_count")
         assert community.entity_count == 0
 
     def test_article_count_field_exists(self):
-        community = CommunityView(id="comm_001", title="Test")
+        community = self._create_minimal_instance()
         assert hasattr(community, "article_count")
         assert community.article_count == 0
 
     def test_embedding_field_exists(self):
-        community = CommunityView(id="comm_001", title="Test")
+        community = self._create_minimal_instance()
         assert hasattr(community, "embedding")
         assert community.embedding is None
 
     def test_embedding_can_be_set(self):
         community = CommunityView(id="comm_001", title="Test", embedding=[0.1, 0.2, 0.3])
         assert community.embedding == [0.1, 0.2, 0.3]
-
-    def test_removed_fields_not_present(self):
-        field_names = set(CommunityView.model_fields.keys())
-        for field in REMOVED_FIELDS:
-            assert (
-                field not in field_names
-            ), f"Removed field '{field}' still present in CommunityView"
-
-    def test_required_fields_present(self):
-        field_names = set(CommunityView.model_fields.keys())
-        for field in REQUIRED_FIELDS:
-            assert field in field_names, f"Required field '{field}' missing from CommunityView"
 
     def test_uses_pydantic_v2_config_dict(self):
         assert CommunityView.model_config.get("from_attributes") is True
@@ -84,7 +80,7 @@ class TestCommunityViewAlignment:
         assert community.summary == "A community"
 
     def test_default_values(self):
-        community = CommunityView(id="comm_001", title="Test")
+        community = self._create_minimal_instance()
         assert community.summary is None
         assert community.keywords == []
         assert community.level == 0
@@ -111,15 +107,10 @@ class TestCommunityViewAlignment:
         assert community.embedding == [0.1, 0.2, 0.3]
 
     def test_serialize_to_dict(self):
-        community = CommunityView(id="comm_001", title="Test")
+        """Override to add specific field assertions."""
+        community = self._create_minimal_instance()
         data = community.model_dump()
         assert isinstance(data, dict)
         assert data["title"] == "Test"
         assert data["level"] == 0
         assert data["rank"] == 0.0
-
-    def test_removed_fields_not_in_dump(self):
-        community = CommunityView(id="comm_001", title="Test")
-        data = community.model_dump()
-        for field in REMOVED_FIELDS:
-            assert field not in data, f"Removed field '{field}' still in model_dump()"

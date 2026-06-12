@@ -78,6 +78,21 @@ class TestSlowRequestTracking:
             cb.mark_slow()
         assert cb.is_slow is False
 
+    def test_five_consecutive_marks_as_slow(self):
+        """Test exactly 5 consecutive slow marks triggers is_slow."""
+        cb = ProviderCircuitBreaker(name="test")
+        for _ in range(4):
+            cb.mark_slow()
+        assert cb.is_slow is False  # 4 is not enough
+        cb.mark_slow()
+        assert cb.is_slow is True  # 5 triggers
+
+    def test_initial_slow_count_is_zero(self):
+        """Test slow_count starts at zero and is_slow is False."""
+        cb = ProviderCircuitBreaker(name="test")
+        assert cb.slow_count == 0
+        assert cb.is_slow is False
+
 
 class TestCircuitBreakerState:
     """Test circuit breaker state management."""
@@ -114,6 +129,12 @@ class TestCircuitBreakerState:
         cb.mark_slow()
         cb.reset()
         assert cb.slow_count == 0
+
+    def test_reset_on_fresh_instance(self):
+        """Test reset on a fresh instance does not raise."""
+        cb = ProviderCircuitBreaker(name="test")
+        cb.reset()
+        assert cb.state == CircuitState.CLOSED
 
 
 class TestCircuitBreakerCall:
@@ -194,3 +215,10 @@ class TestCircuitBreakerRepr:
         repr_str = repr(cb)
         assert "test_provider" in repr_str
         assert "closed" in repr_str.lower()
+
+    def test_repr_includes_slow_count(self):
+        """Test repr includes slow count."""
+        cb = ProviderCircuitBreaker(name="test")
+        cb.mark_slow()
+        repr_str = repr(cb)
+        assert "slow=1" in repr_str

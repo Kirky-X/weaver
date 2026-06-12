@@ -1,88 +1,110 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Tests for DifficultyEstimator: 4-factor difficulty scoring."""
+"""Tests for DifficultyEstimator: 4-factor difficulty scoring for LLM routing.
+
+Covers:
+- Short text <200 chars -> score < 0.3
+- Long text >8000 chars -> score > 0.7
+- Execution time < 1ms
+- All four factors contribute to the score
+"""
 
 from __future__ import annotations
+
+import time
 
 import pytest
 
 from core.llm.routing.difficulty_estimator import DifficultyEstimator
 
 
-@pytest.fixture
-def estimator() -> DifficultyEstimator:
-    return DifficultyEstimator()
+class TestDifficultyEstimatorBounds:
+    """Guarantee that short/long text produce bounded scores."""
+
+    def setup_method(self) -> None:
+        self.estimator = DifficultyEstimator()
+
+    def test_short_text_score_below_03(self) -> None:
+        """Short text (<200 chars) should always produce score < 0.3."""
+        short_text = "a" * 100  # 100 chars
+        for cp in ["classifier", "categorizer", "analyze", "entity_extractor", "quality_scorer"]:
+            score = self.estimator.estimate(cp, short_text)
+            assert score < 0.3, f"call_point={cp}, score={score}"
+
+    def test_short_text_with_entities_still_below_03(self) -> None:
+        """Short text with high entity density should still be < 0.3."""
+        short_text = "a" * 100
+        score = self.estimator.estimate("entity_extractor", short_text, entity_count=50)
+        assert score < 0.3, f"score={score}"
+
+    def test_long_text_score_above_07(self) -> None:
+        """Long text (>8000 chars) should always produce score > 0.7."""
+        long_text = "a" * 9000
+        for cp in ["classifier", "categorizer", "analyze", "entity_extractor", "quality_scorer"]:
+            score = self.estimator.estimate(cp, long_text)
+            assert score > 0.7, f"call_point={cp}, score={score}"
+
+    def test_long_text_low_density_still_above_07(self) -> None:
+        """Long text with zero entities should still be > 0.7."""
+        long_text = "a" * 9000
+        score = self.estimator.estimate("classifier", long_text, entity_count=0)
+        assert score > 0.7, f"score={score}"
 
 
-class TestLengthFactor:
-    """Tests for the input-length factor."""
+class TestDifficultyEstimatorFactors:
+    """Verify that all four factors contribute to the score."""
 
-    def test_short_text_low_difficulty(self, estimator: DifficultyEstimator) -> None:
-        """< 200 chars → length_factor ≈ 0.1."""
-        text = "a" * 100
-        score = estimator.estimate(text, call_point="classifier")
-        # length_factor = 0.1, baseline=0.2, others default
-        # We verify _length_factor directly
-        assert estimator._length_factor(len(text)) == 0.1
+    def setup_method(self) -> None:
+        self.estimator = DifficultyEstimator()
 
-    def test_medium_text_medium_difficulty(self, estimator: DifficultyEstimator) -> None:
-        """200-2000 chars → length_factor ≈ 0.4."""
+    def test_length_factor_increases_with_text_length(self) -> None:
+        """Longer text should produce higher difficulty score."""
+        short = "a" * 100
+        medium = "a" * 2000
+        long_ = "a" * 9000
+        score_s = self.estimator.estimate("classifier", short)
+        score_m = self.estimator.estimate("classifier", medium)
+        score_l = self.estimator.estimate("classifier", long_)
+        assert score_s < score_m < score_l
+
+    def test_entity_density_increases_score(self) -> None:
+        """More entities per 1000 chars should increase difficulty."""
+        text = "a" * 2000
+        low = self.estimator.estimate("classifier", text, entity_count=1)
+        high = self.estimator.estimate("classifier", text, entity_count=20)
+        assert high > low
+
+    def test_call_point_baseline_affects_score(self) -> None:
+        """Higher baseline call_point should produce higher score."""
         text = "a" * 500
-        assert estimator._length_factor(len(text)) == 0.4
+        classifier = self.estimator.estimate("classifier", text)
+        entity_extractor = self.estimator.estimate("entity_extractor", text)
+        assert entity_extractor > classifier
 
-    def test_long_text_high_difficulty(self, estimator: DifficultyEstimator) -> None:
-        """> 8000 chars → length_factor ≈ 0.9."""
-        text = "a" * 10000
-        assert estimator._length_factor(len(text)) == 0.9
+    def test_unknown_call_point_uses_default_baseline(self) -> None:
+        """Unknown call_point should use default baseline (0.5)."""
+        text = "a" * 500
+        score = self.estimator.estimate("unknown_call_point", text)
+        assert 0.0 <= score <= 1.0
 
-
-class TestDensityFactor:
-    """Tests for the entity-density factor."""
-
-    def test_low_entity_density_low_difficulty(self, estimator: DifficultyEstimator) -> None:
-        """< 1 per 1000 chars → density_factor ≈ 0.1."""
-        # 2000 chars, 1 entity → 0.5 per 1000
-        assert estimator._density_factor(entity_count=1, char_count=2000) == 0.1
-
-    def test_high_entity_density_high_difficulty(self, estimator: DifficultyEstimator) -> None:
-        """> 5 per 1000 chars → density_factor ≈ 0.7."""
-        # 1000 chars, 6 entities → 6 per 1000
-        assert estimator._density_factor(entity_count=6, char_count=1000) == 0.7
+    def test_score_always_in_0_1_range(self) -> None:
+        """Score should always be in [0, 1] range."""
+        for length in [0, 50, 200, 2000, 8000, 50000]:
+            for cp in ["classifier", "entity_extractor", "unknown"]:
+                for entities in [0, 5, 50]:
+                    text = "a" * length
+                    score = self.estimator.estimate(cp, text, entity_count=entities)
+                    assert 0.0 <= score <= 1.0, f"length={length}, cp={cp}, entities={entities}"
 
 
-class TestComplexityFactor:
-    """Tests for the language-complexity factor."""
+class TestDifficultyEstimatorPerformance:
+    """Verify execution time < 1ms."""
 
-    def test_short_sentences_low_difficulty(self, estimator: DifficultyEstimator) -> None:
-        """avg sentence length < 50 → complexity_factor ≈ 0.1."""
-        # Each sentence ~20 chars
-        text = "短句子内容。短句子内容。短句子内容。"
-        assert estimator._complexity_factor(text) == 0.1
-
-
-class TestCallPointBaseline:
-    """Tests for the call-point baseline factor."""
-
-    def test_call_point_baseline(self, estimator: DifficultyEstimator) -> None:
-        """classifier=0.2, analyze=0.6, entity_extractor=0.7."""
-        assert estimator.CALL_POINT_BASELINES["classifier"] == 0.2
-        assert estimator.CALL_POINT_BASELINES["analyze"] == 0.6
-        assert estimator.CALL_POINT_BASELINES["entity_extractor"] == 0.7
-
-
-class TestFinalScore:
-    """Tests for the final aggregated difficulty score."""
-
-    def test_final_score_is_average_of_factors(self, estimator: DifficultyEstimator) -> None:
-        """4 factors averaged to produce final score."""
-        # Construct a text where we know all 4 factors:
-        # length=100 → length_factor=0.1
-        # entity_count=0, char_count=100 → density: 0/(0.1)=0 → per_k=0 < 1 → 0.1
-        # text with short sentences → complexity=0.1
-        # call_point="classifier" → baseline=0.2
-        # Expected: (0.1 + 0.1 + 0.1 + 0.2) / 4 = 0.125
-        text = "短。短。短。短。短。短。短。短。短。短。"  # ~30 chars, short sentences
-        # Pad to exactly 100 chars
-        text = text + "a" * (100 - len(text))
-        score = estimator.estimate(text, call_point="classifier", entity_count=0)
-        expected = (0.1 + 0.1 + 0.1 + 0.2) / 4.0
-        assert abs(score - expected) < 0.01
+    def test_estimate_under_1ms(self) -> None:
+        """estimate() should complete in < 1ms."""
+        estimator = DifficultyEstimator()
+        text = "这是一段测试文本。" * 100  # ~900 chars
+        start = time.perf_counter()
+        for _ in range(100):
+            estimator.estimate("classifier", text, entity_count=5)
+        elapsed = (time.perf_counter() - start) / 100
+        assert elapsed < 0.001, f"Average time: {elapsed * 1000:.3f}ms"

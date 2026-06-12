@@ -53,12 +53,6 @@ def http_client():
         yield client
 
 
-@pytest.fixture
-def auth_headers() -> dict[str, str]:
-    """Return auth headers for API requests."""
-    return {"X-API-Key": API_KEY}
-
-
 @pytest.mark.integration
 class TestSearchAPIIntegration:
     """Integration tests for search API endpoints with real data."""
