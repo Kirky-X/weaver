@@ -13,27 +13,20 @@ from modules.migration.models import ColumnDef, MigrationSchema
 class TestPostgresTargetInit:
     """Test PostgresTarget initialization."""
 
-    def test_init(self):
+    def test_init(self, postgres_mock_pool):
         """Test initialization."""
-        mock_pool = MagicMock()
-        mock_engine = MagicMock()
-        mock_pool.engine = mock_engine
+        target = PostgresTarget(postgres_mock_pool)
 
-        target = PostgresTarget(mock_pool)
-
-        assert target._pool is mock_pool
+        assert target._pool is postgres_mock_pool
 
 
 class TestPostgresTargetEnsureSchema:
     """Test ensure_schema method."""
 
     @pytest.fixture
-    def target(self):
+    def target(self, postgres_mock_pool):
         """Create PostgresTarget with mock pool."""
-        mock_pool = MagicMock()
-        mock_engine = MagicMock()
-        mock_pool.engine = mock_engine
-        return PostgresTarget(mock_pool)
+        return PostgresTarget(postgres_mock_pool)
 
     @pytest.mark.asyncio
     async def test_ensure_schema_creates_table(self, target):
@@ -83,12 +76,9 @@ class TestPostgresTargetWriteBatch:
     """Test write_batch method."""
 
     @pytest.fixture
-    def target(self):
+    def target(self, postgres_mock_pool):
         """Create PostgresTarget with mock pool."""
-        mock_pool = MagicMock()
-        mock_engine = MagicMock()
-        mock_pool.engine = mock_engine
-        return PostgresTarget(mock_pool)
+        return PostgresTarget(postgres_mock_pool)
 
     @pytest.mark.asyncio
     async def test_write_batch_empty(self, target):
@@ -117,23 +107,14 @@ class TestPostgresTargetVerify:
     """Test verify method."""
 
     @pytest.fixture
-    def target(self):
+    def target(self, postgres_mock_pool):
         """Create PostgresTarget with mock pool."""
-        mock_pool = MagicMock()
-        mock_engine = MagicMock()
-        mock_pool.engine = mock_engine
-        return PostgresTarget(mock_pool)
+        return PostgresTarget(postgres_mock_pool)
 
     @pytest.mark.asyncio
-    async def test_verify_success(self, target):
+    async def test_verify_success(self, target, postgres_async_conn):
         """Test verify succeeds when count matches."""
-        mock_conn = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalar.return_value = 100
-        mock_conn.execute.return_value = mock_result
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=None)
-        target._engine.connect = MagicMock(return_value=mock_conn)
+        target._engine.connect = MagicMock(return_value=postgres_async_conn)
 
         result = await target.verify("users", 100)
 
@@ -158,12 +139,9 @@ class TestPostgresTargetTruncate:
     """Test truncate method."""
 
     @pytest.fixture
-    def target(self):
+    def target(self, postgres_mock_pool):
         """Create PostgresTarget with mock pool."""
-        mock_pool = MagicMock()
-        mock_engine = MagicMock()
-        mock_pool.engine = mock_engine
-        return PostgresTarget(mock_pool)
+        return PostgresTarget(postgres_mock_pool)
 
     @pytest.mark.asyncio
     async def test_truncate(self, target):

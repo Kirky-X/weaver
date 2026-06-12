@@ -11,16 +11,9 @@ class TestNeo4jSourceSecurity:
     """Security tests for Neo4jSource adapter."""
 
     @pytest.fixture
-    def mock_pool(self, mocker):
-        """Create a mock Neo4j pool."""
-        pool = mocker.AsyncMock()
-        pool.execute_query = mocker.AsyncMock(return_value=[])
-        return pool
-
-    @pytest.fixture
-    def neo4j_source(self, mock_pool):
+    def neo4j_source(self, graph_mock_pool):
         """Create a Neo4jSource instance with mock pool."""
-        return Neo4jSource(mock_pool)
+        return Neo4jSource(graph_mock_pool)
 
     # ── Label Validation Tests ────────────────────────────────────────────
 
@@ -36,12 +29,12 @@ class TestNeo4jSourceSecurity:
         ],
     )
     @pytest.mark.asyncio
-    async def test_read_nodes_accepts_valid_labels(self, neo4j_source, mock_pool, label):
+    async def test_read_nodes_accepts_valid_labels(self, neo4j_source, graph_mock_pool, label):
         """Valid Neo4j labels should be accepted."""
         await neo4j_source.read_nodes(label, offset=0, limit=10)
 
-        assert mock_pool.execute_query.called
-        call_args = mock_pool.execute_query.call_args
+        assert graph_mock_pool.execute_query.called
+        call_args = graph_mock_pool.execute_query.call_args
         query = call_args[0][0] if call_args[0] else call_args.args[0]
 
         # Should use parameterized query
@@ -59,7 +52,7 @@ class TestNeo4jSourceSecurity:
         ],
     )
     @pytest.mark.asyncio
-    async def test_read_nodes_rejects_malicious_labels(self, neo4j_source, mock_pool, label):
+    async def test_read_nodes_rejects_malicious_labels(self, neo4j_source, graph_mock_pool, label):
         """Malicious labels should be rejected."""
         with pytest.raises((InvalidIdentifierError, ValueError)):
             await neo4j_source.read_nodes(label, offset=0, limit=10)
@@ -77,11 +70,13 @@ class TestNeo4jSourceSecurity:
         ],
     )
     @pytest.mark.asyncio
-    async def test_read_rels_accepts_valid_edge_types(self, neo4j_source, mock_pool, edge_type):
+    async def test_read_rels_accepts_valid_edge_types(
+        self, neo4j_source, graph_mock_pool, edge_type
+    ):
         """Valid edge types (uppercase) should be accepted."""
         await neo4j_source.read_rels(edge_type, offset=0, limit=10)
 
-        assert mock_pool.execute_query.called
+        assert graph_mock_pool.execute_query.called
 
     @pytest.mark.parametrize(
         "edge_type",
@@ -94,7 +89,9 @@ class TestNeo4jSourceSecurity:
         ],
     )
     @pytest.mark.asyncio
-    async def test_read_rels_rejects_malicious_edge_types(self, neo4j_source, mock_pool, edge_type):
+    async def test_read_rels_rejects_malicious_edge_types(
+        self, neo4j_source, graph_mock_pool, edge_type
+    ):
         """Malicious edge types should be rejected."""
         with pytest.raises((InvalidIdentifierError, ValueError)):
             await neo4j_source.read_rels(edge_type, offset=0, limit=10)
@@ -102,11 +99,11 @@ class TestNeo4jSourceSecurity:
     # ── Parameterized Query Tests ────────────────────────────────────────
 
     @pytest.mark.asyncio
-    async def test_read_nodes_uses_parameterized_query(self, neo4j_source, mock_pool):
+    async def test_read_nodes_uses_parameterized_query(self, neo4j_source, graph_mock_pool):
         """read_nodes should use parameterized Cypher query."""
         await neo4j_source.read_nodes("Person", offset=0, limit=10)
 
-        call_args = mock_pool.execute_query.call_args
+        call_args = graph_mock_pool.execute_query.call_args
         query = call_args[0][0] if call_args[0] else call_args.args[0]
         params = call_args[1] if call_args[1] else {}
 
@@ -121,24 +118,24 @@ class TestNeo4jSourceSecurity:
             assert "label" in params or "1" in params
 
     @pytest.mark.asyncio
-    async def test_count_nodes_uses_parameterized_query(self, neo4j_source, mock_pool):
+    async def test_count_nodes_uses_parameterized_query(self, neo4j_source, graph_mock_pool):
         """count_nodes should use parameterized query."""
-        mock_pool.execute_query.return_value = [{"count": 50}]
+        graph_mock_pool.execute_query.return_value = [{"count": 50}]
 
         await neo4j_source.count_nodes("Person")
 
-        call_args = mock_pool.execute_query.call_args
+        call_args = graph_mock_pool.execute_query.call_args
         query = call_args[0][0] if call_args[0] else call_args.args[0]
 
         # Should use $label parameter
         assert "$label" in query
 
     @pytest.mark.asyncio
-    async def test_read_rels_uses_parameterized_query(self, neo4j_source, mock_pool):
+    async def test_read_rels_uses_parameterized_query(self, neo4j_source, graph_mock_pool):
         """read_rels should use parameterized Cypher query."""
         await neo4j_source.read_rels("KNOWS", offset=0, limit=10)
 
-        call_args = mock_pool.execute_query.call_args
+        call_args = graph_mock_pool.execute_query.call_args
         query = call_args[0][0] if call_args[0] else call_args.args[0]
 
         # Should use type(r) = $relType pattern
@@ -147,24 +144,24 @@ class TestNeo4jSourceSecurity:
     # ── Cypher Injection Prevention Tests ────────────────────────────────
 
     @pytest.mark.asyncio
-    async def test_prevents_cypher_injection_in_label(self, neo4j_source, mock_pool):
+    async def test_prevents_cypher_injection_in_label(self, neo4j_source, graph_mock_pool):
         """Cypher injection attempts should be blocked."""
         malicious_label = "Person` WITH 1=1 MATCH (n) DETACH DELETE n //"
 
         with pytest.raises((InvalidIdentifierError, ValueError)):
             await neo4j_source.read_nodes(malicious_label, 0, 10)
 
-        mock_pool.execute_query.assert_not_called()
+        graph_mock_pool.execute_query.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_prevents_cypher_injection_in_edge_type(self, neo4j_source, mock_pool):
+    async def test_prevents_cypher_injection_in_edge_type(self, neo4j_source, graph_mock_pool):
         """Cypher injection via edge type should be blocked."""
         malicious_type = "KNOWS`] MATCH (n) DETACH DELETE n //"
 
         with pytest.raises((InvalidIdentifierError, ValueError)):
             await neo4j_source.read_rels(malicious_type, 0, 10)
 
-        mock_pool.execute_query.assert_not_called()
+        graph_mock_pool.execute_query.assert_not_called()
 
     # ── Offset/Limit Validation Tests ─────────────────────────────────────
 
@@ -185,38 +182,32 @@ class TestNeo4jSourceFunctionality:
     """Functional tests for Neo4jSource adapter."""
 
     @pytest.fixture
-    def mock_pool(self, mocker):
-        """Create a mock Neo4j pool."""
-        pool = mocker.AsyncMock()
-        return pool
-
-    @pytest.fixture
-    def neo4j_source(self, mock_pool):
+    def neo4j_source(self, graph_mock_pool):
         """Create a Neo4jSource instance with mock pool."""
-        return Neo4jSource(mock_pool)
+        return Neo4jSource(graph_mock_pool)
 
     @pytest.mark.asyncio
-    async def test_count_nodes_returns_correct_count(self, neo4j_source, mock_pool):
+    async def test_count_nodes_returns_correct_count(self, neo4j_source, graph_mock_pool):
         """count_nodes should return the count from query result."""
-        mock_pool.execute_query.return_value = [{"count": 456}]
+        graph_mock_pool.execute_query.return_value = [{"count": 456}]
 
         result = await neo4j_source.count_nodes("Person")
 
         assert result == 456
 
     @pytest.mark.asyncio
-    async def test_count_rels_returns_correct_count(self, neo4j_source, mock_pool):
+    async def test_count_rels_returns_correct_count(self, neo4j_source, graph_mock_pool):
         """count_rels should return the count from query result."""
-        mock_pool.execute_query.return_value = [{"count": 789}]
+        graph_mock_pool.execute_query.return_value = [{"count": 789}]
 
         result = await neo4j_source.count_rels("KNOWS")
 
         assert result == 789
 
     @pytest.mark.asyncio
-    async def test_get_label_names_extracts_labels(self, neo4j_source, mock_pool):
+    async def test_get_label_names_extracts_labels(self, neo4j_source, graph_mock_pool):
         """get_label_names should extract labels from result."""
-        mock_pool.execute_query.return_value = [
+        graph_mock_pool.execute_query.return_value = [
             {"label": "Person"},
             {"label": "Company"},
             {"label": "Project"},
@@ -227,9 +218,9 @@ class TestNeo4jSourceFunctionality:
         assert result == ["Person", "Company", "Project"]
 
     @pytest.mark.asyncio
-    async def test_get_rel_type_names_extracts_types(self, neo4j_source, mock_pool):
+    async def test_get_rel_type_names_extracts_types(self, neo4j_source, graph_mock_pool):
         """get_rel_type_names should extract relationship types."""
-        mock_pool.execute_query.return_value = [
+        graph_mock_pool.execute_query.return_value = [
             {"relationshipType": "KNOWS"},
             {"relationshipType": "WORKS_FOR"},
         ]

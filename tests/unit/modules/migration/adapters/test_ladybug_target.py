@@ -1,7 +1,7 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Tests for modules.migration.adapters.ladybug_target module."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -13,23 +13,20 @@ from modules.migration.models import ColumnDef, NodeSchema, RelSchema
 class TestLadybugTargetInit:
     """Test LadybugTarget initialization."""
 
-    def test_init(self):
+    def test_init(self, graph_mock_pool):
         """Test initialization."""
-        mock_pool = MagicMock()
+        target = LadybugTarget(graph_mock_pool)
 
-        target = LadybugTarget(mock_pool)
-
-        assert target._pool is mock_pool
+        assert target._pool is graph_mock_pool
 
 
 class TestLadybugTargetEnsureNodeSchema:
     """Test ensure_node_schema method."""
 
     @pytest.fixture
-    def target(self):
+    def target(self, graph_mock_pool):
         """Create LadybugTarget with mock pool."""
-        mock_pool = AsyncMock()
-        return LadybugTarget(mock_pool)
+        return LadybugTarget(graph_mock_pool)
 
     @pytest.mark.asyncio
     async def test_ensure_node_schema_creates_indexes(self, target):
@@ -54,10 +51,9 @@ class TestLadybugTargetEnsureRelSchema:
     """Test ensure_rel_schema method."""
 
     @pytest.fixture
-    def target(self):
+    def target(self, graph_mock_pool):
         """Create LadybugTarget with mock pool."""
-        mock_pool = AsyncMock()
-        return LadybugTarget(mock_pool)
+        return LadybugTarget(graph_mock_pool)
 
     @pytest.mark.asyncio
     async def test_ensure_rel_schema_creates_indexes(self, target):
@@ -82,10 +78,9 @@ class TestLadybugTargetWriteNodes:
     """Test write_nodes method."""
 
     @pytest.fixture
-    def target(self):
+    def target(self, graph_mock_pool):
         """Create LadybugTarget with mock pool."""
-        mock_pool = AsyncMock()
-        return LadybugTarget(mock_pool)
+        return LadybugTarget(graph_mock_pool)
 
     @pytest.mark.asyncio
     async def test_write_nodes_empty(self, target):
@@ -114,10 +109,9 @@ class TestLadybugTargetWriteRels:
     """Test write_rels method."""
 
     @pytest.fixture
-    def target(self):
+    def target(self, graph_mock_pool):
         """Create LadybugTarget with mock pool."""
-        mock_pool = AsyncMock()
-        return LadybugTarget(mock_pool)
+        return LadybugTarget(graph_mock_pool)
 
     @pytest.mark.asyncio
     async def test_write_rels_empty(self, target):
@@ -149,10 +143,9 @@ class TestLadybugTargetVerifyNodes:
     """Test verify_nodes method."""
 
     @pytest.fixture
-    def target(self):
+    def target(self, graph_mock_pool):
         """Create LadybugTarget with mock pool."""
-        mock_pool = AsyncMock()
-        return LadybugTarget(mock_pool)
+        return LadybugTarget(graph_mock_pool)
 
     @pytest.mark.asyncio
     async def test_verify_nodes_success(self, target):
@@ -176,10 +169,9 @@ class TestLadybugTargetVerifyRels:
     """Test verify_rels method."""
 
     @pytest.fixture
-    def target(self):
+    def target(self, graph_mock_pool):
         """Create LadybugTarget with mock pool."""
-        mock_pool = AsyncMock()
-        return LadybugTarget(mock_pool)
+        return LadybugTarget(graph_mock_pool)
 
     @pytest.mark.asyncio
     async def test_verify_rels_success(self, target):
@@ -203,10 +195,9 @@ class TestLadybugTargetClearLabel:
     """Test clear_label method."""
 
     @pytest.fixture
-    def target(self):
+    def target(self, graph_mock_pool):
         """Create LadybugTarget with mock pool."""
-        mock_pool = AsyncMock()
-        return LadybugTarget(mock_pool)
+        return LadybugTarget(graph_mock_pool)
 
     @pytest.mark.asyncio
     async def test_clear_label(self, target):

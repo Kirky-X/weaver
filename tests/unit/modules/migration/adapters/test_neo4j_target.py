@@ -1,7 +1,7 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Tests for modules.migration.adapters.neo4j_target module."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -13,23 +13,20 @@ from modules.migration.models import ColumnDef, NodeSchema, RelSchema
 class TestNeo4jTargetInit:
     """Test Neo4jTarget initialization."""
 
-    def test_init(self):
+    def test_init(self, graph_mock_pool):
         """Test initialization."""
-        mock_pool = MagicMock()
+        target = Neo4jTarget(graph_mock_pool)
 
-        target = Neo4jTarget(mock_pool)
-
-        assert target._pool is mock_pool
+        assert target._pool is graph_mock_pool
 
 
 class TestNeo4jTargetEnsureNodeSchema:
     """Test ensure_node_schema method."""
 
     @pytest.fixture
-    def target(self):
+    def target(self, graph_mock_pool):
         """Create Neo4jTarget with mock pool."""
-        mock_pool = AsyncMock()
-        return Neo4jTarget(mock_pool)
+        return Neo4jTarget(graph_mock_pool)
 
     @pytest.mark.asyncio
     async def test_ensure_node_schema_creates_constraints(self, target):
@@ -54,10 +51,9 @@ class TestNeo4jTargetEnsureRelSchema:
     """Test ensure_rel_schema method."""
 
     @pytest.fixture
-    def target(self):
+    def target(self, graph_mock_pool):
         """Create Neo4jTarget with mock pool."""
-        mock_pool = AsyncMock()
-        return Neo4jTarget(mock_pool)
+        return Neo4jTarget(graph_mock_pool)
 
     @pytest.mark.asyncio
     async def test_ensure_rel_schema_no_op(self, target):
@@ -78,10 +74,9 @@ class TestNeo4jTargetWriteNodes:
     """Test write_nodes method."""
 
     @pytest.fixture
-    def target(self):
+    def target(self, graph_mock_pool):
         """Create Neo4jTarget with mock pool."""
-        mock_pool = AsyncMock()
-        return Neo4jTarget(mock_pool)
+        return Neo4jTarget(graph_mock_pool)
 
     @pytest.mark.asyncio
     async def test_write_nodes_empty(self, target):
@@ -110,10 +105,9 @@ class TestNeo4jTargetWriteRels:
     """Test write_rels method."""
 
     @pytest.fixture
-    def target(self):
+    def target(self, graph_mock_pool):
         """Create Neo4jTarget with mock pool."""
-        mock_pool = AsyncMock()
-        return Neo4jTarget(mock_pool)
+        return Neo4jTarget(graph_mock_pool)
 
     @pytest.mark.asyncio
     async def test_write_rels_empty(self, target):
@@ -145,10 +139,9 @@ class TestNeo4jTargetVerifyNodes:
     """Test verify_nodes method."""
 
     @pytest.fixture
-    def target(self):
+    def target(self, graph_mock_pool):
         """Create Neo4jTarget with mock pool."""
-        mock_pool = AsyncMock()
-        return Neo4jTarget(mock_pool)
+        return Neo4jTarget(graph_mock_pool)
 
     @pytest.mark.asyncio
     async def test_verify_nodes_success(self, target):
@@ -172,10 +165,9 @@ class TestNeo4jTargetVerifyRels:
     """Test verify_rels method."""
 
     @pytest.fixture
-    def target(self):
+    def target(self, graph_mock_pool):
         """Create Neo4jTarget with mock pool."""
-        mock_pool = AsyncMock()
-        return Neo4jTarget(mock_pool)
+        return Neo4jTarget(graph_mock_pool)
 
     @pytest.mark.asyncio
     async def test_verify_rels_success(self, target):
@@ -199,10 +191,9 @@ class TestNeo4jTargetClearLabel:
     """Test clear_label method."""
 
     @pytest.fixture
-    def target(self):
+    def target(self, graph_mock_pool):
         """Create Neo4jTarget with mock pool."""
-        mock_pool = AsyncMock()
-        return Neo4jTarget(mock_pool)
+        return Neo4jTarget(graph_mock_pool)
 
     @pytest.mark.asyncio
     async def test_clear_label(self, target):

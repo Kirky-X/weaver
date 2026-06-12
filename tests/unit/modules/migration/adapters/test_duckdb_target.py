@@ -1,7 +1,7 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Tests for modules.migration.adapters.duckdb_target module."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -13,27 +13,20 @@ from modules.migration.models import ColumnDef, MigrationSchema
 class TestDuckDBTargetInit:
     """Test DuckDBTarget initialization."""
 
-    def test_init(self):
+    def test_init(self, duckdb_mock_pool):
         """Test initialization."""
-        mock_pool = MagicMock()
-        mock_engine = MagicMock()
-        mock_pool._engine = mock_engine
+        target = DuckDBTarget(duckdb_mock_pool)
 
-        target = DuckDBTarget(mock_pool)
-
-        assert target._pool is mock_pool
+        assert target._pool is duckdb_mock_pool
 
 
 class TestDuckDBTargetEnsureSchema:
     """Test ensure_schema method."""
 
     @pytest.fixture
-    def target(self):
+    def target(self, duckdb_mock_pool):
         """Create DuckDBTarget with mock pool."""
-        mock_pool = MagicMock()
-        mock_engine = MagicMock()
-        mock_pool._engine = mock_engine
-        return DuckDBTarget(mock_pool)
+        return DuckDBTarget(duckdb_mock_pool)
 
     @pytest.mark.asyncio
     async def test_ensure_schema_creates_table(self, target):
@@ -56,12 +49,9 @@ class TestDuckDBTargetWriteBatch:
     """Test write_batch method."""
 
     @pytest.fixture
-    def target(self):
+    def target(self, duckdb_mock_pool):
         """Create DuckDBTarget with mock pool."""
-        mock_pool = MagicMock()
-        mock_engine = MagicMock()
-        mock_pool._engine = mock_engine
-        return DuckDBTarget(mock_pool)
+        return DuckDBTarget(duckdb_mock_pool)
 
     @pytest.mark.asyncio
     async def test_write_batch_empty(self, target):
@@ -86,12 +76,9 @@ class TestDuckDBTargetVerify:
     """Test verify method."""
 
     @pytest.fixture
-    def target(self):
+    def target(self, duckdb_mock_pool):
         """Create DuckDBTarget with mock pool."""
-        mock_pool = MagicMock()
-        mock_engine = MagicMock()
-        mock_pool._engine = mock_engine
-        return DuckDBTarget(mock_pool)
+        return DuckDBTarget(duckdb_mock_pool)
 
     @pytest.mark.asyncio
     async def test_verify_success(self, target):
@@ -115,12 +102,9 @@ class TestDuckDBTargetTruncate:
     """Test truncate method."""
 
     @pytest.fixture
-    def target(self):
+    def target(self, duckdb_mock_pool):
         """Create DuckDBTarget with mock pool."""
-        mock_pool = MagicMock()
-        mock_engine = MagicMock()
-        mock_pool._engine = mock_engine
-        return DuckDBTarget(mock_pool)
+        return DuckDBTarget(duckdb_mock_pool)
 
     @pytest.mark.asyncio
     async def test_truncate(self, target):
@@ -134,12 +118,9 @@ class TestDuckDBTargetRunSync:
     """Test _run_sync method."""
 
     @pytest.fixture
-    def target(self):
+    def target(self, duckdb_mock_pool):
         """Create DuckDBTarget with mock pool."""
-        mock_pool = MagicMock()
-        mock_engine = MagicMock()
-        mock_pool._engine = mock_engine
-        return DuckDBTarget(mock_pool)
+        return DuckDBTarget(duckdb_mock_pool)
 
     @pytest.mark.asyncio
     async def test_run_sync_executes_function(self, target):

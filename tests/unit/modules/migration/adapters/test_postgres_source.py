@@ -12,27 +12,20 @@ from modules.migration.models import ColumnDef, MigrationSchema
 class TestPostgresSourceInit:
     """Test PostgresSource initialization."""
 
-    def test_init(self):
+    def test_init(self, postgres_mock_pool):
         """Test initialization."""
-        mock_pool = MagicMock()
-        mock_engine = MagicMock()
-        mock_pool.engine = mock_engine
+        source = PostgresSource(postgres_mock_pool)
 
-        source = PostgresSource(mock_pool)
-
-        assert source._pool is mock_pool
+        assert source._pool is postgres_mock_pool
 
 
 class TestPostgresSourceReadSchema:
     """Test read_schema method."""
 
     @pytest.fixture
-    def source(self):
+    def source(self, postgres_mock_pool):
         """Create PostgresSource with mock pool."""
-        mock_pool = MagicMock()
-        mock_engine = MagicMock()
-        mock_pool.engine = mock_engine
-        return PostgresSource(mock_pool)
+        return PostgresSource(postgres_mock_pool)
 
     @pytest.mark.asyncio
     async def test_read_schema_empty(self, source):
@@ -86,12 +79,9 @@ class TestPostgresSourceReadBatch:
     """Test read_batch method."""
 
     @pytest.fixture
-    def source(self):
+    def source(self, postgres_mock_pool):
         """Create PostgresSource with mock pool."""
-        mock_pool = MagicMock()
-        mock_engine = MagicMock()
-        mock_pool.engine = mock_engine
-        return PostgresSource(mock_pool)
+        return PostgresSource(postgres_mock_pool)
 
     @pytest.mark.asyncio
     async def test_read_batch_returns_rows(self, source):
@@ -116,23 +106,14 @@ class TestPostgresSourceCount:
     """Test count method."""
 
     @pytest.fixture
-    def source(self):
+    def source(self, postgres_mock_pool):
         """Create PostgresSource with mock pool."""
-        mock_pool = MagicMock()
-        mock_engine = MagicMock()
-        mock_pool.engine = mock_engine
-        return PostgresSource(mock_pool)
+        return PostgresSource(postgres_mock_pool)
 
     @pytest.mark.asyncio
-    async def test_count_returns_number(self, source):
+    async def test_count_returns_number(self, source, postgres_async_conn):
         """Test count returns number."""
-        mock_conn = AsyncMock()
-        mock_result = MagicMock()
-        mock_result.scalar.return_value = 100
-        mock_conn.execute.return_value = mock_result
-        mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
-        mock_conn.__aexit__ = AsyncMock(return_value=None)
-        source._engine.connect = MagicMock(return_value=mock_conn)
+        source._engine.connect = MagicMock(return_value=postgres_async_conn)
 
         count = await source.count("users")
 
@@ -143,12 +124,9 @@ class TestPostgresSourceGetTableNames:
     """Test get_table_names method."""
 
     @pytest.fixture
-    def source(self):
+    def source(self, postgres_mock_pool):
         """Create PostgresSource with mock pool."""
-        mock_pool = MagicMock()
-        mock_engine = MagicMock()
-        mock_pool.engine = mock_engine
-        return PostgresSource(mock_pool)
+        return PostgresSource(postgres_mock_pool)
 
     @pytest.mark.asyncio
     async def test_get_table_names(self, source):
@@ -170,12 +148,9 @@ class TestPostgresSourceReadIncremental:
     """Test read_incremental method."""
 
     @pytest.fixture
-    def source(self):
+    def source(self, postgres_mock_pool):
         """Create PostgresSource with mock pool."""
-        mock_pool = MagicMock()
-        mock_engine = MagicMock()
-        mock_pool.engine = mock_engine
-        return PostgresSource(mock_pool)
+        return PostgresSource(postgres_mock_pool)
 
     @pytest.mark.asyncio
     async def test_read_incremental_yields_batches(self, source):

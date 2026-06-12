@@ -1,7 +1,7 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Tests for modules.migration.adapters.duckdb_source module."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -12,27 +12,20 @@ from modules.migration.models import ColumnDef, MigrationSchema
 class TestDuckDBSourceInit:
     """Test DuckDBSource initialization."""
 
-    def test_init(self):
+    def test_init(self, duckdb_mock_pool):
         """Test initialization."""
-        mock_pool = MagicMock()
-        mock_engine = MagicMock()
-        mock_pool._engine = mock_engine
+        source = DuckDBSource(duckdb_mock_pool)
 
-        source = DuckDBSource(mock_pool)
-
-        assert source._pool is mock_pool
+        assert source._pool is duckdb_mock_pool
 
 
 class TestDuckDBSourceReadSchema:
     """Test read_schema method."""
 
     @pytest.fixture
-    def source(self):
+    def source(self, duckdb_mock_pool):
         """Create DuckDBSource with mock pool."""
-        mock_pool = MagicMock()
-        mock_engine = MagicMock()
-        mock_pool._engine = mock_engine
-        return DuckDBSource(mock_pool)
+        return DuckDBSource(duckdb_mock_pool)
 
     @pytest.mark.asyncio
     async def test_read_schema_empty(self, source):
@@ -51,12 +44,9 @@ class TestDuckDBSourceReadBatch:
     """Test read_batch method."""
 
     @pytest.fixture
-    def source(self):
+    def source(self, duckdb_mock_pool):
         """Create DuckDBSource with mock pool."""
-        mock_pool = MagicMock()
-        mock_engine = MagicMock()
-        mock_pool._engine = mock_engine
-        return DuckDBSource(mock_pool)
+        return DuckDBSource(duckdb_mock_pool)
 
     @pytest.mark.asyncio
     async def test_read_batch_returns_rows(self, source):
@@ -73,12 +63,9 @@ class TestDuckDBSourceCount:
     """Test count method."""
 
     @pytest.fixture
-    def source(self):
+    def source(self, duckdb_mock_pool):
         """Create DuckDBSource with mock pool."""
-        mock_pool = MagicMock()
-        mock_engine = MagicMock()
-        mock_pool._engine = mock_engine
-        return DuckDBSource(mock_pool)
+        return DuckDBSource(duckdb_mock_pool)
 
     @pytest.mark.asyncio
     async def test_count_returns_number(self, source):
@@ -95,12 +82,9 @@ class TestDuckDBSourceGetTableNames:
     """Test get_table_names method."""
 
     @pytest.fixture
-    def source(self):
+    def source(self, duckdb_mock_pool):
         """Create DuckDBSource with mock pool."""
-        mock_pool = MagicMock()
-        mock_engine = MagicMock()
-        mock_pool._engine = mock_engine
-        return DuckDBSource(mock_pool)
+        return DuckDBSource(duckdb_mock_pool)
 
     @pytest.mark.asyncio
     async def test_get_table_names(self, source):
@@ -117,12 +101,9 @@ class TestDuckDBSourceReadIncremental:
     """Test read_incremental method."""
 
     @pytest.fixture
-    def source(self):
+    def source(self, duckdb_mock_pool):
         """Create DuckDBSource with mock pool."""
-        mock_pool = MagicMock()
-        mock_engine = MagicMock()
-        mock_pool._engine = mock_engine
-        return DuckDBSource(mock_pool)
+        return DuckDBSource(duckdb_mock_pool)
 
     @pytest.mark.asyncio
     async def test_read_incremental_yields_batches(self, source):
@@ -134,12 +115,9 @@ class TestDuckDBSourceRunSync:
     """Test _run_sync method."""
 
     @pytest.fixture
-    def source(self):
+    def source(self, duckdb_mock_pool):
         """Create DuckDBSource with mock pool."""
-        mock_pool = MagicMock()
-        mock_engine = MagicMock()
-        mock_pool._engine = mock_engine
-        return DuckDBSource(mock_pool)
+        return DuckDBSource(duckdb_mock_pool)
 
     @pytest.mark.asyncio
     async def test_run_sync_executes_function(self, source):
