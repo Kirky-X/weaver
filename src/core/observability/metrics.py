@@ -254,6 +254,28 @@ class MetricsCollector:
         buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1],
     )
 
+    # Saga metrics
+    saga_total = Counter(
+        "saga_total",
+        "Total saga executions",
+        ["status"],  # status: completed, compensated, failed, timed_out
+    )
+    saga_step_latency = Histogram(
+        "saga_step_latency_seconds",
+        "Saga step execution latency",
+        ["step_name"],
+        buckets=[0.1, 0.5, 1, 2, 5, 10, 30],
+    )
+    saga_compensation_total = Counter(
+        "saga_compensation_total",
+        "Total saga compensation executions",
+        ["step_name", "status"],  # status: success, failure
+    )
+    saga_active_count = Gauge(
+        "saga_active_count",
+        "Currently active saga instances",
+    )
+
 
 # Global metrics instance for use across modules
 metrics = MetricsCollector()

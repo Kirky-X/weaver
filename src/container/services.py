@@ -15,6 +15,7 @@ if TYPE_CHECKING:
         EntityRepository,
         VectorRepository,
     )
+    from core.saga import SagaOrchestrator
     from core.services.pipeline_service import PipelineServiceImpl
     from core.services.task_registry import InMemoryTaskRegistry
     from modules.analytics import LLMUsageBuffer, LLMUsageRepo
@@ -77,6 +78,7 @@ class ContainerServicesMixin:
     _community_updater: IncrementalCommunityUpdater | None
     _relation_type_normalizer: Any
     _memory_service: Any
+    _saga_orchestrator: SagaOrchestrator | None
     _shutdown: bool
     _knowledge_cache: Any
     _mc_sampler: Any
@@ -615,6 +617,23 @@ class ContainerServicesMixin:
         if self._task_registry is None:
             self._task_registry = InMemoryTaskRegistry()
         return self._task_registry
+
+    def saga_orchestrator(self) -> SagaOrchestrator:
+        """Get the Saga orchestrator for cross-database transaction coordination."""
+        from core.saga import SagaOrchestrator
+        from core.saga.repository import SagaLogRepo
+
+        if self._saga_orchestrator is None:
+            saga_config = self._settings.saga
+            log_repo = SagaLogRepo(self.relational_pool())
+            self._saga_orchestrator = SagaOrchestrator(
+                log_repo=log_repo,
+                timeout_seconds=saga_config.timeout_seconds,
+                max_retries=saga_config.max_retries,
+                retry_base_delay=saga_config.retry_base_delay,
+                retry_max_delay=saga_config.retry_max_delay,
+            )
+        return self._saga_orchestrator
 
     def _get_embedding_model_id(self) -> str:
         """Get embedding model ID from configuration.
