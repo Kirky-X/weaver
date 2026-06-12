@@ -8,11 +8,11 @@ from core.exceptions import InvalidStateTransitionError
 
 
 class TestPersistStatusEnumSize:
-    """Tests for PersistStatus enum size (6 states only)."""
+    """Tests for PersistStatus enum size (12 states including saga)."""
 
-    def test_enum_has_exactly_six_members(self):
-        """Test that PersistStatus has exactly 6 members."""
-        assert len(list(PersistStatus)) == 6
+    def test_enum_has_exactly_twelve_members(self):
+        """Test that PersistStatus has exactly 12 members."""
+        assert len(list(PersistStatus)) == 12
 
     def test_stored_not_in_enum(self):
         """Test that STORED is not a PersistStatus member."""
@@ -25,7 +25,7 @@ class TestPersistStatusEnumSize:
             _ = PersistStatus.COMPLETE
 
     def test_all_statuses_present(self):
-        """Test that all 6 expected statuses are present."""
+        """Test that all 12 expected statuses are present."""
         expected_names = {
             "PENDING",
             "PROCESSING",
@@ -33,6 +33,12 @@ class TestPersistStatusEnumSize:
             "NEO4J_DONE",
             "NEO4J_FAILED",
             "FAILED",
+            "SAGA_STARTED",
+            "SAGA_PG_WRITING",
+            "SAGA_NEO4J_WRITING",
+            "SAGA_COMPENSATING",
+            "SAGA_COMPENSATED",
+            "SAGA_COMPLETED",
         }
         actual_names = {m.name for m in PersistStatus}
         assert actual_names == expected_names
@@ -156,11 +162,29 @@ class TestPersistStatusStateMachine:
             # Forward transitions
             (PersistStatus.PENDING, PersistStatus.PROCESSING),
             (PersistStatus.PENDING, PersistStatus.FAILED),
+            (PersistStatus.PENDING, PersistStatus.SAGA_STARTED),
             (PersistStatus.PROCESSING, PersistStatus.PG_DONE),
             (PersistStatus.PROCESSING, PersistStatus.FAILED),
             (PersistStatus.PG_DONE, PersistStatus.NEO4J_DONE),
             (PersistStatus.PG_DONE, PersistStatus.NEO4J_FAILED),
             (PersistStatus.PG_DONE, PersistStatus.FAILED),
+            # Saga transitions
+            (PersistStatus.SAGA_STARTED, PersistStatus.SAGA_PG_WRITING),
+            (PersistStatus.SAGA_STARTED, PersistStatus.FAILED),
+            (PersistStatus.SAGA_PG_WRITING, PersistStatus.SAGA_NEO4J_WRITING),
+            (PersistStatus.SAGA_PG_WRITING, PersistStatus.SAGA_COMPENSATING),
+            (PersistStatus.SAGA_NEO4J_WRITING, PersistStatus.SAGA_COMPLETED),
+            (PersistStatus.SAGA_NEO4J_WRITING, PersistStatus.SAGA_COMPENSATING),
+            (PersistStatus.SAGA_COMPENSATING, PersistStatus.SAGA_COMPENSATED),
+            (PersistStatus.SAGA_COMPENSATING, PersistStatus.FAILED),
+            (PersistStatus.SAGA_COMPENSATED, PersistStatus.PENDING),
+            # Idempotent saga transitions
+            (PersistStatus.SAGA_STARTED, PersistStatus.SAGA_STARTED),
+            (PersistStatus.SAGA_PG_WRITING, PersistStatus.SAGA_PG_WRITING),
+            (PersistStatus.SAGA_NEO4J_WRITING, PersistStatus.SAGA_NEO4J_WRITING),
+            (PersistStatus.SAGA_COMPENSATING, PersistStatus.SAGA_COMPENSATING),
+            (PersistStatus.SAGA_COMPENSATED, PersistStatus.SAGA_COMPENSATED),
+            (PersistStatus.SAGA_COMPLETED, PersistStatus.SAGA_COMPLETED),
             # Retry transitions
             (PersistStatus.NEO4J_FAILED, PersistStatus.PENDING),
             (PersistStatus.NEO4J_FAILED, PersistStatus.PG_DONE),
