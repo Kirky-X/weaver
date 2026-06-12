@@ -22,7 +22,7 @@ class TestSearchEndpointNoMocks:
     """
 
     SEARCH_MODULE_PATH = (
-        Path(__file__).resolve().parents[3] / "src" / "api" / "endpoints" / "content" / "search.py"
+        Path(__file__).resolve().parents[4] / "src" / "api" / "endpoints" / "content" / "search.py"
     )
 
     @pytest.fixture()
