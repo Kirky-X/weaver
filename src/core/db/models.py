@@ -79,6 +79,12 @@ class PersistStatus(str, enum.Enum):
     PG_DONE = "pg_done"
     NEO4J_DONE = "neo4j_done"
     NEO4J_FAILED = "neo4j_failed"
+    SAGA_STARTED = "saga_started"
+    SAGA_PG_WRITING = "saga_pg_writing"
+    SAGA_NEO4J_WRITING = "saga_neo4j_writing"
+    SAGA_COMPENSATING = "saga_compensating"
+    SAGA_COMPENSATED = "saga_compensated"
+    SAGA_COMPLETED = "saga_completed"
     FAILED = "failed"
 
     @classmethod
@@ -90,10 +96,16 @@ class PersistStatus(str, enum.Enum):
         """Validate if a status transition is allowed.
 
         Valid transitions:
-        - PENDING → PROCESSING, FAILED
+        - PENDING → PROCESSING, FAILED, SAGA_STARTED
         - PROCESSING → PG_DONE, FAILED
         - PG_DONE → NEO4J_DONE, NEO4J_FAILED, FAILED
         - NEO4J_FAILED → PENDING, PG_DONE (allows retry)
+        - SAGA_STARTED → SAGA_PG_WRITING, FAILED
+        - SAGA_PG_WRITING → SAGA_NEO4J_WRITING, SAGA_COMPENSATING
+        - SAGA_NEO4J_WRITING → SAGA_COMPLETED, SAGA_COMPENSATING
+        - SAGA_COMPENSATING → SAGA_COMPENSATED, FAILED
+        - SAGA_COMPENSATED → PENDING (allows retry)
+        - SAGA_COMPLETED is terminal
         - FAILED → PENDING (allows retry)
         - NEO4J_DONE is terminal
 
@@ -108,16 +120,46 @@ class PersistStatus(str, enum.Enum):
             return True
 
         valid_transitions = {
-            cls.PENDING: {cls.PROCESSING, cls.FAILED},
+            cls.PENDING: {cls.PROCESSING, cls.FAILED, cls.SAGA_STARTED},
             cls.PROCESSING: {cls.PG_DONE, cls.FAILED},
             cls.PG_DONE: {cls.NEO4J_DONE, cls.NEO4J_FAILED, cls.FAILED},
             cls.NEO4J_FAILED: {cls.PENDING, cls.PG_DONE},
+            cls.SAGA_STARTED: {cls.SAGA_PG_WRITING, cls.FAILED},
+            cls.SAGA_PG_WRITING: {cls.SAGA_NEO4J_WRITING, cls.SAGA_COMPENSATING},
+            cls.SAGA_NEO4J_WRITING: {cls.SAGA_COMPLETED, cls.SAGA_COMPENSATING},
+            cls.SAGA_COMPENSATING: {cls.SAGA_COMPENSATED, cls.FAILED},
+            cls.SAGA_COMPENSATED: {cls.PENDING},
+            cls.SAGA_COMPLETED: set(),
             cls.FAILED: {cls.PENDING},
             cls.NEO4J_DONE: set(),
         }
 
         allowed = valid_transitions.get(from_status, set())
         return to_status in allowed
+
+    @classmethod
+    def is_terminal(cls, status: PersistStatus) -> bool:
+        """Check if a status is terminal (no outgoing transitions except self).
+
+        Args:
+            status: Status to check.
+
+        Returns:
+            True if the status is terminal.
+        """
+        return status in {cls.NEO4J_DONE, cls.SAGA_COMPLETED}
+
+    @classmethod
+    def allows_retry(cls, status: PersistStatus) -> bool:
+        """Check if a status allows retry (can transition to PENDING).
+
+        Args:
+            status: Status to check.
+
+        Returns:
+            True if the status allows retry.
+        """
+        return status in {cls.FAILED, cls.SAGA_COMPENSATED, cls.NEO4J_FAILED}
 
 
 class EmotionType(str, enum.Enum):
@@ -1325,4 +1367,39 @@ class PromptTemplate(Base):
         default=lambda: datetime.now(UTC),
         server_default=text("NOW()"),
         onupdate=lambda: datetime.now(UTC),
+    )
+
+
+class SagaLog(Base):
+    """Saga execution log entries for compensation transaction tracking.
+
+    Records each step of a Saga orchestration, including execution status,
+    compensation data, and error details. Supports fault recovery and
+    audit trails for cross-database transactions.
+    """
+
+    __tablename__ = "saga_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    saga_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    article_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    step_name: Mapped[str] = mapped_column(String(50), nullable=False)
+    step_status: Mapped[str] = mapped_column(String(20), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    compensation_data: Mapped[dict[str, Any] | None] = mapped_column(JSONCompatible)
+    error_message: Mapped[str | None] = mapped_column(Text)
+    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+    )
+
+    __table_args__ = (
+        Index("idx_saga_logs_saga_id", "saga_id"),
+        Index("idx_saga_logs_article_id", "article_id"),
+        Index("idx_saga_logs_step_status", "step_status"),
     )
