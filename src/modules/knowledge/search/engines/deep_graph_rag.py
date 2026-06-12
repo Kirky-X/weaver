@@ -197,9 +197,9 @@ class DeepGraphRAGEngine:
                     )
                     communities = [
                         {
-                            "id": r.get("community_id", ""),
-                            "score": r.get("score", 0.0),
-                            "name": r.get("title", ""),
+                            "id": r.community_id,
+                            "score": r.score,
+                            "name": r.title or "",
                         }
                         for r in results
                     ]
@@ -214,9 +214,9 @@ class DeepGraphRAGEngine:
                 results = await self._vector_repo.find_similar(query_embedding, limit=top_k)
                 communities = [
                     {
-                        "id": r.get("id", r.get("doc_id", "")),
-                        "score": r.get("score", 0.0),
-                        "name": r.get("name", ""),
+                        "id": r.article_id,
+                        "score": r.similarity,
+                        "name": "",
                     }
                     for r in results
                 ]
@@ -303,12 +303,11 @@ class DeepGraphRAGEngine:
         # If vector_repo available, enhance with actual vector similarity
         if self._vector_repo and query_embedding:
             try:
-                similar = await self._vector_repo.find_similar_entities(query_embedding, top_k=20)
+                similar = await self._vector_repo.find_similar_entities(query_embedding, limit=20)
                 # Build similarity map from vector results
                 sim_map = {}
                 for r in similar:
-                    eid = r.get("neo4j_id", r.get("id", ""))
-                    sim_map[eid] = r.get("score", 0.0)
+                    sim_map[r.neo4j_id] = r.similarity
 
                 # Update entity similarity scores from vector search
                 for e in entities:

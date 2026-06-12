@@ -28,7 +28,7 @@ class TestFindSimilarVectorSearch:
         mock_article_repo = MagicMock()
         mock_vector_repo = AsyncMock()
         mock_vector_repo.find_similar.return_value = [
-            {"id": "art-1", "title": "GDP Report", "body": "GDP增长6.5%", "score": 0.85}
+            MagicMock(article_id="art-1", category="economy", similarity=0.85)
         ]
 
         node = ConflictDetectorNode(

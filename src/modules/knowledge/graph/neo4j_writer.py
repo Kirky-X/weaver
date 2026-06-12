@@ -282,7 +282,7 @@ class Neo4jWriter:
         existing_entities = await self._entity_repo.find_entities_by_keys(entity_keys)
 
         # Build lookup map for quick access
-        existing_map = {(e["canonical_name"], e["type"]): e["neo4j_id"] for e in existing_entities}
+        existing_map = {(e.canonical_name, e.type): e.id for e in existing_entities}
 
         # Collect IDs and populate name_to_id map in same order as entity_data
         entity_ids: list[str] = []
@@ -432,7 +432,7 @@ class Neo4jWriter:
         # First check if entity already exists
         existing = await self._entity_repo.find_entity(name, entity_type)
         if existing:
-            return existing["canonical_name"]
+            return existing.canonical_name
 
         # For new entities, return the provided name as canonical
         # In a more sophisticated implementation, this could use

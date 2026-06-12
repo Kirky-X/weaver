@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from core.models.shared import EntityView
+
 
 class TestEntityResolverInit:
     """Tests for EntityResolver initialization."""
@@ -104,10 +106,9 @@ class TestEntityResolverResolveEntity:
     @pytest.mark.asyncio
     async def test_resolve_entity_returns_exact_match(self, resolver, mock_entity_repo):
         """Test resolve_entity returns exact match."""
-        mock_entity_repo.find_entity.return_value = {
-            "neo4j_id": "existing-id",
-            "canonical_name": "Test Entity",
-        }
+        mock_entity_repo.find_entity.return_value = EntityView.model_validate(
+            {"neo4j_id": "existing-id", "name": "Test Entity", "entity_type": "PERSON"}
+        )
 
         result = await resolver.resolve_entity(
             name="Test Entity",
@@ -141,7 +142,9 @@ class TestEntityResolverResolveEntity:
 
         mock_vector_repo.find_similar_entities.return_value = [mock_similar]
         mock_entity_repo.find_entities_by_ids.return_value = [
-            {"neo4j_id": "similar-id", "canonical_name": "Similar Entity", "type": "PERSON"}
+            EntityView.model_validate(
+                {"neo4j_id": "similar-id", "name": "Similar Entity", "entity_type": "PERSON"}
+            )
         ]
 
         result = await resolver.resolve_entity(
@@ -268,10 +271,9 @@ class TestEntityResolverPreResolveCheck:
     @pytest.mark.asyncio
     async def test_pre_resolve_check_returns_existing(self, resolver, mock_entity_repo):
         """Test pre_resolve_check finds existing entity."""
-        mock_entity_repo.find_entity.return_value = {
-            "neo4j_id": "existing-id",
-            "canonical_name": "Existing Entity",
-        }
+        mock_entity_repo.find_entity.return_value = EntityView.model_validate(
+            {"neo4j_id": "existing-id", "name": "Existing Entity", "entity_type": "PERSON"}
+        )
 
         result = await resolver.pre_resolve_check("Existing Entity", "PERSON")
 
@@ -387,7 +389,9 @@ class TestEntityResolverResolveEntityExtended:
         # First find_entity (normalized) returns None, second (original) returns match
         mock_entity_repo.find_entity.side_effect = [
             None,  # normalized name not found
-            {"neo4j_id": "existing-id", "canonical_name": "Original Name"},  # original name found
+            EntityView.model_validate(
+                {"neo4j_id": "existing-id", "name": "Original Name", "entity_type": "PERSON"}
+            ),  # original name found
         ]
 
         result = await resolver.resolve_entity(
@@ -456,7 +460,9 @@ class TestEntityResolverResolveEntityExtended:
 
         mock_vector_repo.find_similar_entities.return_value = [mock_similar]
         mock_entity_repo.find_entities_by_ids.return_value = [
-            {"neo4j_id": "sim-id", "canonical_name": "TargetEntity", "type": "PERSON"}
+            EntityView.model_validate(
+                {"neo4j_id": "sim-id", "name": "TargetEntity", "entity_type": "PERSON"}
+            )
         ]
 
         result = await resolver.resolve_entity(
@@ -493,7 +499,9 @@ class TestEntityResolverResolveEntityExtended:
 
         mock_vector_repo.find_similar_entities.return_value = [mock_similar]
         mock_entity_repo.find_entities_by_ids.return_value = [
-            {"neo4j_id": "sim-id", "canonical_name": "DifferentEntity", "type": "PERSON"}
+            EntityView.model_validate(
+                {"neo4j_id": "sim-id", "name": "DifferentEntity", "entity_type": "PERSON"}
+            )
         ]
         # find_entity for canonical name returns None
         mock_entity_repo.find_entity.return_value = None
@@ -542,12 +550,9 @@ class TestEntityResolverResolveEntityExtended:
 
         mock_vector_repo.find_similar_entities.return_value = [mock_similar]
         mock_entity_repo.find_entities_by_ids.return_value = [
-            {
-                "neo4j_id": "sim-id",
-                "canonical_name": "TargetEntity",
-                "type": "PERSON",
-                "similarity": 0.9,
-            }
+            EntityView.model_validate(
+                {"neo4j_id": "sim-id", "name": "TargetEntity", "entity_type": "PERSON"}
+            )
         ]
 
         result = await resolver.resolve_entity(
@@ -582,7 +587,9 @@ class TestEntityResolverResolveEntityExtended:
 
         mock_vector_repo.find_similar_entities.return_value = [mock_similar]
         mock_entity_repo.find_entities_by_ids.return_value = [
-            {"neo4j_id": "sim-id", "canonical_name": "SomeEntity", "type": "PERSON"}
+            EntityView.model_validate(
+                {"neo4j_id": "sim-id", "name": "SomeEntity", "entity_type": "PERSON"}
+            )
         ]
         # find_entity sequence:
         # 1st call: normalized name "TestEntity" -> None
@@ -590,10 +597,9 @@ class TestEntityResolverResolveEntityExtended:
         # 2nd call (actually): canonical_name "CanonicalName" -> found
         mock_entity_repo.find_entity.side_effect = [
             None,  # normalized name lookup at line 120
-            {
-                "neo4j_id": "canonical-id",
-                "canonical_name": "CanonicalName",
-            },  # canonical lookup at line 243
+            EntityView.model_validate(
+                {"neo4j_id": "canonical-id", "name": "CanonicalName", "entity_type": "PERSON"}
+            ),  # canonical lookup at line 243
         ]
 
         result = await resolver.resolve_entity(
@@ -737,10 +743,9 @@ class TestEntityResolverCreateEntity:
         # merge_entity raises, then find_entity succeeds
         mock_entity_repo.merge_entity = AsyncMock(side_effect=FakeConstraintError("constraint"))
         mock_entity_repo.find_entity = AsyncMock(
-            return_value={
-                "neo4j_id": "concurrent-id",
-                "canonical_name": "TestEntity",
-            }
+            return_value=EntityView.model_validate(
+                {"neo4j_id": "concurrent-id", "name": "TestEntity", "entity_type": "PERSON"}
+            )
         )
         mock_vector_repo = MagicMock()
         mock_vector_repo.upsert_entity_vector = AsyncMock()
@@ -788,7 +793,9 @@ class TestEntityResolverPreResolveCheckExtended:
             side_effect=[
                 None,
                 None,
-                {"neo4j_id": "alias-id", "canonical_name": "CanonicalEntity"},
+                EntityView.model_validate(
+                    {"neo4j_id": "alias-id", "name": "CanonicalEntity", "entity_type": "PERSON"}
+                ),
             ]
         )
 
@@ -823,7 +830,9 @@ class TestEntityResolverPreResolveCheckExtended:
         mock_entity_repo.find_entity = AsyncMock(
             side_effect=[
                 None,  # normalized not found
-                {"neo4j_id": "orig-id", "canonical_name": "OriginalEntity"},  # original found
+                EntityView.model_validate(
+                    {"neo4j_id": "orig-id", "name": "OriginalEntity", "entity_type": "PERSON"}
+                ),  # original found
             ]
         )
 

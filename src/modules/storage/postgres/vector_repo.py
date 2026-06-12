@@ -10,38 +10,17 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from dataclasses import dataclass
-from datetime import datetime
 from typing import Any
 
 from sqlalchemy import String, delete, func, select, text, update
 
 from core.db import Article, ArticleVector, EntityVector, VectorType
 from core.db.query_builders import VectorQueryBuilder
+from core.models.shared import ArticleSearchResultView, EntitySearchResultView
 from core.observability import get_logger
 from core.protocols import RelationalPool
 
 log = get_logger(__name__)
-
-
-@dataclass
-class SimilarArticle:
-    """Result from a similarity search."""
-
-    article_id: str
-    category: str | None
-    similarity: float
-    hybrid_score: float | None = None
-    publish_time: datetime | None = None
-    created_at: datetime | None = None
-
-
-@dataclass
-class SimilarEntity:
-    """Result from an entity similarity search."""
-
-    neo4j_id: str
-    similarity: float
 
 
 class VectorRepo:
@@ -224,7 +203,7 @@ class VectorRepo:
         model_id: str | None = None,
         vector_type: str = "content",
         search_mode: str | None = None,
-    ) -> list[SimilarArticle]:
+    ) -> list[ArticleSearchResultView]:
         """Find similar articles using vector similarity.
 
         Args:
@@ -237,7 +216,7 @@ class VectorRepo:
             search_mode: Optional search mode for HNSW ef_search optimization.
 
         Returns:
-            List of SimilarArticle results with timestamps for temporal decay.
+            List of ArticleSearchResultView results with timestamps for temporal decay.
         """
         from core.db.query_builders import SimilarityQuery
 
@@ -276,7 +255,7 @@ class VectorRepo:
             result = await session.execute(query, params)
 
             return [
-                SimilarArticle(
+                ArticleSearchResultView(
                     article_id=row.article_id,
                     category=row.category,
                     similarity=row.similarity,
@@ -294,7 +273,7 @@ class VectorRepo:
         min_score: float = 0.0,
         limit: int = 20,
         model_id: str | None = None,
-    ) -> list[SimilarArticle]:
+    ) -> list[ArticleSearchResultView]:
         """Find similar articles using hybrid vector + keyword scoring.
 
         Args:
@@ -306,7 +285,7 @@ class VectorRepo:
             model_id: Optional model_id filter.
 
         Returns:
-            List of SimilarArticle results with hybrid_score set.
+            List of ArticleSearchResultView results with hybrid_score set.
         """
         vector_results = await self.find_similar(
             embedding=embedding,
@@ -345,7 +324,7 @@ class VectorRepo:
             hybrid = 0.7 * r.similarity + 0.3 * keyword_score
             if hybrid >= min_score:
                 scored.append(
-                    SimilarArticle(
+                    ArticleSearchResultView(
                         article_id=r.article_id,
                         category=r.category,
                         similarity=r.similarity,
@@ -364,7 +343,7 @@ class VectorRepo:
         limit: int = 20,
         model_id: str | None = None,
         vector_type: str = "content",
-    ) -> dict[uuid.UUID, list[SimilarArticle]]:
+    ) -> dict[uuid.UUID, list[ArticleSearchResultView]]:
         """Batch find similar articles for multiple embeddings.
 
         Uses a single database session with concurrent queries for efficiency.
@@ -392,7 +371,7 @@ class VectorRepo:
             filter_by_category=category is not None,
             filter_by_model_id=model_id is not None,
         )
-        results: dict[uuid.UUID, list[SimilarArticle]] = {}
+        results: dict[uuid.UUID, list[ArticleSearchResultView]] = {}
 
         async with self._pool.session() as session:
             # Initialize session with database-specific settings
@@ -402,7 +381,7 @@ class VectorRepo:
             # Build query configurations for parallel execution
             async def execute_single_query(
                 qid: uuid.UUID, embedding: list[float]
-            ) -> tuple[uuid.UUID, list[SimilarArticle]]:
+            ) -> tuple[uuid.UUID, list[ArticleSearchResultView]]:
                 query = text(self._query_builder.build_find_similar_articles_query(config))
                 formatted_emb = self._query_builder.format_embedding_param(embedding)
 
@@ -421,7 +400,7 @@ class VectorRepo:
                 return (
                     qid,
                     [
-                        SimilarArticle(
+                        ArticleSearchResultView(
                             article_id=row.article_id,
                             category=row.category,
                             similarity=row.similarity,
@@ -555,7 +534,7 @@ class VectorRepo:
         embedding: list[float],
         threshold: float = 0.85,
         limit: int = 5,
-    ) -> list[SimilarEntity]:
+    ) -> list[EntitySearchResultView]:
         """Find similar entities using vector similarity.
 
         Args:
@@ -564,7 +543,7 @@ class VectorRepo:
             limit: Maximum number of results.
 
         Returns:
-            List of SimilarEntity results.
+            List of EntitySearchResultView results.
         """
         from core.db.query_builders import EntitySimilarityQuery
 
@@ -584,7 +563,7 @@ class VectorRepo:
             )
 
             return [
-                SimilarEntity(
+                EntitySearchResultView(
                     neo4j_id=row.neo4j_id,
                     similarity=row.similarity,
                 )

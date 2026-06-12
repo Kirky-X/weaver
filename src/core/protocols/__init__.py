@@ -32,6 +32,7 @@ from core.protocols.pools import (
 # Repository protocols
 from core.protocols.repositories import (
     ArticleRepository,
+    CommunityVectorRepository,
     EntityRepository,
     GraphArticleRepository,
     GraphWriter,
@@ -55,6 +56,7 @@ from core.protocols.validation import (
 __all__ = [
     "ArticleRepository",
     "CachePool",
+    "CommunityVectorRepository",
     "EntityRepository",
     "GraphArticleRepository",
     "GraphPool",

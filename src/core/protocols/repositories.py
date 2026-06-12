@@ -16,7 +16,13 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 if TYPE_CHECKING:
     import uuid
 
-    from core.models.shared import ArticleView
+    from core.models.shared import (
+        ArticleSearchResultView,
+        ArticleView,
+        CommunitySearchResultView,
+        EntitySearchResultView,
+        EntityView,
+    )
 
 
 @runtime_checkable
@@ -34,7 +40,7 @@ class EntityRepository(Protocol):
         self,
         canonical_name: str,
         entity_type: str,
-    ) -> dict[str, Any] | None:
+    ) -> EntityView | None:
         """Find an entity by canonical name and type.
 
         Args:
@@ -42,18 +48,18 @@ class EntityRepository(Protocol):
             entity_type: The entity type to match.
 
         Returns:
-            Entity dict if found, None otherwise.
+            EntityView if found, None otherwise.
         """
         ...
 
-    async def find_entity_by_id(self, neo4j_id: str) -> dict[str, Any] | None:
+    async def find_entity_by_id(self, neo4j_id: str) -> EntityView | None:
         """Find an entity by Neo4j internal ID.
 
         Args:
             neo4j_id: The Neo4j internal element ID.
 
         Returns:
-            Entity dict if found, None otherwise.
+            EntityView if found, None otherwise.
         """
         ...
 
@@ -99,7 +105,7 @@ class EntityRepository(Protocol):
         self,
         names: list[str],
         entity_type: str,
-    ) -> list[dict[str, Any]]:
+    ) -> list[EntityView]:
         """Find multiple entities by names in a single query.
 
         Args:
@@ -107,7 +113,7 @@ class EntityRepository(Protocol):
             entity_type: The entity type to match.
 
         Returns:
-            List of entity dicts found.
+            List of EntityView found.
         """
         ...
 
@@ -129,7 +135,7 @@ class VectorRepository(Protocol):
         threshold: float = 0.80,
         limit: int = 20,
         model_id: str | None = None,
-    ) -> list[Any]:
+    ) -> list[ArticleSearchResultView]:
         """Find similar articles using vector similarity.
 
         Args:
@@ -149,7 +155,7 @@ class VectorRepository(Protocol):
         embedding: list[float],
         threshold: float = 0.85,
         limit: int = 5,
-    ) -> list[Any]:
+    ) -> list[EntitySearchResultView]:
         """Find similar entities using vector similarity.
 
         Args:
@@ -230,7 +236,7 @@ class CommunityVectorRepository(Protocol):
         embedding: list[float],
         limit: int = 5,
         threshold: float = 0.80,
-    ) -> list[dict[str, Any]]:
+    ) -> list[CommunitySearchResultView]:
         """Find similar communities using vector similarity.
 
         Args:
@@ -239,7 +245,7 @@ class CommunityVectorRepository(Protocol):
             threshold: Minimum similarity threshold.
 
         Returns:
-            List of community dicts with community_id, score, and title.
+            List of CommunitySearchResultView with community_id, score, and title.
         """
         ...
 

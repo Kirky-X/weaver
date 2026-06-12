@@ -230,7 +230,7 @@ class HybridSearchEngine:
 
         try:
             results = await self._vector_repo.find_similar(embedding, limit=limit)
-            return [(r.get("id", r.get("doc_id", "")), r.get("score", 0.0)) for r in results]
+            return [(r.article_id, r.similarity) for r in results]
         except Exception as exc:
             log.error("vector_search_error", error=str(exc))
             return []

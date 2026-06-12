@@ -12,8 +12,8 @@ from fastapi import HTTPException
 pytestmark = pytest.mark.xdist_group(name="endpoints_deps")
 
 from api.endpoints.deps_registry import Endpoints
+from core.models.shared import ArticleSearchResultView
 from modules.knowledge.search.engines.local_search import SearchResult
-from modules.storage.postgres.vector_repo import SimilarArticle
 
 # ── Mock Factories ───────────────────────────────────────────────
 
@@ -67,7 +67,7 @@ def _make_mock_global_engine(
 
 
 def _make_mock_vector_repo(
-    similar: list[SimilarArticle] | None = None,
+    similar: list[ArticleSearchResultView] | None = None,
     exc: Exception | None = None,
 ) -> MagicMock:
     repo = MagicMock()
@@ -80,16 +80,16 @@ def _make_mock_vector_repo(
     else:
         repo.find_similar = AsyncMock(
             return_value=[
-                SimilarArticle(article_id="abc-123", category="tech", similarity=0.92),
-                SimilarArticle(article_id="def-456", category="tech", similarity=0.88),
+                ArticleSearchResultView(article_id="abc-123", category="tech", similarity=0.92),
+                ArticleSearchResultView(article_id="def-456", category="tech", similarity=0.88),
             ]
         )
         repo.find_similar_hybrid = AsyncMock(
             return_value=[
-                SimilarArticle(
+                ArticleSearchResultView(
                     article_id="abc-123", category="tech", similarity=0.92, hybrid_score=0.85
                 ),
-                SimilarArticle(
+                ArticleSearchResultView(
                     article_id="def-456", category="tech", similarity=0.88, hybrid_score=0.80
                 ),
             ]

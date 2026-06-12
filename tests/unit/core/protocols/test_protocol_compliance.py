@@ -15,6 +15,7 @@ import pytest
 from core.protocols import (
     ArticleRepository,
     CachePool,
+    CommunityVectorRepository,
     EntityRepository,
     GraphArticleRepository,
     GraphPool,

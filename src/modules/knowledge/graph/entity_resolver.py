@@ -190,8 +190,8 @@ class EntityResolver:
         existing = await self._entity_repo.find_entity(normalized_name, entity_type)
         if existing:
             return {
-                "neo4j_id": existing["neo4j_id"],
-                "canonical_name": existing["canonical_name"],
+                "neo4j_id": existing.id,
+                "canonical_name": existing.canonical_name,
                 "is_new": False,
                 "merged": False,
                 "match_type": "exact",
@@ -203,8 +203,8 @@ class EntityResolver:
             existing = await self._entity_repo.find_entity(name, entity_type)
             if existing:
                 return {
-                    "neo4j_id": existing["neo4j_id"],
-                    "canonical_name": existing["canonical_name"],
+                    "neo4j_id": existing.id,
+                    "canonical_name": existing.canonical_name,
                     "is_new": False,
                     "merged": False,
                     "match_type": "normalized_exact",
@@ -237,14 +237,20 @@ class EntityResolver:
         # Batch lookup to avoid N+1 queries
         neo4j_ids = [sim.neo4j_id for sim in similar]
         entities_by_id = await self._entity_repo.find_entities_by_ids(neo4j_ids)
-        entities_map = {e["neo4j_id"]: e for e in entities_by_id}
+        entities_map = {e.id: e for e in entities_by_id}
 
         candidates = []
         for sim in similar:
             entity = entities_map.get(sim.neo4j_id)
             if entity:
-                entity["similarity"] = sim.similarity
-                candidates.append(entity)
+                candidates.append(
+                    {
+                        "neo4j_id": entity.id,
+                        "canonical_name": entity.canonical_name,
+                        "type": entity.type,
+                        "similarity": sim.similarity,
+                    }
+                )
 
         return candidates
 
@@ -358,8 +364,8 @@ class EntityResolver:
         if resolved:
             await self._entity_repo.add_alias(canonical_name, entity_type, name)
             return {
-                "neo4j_id": resolved["neo4j_id"],
-                "canonical_name": resolved["canonical_name"],
+                "neo4j_id": resolved.id,
+                "canonical_name": resolved.canonical_name,
                 "is_new": False,
                 "merged": True,
                 "match_type": "alias_added",
@@ -470,11 +476,11 @@ class EntityResolver:
                         existing = await self._entity_repo.find_entity(name, entity_type)
                         if existing:
                             await self._vector_repo.upsert_entity_vector(
-                                existing["neo4j_id"], embedding, self._embedding_model
+                                existing.id, embedding, self._embedding_model
                             )
                             return {
-                                "neo4j_id": existing["neo4j_id"],
-                                "canonical_name": existing["canonical_name"],
+                                "neo4j_id": existing.id,
+                                "canonical_name": existing.canonical_name,
                                 "is_new": False,
                                 "merged": False,
                                 "match_type": "concurrent_create",
@@ -681,8 +687,8 @@ Consider:
         existing = await self._entity_repo.find_entity(normalized_name, entity_type)
         if existing:
             return {
-                "neo4j_id": existing["neo4j_id"],
-                "canonical_name": existing["canonical_name"],
+                "neo4j_id": existing.id,
+                "canonical_name": existing.canonical_name,
                 "exists": True,
             }
 
@@ -690,8 +696,8 @@ Consider:
             existing = await self._entity_repo.find_entity(name, entity_type)
             if existing:
                 return {
-                    "neo4j_id": existing["neo4j_id"],
-                    "canonical_name": existing["canonical_name"],
+                    "neo4j_id": existing.id,
+                    "canonical_name": existing.canonical_name,
                     "exists": True,
                 }
 
@@ -699,8 +705,8 @@ Consider:
             existing = await self._entity_repo.find_entity(alias, entity_type)
             if existing:
                 return {
-                    "neo4j_id": existing["neo4j_id"],
-                    "canonical_name": existing["canonical_name"],
+                    "neo4j_id": existing.id,
+                    "canonical_name": existing.canonical_name,
                     "exists": True,
                     "matched_alias": alias,
                 }

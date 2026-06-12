@@ -7,26 +7,15 @@ used by DeepGraphRAGEngine for community filtering.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any
-
 from sqlalchemy import text
 
 from core.db.query_builders import VectorQueryBuilder
+from core.mappers.community_search_result_mapper import CommunitySearchResultMapper
+from core.models.shared import CommunitySearchResultView
 from core.observability import get_logger
 from core.protocols import RelationalPool
 
 log = get_logger(__name__)
-
-
-@dataclass
-class SimilarCommunity:
-    """Result from a community similarity search."""
-
-    community_id: str
-    score: float
-    title: str | None = None
-    summary: str | None = None
 
 
 class CommunityVectorRepo:
@@ -53,7 +42,7 @@ class CommunityVectorRepo:
         embedding: list[float],
         limit: int = 5,
         threshold: float = 0.80,
-    ) -> list[dict[str, Any]]:
+    ) -> list[CommunitySearchResultView]:
         """Find similar communities using vector similarity.
 
         Args:
@@ -62,7 +51,7 @@ class CommunityVectorRepo:
             threshold: Minimum similarity threshold.
 
         Returns:
-            List of community dicts with community_id, score, and title.
+            List of CommunitySearchResultView with community_id, score, and title.
         """
         # Build query for community_vectors table
         # Uses HNSW index for fast approximate nearest neighbor search
@@ -97,11 +86,13 @@ class CommunityVectorRepo:
             rows = result.all()
 
             return [
-                {
-                    "community_id": row.community_id,
-                    "score": float(row.score),
-                    "title": row.title,
-                    "summary": row.summary,
-                }
+                CommunitySearchResultMapper.to_view(
+                    {
+                        "community_id": row.community_id,
+                        "score": float(row.score),
+                        "title": row.title,
+                        "summary": row.summary,
+                    }
+                )
                 for row in rows
             ]

@@ -9,7 +9,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from core.db import PgVectorQueryBuilder
-from modules.storage.postgres.vector_repo import SimilarArticle, SimilarEntity, VectorRepo
+from core.models.shared import ArticleSearchResultView, EntitySearchResultView
+from modules.storage.postgres.vector_repo import VectorRepo
 
 
 class MockRow:
@@ -573,14 +574,14 @@ class TestCountEntitiesWithValidNeo4jIds:
         assert result == 10
 
 
-class TestSimilarArticleDataclass:
-    """Tests for SimilarArticle dataclass."""
+class TestArticleSearchResultView:
+    """Tests for ArticleSearchResultView model."""
 
     def test_similar_article_creation(self):
-        """Test creating SimilarArticle instance."""
+        """Test creating ArticleSearchResultView instance."""
         from datetime import datetime
 
-        article = SimilarArticle(
+        article = ArticleSearchResultView(
             article_id="test-123",
             category="tech",
             similarity=0.85,
@@ -594,8 +595,8 @@ class TestSimilarArticleDataclass:
         assert article.hybrid_score == 0.9
 
     def test_similar_article_defaults(self):
-        """Test SimilarArticle with default values."""
-        article = SimilarArticle(
+        """Test ArticleSearchResultView with default values."""
+        article = ArticleSearchResultView(
             article_id="test-123",
             category="tech",
             similarity=0.85,
@@ -606,12 +607,12 @@ class TestSimilarArticleDataclass:
         assert article.created_at is None
 
 
-class TestSimilarEntityDataclass:
-    """Tests for SimilarEntity dataclass."""
+class TestEntitySearchResultView:
+    """Tests for EntitySearchResultView model."""
 
     def test_similar_entity_creation(self):
-        """Test creating SimilarEntity instance."""
-        entity = SimilarEntity(
+        """Test creating EntitySearchResultView instance."""
+        entity = EntitySearchResultView(
             neo4j_id="entity-123",
             similarity=0.92,
         )

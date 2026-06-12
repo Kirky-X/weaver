@@ -7,15 +7,16 @@ import pytest
 from sqlalchemy import text
 
 from core.db import create_vector_query_builder
-from modules.storage.postgres.vector_repo import SimilarArticle, SimilarEntity, VectorRepo
+from core.models.shared import ArticleSearchResultView, EntitySearchResultView
+from modules.storage.postgres.vector_repo import VectorRepo
 
 
-class TestSimilarArticle:
-    """Tests for SimilarArticle dataclass."""
+class TestArticleSearchResultView:
+    """Tests for ArticleSearchResultView model."""
 
-    def test_similar_article_creation(self):
-        """Test SimilarArticle can be created."""
-        article = SimilarArticle(
+    def test_article_search_result_creation(self):
+        """Test ArticleSearchResultView can be created."""
+        article = ArticleSearchResultView(
             article_id="article-123",
             category="tech",
             similarity=0.85,
@@ -24,9 +25,9 @@ class TestSimilarArticle:
         assert article.category == "tech"
         assert article.similarity == 0.85
 
-    def test_similar_article_with_none_category(self):
-        """Test SimilarArticle with None category."""
-        article = SimilarArticle(
+    def test_article_search_result_with_none_category(self):
+        """Test ArticleSearchResultView with None category."""
+        article = ArticleSearchResultView(
             article_id="article-456",
             category=None,
             similarity=0.9,
@@ -34,12 +35,12 @@ class TestSimilarArticle:
         assert article.category is None
 
 
-class TestSimilarEntity:
-    """Tests for SimilarEntity dataclass."""
+class TestEntitySearchResultView:
+    """Tests for EntitySearchResultView model."""
 
-    def test_similar_entity_creation(self):
-        """Test SimilarEntity can be created."""
-        entity = SimilarEntity(
+    def test_entity_search_result_creation(self):
+        """Test EntitySearchResultView can be created."""
+        entity = EntitySearchResultView(
             neo4j_id="entity-123",
             similarity=0.92,
         )

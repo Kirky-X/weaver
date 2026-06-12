@@ -17,6 +17,7 @@ from collections.abc import Iterator
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from core.models.shared import EntityView
     from core.protocols import GraphPool
 
 from core.observability import get_logger
@@ -76,7 +77,7 @@ class BaseEntityRepo(ABC):
         self,
         canonical_name: str,
         entity_type: str,
-    ) -> dict[str, Any] | None:
+    ) -> EntityView | None:
         """Find an entity by canonical name and type.
 
         Args:
@@ -84,26 +85,26 @@ class BaseEntityRepo(ABC):
             entity_type: The entity type to match.
 
         Returns:
-            Entity dict if found, None otherwise.
+            EntityView if found, None otherwise.
         """
         ...
 
     @abstractmethod
-    async def find_entity_by_id(self, entity_id: str) -> dict[str, Any] | None:
+    async def find_entity_by_id(self, entity_id: str) -> EntityView | None:
         """Find an entity by its internal ID.
 
         Args:
             entity_id: The entity's internal ID.
 
         Returns:
-            Entity dict if found, None otherwise.
+            EntityView if found, None otherwise.
         """
         ...
 
     async def find_entities_by_ids(
         self,
         entity_ids: list[str],
-    ) -> list[dict[str, Any]]:
+    ) -> list[EntityView]:
         """Find multiple entities by their IDs.
 
         Default implementation iterates. Subclasses may override with
@@ -113,7 +114,7 @@ class BaseEntityRepo(ABC):
             entity_ids: List of entity IDs.
 
         Returns:
-            List of entity dicts found.
+            List of EntityView found.
         """
         if not entity_ids:
             return []
@@ -380,7 +381,7 @@ class BaseEntityRepo(ABC):
         self,
         names: list[str],
         entity_type: str,
-    ) -> list[dict[str, Any]]:
+    ) -> list[EntityView]:
         """Find multiple entities by names.
 
         Args:
@@ -388,7 +389,7 @@ class BaseEntityRepo(ABC):
             entity_type: The entity type to match.
 
         Returns:
-            List of entity dicts found.
+            List of EntityView found.
         """
         ...
 
@@ -396,14 +397,14 @@ class BaseEntityRepo(ABC):
     async def find_entities_by_keys(
         self,
         keys: list[dict[str, str]],
-    ) -> list[dict[str, Any]]:
+    ) -> list[EntityView]:
         """Find multiple entities by (canonical_name, type) keys.
 
         Args:
             keys: List of dicts with 'canonical_name' and 'type'.
 
         Returns:
-            List of entity dicts found.
+            List of EntityView found.
         """
         ...
 

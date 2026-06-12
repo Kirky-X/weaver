@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from core.models.shared import EntityView
+
 
 class TestEntityResolverInit:
     """Tests for EntityResolver initialization."""
@@ -104,10 +106,9 @@ class TestEntityResolverResolveEntity:
     @pytest.mark.asyncio
     async def test_resolve_entity_returns_exact_match(self, resolver, mock_entity_repo):
         """Test resolve_entity returns exact match."""
-        mock_entity_repo.find_entity.return_value = {
-            "neo4j_id": "existing-id",
-            "canonical_name": "Test Entity",
-        }
+        mock_entity_repo.find_entity.return_value = EntityView.model_validate(
+            {"neo4j_id": "existing-id", "name": "Test Entity", "entity_type": "PERSON"}
+        )
 
         result = await resolver.resolve_entity(
             name="Test Entity",
@@ -142,7 +143,9 @@ class TestEntityResolverResolveEntity:
         mock_vector_repo.find_similar_entities.return_value = [mock_similar]
 
         mock_entity_repo.find_entities_by_ids.return_value = [
-            {"neo4j_id": "similar-id", "canonical_name": "Similar Entity", "type": "PERSON"}
+            EntityView.model_validate(
+                {"neo4j_id": "similar-id", "name": "Similar Entity", "entity_type": "PERSON"}
+            )
         ]
 
         # Need to mock find_entity to return None initially
@@ -252,10 +255,9 @@ class TestEntityResolverPreResolveCheck:
     @pytest.mark.asyncio
     async def test_pre_resolve_check_returns_existing(self, resolver, mock_entity_repo):
         """Test pre_resolve_check returns existing entity."""
-        mock_entity_repo.find_entity.return_value = {
-            "neo4j_id": "existing-id",
-            "canonical_name": "Existing Entity",
-        }
+        mock_entity_repo.find_entity.return_value = EntityView.model_validate(
+            {"neo4j_id": "existing-id", "name": "Existing Entity", "entity_type": "PERSON"}
+        )
 
         result = await resolver.pre_resolve_check("Existing Entity", "PERSON")
 

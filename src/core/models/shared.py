@@ -100,3 +100,45 @@ class CommunityView(BaseModel):
     entity_count: int = 0
     article_count: int = 0
     embedding: list[float] | None = None
+
+
+class ArticleSearchResultView(BaseModel):
+    """Search result view for article vector similarity search.
+
+    Implements: Data Contract Layer — ArticleSearchResultView
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    article_id: str
+    category: str | None = None
+    similarity: float
+    hybrid_score: float | None = None
+    publish_time: datetime | None = None
+    created_at: datetime | None = None
+
+
+class EntitySearchResultView(BaseModel):
+    """Search result view for entity vector similarity search.
+
+    Implements: Data Contract Layer — EntitySearchResultView
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    neo4j_id: str
+    similarity: float
+
+
+class CommunitySearchResultView(BaseModel):
+    """Search result view for community vector similarity search.
+
+    Implements: Data Contract Layer — CommunitySearchResultView
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    community_id: str
+    score: float
+    title: str | None = None
+    summary: str | None = None

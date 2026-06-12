@@ -9,6 +9,8 @@ from typing import Any
 
 from neo4j.exceptions import ConstraintError
 
+from core.mappers.neo4j_entity_mapper import Neo4jEntityMapper
+from core.models.shared import EntityView
 from core.observability import get_logger
 from modules.storage.base_entity_repo import BaseEntityRepo
 
@@ -120,7 +122,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
         """
         for attempt in range(self.MAX_MERGE_RETRIES):
             try:
-                existing = await self.find_entity(canonical_name, entity_type)
+                existing = await self._find_entity_dict(canonical_name, entity_type)
 
                 if existing:
                     existing_tier = existing.get("tier", 2)
@@ -181,50 +183,20 @@ class Neo4jEntityRepo(BaseEntityRepo):
             except ConstraintError:
                 if attempt == self.MAX_MERGE_RETRIES - 1:
                     raise
-                existing = await self.find_entity(canonical_name, entity_type)
+                existing = await self._find_entity_dict(canonical_name, entity_type)
                 if existing:
                     return existing["neo4j_id"]
                 await self._sleep(0.05 * (attempt + 1))
 
-    async def _find_entity_by_name_only(
-        self,
-        canonical_name: str,
-    ) -> dict[str, Any] | None:
-        """Find an entity by canonical name only (no type constraint).
-
-        Args:
-            canonical_name: The canonical name to search for.
-
-        Returns:
-            Entity dict if found, None otherwise.
-        """
-        query = """
-        MATCH (e:Entity {canonical_name: $canonical_name})
-        RETURN elementId(e) AS neo4j_id,
-               e.id AS id,
-               e.canonical_name AS canonical_name,
-               e.type AS type,
-               e.aliases AS aliases,
-               e.description AS description,
-               e.tier AS tier,
-               e.created_at AS created_at,
-               e.updated_at AS updated_at
-        """
-        params = {"canonical_name": canonical_name}
-        result = await self._pool.execute_query(query, params)
-        if result:
-            record = dict(result[0])
-            record["created_at"] = self._convert_timestamp(record.get("created_at"))
-            record["updated_at"] = self._convert_timestamp(record.get("updated_at"))
-            return record
-        return None
-
-    async def find_entity(
+    async def _find_entity_dict(
         self,
         canonical_name: str,
         entity_type: str,
     ) -> dict[str, Any] | None:
-        """Find an entity by canonical name and type.
+        """Internal: find entity as raw dict for use by merge_entity.
+
+        This returns the raw dict because merge_entity needs access to
+        fields like 'tier' that are not in EntityView.
 
         Args:
             canonical_name: The canonical name to search for.
@@ -254,14 +226,82 @@ class Neo4jEntityRepo(BaseEntityRepo):
             return record
         return None
 
-    async def find_entity_by_id(self, neo4j_id: str) -> dict[str, Any] | None:
+    async def _find_entity_by_name_only(
+        self,
+        canonical_name: str,
+    ) -> EntityView | None:
+        """Find an entity by canonical name only (no type constraint).
+
+        Args:
+            canonical_name: The canonical name to search for.
+
+        Returns:
+            EntityView if found, None otherwise.
+        """
+        query = """
+        MATCH (e:Entity {canonical_name: $canonical_name})
+        RETURN elementId(e) AS neo4j_id,
+               e.id AS id,
+               e.canonical_name AS canonical_name,
+               e.type AS type,
+               e.aliases AS aliases,
+               e.description AS description,
+               e.tier AS tier,
+               e.created_at AS created_at,
+               e.updated_at AS updated_at
+        """
+        params = {"canonical_name": canonical_name}
+        result = await self._pool.execute_query(query, params)
+        if result:
+            record = dict(result[0])
+            record["created_at"] = self._convert_timestamp(record.get("created_at"))
+            record["updated_at"] = self._convert_timestamp(record.get("updated_at"))
+            return Neo4jEntityMapper.to_view(record)
+        return None
+
+    async def find_entity(
+        self,
+        canonical_name: str,
+        entity_type: str,
+    ) -> EntityView | None:
+        """Find an entity by canonical name and type.
+
+        Args:
+            canonical_name: The canonical name to search for.
+            entity_type: The entity type to match.
+
+        Returns:
+            EntityView if found, None otherwise.
+        """
+        query = """
+        MATCH (e:Entity {canonical_name: $canonical_name, type: $type})
+        RETURN elementId(e) AS neo4j_id,
+               e.id AS id,
+               e.canonical_name AS canonical_name,
+               e.type AS type,
+               e.aliases AS aliases,
+               e.description AS description,
+               e.tier AS tier,
+               e.created_at AS created_at,
+               e.updated_at AS updated_at
+        """
+        params = {"canonical_name": canonical_name, "type": entity_type}
+        result = await self._pool.execute_query(query, params)
+        if result:
+            record = dict(result[0])
+            record["created_at"] = self._convert_timestamp(record.get("created_at"))
+            record["updated_at"] = self._convert_timestamp(record.get("updated_at"))
+            return Neo4jEntityMapper.to_view(record)
+        return None
+
+    async def find_entity_by_id(self, neo4j_id: str) -> EntityView | None:
         """Find an entity by Neo4j internal ID.
 
         Args:
             neo4j_id: The Neo4j internal element ID.
 
         Returns:
-            Entity dict if found, None otherwise.
+            EntityView if found, None otherwise.
         """
         query = """
         MATCH (e)
@@ -280,13 +320,13 @@ class Neo4jEntityRepo(BaseEntityRepo):
             record = dict(result[0])
             record["created_at"] = self._convert_timestamp(record.get("created_at"))
             record["updated_at"] = self._convert_timestamp(record.get("updated_at"))
-            return record
+            return Neo4jEntityMapper.to_view(record)
         return None
 
     async def find_entities_by_ids(
         self,
         neo4j_ids: list[str],
-    ) -> list[dict[str, Any]]:
+    ) -> list[EntityView]:
         """Find multiple entities by their Neo4j internal IDs in a single query.
 
         This is an optimized batch query to avoid N+1 patterns when looking up
@@ -296,7 +336,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
             neo4j_ids: List of Neo4j internal element IDs.
 
         Returns:
-            List of entity dicts found (may be fewer than input if some IDs not found).
+            List of EntityView found (may be fewer than input if some IDs not found).
         """
         if not neo4j_ids:
             return []
@@ -318,11 +358,13 @@ class Neo4jEntityRepo(BaseEntityRepo):
         params = {"ids": neo4j_ids}
         result = await self._pool.execute_query(query, params)
         return [
-            {
-                **record,
-                "created_at": self._convert_timestamp(record.get("created_at")),
-                "updated_at": self._convert_timestamp(record.get("updated_at")),
-            }
+            Neo4jEntityMapper.to_view(
+                {
+                    **record,
+                    "created_at": self._convert_timestamp(record.get("created_at")),
+                    "updated_at": self._convert_timestamp(record.get("updated_at")),
+                }
+            )
             for record in (dict(r) for r in result)
         ]
 
@@ -886,7 +928,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
         self,
         names: list[str],
         entity_type: str,
-    ) -> list[dict[str, Any]]:
+    ) -> list[EntityView]:
         """Find multiple entities by names in a single query.
 
         Args:
@@ -894,7 +936,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
             entity_type: The entity type to match.
 
         Returns:
-            List of entity dicts found.
+            List of EntityView found.
         """
         if not names:
             return []
@@ -912,12 +954,12 @@ class Neo4jEntityRepo(BaseEntityRepo):
 
         params = {"names": names, "type": entity_type}
         result = await self._pool.execute_query(query, params)
-        return [dict(record) for record in result]
+        return [Neo4jEntityMapper.to_view(dict(record)) for record in result]
 
     async def find_entities_by_keys(
         self,
         keys: list[dict[str, str]],
-    ) -> list[dict[str, Any]]:
+    ) -> list[EntityView]:
         """Find multiple entities by (canonical_name, type) keys in a single query.
 
         This is an optimized batch query to avoid N+1 patterns when entities
@@ -927,7 +969,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
             keys: List of dicts with 'canonical_name' and 'type' keys.
 
         Returns:
-            List of entity dicts found (may be fewer than input if some not found).
+            List of EntityView found (may be fewer than input if some not found).
         """
         if not keys:
             return []
@@ -949,7 +991,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
             ]
         }
         result = await self._pool.execute_query(query, params)
-        return [dict(record) for record in result]
+        return [Neo4jEntityMapper.to_view(dict(record)) for record in result]
 
     async def delete_entities_batch(
         self,
@@ -1017,7 +1059,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
         if not entity:
             return None
 
-        center_id = entity.get("neo4j_id") or entity.get("id")
+        center_id = entity.id
 
         # Get events that mention this entity
         events_query = """

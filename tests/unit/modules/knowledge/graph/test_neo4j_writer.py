@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from core.models.shared import EntityView
 from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 from modules.processing.pipeline.state import PipelineState
 
@@ -117,8 +118,12 @@ class TestNeo4jWriterWrite:
         )  # For _resolve_canonical_name
         writer._entity_repo.find_entities_by_keys = AsyncMock(
             return_value=[
-                {"neo4j_id": "entity_id_1", "canonical_name": "张三", "type": "人物"},
-                {"neo4j_id": "entity_id_2", "canonical_name": "OpenAI", "type": "组织机构"},
+                EntityView.model_validate(
+                    {"neo4j_id": "entity_id_1", "name": "张三", "entity_type": "人物"}
+                ),
+                EntityView.model_validate(
+                    {"neo4j_id": "entity_id_2", "name": "OpenAI", "entity_type": "组织机构"}
+                ),
             ]
         )
         writer._entity_repo.merge_entities_batch = AsyncMock(
@@ -303,7 +308,9 @@ class TestNeo4jWriterWriteEntities:
         )  # For _resolve_canonical_name
         writer._entity_repo.find_entities_by_keys = AsyncMock(
             return_value=[
-                {"neo4j_id": "entity_id", "canonical_name": "张三", "type": "人物"},
+                EntityView.model_validate(
+                    {"neo4j_id": "entity_id", "name": "张三", "entity_type": "人物"}
+                ),
             ]
         )
         writer._entity_repo.merge_entities_batch = AsyncMock(
@@ -335,7 +342,9 @@ class TestNeo4jWriterWriteEntities:
         )  # For _resolve_canonical_name
         writer._entity_repo.find_entities_by_keys = AsyncMock(
             return_value=[
-                {"neo4j_id": "entity_id", "canonical_name": "张三", "type": "人物"},
+                EntityView.model_validate(
+                    {"neo4j_id": "entity_id", "name": "张三", "entity_type": "人物"}
+                ),
             ]
         )
         writer._entity_repo.merge_entities_batch = AsyncMock(
@@ -375,9 +384,9 @@ class TestNeo4jWriterResolveCanonicalName:
     async def test_resolve_existing_entity(self, writer):
         """Test resolve returns existing entity name."""
         writer._entity_repo.find_entity = AsyncMock(
-            return_value={
-                "canonical_name": "张三",
-            }
+            return_value=EntityView.model_validate(
+                {"neo4j_id": "id1", "name": "张三", "entity_type": "人物"}
+            )
         )
 
         result = await writer._resolve_canonical_name("张三", "人物")

@@ -192,7 +192,7 @@ class TestNeo4jEntityRepo:
         result = await repo.find_entity("张三", "人物")
 
         assert result is not None
-        assert result["canonical_name"] == "张三"
+        assert result.canonical_name == "张三"
 
     @pytest.mark.asyncio
     async def test_find_entity_not_found(self, repo, mock_pool):
@@ -220,7 +220,7 @@ class TestNeo4jEntityRepo:
         result = await repo.find_entity_by_id("neo4j_123")
 
         assert result is not None
-        assert result["neo4j_id"] == "neo4j_123"
+        assert result.id == "neo4j_123"
 
     @pytest.mark.asyncio
     async def test_find_entity_by_id_not_found(self, repo, mock_pool):
@@ -814,8 +814,8 @@ class TestFindEntitiesByIds:
         result = await repo.find_entities_by_ids(["id1", "id2"])
 
         assert len(result) == 2
-        assert result[0]["neo4j_id"] == "id1"
-        assert result[1]["canonical_name"] == "李四"
+        assert result[0].id == "id1"
+        assert result[1].canonical_name == "李四"
 
     @pytest.mark.asyncio
     async def test_find_entities_by_ids_empty(self, repo):
@@ -907,8 +907,8 @@ class TestFindEntitiesByKeys:
         result = await repo.find_entities_by_keys(keys)
 
         assert len(result) == 2
-        assert result[0]["canonical_name"] == "张三"
-        assert result[1]["type"] == "组织机构"
+        assert result[0].canonical_name == "张三"
+        assert result[1].type == "组织机构"
 
     @pytest.mark.asyncio
     async def test_find_entities_by_keys_empty(self, repo):
@@ -931,7 +931,7 @@ class TestFindEntitiesByKeys:
         result = await repo.find_entities_by_keys(keys)
 
         assert len(result) == 1
-        assert result[0]["canonical_name"] == "张三"
+        assert result[0].canonical_name == "张三"
 
     @pytest.mark.asyncio
     async def test_find_entities_by_keys_query_params(self, repo):

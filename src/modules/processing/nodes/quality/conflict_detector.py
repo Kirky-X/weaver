@@ -220,7 +220,12 @@ class ConflictDetectorNode:
                 threshold=0.7,
                 limit=10,
             )
-            return results or []
+            # Convert ArticleSearchResultView to dict for compatibility
+            # with downstream code that accesses body/title fields
+            return [
+                {"article_id": r.article_id, "category": r.category, "similarity": r.similarity}
+                for r in results or []
+            ]
         except Exception as exc:
             log.warning("find_similar_failed", error=str(exc))
             return []

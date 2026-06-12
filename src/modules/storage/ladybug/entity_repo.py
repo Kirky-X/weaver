@@ -13,6 +13,8 @@ import time
 import uuid
 from typing import Any
 
+from core.mappers.neo4j_entity_mapper import Neo4jEntityMapper
+from core.models.shared import EntityView
 from core.observability import get_logger
 from modules.storage.base_entity_repo import BaseEntityRepo
 
@@ -68,7 +70,7 @@ class LadybugEntityRepo(BaseEntityRepo):
         entity_id = str(uuid.uuid4())
 
         # Check if exists
-        existing = await self.find_entity(canonical_name, entity_type)
+        existing = await self._find_entity_dict(canonical_name, entity_type)
         if existing:
             # Update tier if more authoritative
             if tier < existing.get("tier", 2):
@@ -120,7 +122,7 @@ class LadybugEntityRepo(BaseEntityRepo):
         self,
         canonical_name: str,
         entity_type: str,
-    ) -> dict[str, Any] | None:
+    ) -> EntityView | None:
         """Find an entity by canonical name and type."""
         query = """
         MATCH (e:Entity {canonical_name: $canonical_name, type: $type})
@@ -137,10 +139,10 @@ class LadybugEntityRepo(BaseEntityRepo):
             query, {"canonical_name": canonical_name, "type": entity_type}
         )
         if result:
-            return dict(result[0])
+            return Neo4jEntityMapper.to_view(dict(result[0]))
         return None
 
-    async def find_entity_by_id(self, entity_id: str) -> dict[str, Any] | None:
+    async def find_entity_by_id(self, entity_id: str) -> EntityView | None:
         """Find an entity by its ID."""
         query = """
         MATCH (e:Entity {id: $id})
@@ -155,7 +157,7 @@ class LadybugEntityRepo(BaseEntityRepo):
         """
         result = await self._pool.execute_query(query, {"id": entity_id})
         if result:
-            return dict(result[0])
+            return Neo4jEntityMapper.to_view(dict(result[0]))
         return None
 
     async def find_entity_by_name(self, canonical_name: str) -> dict[str, Any] | None:
@@ -180,7 +182,7 @@ class LadybugEntityRepo(BaseEntityRepo):
     async def find_entities_by_ids(
         self,
         entity_ids: list[str],
-    ) -> list[dict[str, Any]]:
+    ) -> list[EntityView]:
         """Find multiple entities by their IDs using a single batch query."""
         if not entity_ids:
             return []
@@ -193,7 +195,7 @@ class LadybugEntityRepo(BaseEntityRepo):
                e.created_at AS created_at, e.updated_at AS updated_at
         """
         result = await self._pool.execute_query(query, {"ids": entity_ids})
-        return [dict(r) for r in result]
+        return [Neo4jEntityMapper.to_view(dict(r)) for r in result]
 
     async def add_alias(
         self,
@@ -486,7 +488,7 @@ class LadybugEntityRepo(BaseEntityRepo):
         self,
         names: list[str],
         entity_type: str,
-    ) -> list[dict[str, Any]]:
+    ) -> list[EntityView]:
         """Find multiple entities by names using a single batch query."""
         if not names:
             return []
@@ -499,12 +501,12 @@ class LadybugEntityRepo(BaseEntityRepo):
                e.created_at AS created_at, e.updated_at AS updated_at
         """
         result = await self._pool.execute_query(query, {"names": names, "type": entity_type})
-        return [dict(r) for r in result]
+        return [Neo4jEntityMapper.to_view(dict(r)) for r in result]
 
     async def find_entities_by_keys(
         self,
         keys: list[dict[str, str]],
-    ) -> list[dict[str, Any]]:
+    ) -> list[EntityView]:
         """Find multiple entities by keys."""
         results = []
         for key in keys:
@@ -635,6 +637,38 @@ class LadybugEntityRepo(BaseEntityRepo):
                     error=str(exc),
                 )
         return linked
+
+    # -------------------------------------------------------------------------
+    # Internal helpers
+    # -------------------------------------------------------------------------
+
+    async def _find_entity_dict(
+        self,
+        canonical_name: str,
+        entity_type: str,
+    ) -> dict[str, Any] | None:
+        """Internal: find entity as raw dict for use by merge_entity.
+
+        This returns the raw dict because merge_entity needs access to
+        fields like 'tier' that are not in EntityView.
+        """
+        query = """
+        MATCH (e:Entity {canonical_name: $canonical_name, type: $type})
+        RETURN e.id AS neo4j_id,
+               e.id AS id,
+               e.canonical_name AS canonical_name,
+               e.type AS type,
+               e.description AS description,
+               e.tier AS tier,
+               e.created_at AS created_at,
+               e.updated_at AS updated_at
+        """
+        result = await self._pool.execute_query(
+            query, {"canonical_name": canonical_name, "type": entity_type}
+        )
+        if result:
+            return dict(result[0])
+        return None
 
     # -------------------------------------------------------------------------
     # Abstract method implementations for LadybugDB

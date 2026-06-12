@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from core.models.shared import ArticleSearchResultView, CommunitySearchResultView
 from modules.knowledge.search.engines.deep_graph_rag import (
     DeepGraphRAGConfig,
     DeepGraphRAGEngine,
@@ -46,8 +47,8 @@ class TestCommunityVectorSearch:
         # Mock community vector repo
         community_vector_repo = AsyncMock()
         community_vector_repo.find_similar_communities.return_value = [
-            {"community_id": "comm1", "score": 0.95, "title": "Community 1"},
-            {"community_id": "comm2", "score": 0.85, "title": "Community 2"},
+            CommunitySearchResultView(community_id="comm1", score=0.95, title="Community 1"),
+            CommunitySearchResultView(community_id="comm2", score=0.85, title="Community 2"),
         ]
 
         # Mock LLM client for embedding
@@ -110,13 +111,13 @@ class TestCommunityVectorSearch:
         # Mock community vector repo
         community_vector_repo = AsyncMock()
         community_vector_repo.find_similar_communities.return_value = [
-            {"community_id": "comm1", "score": 0.95, "title": "Community 1"},
+            CommunitySearchResultView(community_id="comm1", score=0.95, title="Community 1"),
         ]
 
         # Mock article vector repo (should not be called)
         vector_repo = AsyncMock()
         vector_repo.find_similar.return_value = [
-            {"id": "article1", "score": 0.8, "name": "Article 1"},
+            ArticleSearchResultView(article_id="article1", similarity=0.8),
         ]
 
         # Mock LLM client for embedding
@@ -144,7 +145,7 @@ class TestCommunityVectorSearch:
         # Mock article vector repo
         vector_repo = AsyncMock()
         vector_repo.find_similar.return_value = [
-            {"id": "article1", "score": 0.8, "name": "Article 1"},
+            ArticleSearchResultView(article_id="article1", similarity=0.8),
         ]
 
         # Mock LLM client for embedding
@@ -171,7 +172,7 @@ class TestCommunityVectorSearch:
         # Mock community vector repo
         community_vector_repo = AsyncMock()
         community_vector_repo.find_similar_communities.return_value = [
-            {"community_id": "comm1", "score": 0.95, "title": "Community 1"},
+            CommunitySearchResultView(community_id="comm1", score=0.95, title="Community 1"),
         ]
 
         # Mock LLM client that fails
