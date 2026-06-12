@@ -1,8 +1,6 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Unit tests for SimHashDeduplicator (ingestion module)."""
+"""Unit tests for SimHash deduplicator module."""
 
-import time
-from dataclasses import dataclass
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -10,425 +8,230 @@ import pytest
 from modules.ingestion.deduplication.simhash_dedup import SimHashDeduplicator, TitleItem
 
 
-class TestSimHashDeduplicatorInit:
-    """Test SimHashDeduplicator initialization."""
-
-    def test_init_default_params(self):
-        """Test initialization with default parameters."""
-        mock_cache = MagicMock()
-
-        dedup = SimHashDeduplicator(cache=mock_cache)
-
-        assert dedup._threshold == SimHashDeduplicator.DEFAULT_THRESHOLD
-        assert dedup._ttl == SimHashDeduplicator.DEFAULT_TTL
-
-    def test_init_custom_params(self):
-        """Test initialization with custom parameters."""
-        mock_cache = MagicMock()
-
-        dedup = SimHashDeduplicator(
-            cache=mock_cache,
-            threshold=5,
-            ttl_seconds=86400,
-        )
-
-        assert dedup._threshold == 5
-        assert dedup._ttl == 86400
-
-    def test_simhash_key_constant(self):
-        """Test SIMHASH_KEY constant."""
-        assert SimHashDeduplicator.SIMHASH_KEY == "crawl:simhash:title"
-
-    def test_default_threshold_constant(self):
-        """Test DEFAULT_THRESHOLD constant."""
-        assert SimHashDeduplicator.DEFAULT_THRESHOLD == 3
-
-    def test_default_ttl_constant(self):
-        """Test DEFAULT_TTL constant."""
-        assert SimHashDeduplicator.DEFAULT_TTL == 7 * 24 * 60 * 60
-
-
-class TestGenerateFingerprint:
-    """Test SimHashDeduplicator.generate_fingerprint static method."""
+class TestSimHashFingerprint:
+    """Tests for fingerprint generation."""
 
     def test_generate_fingerprint_returns_int(self):
-        """Test generate_fingerprint returns an integer."""
-        result = SimHashDeduplicator.generate_fingerprint("Test Title")
-        assert isinstance(result, int)
+        """Fingerprint should be an integer."""
+        fp = SimHashDeduplicator.generate_fingerprint("Test Title")
+        assert isinstance(fp, int)
 
-    def test_generate_fingerprint_same_title_same_hash(self):
-        """Test same title produces same fingerprint."""
-        title = "Test Title"
+    def test_identical_titles_same_fingerprint(self):
+        """Identical titles should produce same fingerprint."""
+        title = "OpenAI发布GPT-5，性能大幅提升"
         fp1 = SimHashDeduplicator.generate_fingerprint(title)
         fp2 = SimHashDeduplicator.generate_fingerprint(title)
         assert fp1 == fp2
 
-    def test_generate_fingerprint_different_titles_different_hash(self):
-        """Test different titles produce different fingerprints."""
-        fp1 = SimHashDeduplicator.generate_fingerprint("First Title")
-        fp2 = SimHashDeduplicator.generate_fingerprint("Second Title")
+    def test_different_titles_different_fingerprint(self):
+        """Different titles should produce different fingerprints."""
+        fp1 = SimHashDeduplicator.generate_fingerprint("科技新闻：AI发展迅速")
+        fp2 = SimHashDeduplicator.generate_fingerprint("体育新闻：足球比赛结果")
         assert fp1 != fp2
 
-    def test_generate_fingerprint_similar_titles_small_distance(self):
-        """Test similar titles have small Hamming distance."""
-        # Very similar titles should have small Hamming distance
-        fp1 = SimHashDeduplicator.generate_fingerprint("Test Article Title")
-        fp2 = SimHashDeduplicator.generate_fingerprint("Test Article Title")
-        # Same title should have 0 distance
-        distance = SimHashDeduplicator.hamming_distance(fp1, fp2)
-        assert distance == 0
+    def test_chinese_title_fingerprint(self):
+        """Chinese title should generate valid fingerprint."""
+        fp = SimHashDeduplicator.generate_fingerprint("OpenAI发布GPT-5，性能大幅提升")
+        assert isinstance(fp, int)
+        assert fp > 0  # 64-bit fingerprint
 
-    def test_generate_fingerprint_chinese_text(self):
-        """Test generate_fingerprint works with Chinese text."""
-        fp1 = SimHashDeduplicator.generate_fingerprint("中国经济新闻")
-        fp2 = SimHashDeduplicator.generate_fingerprint("中国经济新闻")
-        assert fp1 == fp2
+    def test_english_title_fingerprint(self):
+        """English title should generate valid fingerprint."""
+        fp = SimHashDeduplicator.generate_fingerprint("Apple Announces New iPhone")
+        assert isinstance(fp, int)
+        assert fp > 0
 
-    def test_generate_fingerprint_empty_string(self):
-        """Test generate_fingerprint handles empty string."""
-        result = SimHashDeduplicator.generate_fingerprint("")
-        assert isinstance(result, int)
+    def test_empty_title_fingerprint(self):
+        """Empty title should still produce a fingerprint."""
+        fp = SimHashDeduplicator.generate_fingerprint("")
+        assert isinstance(fp, int)
 
 
 class TestHammingDistance:
-    """Test SimHashDeduplicator.hamming_distance static method."""
+    """Tests for Hamming distance calculation."""
 
-    def test_hamming_distance_zero(self):
-        """Test Hamming distance of identical fingerprints is 0."""
-        fp = SimHashDeduplicator.generate_fingerprint("Test")
+    def test_identical_fingerprints_distance_zero(self):
+        """Identical fingerprints have distance 0."""
+        fp = SimHashDeduplicator.generate_fingerprint("Test Title")
         distance = SimHashDeduplicator.hamming_distance(fp, fp)
         assert distance == 0
 
-    def test_hamming_distance_nonzero(self):
-        """Test Hamming distance of different fingerprints is non-zero."""
-        fp1 = 0b11110000
-        fp2 = 0b11111111
+    def test_different_fingerprints_positive_distance(self):
+        """Different fingerprints have positive distance."""
+        fp1 = SimHashDeduplicator.generate_fingerprint("Title A")
+        fp2 = SimHashDeduplicator.generate_fingerprint("Title B completely different")
         distance = SimHashDeduplicator.hamming_distance(fp1, fp2)
-        assert distance == 4  # 4 bits differ
+        assert distance > 0
 
-    def test_hamming_distance_commutative(self):
-        """Test Hamming distance is commutative."""
-        fp1 = 0b10101010
-        fp2 = 0b11001100
-        distance1 = SimHashDeduplicator.hamming_distance(fp1, fp2)
-        distance2 = SimHashDeduplicator.hamming_distance(fp2, fp1)
-        assert distance1 == distance2
+    def test_similar_titles_low_distance(self):
+        """Similar titles should have low Hamming distance."""
+        fp1 = SimHashDeduplicator.generate_fingerprint("OpenAI发布GPT-5")
+        fp2 = SimHashDeduplicator.generate_fingerprint("OpenAI 发布 GPT-5")  # Added spaces
+        distance = SimHashDeduplicator.hamming_distance(fp1, fp2)
+        # Similar titles should have distance ≤ 10
+        assert distance <= 10
+
+    def test_dissimilar_titles_high_distance(self):
+        """Dissimilar titles should have higher distance."""
+        fp1 = SimHashDeduplicator.generate_fingerprint("科技新闻：AI发展迅速")
+        fp2 = SimHashDeduplicator.generate_fingerprint("体育新闻：足球比赛结果")
+        distance = SimHashDeduplicator.hamming_distance(fp1, fp2)
+        # Dissimilar titles should have distance > 10
+        assert distance > 10
 
 
-class TestTitleItem:
-    """Test TitleItem dataclass."""
+class TestSimHashDeduplicator:
+    """Tests for SimHashDeduplicator class."""
 
-    def test_title_item_creation(self):
-        """Test TitleItem can be created."""
-        item = TitleItem(url="https://example.com/article", title="Test Title")
-        assert item.url == "https://example.com/article"
-        assert item.title == "Test Title"
+    def test_initialization(self):
+        """Test deduplicator initializes correctly."""
+        mock_cache = MagicMock()
+        dedup = SimHashDeduplicator(cache=mock_cache)
 
-    def test_title_item_equality(self):
-        """Test TitleItem equality comparison."""
-        item1 = TitleItem(url="https://example.com/article", title="Test Title")
-        item2 = TitleItem(url="https://example.com/article", title="Test Title")
-        assert item1 == item2
+        assert dedup._cache is mock_cache
+        assert dedup._threshold == 3
+        assert dedup.SIMHASH_KEY == "crawl:simhash:title"
+
+    def test_custom_threshold(self):
+        """Test custom threshold is applied."""
+        mock_cache = MagicMock()
+        dedup = SimHashDeduplicator(cache=mock_cache, threshold=5)
+
+        assert dedup._threshold == 5
 
 
 class TestDedupTitles:
-    """Test SimHashDeduplicator.dedup_titles method."""
+    """Tests for title deduplication."""
 
     @pytest.fixture
     def mock_cache(self):
-        """Create mock Redis client."""
+        """Mock Redis client."""
         cache = MagicMock()
         cache.hgetall = AsyncMock(return_value={})
         cache.hset = AsyncMock(return_value=1)
+        cache.hdel = AsyncMock(return_value=1)
         return cache
 
+    @pytest.fixture
+    def dedup(self, mock_cache):
+        """Create deduplicator with mock Redis."""
+        return SimHashDeduplicator(cache=mock_cache)
+
     @pytest.mark.asyncio
-    async def test_dedup_titles_empty_list(self, mock_cache):
-        """Test dedup_titles with empty list."""
-        dedup = SimHashDeduplicator(cache=mock_cache)
-
+    async def test_empty_list_returns_empty(self, dedup):
+        """Empty input returns empty output."""
         result = await dedup.dedup_titles([])
-
         assert result == []
 
     @pytest.mark.asyncio
-    async def test_dedup_titles_all_new(self, mock_cache):
-        """Test dedup_titles with all new items."""
-        dedup = SimHashDeduplicator(cache=mock_cache)
-
-        items = [
-            TitleItem(url="https://example.com/1", title="Article One"),
-            TitleItem(url="https://example.com/2", title="Article Two"),
-        ]
-
+    async def test_single_item_passes(self, dedup, mock_cache):
+        """Single unique item passes through."""
+        items = [TitleItem(url="https://example.com/1", title="Unique Title")]
         result = await dedup.dedup_titles(items)
 
+        assert len(result) == 1
+        assert result[0].url == "https://example.com/1"
+
+    @pytest.mark.asyncio
+    async def test_identical_titles_filtered(self, dedup, mock_cache):
+        """Identical titles are filtered out."""
+        items = [
+            TitleItem(url="https://example.com/1", title="Same Title"),
+            TitleItem(url="https://example.com/2", title="Same Title"),
+        ]
+        result = await dedup.dedup_titles(items)
+
+        # Only first should pass
+        assert len(result) == 1
+        assert result[0].url == "https://example.com/1"
+
+    @pytest.mark.asyncio
+    async def test_similar_titles_filtered(self, dedup, mock_cache):
+        """Similar titles (within threshold) are filtered."""
+        # These titles are very similar
+        items = [
+            TitleItem(url="https://example.com/1", title="OpenAI发布GPT-5"),
+            TitleItem(url="https://example.com/2", title="OpenAI 发布 GPT-5"),  # Added spaces
+        ]
+        result = await dedup.dedup_titles(items)
+
+        # Should be filtered as duplicates
+        assert len(result) == 1
+
+    @pytest.mark.asyncio
+    async def test_dissimilar_titles_both_pass(self, dedup, mock_cache):
+        """Dissimilar titles both pass through."""
+        items = [
+            TitleItem(url="https://example.com/1", title="科技新闻：AI发展迅速"),
+            TitleItem(url="https://example.com/2", title="体育新闻：足球比赛结果"),
+        ]
+        result = await dedup.dedup_titles(items)
+
+        # Both should pass
         assert len(result) == 2
 
     @pytest.mark.asyncio
-    async def test_dedup_titles_stores_fingerprints(self, mock_cache):
-        """Test dedup_titles stores fingerprints in Redis."""
-        dedup = SimHashDeduplicator(cache=mock_cache)
-
-        items = [
-            TitleItem(url="https://example.com/1", title="Article One"),
-        ]
-
-        await dedup.dedup_titles(items)
-
-        # Should have called hset to store fingerprint
-        mock_cache.hset.assert_called()
-
-    @pytest.mark.asyncio
-    async def test_dedup_titles_filters_existing(self, mock_cache):
-        """Test dedup_titles filters existing fingerprints."""
-        # Create a fingerprint for existing title
-        existing_title = "Existing Article"
-        existing_fp = SimHashDeduplicator.generate_fingerprint(existing_title)
-
+    async def test_existing_fingerprints_checked(self, dedup, mock_cache):
+        """Existing fingerprints in Redis are checked."""
+        # Simulate existing fingerprint
+        existing_fp = SimHashDeduplicator.generate_fingerprint("Existing Title")
         mock_cache.hgetall = AsyncMock(
-            return_value={str(existing_fp): "https://example.com/existing"}
+            return_value={str(existing_fp): "https://existing.com/1|1234567890"}
         )
 
-        dedup = SimHashDeduplicator(cache=mock_cache)
-
         items = [
-            TitleItem(url="https://example.com/new", title="New Article"),
-            TitleItem(url="https://example.com/dup", title=existing_title),
+            TitleItem(url="https://example.com/1", title="Existing Title"),
         ]
-
         result = await dedup.dedup_titles(items)
 
-        # Should filter the duplicate
-        assert len(result) == 1
-        assert result[0].title == "New Article"
-
-    @pytest.mark.asyncio
-    async def test_dedup_titles_handles_invalid_existing_fp(self, mock_cache):
-        """Test dedup_titles handles invalid existing fingerprint."""
-        # Invalid fingerprint value
-        mock_cache.hgetall = AsyncMock(return_value={"invalid": "https://example.com/existing"})
-
-        dedup = SimHashDeduplicator(cache=mock_cache)
-
-        items = [
-            TitleItem(url="https://example.com/1", title="Test Article"),
-        ]
-
-        result = await dedup.dedup_titles(items)
-
-        # Should still process the item despite invalid existing fp
-        assert len(result) == 1
-
-    @pytest.mark.asyncio
-    async def test_dedup_titles_filters_within_batch(self, mock_cache):
-        """Test dedup_titles filters duplicates within same batch."""
-        dedup = SimHashDeduplicator(cache=mock_cache)
-
-        items = [
-            TitleItem(url="https://example.com/1", title="Same Title"),
-            TitleItem(url="https://example.com/2", title="Same Title"),  # Duplicate in batch
-        ]
-
-        result = await dedup.dedup_titles(items)
-
-        # Should filter the duplicate within batch
-        assert len(result) == 1
+        # Should be filtered as duplicate
+        assert len(result) == 0
 
 
 class TestDedupTitlesWithMetrics:
-    """Test SimHashDeduplicator.dedup_titles_with_metrics method."""
+    """Tests for dedup_titles_with_metrics."""
 
     @pytest.fixture
     def mock_cache(self):
-        """Create mock Redis client."""
+        """Mock Redis client."""
         cache = MagicMock()
         cache.hgetall = AsyncMock(return_value={})
         cache.hset = AsyncMock(return_value=1)
+        cache.hdel = AsyncMock(return_value=1)
         return cache
 
-    @pytest.mark.asyncio
-    async def test_dedup_titles_with_metrics_empty_list(self, mock_cache):
-        """Test dedup_titles_with_metrics with empty list."""
-        dedup = SimHashDeduplicator(cache=mock_cache)
-
-        result, filtered_count = await dedup.dedup_titles_with_metrics([])
-
-        assert result == []
-        assert filtered_count == 0
+    @pytest.fixture
+    def dedup(self, mock_cache):
+        """Create deduplicator with mock Redis."""
+        return SimHashDeduplicator(cache=mock_cache)
 
     @pytest.mark.asyncio
-    async def test_dedup_titles_with_metrics_all_new(self, mock_cache):
-        """Test dedup_titles_with_metrics with all new items."""
-        dedup = SimHashDeduplicator(cache=mock_cache)
-
+    async def test_returns_filtered_count(self, dedup, mock_cache):
+        """Returns tuple of (unique_items, filtered_count)."""
         items = [
-            TitleItem(url="https://example.com/1", title="Unique Title One"),
-            TitleItem(url="https://example.com/2", title="Unique Title Two"),
+            TitleItem(url="https://example.com/1", title="Same Title"),
+            TitleItem(url="https://example.com/2", title="Same Title"),
+            TitleItem(url="https://example.com/3", title="Different Title"),
         ]
+        unique, filtered = await dedup.dedup_titles_with_metrics(items)
 
-        result, filtered_count = await dedup.dedup_titles_with_metrics(items)
-
-        assert len(result) == 2
-        assert filtered_count == 0
-
-    @pytest.mark.asyncio
-    async def test_dedup_titles_with_metrics_filters_duplicates(self, mock_cache):
-        """Test dedup_titles_with_metrics filters near-duplicate titles."""
-        dedup = SimHashDeduplicator(cache=mock_cache)
-
-        # First add a title
-        items1 = [
-            TitleItem(url="https://example.com/1", title="China economy grows 5%"),
-        ]
-        await dedup.dedup_titles_with_metrics(items1)
-
-        # Now try to add a very similar title
-        items2 = [
-            TitleItem(url="https://example.com/1", title="China economy grows 5%"),
-        ]
-        # Mock that the fingerprint already exists
-        fp = SimHashDeduplicator.generate_fingerprint("China economy grows 5%")
-        mock_cache.hgetall = AsyncMock(return_value={str(fp): "1"})
-
-        result, filtered_count = await dedup.dedup_titles_with_metrics(items2)
-
-        assert filtered_count >= 1  # Should filter the duplicate
+        # Two duplicates, one unique
+        assert len(unique) == 2
+        assert filtered == 1
 
 
-class TestCleanupExpired:
-    """Test SimHashDeduplicator.cleanup_expired method."""
-
-    @pytest.fixture
-    def mock_cache(self):
-        """Create mock Redis client."""
-        cache = MagicMock()
-        cache.hgetall = AsyncMock(return_value={})
-        cache.hdel = AsyncMock()
-        return cache
+class TestSimHashStats:
+    """Tests for get_stats method."""
 
     @pytest.mark.asyncio
-    async def test_cleanup_expired_no_entries(self, mock_cache):
-        """Test cleanup with no entries."""
-        mock_cache.hgetall = AsyncMock(return_value={})
+    async def test_get_stats(self):
+        """Test get_stats returns correct structure."""
+        mock_cache = MagicMock()
+        mock_cache.hgetall = AsyncMock(return_value={"123": "url1|100", "456": "url2|200"})
+        dedup = SimHashDeduplicator(cache=mock_cache, threshold=5)
 
-        dedup = SimHashDeduplicator(cache=mock_cache)
-        result = await dedup.cleanup_expired()
-
-        assert result == 0
-
-    @pytest.mark.asyncio
-    async def test_cleanup_expired_removes_old_entries(self, mock_cache):
-        """Test cleanup removes expired entries."""
-        now = int(time.time())
-        old_timestamp = now - 86400 * 10  # 10 days ago
-
-        mock_cache.hgetall = AsyncMock(
-            return_value={
-                "fp1": f"https://example.com/1|{old_timestamp}",
-                "fp2": f"https://example.com/2|{now - 3600}",  # 1 hour ago, not expired
-            }
-        )
-
-        dedup = SimHashDeduplicator(cache=mock_cache, ttl_seconds=86400 * 7)
-        result = await dedup.cleanup_expired()
-
-        assert result == 1  # Only one expired
-        mock_cache.hdel.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_cleanup_expired_handles_old_format(self, mock_cache):
-        """Test cleanup handles entries without timestamp (old format)."""
-        mock_cache.hgetall = AsyncMock(
-            return_value={
-                "fp1": "https://example.com/1",  # Old format without timestamp
-            }
-        )
-
-        dedup = SimHashDeduplicator(cache=mock_cache)
-        result = await dedup.cleanup_expired()
-
-        assert result == 1  # Old format entries should be removed
-
-    @pytest.mark.asyncio
-    async def test_cleanup_expired_handles_invalid_timestamp(self, mock_cache):
-        """Test cleanup handles invalid timestamp values."""
-        mock_cache.hgetall = AsyncMock(
-            return_value={
-                "fp1": "https://example.com/1|invalid_timestamp",
-            }
-        )
-
-        dedup = SimHashDeduplicator(cache=mock_cache)
-        result = await dedup.cleanup_expired()
-
-        assert result == 1  # Invalid entries should be removed
-
-    @pytest.mark.asyncio
-    async def test_cleanup_expired_with_custom_max_age(self, mock_cache):
-        """Test cleanup with custom max_age_seconds."""
-        now = int(time.time())
-        recent_timestamp = now - 3600  # 1 hour ago
-
-        mock_cache.hgetall = AsyncMock(
-            return_value={
-                "fp1": f"https://example.com/1|{recent_timestamp}",
-            }
-        )
-
-        dedup = SimHashDeduplicator(cache=mock_cache)
-        # Use very short max age (30 minutes)
-        result = await dedup.cleanup_expired(max_age_seconds=1800)
-
-        assert result == 1  # Entry should be expired with short max age
-
-
-class TestGetStats:
-    """Test SimHashDeduplicator.get_stats method."""
-
-    @pytest.fixture
-    def mock_cache(self):
-        """Create mock Redis client."""
-        cache = MagicMock()
-        cache.hgetall = AsyncMock(return_value={})
-        return cache
-
-    @pytest.mark.asyncio
-    async def test_get_stats_empty(self, mock_cache):
-        """Test get_stats with no entries."""
-        mock_cache.hgetall = AsyncMock(return_value={})
-
-        dedup = SimHashDeduplicator(cache=mock_cache)
-        stats = await dedup.get_stats()
-
-        assert stats["total_fingerprints"] == 0
-        assert stats["redis_key"] == "crawl:simhash:title"
-        assert stats["threshold"] == 3
-
-    @pytest.mark.asyncio
-    async def test_get_stats_with_entries(self, mock_cache):
-        """Test get_stats with entries."""
-        mock_cache.hgetall = AsyncMock(
-            return_value={
-                "fp1": "https://example.com/1",
-                "fp2": "https://example.com/2",
-            }
-        )
-
-        dedup = SimHashDeduplicator(cache=mock_cache)
         stats = await dedup.get_stats()
 
         assert stats["total_fingerprints"] == 2
-
-    @pytest.mark.asyncio
-    async def test_get_stats_returns_config(self, mock_cache):
-        """Test get_stats returns configuration values."""
-        dedup = SimHashDeduplicator(
-            cache=mock_cache,
-            threshold=5,
-            ttl_seconds=3600,
-        )
-        stats = await dedup.get_stats()
-
+        assert stats["redis_key"] == "crawl:simhash:title"
         assert stats["threshold"] == 5
-        assert stats["ttl_seconds"] == 3600

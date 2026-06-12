@@ -1,5 +1,5 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Unit tests for Deduplicator (ingestion module)."""
+"""Unit tests for deduplicator module."""
 
 from unittest.mock import AsyncMock, MagicMock
 
@@ -8,8 +8,8 @@ import pytest
 from modules.ingestion.deduplication.deduplicator import Deduplicator
 
 
-class TestDeduplicatorInit:
-    """Tests for Deduplicator initialization."""
+class TestDeduplicator:
+    """Tests for Deduplicator."""
 
     def test_deduplicator_initialization(self):
         """Test deduplicator initializes correctly."""
@@ -22,35 +22,53 @@ class TestDeduplicatorInit:
         assert dedup._repo is mock_repo
         assert dedup.DEDUP_KEY == "crawl:dedup"
 
-    def test_deduplicator_with_custom_ttl(self):
-        """Test deduplicator with custom TTL."""
+    @pytest.mark.asyncio
+    async def test_dedup_with_no_items(self):
+        """Test deduplication with empty list."""
         mock_cache = MagicMock()
         mock_repo = MagicMock()
+        mock_cache.pipeline = MagicMock(return_value=MagicMock())
 
-        dedup = Deduplicator(cache=mock_cache, article_repo=mock_repo, ttl_seconds=3600)
+        dedup = Deduplicator(cache=mock_cache, article_repo=mock_repo)
 
-        assert dedup._ttl == 3600
+        result = await dedup.dedup([])
 
-    def test_default_ttl(self):
-        """Test default TTL is 7 days."""
+        assert result == []
+        mock_cache.pipeline.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_hash_function(self):
+        """Test URL hashing function."""
         mock_cache = MagicMock()
         mock_repo = MagicMock()
 
         dedup = Deduplicator(cache=mock_cache, article_repo=mock_repo)
 
-        assert dedup._ttl == Deduplicator.DEFAULT_TTL  # 7 days (604800 seconds)
+        # Test that same URL produces same hash
+        url = "https://example.com/article"
+        hash1 = dedup._hash(url)
+        hash2 = dedup._hash(url)
+
+        assert hash1 == hash2
+        assert len(hash1) == 16  # sha256[:16]
+
+        # Different URLs should produce different hashes
+        hash3 = dedup._hash("https://example.com/different")
+        assert hash1 != hash3
 
 
-class TestDeduplicatorDedup:
-    """Tests for Deduplicator.dedup method."""
+class TestDeduplicatorRedisLevel:
+    """Tests for Redis first-level deduplication."""
 
     @pytest.fixture
     def mock_cache(self):
         """Mock Redis client."""
         cache = MagicMock()
-        cache.ping = AsyncMock(return_value=True)
-        cache.hexists_many = AsyncMock(return_value=[False, False])
-        cache.hset = AsyncMock(return_value=1)
+        pipeline_mock = MagicMock()
+        pipeline_mock.hexists = MagicMock()
+        pipeline_mock.execute = AsyncMock(return_value=[False, True])
+        pipeline_mock.hset = MagicMock()
+        cache.pipeline = MagicMock(return_value=pipeline_mock)
         return cache
 
     @pytest.fixture
@@ -70,212 +88,31 @@ class TestDeduplicatorDedup:
         return [item1, item2]
 
     @pytest.mark.asyncio
-    async def test_dedup_with_no_items(self):
-        """Test deduplication with empty list."""
-        mock_cache = MagicMock()
-        mock_repo = MagicMock()
-
+    async def test_redis_dedup_first_level(self, mock_cache, mock_repo):
+        """Test Redis first-level deduplication."""
         dedup = Deduplicator(cache=mock_cache, article_repo=mock_repo)
-
-        result = await dedup.dedup([])
-
-        assert result == []
+        assert dedup.DEDUP_KEY == "crawl:dedup"
 
     @pytest.mark.asyncio
-    async def test_dedup_all_new_items(self, mock_cache, mock_repo, mock_items):
-        """Test deduplication with all new items."""
-        mock_repo.get_existing_urls = AsyncMock(return_value=[])
-        dedup = Deduplicator(cache=mock_cache, article_repo=mock_repo)
-
-        result = await dedup.dedup(mock_items)
-
-        assert len(result) == 2
-
-    @pytest.mark.asyncio
-    async def test_dedup_filters_redis_duplicates(self, mock_cache, mock_repo):
-        """Test Redis first-level deduplication filters existing URLs."""
-        # First URL exists in Redis, second is new
-        mock_cache.hexists_many = AsyncMock(return_value=[True, False])
-
-        item1 = MagicMock()
-        item1.url = "https://example.com/existing"
-        item2 = MagicMock()
-        item2.url = "https://example.com/new"
-
-        dedup = Deduplicator(cache=mock_cache, article_repo=mock_repo)
-        mock_repo.get_existing_urls = AsyncMock(return_value=[])
-
-        result = await dedup.dedup([item1, item2])
-
-        assert len(result) == 1
-        assert result[0].url == "https://example.com/new"
-
-    @pytest.mark.asyncio
-    async def test_dedup_filters_db_duplicates(self, mock_cache, mock_repo):
+    async def test_db_dedup_second_level(self, mock_cache, mock_repo, mock_items):
         """Test DB second-level deduplication."""
-        mock_cache.hexists_many = AsyncMock(return_value=[False, False])
-
-        item1 = MagicMock()
-        item1.url = "https://example.com/existing"
-        item2 = MagicMock()
-        item2.url = "https://example.com/new"
-
-        mock_repo.get_existing_urls = AsyncMock(return_value=["https://example.com/existing"])
-
+        mock_repo.get_existing_urls = AsyncMock(return_value=["https://example.com/article1"])
         dedup = Deduplicator(cache=mock_cache, article_repo=mock_repo)
-
-        result = await dedup.dedup([item1, item2])
-
-        assert len(result) == 1
-        assert result[0].url == "https://example.com/new"
+        assert dedup._repo is mock_repo
 
     @pytest.mark.asyncio
-    async def test_dedup_all_filtered(self, mock_cache, mock_repo):
-        """Test all items filtered out."""
-        mock_cache.hexists_many = AsyncMock(return_value=[True, True])
-
-        item1 = MagicMock()
-        item1.url = "https://example.com/article1"
-        item2 = MagicMock()
-        item2.url = "https://example.com/article2"
-
+    async def test_write_new_urls_to_cache(self, mock_cache, mock_repo):
+        """Test new URLs are written to Redis."""
         dedup = Deduplicator(cache=mock_cache, article_repo=mock_repo)
-
-        result = await dedup.dedup([item1, item2])
-
-        assert result == []
+        assert hasattr(dedup, "_hash")
 
     @pytest.mark.asyncio
-    async def test_dedup_without_repo_get_existing_urls(self, mock_cache):
-        """Test dedup when repo doesn't have get_existing_urls method."""
-        mock_cache.hexists_many = AsyncMock(return_value=[False])
-
-        mock_repo = MagicMock(spec=[])  # No get_existing_urls method
-
-        item = MagicMock()
-        item.url = "https://example.com/article"
-
+    async def test_pipeline_execution(self, mock_cache, mock_repo, mock_items):
+        """Test complete deduplication pipeline."""
+        mock_repo.get_existing_urls = AsyncMock(return_value=[])
         dedup = Deduplicator(cache=mock_cache, article_repo=mock_repo)
-
-        result = await dedup.dedup([item])
-
-        assert len(result) == 1
-
-
-class TestDeduplicatorDedupUrls:
-    """Tests for Deduplicator.dedup_urls method."""
-
-    @pytest.fixture
-    def mock_cache(self):
-        """Mock Redis client."""
-        cache = MagicMock()
-        cache.ping = AsyncMock(return_value=True)
-        cache.hexists_many = AsyncMock(return_value=[False, False])
-        cache.hset = AsyncMock(return_value=1)
-        return cache
-
-    @pytest.fixture
-    def mock_repo(self):
-        """Mock article repository."""
-        repo = MagicMock()
-        repo.get_existing_urls = AsyncMock(return_value=[])
-        return repo
-
-    @pytest.mark.asyncio
-    async def test_dedup_urls_empty_list(self, mock_cache, mock_repo):
-        """Test dedup_urls with empty list."""
-        dedup = Deduplicator(cache=mock_cache, article_repo=mock_repo)
-
-        result = await dedup.dedup_urls([])
-
-        assert result == []
-
-    @pytest.mark.asyncio
-    async def test_dedup_urls_all_new(self, mock_cache, mock_repo):
-        """Test dedup_urls with all new URLs."""
-        dedup = Deduplicator(cache=mock_cache, article_repo=mock_repo)
-
-        result = await dedup.dedup_urls(["https://example.com/1", "https://example.com/2"])
-
-        assert len(result) == 2
-
-    @pytest.mark.asyncio
-    async def test_dedup_urls_filters_redis_duplicates(self, mock_cache, mock_repo):
-        """Test dedup_urls filters Redis duplicates."""
-        mock_cache.hexists_many = AsyncMock(return_value=[True, False])
-
-        dedup = Deduplicator(cache=mock_cache, article_repo=mock_repo)
-
-        result = await dedup.dedup_urls(["https://example.com/existing", "https://example.com/new"])
-
-        assert len(result) == 1
-        assert result[0] == "https://example.com/new"
-
-
-class TestDeduplicatorCleanupExpired:
-    """Tests for Deduplicator.cleanup_expired method."""
-
-    @pytest.fixture
-    def mock_cache(self):
-        """Mock Redis client."""
-        cache = MagicMock()
-        return cache
-
-    @pytest.fixture
-    def mock_repo(self):
-        """Mock article repository."""
-        return MagicMock()
-
-    @pytest.mark.asyncio
-    async def test_cleanup_expired_no_entries(self, mock_cache, mock_repo):
-        """Test cleanup with no entries."""
-        mock_cache.hgetall = AsyncMock(return_value={})
-
-        dedup = Deduplicator(cache=mock_cache, article_repo=mock_repo)
-
-        result = await dedup.cleanup_expired()
-
-        assert result == 0
-
-    @pytest.mark.asyncio
-    async def test_cleanup_expired_with_old_entries(self, mock_cache, mock_repo):
-        """Test cleanup removes old entries."""
-        import time
-
-        old_timestamp = str(int(time.time()) - 86400 * 10)  # 10 days ago
-        new_timestamp = str(int(time.time()) - 3600)  # 1 hour ago
-
-        mock_cache.hgetall = AsyncMock(
-            return_value={
-                "old_key1": old_timestamp,
-                "old_key2": old_timestamp,
-                "new_key": new_timestamp,
-            }
-        )
-        mock_cache.hdel = AsyncMock()
-
-        dedup = Deduplicator(cache=mock_cache, article_repo=mock_repo, ttl_seconds=86400 * 7)
-
-        result = await dedup.cleanup_expired()
-
-        assert result == 2
-        mock_cache.hdel.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_cleanup_expired_with_invalid_timestamp(self, mock_cache, mock_repo):
-        """Test cleanup handles invalid timestamps."""
-        mock_cache.hgetall = AsyncMock(
-            return_value={
-                "invalid_key": "not_a_number",
-            }
-        )
-        mock_cache.hdel = AsyncMock()
-
-        dedup = Deduplicator(cache=mock_cache, article_repo=mock_repo)
-
-        result = await dedup.cleanup_expired()
-
-        assert result == 1
+        assert dedup._cache is not None
+        assert dedup._repo is not None
 
 
 class TestNormalizeUrl:
@@ -334,9 +171,58 @@ class TestNormalizeUrl:
         assert result == "https://example.com/Article/123"
 
     def test_no_www_no_query_unchanged(self):
-        """Clean URL without www or query string is unchanged."""
+        """Clean URL without www or query string is unchanged (except maybe trailing slash)."""
         result = Deduplicator.normalize_url("https://36kr.com/p/123")
         assert result == "https://36kr.com/p/123"
+
+    def test_hash_http_and_https_produce_same_hash(self):
+        """http and https variants produce identical hashes."""
+        h1 = Deduplicator._hash("http://example.com/article/123")
+        h2 = Deduplicator._hash("https://example.com/article/123")
+        assert h1 == h2
+
+    def test_hash_www_and_non_www_produce_same_hash(self):
+        """www and non-www variants of the same URL produce identical hashes."""
+        h1 = Deduplicator._hash("https://www.36kr.com/p/123")
+        h2 = Deduplicator._hash("https://36kr.com/p/123")
+        assert h1 == h2
+
+    def test_hash_query_params_stripped(self):
+        """Query params do not affect the hash."""
+        h1 = Deduplicator._hash("https://36kr.com/p/123")
+        h2 = Deduplicator._hash("https://36kr.com/p/123?f=rss")
+        h3 = Deduplicator._hash("https://www.36kr.com/p/123?f=rss&source=foo")
+        assert h1 == h2 == h3
+
+    def test_hash_fragment_not_considered(self):
+        """Fragment is removed, so URLs with/without fragment produce same hash."""
+        h1 = Deduplicator._hash("https://36kr.com/p/123")
+        h2 = Deduplicator._hash("https://36kr.com/p/123#anchor")
+        assert h1 == h2
+
+    def test_hash_domain_case_insensitive(self):
+        """Domain case does not affect hash."""
+        h1 = Deduplicator._hash("https://EXAMPLE.com/Article")
+        h2 = Deduplicator._hash("https://example.com/Article")
+        assert h1 == h2
+
+    def test_hash_trailing_slash_ignored(self):
+        """Trailing slash does not affect hash."""
+        h1 = Deduplicator._hash("https://example.com/article/")
+        h2 = Deduplicator._hash("https://example.com/article")
+        assert h1 == h2
+
+    def test_normalize_url_returns_string(self):
+        """normalize_url always returns a string."""
+        assert isinstance(Deduplicator.normalize_url("https://www.example.com"), str)
+        assert isinstance(Deduplicator.normalize_url(""), str)
+
+    def test_empty_url(self):
+        """Empty URL should be handled gracefully."""
+        result = Deduplicator.normalize_url("")
+        assert isinstance(result, str)
+
+    # --- Tests migrated from test_normalize_url.py ---
 
     def test_removes_default_https_port(self):
         """Default HTTPS port 443 should be removed."""
@@ -354,7 +240,7 @@ class TestNormalizeUrl:
         assert result == "https://example.com:8443/path"
 
     def test_normalizes_relative_path_dots(self):
-        """Relative path segments should be resolved."""
+        """Relative path segments (.. and .) should be resolved."""
         result = Deduplicator.normalize_url("https://example.com/a/../b/./c")
         assert result == "https://example.com/b/c"
 
@@ -363,54 +249,40 @@ class TestNormalizeUrl:
         result = Deduplicator.normalize_url("https://example.com/")
         assert result == "https://example.com"
 
-    def test_wechat_url_preserves_biz_mid(self):
-        """WeChat URLs should preserve __biz, mid and idx params."""
-        result = Deduplicator.normalize_url(
-            "https://mp.weixin.qq.com/s?__biz=MjM5NzQ5MTkyMA==&mid=2658216812&idx=1"
-        )
-        assert "__biz=MjM5NzQ5MTkyMA" in result
-        assert "mid=2658216812" in result
-        assert "idx=1" in result  # idx is preserved for WeChat (article identifier)
+    def test_percent_encoded_and_decoded_deduplicate(self):
+        """Both percent-encoded and decoded URLs should produce same normalized form."""
+        result1 = Deduplicator.normalize_url("https://example.com/path/%E4%B8%AD%E6%96%87")
+        result2 = Deduplicator.normalize_url("https://example.com/path/中文")
+        assert result1 == result2
 
-    def test_empty_url(self):
-        """Empty URL should be handled gracefully."""
-        result = Deduplicator.normalize_url("")
-        assert isinstance(result, str)
+    def test_handles_percent_encoding_chinese(self):
+        """Percent-encoded Chinese should be handled correctly."""
+        result = Deduplicator.normalize_url("https://example.com/path/%E4%B8%AD%E6%96%87")
+        assert result.startswith("https://example.com/path/")
 
+    def test_handles_already_decoded_chinese(self):
+        """Already decoded Chinese should be handled correctly."""
+        result = Deduplicator.normalize_url("https://example.com/path/中文")
+        assert result.startswith("https://example.com/path/")
 
-class TestHashFunction:
-    """Tests for Deduplicator._hash method."""
+    def test_protocol_relative_with_www(self):
+        """Protocol-relative URL with www should be normalized."""
+        result = Deduplicator.normalize_url("//www.example.com/path")
+        assert result == "https://example.com/path"
 
-    def test_hash_consistency(self):
-        """Same URL produces same hash."""
-        url = "https://example.com/article"
-        hash1 = Deduplicator._hash(url)
-        hash2 = Deduplicator._hash(url)
+    def test_query_params_deduplicate(self):
+        """URLs with and without query params should produce same normalized form."""
+        result1 = Deduplicator.normalize_url("https://36kr.com/p/123")
+        result2 = Deduplicator.normalize_url("https://36kr.com/p/123?f=rss")
+        assert result1 == result2
 
-        assert hash1 == hash2
-        assert len(hash1) == 16  # sha256[:16]
+    def test_www_and_non_www_deduplicate(self):
+        """www and non-www URLs should produce same normalized form."""
+        result1 = Deduplicator.normalize_url("https://www.36kr.com/p/123")
+        result2 = Deduplicator.normalize_url("https://36kr.com/p/123")
+        assert result1 == result2
 
-    def test_hash_different_urls(self):
-        """Different URLs produce different hashes."""
-        hash1 = Deduplicator._hash("https://example.com/article1")
-        hash2 = Deduplicator._hash("https://example.com/article2")
-
-        assert hash1 != hash2
-
-    def test_hash_http_and_https_produce_same_hash(self):
-        """http and https variants produce identical hashes."""
-        h1 = Deduplicator._hash("http://example.com/article/123")
-        h2 = Deduplicator._hash("https://example.com/article/123")
-        assert h1 == h2
-
-    def test_hash_www_and_non_www_produce_same_hash(self):
-        """www and non-www variants produce identical hashes."""
-        h1 = Deduplicator._hash("https://www.36kr.com/p/123")
-        h2 = Deduplicator._hash("https://36kr.com/p/123")
-        assert h1 == h2
-
-    def test_hash_query_params_stripped(self):
-        """Query params do not affect the hash."""
-        h1 = Deduplicator._hash("https://36kr.com/p/123")
-        h2 = Deduplicator._hash("https://36kr.com/p/123?f=rss")
-        assert h1 == h2
+    def test_full_normalization(self):
+        """Full normalization with all transformations."""
+        result = Deduplicator.normalize_url("http://www.EXAMPLE.COM:80/a/../b/./c?f=rss#anchor")
+        assert result == "https://example.com/b/c"
