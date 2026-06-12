@@ -74,6 +74,25 @@ class CategoryType(str, enum.Enum):
 
 
 class PersistStatus(str, enum.Enum):
+    """Persist status for articles.
+
+    States:
+        PENDING: Initial state after article creation.
+        PROCESSING: Traditional pipeline processing in progress.
+        PG_DONE: PostgreSQL write successful.
+        NEO4J_DONE: All writes complete (terminal success state).
+        NEO4J_FAILED: Neo4j write failed (retryable).
+        FAILED: Final failure state (retryable).
+
+    Saga States (for cross-database transactions):
+        SAGA_STARTED: Saga transaction initiated.
+        SAGA_PG_WRITING: PostgreSQL write phase of Saga.
+        SAGA_NEO4J_WRITING: Neo4j write phase of Saga.
+        SAGA_COMPENSATING: Saga compensation in progress.
+        SAGA_COMPENSATED: Saga compensation complete.
+        SAGA_COMPLETED: Saga transaction fully complete (terminal success state).
+    """
+
     PENDING = "pending"
     PROCESSING = "processing"
     PG_DONE = "pg_done"
