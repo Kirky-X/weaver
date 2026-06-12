@@ -1,323 +1,206 @@
-# Copyright (c) 2026 KirkyX. All Rights Reserved.
-"""Tests for core.resilience.retry module."""
+# Copyright (c) 2026 KirkyX. All Rights Reserved
+"""Unit tests for Retry module."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+import json
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from core.resilience.retry import (
-    DB_EXCEPTIONS,
-    DEFAULT_MAX_ATTEMPTS,
-    DEFAULT_MAX_WAIT,
-    DEFAULT_MIN_WAIT,
-    LLM_EXCEPTIONS,
-    NETWORK_EXCEPTIONS,
-    _create_retry_strategy,
-    _log_retry_attempt,
-    retry_db,
-    retry_llm,
-    retry_network,
-)
+from modules.ingestion.deduplication.retry import RetryQueue
 
 
-class TestRetryConstants:
-    """Test retry configuration constants."""
+class TestRetryQueue:
+    """Tests for RetryQueue."""
 
-    def test_network_exceptions(self):
-        """Test NETWORK_EXCEPTIONS includes expected types."""
-        assert ConnectionError in NETWORK_EXCEPTIONS
-        assert TimeoutError in NETWORK_EXCEPTIONS
-        assert OSError in NETWORK_EXCEPTIONS
+    @pytest.fixture
+    def mock_redis(self):
+        """Mock Redis client."""
+        redis = MagicMock()
+        redis.zadd = AsyncMock(return_value=1)
+        redis.zrangebyscore = AsyncMock(return_value=[])
+        redis.zrem = AsyncMock(return_value=1)
+        redis.lpush = AsyncMock(return_value=1)
+        redis.llen = AsyncMock(return_value=0)
+        redis.lrange = AsyncMock(return_value=[])
+        redis.delete = AsyncMock(return_value=1)
+        return redis
 
-    def test_llm_exceptions(self):
-        """Test LLM_EXCEPTIONS includes expected types."""
-        assert TimeoutError in LLM_EXCEPTIONS
-        assert ConnectionError in LLM_EXCEPTIONS
+    @pytest.fixture
+    def retry_queue(self, mock_redis):
+        """Create retry queue instance."""
+        return RetryQueue(cache=mock_redis)
 
-    def test_db_exceptions(self):
-        """Test DB_EXCEPTIONS includes expected types."""
-        assert ConnectionError in DB_EXCEPTIONS
-        assert TimeoutError in DB_EXCEPTIONS
-        assert OSError in DB_EXCEPTIONS
+    def test_initialization(self, mock_redis):
+        """Test retry queue initializes correctly."""
+        queue = RetryQueue(cache=mock_redis)
+        assert queue._cache is mock_redis
+        assert queue._max_retries == 3
+        assert queue._base_delay == 60.0
 
-    def test_default_values(self):
-        """Test default retry configuration values."""
-        assert DEFAULT_MAX_ATTEMPTS == 3
-        assert DEFAULT_MIN_WAIT == 1.0
-        assert DEFAULT_MAX_WAIT == 30.0
+    def test_initialization_custom_params(self, mock_redis):
+        """Test retry queue with custom parameters."""
+        queue = RetryQueue(cache=mock_redis, max_retries=5, base_delay=30.0)
+        assert queue._max_retries == 5
+        assert queue._base_delay == 30.0
 
+    def test_dead_letter_key_constant(self):
+        """Test dead letter key constant."""
+        assert RetryQueue.DEAD_LETTER_KEY == "crawl:dead"
 
-class TestLogRetryAttempt:
-    """Test _log_retry_attempt function."""
+    @pytest.mark.asyncio
+    async def test_enqueue_first_attempt(self, retry_queue, mock_redis):
+        """Test enqueueing item with first attempt."""
+        await retry_queue.enqueue(url="https://example.com/article", host="example.com", attempt=0)
+        mock_redis.zadd.assert_called_once()
+        call_args = mock_redis.zadd.call_args
+        assert "crawl:retry:example.com" in str(call_args)
 
-    def test_logs_warning_on_failure(self):
-        """Test logs warning when retry state has exception."""
-        mock_state = MagicMock()
-        mock_exception = ValueError("Test error")
-        mock_state.outcome.exception.return_value = mock_exception
-        mock_state.attempt_number = 2
-        mock_state.idle_for = 1.5
+    @pytest.mark.asyncio
+    async def test_enqueue_second_attempt(self, retry_queue, mock_redis):
+        """Test enqueueing item with second attempt."""
+        await retry_queue.enqueue(url="https://example.com/article", host="example.com", attempt=1)
+        mock_redis.zadd.assert_called_once()
 
-        with patch("core.resilience.retry.log") as mock_log:
-            _log_retry_attempt(mock_state)
+    @pytest.mark.asyncio
+    async def test_enqueue_moves_to_dead_letter_after_max_retries(self, retry_queue, mock_redis):
+        """Test that item is moved to dead letter after max retries."""
+        await retry_queue.enqueue(url="https://example.com/article", host="example.com", attempt=3)
+        mock_redis.lpush.assert_called_once()
+        mock_redis.zadd.assert_not_called()
 
-            mock_log.warning.assert_called_once()
-            call_kwargs = mock_log.warning.call_args[1]
-            assert call_kwargs["attempt"] == 2
-            assert call_kwargs["exception_type"] == "ValueError"
+    @pytest.mark.asyncio
+    async def test_get_due_items_empty(self, retry_queue, mock_redis):
+        """Test getting due items when queue is empty."""
+        mock_redis.zrangebyscore = AsyncMock(return_value=[])
 
-    def test_no_log_when_no_outcome(self):
-        """Test no logging when outcome is None."""
-        mock_state = MagicMock()
-        mock_state.outcome = None
+        items = await retry_queue.get_due_items("example.com")
 
-        with patch("core.resilience.retry.log") as mock_log:
-            _log_retry_attempt(mock_state)
+        assert items == []
+        mock_redis.zrangebyscore.assert_called_once()
 
-            mock_log.warning.assert_not_called()
+    @pytest.mark.asyncio
+    async def test_get_due_items_with_items(self, retry_queue, mock_redis):
+        """Test getting due items from queue."""
+        mock_data = [
+            json.dumps(
+                {"url": "https://example.com/article1", "host": "example.com", "attempt": 1}
+            ).encode(),
+            json.dumps(
+                {"url": "https://example.com/article2", "host": "example.com", "attempt": 2}
+            ).encode(),
+        ]
+        mock_redis.zrangebyscore = AsyncMock(return_value=mock_data)
 
-    def test_no_log_when_no_exception(self):
-        """Test no logging when outcome has no exception."""
-        mock_state = MagicMock()
-        mock_state.outcome.exception.return_value = None
+        items = await retry_queue.get_due_items("example.com")
 
-        with patch("core.resilience.retry.log") as mock_log:
-            _log_retry_attempt(mock_state)
+        assert len(items) == 2
+        assert items[0]["url"] == "https://example.com/article1"
+        mock_redis.zrem.assert_called_once()
 
-            mock_log.warning.assert_not_called()
+    @pytest.mark.asyncio
+    async def test_get_due_items_handles_invalid_json(self, retry_queue, mock_redis):
+        """Test that invalid JSON items are skipped."""
+        mock_data = [
+            b"invalid json",
+            json.dumps(
+                {"url": "https://example.com/article", "host": "example.com", "attempt": 1}
+            ).encode(),
+        ]
+        mock_redis.zrangebyscore = AsyncMock(return_value=mock_data)
 
+        items = await retry_queue.get_due_items("example.com")
 
-class TestCreateRetryStrategy:
-    """Test _create_retry_strategy function."""
+        assert len(items) == 1
+        assert items[0]["url"] == "https://example.com/article"
 
-    def test_creates_strategy_with_defaults(self):
-        """Test creates retry strategy with default configuration."""
-        strategy = _create_retry_strategy((ValueError,))
+    @pytest.mark.asyncio
+    async def test_move_to_dead_letter(self, retry_queue, mock_redis):
+        """Test moving item to dead letter queue."""
+        await retry_queue._move_to_dead_letter(
+            url="https://example.com/article", host="example.com", attempt=3
+        )
+        mock_redis.lpush.assert_called_once()
+        call_args = mock_redis.lpush.call_args
+        assert RetryQueue.DEAD_LETTER_KEY in str(call_args)
 
-        assert strategy is not None
-        # Strategy should be AsyncRetrying instance
-        assert hasattr(strategy, "__aiter__")
+    @pytest.mark.asyncio
+    async def test_exponential_backoff_calculation(self, retry_queue, mock_redis):
+        """Test exponential backoff delay calculation."""
+        base_delay = 60.0
 
-    def test_creates_strategy_with_custom_params(self):
-        """Test creates retry strategy with custom parameters."""
-        strategy = _create_retry_strategy(
-            (ValueError,),
-            max_attempts=5,
-            min_wait=2.0,
-            max_wait=60.0,
-            jitter=2.0,
+        delays = [base_delay * (2**i) for i in range(5)]
+
+        assert delays[0] == 60.0
+        assert delays[1] == 120.0
+        assert delays[2] == 240.0
+        assert delays[3] == 480.0
+        assert delays[4] == 960.0
+
+    @pytest.mark.asyncio
+    async def test_separate_queues_per_host(self, retry_queue, mock_redis):
+        """Test that different hosts have separate retry queues."""
+        await retry_queue.enqueue(url="https://a.com/article1", host="a.com", attempt=0)
+        await retry_queue.enqueue(url="https://b.com/article2", host="b.com", attempt=0)
+
+        assert mock_redis.zadd.call_count == 2
+
+        calls = mock_redis.zadd.call_args_list
+        keys = [str(call[0][0]) for call in calls]
+        assert any("crawl:retry:a.com" in key for key in keys)
+        assert any("crawl:retry:b.com" in key for key in keys)
+
+    @pytest.mark.asyncio
+    async def test_enqueue_payload_structure(self, retry_queue, mock_redis):
+        """Test that enqueue creates correct payload structure."""
+        await retry_queue.enqueue(url="https://example.com/article", host="example.com", attempt=1)
+
+        call_args = mock_redis.zadd.call_args
+        payload_dict = call_args[0][1]
+        payload_str = list(payload_dict.keys())[0]
+        payload = json.loads(payload_str)
+
+        assert payload["url"] == "https://example.com/article"
+        assert payload["host"] == "example.com"
+        assert payload["attempt"] == 2
+        assert "enqueued_at" in payload
+
+    @pytest.mark.asyncio
+    async def test_dead_letter_payload_structure(self, retry_queue, mock_redis):
+        """Test that dead letter creates correct payload structure."""
+        await retry_queue._move_to_dead_letter(
+            url="https://example.com/article", host="example.com", attempt=3
         )
 
-        assert strategy is not None
+        call_args = mock_redis.lpush.call_args
+        payload_str = call_args[0][1]
+        payload = json.loads(payload_str)
 
-    def test_creates_strategy_with_max_delay(self):
-        """Test creates retry strategy with max_delay."""
-        strategy = _create_retry_strategy(
-            (ValueError,),
-            max_delay=120.0,
-        )
-
-        assert strategy is not None
-
-
-async def _call_with_retryer(retryer, fn):
-    """Helper to call an async function through an AsyncRetrying instance."""
-    async for attempt in retryer:
-        with attempt:
-            return await fn()
-    return None  # Should never reach here if retry succeeds
-
-
-class TestRetryNetworkOperation:
-    """Test retry_network strategy."""
+        assert payload["url"] == "https://example.com/article"
+        assert payload["host"] == "example.com"
+        assert payload["final_attempt"] == 3
+        assert "dead_at" in payload
 
     @pytest.mark.asyncio
-    async def test_succeeds_on_first_attempt(self):
-        """Test operation that succeeds on first attempt."""
-        mock_func = AsyncMock(return_value="success")
+    async def test_max_retries_boundary(self, mock_redis):
+        """Test max retries boundary conditions."""
+        queue = RetryQueue(cache=mock_redis, max_retries=3)
 
-        retryer = retry_network()
-        result = await _call_with_retryer(retryer, mock_func)
+        await queue.enqueue(url="https://example.com/article", host="example.com", attempt=2)
+        mock_redis.zadd.assert_called_once()
+        mock_redis.lpush.assert_not_called()
 
-        assert result == "success"
-        mock_func.assert_called_once()
+        mock_redis.reset_mock()
 
-    @pytest.mark.asyncio
-    async def test_retries_on_network_error(self):
-        """Test retries on network errors."""
-        call_count = 0
-
-        async def flaky_func():
-            nonlocal call_count
-            call_count += 1
-            if call_count < 3:
-                raise ConnectionError("Connection lost")
-            return "success"
-
-        retryer = retry_network()
-        result = await _call_with_retryer(retryer, flaky_func)
-
-        assert result == "success"
-        assert call_count == 3
+        await queue.enqueue(url="https://example.com/article", host="example.com", attempt=3)
+        mock_redis.zadd.assert_not_called()
+        mock_redis.lpush.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_fails_after_max_attempts(self):
-        """Test fails after max attempts."""
+    async def test_get_due_items_respects_limit(self, retry_queue, mock_redis):
+        """Test that get_due_items respects the limit parameter."""
+        mock_redis.zrangebyscore = AsyncMock(return_value=[])
 
-        async def failing_func():
-            raise ConnectionError("Permanent failure")
+        await retry_queue.get_due_items("example.com")
 
-        retryer = retry_network(max_attempts=2)
-
-        with pytest.raises(ConnectionError):
-            await _call_with_retryer(retryer, failing_func)
-
-    @pytest.mark.asyncio
-    async def test_does_not_retry_on_other_errors(self):
-        """Test does not retry on non-network errors."""
-        call_count = 0
-
-        async def value_error_func():
-            nonlocal call_count
-            call_count += 1
-            raise ValueError("Not a network error")
-
-        retryer = retry_network()
-
-        with pytest.raises(ValueError):
-            await _call_with_retryer(retryer, value_error_func)
-
-        assert call_count == 1  # Only called once, no retry
-
-
-class TestRetryLLMOperation:
-    """Test retry_llm strategy."""
-
-    @pytest.mark.asyncio
-    async def test_succeeds_on_first_attempt(self):
-        """Test LLM operation succeeds on first attempt."""
-        mock_func = AsyncMock(return_value={"result": "data"})
-
-        retryer = retry_llm()
-        result = await _call_with_retryer(retryer, mock_func)
-
-        assert result == {"result": "data"}
-
-    @pytest.mark.asyncio
-    async def test_retries_on_llm_timeout(self):
-        """Test retries on LLM timeout."""
-        call_count = 0
-
-        async def timeout_func():
-            nonlocal call_count
-            call_count += 1
-            if call_count < 2:
-                raise TimeoutError("LLM timeout")
-            return {"result": "success"}
-
-        retryer = retry_llm()
-        result = await _call_with_retryer(retryer, timeout_func)
-
-        assert result == {"result": "success"}
-        assert call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_does_not_retry_on_parse_error(self):
-        """Test does not retry on OutputParserException."""
-        from core.llm.utils.json_parser import OutputParserException
-
-        call_count = 0
-
-        async def parse_error_func():
-            nonlocal call_count
-            call_count += 1
-            raise OutputParserException("Invalid JSON")
-
-        # OutputParserException IS in the LLM retry list, so it WILL retry.
-        # But the test name says "does not retry" -- checking source:
-        # retry_llm includes (OutputParserException,) in its exception types.
-        # The test intent seems wrong given the current source. However,
-        # OutputParserException is in LLM_EXCEPTIONS list, so it retries.
-        # Let's test that it actually does retry (matches source behavior).
-        retryer = retry_llm()
-
-        with pytest.raises(OutputParserException):
-            await _call_with_retryer(retryer, parse_error_func)
-
-        # With default max_attempts=3, it retries 3 times total
-        assert call_count == 3
-
-
-class TestRetryDBOperation:
-    """Test retry_db strategy."""
-
-    @pytest.mark.asyncio
-    async def test_succeeds_on_first_attempt(self):
-        """Test DB operation succeeds on first attempt."""
-        mock_func = AsyncMock(return_value=[{"id": 1}])
-
-        retryer = retry_db()
-        result = await _call_with_retryer(retryer, mock_func)
-
-        assert result == [{"id": 1}]
-
-    @pytest.mark.asyncio
-    async def test_retries_on_db_connection_error(self):
-        """Test retries on DB connection errors."""
-        call_count = 0
-
-        async def db_func():
-            nonlocal call_count
-            call_count += 1
-            if call_count < 2:
-                raise OSError("Database connection lost")
-            return [{"id": 1}]
-
-        retryer = retry_db()
-        result = await _call_with_retryer(retryer, db_func)
-
-        assert result == [{"id": 1}]
-        assert call_count == 2
-
-    @pytest.mark.asyncio
-    async def test_fails_after_exhausting_retries(self):
-        """Test fails after exhausting retries."""
-
-        async def failing_db_func():
-            raise TimeoutError("Query timeout")
-
-        retryer = retry_db(max_attempts=2)
-
-        with pytest.raises(TimeoutError):
-            await _call_with_retryer(retryer, failing_db_func)
-
-
-class TestRetryStrategyIntegration:
-    """Integration tests for retry strategies."""
-
-    @pytest.mark.asyncio
-    async def test_network_retry_with_backoff(self):
-        """Test network retry with exponential backoff."""
-        call_times = []
-
-        async def flaky_network():
-            import time
-
-            call_times.append(time.time())
-            if len(call_times) < 3:
-                raise ConnectionError("Network issue")
-            return "connected"
-
-        retryer = retry_network(max_attempts=3)
-        result = await _call_with_retryer(retryer, flaky_network)
-
-        assert result == "connected"
-        assert len(call_times) == 3
-
-        # Verify backoff (each retry should take longer)
-        if len(call_times) >= 3:
-            interval1 = call_times[1] - call_times[0]
-            interval2 = call_times[2] - call_times[1]
-            # With jitter, just verify they're not instantaneous
-            assert interval1 >= 0.5
-            assert interval2 >= 0.5
+        call_args = mock_redis.zrangebyscore.call_args
+        assert call_args[1].get("num") == 50

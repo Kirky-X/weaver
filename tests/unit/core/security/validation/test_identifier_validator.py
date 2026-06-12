@@ -13,106 +13,158 @@ from core.security.validation.identifier_validator import (
 )
 
 
-class TestValidateSqlIdentifier:
+class TestInvalidIdentifierError:
+    """Test InvalidIdentifierError exception."""
+
+    def test_error_message_format(self):
+        """Test error message contains all context."""
+        error = InvalidIdentifierError(
+            identifier="1invalid",
+            identifier_type="table",
+            pattern=r"^[a-zA-Z_][a-zA-Z0-9_]*$",
+        )
+        assert "Invalid table identifier: '1invalid'" in str(error)
+        assert "Must match pattern" in str(error)
+        assert error.identifier == "1invalid"
+        assert error.identifier_type == "table"
+        assert error.pattern == r"^[a-zA-Z_][a-zA-Z0-9_]*$"
+
+    def test_is_value_error_subclass(self):
+        """Test that InvalidIdentifierError is a ValueError subclass."""
+        error = InvalidIdentifierError("test", "column", "pattern")
+        assert isinstance(error, ValueError)
+
+
+class TestValidateSQLIdentifier:
     """Test validate_sql_identifier function."""
 
-    def test_valid_identifier(self):
-        """Test valid SQL identifier."""
-        result = validate_sql_identifier("users")
+    @pytest.mark.parametrize(
+        "identifier",
+        [
+            "users",
+            "user_table",
+            "_private",
+            "Table123",
+            "a",
+            "very_long_identifier_with_many_underscores",
+            "UPPERCASE",
+            "mixedCase",
+        ],
+    )
+    def test_valid_identifiers(self, identifier: str):
+        """Test valid SQL identifiers are accepted."""
+        result = validate_sql_identifier(identifier)
+        assert result == identifier
 
-        assert result == "users"
+    @pytest.mark.parametrize(
+        "identifier",
+        [
+            "1table",
+            "table-name",
+            "table.name",
+            "DROP TABLE",
+            "table name",
+            "",
+            "table;DROP",
+            "table'",
+            'table"',
+        ],
+    )
+    def test_invalid_identifiers(self, identifier: str):
+        """Test invalid SQL identifiers raise InvalidIdentifierError."""
+        with pytest.raises(InvalidIdentifierError) as exc_info:
+            validate_sql_identifier(identifier)
+        assert identifier in str(exc_info.value)
+        assert exc_info.value.identifier_type == "SQL"
 
-    def test_valid_identifier_with_underscore(self):
-        """Test valid identifier with underscore."""
-        result = validate_sql_identifier("user_table")
-
-        assert result == "user_table"
-
-    def test_valid_identifier_starting_with_underscore(self):
-        """Test valid identifier starting with underscore."""
-        result = validate_sql_identifier("_private")
-
-        assert result == "_private"
-
-    def test_valid_identifier_with_numbers(self):
-        """Test valid identifier with numbers."""
-        result = validate_sql_identifier("table1")
-
-        assert result == "table1"
-
-    def test_invalid_identifier_starts_with_number(self):
-        """Test invalid identifier starting with number."""
-        with pytest.raises(InvalidIdentifierError):
-            validate_sql_identifier("1table")
-
-    def test_invalid_identifier_with_special_chars(self):
-        """Test invalid identifier with special characters."""
-        with pytest.raises(InvalidIdentifierError):
-            validate_sql_identifier("user-table")
-
-    def test_invalid_identifier_with_space(self):
-        """Test invalid identifier with space."""
-        with pytest.raises(InvalidIdentifierError):
-            validate_sql_identifier("user table")
+    def test_custom_identifier_type(self):
+        """Test custom identifier_type in error message."""
+        with pytest.raises(InvalidIdentifierError) as exc_info:
+            validate_sql_identifier("123", "custom_type")
+        assert "Invalid custom_type identifier" in str(exc_info.value)
 
 
 class TestValidateCypherEdgeType:
     """Test validate_cypher_edge_type function."""
 
-    def test_valid_edge_type(self):
-        """Test valid Cypher edge type."""
-        result = validate_cypher_edge_type("RELATED_TO")
+    @pytest.mark.parametrize(
+        "edge_type",
+        [
+            "RELATED_TO",
+            "MENTIONS",
+            "KNOWS",
+            "A",
+            "VERY_LONG_EDGE_TYPE",
+            "合作关系",
+            "朋友关系",
+            "A_B_C_123",
+        ],
+    )
+    def test_valid_edge_types(self, edge_type: str):
+        """Test valid edge types are accepted."""
+        result = validate_cypher_edge_type(edge_type)
+        assert result == edge_type
 
-        assert result == "RELATED_TO"
-
-    def test_valid_edge_type_simple(self):
-        """Test simple valid edge type."""
-        result = validate_cypher_edge_type("MENTIONS")
-
-        assert result == "MENTIONS"
-
-    def test_valid_edge_type_with_chinese(self):
-        """Test edge type with Chinese characters."""
-        result = validate_cypher_edge_type("合作关系")
-
-        assert result == "合作关系"
-
-    def test_invalid_edge_type_lowercase(self):
-        """Test invalid edge type with lowercase."""
-        with pytest.raises(InvalidIdentifierError):
-            validate_cypher_edge_type("related_to")
-
-    def test_invalid_edge_type_with_special_chars(self):
-        """Test invalid edge type with special characters."""
-        with pytest.raises(InvalidIdentifierError):
-            validate_cypher_edge_type("RELATED-TO")
+    @pytest.mark.parametrize(
+        "edge_type",
+        [
+            "related_to",
+            "edge-type",
+            "edge.type",
+            "123EDGE",
+            "",
+            "EDGE TYPE",
+            "edge/type",
+            "Edge123",
+        ],
+    )
+    def test_invalid_edge_types(self, edge_type: str):
+        """Test invalid edge types raise InvalidIdentifierError."""
+        with pytest.raises(InvalidIdentifierError) as exc_info:
+            validate_cypher_edge_type(edge_type)
+        assert edge_type in str(exc_info.value)
+        assert exc_info.value.identifier_type == "edge_type"
 
 
 class TestValidateCypherLabel:
     """Test validate_cypher_label function."""
 
-    def test_valid_label(self):
-        """Test valid Cypher label."""
-        result = validate_cypher_label("Entity")
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "Entity",
+            "Article",
+            "Person",
+            "实体",
+            "文章",
+            "_private",
+            "Label123",
+            "a",
+            "A_B_C",
+            "混合Label_123",
+        ],
+    )
+    def test_valid_labels(self, label: str):
+        """Test valid labels are accepted."""
+        result = validate_cypher_label(label)
+        assert result == label
 
-        assert result == "Entity"
-
-    def test_valid_label_with_chinese(self):
-        """Test label with Chinese characters."""
-        result = validate_cypher_label("实体")
-
-        assert result == "实体"
-
-    def test_valid_label_with_underscore(self):
-        """Test valid label with underscore."""
-        result = validate_cypher_label("User_Entity")
-
-        assert result == "User_Entity"
-
-    def test_invalid_label_starts_with_number(self):
-        """Test invalid label starting with number."""
-        with pytest.raises(InvalidIdentifierError):
-            validate_cypher_label("1Entity")
+    @pytest.mark.parametrize(
+        "label",
+        [
+            "123Label",
+            "label-name",
+            "label.name",
+            "",
+            "LABEL NAME",
+        ],
+    )
+    def test_invalid_labels(self, label: str):
+        """Test invalid labels raise InvalidIdentifierError."""
+        with pytest.raises(InvalidIdentifierError) as exc_info:
+            validate_cypher_label(label)
+        assert label in str(exc_info.value)
+        assert exc_info.value.identifier_type == "label"
 
 
 class TestValidateRelationTypes:
@@ -120,48 +172,29 @@ class TestValidateRelationTypes:
 
     def test_valid_relation_types(self):
         """Test valid relation types list."""
-        result = validate_relation_types(["RELATED_TO", "MENTIONS"])
-
-        assert result == ["RELATED_TO", "MENTIONS"]
+        relation_types = ["RELATED_TO", "MENTIONS", "KNOWS"]
+        result = validate_relation_types(relation_types)
+        assert result == relation_types
 
     def test_empty_list(self):
-        """Test empty list is valid."""
+        """Test empty list is accepted."""
         result = validate_relation_types([])
-
         assert result == []
 
-    def test_invalid_relation_type(self):
-        """Test invalid relation type raises error."""
+    def test_invalid_in_list(self):
+        """Test invalid relation type in list raises error."""
         with pytest.raises(InvalidIdentifierError):
-            validate_relation_types(["related_to"])
+            validate_relation_types(["VALID_TYPE", "invalid_type", "ANOTHER"])
 
-
-class TestInvalidIdentifierError:
-    """Test InvalidIdentifierError exception."""
-
-    def test_error_message(self):
-        """Test error message format."""
-        try:
-            validate_sql_identifier("1invalid")
-        except InvalidIdentifierError as e:
-            assert "1invalid" in str(e)
-            assert "SQL" in str(e)
-
-    def test_error_attributes(self):
-        """Test error attributes."""
-        error = InvalidIdentifierError(
-            identifier="bad-id",
-            identifier_type="test",
-            pattern="test-pattern",
-        )
-
-        assert error.identifier == "bad-id"
-        assert error.identifier_type == "test"
-        assert error.pattern == "test-pattern"
+    def test_chinese_relation_types(self):
+        """Test Chinese relation types are accepted."""
+        relation_types = ["合作关系", "朋友关系"]
+        result = validate_relation_types(relation_types)
+        assert result == relation_types
 
 
 class TestIdentifierValidator:
-    """Test IdentifierValidator class."""
+    """Test IdentifierValidator dataclass."""
 
     @pytest.fixture
     def validator(self):
@@ -169,46 +202,53 @@ class TestIdentifierValidator:
         return IdentifierValidator()
 
     def test_validate_table(self, validator):
-        """Test validate_table method."""
-        result = validator.validate_table("users")
-
-        assert result == "users"
-
-    def test_validate_column(self, validator):
-        """Test validate_column method."""
-        result = validator.validate_column("id")
-
-        assert result == "id"
-
-    def test_validate_edge_type(self, validator):
-        """Test validate_edge_type method."""
-        result = validator.validate_edge_type("RELATED_TO")
-
-        assert result == "RELATED_TO"
-
-    def test_validate_label(self, validator):
-        """Test validate_label method."""
-        result = validator.validate_label("Entity")
-
-        assert result == "Entity"
+        """Test table name validation."""
+        assert validator.validate_table("users") == "users"
+        assert validator.validate_table("user_table") == "user_table"
 
     def test_validate_table_invalid(self, validator):
-        """Test validate_table raises on invalid."""
-        with pytest.raises(InvalidIdentifierError):
+        """Test invalid table name raises error."""
+        with pytest.raises(InvalidIdentifierError) as exc_info:
             validator.validate_table("1invalid")
+        assert exc_info.value.identifier_type == "table"
+
+    def test_validate_column(self, validator):
+        """Test column name validation."""
+        assert validator.validate_column("user_id") == "user_id"
+        assert validator.validate_column("name") == "name"
+
+    def test_validate_column_invalid(self, validator):
+        """Test invalid column name raises error."""
+        with pytest.raises(InvalidIdentifierError) as exc_info:
+            validator.validate_column("column-name")
+        assert exc_info.value.identifier_type == "column"
+
+    def test_validate_edge_type(self, validator):
+        """Test edge type validation."""
+        assert validator.validate_edge_type("RELATED_TO") == "RELATED_TO"
+        assert validator.validate_edge_type("合作关系") == "合作关系"
+
+    def test_validate_edge_type_invalid(self, validator):
+        """Test invalid edge type raises error."""
+        with pytest.raises(InvalidIdentifierError):
+            validator.validate_edge_type("invalid_type")
+
+    def test_validate_label(self, validator):
+        """Test label validation."""
+        assert validator.validate_label("Entity") == "Entity"
+        assert validator.validate_label("实体") == "实体"
+
+    def test_validate_label_invalid(self, validator):
+        """Test invalid label raises error."""
+        with pytest.raises(InvalidIdentifierError):
+            validator.validate_label("123Label")
 
 
 class TestEdgeCases:
     """Test edge cases and boundary conditions."""
 
-    def test_empty_string_identifier(self):
-        """Test empty string is invalid."""
-        with pytest.raises(InvalidIdentifierError):
-            validate_sql_identifier("")
-
     def test_unicode_in_sql_identifier(self):
         """Test Unicode characters in SQL identifier."""
-        # Standard SQL identifiers should not allow Chinese
         with pytest.raises(InvalidIdentifierError):
             validate_sql_identifier("用户")
 
@@ -216,7 +256,6 @@ class TestEdgeCases:
         """Test very long identifier."""
         long_id = "a" * 100
         result = validate_sql_identifier(long_id)
-
         assert result == long_id
 
     def test_mixed_case_cypher_edge(self):
