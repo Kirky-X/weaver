@@ -117,8 +117,8 @@ class TestPortDetectionIntegration:
     def test_api_settings_custom_host(self) -> None:
         """APISettings should work with custom host."""
         # Test binding to all interfaces (legitimate use case for server testing)
-        settings = APISettings(host="0.0.0.0")
-        assert settings.host == "0.0.0.0"
+        settings = APISettings(host="0.0.0.0")  # noqa: S104
+        assert settings.host == "0.0.0.0"  # noqa: S104
         assert settings.port > 0
 
     def test_port_detection_with_multiple_bound_ports(self) -> None:

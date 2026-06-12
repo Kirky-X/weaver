@@ -90,6 +90,13 @@ def unique_id():
 
 
 @pytest.fixture
+def auth_headers():
+    """Return auth headers for API requests."""
+    api_key = os.getenv("WEAVER_API_KEY", "test-api-key")
+    return {"X-API-Key": api_key}
+
+
+@pytest.fixture
 async def cache_client():
     """Create a real Redis client for integration tests.
 
