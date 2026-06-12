@@ -25,16 +25,25 @@ class TestPendingSyncRepo:
         article_id = uuid.uuid4()
         async with pool.session_context() as session:
             await session.execute(
-                text(
-                    """INSERT INTO articles (id, source_url, is_news, title, body, is_merged, verified_by_sources)
-                       VALUES (:id, :url, TRUE, :title, :body, FALSE, 0)"""
-                ),
+                text("""INSERT INTO articles_core (id, source_url, title, is_merged)
+                       VALUES (:id, :url, :title, FALSE)"""),
                 {
                     "id": article_id,
                     "url": f"https://test.example.com/{unique_id}",
                     "title": f"Test Article {unique_id}",
-                    "body": "Test body",
                 },
+            )
+            await session.execute(
+                text(
+                    """INSERT INTO article_bodies (article_id, body) VALUES (:article_id, :body)"""
+                ),
+                {"article_id": article_id, "body": "Test body"},
+            )
+            await session.execute(
+                text(
+                    """INSERT INTO article_analysis (article_id, is_news, verified_by_sources) VALUES (:article_id, TRUE, 0)"""
+                ),
+                {"article_id": article_id},
             )
         return article_id
 
@@ -67,7 +76,7 @@ class TestPendingSyncRepo:
                     {"pattern": f"%{unique_id}%"},
                 )
                 await session.execute(
-                    text("DELETE FROM articles WHERE source_url LIKE :pattern"),
+                    text("DELETE FROM articles_core WHERE source_url LIKE :pattern"),
                     {"pattern": f"%{unique_id}%"},
                 )
 
@@ -94,7 +103,7 @@ class TestPendingSyncRepo:
                     {"pattern": f"%{unique_id}%"},
                 )
                 await session.execute(
-                    text("DELETE FROM articles WHERE source_url LIKE :pattern"),
+                    text("DELETE FROM articles_core WHERE source_url LIKE :pattern"),
                     {"pattern": f"%{unique_id}%"},
                 )
 
@@ -127,7 +136,7 @@ class TestPendingSyncRepo:
                     {"pattern": f"%{unique_id}%"},
                 )
                 await session.execute(
-                    text("DELETE FROM articles WHERE source_url LIKE :pattern"),
+                    text("DELETE FROM articles_core WHERE source_url LIKE :pattern"),
                     {"pattern": f"%{unique_id}%"},
                 )
 
@@ -161,7 +170,7 @@ class TestPendingSyncRepo:
                     {"pattern": f"%{unique_id}%"},
                 )
                 await session.execute(
-                    text("DELETE FROM articles WHERE source_url LIKE :pattern"),
+                    text("DELETE FROM articles_core WHERE source_url LIKE :pattern"),
                     {"pattern": f"%{unique_id}%"},
                 )
 
@@ -203,7 +212,7 @@ class TestPendingSyncRepo:
                     {"pattern": f"%{unique_id}%"},
                 )
                 await session.execute(
-                    text("DELETE FROM articles WHERE source_url LIKE :pattern"),
+                    text("DELETE FROM articles_core WHERE source_url LIKE :pattern"),
                     {"pattern": f"%{unique_id}%"},
                 )
 
@@ -341,16 +350,25 @@ class TestRetryNeo4jWritesWithPendingSync:
         article_id = uuid.uuid4()
         async with pool.session_context() as session:
             await session.execute(
-                text(
-                    """INSERT INTO articles (id, source_url, is_news, title, body, is_merged, verified_by_sources)
-                       VALUES (:id, :url, TRUE, :title, :body, FALSE, 0)"""
-                ),
+                text("""INSERT INTO articles_core (id, source_url, title, is_merged)
+                        VALUES (:id, :url, :title, FALSE)"""),
                 {
                     "id": article_id,
                     "url": f"https://test.example.com/{unique_id}",
                     "title": f"Test Article {unique_id}",
-                    "body": "Test body",
                 },
+            )
+            await session.execute(
+                text(
+                    """INSERT INTO article_bodies (article_id, body) VALUES (:article_id, :body)"""
+                ),
+                {"article_id": article_id, "body": "Test body"},
+            )
+            await session.execute(
+                text(
+                    """INSERT INTO article_analysis (article_id, is_news, verified_by_sources) VALUES (:article_id, TRUE, 0)"""
+                ),
+                {"article_id": article_id},
             )
         payload = {"entities": [], "relations": [], "test_id": unique_id}
 
@@ -370,6 +388,6 @@ class TestRetryNeo4jWritesWithPendingSync:
                     {"pattern": f"%{unique_id}%"},
                 )
                 await session.execute(
-                    text("DELETE FROM articles WHERE source_url LIKE :pattern"),
+                    text("DELETE FROM articles_core_core WHERE source_url LIKE :pattern"),
                     {"pattern": f"%{unique_id}%"},
                 )

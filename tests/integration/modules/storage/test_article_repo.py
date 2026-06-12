@@ -65,7 +65,7 @@ class TestArticleRepoIntegration:
             # Cleanup
             async with pool.session_context() as session:
                 await session.execute(
-                    text("DELETE FROM articles WHERE source_url LIKE :pattern"),
+                    text("DELETE FROM articles_core WHERE source_url LIKE :pattern"),
                     {"pattern": f"%{unique_id}%"},
                 )
 
@@ -121,7 +121,7 @@ class TestArticleRepoIntegration:
             # Cleanup
             async with pool.session_context() as session:
                 await session.execute(
-                    text("DELETE FROM articles WHERE source_url LIKE :pattern"),
+                    text("DELETE FROM articles_core WHERE source_url LIKE :pattern"),
                     {"pattern": f"%{unique_id}%"},
                 )
 
@@ -136,18 +136,29 @@ class TestArticleRepoIntegration:
             article_id = uuid.uuid4()
             await session.execute(
                 text("""
-                    INSERT INTO articles (id, source_url, is_news, title, body, is_merged, verified_by_sources)
-                    VALUES (:id, :url, :is_news, :title, :body, :is_merged, :verified_by)
+                    INSERT INTO articles_core (id, source_url, title, is_merged)
+                    VALUES (:id, :url, :title, :is_merged)
                 """),
                 {
                     "id": article_id,
                     "url": f"https://test.example.com/{unique_id}",
-                    "is_news": True,
                     "title": f"Test Article {unique_id}",
-                    "body": "Test body",
                     "is_merged": False,
-                    "verified_by": 0,
                 },
+            )
+            await session.execute(
+                text("""
+                    INSERT INTO article_bodies (article_id, body)
+                    VALUES (:article_id, :body)
+                """),
+                {"article_id": article_id, "body": "Test body"},
+            )
+            await session.execute(
+                text("""
+                    INSERT INTO article_analysis (article_id, is_news, verified_by_sources)
+                    VALUES (:article_id, :is_news, :verified_by)
+                """),
+                {"article_id": article_id, "is_news": True, "verified_by": 0},
             )
 
         try:
@@ -158,7 +169,7 @@ class TestArticleRepoIntegration:
             # Cleanup
             async with pool.session_context() as session:
                 await session.execute(
-                    text("DELETE FROM articles WHERE id = :id"),
+                    text("DELETE FROM articles_core WHERE id = :id"),
                     {"id": article_id},
                 )
 
@@ -173,18 +184,29 @@ class TestArticleRepoIntegration:
             article_id = uuid.uuid4()
             await session.execute(
                 text("""
-                    INSERT INTO articles (id, source_url, is_news, title, body, is_merged, verified_by_sources)
-                    VALUES (:id, :url, :is_news, :title, :body, :is_merged, :verified_by)
+                    INSERT INTO articles_core (id, source_url, title, is_merged)
+                    VALUES (:id, :url, :title, :is_merged)
                 """),
                 {
                     "id": article_id,
                     "url": f"https://test.example.com/{unique_id}",
-                    "is_news": True,
                     "title": f"Test Article {unique_id}",
-                    "body": "Test body",
                     "is_merged": False,
-                    "verified_by": 0,
                 },
+            )
+            await session.execute(
+                text("""
+                    INSERT INTO article_bodies (article_id, body)
+                    VALUES (:article_id, :body)
+                """),
+                {"article_id": article_id, "body": "Test body"},
+            )
+            await session.execute(
+                text("""
+                    INSERT INTO article_analysis (article_id, is_news, verified_by_sources)
+                    VALUES (:article_id, :is_news, :verified_by)
+                """),
+                {"article_id": article_id, "is_news": True, "verified_by": 0},
             )
 
         try:
@@ -195,7 +217,7 @@ class TestArticleRepoIntegration:
             # Cleanup
             async with pool.session_context() as session:
                 await session.execute(
-                    text("DELETE FROM articles WHERE id = :id"),
+                    text("DELETE FROM articles_core WHERE id = :id"),
                     {"id": article_id},
                 )
 
@@ -210,18 +232,29 @@ class TestArticleRepoIntegration:
             article_id = uuid.uuid4()
             await session.execute(
                 text("""
-                    INSERT INTO articles (id, source_url, is_news, title, body, is_merged, verified_by_sources, persist_status)
-                    VALUES (:id, :url, :is_news, :title, :body, :is_merged, :verified_by, 'pg_done')
+                    INSERT INTO articles_core (id, source_url, title, is_merged, persist_status)
+                    VALUES (:id, :url, :title, :is_merged, 'pg_done')
                 """),
                 {
                     "id": article_id,
                     "url": f"https://test.example.com/{unique_id}",
-                    "is_news": True,
                     "title": f"Test Article {unique_id}",
-                    "body": "Test body",
                     "is_merged": False,
-                    "verified_by": 0,
                 },
+            )
+            await session.execute(
+                text("""
+                    INSERT INTO article_bodies (article_id, body)
+                    VALUES (:article_id, :body)
+                """),
+                {"article_id": article_id, "body": "Test body"},
+            )
+            await session.execute(
+                text("""
+                    INSERT INTO article_analysis (article_id, is_news, verified_by_sources)
+                    VALUES (:article_id, :is_news, :verified_by)
+                """),
+                {"article_id": article_id, "is_news": True, "verified_by": 0},
             )
 
         try:
@@ -231,7 +264,7 @@ class TestArticleRepoIntegration:
             # Cleanup
             async with pool.session_context() as session:
                 await session.execute(
-                    text("DELETE FROM articles WHERE source_url LIKE :pattern"),
+                    text("DELETE FROM articles_core WHERE source_url LIKE :pattern"),
                     {"pattern": f"%{unique_id}%"},
                 )
 
@@ -266,7 +299,7 @@ class TestArticleRepoIntegration:
             # Cleanup
             async with pool.session_context() as session:
                 await session.execute(
-                    text("DELETE FROM articles WHERE source_url LIKE :pattern"),
+                    text("DELETE FROM articles_core WHERE source_url LIKE :pattern"),
                     {"pattern": f"%{unique_id}%"},
                 )
 
@@ -304,7 +337,7 @@ class TestArticleRepoIntegration:
             # Cleanup
             async with pool.session_context() as session:
                 await session.execute(
-                    text("DELETE FROM articles WHERE source_url LIKE :pattern"),
+                    text("DELETE FROM articles_core WHERE source_url LIKE :pattern"),
                     {"pattern": f"%{unique_id}%"},
                 )
 
@@ -319,18 +352,29 @@ class TestArticleRepoIntegration:
             article_id = uuid.uuid4()
             await session.execute(
                 text("""
-                    INSERT INTO articles (id, source_url, is_news, title, body, is_merged, verified_by_sources)
-                    VALUES (:id, :url, :is_news, :title, :body, :is_merged, :verified_by)
+                    INSERT INTO articles_core (id, source_url, title, is_merged)
+                    VALUES (:id, :url, :title, :is_merged)
                 """),
                 {
                     "id": article_id,
                     "url": f"https://test.example.com/{unique_id}",
-                    "is_news": True,
                     "title": f"Test Article {unique_id}",
-                    "body": "Test body",
                     "is_merged": False,
-                    "verified_by": 0,
                 },
+            )
+            await session.execute(
+                text("""
+                    INSERT INTO article_bodies (article_id, body)
+                    VALUES (:article_id, :body)
+                """),
+                {"article_id": article_id, "body": "Test body"},
+            )
+            await session.execute(
+                text("""
+                    INSERT INTO article_analysis (article_id, is_news, verified_by_sources)
+                    VALUES (:article_id, :is_news, :verified_by)
+                """),
+                {"article_id": article_id, "is_news": True, "verified_by": 0},
             )
 
         try:
@@ -348,6 +392,6 @@ class TestArticleRepoIntegration:
             # Cleanup
             async with pool.session_context() as session:
                 await session.execute(
-                    text("DELETE FROM articles WHERE id = :id"),
+                    text("DELETE FROM articles_core WHERE id = :id"),
                     {"id": article_id},
                 )

@@ -37,7 +37,7 @@ SCHEMA_QUERIES = [
     """CREATE TABLE IF NOT EXISTS articles_core
     (
         id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-        source_url VARCHAR NOT NULL,
+        source_url VARCHAR NOT NULL UNIQUE,
         source_host VARCHAR,
         title VARCHAR,
         category VARCHAR,
@@ -87,7 +87,10 @@ SCHEMA_QUERIES = [
         content_check_score DECIMAL(3, 2),
         credibility_flags VARCHAR[],
         verified_by_sources INTEGER DEFAULT 0,
-        data_conflicts JSON DEFAULT '[]'
+        data_conflicts JSON DEFAULT '[]',
+        event_time TIMESTAMP WITH TIME ZONE,
+        image_forensics JSON DEFAULT '[]',
+        prompt_versions JSON
     )""",
     # ── Source Authorities ──────────────────────────────────────
     """CREATE TABLE IF NOT EXISTS source_authorities
@@ -395,7 +398,8 @@ VIEW_QUERIES = [
            a.is_news, a.subjects, a.key_data, a.impact, a.has_data,
            a.quality_score, a.sentiment, a.primary_emotion, a.emotion_targets,
            a.source_credibility, a.cross_verification, a.content_check_score,
-           a.credibility_flags, a.verified_by_sources, a.data_conflicts
+           a.credibility_flags, a.verified_by_sources, a.data_conflicts,
+           a.event_time, a.image_forensics, a.prompt_versions
     FROM articles_core c
     LEFT JOIN article_bodies b ON c.id = b.article_id
     LEFT JOIN article_analysis a ON c.id = a.article_id""",

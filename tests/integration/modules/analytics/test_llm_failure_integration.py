@@ -85,7 +85,7 @@ class TestLLMFailureEventChain:
         async with pool.session_context() as session:
             result = await session.execute(
                 text(
-                    "SELECT call_point, provider, error_type FROM llm_failures WHERE call_point = :cp"
+                    "SELECT call_point, provider, error_type FROM llm_failure_records WHERE call_point = :cp"
                 ),
                 {"cp": f"analyzer_{unique_id}"},
             )
@@ -97,7 +97,7 @@ class TestLLMFailureEventChain:
         # Cleanup
         async with pool.session_context() as session:
             await session.execute(
-                text("DELETE FROM llm_failures WHERE call_point = :cp"),
+                text("DELETE FROM llm_failure_records WHERE call_point = :cp"),
                 {"cp": f"analyzer_{unique_id}"},
             )
 
@@ -131,7 +131,7 @@ class TestLLMFailureEventChain:
         # Verify 3 records were created
         async with pool.session_context() as session:
             result = await session.execute(
-                text("SELECT COUNT(*) FROM llm_failures WHERE call_point LIKE :pattern"),
+                text("SELECT COUNT(*) FROM llm_failure_records WHERE call_point LIKE :pattern"),
                 {"pattern": f"node_{unique_id}%"},
             )
             count = result.scalar()
@@ -140,7 +140,7 @@ class TestLLMFailureEventChain:
         # Cleanup
         async with pool.session_context() as session:
             await session.execute(
-                text("DELETE FROM llm_failures WHERE call_point LIKE :pattern"),
+                text("DELETE FROM llm_failure_records WHERE call_point LIKE :pattern"),
                 {"pattern": f"node_{unique_id}%"},
             )
 
@@ -175,7 +175,7 @@ class TestLLMFailureEventChain:
         # Verify the record was created
         async with pool.session_context() as session:
             result = await session.execute(
-                text("SELECT COUNT(*) FROM llm_failures WHERE call_point = :cp"),
+                text("SELECT COUNT(*) FROM llm_failure_records WHERE call_point = :cp"),
                 {"cp": f"cleanup_test_{unique_id}"},
             )
             assert result.scalar() == 1
@@ -185,7 +185,7 @@ class TestLLMFailureEventChain:
         old_timestamp = datetime.now(UTC) - timedelta(days=2)
         async with pool.session_context() as session:
             await session.execute(
-                text("UPDATE llm_failures SET created_at = :old_ts WHERE call_point = :cp"),
+                text("UPDATE llm_failure_records SET created_at = :old_ts WHERE call_point = :cp"),
                 {"old_ts": old_timestamp, "cp": f"cleanup_test_{unique_id}"},
             )
             await session.commit()
@@ -196,7 +196,7 @@ class TestLLMFailureEventChain:
         # Verify record was deleted (actual test - rowcount may be -1 on some DB drivers like DuckDB)
         async with pool.session_context() as session:
             result = await session.execute(
-                text("SELECT COUNT(*) FROM llm_failures WHERE call_point = :cp"),
+                text("SELECT COUNT(*) FROM llm_failure_records WHERE call_point = :cp"),
                 {"cp": f"cleanup_test_{unique_id}"},
             )
             assert result.scalar() == 0
@@ -263,5 +263,6 @@ class TestLLMFailureEventChain:
         # Verify _setup_scheduler method exists and contains LLM failure job
         scheduler_source = inspect.getsource(Container._setup_scheduler)
         assert (
-            "aggregate_llm_usage" in scheduler_source or "cleanup_llm_failures" in scheduler_source
+            "aggregate_llm_usage" in scheduler_source
+            or "cleanup_llm_failure_records" in scheduler_source
         )

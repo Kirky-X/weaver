@@ -750,11 +750,9 @@ class ArticleRepo:
                 source_url=normalized_url,
                 source_host=raw.source_host or "",
                 title=raw.title or "",
-                is_news=True,
                 persist_status=PersistStatus.PENDING,
                 content_hash=content_hash,
                 task_id=task_id,
-                prompt_versions={"body_source": body_source} if body_source != "full" else None,
             )
             if raw.publish_time:
                 core.publish_time = raw.publish_time
@@ -768,6 +766,14 @@ class ArticleRepo:
                 body=effective_body,
             )
             session.add(body)
+
+            # Insert into article_analysis
+            analysis_values = {"article_id": core.id, "is_news": True}
+            prompt_versions = {"body_source": body_source} if body_source != "full" else None
+            if prompt_versions:
+                analysis_values["prompt_versions"] = prompt_versions
+            analysis = ArticleAnalysis(**analysis_values)
+            session.add(analysis)
 
             await session.commit()
 
