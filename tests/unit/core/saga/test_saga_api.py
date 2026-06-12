@@ -134,6 +134,66 @@ class TestCompensateSaga:
             assert exc_info.value.status_code == 500
 
 
+class TestRetrySaga:
+    """Tests for POST /api/v1/saga/{saga_id}/retry."""
+
+    @pytest.mark.asyncio
+    async def test_retry_saga_success(self, mock_orchestrator):
+        saga_id = uuid.uuid4()
+        article_id = uuid.uuid4()
+
+        mock_orchestrator.get_saga_status.return_value = {
+            "saga_id": str(saga_id),
+            "status": "failed",
+            "steps": [
+                {
+                    "step_name": "pg_insert",
+                    "step_status": "completed",
+                    "started_at": datetime.now(UTC).isoformat(),
+                    "completed_at": datetime.now(UTC).isoformat(),
+                    "error_message": None,
+                    "retry_count": 0,
+                }
+            ],
+        }
+
+        mock_log_repo = AsyncMock()
+        mock_entry = MagicMock()
+        mock_entry.article_id = article_id
+        mock_log_repo.get_by_saga_id.return_value = [mock_entry]
+        mock_orchestrator._log_repo = mock_log_repo
+
+        with patch(
+            "api.endpoints.saga.Endpoints.get_saga_orchestrator", return_value=mock_orchestrator
+        ):
+            from api.endpoints.saga import retry_saga
+
+            result = await retry_saga(saga_id)
+
+        assert result["article_id"] == str(article_id)
+        assert result["previous_status"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_retry_saga_not_found(self, mock_orchestrator):
+        saga_id = uuid.uuid4()
+        mock_orchestrator.get_saga_status.return_value = {
+            "saga_id": str(saga_id),
+            "status": "unknown",
+            "steps": [],
+        }
+
+        with patch(
+            "api.endpoints.saga.Endpoints.get_saga_orchestrator", return_value=mock_orchestrator
+        ):
+            from fastapi import HTTPException
+
+            from api.endpoints.saga import retry_saga
+
+            with pytest.raises(HTTPException) as exc_info:
+                await retry_saga(saga_id)
+            assert exc_info.value.status_code == 404
+
+
 class TestListFailedSagas:
     """Tests for GET /api/v1/saga/failed/list."""
 

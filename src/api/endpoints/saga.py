@@ -83,6 +83,57 @@ async def compensate_saga(saga_id: uuid.UUID) -> dict[str, Any]:
     }
 
 
+@router.post("/{saga_id}/retry", summary="Retry a failed saga")
+async def retry_saga(saga_id: uuid.UUID) -> dict[str, Any]:
+    """Retry a failed saga by re-processing the associated article.
+
+    Looks up the saga's article_id from logs and returns it so the caller
+    can re-trigger pipeline processing. The actual step re-execution is
+    handled by the pipeline service.
+
+    Args:
+        saga_id: UUID of the failed saga to retry.
+
+    Returns:
+        Dict with article_id for re-processing.
+
+    Raises:
+        HTTPException: 404 if saga not found.
+
+    """
+    orchestrator = Endpoints.get_saga_orchestrator()
+    status = await orchestrator.get_saga_status(saga_id)
+
+    if status.get("status") == "unknown":
+        raise HTTPException(status_code=404, detail=f"Saga {saga_id} not found")
+
+    # Extract article_id from the first log entry
+    steps = status.get("steps", [])
+    if not steps:
+        raise HTTPException(status_code=404, detail=f"No log entries found for saga {saga_id}")
+
+    # Get article_id from the saga logs
+    log_repo = orchestrator._log_repo
+    logs = await log_repo.get_by_saga_id(saga_id)
+    if not logs:
+        raise HTTPException(status_code=404, detail=f"No logs found for saga {saga_id}")
+
+    article_id = str(logs[0].article_id)
+
+    log.info(
+        "saga_retry_requested",
+        saga_id=str(saga_id),
+        article_id=article_id,
+    )
+
+    return {
+        "saga_id": str(saga_id),
+        "article_id": article_id,
+        "previous_status": status.get("status"),
+        "message": "Article identified for re-processing via pipeline",
+    }
+
+
 @router.get("/article/{article_id}", summary="Get sagas for article")
 async def get_article_sagas(article_id: uuid.UUID) -> dict[str, Any]:
     """Get all saga log entries for an article.
