@@ -495,6 +495,20 @@ class DailyBriefingSettings(BaseModel):
     lookback_hours: int = 24
 
 
+class SagaSettings(BaseModel):
+    """Saga compensation transaction configuration.
+
+    Environment variables: WEAVER_SAGA__TIMEOUT_SECONDS, etc.
+    """
+
+    timeout_seconds: int = 300  # Maximum saga execution time
+    max_retries: int = 3  # Maximum retry attempts per step
+    retry_base_delay: float = 1.0  # Base delay for exponential backoff
+    retry_max_delay: float = 30.0  # Maximum delay for exponential backoff
+    compensation_timeout: int = 120  # Timeout per compensation operation
+    log_retention_days: int = 30  # Days to retain saga logs before archival
+
+
 class FakeNewsDetectorSettings(BaseModel):
     """Fake news detector configuration (5-dimensional feature fusion).
 

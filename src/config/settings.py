@@ -55,6 +55,7 @@ from config.subconfigs import (
     PostgresSettings,
     PromptSettings,
     RedisSettings,
+    SagaSettings,
     SchedulerSettings,
     SearchSettings,
     SpacySettings,
@@ -123,6 +124,7 @@ class Settings(BaseSettings):
     # Analytics settings (loaded from TOML)
     analytics: AnalyticsSettings = Field(default_factory=AnalyticsSettings)
     daily_briefing: DailyBriefingSettings = Field(default_factory=DailyBriefingSettings)
+    saga: SagaSettings = Field(default_factory=SagaSettings)
     paddlenlp_sentiment: PaddleNLPSentimentSettings = Field(
         default_factory=PaddleNLPSentimentSettings
     )
