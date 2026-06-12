@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from core.protocols import (
         ArticleRepository,
         EntityRepository,
+        GraphWriter,
         VectorRepository,
     )
     from core.saga import SagaOrchestrator
@@ -30,6 +31,7 @@ if TYPE_CHECKING:
     )
     from modules.knowledge.graph import EntityResolver
     from modules.knowledge.graph.community.updater import IncrementalCommunityUpdater
+    from modules.memory.integration.memory_service import MemoryIntegrationService
     from modules.processing.pipeline.graph import Pipeline
     from modules.storage.postgres import PendingSyncRepo, SourceAuthorityRepo
 
@@ -55,7 +57,7 @@ class ContainerServicesMixin:
     _source_authority_repo: SourceAuthorityRepo | None
     _graph_entity_repo: Any
     _graph_article_repo: Any
-    _graph_writer: Any
+    _graph_writer: GraphWriter | None
     _graph_repo: Any
     _entity_resolver: EntityResolver | None
     _smart_fetcher: SmartFetcher | None
@@ -77,7 +79,7 @@ class ContainerServicesMixin:
     _scheduler: Any
     _community_updater: IncrementalCommunityUpdater | None
     _relation_type_normalizer: Any
-    _memory_service: Any
+    _memory_service: MemoryIntegrationService | None
     _saga_orchestrator: SagaOrchestrator | None
     _shutdown: bool
     _knowledge_cache: Any
@@ -307,7 +309,7 @@ class ContainerServicesMixin:
             self._causal_repo = CausalGraphRepo(graph_pool)
         return self._causal_repo
 
-    def graph_writer(self) -> Any | None:
+    def graph_writer(self) -> GraphWriter | None:
         """Get graph writer (Neo4j or LadybugDB implementation)."""
         graph_pool = self.graph_pool()
         if graph_pool is None:

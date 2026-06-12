@@ -176,6 +176,10 @@ class ContainerLifecycleMixin:
             if self._eval_runner:
                 self._eval_runner._llm_client = self._llm_client
                 self._llm_client._eval_runner = self._eval_runner
+
+            # Initialize TieredRouter from call-point configuration
+            self._init_tiered_router()
+
             log.info("llm_client_initialized_with_smart_routing")
         return self._llm_client
 
@@ -184,6 +188,49 @@ class ContainerLifecycleMixin:
         if self._llm_client is None:
             raise RuntimeError("LLM client not initialized. Call init_llm() first.")
         return self._llm_client
+
+    def _init_tiered_router(self) -> None:
+        """Initialize TieredRouter from call-point configuration.
+
+        Scans all call points for tiered_routing=True and builds
+        a TieredRouter with per-call-point tier configurations.
+        """
+        from core.llm.routing.difficulty_estimator import DifficultyEstimator
+        from core.llm.routing.tiered_router import TierConfig, TieredRouter
+        from core.observability import get_logger
+
+        log = get_logger(__name__)
+
+        if self._llm_client is None:
+            return
+
+        call_points = self._settings.llm.call_points
+        tiers_by_call_point: dict[str, list[TierConfig]] = {}
+        for cp_name, cp_config in call_points.items():
+            if cp_config.tiered_routing and cp_config.tiers:
+                tiers_by_call_point[cp_name] = [
+                    TierConfig(
+                        label=t.label,
+                        max_difficulty=t.max_difficulty,
+                        input_truncation=t.input_truncation,
+                    )
+                    for t in cp_config.tiers
+                ]
+
+        if not tiers_by_call_point:
+            log.debug("tiered_routing_no_configured_call_points")
+            return
+
+        estimator = DifficultyEstimator()
+        tiered_router = TieredRouter(
+            estimator=estimator,
+            tiers_by_call_point=tiers_by_call_point,
+        )
+        self._llm_client._tiered_router = tiered_router
+        log.info(
+            "tiered_router_initialized",
+            call_points=list(tiers_by_call_point.keys()),
+        )
 
     # ── Knowledge Cache ─────────────────────────────────────────
 
@@ -654,7 +701,11 @@ class ContainerLifecycleMixin:
 
     @property
     def memory_service(self) -> Any | None:
-        """Return the memory service."""
+        """Return the memory service.
+
+        Note: Type annotation kept as Any | None to avoid circular import.
+        Runtime type is MemoryIntegrationService | None.
+        """
         return self._memory_service
 
     async def init_memory_service(self) -> Any | None:
@@ -1081,12 +1132,3 @@ class ContainerLifecycleMixin:
                 log.info("llm_config_reload_complete")
         except Exception as e:
             log.error("llm_config_reload_failed", error=str(e))
-
-    def _get_embedding_model_id(self) -> str:
-        """Get embedding model ID from configuration.
-
-        Delegates to core.utils.model_id.extract_embedding_model_id.
-        """
-        from core.utils.model_id import extract_embedding_model_id
-
-        return extract_embedding_model_id(self._settings.llm)
