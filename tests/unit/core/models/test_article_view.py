@@ -53,16 +53,16 @@ class TestArticleViewAlignment(ViewModelTestBase):
     def test_verified_by_sources_field_exists(self):
         article = self._create_minimal_instance()
         assert hasattr(article, "verified_by_sources")
-        assert article.verified_by_sources is False
+        assert article.verified_by_sources == 0
 
     def test_verified_by_sources_can_be_set(self):
         article = ArticleView(
             id=uuid4(),
             source_url="https://example.com/article",
             title="Test Article",
-            verified_by_sources=True,
+            verified_by_sources=1,
         )
-        assert article.verified_by_sources is True
+        assert article.verified_by_sources == 1
 
     def test_has_all_required_fields(self):
         article_id = uuid4()
@@ -86,7 +86,7 @@ class TestArticleViewAlignment(ViewModelTestBase):
 
     def test_default_values(self):
         article = self._create_minimal_instance()
-        assert article.verified_by_sources is False
+        assert article.verified_by_sources == 0
         assert article.data_conflicts == []
         assert article.source_host is None
         assert article.category is None
@@ -119,7 +119,7 @@ class TestArticleViewAlignment(ViewModelTestBase):
             "credibility_score": 0.9,
             "cross_verification": 0.75,
             "persist_status": "completed",
-            "verified_by_sources": True,
+            "verified_by_sources": 1,
             "publish_time": None,
             "created_at": None,
             "updated_at": None,
@@ -130,7 +130,7 @@ class TestArticleViewAlignment(ViewModelTestBase):
         assert article.category == "tech"
         assert article.sentiment == "positive"
         assert article.persist_status == "completed"
-        assert article.verified_by_sources is True
+        assert article.verified_by_sources == 1
 
     def test_model_validate_from_orm_instance(self):
         article_id = uuid4()
@@ -156,7 +156,7 @@ class TestArticleViewAlignment(ViewModelTestBase):
             credibility_score = 0.9
             cross_verification = 0.75
             persist_status = "completed"
-            verified_by_sources = True
+            verified_by_sources = 1
             publish_time = None
             created_at = None
             updated_at = None
@@ -165,7 +165,7 @@ class TestArticleViewAlignment(ViewModelTestBase):
         assert article.id == article_id
         assert article.title == "Test Article"
         assert article.category == "tech"
-        assert article.verified_by_sources is True
+        assert article.verified_by_sources == 1
 
     def test_serialize_to_dict(self):
         """Override to add specific field assertions."""
@@ -175,4 +175,4 @@ class TestArticleViewAlignment(ViewModelTestBase):
         assert data["title"] == "Test Article"
         assert data["source_url"] == "https://example.com/article"
         assert data["persist_status"] == "pending"
-        assert data["verified_by_sources"] is False
+        assert data["verified_by_sources"] == 0

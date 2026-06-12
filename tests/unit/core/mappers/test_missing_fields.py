@@ -22,7 +22,7 @@ class TestMapperMissingFields:
         assert result.sentiment is None
         assert result.credibility_score is None
         assert result.source_host is None
-        assert result.verified_by_sources is False
+        assert result.verified_by_sources == 0
 
     def test_neo4j_mapper_minimal_fields(self):
         result = Neo4jEntityMapper.to_view(

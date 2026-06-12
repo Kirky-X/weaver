@@ -34,6 +34,6 @@ class PostgresArticleMapper:
 
         # Default for verified_by_sources when missing
         if "verified_by_sources" not in data:
-            data["verified_by_sources"] = False
+            data["verified_by_sources"] = 0
 
         return ArticleView.model_validate(data)

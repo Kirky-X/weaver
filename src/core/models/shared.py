@@ -33,7 +33,7 @@ class ArticleView(BaseModel):
     credibility_score: float | None = None
     cross_verification: float | None = None
     persist_status: str = "pending"
-    verified_by_sources: bool = False
+    verified_by_sources: int = 0
     publish_time: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

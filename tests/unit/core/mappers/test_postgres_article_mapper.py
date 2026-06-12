@@ -41,7 +41,7 @@ class TestPostgresArticleMapper:
         assert result.title == "Test Article"
         assert result.category == "tech"
         assert result.score == 0.95
-        assert result.verified_by_sources is True
+        assert result.verified_by_sources == 1
 
     def test_to_view_maps_all_fields_correctly(self):
         article_id = uuid4()
@@ -53,7 +53,7 @@ class TestPostgresArticleMapper:
         result = PostgresArticleMapper.to_view(orm_data)
         assert result.source_url == "https://example.com/article"
         assert result.persist_status == "pending"
-        assert result.verified_by_sources is False
+        assert result.verified_by_sources == 0
 
     def test_to_view_with_orm_instance(self):
         article_id = uuid4()
@@ -104,7 +104,7 @@ class TestPostgresArticleMapper:
         assert isinstance(result.score, float)
 
     def test_to_view_handles_missing_verified_by_sources(self):
-        """Mapper SHALL default verified_by_sources to False when missing."""
+        """Mapper SHALL default verified_by_sources to 0 when missing."""
         article_id = uuid4()
         orm_data = {
             "id": article_id,
@@ -112,7 +112,7 @@ class TestPostgresArticleMapper:
             "title": "Test",
         }
         result = PostgresArticleMapper.to_view(orm_data)
-        assert result.verified_by_sources is False
+        assert result.verified_by_sources == 0
 
     def test_to_view_ignores_removed_fields(self):
         """Mapper SHALL ignore fields that have been removed from ArticleView."""
