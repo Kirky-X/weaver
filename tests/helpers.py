@@ -202,6 +202,62 @@ def create_mock_embedding(dimensions: int = 1536, fill_value: float = 0.1) -> li
     return [fill_value] * dimensions
 
 
+def create_mock_async_connection(**kwargs) -> MagicMock:
+    """Create a mock async context manager connection.
+
+    The returned mock supports ``async with`` usage and can have
+    additional attributes set via keyword arguments.
+
+    Args:
+        **kwargs: Attributes to set on the mock connection.
+
+    Returns:
+        MagicMock with __aenter__ returning itself and __aexit__ returning None.
+    """
+    conn = MagicMock()
+    conn.__aenter__ = AsyncMock(return_value=conn)
+    conn.__aexit__ = AsyncMock(return_value=None)
+    for key, value in kwargs.items():
+        setattr(conn, key, value)
+    return conn
+
+
+def create_mock_pool_with_engine(engine_attr: str = "engine") -> tuple[MagicMock, MagicMock]:
+    """Create a mock pool with an attached mock engine.
+
+    Args:
+        engine_attr: Attribute name on the pool for the engine (default: "engine").
+            Use "_engine" for DuckDB pools.
+
+    Returns:
+        Tuple of (pool, engine) where ``getattr(pool, engine_attr) == engine``.
+    """
+    pool = MagicMock()
+    engine = MagicMock()
+    setattr(pool, engine_attr, engine)
+    return pool, engine
+
+
+def create_mock_llm(
+    call_return: str = '{"result": "success"}',
+    embed_return: list[float] | None = None,
+) -> MagicMock:
+    """Create a standard mock LLM client.
+
+    Args:
+        call_return: Return value for ``call`` and ``call_with_fallback`` (default: success JSON).
+        embed_return: Return value for ``embed`` (default: [0.1] * 1536).
+
+    Returns:
+        MagicMock with call, call_with_fallback, and embed methods.
+    """
+    llm = MagicMock()
+    llm.call = AsyncMock(return_value=call_return)
+    llm.call_with_fallback = AsyncMock(return_value=call_return)
+    llm.embed = AsyncMock(return_value=embed_return or [0.1] * 1536)
+    return llm
+
+
 def create_migration_request_data(
     source_db: str = "postgres",
     target_db: str = "duckdb",

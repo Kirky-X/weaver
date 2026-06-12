@@ -55,12 +55,6 @@ def mock_llm():
 
 
 @pytest.fixture
-def auth_headers():
-    """Standard auth headers for API testing."""
-    return {"X-API-Key": "test-api-key"}
-
-
-@pytest.fixture
 def mock_redis():
     """Create standard mock Redis client for unit tests."""
     from tests.helpers import create_mock_cache_client
@@ -71,18 +65,9 @@ def mock_redis():
 @pytest.fixture(scope="module")
 def mock_postgres_pool():
     """Mock PostgreSQL pool for testing - module scoped for performance."""
-    pool = MagicMock()
-    session = MagicMock()
-    session.__aenter__ = AsyncMock(return_value=session)
-    session.__aexit__ = AsyncMock(return_value=None)
-    session.execute = AsyncMock()
-    session.commit = AsyncMock()
-    session.rollback = AsyncMock()
-    session.refresh = AsyncMock()
-    session.add = MagicMock()
-    session.delete = MagicMock()
-    pool.session = MagicMock(return_value=session)
-    return pool
+    from tests.helpers import create_mock_relational_pool
+
+    return create_mock_relational_pool()
 
 
 @pytest.fixture
@@ -96,11 +81,12 @@ def mock_postgres_session():
 @pytest.fixture(scope="module")
 def mock_graph_pool():
     """Mock graph database pool for testing - module scoped for performance."""
+    from tests.helpers import create_mock_neo4j_session
+
     pool = MagicMock()
-    session = MagicMock()
+    session = create_mock_neo4j_session()
     session.__aenter__ = AsyncMock(return_value=session)
     session.__aexit__ = AsyncMock(return_value=None)
-    session.run = AsyncMock()
     pool.session = MagicMock(return_value=session)
     pool.execute_query = AsyncMock(return_value=[])
     return pool

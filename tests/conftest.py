@@ -133,3 +133,18 @@ def pytest_sessionfinish(session, exitstatus):
         pass
     except Exception:
         pass
+
+
+# ────────────────────────────────────────────────────────────
+# Shared fixtures
+# ────────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def auth_headers():
+    """Standard auth headers for API testing.
+
+    Returns ``{"X-API-Key": "test-api-key"}``.  Integration and E2E
+    conftest files override this fixture with environment-specific keys.
+    """
+    return {"X-API-Key": "test-api-key"}
