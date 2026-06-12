@@ -67,6 +67,11 @@ class MetricsCollector:
         "pipeline_queue_depth",
         "Pipeline 任务队列深度",
     )
+    content_hash_cache_hit_total = Counter(
+        "content_hash_cache_hit_total",
+        "Content hash cache hit/miss count",
+        ["hit"],
+    )
 
     # Credibility metrics
     credibility_score_dist = Histogram(

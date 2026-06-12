@@ -197,6 +197,7 @@ class Pipeline:
             else None
         )
         self._entity_resolver = entity_resolver
+        self._cache_client = cache_client
         self._checkpoint_cleanup = CheckpointCleanupNode(cache_client)
         self._article_repo = article_repo
         self._graph_writer = graph_writer
@@ -308,6 +309,99 @@ class Pipeline:
             else:
                 log.debug("memory_ingest_event_published", article_id=event.article_id)
 
+    # ── Content hash cache methods ───────────────────────────────────────
+
+    async def _check_content_hash_cache(
+        self, articles: list[RawArticle]
+    ) -> list[dict[str, Any] | None]:
+        """Check content hash cache for a batch of articles.
+
+        Args:
+            articles: List of raw articles to check.
+
+        Returns:
+            List of cached results (None for cache misses).
+        """
+        if not self._cache_client:
+            return [None] * len(articles)
+
+        import hashlib
+        import json
+
+        # Compute content hashes
+        cache_keys = []
+        for article in articles:
+            content = f"{article.title}{article.body}"
+            content_hash = hashlib.sha256(content.encode()).hexdigest()
+            cache_keys.append(f"content_hash:{content_hash}")
+
+        try:
+            cached_values = await self._cache_client.mget(cache_keys)
+            results: list[dict[str, Any] | None] = []
+            for cached in cached_values:
+                if cached:
+                    try:
+                        results.append(json.loads(cached))
+                        MetricsCollector.content_hash_cache_hit_total.labels(hit="hit").inc()
+                    except (json.JSONDecodeError, TypeError):
+                        results.append(None)
+                        MetricsCollector.content_hash_cache_hit_total.labels(hit="miss").inc()
+                else:
+                    results.append(None)
+                    MetricsCollector.content_hash_cache_hit_total.labels(hit="miss").inc()
+            return results
+        except Exception as exc:
+            log.warning("content_hash_cache_check_failed", error=str(exc))
+            return [None] * len(articles)
+
+    async def _write_content_hash_cache(self, state: PipelineState) -> None:
+        """Write processing result to content hash cache.
+
+        Args:
+            state: Completed pipeline state to cache.
+        """
+        if not self._cache_client:
+            return
+
+        import hashlib
+        import json
+
+        raw = state.get("raw")
+        if not raw:
+            return
+
+        content = f"{raw.title}{raw.body}"
+        content_hash = hashlib.sha256(content.encode()).hexdigest()
+        cache_key = f"content_hash:{content_hash}"
+
+        # Cache essential fields
+        cache_data = {
+            "title": state.get("title", raw.title),
+            "body": state.get("body", raw.body),
+            "category": state.get("category"),
+            "quality_score": state.get("quality_score"),
+            "credibility_score": state.get("credibility_score"),
+            "sentiment_score": state.get("sentiment_score"),
+        }
+
+        try:
+            await self._cache_client.set(
+                cache_key,
+                json.dumps(cache_data, ensure_ascii=False),
+                ex=604800,  # 7 days TTL
+            )
+        except Exception as exc:
+            log.warning("content_hash_cache_write_failed", error=str(exc))
+
+    async def _write_content_hash_cache_batch(self, states: list[PipelineState]) -> None:
+        """Write multiple processing results to content hash cache.
+
+        Args:
+            states: List of completed pipeline states to cache.
+        """
+        for state in states:
+            await self._write_content_hash_cache(state)
+
     async def process_batch(
         self,
         articles: list[RawArticle],
@@ -344,6 +438,17 @@ class Pipeline:
             if task_id is not None:
                 state["task_id"] = str(task_id)
             states.append(state)
+
+        # ── Section: Content hash cache check ───────────────────────
+        cached_results = await self._check_content_hash_cache(articles)
+        cache_hits = 0
+        for i, cached in enumerate(cached_results):
+            if cached is not None:
+                states[i].update(cached)
+                states[i]["_cache_hit"] = True
+                cache_hits += 1
+        if cache_hits > 0:
+            log.info("content_hash_cache_hit", hits=cache_hits, total=len(articles))
 
         # ── Section: Phase 1 — Per-article concurrent nodes (batched) ────────
         batch_size = self._settings.pipeline_process.worker_batch_size if self._settings else 20
@@ -475,6 +580,13 @@ class Pipeline:
 
             # Phase 6: Publish memory ingest events for successful states
             await self._publish_memory_events(states)
+
+            # Phase 7: Write content hash cache for successful states
+            successful_states = [
+                s for s in states if not s.get("terminal") and not s.get("_cache_hit")
+            ]
+            if successful_states:
+                await self._write_content_hash_cache_batch(successful_states)
 
             log.info(
                 "pipeline_batch_complete",
