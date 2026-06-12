@@ -1,0 +1,31 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
+"""Saga compensation transaction module.
+
+Provides the Saga orchestration pattern for cross-database atomicity
+across PostgreSQL, Neo4j, and Redis. Includes:
+
+- CompensationCommand: Abstract base for compensation operations
+- PostgresCompensation: Rollback PostgreSQL operations
+- Neo4jCompensation: Rollback Neo4j operations
+- CompensationExecutor: Execute compensations in reverse order
+- SagaOrchestrator: Coordinate saga lifecycle
+- SagaLogRepo: Persist saga execution logs
+"""
+
+from core.saga.compensation import (
+    CompensationCommand,
+    Neo4jCompensation,
+    PostgresCompensation,
+)
+from core.saga.executor import CompensationExecutor
+from core.saga.orchestrator import SagaOrchestrator
+from core.saga.repository import SagaLogRepo
+
+__all__ = [
+    "CompensationCommand",
+    "CompensationExecutor",
+    "Neo4jCompensation",
+    "PostgresCompensation",
+    "SagaLogRepo",
+    "SagaOrchestrator",
+]
