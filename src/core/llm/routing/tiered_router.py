@@ -2,8 +2,8 @@
 """TieredRouter: difficulty-based tiered LLM routing.
 
 Routes based on difficulty score to tiered LLM providers using
-concrete Provider labels (e.g., "fastText", "ollama.gemma4:e4b",
-"aiping.GLM-4-9B") instead of abstract tier strings.
+Label objects (e.g., Label("chat.fasttext.classifier")) instead
+of abstract tier strings.
 
 Implements: standalone router, no protocol yet.
 """
@@ -11,7 +11,9 @@ Implements: standalone router, no protocol yet.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, ClassVar
+
+from core.llm.routing.difficulty_estimator import DifficultyEstimator
+from core.llm.types import Label
 
 
 @dataclass
@@ -19,15 +21,13 @@ class TierConfig:
     """A single tier entry in the routing table.
 
     Attributes:
-        backend: Concrete provider label (e.g., "fastText", "ollama.gemma4:e4b").
+        label: Full Label string (e.g., "chat.fasttext.classifier").
         max_difficulty: Upper bound of difficulty for this tier (0.0-1.0).
-        provider: Provider configuration dict.
         input_truncation: Maximum input tokens for this tier, or None for no limit.
     """
 
-    backend: str
+    label: str
     max_difficulty: float
-    provider: dict[str, Any] = field(default_factory=dict)
     input_truncation: int | None = None
 
 
@@ -35,176 +35,76 @@ class TierConfig:
 class TieredRouter:
     """Routes based on difficulty score to tiered LLM providers.
 
-    Uses a tiers list structure where each tier entry contains:
-    - backend: concrete provider label
-    - max_difficulty: upper bound for this tier
-    - provider: provider configuration
-    - input_truncation: optional token limit
+    Uses DifficultyEstimator to score input text difficulty, then
+    selects the appropriate tier based on max_difficulty thresholds.
+
+    Args:
+        estimator: DifficultyEstimator instance for scoring text.
+        tiers: Optional unified tiers list applied to all call points.
+        tiers_by_call_point: Optional per-call-point tier configuration.
+            When both tiers and tiers_by_call_point are provided,
+            tiers takes precedence.
 
     Implements: standalone router, no protocol yet.
     """
 
-    ROUTING_TABLE: ClassVar[dict[str, dict[str, Any]]] = {
-        "classifier": {
-            "tiers": [
-                {
-                    "backend": "fastText",
-                    "max_difficulty": 0.3,
-                    "provider": {"model": "fasttext"},
-                    "input_truncation": 512,
-                },
-                {
-                    "backend": "ollama.gemma4:e4b",
-                    "max_difficulty": 0.7,
-                    "provider": {"model": "gemma4"},
-                    "input_truncation": 2048,
-                },
-                {
-                    "backend": "aiping.GLM-4-9B",
-                    "max_difficulty": 1.0,
-                    "provider": {"model": "glm4"},
-                    "input_truncation": None,
-                },
-            ],
-        },
-        "categorizer": {
-            "tiers": [
-                {
-                    "backend": "fastText",
-                    "max_difficulty": 0.3,
-                    "provider": {"model": "fasttext"},
-                    "input_truncation": 512,
-                },
-                {
-                    "backend": "ollama.gemma4:e4b",
-                    "max_difficulty": 0.7,
-                    "provider": {"model": "gemma4"},
-                    "input_truncation": 2048,
-                },
-                {
-                    "backend": "aiping.GLM-4-9B",
-                    "max_difficulty": 1.0,
-                    "provider": {"model": "glm4"},
-                    "input_truncation": None,
-                },
-            ],
-        },
-        "analyze": {
-            "tiers": [
-                {
-                    "backend": "ollama.gemma4:e4b",
-                    "max_difficulty": 0.5,
-                    "provider": {"model": "gemma4"},
-                    "input_truncation": 2048,
-                },
-                {
-                    "backend": "ollama.gemma4:e4b",
-                    "max_difficulty": 0.7,
-                    "provider": {"model": "gemma4"},
-                    "input_truncation": 2048,
-                },
-                {
-                    "backend": "aiping.GLM-4-9B",
-                    "max_difficulty": 1.0,
-                    "provider": {"model": "glm4"},
-                    "input_truncation": None,
-                },
-            ],
-        },
-        "entity_extractor": {
-            "tiers": [
-                {
-                    "backend": "ollama.gemma4:e4b",
-                    "max_difficulty": 0.4,
-                    "provider": {"model": "gemma4"},
-                    "input_truncation": 2048,
-                },
-                {
-                    "backend": "ollama.gemma4:e4b",
-                    "max_difficulty": 0.7,
-                    "provider": {"model": "gemma4"},
-                    "input_truncation": 2048,
-                },
-                {
-                    "backend": "aiping.GLM-4-9B",
-                    "max_difficulty": 1.0,
-                    "provider": {"model": "glm4"},
-                    "input_truncation": None,
-                },
-            ],
-        },
-    }
+    estimator: DifficultyEstimator = field(default_factory=DifficultyEstimator)
+    tiers: list[TierConfig] | None = None
+    tiers_by_call_point: dict[str, list[TierConfig]] = field(default_factory=dict)
 
-    DEFAULT_TIERS: ClassVar[list[dict[str, Any]]] = [
-        {
-            "backend": "fastText",
-            "max_difficulty": 0.3,
-            "provider": {"model": "fasttext"},
-            "input_truncation": 512,
-        },
-        {
-            "backend": "ollama.gemma4:e4b",
-            "max_difficulty": 0.7,
-            "provider": {"model": "gemma4"},
-            "input_truncation": 2048,
-        },
-        {
-            "backend": "aiping.GLM-4-9B",
-            "max_difficulty": 1.0,
-            "provider": {"model": "glm4"},
-            "input_truncation": None,
-        },
-    ]
+    def _get_tiers(self, call_point: str) -> list[TierConfig] | None:
+        """Get the tiers list for a call point.
 
-    def __init__(self, tiers: list[TierConfig] | None = None) -> None:
-        """Initialize the TieredRouter.
-
-        Args:
-            tiers: Optional custom tiers list. When provided, overrides
-                   the per-call-point routing table with a single unified
-                   tiers configuration used for all call points.
+        Priority: self.tiers (unified) > tiers_by_call_point > None.
         """
-        self._custom_tiers = tiers
+        if self.tiers is not None:
+            return self.tiers
+        return self.tiers_by_call_point.get(call_point)
 
-    def _get_tiers(self, call_point: str) -> list[dict[str, Any]]:
-        """Get the tiers list for a call point."""
-        if self._custom_tiers is not None:
-            return [
-                {
-                    "backend": t.backend,
-                    "max_difficulty": t.max_difficulty,
-                    "provider": t.provider,
-                    "input_truncation": t.input_truncation,
-                }
-                for t in self._custom_tiers
-            ]
-        config = self.ROUTING_TABLE.get(call_point)
-        if config is not None:
-            return config["tiers"]
-        return self.DEFAULT_TIERS
-
-    def _find_tier(self, call_point: str, difficulty: float) -> dict[str, Any]:
+    def _find_tier(self, call_point: str, difficulty: float) -> TierConfig | None:
         """Find the matching tier for a given difficulty."""
         tiers = self._get_tiers(call_point)
+        if tiers is None:
+            return None
         for tier in tiers:
-            if difficulty < tier["max_difficulty"]:
+            if difficulty < tier.max_difficulty:
                 return tier
         # Fallback to last tier (should always match if max_difficulty=1.0)
         return tiers[-1]
 
-    def route(self, call_point: str, difficulty: float) -> str:
-        """Route to a provider based on call_point and difficulty score.
+    def route(self, call_point: str, text: str, entity_count: int = 0) -> Label | None:
+        """Route to a provider based on call_point and input text.
 
-        Returns a concrete provider label (e.g., "fastText",
-        "ollama.gemma4:e4b", "aiping.GLM-4-9B").
+        Estimates difficulty from the text, then selects the appropriate
+        tier and returns the corresponding Label.
+
+        Args:
+            call_point: Pipeline stage name (e.g., "classifier").
+            text: Input text to route.
+            entity_count: Optional entity count for difficulty estimation.
+
+        Returns:
+            Label for the selected tier, or None if no tiers configured.
         """
+        difficulty = self.estimator.estimate(call_point, text, entity_count=entity_count)
         tier = self._find_tier(call_point, difficulty)
-        return tier["backend"]
+        if tier is None:
+            return None
+        return Label.parse(tier.label)
 
-    def get_input_truncation(self, call_point: str, difficulty: float) -> int | None:
+    def get_input_truncation(self, call_point: str, text: str, entity_count: int = 0) -> int | None:
         """Get the input truncation limit for the matched tier.
 
-        Returns the maximum input token count, or None if no truncation.
+        Args:
+            call_point: Pipeline stage name.
+            text: Input text to route.
+            entity_count: Optional entity count for difficulty estimation.
+
+        Returns:
+            Maximum input token count, or None if no truncation or no tiers.
         """
+        difficulty = self.estimator.estimate(call_point, text, entity_count=entity_count)
         tier = self._find_tier(call_point, difficulty)
-        return tier.get("input_truncation")
+        if tier is None:
+            return None
+        return tier.input_truncation
