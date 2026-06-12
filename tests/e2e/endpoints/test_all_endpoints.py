@@ -21,7 +21,7 @@ from fastapi.testclient import TestClient
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
 # Add tests/e2e to path for local imports
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from api_response_recorder import APIResponseRecorder
 from data_validator import DataValidator
