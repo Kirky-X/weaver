@@ -117,14 +117,19 @@ class TestEventViewAlignment(ViewModelTestBase):
             time=now,
             status="ongoing",
             importance=0.9,
-            participants=["Alice", "Bob"],
-            narratives=["narrative1"],
+            participants=[
+                {"entity_id": "Alice", "role": "initiator"},
+                {"entity_id": "Bob", "role": "observer"},
+            ],
+            narratives=[{"text": "narrative1", "source": "article_1", "confidence": 0.9}],
             source_article_id=str(uuid4()),
         )
         assert event.status == "ongoing"
         assert event.importance == 0.9
-        assert event.participants == ["Alice", "Bob"]
-        assert event.narratives == ["narrative1"]
+        assert len(event.participants) == 2
+        assert event.participants[0]["entity_id"] == "Alice"
+        assert len(event.narratives) == 1
+        assert event.narratives[0]["text"] == "narrative1"
         assert event.time == now
 
     def test_serialize_to_dict(self):

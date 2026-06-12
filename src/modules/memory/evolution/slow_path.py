@@ -323,8 +323,11 @@ class StructuralConsolidationWorker:
         for event in events:
             event_type = event.get("event_type", "unknown")
             participants = event.get("participants", [])
-            # Sort participants for consistent grouping
-            participants_key = ",".join(sorted(participants))
+            # Extract entity_id from dict participants (GAP-W03: list[dict] not list[str])
+            participant_ids = sorted(
+                p["entity_id"] if isinstance(p, dict) else str(p) for p in participants
+            )
+            participants_key = ",".join(participant_ids)
             group_key = f"{event_type}|{participants_key}"
 
             if group_key not in groups:
@@ -365,8 +368,14 @@ class StructuralConsolidationWorker:
         participants = cluster.get("participants", [])
         events = cluster.get("events", [])
 
-        # Build pattern from participants
-        pattern = "_vs_".join(sorted(participants)) if participants else event_type
+        # Build pattern from participants (extract entity_id from dicts)
+        pattern = (
+            "_vs_".join(
+                sorted(p["entity_id"] if isinstance(p, dict) else str(p) for p in participants)
+            )
+            if participants
+            else event_type
+        )
 
         # Confidence based on cluster size (more events = higher confidence)
         confidence = min(len(events) / 10.0, 1.0)
