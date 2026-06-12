@@ -132,6 +132,14 @@ class LLMResponse:
     model: str
 
 
+class TierConfig(BaseModel):
+    """Tiered routing tier configuration - pydantic BaseModel for TOML loading."""
+
+    label: str = ""
+    max_difficulty: float = 1.0
+    input_truncation: int | None = None
+
+
 class RoutingConfig(BaseModel):
     """路由配置 - pydantic BaseModel for TOML loading."""
 
@@ -141,6 +149,10 @@ class RoutingConfig(BaseModel):
     max_tokens: int | None = None
     temperature: float | None = None
     response_format: str | None = None  # "json" for Ollama JSON mode
+
+    # Tiered routing (difficulty-based provider selection)
+    tiered_routing: bool = False
+    tiers: list[TierConfig] = []
 
     def __post_init__(self) -> None:
         """Ensure fallbacks is initialized."""

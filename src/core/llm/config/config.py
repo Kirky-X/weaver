@@ -19,6 +19,7 @@ from core.llm.types import (
     ProviderConfig,
     RoutingConfig,
     RoutingMode,
+    TierConfig,
 )
 from core.observability import get_logger
 from core.utils.paths import PROJECT_ROOT
@@ -112,6 +113,16 @@ class LLMSettings(BaseSettings):
                 if isinstance(val, RoutingConfig):
                     result[key] = val
                 elif isinstance(val, dict):
+                    # Parse tiers if present
+                    tiers_data = val.pop("tiers", None)
+                    tiers: list[TierConfig] = []
+                    if isinstance(tiers_data, list):
+                        for tier_data in tiers_data:
+                            if isinstance(tier_data, TierConfig):
+                                tiers.append(tier_data)
+                            elif isinstance(tier_data, dict):
+                                tiers.append(TierConfig(**tier_data))
+                    val["tiers"] = tiers
                     result[key] = RoutingConfig(**val)
             return result
         return {}
