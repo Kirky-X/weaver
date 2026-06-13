@@ -286,6 +286,27 @@ class MetricsCollector:
         ["failure_type"],  # failure_type: saga_failed, compensation_failed, saga_timeout
     )
 
+    # Cache fallback metrics
+    cache_fallback_active = Gauge(
+        "cache_fallback_active",
+        "Whether cache is running in fallback mode (1=degraded, 0=primary)",
+    )
+    cache_fallback_switches_total = Counter(
+        "cache_fallback_switches_total",
+        "Total number of cache fallback switches (primary→fallback)",
+    )
+
+    # Pipeline throughput metrics
+    pipeline_throughput_articles_per_minute = Gauge(
+        "pipeline_throughput_articles_per_minute",
+        "Pipeline throughput in articles processed per minute",
+        ["worker_id"],
+    )
+    pipeline_throughput_low_total = Counter(
+        "pipeline_throughput_low_total",
+        "Total times pipeline throughput dropped below threshold",
+    )
+
 
 # Global metrics instance for use across modules
 metrics = MetricsCollector()

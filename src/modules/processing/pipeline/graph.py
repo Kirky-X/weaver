@@ -17,6 +17,7 @@ from core.llm.config.token_budget import TokenBudgetManager
 from core.llm.resilience.pool import AllProvidersFailedError
 from core.observability import get_logger
 from core.observability.metrics import MetricsCollector
+from core.observability.throughput import PipelineThroughputTracker
 from core.prompt.loader import PromptLoader
 from modules.ingestion.domain.models import RawArticle
 from modules.knowledge.graph.community.updater import (
@@ -124,6 +125,7 @@ class Pipeline:
         self._event_bus = event_bus
         self._settings = settings
         self._debug = debug
+        self._throughput_tracker = PipelineThroughputTracker()
 
         # Concurrency limits - read from PipelineSettings, fallback to TOML default (5)
         pipeline_settings = settings.pipeline if settings else None
@@ -593,6 +595,21 @@ class Pipeline:
                 batch_size=len(articles),
                 processed=sum(1 for s in states if not s.get("terminal")),
             )
+
+            # Record throughput for monitoring
+            processed_count = sum(1 for s in states if not s.get("terminal"))
+            if processed_count > 0:
+                worker_id = f"worker-{task_id or 'default'}"
+                self._throughput_tracker.record_completion(worker_id, count=processed_count)
+                self._throughput_tracker.update_gauge(worker_id)
+                if self._throughput_tracker.is_low_throughput(worker_id):
+                    log.warning(
+                        "pipeline_throughput_low",
+                        worker_id=worker_id,
+                        throughput=self._throughput_tracker.calculate_throughput(worker_id),
+                        threshold=self._throughput_tracker._low_threshold,
+                    )
+
             return states
         except Exception as exc:
             log.error(
@@ -719,6 +736,21 @@ class Pipeline:
             batch_size=len(articles),
             processed=sum(1 for s in states if not s.get("terminal")),
         )
+
+        # Record throughput for monitoring
+        processed_count = sum(1 for s in states if not s.get("terminal"))
+        if processed_count > 0:
+            worker_id = f"worker-fast-{task_id or 'default'}"
+            self._throughput_tracker.record_completion(worker_id, count=processed_count)
+            self._throughput_tracker.update_gauge(worker_id)
+            if self._throughput_tracker.is_low_throughput(worker_id):
+                log.warning(
+                    "pipeline_throughput_low",
+                    worker_id=worker_id,
+                    throughput=self._throughput_tracker.calculate_throughput(worker_id),
+                    threshold=self._throughput_tracker._low_threshold,
+                )
+
         return states
 
     async def _phase1_per_article(

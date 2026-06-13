@@ -9,10 +9,12 @@ from core.observability.logging import (
     set_task_context,
 )
 from core.observability.metrics import MetricsCollector, metrics
+from core.observability.throughput import PipelineThroughputTracker
 from core.observability.tracing import configure_tracing, get_tracer
 
 __all__ = [
     "MetricsCollector",
+    "PipelineThroughputTracker",
     "clear_task_context",
     "configure_logging",
     "configure_tracing",
