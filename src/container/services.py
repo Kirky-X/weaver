@@ -570,6 +570,7 @@ class ContainerServicesMixin:
                 gliner_extractor=self._gliner_extractor,
                 mc_sampler=self._mc_sampler,
                 fake_news_detector=fake_news_detector,
+                saga_orchestrator=self._saga_orchestrator,
                 debug=self._debug_mode,
             )
             log.info("pipeline_initialized")

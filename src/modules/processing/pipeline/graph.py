@@ -119,6 +119,7 @@ class Pipeline:
         gliner_extractor: Any | None = None,
         mc_sampler: Any | None = None,
         fake_news_detector: Any | None = None,
+        saga_orchestrator: Any | None = None,
         debug: bool = False,
     ) -> None:
         self._accepting = True
@@ -163,7 +164,9 @@ class Pipeline:
         )
         self._categorizer = CascadeCategorizerNode(llm, prompt_loader, cascade=cascade_classifier)
         self._vectorize = VectorizeNode(llm)
-        self._batch_merger = BatchMergerNode(llm, prompt_loader, vector_repo)
+        self._batch_merger = BatchMergerNode(
+            llm, prompt_loader, vector_repo, saga_orchestrator=saga_orchestrator
+        )
 
         # Get embedding model from configuration
         embedding_model = self._extract_embedding_model_id(settings)
