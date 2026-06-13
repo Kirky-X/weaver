@@ -64,6 +64,7 @@ end
 # ── Redis key prefixes ─────────────────────────────────────────────
 
 _GLOBAL_BUCKET_PREFIX = "ratelimit:global"
+_PER_IP_BUCKET_PREFIX = "ratelimit:ip"
 _PER_KEY_BUCKET_PREFIX = "ratelimit:key"
 
 
@@ -119,13 +120,17 @@ class TokenBucketRateLimiter:
     """Redis-backed token bucket rate limiter with local fallback.
 
     Implements atomic token bucket algorithm using Redis Lua scripts
-    for both global and per-key rate limiting. When Redis is unavailable,
+    for global, per-IP, and per-key rate limiting. When Redis is unavailable,
     falls back to a local in-memory token bucket (fail-close).
+
+    Check order: global → per-IP → per-key.
 
     Args:
         redis: CachePool instance (RedisClient or compatible).
         global_max_tokens: Maximum tokens in the global bucket.
         global_refill_rate: Token refill rate per second for global bucket.
+        per_ip_max_tokens: Maximum tokens per IP bucket (default 3000).
+        per_ip_refill_rate: Token refill rate per second per IP (default 50).
         per_key_max_tokens: Maximum tokens per API key bucket.
         per_key_refill_rate: Token refill rate per second per key.
 
@@ -136,12 +141,16 @@ class TokenBucketRateLimiter:
         redis: Any,
         global_max_tokens: int = 1000,
         global_refill_rate: int = 1000,
+        per_ip_max_tokens: int = 3000,
+        per_ip_refill_rate: int = 50,
         per_key_max_tokens: int = 100,
         per_key_refill_rate: int = 100,
     ) -> None:
         self._redis = redis
         self._global_max_tokens = global_max_tokens
         self._global_refill_rate = global_refill_rate
+        self._per_ip_max_tokens = per_ip_max_tokens
+        self._per_ip_refill_rate = per_ip_refill_rate
         self._per_key_max_tokens = per_key_max_tokens
         self._per_key_refill_rate = per_key_refill_rate
         self._fallback_active: bool = False
@@ -150,6 +159,10 @@ class TokenBucketRateLimiter:
         self._local_global_bucket = LocalTokenBucket(
             max_tokens=global_max_tokens,
             refill_rate=global_refill_rate,
+        )
+        self._local_per_ip_bucket = LocalTokenBucket(
+            max_tokens=per_ip_max_tokens,
+            refill_rate=per_ip_refill_rate,
         )
         self._local_per_key_bucket = LocalTokenBucket(
             max_tokens=per_key_max_tokens,
@@ -172,7 +185,9 @@ class TokenBucketRateLimiter:
         client_key: str,
         api_key: str | None = None,
     ) -> tuple[bool, int]:
-        """Check both global and per-key rate limits.
+        """Check global, per-IP, and per-key rate limits.
+
+        Check order: global → per-IP → per-key.
 
         Args:
             client_key: Client identifier (IP address or composite key).
@@ -180,7 +195,7 @@ class TokenBucketRateLimiter:
 
         Returns:
             Tuple of (allowed, remaining_tokens). remaining is the
-            minimum of global and per-key remaining tokens.
+            minimum of global, per-IP, and per-key remaining tokens.
 
         """
         if self._fallback_active:
@@ -206,6 +221,22 @@ class TokenBucketRateLimiter:
                 log.debug("rate_limit_global_exceeded", client=client_key)
                 return False, 0
 
+            # Check per-IP bucket
+            per_ip_result = await self._script(
+                keys=[f"{_PER_IP_BUCKET_PREFIX}:{client_key}"],
+                args=[
+                    self._per_ip_max_tokens,
+                    self._per_ip_refill_rate,
+                    1,  # consume 1 token
+                    now,
+                ],
+            )
+            per_ip_allowed, per_ip_remaining = per_ip_result[0], per_ip_result[1]
+
+            if not per_ip_allowed:
+                log.debug("rate_limit_per_ip_exceeded", client_ip=client_key)
+                return False, 0
+
             # Check per-key bucket
             per_key_result = await self._script(
                 keys=[f"{_PER_KEY_BUCKET_PREFIX}:{per_key_id}"],
@@ -222,7 +253,7 @@ class TokenBucketRateLimiter:
                 log.debug("rate_limit_per_key_exceeded", key=per_key_id)
                 return False, 0
 
-            remaining = min(global_remaining, per_key_remaining)
+            remaining = min(global_remaining, per_ip_remaining, per_key_remaining)
             return True, remaining
 
         except Exception as exc:
@@ -243,6 +274,8 @@ class TokenBucketRateLimiter:
     ) -> tuple[bool, int]:
         """Rate limit using local in-memory token bucket.
 
+        Check order: global → per-IP → per-key.
+
         Args:
             client_key: Client identifier.
             api_key: Optional API key for per-key limiting.
@@ -254,6 +287,11 @@ class TokenBucketRateLimiter:
         global_allowed = self._local_global_bucket.acquire("_global")
         if not global_allowed:
             log.debug("rate_limit_local_global_exceeded", client=client_key)
+            return False, 0
+
+        per_ip_allowed = self._local_per_ip_bucket.acquire(client_key)
+        if not per_ip_allowed:
+            log.debug("rate_limit_local_per_ip_exceeded", client_ip=client_key)
             return False, 0
 
         per_key_id = api_key if api_key else client_key
@@ -331,19 +369,30 @@ class RateLimitMiddleware:
 
         await self._app(scope, receive, send_with_header)
 
-    async def _send_429(self, send: Any) -> None:
-        """Send HTTP 429 Too Many Requests response."""
+    async def _send_429(self, send: Any, limit_type: str = "unknown") -> None:
+        """Send HTTP 429 Too Many Requests response.
+
+        Args:
+            send: ASGI send callable.
+            limit_type: Type of rate limit that was exceeded (global/ip/key).
+
+        """
         retry_after = 1  # seconds until next token refill
         body = b'{"detail":"Rate limit exceeded"}'
+
+        headers: list[tuple[bytes, bytes]] = [
+            [b"content-type", b"application/json"],
+            [b"retry-after", str(retry_after).encode()],
+        ]
+
+        if limit_type == "ip":
+            headers.append([b"x-ratelimit-ip-limit", b"exceeded"])
 
         await send(
             {
                 "type": "http.response.start",
                 "status": 429,
-                "headers": [
-                    [b"content-type", b"application/json"],
-                    [b"retry-after", str(retry_after).encode()],
-                ],
+                "headers": headers,
             }
         )
         await send(

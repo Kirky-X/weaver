@@ -73,8 +73,8 @@ class TestTokenBucketRateLimiter:
         from api.middleware.rate_limit import TokenBucketRateLimiter
 
         mock_redis = MagicMock()
-        # Global check passes, per-key check fails
-        mock_script = AsyncMock(side_effect=[[1, 500], [0, 0]])
+        # Global check passes, per-IP passes, per-key check fails
+        mock_script = AsyncMock(side_effect=[[1, 500], [1, 200], [0, 0]])
         mock_redis.register_script.return_value = mock_script
 
         limiter = TokenBucketRateLimiter(redis=mock_redis)
@@ -83,12 +83,12 @@ class TestTokenBucketRateLimiter:
         assert remaining == 0
 
     async def test_acquire_both_limits_pass(self):
-        """Test that requests passing both global and per-key limits are allowed."""
+        """Test that requests passing global, per-IP, and per-key limits are allowed."""
         from api.middleware.rate_limit import TokenBucketRateLimiter
 
         mock_redis = MagicMock()
-        # Both checks pass
-        mock_script = AsyncMock(side_effect=[[1, 800], [1, 80]])
+        # All three checks pass: global, per-IP, per-key
+        mock_script = AsyncMock(side_effect=[[1, 800], [1, 200], [1, 80]])
         mock_redis.register_script.return_value = mock_script
 
         limiter = TokenBucketRateLimiter(redis=mock_redis)
