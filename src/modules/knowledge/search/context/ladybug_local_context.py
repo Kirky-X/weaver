@@ -201,17 +201,12 @@ class LadybugLocalContextBuilder(ContextBuilder):
             log.warning("find_query_entities_exact_failed", error=str(exc))
 
         # Step 2: Try fuzzy match using CONTAINS
-        # LadybugDB: simple query without complex OR/EXISTS
-        limit = self._max_entities
-        fuzzy_cypher = f"""
-        MATCH (e:Entity)
-        WHERE LOWER(e.canonical_name) CONTAINS LOWER($query)
-        RETURN e.canonical_name AS name
-        LIMIT {limit}
-        """
+        cypher = self._query_builder.build_entity_search_query(config)
 
         try:
-            results = await self._pool.execute_query(fuzzy_cypher, {"query": query.lower()})
+            results = await self._pool.execute_query(
+                cypher, {"query": query.lower(), "limit": self._max_entities}
+            )
             fuzzy_matches = [r["name"] for r in results if r.get("name")]
             if fuzzy_matches:
                 log.info(
@@ -344,18 +339,14 @@ class LadybugLocalContextBuilder(ContextBuilder):
         """Get articles related to the query text.
 
         This is a fallback when no entities are found.
-        It searches for articles that mention the query in title.
-        LadybugDB: Article node may not have summary/url properties, use title only.
+        Uses parameterized query via GraphQueryBuilder.
         """
-        cypher = f"""
-        MATCH (a:Article)
-        WHERE LOWER(a.title) CONTAINS LOWER($query)
-        RETURN a.title AS title
-        LIMIT {limit}
-        """
+        cypher = self._query_builder.build_articles_by_text_query(limit)
 
         try:
-            results = await self._pool.execute_query(cypher, {"query": query.lower()})
+            results = await self._pool.execute_query(
+                cypher, {"query": query.lower(), "limit": limit}
+            )
             articles = [dict(r) for r in results]
             if articles:
                 log.info("articles_found_by_text", count=len(articles), query=query)

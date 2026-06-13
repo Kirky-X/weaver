@@ -151,7 +151,10 @@ class LadybugGlobalContextBuilder(ContextBuilder):
         cypher = self._query_builder.build_communities_exist_query(level)
 
         try:
-            result = await self._pool.execute_query(cypher)
+            params: dict[str, Any] = {}
+            if level is not None:
+                params["level"] = level
+            result = await self._pool.execute_query(cypher, params)
             if result and result[0].get("count", 0) > 0:
                 return True
         except (TypeError, KeyError, Exception) as exc:
@@ -221,7 +224,10 @@ class LadybugGlobalContextBuilder(ContextBuilder):
         cypher = self._query_builder.build_community_search_query(config)
 
         try:
-            results = await self._pool.execute_query(cypher)
+            results = await self._pool.execute_query(
+                cypher,
+                {"level": level, "query": query, "limit": self._max_communities},
+            )
             if results:
                 return [dict(r) for r in results]
         except Exception as exc:
@@ -232,7 +238,10 @@ class LadybugGlobalContextBuilder(ContextBuilder):
         cypher_fallback = self._query_builder.build_community_search_query(config_fallback)
 
         try:
-            results = await self._pool.execute_query(cypher_fallback)
+            results = await self._pool.execute_query(
+                cypher_fallback,
+                {"level": level, "limit": self._max_communities},
+            )
             if results:
                 return [dict(r) for r in results]
         except Exception as exc:
@@ -249,47 +258,37 @@ class LadybugGlobalContextBuilder(ContextBuilder):
         if not tokens:
             return []
 
-        # Build query for LadybugDB - search Entity directly (MENTIONS edges may not exist)
-        tokens_str = ", ".join(f"'{t}'" for t in tokens)
-        cypher = f"""
-        MATCH (e:Entity)
-        WHERE any(token IN [{tokens_str}] WHERE
-                 e.canonical_name CONTAINS token)
-        RETURN e.canonical_name AS entity_name,
-               e.type AS entity_type,
-               e.description AS entity_description,
-               e.tier AS entity_tier
-        ORDER BY e.tier ASC
-        LIMIT {self._max_communities}
-        """
+        # Use parameterized query via GraphQueryBuilder
+        cypher = self._query_builder.build_entity_article_fallback_query(
+            tokens, self._max_communities
+        )
 
         try:
-            results = await self._pool.execute_query(cypher)
+            results = await self._pool.execute_query(
+                cypher,
+                {"tokens": tokens, "limit": self._max_communities},
+            )
 
             # If no results with token-based search, try full query substring match
             # For Chinese queries without spaces, split into individual keywords
             if not results and len(query) > 1:
                 # Try Chinese keyword extraction: take 2-4 character chunks
-                chinese_chunks = []
+                chinese_chunks: list[str] = []
                 for chunk_len in [4, 3, 2]:
                     for i in range(0, len(query) - chunk_len + 1):
                         chinese_chunks.append(query[i : i + chunk_len])
 
                 if chinese_chunks:
-                    chunks_str = ", ".join(f"'{c}'" for c in chinese_chunks[:10])
-                    full_query_cypher = f"""
-                    MATCH (e:Entity)
-                    WHERE any(chunk IN [{chunks_str}] WHERE
-                             e.canonical_name CONTAINS chunk
-                             OR e.description CONTAINS chunk)
-                    RETURN e.canonical_name AS entity_name,
-                           e.type AS entity_type,
-                           e.description AS entity_description,
-                           e.tier AS entity_tier
-                    ORDER BY e.tier ASC
-                    LIMIT {self._max_communities}
-                    """
-                    results = await self._pool.execute_query(full_query_cypher)
+                    chunks_to_search = chinese_chunks[:10]
+                    fallback_cypher = (
+                        self._query_builder.build_entity_article_fallback_with_description_query(
+                            chunks_to_search, self._max_communities
+                        )
+                    )
+                    results = await self._pool.execute_query(
+                        fallback_cypher,
+                        {"tokens": chunks_to_search, "limit": self._max_communities},
+                    )
 
             if not results:
                 return []
@@ -350,13 +349,9 @@ class LadybugGlobalContextBuilder(ContextBuilder):
         if not community_id:
             return []
 
-        cypher = """
-        MATCH (c:Community {id: $community_id})-[:HAS_ENTITY]->(e:Entity)
-        RETURN e.canonical_name AS canonical_name,
-               e.type AS type,
-               e.description AS description
-        LIMIT $limit
-        """
+        cypher = self._query_builder.build_community_entities_query(
+            community_id, self._max_entities_per_community
+        )
 
         try:
             results = await self._pool.execute_query(
@@ -377,26 +372,15 @@ class LadybugGlobalContextBuilder(ContextBuilder):
             return []
 
         community_ids = [c.get("id") for c in communities if c.get("id")]
-        ids_str = ", ".join(f"'{id}'" for id in community_ids)
 
-        # Query for cross-community relationships via RELATED_TO
-        cypher = f"""
-        MATCH (c1:Community)-[:HAS_ENTITY]->(e1:Entity)
-              -[r:RELATED_TO]->(e2:Entity)<-[:HAS_ENTITY]-(c2:Community)
-        WHERE c1.id IN [{ids_str}]
-          AND c2.id IN [{ids_str}]
-          AND c1.id <> c2.id
-        RETURN DISTINCT
-               c1.title AS source_community,
-               c2.title AS target_community,
-               e1.canonical_name AS source_entity,
-               e2.canonical_name AS target_entity,
-               r.edge_type AS relation_type
-        LIMIT 50
-        """
+        # Use parameterized query via GraphQueryBuilder
+        cypher = self._query_builder.build_cross_community_relationships_query(community_ids)
 
         try:
-            results = await self._pool.execute_query(cypher)
+            results = await self._pool.execute_query(
+                cypher,
+                {"community_ids": community_ids},
+            )
             return [dict(r) for r in results]
         except Exception as exc:
             log.debug("get_cross_community_rels_failed", error=str(exc))

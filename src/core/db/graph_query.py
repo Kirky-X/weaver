@@ -234,6 +234,91 @@ class GraphQueryBuilder(ABC):
         """
         ...
 
+    @abstractmethod
+    def build_vector_search_communities_query(
+        self,
+        level: int,
+        limit: int,
+    ) -> str | None:
+        """Build query to search communities using vector similarity.
+
+        Args:
+            level: Community hierarchy level.
+            limit: Maximum results.
+
+        Returns:
+            Query string with $embedding, $level, $limit parameters,
+            or None if vector search is not supported (e.g., LadybugDB).
+        """
+        ...
+
+    @abstractmethod
+    def build_cross_community_relationships_query(
+        self,
+        community_ids: list[str],
+    ) -> str:
+        """Build query to get relationships connecting different communities.
+
+        Args:
+            community_ids: List of community IDs to search within.
+
+        Returns:
+            Query string with $community_ids parameter.
+        """
+        ...
+
+    @abstractmethod
+    def build_entity_article_fallback_query(
+        self,
+        tokens: list[str],
+        limit: int,
+    ) -> str:
+        """Build query for entity-article fallback when no communities match.
+
+        Args:
+            tokens: Search tokens extracted from query.
+            limit: Maximum results.
+
+        Returns:
+            Query string with $tokens and $limit parameters.
+        """
+        ...
+
+    @abstractmethod
+    def build_entity_article_fallback_with_description_query(
+        self,
+        tokens: list[str],
+        limit: int,
+    ) -> str:
+        """Build query for entity-article fallback searching name AND description.
+
+        Used for Chinese queries where token-based matching on description
+        is needed in addition to canonical_name.
+
+        Args:
+            tokens: Search tokens extracted from query.
+            limit: Maximum results.
+
+        Returns:
+            Query string with $tokens and $limit parameters.
+        """
+        ...
+
+    @abstractmethod
+    def build_articles_by_text_query(
+        self,
+        limit: int,
+    ) -> str:
+        """Build query to search articles by title text match.
+
+        Args:
+            limit: Maximum results.
+
+        Returns:
+            Query string with $query and $limit parameters.
+        """
+        ...
+
 
 class Neo4jQueryBuilder(GraphQueryBuilder):
     """Query builder for Neo4j using Cypher syntax.
@@ -425,6 +510,152 @@ class Neo4jQueryBuilder(GraphQueryBuilder):
             return "MATCH (c:Community) WHERE c.level >= $level RETURN count(c) AS count"
         return "MATCH (c:Community) RETURN count(c) AS count"
 
+    def build_vector_search_communities_query(
+        self,
+        level: int,
+        limit: int,
+    ) -> str | None:
+        if limit < 1:
+            raise ValueError(f"limit must be positive, got {limit}")
+
+        return """
+        MATCH (r:CommunityReport)-[:REPORTS_ON]->(c:Community)
+        WHERE c.level >= $level AND r.full_content_embedding IS NOT NULL
+        WITH c, r, vector.similarity.cosine(r.full_content_embedding, $embedding) AS score
+        WHERE score > 0.3
+        RETURN c.id AS id,
+               c.title AS title,
+               COALESCE(r.summary, '') AS summary,
+               c.rank AS rank,
+               c.entity_count AS entity_count,
+               r.full_content AS full_content,
+               r.key_entities AS key_entities,
+               score
+        ORDER BY score DESC
+        LIMIT $limit
+        """
+
+    def build_cross_community_relationships_query(
+        self,
+        community_ids: list[str],
+    ) -> str:
+        for cid in community_ids:
+            validate_uuid(cid, "community_id")
+
+        # Typed relationships (semantic edge types, excluding generic ones)
+        typed_part = """
+        MATCH (c1:Community)-[:HAS_ENTITY]->(e1:Entity)
+              -[r]->(e2:Entity)<-[:HAS_ENTITY]-(c2:Community)
+        WHERE c1.id IN $community_ids
+          AND c2.id IN $community_ids
+          AND c1.id <> c2.id
+          AND NOT type(r) = 'RELATED_TO'
+          AND NOT type(r) = 'MENTIONS'
+          AND NOT type(r) = 'HAS_ENTITY'
+        RETURN DISTINCT
+               c1.title AS source_community,
+               c2.title AS target_community,
+               e1.canonical_name AS source_entity,
+               e2.canonical_name AS target_entity,
+               type(r) AS relation_type
+        LIMIT 50
+        """
+
+        # Generic RELATED_TO relationships
+        generic_part = """
+        MATCH (c1:Community)-[:HAS_ENTITY]->(e1:Entity)
+              -[r:RELATED_TO]->(e2:Entity)<-[:HAS_ENTITY]-(c2:Community)
+        WHERE c1.id IN $community_ids
+          AND c2.id IN $community_ids
+          AND c1.id <> c2.id
+        RETURN DISTINCT
+               c1.title AS source_community,
+               c2.title AS target_community,
+               e1.canonical_name AS source_entity,
+               e2.canonical_name AS target_entity,
+               r.relation_type AS relation_type
+        LIMIT 50
+        """
+
+        return f"{typed_part}\n UNION ALL \n{generic_part}"
+
+    def build_entity_article_fallback_query(
+        self,
+        tokens: list[str],
+        limit: int,
+    ) -> str:
+        if not tokens:
+            raise ValueError("tokens must not be empty")
+        if limit < 1:
+            raise ValueError(f"limit must be positive, got {limit}")
+
+        return """
+        MATCH (a:Article)-[:MENTIONS]->(e:Entity)
+        WHERE any(token IN $tokens WHERE
+                 toLower(e.canonical_name) CONTAINS token
+                 OR toLower(a.title) CONTAINS token
+                 OR toLower(a.summary) CONTAINS token)
+        RETURN e.canonical_name AS entity_name,
+               e.type AS entity_type,
+               e.description AS entity_description,
+               a.id AS article_id,
+               a.title AS article_title,
+               a.summary AS article_summary,
+               a.score AS article_score,
+               size((e)-[:RELATED_TO]->()) AS entity_degree
+        ORDER BY article_score DESC, entity_degree DESC
+        LIMIT $limit
+        """
+
+    def build_entity_article_fallback_with_description_query(
+        self,
+        tokens: list[str],
+        limit: int,
+    ) -> str:
+        if not tokens:
+            raise ValueError("tokens must not be empty")
+        if limit < 1:
+            raise ValueError(f"limit must be positive, got {limit}")
+
+        # Same as fallback query but also searches entity description
+        return """
+        MATCH (a:Article)-[:MENTIONS]->(e:Entity)
+        WHERE any(token IN $tokens WHERE
+                 toLower(e.canonical_name) CONTAINS token
+                 OR toLower(e.description) CONTAINS token
+                 OR toLower(a.title) CONTAINS token
+                 OR toLower(a.summary) CONTAINS token)
+        RETURN e.canonical_name AS entity_name,
+               e.type AS entity_type,
+               e.description AS entity_description,
+               a.id AS article_id,
+               a.title AS article_title,
+               a.summary AS article_summary,
+               a.score AS article_score,
+               size((e)-[:RELATED_TO]->()) AS entity_degree
+        ORDER BY article_score DESC, entity_degree DESC
+        LIMIT $limit
+        """
+
+    def build_articles_by_text_query(
+        self,
+        limit: int,
+    ) -> str:
+        if limit < 1:
+            raise ValueError(f"limit must be positive, got {limit}")
+
+        return """
+        MATCH (a:Article)
+        WHERE toLower(a.title) CONTAINS $query
+        RETURN a.id AS id,
+               a.title AS title,
+               a.summary AS summary,
+               a.url AS url,
+               a.score AS score
+        ORDER BY a.score DESC
+        LIMIT $limit
+        """
+
 
 class LadybugQueryBuilder(GraphQueryBuilder):
     """Query builder for LadybugDB using SQL-like syntax.
@@ -540,10 +771,12 @@ class LadybugQueryBuilder(GraphQueryBuilder):
         self,
         config: CommunitySearchConfig,
     ) -> str:
-        # LadybugDB doesn't support parameterized LIMIT, use f-string
         limit = config.limit or 10
+        if limit < 1:
+            raise ValueError(f"limit must be positive, got {limit}")
+
         if config.query:
-            return f"""
+            return """
             MATCH (c:Community)
             WHERE c.level >= $level
               AND (LOWER(c.title) CONTAINS $query
@@ -553,10 +786,10 @@ class LadybugQueryBuilder(GraphQueryBuilder):
                    c.summary AS summary,
                    c.rank AS rank
             ORDER BY c.rank DESC
-            LIMIT {limit}
+            LIMIT $limit
             """
 
-        return f"""
+        return """
         MATCH (c:Community)
         WHERE c.level >= $level
         RETURN c.id AS id,
@@ -564,7 +797,7 @@ class LadybugQueryBuilder(GraphQueryBuilder):
                c.summary AS summary,
                c.rank AS rank
         ORDER BY c.rank DESC
-        LIMIT {limit}
+        LIMIT $limit
         """
 
     def build_community_entities_query(
@@ -613,6 +846,102 @@ class LadybugQueryBuilder(GraphQueryBuilder):
             # Use >= to find communities at or above the specified level
             return "MATCH (c:Community) WHERE c.level >= $level RETURN count(c) AS count"
         return "MATCH (c:Community) RETURN count(c) AS count"
+
+    def build_vector_search_communities_query(
+        self,
+        level: int,
+        limit: int,
+    ) -> str | None:
+        """LadybugDB doesn't support native vector search.
+
+        Returns None to indicate vector search is not available.
+        The caller should fall back to text search.
+        """
+        return None
+
+    def build_cross_community_relationships_query(
+        self,
+        community_ids: list[str],
+    ) -> str:
+        for cid in community_ids:
+            validate_uuid(cid, "community_id")
+
+        return """
+        MATCH (c1:Community)-[:HAS_ENTITY]->(e1:Entity)
+              -[r:RELATED_TO]->(e2:Entity)<-[:HAS_ENTITY]-(c2:Community)
+        WHERE c1.id IN $community_ids
+          AND c2.id IN $community_ids
+          AND c1.id <> c2.id
+        RETURN DISTINCT
+               c1.title AS source_community,
+               c2.title AS target_community,
+               e1.canonical_name AS source_entity,
+               e2.canonical_name AS target_entity,
+               r.edge_type AS relation_type
+        LIMIT 50
+        """
+
+    def build_entity_article_fallback_query(
+        self,
+        tokens: list[str],
+        limit: int,
+    ) -> str:
+        if not tokens:
+            raise ValueError("tokens must not be empty")
+        if limit < 1:
+            raise ValueError(f"limit must be positive, got {limit}")
+
+        # LadybugDB searches Entity directly (MENTIONS edges may not exist)
+        return """
+        MATCH (e:Entity)
+        WHERE any(token IN $tokens WHERE
+                 e.canonical_name CONTAINS token)
+        RETURN e.canonical_name AS entity_name,
+               e.type AS entity_type,
+               e.description AS entity_description,
+               e.tier AS entity_tier
+        ORDER BY e.tier ASC
+        LIMIT $limit
+        """
+
+    def build_entity_article_fallback_with_description_query(
+        self,
+        tokens: list[str],
+        limit: int,
+    ) -> str:
+        if not tokens:
+            raise ValueError("tokens must not be empty")
+        if limit < 1:
+            raise ValueError(f"limit must be positive, got {limit}")
+
+        # LadybugDB: also search description field for Chinese queries
+        return """
+        MATCH (e:Entity)
+        WHERE any(token IN $tokens WHERE
+                 e.canonical_name CONTAINS token
+                 OR e.description CONTAINS token)
+        RETURN e.canonical_name AS entity_name,
+               e.type AS entity_type,
+               e.description AS entity_description,
+               e.tier AS entity_tier
+        ORDER BY e.tier ASC
+        LIMIT $limit
+        """
+
+    def build_articles_by_text_query(
+        self,
+        limit: int,
+    ) -> str:
+        if limit < 1:
+            raise ValueError(f"limit must be positive, got {limit}")
+
+        # LadybugDB: Article may not have summary/url, use title only
+        return """
+        MATCH (a:Article)
+        WHERE LOWER(a.title) CONTAINS LOWER($query)
+        RETURN a.title AS title
+        LIMIT $limit
+        """
 
 
 def create_graph_query_builder(

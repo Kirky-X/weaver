@@ -368,8 +368,7 @@ class TestLadybugQueryBuilder:
         assert "MATCH (c:Community)" in result
         assert "c.level >= $level" in result
         assert "LOWER(c.title) CONTAINS $query" in result
-        # LadybugDB uses f-string for LIMIT (not parameterized)
-        assert "LIMIT 10" in result
+        assert "$limit" in result
 
     def test_build_community_search_query_without_text(self, builder: LadybugQueryBuilder) -> None:
         config = CommunitySearchConfig(level=2, query="", limit=15)
@@ -377,8 +376,7 @@ class TestLadybugQueryBuilder:
         assert "MATCH (c:Community)" in result
         assert "c.level >= $level" in result
         assert "CONTAINS" not in result
-        # LadybugDB uses f-string for LIMIT (not parameterized)
-        assert "LIMIT 15" in result
+        assert "$limit" in result
 
     def test_build_community_entities_query(self, builder: LadybugQueryBuilder) -> None:
         result = builder.build_community_entities_query("550e8400-e29b-41d4-a716-446655440000", 10)
@@ -884,6 +882,74 @@ class TestNeo4jQueryBuilderSecurity:
         with pytest.raises(ValueError, match="limit must be positive"):
             builder.build_key_entities_query(["550e8400-e29b-41d4-a716-446655440000"], 0)
 
+    # ── Vector Search Communities Query Tests ───────────────────────────────
+
+    def test_build_vector_search_communities_query(self, builder: Neo4jQueryBuilder) -> None:
+        result = builder.build_vector_search_communities_query(level=0, limit=10)
+        assert "vector.similarity.cosine" in result
+        assert "$embedding" in result
+        assert "$level" in result
+        assert "$limit" in result
+        assert "CommunityReport" in result
+        assert "score > 0.3" in result
+        assert "ORDER BY score DESC" in result
+
+    def test_vector_search_validates_limit(self, builder: Neo4jQueryBuilder) -> None:
+        with pytest.raises(ValueError, match="limit must be positive"):
+            builder.build_vector_search_communities_query(level=0, limit=0)
+
+    # ── Cross-Community Relationships Query Tests ───────────────────────────
+
+    def test_build_cross_community_relationships_query(self, builder: Neo4jQueryBuilder) -> None:
+        result = builder.build_cross_community_relationships_query(
+            community_ids=["550e8400-e29b-41d4-a716-446655440000"]
+        )
+        assert "MATCH (c1:Community)" in result
+        assert "$community_ids" in result
+        assert "c1.id <> c2.id" in result
+        # Neo4j uses UNION for typed + generic relationships
+        assert "UNION" in result
+
+    def test_cross_community_validates_uuid(self, builder: Neo4jQueryBuilder) -> None:
+        with pytest.raises((InvalidIdentifierError, ValueError)):
+            builder.build_cross_community_relationships_query(community_ids=["not-a-uuid"])
+
+    # ── Entity Article Fallback Query Tests ─────────────────────────────────
+
+    def test_build_entity_article_fallback_query(self, builder: Neo4jQueryBuilder) -> None:
+        result = builder.build_entity_article_fallback_query(tokens=["AI", "ML"], limit=10)
+        assert "MATCH (a:Article)-[:MENTIONS]->(e:Entity)" in result
+        assert "$tokens" in result
+        assert "$limit" in result
+        assert "article_score" in result
+
+    def test_entity_article_fallback_validates_empty_tokens(
+        self, builder: Neo4jQueryBuilder
+    ) -> None:
+        with pytest.raises(ValueError, match="tokens must not be empty"):
+            builder.build_entity_article_fallback_query(tokens=[], limit=10)
+
+    def test_entity_article_fallback_validates_limit(self, builder: Neo4jQueryBuilder) -> None:
+        with pytest.raises(ValueError, match="limit must be positive"):
+            builder.build_entity_article_fallback_query(tokens=["AI"], limit=0)
+
+    def test_build_entity_article_fallback_with_description_query(
+        self, builder: Neo4jQueryBuilder
+    ) -> None:
+        result = builder.build_entity_article_fallback_with_description_query(
+            tokens=["AI", "ML"], limit=10
+        )
+        assert "MATCH (a:Article)-[:MENTIONS]->(e:Entity)" in result
+        assert "$tokens" in result
+        assert "$limit" in result
+        assert "e.description" in result
+
+    def test_build_articles_by_text_query(self, builder: Neo4jQueryBuilder) -> None:
+        result = builder.build_articles_by_text_query(limit=10)
+        assert "MATCH (a:Article)" in result
+        assert "$query" in result
+        assert "$limit" in result
+
 
 class TestLadybugQueryBuilderSecurity:
     """Security tests for LadybugDB query builder."""
@@ -974,3 +1040,52 @@ class TestLadybugQueryBuilderSecurity:
         config = RelatedEntitiesConfig(entity_names=("e1",), max_hops=0, limit=10)
         with pytest.raises(ValueError, match="max_hops"):
             builder.build_related_entities_query(config)
+
+    # ── Vector Search Communities Query Tests ───────────────────────────────
+
+    def test_build_vector_search_communities_query_returns_none(
+        self, builder: LadybugQueryBuilder
+    ) -> None:
+        """LadybugDB doesn't support vector search, should return None."""
+        result = builder.build_vector_search_communities_query(level=0, limit=10)
+        assert result is None
+
+    # ── Cross-Community Relationships Query Tests ───────────────────────────
+
+    def test_build_cross_community_relationships_query(self, builder: LadybugQueryBuilder) -> None:
+        result = builder.build_cross_community_relationships_query(
+            community_ids=["550e8400-e29b-41d4-a716-446655440000"]
+        )
+        assert "MATCH (c1:Community)" in result
+        assert "$community_ids" in result
+        assert "c1.id <> c2.id" in result
+        # LadybugDB uses r.edge_type, NOT UNION
+        assert "r.edge_type AS relation_type" in result
+        assert "UNION" not in result
+
+    # ── Entity Article Fallback Query Tests ─────────────────────────────────
+
+    def test_build_entity_article_fallback_query(self, builder: LadybugQueryBuilder) -> None:
+        result = builder.build_entity_article_fallback_query(tokens=["AI", "ML"], limit=10)
+        # LadybugDB searches Entity directly
+        assert "MATCH (e:Entity)" in result
+        assert "$tokens" in result
+        assert "$limit" in result
+        assert "Article" not in result
+
+    def test_build_entity_article_fallback_with_description_query(
+        self, builder: LadybugQueryBuilder
+    ) -> None:
+        result = builder.build_entity_article_fallback_with_description_query(
+            tokens=["AI", "ML"], limit=10
+        )
+        assert "MATCH (e:Entity)" in result
+        assert "$tokens" in result
+        assert "$limit" in result
+        assert "e.description" in result
+
+    def test_build_articles_by_text_query(self, builder: LadybugQueryBuilder) -> None:
+        result = builder.build_articles_by_text_query(limit=10)
+        assert "MATCH (a:Article)" in result
+        assert "$query" in result
+        assert "$limit" in result
