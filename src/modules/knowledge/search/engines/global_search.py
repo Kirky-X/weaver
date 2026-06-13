@@ -139,7 +139,7 @@ class GlobalSearchEngine:
 
             if not communities:
                 # Check if there are any communities at all
-                has_communities = await self._has_any_communities(community_level)
+                has_communities = await self.has_any_communities(community_level)
                 if not has_communities:
                     return SearchResult(
                         query=query,
@@ -396,7 +396,7 @@ class GlobalSearchEngine:
             communities,
             used_fallback,
             search_method,
-        ) = await self._context_builder._find_relevant_communities(query, level)
+        ) = await self._context_builder.find_relevant_communities(query, level)
 
         if not communities:
             return []
@@ -404,7 +404,7 @@ class GlobalSearchEngine:
         contexts = []
         for comm in communities:
             # Get entities for this community
-            entities = await self._context_builder._get_community_entities(comm.get("id", ""))
+            entities = await self._context_builder.get_community_entities(comm.get("id", ""))
 
             contexts.append(
                 CommunityContext(
@@ -423,9 +423,9 @@ class GlobalSearchEngine:
 
         return contexts
 
-    async def _has_any_communities(self, level: int | None = None) -> bool:
+    async def has_any_communities(self, level: int | None = None) -> bool:
         """Check if any communities exist in the graph."""
-        return await self._context_builder._has_any_communities(level)
+        return await self._context_builder.has_any_communities(level)
 
     def _build_map_prompt(self, query: str, community: CommunityContext) -> str:
         """Build the Map phase prompt using full community report.

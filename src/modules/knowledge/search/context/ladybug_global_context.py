@@ -80,12 +80,12 @@ class LadybugGlobalContextBuilder(ContextBuilder):
         """
         context = self.create_context(query, max_tokens)
 
-        relevant_communities, used_fallback, search_method = await self._find_relevant_communities(
+        relevant_communities, used_fallback, search_method = await self.find_relevant_communities(
             query, community_level
         )
 
         if not relevant_communities:
-            has_communities = await self._has_any_communities(community_level)
+            has_communities = await self.has_any_communities(community_level)
             if not has_communities:
                 context.add_content(
                     name="No Communities",
@@ -146,7 +146,7 @@ class LadybugGlobalContextBuilder(ContextBuilder):
 
         return context
 
-    async def _has_any_communities(self, level: int | None = None) -> bool:
+    async def has_any_communities(self, level: int | None = None) -> bool:
         """Check if any communities exist in the graph."""
         cypher = self._query_builder.build_communities_exist_query(level)
 
@@ -161,7 +161,7 @@ class LadybugGlobalContextBuilder(ContextBuilder):
             log.debug("has_communities_check_failed", error=str(exc))
         return False
 
-    async def _find_relevant_communities(
+    async def find_relevant_communities(
         self,
         query: str,
         level: int,
@@ -333,7 +333,7 @@ class LadybugGlobalContextBuilder(ContextBuilder):
             log.warning("get_key_entities_failed", error=str(exc))
             return []
 
-    async def _get_community_entities(
+    async def get_community_entities(
         self,
         community_id: str,
     ) -> list[dict[str, Any]]:

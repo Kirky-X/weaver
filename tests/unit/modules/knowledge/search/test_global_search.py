@@ -258,7 +258,7 @@ class TestGlobalSearchEngineNoCommunities:
 
         # Mock no relevant communities and no communities at all
         engine._get_community_contexts = AsyncMock(return_value=[])
-        engine._has_any_communities = AsyncMock(return_value=False)
+        engine.has_any_communities = AsyncMock(return_value=False)
 
         result = await engine.search("test query")
 
@@ -276,7 +276,7 @@ class TestGlobalSearchEngineNoCommunities:
         )
 
         engine._get_community_contexts = AsyncMock(return_value=[])
-        engine._has_any_communities = AsyncMock(return_value=True)
+        engine.has_any_communities = AsyncMock(return_value=True)
 
         result = await engine.search("test query")
 
@@ -350,10 +350,10 @@ class TestGlobalSearchEngineMapReduce:
                 "key_entities": ["Entity1"],
             },
         ]
-        engine._context_builder._find_relevant_communities = AsyncMock(
+        engine._context_builder.find_relevant_communities = AsyncMock(
             return_value=(mock_community_data, False, "vector_similarity")
         )
-        engine._context_builder._get_community_entities = AsyncMock(
+        engine._context_builder.get_community_entities = AsyncMock(
             return_value=[{"canonical_name": "Entity1", "type": "Person"}]
         )
 

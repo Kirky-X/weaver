@@ -55,7 +55,7 @@ class TestGlobalSearchEngineSearch:
 
         engine = GlobalSearchEngine(context_builder=context_builder, llm=llm)
         engine._get_community_contexts = AsyncMock(return_value=[])
-        engine._has_any_communities = AsyncMock(return_value=False)
+        engine.has_any_communities = AsyncMock(return_value=False)
 
         result = await engine.search("test query")
 
@@ -71,7 +71,7 @@ class TestGlobalSearchEngineSearch:
 
         engine = GlobalSearchEngine(context_builder=context_builder, llm=llm)
         engine._get_community_contexts = AsyncMock(return_value=[])
-        engine._has_any_communities = AsyncMock(return_value=True)
+        engine.has_any_communities = AsyncMock(return_value=True)
 
         result = await engine.search("test query")
 
@@ -99,7 +99,7 @@ class TestGlobalSearchEngineSearch:
             local_engine=mock_local,
         )
         engine._get_community_contexts = AsyncMock(return_value=[])
-        engine._has_any_communities = AsyncMock(return_value=True)
+        engine.has_any_communities = AsyncMock(return_value=True)
 
         result = await engine.search("test query")
 
@@ -234,7 +234,7 @@ class TestGlobalSearchEngineSearch:
             local_engine=mock_local,
         )
         engine._get_community_contexts = AsyncMock(return_value=[])
-        engine._has_any_communities = AsyncMock(return_value=True)
+        engine.has_any_communities = AsyncMock(return_value=True)
 
         result = await engine.search("test query")
 

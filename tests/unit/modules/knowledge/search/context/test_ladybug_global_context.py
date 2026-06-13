@@ -300,7 +300,7 @@ class TestBuildContext:
 
 
 class TestFindRelevantCommunities:
-    """Test _find_relevant_communities() method."""
+    """Test find_relevant_communities() method."""
 
     @pytest.mark.asyncio
     async def test_should_use_vector_search_when_llm_available(self, mock_pool) -> None:
@@ -315,7 +315,7 @@ class TestFindRelevantCommunities:
             llm_client=mock_llm,
         )
 
-        communities, used_fallback, method = await builder._find_relevant_communities(
+        communities, used_fallback, method = await builder.find_relevant_communities(
             "test query", level=0
         )
 
@@ -329,7 +329,7 @@ class TestFindRelevantCommunities:
 
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
-        communities, used_fallback, method = await builder._find_relevant_communities(
+        communities, used_fallback, method = await builder.find_relevant_communities(
             "test", level=0
         )
 
@@ -348,7 +348,7 @@ class TestFindRelevantCommunities:
 
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
-        communities, used_fallback, method = await builder._find_relevant_communities(
+        communities, used_fallback, method = await builder.find_relevant_communities(
             "test", level=0
         )
 
@@ -380,7 +380,7 @@ class TestFindRelevantCommunities:
             fallback_enabled=True,
         )
 
-        communities, used_fallback, method = await builder._find_relevant_communities(
+        communities, used_fallback, method = await builder.find_relevant_communities(
             "AI technology", level=0
         )
 
@@ -399,7 +399,7 @@ class TestFindRelevantCommunities:
             fallback_enabled=True,
         )
 
-        communities, used_fallback, method = await builder._find_relevant_communities(
+        communities, used_fallback, method = await builder.find_relevant_communities(
             "nonexistent query xyz", level=0
         )
 
@@ -416,7 +416,7 @@ class TestFindRelevantCommunities:
             fallback_enabled=False,
         )
 
-        communities, used_fallback, method = await builder._find_relevant_communities(
+        communities, used_fallback, method = await builder.find_relevant_communities(
             "test", level=0
         )
 
@@ -997,7 +997,7 @@ class TestFormatCrossCommunitySection:
 
 
 class TestHasAnyCommunities:
-    """Test _has_any_communities() method."""
+    """Test has_any_communities() method."""
 
     @pytest.mark.asyncio
     async def test_should_return_true_when_communities_exist(self, mock_pool) -> None:
@@ -1005,7 +1005,7 @@ class TestHasAnyCommunities:
         mock_pool.execute_query = AsyncMock(return_value=[{"count": 5}])
 
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
-        result = await builder._has_any_communities()
+        result = await builder.has_any_communities()
 
         assert result is True
 
@@ -1015,7 +1015,7 @@ class TestHasAnyCommunities:
         mock_pool.execute_query = AsyncMock(return_value=[{"count": 0}])
 
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
-        result = await builder._has_any_communities()
+        result = await builder.has_any_communities()
 
         assert result is False
 
@@ -1025,7 +1025,7 @@ class TestHasAnyCommunities:
         mock_pool.execute_query = AsyncMock(side_effect=Exception("Database error"))
 
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
-        result = await builder._has_any_communities()
+        result = await builder.has_any_communities()
 
         assert result is False
 
@@ -1035,7 +1035,7 @@ class TestHasAnyCommunities:
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
-        result = await builder._has_any_communities()
+        result = await builder.has_any_communities()
 
         assert result is False
 
@@ -1045,7 +1045,7 @@ class TestHasAnyCommunities:
         mock_pool.execute_query = AsyncMock(return_value=[{"other_field": 5}])
 
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
-        result = await builder._has_any_communities()
+        result = await builder.has_any_communities()
 
         assert result is False
 
@@ -1055,7 +1055,7 @@ class TestHasAnyCommunities:
         mock_pool.execute_query = AsyncMock(return_value=None)
 
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
-        result = await builder._has_any_communities()
+        result = await builder.has_any_communities()
 
         assert result is False
 

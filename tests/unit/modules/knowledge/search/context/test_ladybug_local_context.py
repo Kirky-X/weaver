@@ -360,8 +360,8 @@ class TestFindQueryEntities:
         call_args = mock_pool.execute_query.call_args
         assert call_args is not None
         cypher_query = call_args[0][0]
-        # LadybugDB uses f-string for LIMIT (not parameterized)
-        assert "LIMIT 10" in cypher_query
+        # LadybugDB now uses parameterized LIMIT
+        assert "$limit" in cypher_query
 
 
 class TestGetEntitiesWithDetails:

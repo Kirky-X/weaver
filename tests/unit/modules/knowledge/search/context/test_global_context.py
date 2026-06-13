@@ -282,49 +282,49 @@ class TestGlobalContextBuilderInit:
 
 
 class TestGlobalContextBuilderHasAnyCommunities:
-    """Tests for _has_any_communities."""
+    """Tests for has_any_communities."""
 
     @pytest.mark.asyncio
     async def test_has_communities(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(return_value=[{"count": 5}])
         builder = GlobalContextBuilder(graph_pool=pool)
-        assert await builder._has_any_communities() is True
+        assert await builder.has_any_communities() is True
 
     @pytest.mark.asyncio
     async def test_no_communities(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(return_value=[{"count": 0}])
         builder = GlobalContextBuilder(graph_pool=pool)
-        assert await builder._has_any_communities() is False
+        assert await builder.has_any_communities() is False
 
     @pytest.mark.asyncio
     async def test_error_returns_false(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(return_value=None)
         builder = GlobalContextBuilder(graph_pool=pool)
-        assert await builder._has_any_communities() is False
+        assert await builder.has_any_communities() is False
 
     @pytest.mark.asyncio
     async def test_has_communities_with_level(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(return_value=[{"count": 3}])
         builder = GlobalContextBuilder(graph_pool=pool)
-        assert await builder._has_any_communities(level=0) is True
+        assert await builder.has_any_communities(level=0) is True
 
     @pytest.mark.asyncio
     async def test_malformed_result(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(return_value=[{"wrong_key": 5}])
         builder = GlobalContextBuilder(graph_pool=pool)
-        assert await builder._has_any_communities() is False
+        assert await builder.has_any_communities() is False
 
     @pytest.mark.asyncio
     async def test_empty_result(self) -> None:
         pool = _make_pool()
         pool.execute_query = AsyncMock(return_value=[])
         builder = GlobalContextBuilder(graph_pool=pool)
-        assert await builder._has_any_communities() is False
+        assert await builder.has_any_communities() is False
 
 
 class TestGlobalContextBuilderVectorSearch:
@@ -639,7 +639,7 @@ class TestGlobalContextBuilderBuildMapReduceContext:
 
         with patch.object(
             builder,
-            "_find_relevant_communities",
+            "find_relevant_communities",
             new_callable=AsyncMock,
             return_value=(
                 [
@@ -666,7 +666,7 @@ class TestGlobalContextBuilderBuildMapReduceContext:
 
         with patch.object(
             builder,
-            "_find_relevant_communities",
+            "find_relevant_communities",
             new_callable=AsyncMock,
             return_value=([], False, "none"),
         ):
@@ -675,13 +675,13 @@ class TestGlobalContextBuilderBuildMapReduceContext:
 
 
 class TestGlobalContextBuilderGetCommunityEntities:
-    """Tests for _get_community_entities."""
+    """Tests for get_community_entities."""
 
     @pytest.mark.asyncio
     async def test_empty_id(self) -> None:
         pool = _make_pool()
         builder = GlobalContextBuilder(graph_pool=pool)
-        result = await builder._get_community_entities("")
+        result = await builder.get_community_entities("")
         assert result == []
 
     @pytest.mark.asyncio
@@ -693,7 +693,7 @@ class TestGlobalContextBuilderGetCommunityEntities:
             ]
         )
         builder = GlobalContextBuilder(graph_pool=pool)
-        result = await builder._get_community_entities("c1")
+        result = await builder.get_community_entities("c1")
         assert len(result) == 1
 
     @pytest.mark.asyncio
@@ -701,5 +701,5 @@ class TestGlobalContextBuilderGetCommunityEntities:
         pool = _make_pool()
         pool.execute_query = AsyncMock(side_effect=Exception("DB error"))
         builder = GlobalContextBuilder(graph_pool=pool)
-        result = await builder._get_community_entities("c1")
+        result = await builder.get_community_entities("c1")
         assert result == []

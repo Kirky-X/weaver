@@ -220,7 +220,7 @@ class TestGlobalContextBuilderFallback:
 
     @pytest.mark.asyncio
     async def test_find_relevant_communities_calls_fallback_after_community_failure(self):
-        """_find_relevant_communities calls _find_entity_article_fallback when Community returns empty."""
+        """find_relevant_communities calls _find_entity_article_fallback when Community returns empty."""
         from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
         pool = MockNeo4jPool(
@@ -241,7 +241,7 @@ class TestGlobalContextBuilderFallback:
         )
 
         builder = GlobalContextBuilder(graph_pool=pool)
-        result, used_fallback, search_method = await builder._find_relevant_communities(
+        result, used_fallback, search_method = await builder.find_relevant_communities(
             "华为", level=0
         )
 

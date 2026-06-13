@@ -80,13 +80,13 @@ class GlobalContextBuilder(ContextBuilder):
         """
         context = self.create_context(query, max_tokens)
 
-        relevant_communities, used_fallback, search_method = await self._find_relevant_communities(
+        relevant_communities, used_fallback, search_method = await self.find_relevant_communities(
             query, community_level
         )
 
         if not relevant_communities:
             # Check if there are any communities at all
-            has_communities = await self._has_any_communities(community_level)
+            has_communities = await self.has_any_communities(community_level)
             if not has_communities:
                 context.add_content(
                     name="No Communities",
@@ -143,7 +143,7 @@ class GlobalContextBuilder(ContextBuilder):
 
         return context
 
-    async def _has_any_communities(self, level: int | None = None) -> bool:
+    async def has_any_communities(self, level: int | None = None) -> bool:
         """Check if any communities exist in the graph.
 
         Args:
@@ -168,7 +168,7 @@ class GlobalContextBuilder(ContextBuilder):
             pass
         return False
 
-    async def _find_relevant_communities(
+    async def find_relevant_communities(
         self,
         query: str,
         level: int,
@@ -532,7 +532,7 @@ class GlobalContextBuilder(ContextBuilder):
         Returns:
             List of SearchContext, one per relevant community.
         """
-        communities, used_fallback, search_method = await self._find_relevant_communities(
+        communities, used_fallback, search_method = await self.find_relevant_communities(
             query, community_level
         )
 
@@ -550,7 +550,7 @@ class GlobalContextBuilder(ContextBuilder):
                 metadata={"community_id": comm.get("id")},
             )
 
-            entities = await self._get_community_entities(comm.get("id"))
+            entities = await self.get_community_entities(comm.get("id"))
             if entities:
                 entity_content = self.format_entities_section(entities)
                 context.add_content(
@@ -563,7 +563,7 @@ class GlobalContextBuilder(ContextBuilder):
 
         return contexts
 
-    async def _get_community_entities(
+    async def get_community_entities(
         self,
         community_id: str,
     ) -> list[dict[str, Any]]:
