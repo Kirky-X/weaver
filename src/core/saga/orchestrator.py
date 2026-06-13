@@ -30,8 +30,8 @@ log = get_logger(__name__)
 # Default configuration
 DEFAULT_SAGA_TIMEOUT_SECONDS = 300  # 5 minutes
 DEFAULT_MAX_RETRIES = 3
-DEFAULT_RETRY_BASE_DELAY_SECONDS = 1.0
-DEFAULT_RETRY_MAX_DELAY_SECONDS = 30.0
+DEFAULT_RETRY_BASE_DELAY_SECONDS = 60.0  # 1 minute (matches doc: 1min→4min→15min→60min)
+DEFAULT_RETRY_MAX_DELAY_SECONDS = 3600.0  # 60 minutes
 
 
 class SagaStatus(str, Enum):
