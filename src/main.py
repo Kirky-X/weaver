@@ -432,10 +432,17 @@ def create_app(container: Container | None = None) -> FastAPI:
             )
         app.add_middleware(HMACSignatureMiddleware, secret_key=hmac_secret)
 
-    # Register audit logging middleware for admin endpoints
+    # Register audit logging middleware for admin and write endpoints
     from api.middleware.audit import AuditLogMiddleware
+    from core.security import AuditLogService
 
-    app.add_middleware(AuditLogMiddleware)
+    audit_service = AuditLogService(pool=container.relational_pool())
+    app.add_middleware(
+        AuditLogMiddleware,
+        audit_service=audit_service,
+        audited_paths=["/api/v1/admin"],
+        write_only_paths=["/api/v1/pipeline", "/api/v1/content", "/api/v1/graph"],
+    )
 
     # Register traffic anomaly detection middleware if enabled
     if getattr(getattr(settings, "traffic_anomaly", None), "enabled", False):

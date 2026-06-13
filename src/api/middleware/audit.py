@@ -1,5 +1,5 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Audit logging middleware for admin endpoints.
+"""Audit logging middleware for admin and write endpoints.
 
 Implements: Weaver-数据库设计文档 §12.3
 """
@@ -21,25 +21,69 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# Admin endpoint prefix to audit
-ADMIN_PREFIX = "/api/v1/admin"
+# Write methods that trigger audit on write-only paths
+_WRITE_METHODS = frozenset({"POST", "PUT", "DELETE", "PATCH"})
 
 
 class AuditLogMiddleware(BaseHTTPMiddleware):
-    """Audit logging middleware for admin endpoints.
+    """Audit logging middleware for admin and write endpoints.
 
-    Logs all requests (including 4xx/5xx failures) to admin endpoints
-    to the audit_log table for security monitoring and compliance.
+    Logs requests to admin endpoints (all methods) and write operations
+    (POST/PUT/DELETE/PATCH) on configured paths to the audit_log table
+    for security monitoring and compliance.
 
     Implements: Weaver-数据库设计文档 §12.3
+
+    Args:
+        app: ASGI application.
+        audit_service: Optional service for persisting audit events to database.
+        audited_paths: Path prefixes that are audited for ALL methods.
+        write_only_paths: Path prefixes audited only for write methods.
+
     """
 
-    def __init__(self, app, audit_service: AuditLogService | None = None) -> None:
+    def __init__(
+        self,
+        app,
+        audit_service: AuditLogService | None = None,
+        audited_paths: list[str] | None = None,
+        write_only_paths: list[str] | None = None,
+    ) -> None:
         super().__init__(app)
         self._audit_service = audit_service
+        self._audited_paths = audited_paths or ["/api/v1/admin"]
+        self._write_only_paths = write_only_paths or [
+            "/api/v1/pipeline",
+            "/api/v1/content",
+            "/api/v1/graph",
+        ]
+
+    def _should_audit(self, path: str, method: str) -> bool:
+        """Determine whether a request should be audited.
+
+        Args:
+            path: Request URL path.
+            method: HTTP method.
+
+        Returns:
+            Whether the request should be audited.
+
+        """
+        # Admin paths: audit all methods
+        for prefix in self._audited_paths:
+            if path.startswith(prefix):
+                return True
+
+        # Write-only paths: audit only write methods
+        if method in _WRITE_METHODS:
+            for prefix in self._write_only_paths:
+                if path.startswith(prefix):
+                    return True
+
+        return False
 
     async def dispatch(self, request: Request, call_next) -> Response:
-        """Log admin endpoint access for audit purposes.
+        """Log audited endpoint access for security compliance.
 
         Args:
             request: HTTP request.
@@ -49,8 +93,8 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
             HTTP response.
 
         """
-        # Only audit admin endpoints
-        if not request.url.path.startswith(ADMIN_PREFIX):
+        # Only audit matching paths
+        if not self._should_audit(request.url.path, request.method):
             return await call_next(request)
 
         # Process request
