@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy import String, delete, func, select, text, update
 
 from core.db import Article, ArticleVector, EntityVector, VectorType
-from core.db.query_builders import VectorQueryBuilder
+from core.db.query_builders import DatabaseType, VectorQueryBuilder
 from core.models.shared import ArticleSearchResultView, EntitySearchResultView
 from core.observability import get_logger
 from core.protocols import RelationalPool
@@ -431,8 +431,6 @@ class VectorRepo:
                           The actual UUID should be set later via update_entity_vectors_by_temp_keys.
             model_id: Embedding model identifier.
         """
-        from core.db.query_builders import DatabaseType
-
         # Check if using DuckDB (use query_builder approach)
         if self._query_builder.database_type == DatabaseType.DUCKDB:
             async with self._pool.session() as session:

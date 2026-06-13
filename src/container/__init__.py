@@ -88,6 +88,7 @@ class Container(
         self._hybrid_engine: Any = None
         self._bm25_index_service: Any = None
         self._memory_service: Any = None
+        self._saga_orchestrator: Any = None
         self._shutdown: bool = False
         self._knowledge_cache: Any = None
         self._mc_sampler: Any = None

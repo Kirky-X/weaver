@@ -7,7 +7,7 @@ from core.models.shared import ArticleView, EntityView
 
 class TestMapperMissingFields:
     def test_postgres_mapper_minimal_fields(self):
-        result = PostgresArticleMapper.to_view(
+        result = PostgresArticleMapper().to_view(
             {
                 "id": "123e4567-e89b-12d3-a456-426614174000",
                 "source_url": "https://example.com/article",
@@ -25,7 +25,7 @@ class TestMapperMissingFields:
         assert result.verified_by_sources == 0
 
     def test_neo4j_mapper_minimal_fields(self):
-        result = Neo4jEntityMapper.to_view(
+        result = Neo4jEntityMapper().to_view(
             {
                 "neo4j_id": "4:minimal",
                 "name": "Minimal",
@@ -41,7 +41,7 @@ class TestMapperMissingFields:
         assert result.last_mentioned is None
 
     def test_postgres_mapper_empty_lists(self):
-        result = PostgresArticleMapper.to_view(
+        result = PostgresArticleMapper().to_view(
             {
                 "id": "123e4567-e89b-12d3-a456-426614174000",
                 "source_url": "https://example.com/article",
@@ -51,7 +51,7 @@ class TestMapperMissingFields:
         assert result.data_conflicts == []
 
     def test_postgres_mapper_null_subjects_and_key_data(self):
-        result = PostgresArticleMapper.to_view(
+        result = PostgresArticleMapper().to_view(
             {
                 "id": "123e4567-e89b-12d3-a456-426614174000",
                 "source_url": "https://example.com/article",
@@ -62,7 +62,7 @@ class TestMapperMissingFields:
         assert result.key_data is None
 
     def test_postgres_mapper_partial_credibility(self):
-        result = PostgresArticleMapper.to_view(
+        result = PostgresArticleMapper().to_view(
             {
                 "id": "123e4567-e89b-12d3-a456-426614174000",
                 "source_url": "https://example.com/article",

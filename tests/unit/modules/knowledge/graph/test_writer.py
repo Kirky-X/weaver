@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from core.models.shared import EntityView
+
 
 class TestNeo4jWriterInit:
     """Tests for Neo4jWriter initialization."""
@@ -125,7 +127,7 @@ class TestNeo4jWriterWrite:
             mock_entity_repo.merge_entities_batch = AsyncMock(return_value={"created": 2})
             mock_entity_repo.add_aliases_batch = AsyncMock()
             mock_entity_repo.find_entity = AsyncMock(
-                return_value={"neo4j_id": "entity-id", "canonical_name": "Entity 1"}
+                return_value=EntityView(id="entity-id", canonical_name="Entity 1", type="PERSON")
             )
             mock_entity_repo.find_entities_by_keys = AsyncMock(return_value=[])
             mock_entity_repo.merge_mentions_batch = AsyncMock(return_value=2)
@@ -222,7 +224,7 @@ class TestNeo4jWriterWriteWithRelations:
             mock_entity_repo.merge_entities_batch = AsyncMock(return_value={"created": 2})
             mock_entity_repo.add_aliases_batch = AsyncMock()
             mock_entity_repo.find_entity = AsyncMock(
-                return_value={"neo4j_id": "entity-id", "canonical_name": "Entity 1"}
+                return_value=EntityView(id="entity-id", canonical_name="Entity 1", type="PERSON")
             )
             mock_entity_repo.find_entities_by_keys = AsyncMock(return_value=[])
             mock_entity_repo.merge_mentions_batch = AsyncMock(return_value=2)
@@ -267,7 +269,7 @@ class TestNeo4jWriterWriteWithRelations:
             mock_entity_repo.merge_entities_batch = AsyncMock(return_value={"created": 2})
             mock_entity_repo.add_aliases_batch = AsyncMock()
             mock_entity_repo.find_entity = AsyncMock(
-                return_value={"neo4j_id": "entity-id", "canonical_name": "Entity 1"}
+                return_value=EntityView(id="entity-id", canonical_name="Entity 1", type="PERSON")
             )
             mock_entity_repo.find_entities_by_keys = AsyncMock(return_value=[])
             mock_entity_repo.merge_mentions_batch = AsyncMock(return_value=2)
@@ -411,7 +413,7 @@ class TestNeo4jWriterEdgeCases:
             mock_entity_repo.merge_entities_batch = AsyncMock(return_value={"created": 2})
             mock_entity_repo.add_aliases_batch = AsyncMock()
             mock_entity_repo.find_entity = AsyncMock(
-                return_value={"neo4j_id": "entity-id", "canonical_name": "Entity 1"}
+                return_value=EntityView(id="entity-id", canonical_name="Entity 1", type="PERSON")
             )
             mock_entity_repo.merge_mentions_batch = AsyncMock(return_value=1)
             mock_entity_repo.merge_relation = AsyncMock()
@@ -448,13 +450,17 @@ class TestNeo4jWriterEdgeCases:
         # find_entity returns different canonical_name -> alias created
         mock_entity_repo.find_entity = AsyncMock(
             side_effect=[
-                {"neo4j_id": "id1", "canonical_name": "Canonical E1"},  # resolve canonical
-                {"neo4j_id": "id1", "canonical_name": "Canonical E1"},  # find after batch
+                EntityView(
+                    id="id1", canonical_name="Canonical E1", type="PERSON"
+                ),  # resolve canonical
+                EntityView(
+                    id="id1", canonical_name="Canonical E1", type="PERSON"
+                ),  # find after batch
             ]
         )
         # find_entities_by_keys returns the entity so entity_ids is populated
         mock_entity_repo.find_entities_by_keys = AsyncMock(
-            return_value=[{"canonical_name": "Canonical E1", "type": "PERSON", "neo4j_id": "id1"}]
+            return_value=[EntityView(id="id1", canonical_name="Canonical E1", type="PERSON")]
         )
 
         state = {

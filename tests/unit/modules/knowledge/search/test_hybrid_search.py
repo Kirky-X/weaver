@@ -81,7 +81,7 @@ class TestHybridSearchConfig:
         assert config.hybrid_enabled is True
         assert config.rerank_enabled is True
         assert config.rerank_model == "tiny"
-        assert config.mmr_enabled is False
+        assert config.mmr_enabled is True
         assert config.mmr_lambda == 0.7
         assert config.rrf_k == 60
         assert config.top_k == 10

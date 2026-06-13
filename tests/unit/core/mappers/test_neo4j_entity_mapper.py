@@ -19,7 +19,7 @@ class TestNeo4jEntityMapper:
             "confidence": 0.9,
             "last_mentioned": datetime.now(),
         }
-        result = Neo4jEntityMapper.to_view(record)
+        result = Neo4jEntityMapper().to_view(record)
         assert isinstance(result, EntityView)
         assert result.id == "4:abc123"
         assert result.canonical_name == "Test Entity"
@@ -34,7 +34,7 @@ class TestNeo4jEntityMapper:
             "name": "Named Via Alias",
             "entity_type": "ORG",
         }
-        result = Neo4jEntityMapper.to_view(record)
+        result = Neo4jEntityMapper().to_view(record)
         assert result.canonical_name == "Named Via Alias"
         assert result.id == "4:xyz"
         assert result.type == "ORG"
@@ -45,7 +45,7 @@ class TestNeo4jEntityMapper:
             "name": "Minimal Entity",
             "entity_type": "GPE",
         }
-        result = Neo4jEntityMapper.to_view(record)
+        result = Neo4jEntityMapper().to_view(record)
         assert result.aliases == []
         assert result.description is None
         assert result.degree == 0
@@ -61,7 +61,7 @@ class TestNeo4jEntityMapper:
             "entity_type": "ORG",
             "confidence": "0.75",
         }
-        result = Neo4jEntityMapper.to_view(record)
+        result = Neo4jEntityMapper().to_view(record)
         assert result.confidence == 0.75
         assert isinstance(result.confidence, float)
 
@@ -72,7 +72,7 @@ class TestNeo4jEntityMapper:
             "name": "No Community",
             "entity_type": "PERSON",
         }
-        result = Neo4jEntityMapper.to_view(record)
+        result = Neo4jEntityMapper().to_view(record)
         assert result.community_id is None
 
     def test_to_view_ignores_removed_fields(self):
@@ -84,6 +84,6 @@ class TestNeo4jEntityMapper:
             "tier": 1,
             "article_count": 10,
         }
-        result = Neo4jEntityMapper.to_view(record)
+        result = Neo4jEntityMapper().to_view(record)
         assert isinstance(result, EntityView)
         assert result.id == "4:ignore"

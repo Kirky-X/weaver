@@ -92,6 +92,18 @@ async def lifespan(app: FastAPI) -> None:
     set_container(container)
     set_settings(container.settings)
 
+    # Register audit logging middleware (requires initialized container)
+    from api.middleware.audit import AuditLogMiddleware
+    from core.security import AuditLogService
+
+    audit_service = AuditLogService(pool=container.relational_pool())
+    app.add_middleware(
+        AuditLogMiddleware,
+        audit_service=audit_service,
+        audited_paths=["/api/v1/admin"],
+        write_only_paths=["/api/v1/pipeline", "/api/v1/content", "/api/v1/graph"],
+    )
+
     redis_client = container.cache_client()
     log.debug("cache_client_set", client_id=id(redis_client))
 
@@ -433,18 +445,6 @@ def create_app(container: Container | None = None) -> FastAPI:
         app.add_middleware(
             HMACSignatureMiddleware, secret_key=hmac_secret, api_key=settings.api.get_api_key()
         )
-
-    # Register audit logging middleware for admin and write endpoints
-    from api.middleware.audit import AuditLogMiddleware
-    from core.security import AuditLogService
-
-    audit_service = AuditLogService(pool=container.relational_pool())
-    app.add_middleware(
-        AuditLogMiddleware,
-        audit_service=audit_service,
-        audited_paths=["/api/v1/admin"],
-        write_only_paths=["/api/v1/pipeline", "/api/v1/content", "/api/v1/graph"],
-    )
 
     # Register traffic anomaly detection middleware if enabled
     if getattr(getattr(settings, "traffic_anomaly", None), "enabled", False):

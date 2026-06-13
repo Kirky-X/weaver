@@ -26,7 +26,7 @@ from api.middleware.performance import PerformanceMonitoringMiddleware
 def app():
     """Create FastAPI app with performance middleware."""
     app = FastAPI()
-    app.add_middleware(PerformanceMonitoringMiddleware)
+    app.add_middleware(PerformanceMonitoringMiddleware, p95_threshold_ms=500, p99_threshold_ms=1000)
 
     @app.get("/fast")
     async def fast_endpoint():

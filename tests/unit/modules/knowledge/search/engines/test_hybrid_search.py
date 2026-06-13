@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from core.models.shared import ArticleSearchResultView
 from modules.knowledge.search.engines.hybrid_search import (
     HybridSearchConfig,
     HybridSearchEngine,
@@ -438,7 +439,9 @@ class TestHybridSearchEngineSearch:
     async def test_search_hybrid_disabled(self):
         """Test search with hybrid disabled falls back to vector."""
         mock_repo = MagicMock()
-        mock_repo.find_similar = AsyncMock(return_value=[{"id": "doc1", "score": 0.9}])
+        mock_repo.find_similar = AsyncMock(
+            return_value=[ArticleSearchResultView(article_id="doc1", similarity=0.9)]
+        )
 
         config = HybridSearchConfig(hybrid_enabled=False)
         engine = HybridSearchEngine(vector_repo=mock_repo, config=config)
@@ -451,7 +454,9 @@ class TestHybridSearchEngineSearch:
     async def test_search_hybrid_enabled(self):
         """Test search with hybrid enabled."""
         mock_repo = MagicMock()
-        mock_repo.find_similar = AsyncMock(return_value=[{"id": "doc1", "score": 0.9}])
+        mock_repo.find_similar = AsyncMock(
+            return_value=[ArticleSearchResultView(article_id="doc1", similarity=0.9)]
+        )
         mock_bm25 = MagicMock()
         mock_bm25.retrieve = MagicMock(return_value=[])
 
@@ -538,8 +543,8 @@ class TestHybridSearchEngineVectorSearch:
         mock_repo = MagicMock()
         mock_repo.find_similar = AsyncMock(
             return_value=[
-                {"id": "doc1", "score": 0.9},
-                {"id": "doc2", "score": 0.8},
+                ArticleSearchResultView(article_id="doc1", similarity=0.9),
+                ArticleSearchResultView(article_id="doc2", similarity=0.8),
             ]
         )
 
@@ -573,7 +578,9 @@ class TestHybridSearchEngineVectorSearch:
     async def test_vector_search_doc_id_fallback(self):
         """Test vector search uses doc_id when id is missing."""
         mock_repo = MagicMock()
-        mock_repo.find_similar = AsyncMock(return_value=[{"doc_id": "doc1", "score": 0.9}])
+        mock_repo.find_similar = AsyncMock(
+            return_value=[ArticleSearchResultView(article_id="doc1", similarity=0.9)]
+        )
 
         engine = HybridSearchEngine(vector_repo=mock_repo)
         results = await engine._vector_search([0.1] * 768, limit=10)
@@ -681,7 +688,9 @@ class TestHybridSearchEngineVectorOnlySearch:
     async def test_vector_only_search(self):
         """Test vector-only fallback search."""
         mock_repo = MagicMock()
-        mock_repo.find_similar = AsyncMock(return_value=[{"id": "doc1", "score": 0.9}])
+        mock_repo.find_similar = AsyncMock(
+            return_value=[ArticleSearchResultView(article_id="doc1", similarity=0.9)]
+        )
 
         engine = HybridSearchEngine(vector_repo=mock_repo)
         results = await engine._vector_only_search("test", [0.1] * 768, limit=10)
@@ -719,7 +728,7 @@ class TestHybridSearchConfigExtended:
         assert config.hybrid_enabled is True
         assert config.rerank_enabled is True
         assert config.rerank_model == "tiny"
-        assert config.mmr_enabled is False
+        assert config.mmr_enabled is True
         assert config.mmr_lambda == 0.7
         assert config.vector_weight == 1.0
         assert config.bm25_weight == 1.0

@@ -35,7 +35,7 @@ class TestPostgresArticleMapper:
             "created_at": None,
             "updated_at": None,
         }
-        result = PostgresArticleMapper.to_view(orm_data)
+        result = PostgresArticleMapper().to_view(orm_data)
         assert isinstance(result, ArticleView)
         assert result.id == article_id
         assert result.title == "Test Article"
@@ -50,7 +50,7 @@ class TestPostgresArticleMapper:
             "source_url": "https://example.com/article",
             "title": "Test Article",
         }
-        result = PostgresArticleMapper.to_view(orm_data)
+        result = PostgresArticleMapper().to_view(orm_data)
         assert result.source_url == "https://example.com/article"
         assert result.persist_status == "pending"
         assert result.verified_by_sources == 0
@@ -84,7 +84,7 @@ class TestPostgresArticleMapper:
             created_at = None
             updated_at = None
 
-        result = PostgresArticleMapper.to_view(FakeORMRow())
+        result = PostgresArticleMapper().to_view(FakeORMRow())
         assert isinstance(result, ArticleView)
         assert result.title == "ORM Article"
         assert result.category == "science"
@@ -99,7 +99,7 @@ class TestPostgresArticleMapper:
             "title": "Test",
             "score": "0.85",
         }
-        result = PostgresArticleMapper.to_view(orm_data)
+        result = PostgresArticleMapper().to_view(orm_data)
         assert result.score == 0.85
         assert isinstance(result.score, float)
 
@@ -111,7 +111,7 @@ class TestPostgresArticleMapper:
             "source_url": "https://example.com/article",
             "title": "Test",
         }
-        result = PostgresArticleMapper.to_view(orm_data)
+        result = PostgresArticleMapper().to_view(orm_data)
         assert result.verified_by_sources == 0
 
     def test_to_view_ignores_removed_fields(self):
@@ -125,6 +125,6 @@ class TestPostgresArticleMapper:
             "impact": "high",
             "document_type": "report",
         }
-        result = PostgresArticleMapper.to_view(orm_data)
+        result = PostgresArticleMapper().to_view(orm_data)
         assert isinstance(result, ArticleView)
         assert result.title == "Test"

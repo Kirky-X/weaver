@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from core.models.shared import ArticleSearchResultView
 from modules.knowledge.search.engines.deep_graph_rag import (
     DeepGraphRAGConfig,
     DeepGraphRAGEngine,
@@ -336,7 +337,7 @@ class TestSearchEndToEnd:
     def deps(self):
         vector_repo = MagicMock()
         vector_repo.find_similar = AsyncMock(
-            return_value=[{"id": "comm_1", "score": 0.9, "name": "AI"}]
+            return_value=[ArticleSearchResultView(article_id="comm_1", similarity=0.9)]
         )
         vector_repo.find_similar_entities = AsyncMock(
             return_value=[{"neo4j_id": "e1", "score": 0.88, "name": "GPT"}]
