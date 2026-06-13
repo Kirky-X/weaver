@@ -70,9 +70,9 @@ class CommunityVectorRepo:
         formatted_emb = self._query_builder.format_embedding_param(embedding)
 
         async with self._pool.session() as session:
-            # Initialize session with database-specific settings
-            for stmt in self._query_builder.get_session_init_statements():
-                await session.execute(text(stmt))
+            # Set ef_search dynamically for PostgreSQL (global default for community search)
+            if self._query_builder.database_type == DatabaseType.POSTGRES:
+                await session.execute(text("SET hnsw.ef_search = 60"))
 
             result = await session.execute(
                 text(query_sql),

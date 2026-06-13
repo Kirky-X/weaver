@@ -246,8 +246,12 @@ class PgVectorQueryBuilder:
         return DatabaseType.POSTGRES
 
     def get_session_init_statements(self) -> list[str]:
-        """Set HNSW search parameters for optimal performance."""
-        return ["SET hnsw.ef_search = 100;"]
+        """No static HNSW init — ef_search is set dynamically per query.
+
+        Dynamic ef_search is managed by EfSearchManager based on search mode.
+        See: src/modules/knowledge/search/ef_search_manager.py
+        """
+        return []
 
     def format_embedding_param(self, embedding: list[float]) -> str:
         """Format as pgvector array literal."""

@@ -64,10 +64,7 @@ class VectorRepo:
             model_id: Embedding model identifier from configuration.
         """
         async with self._pool.session() as session:
-            # Initialize session with database-specific settings
-            for stmt in self._query_builder.get_session_init_statements():
-                await session.execute(text(stmt))
-
+            # Write operations don't need ef_search setting
             for vec_type, embedding in [
                 (VectorType.TITLE.value, title_embedding),
                 (VectorType.CONTENT.value, content_embedding),
@@ -138,9 +135,7 @@ class VectorRepo:
 
         total_count = 0
         async with self._pool.session() as session:
-            # Initialize session with database-specific settings
-            for stmt in self._query_builder.get_session_init_statements():
-                await session.execute(text(stmt))
+            # Write operations don't need ef_search setting
 
             # Try batch insert first (works for PostgreSQL)
             try:
@@ -229,13 +224,14 @@ class VectorRepo:
         )
 
         async with self._pool.session() as session:
-            # Initialize session with database-specific settings
-            for stmt in self._query_builder.get_session_init_statements():
-                await session.execute(text(stmt))
-
-            # Apply ef_search optimization if manager available and mode specified
-            if self._ef_search_manager and search_mode:
-                await self._ef_search_manager.set_ef_search(search_mode)
+            # Set ef_search dynamically in the SAME session as the query
+            if self._query_builder.database_type == DatabaseType.POSTGRES:
+                if self._ef_search_manager and search_mode:
+                    ef_value = self._ef_search_manager.get_ef_search(search_mode)
+                else:
+                    ef_value = 100  # Default fallback
+                await session.execute(text(f"SET hnsw.ef_search = {ef_value}"))
+                log.debug("ef_search_set_in_session", ef_search=ef_value, mode=search_mode)
 
             query = text(self._query_builder.build_find_similar_articles_query(config))
 
@@ -374,9 +370,9 @@ class VectorRepo:
         results: dict[uuid.UUID, list[ArticleSearchResultView]] = {}
 
         async with self._pool.session() as session:
-            # Initialize session with database-specific settings
-            for stmt in self._query_builder.get_session_init_statements():
-                await session.execute(text(stmt))
+            # Set ef_search dynamically for PostgreSQL
+            if self._query_builder.database_type == DatabaseType.POSTGRES:
+                await session.execute(text("SET hnsw.ef_search = 100"))
 
             # Build query configurations for parallel execution
             async def execute_single_query(
@@ -550,9 +546,9 @@ class VectorRepo:
         config = EntitySimilarityQuery(threshold=threshold, limit=limit)
 
         async with self._pool.session() as session:
-            # Initialize session with database-specific settings
-            for stmt in self._query_builder.get_session_init_statements():
-                await session.execute(text(stmt))
+            # Set ef_search dynamically for PostgreSQL
+            if self._query_builder.database_type == DatabaseType.POSTGRES:
+                await session.execute(text("SET hnsw.ef_search = 100"))
 
             query = text(self._query_builder.build_find_similar_entities_query(config))
             formatted_emb = self._query_builder.format_embedding_param(embedding)

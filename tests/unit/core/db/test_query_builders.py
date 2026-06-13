@@ -122,9 +122,9 @@ class TestPgVectorQueryBuilder:
         assert "LIMIT 3" in result
 
     def test_get_session_init_statements(self, builder: PgVectorQueryBuilder) -> None:
+        """PgVectorQueryBuilder returns empty init — ef_search is set dynamically."""
         statements = builder.get_session_init_statements()
-        assert len(statements) == 1
-        assert "SET hnsw.ef_search" in statements[0]
+        assert statements == []
 
     def test_format_embedding_param(self, builder: PgVectorQueryBuilder) -> None:
         embedding = [0.1, 0.2, 0.3]
@@ -289,14 +289,15 @@ class TestQueryOutputComparison:
         assert "ON CONFLICT" in duck_upsert
 
     def test_session_init_differs(self) -> None:
+        """Both builders return empty init — ef_search is set dynamically."""
         pg = PgVectorQueryBuilder()
         duck = DuckDBVectorQueryBuilder()
 
         pg_init = pg.get_session_init_statements()
         duck_init = duck.get_session_init_statements()
 
-        assert len(pg_init) == 1
-        assert len(duck_init) == 0
+        assert pg_init == []
+        assert duck_init == []
 
     def test_embedding_format_differs(self) -> None:
         pg = PgVectorQueryBuilder()
