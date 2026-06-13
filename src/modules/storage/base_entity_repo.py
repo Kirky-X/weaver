@@ -481,9 +481,13 @@ class BaseEntityRepo(ABC):
                     entity_id=str(entity_id),
                 )
                 linked += 1
-            except Exception:
-                log.warning("merge_mentions_failed", article_id=event.id, exc_info=True)
-                linked += 0
+            except Exception as exc:
+                log.warning(
+                    "link_entity_failed",
+                    event_id=event.id,
+                    entity_id=str(entity_id),
+                    error=str(exc),
+                )
         return linked
 
     # -------------------------------------------------------------------------

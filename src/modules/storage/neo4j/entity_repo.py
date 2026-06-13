@@ -1098,47 +1098,6 @@ class Neo4jEntityRepo(BaseEntityRepo):
             "hops": hops,
         }
 
-    async def link_entities(
-        self,
-        event: object,
-        entities: list[dict[str, Any]],
-    ) -> int:
-        """Link an event (article) to its extracted entities.
-
-        Implements: EntityGraphRepoProtocol.link_entities
-
-        Args:
-            event: EventNode instance with id (article UUID).
-            entities: List of entity dicts with 'id' or 'neo4j_id' field.
-
-        Returns:
-            Number of entities linked.
-        """
-        from modules.memory.core.event_node import EventNode
-
-        if not isinstance(event, EventNode):
-            return 0
-
-        linked = 0
-        for entity in entities:
-            entity_id = entity.get("id") or entity.get("neo4j_id")
-            if not entity_id:
-                continue
-            try:
-                await self.merge_mentions_relation(
-                    article_id=event.id,
-                    entity_id=str(entity_id),
-                )
-                linked += 1
-            except Exception as exc:
-                log.warning(
-                    "link_entity_failed",
-                    event_id=event.id,
-                    entity_id=str(entity_id),
-                    error=str(exc),
-                )
-        return linked
-
     # -------------------------------------------------------------------------
     # Abstract method implementations for Neo4j
     # -------------------------------------------------------------------------
