@@ -139,7 +139,7 @@ class LadybugEntityRepo(BaseEntityRepo):
             query, {"canonical_name": canonical_name, "type": entity_type}
         )
         if result:
-            return Neo4jEntityMapper.to_view(dict(result[0]))
+            return Neo4jEntityMapper().to_view(dict(result[0]))
         return None
 
     async def find_entity_by_id(self, entity_id: str) -> EntityView | None:
@@ -157,7 +157,7 @@ class LadybugEntityRepo(BaseEntityRepo):
         """
         result = await self._pool.execute_query(query, {"id": entity_id})
         if result:
-            return Neo4jEntityMapper.to_view(dict(result[0]))
+            return Neo4jEntityMapper().to_view(dict(result[0]))
         return None
 
     async def find_entity_by_name(self, canonical_name: str) -> dict[str, Any] | None:
@@ -195,7 +195,7 @@ class LadybugEntityRepo(BaseEntityRepo):
                e.created_at AS created_at, e.updated_at AS updated_at
         """
         result = await self._pool.execute_query(query, {"ids": entity_ids})
-        return [Neo4jEntityMapper.to_view(dict(r)) for r in result]
+        return [Neo4jEntityMapper().to_view(dict(r)) for r in result]
 
     async def add_alias(
         self,
@@ -501,7 +501,7 @@ class LadybugEntityRepo(BaseEntityRepo):
                e.created_at AS created_at, e.updated_at AS updated_at
         """
         result = await self._pool.execute_query(query, {"names": names, "type": entity_type})
-        return [Neo4jEntityMapper.to_view(dict(r)) for r in result]
+        return [Neo4jEntityMapper().to_view(dict(r)) for r in result]
 
     async def find_entities_by_keys(
         self,

@@ -111,10 +111,6 @@ class TestArticlesCoreTable:
         "version",
         "document_type",
         "doc_metadata",
-        "task_id",
-        "processing_stage",
-        "processing_error",
-        "retry_count",
         "created_at",
         "updated_at",
     }
@@ -141,6 +137,52 @@ class TestArticlesCoreTable:
         actual = tables["articles_core"]
         assert len(actual) == len(self.EXPECTED_COLUMNS), (
             f"articles_core has {len(actual)} columns, expected {len(self.EXPECTED_COLUMNS)}. "
+            f"Extra: {sorted(actual - self.EXPECTED_COLUMNS)}, "
+            f"Missing: {sorted(self.EXPECTED_COLUMNS - actual)}"
+        )
+
+
+class TestArticleBodiesTable:
+    """article_bodies must have exactly 3 columns."""
+
+    EXPECTED_COLUMNS = {"article_id", "body", "summary"}
+
+
+class TestArticleProcessingTable:
+    """article_processing must have exactly 7 columns."""
+
+    EXPECTED_COLUMNS = {
+        "article_id",
+        "task_id",
+        "processing_stage",
+        "processing_error",
+        "retry_count",
+        "created_at",
+        "updated_at",
+    }
+
+    def test_table_exists(self):
+        tables = parse_tables_from_schema()
+        assert _has_table(tables, "article_processing"), (
+            "article_processing table is missing from SCHEMA_QUERIES. "
+            "Found tables: " + ", ".join(sorted(tables))
+        )
+
+    @pytest.mark.parametrize("col", sorted(EXPECTED_COLUMNS))
+    def test_has_column(self, col):
+        tables = parse_tables_from_schema()
+        assert _has_table(tables, "article_processing"), "article_processing table missing"
+        assert (
+            col in tables["article_processing"]
+        ), f"Column '{col}' missing from article_processing. Got: {sorted(tables['article_processing'])}"
+
+    def test_column_count(self):
+        tables = parse_tables_from_schema()
+        if not _has_table(tables, "article_processing"):
+            pytest.skip("article_processing table not in schema")
+        actual = tables["article_processing"]
+        assert len(actual) == len(self.EXPECTED_COLUMNS), (
+            f"article_processing has {len(actual)} columns, expected {len(self.EXPECTED_COLUMNS)}. "
             f"Extra: {sorted(actual - self.EXPECTED_COLUMNS)}, "
             f"Missing: {sorted(self.EXPECTED_COLUMNS - actual)}"
         )
@@ -179,7 +221,7 @@ class TestArticleBodiesTable:
 
 
 class TestArticleAnalysisTable:
-    """article_analysis must have exactly 16 columns."""
+    """article_analysis must have exactly 19 columns."""
 
     EXPECTED_COLUMNS = {
         "article_id",
@@ -198,6 +240,9 @@ class TestArticleAnalysisTable:
         "credibility_flags",
         "verified_by_sources",
         "data_conflicts",
+        "event_time",
+        "image_forensics",
+        "prompt_versions",
     }
 
     def test_table_exists(self):
@@ -770,10 +815,11 @@ class TestArticlesViewDDL:
                 break
         assert cls.view_ddl is not None, "articles VIEW not found in VIEW_QUERIES"
 
-    def test_joins_three_tables(self):
+    def test_joins_four_tables(self):
         assert "articles_core" in self.view_ddl
         assert "article_bodies" in self.view_ddl
         assert "article_analysis" in self.view_ddl
+        assert "article_processing" in self.view_ddl
 
     def test_uses_left_join(self):
         assert "LEFT JOIN" in self.view_ddl

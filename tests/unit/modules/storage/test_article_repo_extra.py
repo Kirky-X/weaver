@@ -560,7 +560,7 @@ class TestArticleRepoUpdateProcessingStage:
 
     @pytest.mark.asyncio
     async def test_update_processing_stage(self, repo, mock_pool):
-        """Test update_processing_stage updates stage."""
+        """Test update_processing_stage updates stage in ArticleProcessing table."""
         article_id = uuid.uuid4()
 
         mock_session = AsyncMock()
@@ -572,6 +572,7 @@ class TestArticleRepoUpdateProcessingStage:
 
         await repo.update_processing_stage(article_id, "entity_extraction")
 
+        # update_processing_stage now upserts into ArticleProcessing table
         mock_session.execute.assert_called_once()
         mock_session.commit.assert_called_once()
 
@@ -645,7 +646,7 @@ class TestArticleRepoMarkProcessing:
 
     @pytest.mark.asyncio
     async def test_mark_processing(self, repo, mock_pool):
-        """Test mark_processing sets PROCESSING status."""
+        """Test mark_processing sets PROCESSING status in ArticleCore + ArticleProcessing."""
         article_id = uuid.uuid4()
 
         mock_session = AsyncMock()
@@ -657,7 +658,10 @@ class TestArticleRepoMarkProcessing:
 
         await repo.mark_processing(article_id, "start")
 
-        mock_session.execute.assert_called_once()
+        # mark_processing now executes 2 statements:
+        # 1. UPDATE ArticleCore SET persist_status='processing'
+        # 2. UPSERT ArticleProcessing SET processing_stage='start'
+        assert mock_session.execute.call_count == 2
         mock_session.commit.assert_called_once()
 
 

@@ -43,6 +43,18 @@ class PostgresSettings(BaseModel):
         """Build DSN from components."""
         return f"postgresql+asyncpg://{self.user}:{self.password}@{self.host}:{self.port}/{self.database}"
 
+    def pgbouncer_dsn(self, pgbouncer_host: str, pgbouncer_port: int) -> str:
+        """Build DSN pointing to PgBouncer proxy instead of direct PostgreSQL.
+
+        Args:
+            pgbouncer_host: PgBouncer proxy hostname.
+            pgbouncer_port: PgBouncer proxy port.
+
+        Returns:
+            DSN string pointing to PgBouncer.
+        """
+        return f"postgresql+asyncpg://{self.user}:{self.password}@{pgbouncer_host}:{pgbouncer_port}/{self.database}"
+
 
 class Neo4jSettings(BaseModel):
     """Neo4j connection settings.
@@ -611,3 +623,58 @@ class TrafficAnomalySettings(BaseModel):
     ip_rate_limit: int = 200
     burst_threshold: int = 10
     ip_ban_duration_seconds: int = 900
+
+
+class VaultSettings(BaseModel):
+    """HashiCorp Vault integration configuration.
+
+    When enabled, sensitive configuration values (passwords, API keys)
+    are retrieved from Vault instead of environment variables.
+
+    Environment variables: WEAVER_VAULT__ENABLED, WEAVER_VAULT__URL, WEAVER_VAULT__TOKEN, etc.
+
+    Deployment:
+        1. Start Vault server: vault server -dev (dev) or production config
+        2. Store secrets: vault kv put secret/weaver/postgres password=xxx
+        3. Configure Weaver: set WEAVER_VAULT__ENABLED=true and WEAVER_VAULT__TOKEN
+        4. Weaver will fetch secrets from Vault at startup
+    """
+
+    enabled: bool = False
+    url: str = "http://localhost:8200"
+    token: str = ""  # Set via WEAVER_VAULT__TOKEN
+    mount_path: str = "secret/weaver"
+    secret_keys: list[str] = Field(
+        default_factory=lambda: [
+            "postgres/password",
+            "neo4j/password",
+            "redis/password",
+            "api/api_key",
+            "api/admin_api_key",
+        ]
+    )
+
+
+class PgBouncerSettings(BaseModel):
+    """PgBouncer connection pooler configuration.
+
+    When enabled, PostgreSQL connections are routed through PgBouncer
+    for improved connection management in production deployments.
+
+    Environment variables: WEAVER_PGBOUNCER__ENABLED, WEAVER_PGBOUNCER__HOST, etc.
+
+    Deployment:
+        1. Install PgBouncer: apt install pgbouncer (Ubuntu) or equivalent
+        2. Configure PgBouncer: set auth_type, database connection strings
+        3. Configure Weaver: set WEAVER_PGBOUNCER__ENABLED=true
+        4. Weaver will connect to PgBouncer instead of PostgreSQL directly
+
+    Note: PgBouncer operates at the infrastructure level. Weaver only needs
+    to point its DSN to the PgBouncer proxy address.
+    """
+
+    enabled: bool = False
+    host: str = "localhost"
+    port: int = 6432
+    pool_mode: str = "transaction"  # session / transaction / statement
+    max_client_conn: int = 100

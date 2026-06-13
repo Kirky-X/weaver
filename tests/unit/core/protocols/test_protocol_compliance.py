@@ -21,6 +21,7 @@ from core.protocols import (
     GraphPool,
     GraphWriter,
     KnowledgeCacheProtocol,
+    MapperProtocol,
     PendingSyncRepository,
     PipelineService,
     RelationalPool,
@@ -64,6 +65,7 @@ PROTOCOL_REGISTRY: dict[str, type] = {
     "PipelineService": PipelineService,
     "TaskRegistryService": TaskRegistryService,
     "KnowledgeCacheProtocol": KnowledgeCacheProtocol,
+    "MapperProtocol": MapperProtocol,
     "MigrationSource": MigrationSource,
     "MigrationTarget": MigrationTarget,
     "GraphMigrationSource": GraphMigrationSource,
@@ -107,6 +109,15 @@ PROTOCOL_IMPLEMENTATIONS = [
     ("modules.migration.adapters.ladybug_source", "LadybugSource", "GraphMigrationSource"),
     ("modules.migration.adapters.neo4j_target", "Neo4jTarget", "GraphMigrationTarget"),
     ("modules.migration.adapters.ladybug_target", "LadybugTarget", "GraphMigrationTarget"),
+    # Mapper implementations
+    ("core.mappers.postgres_article_mapper", "PostgresArticleMapper", "MapperProtocol"),
+    ("core.mappers.neo4j_entity_mapper", "Neo4jEntityMapper", "MapperProtocol"),
+    ("core.mappers.community_mapper", "CommunityMapper", "MapperProtocol"),
+    (
+        "core.mappers.community_search_result_mapper",
+        "CommunitySearchResultMapper",
+        "MapperProtocol",
+    ),
 ]
 
 

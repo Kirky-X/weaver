@@ -25,7 +25,7 @@ class TestCommunityMapper:
             "entity_count": 10,
             "article_count": 5,
         }
-        result = CommunityMapper.to_view(data)
+        result = CommunityMapper().to_view(data)
         assert isinstance(result, CommunityView)
         assert result.id == "comm_001"
         assert result.title == "Test Community"
@@ -43,7 +43,7 @@ class TestCommunityMapper:
             "name": "Aliased Title",
             "description": "Aliased summary",
         }
-        result = CommunityMapper.to_view(data)
+        result = CommunityMapper().to_view(data)
         assert result.title == "Aliased Title"
         assert result.summary == "Aliased summary"
 
@@ -52,7 +52,7 @@ class TestCommunityMapper:
         from core.mappers.community_mapper import CommunityMapper
 
         data = {"id": "comm_003", "name": "Minimal"}
-        result = CommunityMapper.to_view(data)
+        result = CommunityMapper().to_view(data)
         assert result.keywords == []
         assert result.level == 0
         assert result.rank == 0.0
@@ -73,7 +73,7 @@ class TestCommunitySearchResultMapper:
             "title": "Test Community",
             "summary": "A test community summary",
         }
-        result = CommunitySearchResultMapper.to_view(data)
+        result = CommunitySearchResultMapper().to_view(data)
         assert isinstance(result, CommunitySearchResultView)
         assert result.community_id == "comm_001"
         assert result.score == 0.92
@@ -88,7 +88,7 @@ class TestCommunitySearchResultMapper:
             "community_id": "comm_002",
             "score": 0.75,
         }
-        result = CommunitySearchResultMapper.to_view(data)
+        result = CommunitySearchResultMapper().to_view(data)
         assert result.community_id == "comm_002"
         assert result.score == 0.75
         assert result.title is None
@@ -102,6 +102,6 @@ class TestCommunitySearchResultMapper:
             "community_id": "comm_003",
             "score": "0.88",
         }
-        result = CommunitySearchResultMapper.to_view(data)
+        result = CommunitySearchResultMapper().to_view(data)
         assert result.score == 0.88
         assert isinstance(result.score, float)

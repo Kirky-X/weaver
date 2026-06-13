@@ -6,34 +6,31 @@ from core.models.shared import ArticleView
 class PostgresArticleMapper:
     """Maps PostgreSQL ORM rows to ArticleView with field-level type conversion.
 
-    Implements: Data Contract Layer — PostgresArticleMapper
+    Implements: MapperProtocol
     """
 
-    @staticmethod
-    def to_view(orm_row: Any) -> ArticleView:
-        if isinstance(orm_row, dict):
-            data = orm_row
+    def to_view(self, data: Any) -> ArticleView:
+        if isinstance(data, dict):
+            orm_row = data
         else:
-            data = {
-                col: getattr(orm_row, col)
-                for col in ArticleView.model_fields
-                if hasattr(orm_row, col)
+            orm_row = {
+                col: getattr(data, col) for col in ArticleView.model_fields if hasattr(data, col)
             }
 
         # Type conversion for numeric fields that may come as strings
-        if "score" in data and data["score"] is not None:
-            data["score"] = float(data["score"])
-        if "sentiment_score" in data and data["sentiment_score"] is not None:
-            data["sentiment_score"] = float(data["sentiment_score"])
-        if "quality_score" in data and data["quality_score"] is not None:
-            data["quality_score"] = float(data["quality_score"])
-        if "credibility_score" in data and data["credibility_score"] is not None:
-            data["credibility_score"] = float(data["credibility_score"])
-        if "cross_verification" in data and data["cross_verification"] is not None:
-            data["cross_verification"] = float(data["cross_verification"])
+        if "score" in orm_row and orm_row["score"] is not None:
+            orm_row["score"] = float(orm_row["score"])
+        if "sentiment_score" in orm_row and orm_row["sentiment_score"] is not None:
+            orm_row["sentiment_score"] = float(orm_row["sentiment_score"])
+        if "quality_score" in orm_row and orm_row["quality_score"] is not None:
+            orm_row["quality_score"] = float(orm_row["quality_score"])
+        if "credibility_score" in orm_row and orm_row["credibility_score"] is not None:
+            orm_row["credibility_score"] = float(orm_row["credibility_score"])
+        if "cross_verification" in orm_row and orm_row["cross_verification"] is not None:
+            orm_row["cross_verification"] = float(orm_row["cross_verification"])
 
         # Default for verified_by_sources when missing
-        if "verified_by_sources" not in data:
-            data["verified_by_sources"] = 0
+        if "verified_by_sources" not in orm_row:
+            orm_row["verified_by_sources"] = 0
 
-        return ArticleView.model_validate(data)
+        return ArticleView.model_validate(orm_row)

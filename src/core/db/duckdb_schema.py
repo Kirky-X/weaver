@@ -55,6 +55,13 @@ SCHEMA_QUERIES = [
         version INTEGER DEFAULT 1,
         document_type VARCHAR DEFAULT 'news',
         doc_metadata JSON DEFAULT '{}',
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )""",
+    # ── Article Processing (vertical split) ───────────────────
+    """CREATE TABLE IF NOT EXISTS article_processing
+    (
+        article_id UUID PRIMARY KEY,
         task_id UUID,
         processing_stage VARCHAR,
         processing_error VARCHAR,
@@ -399,10 +406,12 @@ VIEW_QUERIES = [
            a.quality_score, a.sentiment, a.primary_emotion, a.emotion_targets,
            a.source_credibility, a.cross_verification, a.content_check_score,
            a.credibility_flags, a.verified_by_sources, a.data_conflicts,
-           a.event_time, a.image_forensics, a.prompt_versions
+           a.event_time, a.image_forensics, a.prompt_versions,
+           p.task_id, p.processing_stage, p.processing_error, p.retry_count
     FROM articles_core c
     LEFT JOIN article_bodies b ON c.id = b.article_id
-    LEFT JOIN article_analysis a ON c.id = a.article_id""",
+    LEFT JOIN article_analysis a ON c.id = a.article_id
+    LEFT JOIN article_processing p ON c.id = p.article_id""",
 ]
 
 

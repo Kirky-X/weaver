@@ -15,7 +15,13 @@ from core.observability import get_logger
 from core.protocols import GraphPool, RelationalPool
 
 if TYPE_CHECKING:
-    from config.settings import DuckDBSettings, LadybugSettings, Neo4jSettings, PostgresSettings
+    from config.settings import (
+        DuckDBSettings,
+        LadybugSettings,
+        Neo4jSettings,
+        PgBouncerSettings,
+        PostgresSettings,
+    )
 
 log = get_logger(__name__)
 
@@ -38,6 +44,7 @@ async def create_strategy(
     neo4j_settings: Neo4jSettings,
     duckdb_settings: DuckDBSettings | None = None,
     ladybug_settings: LadybugSettings | None = None,
+    pgbouncer_settings: PgBouncerSettings | None = None,
 ) -> DatabaseStrategy:
     """Create database strategy by trying primary then fallback databases.
 
@@ -46,6 +53,7 @@ async def create_strategy(
         neo4j_settings: Neo4j connection settings.
         duckdb_settings: DuckDB fallback settings.
         ladybug_settings: LadybugDB fallback settings.
+        pgbouncer_settings: PgBouncer connection pooler settings.
 
     Returns:
         DatabaseStrategy with selected pools.
@@ -65,6 +73,21 @@ async def create_strategy(
         from config.settings import LadybugSettings
 
         ladybug_settings = LadybugSettings()
+    if pgbouncer_settings is None:
+        from config.subconfigs import PgBouncerSettings
+
+        pgbouncer_settings = PgBouncerSettings()
+
+    # Determine DSN: use PgBouncer proxy if enabled
+    dsn = pg_settings.dsn
+    if pgbouncer_settings.enabled:
+        dsn = pg_settings.pgbouncer_dsn(pgbouncer_settings.host, pgbouncer_settings.port)
+        log.info(
+            "pgbouncer_enabled",
+            host=pgbouncer_settings.host,
+            port=pgbouncer_settings.port,
+            pool_mode=pgbouncer_settings.pool_mode,
+        )
 
     # 1. Try PostgreSQL
     relational_pool: RelationalPool
@@ -72,7 +95,7 @@ async def create_strategy(
 
     try:
         pg_pool = PostgresPool(
-            dsn=pg_settings.dsn,
+            dsn=dsn,
             pool_size=pg_settings.pool_size,
             max_overflow=pg_settings.max_overflow,
             pool_timeout=pg_settings.pool_timeout,

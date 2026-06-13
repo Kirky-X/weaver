@@ -6,11 +6,10 @@ from core.models.shared import CommunitySearchResultView
 class CommunitySearchResultMapper:
     """Maps community search results to CommunitySearchResultView.
 
-    Implements: Data Contract Layer — CommunitySearchResultMapper
+    Implements: MapperProtocol
     """
 
-    @staticmethod
-    def to_view(data: dict[str, Any]) -> CommunitySearchResultView:
+    def to_view(self, data: dict[str, Any]) -> CommunitySearchResultView:
         converted = dict(data)
         # Ensure score is float
         if "score" in converted and converted["score"] is not None:

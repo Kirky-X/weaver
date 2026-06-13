@@ -264,14 +264,6 @@ class ArticleCore(Base):
         JSONCompatible, nullable=False, default=dict, server_default=text("'{}'::jsonb")
     )
 
-    # Task tracking
-    task_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-
-    # Processing tracking
-    processing_stage: Mapped[str | None] = mapped_column(String(50))
-    processing_error: Mapped[str | None] = mapped_column(Text)
-    retry_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-
     # Timestamps
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -299,6 +291,11 @@ class ArticleCore(Base):
     vectors: Mapped[list[ArticleVector]] = relationship(
         back_populates="article",
         cascade="all, delete-orphan",
+    )
+    processing: Mapped[ArticleProcessing | None] = relationship(
+        back_populates="core",
+        cascade="all, delete-orphan",
+        uselist=False,
     )
 
     # Constraints
@@ -332,7 +329,6 @@ class ArticleCore(Base):
         Index("idx_core_category_publish", "category", publish_time.desc()),
         Index("idx_core_host_publish", "source_host", publish_time.desc()),
         Index("idx_core_status_created", "persist_status", created_at.asc()),
-        Index("idx_core_task_status", "task_id", "persist_status"),
         # ── Optimization indexes (design doc §9.2) ──
         Index(
             "idx_articles_sentiment_time",
@@ -459,6 +455,51 @@ class ArticleAnalysis(Base):
             "data_conflicts",
             postgresql_using="gin",
         ),
+    )
+
+
+class ArticleProcessing(Base):
+    """Processing tracking fields for articles, separated from core for row width optimization.
+
+    Implements: Vertical split per Weaver-数据库设计文档 §9.1
+    Keeps core table narrow (~400 bytes) by moving processing state to separate table.
+    """
+
+    __tablename__ = "article_processing"
+
+    article_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("articles_core.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    task_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    processing_stage: Mapped[str | None] = mapped_column(String(50))
+    processing_error: Mapped[str | None] = mapped_column(Text)
+    retry_count: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False, server_default=text("0")
+    )
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=text("NOW()"),
+        onupdate=lambda: datetime.now(UTC),
+    )
+
+    # Relationships
+    core: Mapped[ArticleCore] = relationship(back_populates="processing")
+
+    # Constraints
+    __table_args__ = (
+        Index("idx_processing_task_id", "task_id"),
+        Index("idx_processing_stage", "processing_stage"),
+        Index("idx_processing_task_status", "task_id", "processing_stage"),
     )
 
 

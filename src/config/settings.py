@@ -50,6 +50,7 @@ from config.subconfigs import (
     Neo4jSettings,
     ObservabilitySettings,
     PaddleNLPSentimentSettings,
+    PgBouncerSettings,
     PipelineProcessSettings,
     PipelineUrlEndpointSettings,
     PostgresSettings,
@@ -63,6 +64,7 @@ from config.subconfigs import (
     TemporalMemorySettings,
     TrafficAnomalySettings,
     URLSecuritySettings,
+    VaultSettings,
 )
 from core.llm.config.config import LLMSettings
 from core.utils.paths import PROJECT_ROOT
@@ -132,6 +134,10 @@ class Settings(BaseSettings):
     gliner: GLiNERSettings = Field(default_factory=GLiNERSettings)
     hnsw_ef_search: HNSWEfSearchSettings = Field(default_factory=HNSWEfSearchSettings)
     traffic_anomaly: TrafficAnomalySettings = Field(default_factory=TrafficAnomalySettings)
+
+    # Infrastructure integration settings (disabled by default)
+    vault: VaultSettings = Field(default_factory=VaultSettings)
+    pgbouncer: PgBouncerSettings = Field(default_factory=PgBouncerSettings)
 
     # LLM configuration (loaded from separate TOML file)
     llm: LLMSettings = Field(default_factory=LLMSettings)

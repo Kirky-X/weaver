@@ -198,3 +198,28 @@ ssl_verify_timeout = 10.0                 # SSL verification timeout (seconds)
 cache_enabled = true                      # Enable check result caching
 cache_safe_ttl_seconds = 21600            # Cache TTL for safe results (6 hours)
 cache_malicious_ttl_seconds = 900         # Cache TTL for malicious results (15 minutes)
+
+# ============================================================
+# Infrastructure Integration (disabled by default)
+# ============================================================
+
+[vault]
+# HashiCorp Vault integration for secrets management.
+# When enabled, sensitive values are fetched from Vault at startup.
+# See docs/ARCHITECTURE.md for deployment guide.
+enabled = false                           # Enable Vault integration
+url = "http://localhost:8200"             # Vault server URL
+# token: Set via WEAVER_VAULT__TOKEN environment variable
+mount_path = "secret/weaver"              # KV v2 mount path
+# secret_keys: List of secret paths to fetch from Vault
+# Default: ["postgres/password", "neo4j/password", "redis/password", "api/api_key", "api/admin_api_key"]
+
+[pgbouncer]
+# PgBouncer connection pooler for production deployments.
+# When enabled, PostgreSQL connections are routed through PgBouncer.
+# See docs/ARCHITECTURE.md for deployment guide.
+enabled = false                           # Enable PgBouncer routing
+host = "localhost"                        # PgBouncer proxy hostname
+port = 6432                               # PgBouncer proxy port
+pool_mode = "transaction"                 # Pooling mode: session / transaction / statement
+max_client_conn = 100                     # Maximum client connections

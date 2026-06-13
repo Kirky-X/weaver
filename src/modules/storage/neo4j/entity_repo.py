@@ -256,7 +256,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
             record = dict(result[0])
             record["created_at"] = self._convert_timestamp(record.get("created_at"))
             record["updated_at"] = self._convert_timestamp(record.get("updated_at"))
-            return Neo4jEntityMapper.to_view(record)
+            return Neo4jEntityMapper().to_view(record)
         return None
 
     async def find_entity(
@@ -291,7 +291,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
             record = dict(result[0])
             record["created_at"] = self._convert_timestamp(record.get("created_at"))
             record["updated_at"] = self._convert_timestamp(record.get("updated_at"))
-            return Neo4jEntityMapper.to_view(record)
+            return Neo4jEntityMapper().to_view(record)
         return None
 
     async def find_entity_by_id(self, neo4j_id: str) -> EntityView | None:
@@ -320,7 +320,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
             record = dict(result[0])
             record["created_at"] = self._convert_timestamp(record.get("created_at"))
             record["updated_at"] = self._convert_timestamp(record.get("updated_at"))
-            return Neo4jEntityMapper.to_view(record)
+            return Neo4jEntityMapper().to_view(record)
         return None
 
     async def find_entities_by_ids(
@@ -358,7 +358,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
         params = {"ids": neo4j_ids}
         result = await self._pool.execute_query(query, params)
         return [
-            Neo4jEntityMapper.to_view(
+            Neo4jEntityMapper().to_view(
                 {
                     **record,
                     "created_at": self._convert_timestamp(record.get("created_at")),
@@ -954,7 +954,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
 
         params = {"names": names, "type": entity_type}
         result = await self._pool.execute_query(query, params)
-        return [Neo4jEntityMapper.to_view(dict(record)) for record in result]
+        return [Neo4jEntityMapper().to_view(dict(record)) for record in result]
 
     async def find_entities_by_keys(
         self,
@@ -991,7 +991,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
             ]
         }
         result = await self._pool.execute_query(query, params)
-        return [Neo4jEntityMapper.to_view(dict(record)) for record in result]
+        return [Neo4jEntityMapper().to_view(dict(record)) for record in result]
 
     async def delete_entities_batch(
         self,

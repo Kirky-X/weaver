@@ -22,6 +22,9 @@ from core.protocols.knowledge_cache import (
     KnowledgeCluster,
 )
 
+# Mapper protocols
+from core.protocols.mappers import MapperProtocol
+
 # Pool protocols
 from core.protocols.pools import (
     CachePool,
@@ -63,6 +66,7 @@ __all__ = [
     "GraphWriter",
     "KnowledgeCacheProtocol",
     "KnowledgeCluster",
+    "MapperProtocol",
     "PendingSyncRepository",
     "PipelineService",
     "RelationalPool",

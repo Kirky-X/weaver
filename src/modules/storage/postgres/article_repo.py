@@ -18,6 +18,7 @@ from core.db import (
     ArticleAnalysis,
     ArticleBody,
     ArticleCore,
+    ArticleProcessing,
     ArticleVersion,
     EmotionType,
     PersistStatus,
@@ -752,13 +753,19 @@ class ArticleRepo:
                 title=raw.title or "",
                 persist_status=PersistStatus.PENDING,
                 content_hash=content_hash,
-                task_id=task_id,
             )
             if raw.publish_time:
                 core.publish_time = raw.publish_time
 
             session.add(core)
             await session.flush()
+
+            # Insert into article_processing (vertical split from core)
+            processing = ArticleProcessing(
+                article_id=core.id,
+                task_id=task_id,
+            )
+            session.add(processing)
 
             # Insert into article_bodies
             body = ArticleBody(
@@ -1024,27 +1031,34 @@ class ArticleRepo:
     async def update_processing_stage(self, article_id: uuid.UUID, stage: str) -> None:
         """Update the current processing stage of an article.
 
+        Uses INSERT ... ON CONFLICT to handle the case where an
+        ArticleProcessing row does not yet exist.
+
         Args:
             article_id: The article UUID.
             stage: The current processing stage name.
         """
         async with self._pool.session() as session:
-            await session.execute(
-                update(ArticleCore)
-                .where(ArticleCore.id == article_id)
-                .values(
-                    processing_stage=stage,
-                    updated_at=datetime.now(UTC),
-                )
+            stmt = pg_insert(ArticleProcessing).values(
+                article_id=article_id,
+                processing_stage=stage,
+                updated_at=datetime.now(UTC),
             )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["article_id"],
+                set_={
+                    "processing_stage": stmt.excluded.processing_stage,
+                    "updated_at": stmt.excluded.updated_at,
+                },
+            )
+            await session.execute(stmt)
             await session.commit()
 
     async def bulk_update_processing_stage(self, article_ids: list[uuid.UUID], stage: str) -> None:
         """Bulk update processing stage for multiple articles.
 
-        Uses a single UPDATE ... WHERE id IN (...) query instead of
-        N individual UPDATEs, reducing DB round-trips from ~1900 to ~8
-        per batch.
+        Uses INSERT ... ON CONFLICT for each article to handle cases
+        where an ArticleProcessing row does not yet exist.
 
         Args:
             article_ids: List of article UUIDs to update.
@@ -1053,14 +1067,21 @@ class ArticleRepo:
         if not article_ids:
             return
         async with self._pool.session() as session:
-            await session.execute(
-                update(ArticleCore)
-                .where(ArticleCore.id.in_(article_ids))
-                .values(
+            now = datetime.now(UTC)
+            for article_id in article_ids:
+                stmt = pg_insert(ArticleProcessing).values(
+                    article_id=article_id,
                     processing_stage=stage,
-                    updated_at=datetime.now(UTC),
+                    updated_at=now,
                 )
-            )
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["article_id"],
+                    set_={
+                        "processing_stage": stmt.excluded.processing_stage,
+                        "updated_at": stmt.excluded.updated_at,
+                    },
+                )
+                await session.execute(stmt)
             await session.commit()
 
     async def mark_failed(
@@ -1068,50 +1089,97 @@ class ArticleRepo:
     ) -> None:
         """Mark an article as failed with error message.
 
+        Updates ArticleCore.persist_status and ArticleProcessing fields
+        (processing_error, retry_count) in the same transaction.
+
         Args:
             article_id: The article UUID.
             error: Error message describing the failure.
             increment_retry: Whether to increment retry count.
         """
         async with self._pool.session() as session:
-            # Get current retry count from ArticleCore
-            result = await session.execute(
-                select(ArticleCore.retry_count).where(ArticleCore.id == article_id)
+            # Update persist_status on ArticleCore
+            await session.execute(
+                update(ArticleCore)
+                .where(ArticleCore.id == article_id)
+                .values(
+                    persist_status=PersistStatus.FAILED,
+                    updated_at=datetime.now(UTC),
+                )
             )
-            current_retry = result.scalar_one_or_none() or 0
 
-            # Build update values
-            update_values: dict[str, Any] = {
-                "persist_status": PersistStatus.FAILED,
+            # Upsert ArticleProcessing with error and retry count
+            if increment_retry:
+                # Get current retry count from ArticleProcessing
+                result = await session.execute(
+                    select(ArticleProcessing.retry_count).where(
+                        ArticleProcessing.article_id == article_id
+                    )
+                )
+                current_retry = result.scalar_one_or_none() or 0
+                new_retry = current_retry + 1
+            else:
+                new_retry = None
+
+            processing_values: dict[str, Any] = {
+                "article_id": article_id,
                 "processing_error": error,
                 "updated_at": datetime.now(UTC),
             }
-            if increment_retry:
-                update_values["retry_count"] = current_retry + 1
+            if new_retry is not None:
+                processing_values["retry_count"] = new_retry
 
-            await session.execute(
-                update(ArticleCore).where(ArticleCore.id == article_id).values(**update_values)
+            stmt = pg_insert(ArticleProcessing).values(**processing_values)
+            conflict_set: dict[str, Any] = {
+                "processing_error": stmt.excluded.processing_error,
+                "updated_at": stmt.excluded.updated_at,
+            }
+            if new_retry is not None:
+                conflict_set["retry_count"] = stmt.excluded.retry_count
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["article_id"],
+                set_=conflict_set,
             )
+            await session.execute(stmt)
             await session.commit()
 
     async def mark_processing(self, article_id: uuid.UUID, stage: str) -> None:
         """Mark an article as being processed.
+
+        Updates ArticleCore.persist_status and ArticleProcessing fields
+        (processing_stage, processing_error) in the same transaction.
 
         Args:
             article_id: The article UUID.
             stage: The initial processing stage.
         """
         async with self._pool.session() as session:
+            # Update persist_status on ArticleCore
             await session.execute(
                 update(ArticleCore)
                 .where(ArticleCore.id == article_id)
                 .values(
                     persist_status=PersistStatus.PROCESSING,
-                    processing_stage=stage,
-                    processing_error=None,
                     updated_at=datetime.now(UTC),
                 )
             )
+
+            # Upsert ArticleProcessing with stage and clear error
+            stmt = pg_insert(ArticleProcessing).values(
+                article_id=article_id,
+                processing_stage=stage,
+                processing_error=None,
+                updated_at=datetime.now(UTC),
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["article_id"],
+                set_={
+                    "processing_stage": stmt.excluded.processing_stage,
+                    "processing_error": stmt.excluded.processing_error,
+                    "updated_at": stmt.excluded.updated_at,
+                },
+            )
+            await session.execute(stmt)
             await session.commit()
 
     async def detect_merge_cycle(
@@ -1220,6 +1288,9 @@ class ArticleRepo:
     async def get_task_progress_stats(self, task_id: uuid.UUID) -> dict[str, int]:
         """Get progress statistics for a specific task.
 
+        Queries ArticleProcessing for task_id and JOINs ArticleCore
+        for persist_status distribution.
+
         Args:
             task_id: The task UUID to query.
 
@@ -1232,7 +1303,7 @@ class ArticleRepo:
         async with self._pool.session() as session:
             result = await session.execute(
                 select(
-                    func.count(ArticleCore.id).label("total_processed"),
+                    func.count(ArticleProcessing.article_id).label("total_processed"),
                     func.sum(
                         sql_case(
                             (ArticleCore.persist_status == PersistStatus.PROCESSING, 1), else_=0
@@ -1255,7 +1326,9 @@ class ArticleRepo:
                     func.sum(
                         sql_case((ArticleCore.persist_status == PersistStatus.PENDING, 1), else_=0)
                     ).label("pending_count"),
-                ).where(ArticleCore.task_id == task_id)
+                )
+                .join(ArticleCore, ArticleCore.id == ArticleProcessing.article_id)
+                .where(ArticleProcessing.task_id == task_id)
             )
             row = result.one()
             return {

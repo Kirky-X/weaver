@@ -86,7 +86,7 @@ class CommunityVectorRepo:
             rows = result.all()
 
             return [
-                CommunitySearchResultMapper.to_view(
+                CommunitySearchResultMapper().to_view(
                     {
                         "community_id": row.community_id,
                         "score": float(row.score),

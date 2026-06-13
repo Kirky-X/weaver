@@ -20,7 +20,7 @@ import pytest
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
-from core.db.models import ArticleAnalysis, ArticleBody, ArticleCore, Base
+from core.db.models import ArticleAnalysis, ArticleBody, ArticleCore, ArticleProcessing, Base
 
 # ── Column definition tests ──────────────────────────────────
 
@@ -82,11 +82,12 @@ class TestArticleCoreColumns:
         assert "is_merged" in self.columns
         assert "merged_source_ids" in self.columns
 
-    def test_has_task_tracking(self):
-        assert "task_id" in self.columns
-        assert "processing_stage" in self.columns
-        assert "processing_error" in self.columns
-        assert "retry_count" in self.columns
+    def test_no_task_tracking_in_core(self):
+        """Processing fields were moved to ArticleProcessing for row width optimization."""
+        assert "task_id" not in self.columns
+        assert "processing_stage" not in self.columns
+        assert "processing_error" not in self.columns
+        assert "retry_count" not in self.columns
 
     def test_has_content_hash_and_version(self):
         assert "content_hash" in self.columns
@@ -269,6 +270,11 @@ class TestArticleCoreRelationships:
         rels = ArticleCore.__mapper__.relationships
         assert "analysis" in rels
 
+    def test_core_has_processing_relationship(self):
+        """ArticleCore should have a relationship to ArticleProcessing."""
+        rels = ArticleCore.__mapper__.relationships
+        assert "processing" in rels
+
     def test_body_belongs_to_core(self):
         """ArticleBody should have a back-reference to ArticleCore."""
         rels = ArticleBody.__mapper__.relationships
@@ -302,10 +308,6 @@ class TestArticleCoreDefaults:
         col = ArticleCore.__table__.columns["is_merged"]
         assert col.default is not None or col.server_default is not None
 
-    def test_retry_count_default_0(self):
-        col = ArticleCore.__table__.columns["retry_count"]
-        assert col.default is not None or col.server_default is not None
-
 
 class TestArticleAnalysisDefaults:
     """Verify default values for analysis table."""
@@ -321,3 +323,73 @@ class TestArticleAnalysisDefaults:
     def test_data_conflicts_default_empty(self):
         col = ArticleAnalysis.__table__.columns["data_conflicts"]
         assert col.default is not None or col.server_default is not None
+
+
+# ── ArticleProcessing tests ──────────────────────────────────
+
+
+class TestArticleProcessingColumns:
+    """Verify article_processing has the required columns."""
+
+    @pytest.fixture(autouse=True)
+    def _inspect_table(self):
+        self.columns = {c.name for c in inspect(ArticleProcessing).columns}
+
+    def test_has_article_id(self):
+        assert "article_id" in self.columns
+
+    def test_has_task_id(self):
+        assert "task_id" in self.columns
+
+    def test_has_processing_stage(self):
+        assert "processing_stage" in self.columns
+
+    def test_has_processing_error(self):
+        assert "processing_error" in self.columns
+
+    def test_has_retry_count(self):
+        assert "retry_count" in self.columns
+
+    def test_has_created_at(self):
+        assert "created_at" in self.columns
+
+    def test_has_updated_at(self):
+        assert "updated_at" in self.columns
+
+
+class TestArticleProcessingConstraints:
+    """Verify article_processing constraints."""
+
+    @pytest.fixture(autouse=True)
+    def _inspect_table(self):
+        self.table = ArticleProcessing.__table__
+
+    def test_article_id_is_primary_key(self):
+        pk_cols = [c.name for c in self.table.primary_key.columns]
+        assert "article_id" in pk_cols
+
+    def test_article_id_foreign_key_to_core(self):
+        """article_id should reference articles_core(id) with CASCADE delete."""
+        fk = self.table.columns["article_id"].foreign_keys
+        assert len(fk) == 1
+        fk_ref = list(fk)[0]
+        assert fk_ref.column.table.name == "articles_core"
+        assert fk_ref.column.name == "id"
+        assert fk_ref.ondelete == "CASCADE"
+
+
+class TestArticleProcessingDefaults:
+    """Verify default values for processing table."""
+
+    def test_retry_count_default_0(self):
+        col = ArticleProcessing.__table__.columns["retry_count"]
+        assert col.default is not None or col.server_default is not None
+
+
+class TestArticleProcessingRelationships:
+    """Verify ORM relationships for ArticleProcessing."""
+
+    def test_processing_belongs_to_core(self):
+        """ArticleProcessing should have a back-reference to ArticleCore."""
+        rels = ArticleProcessing.__mapper__.relationships
+        assert "core" in rels
