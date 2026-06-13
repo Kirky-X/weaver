@@ -21,7 +21,7 @@ from core.db.graph_query import (
 )
 from core.observability import get_logger
 from core.protocols import GraphPool
-from modules.knowledge.search.context.builder import ContextBuilder, SearchContext
+from modules.knowledge.search.context.base_local_context import BaseLocalContextBuilder
 
 if TYPE_CHECKING:
     pass
@@ -29,161 +29,70 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 
-class LadybugLocalContextBuilder(ContextBuilder):
+class LadybugLocalContextBuilder(BaseLocalContextBuilder):
     """Builds local context around query-relevant entities using LadybugDB.
 
     This builder focuses on the immediate neighborhood of relevant entities,
     making it suitable for specific, targeted queries.
 
-    Implements: ContextBuilder
+    LadybugDB-specific features:
+    - Fuzzy entity search via GraphQueryBuilder
+    - Entity name validation with fallback
+    - Text-based article search fallback
+    - Uses r.edge_type instead of type(r)
+
+    Implements: ContextBuilder (via BaseLocalContextBuilder)
     """
 
     def __init__(
         self,
         graph_pool: GraphPool,
-        article_repo: ArticleRepo | None = None,
+        article_repo: Any = None,
         token_encoder: Any = None,
         default_max_tokens: int = 8000,
         max_entities: int = 20,
         max_relationships: int = 50,
         max_hops: int = 2,
     ) -> None:
-        """Initialize local context builder.
-
-        Args:
-            graph_pool: GraphPool instance (LadybugPool).
-            article_repo: Optional PostgreSQL ArticleRepo for fetching body content.
-            token_encoder: Optional tokenizer.
-            default_max_tokens: Default max tokens for context.
-            max_entities: Maximum entities to include.
-            max_relationships: Maximum relationships to include.
-            max_hops: Maximum hops for neighborhood expansion.
-        """
-        super().__init__(token_encoder, default_max_tokens)
-        self._pool = graph_pool
-        self._article_repo = article_repo
-        self._max_entities = max_entities
-        self._max_relationships = max_relationships
-        self._max_hops = max_hops
+        super().__init__(
+            graph_pool=graph_pool,
+            article_repo=article_repo,
+            token_encoder=token_encoder,
+            default_max_tokens=default_max_tokens,
+            max_entities=max_entities,
+            max_relationships=max_relationships,
+            max_hops=max_hops,
+        )
         self._query_builder: GraphQueryBuilder = create_graph_query_builder("ladybug")
 
-    async def build(
+    def _should_validate_entity_names(self) -> bool:
+        """LadybugDB validates entity names because data model may differ."""
+        return True
+
+    async def _handle_no_entities(
         self,
+        context: Any,
         query: str,
-        max_tokens: int | None = None,
-        entity_names: list[str] | None = None,
-        relation_types: list[str] | None = None,
-        **kwargs: Any,
-    ) -> SearchContext:
-        """Build local context for a query.
-
-        Args:
-            query: The search query.
-            max_tokens: Maximum tokens for context.
-            entity_names: Optional list of entity names to focus on.
-            relation_types: Optional list of relation types to filter by.
-            **kwargs: Additional parameters.
-
-        Returns:
-            SearchContext with local entity neighborhood.
-        """
-        context = self.create_context(query, max_tokens)
-
-        if entity_names is None:
-            entity_names = await self._find_query_entities(query)
-        else:
-            # Verify provided entity_names exist; fall back to fuzzy search if not
-            entities_check = await self._get_entities_with_details(entity_names)
-            if not entities_check:
-                log.info(
-                    "entity_names_not_found_fallback",
-                    provided=entity_names,
-                    query=query,
-                )
-                entity_names = await self._find_query_entities(query)
-
-        if not entity_names:
-            # Instead of returning early, add a message and continue to try finding related content
-            context.add_content(
-                name="Search Note",
-                content=f"No direct entity matches found for '{query}'. Attempting to find related content...",
-                priority=0,
-            )
-            # Try to find related articles based on query text
-            articles = await self._get_related_articles_by_text(query)
-            if articles:
-                article_content = self._format_articles_section(articles)
-                context.add_content(
-                    name="Related Articles",
-                    content=article_content,
-                    priority=50,
-                    metadata={"article_count": len(articles)},
-                )
-            return context
-
-        entities = await self._get_entities_with_details(entity_names)
-        if entities:
-            entity_content = self.format_entities_section(entities)
-            context.add_content(
-                name="Relevant Entities",
-                content=entity_content,
-                priority=100,
-                metadata={"entity_count": len(entities)},
-            )
-
-        related_entities = await self._get_related_entities(
-            entity_names,
-            relation_types=relation_types,
+    ) -> Any:
+        """Handle no entities by trying text-based article search."""
+        context.add_content(
+            name="Search Note",
+            content=f"No direct entity matches found for '{query}'. Attempting to find related content...",
+            priority=0,
         )
-        if related_entities:
-            related_content = self.format_entities_section(
-                related_entities, include_description=False
-            )
-            context.add_content(
-                name="Related Entities",
-                content=related_content,
-                priority=80,
-                metadata={"related_count": len(related_entities)},
-            )
-
-        relationships = await self._get_relationships(
-            entity_names,
-            relation_types=relation_types,
-        )
-        if relationships:
-            rel_content = self.format_relationships_section(relationships)
-            context.add_content(
-                name="Relationships",
-                content=rel_content,
-                priority=90,
-                metadata={"relationship_count": len(relationships)},
-            )
-
-        articles = await self._get_related_articles(entity_names)
+        articles = await self._get_related_articles_by_text(query)
         if articles:
             article_content = self.format_articles_section(articles)
             context.add_content(
-                name="Source Articles",
+                name="Related Articles",
                 content=article_content,
-                priority=70,
+                priority=50,
                 metadata={"article_count": len(articles)},
             )
-
-        context.metadata["total_entities"] = len(entities) + len(related_entities)
-        context.metadata["total_relationships"] = len(relationships)
-        if relation_types:
-            context.metadata["filtered_relation_types"] = relation_types
-
         return context
 
     async def _find_query_entities(self, query: str) -> list[str]:
-        """Find entities mentioned in the query.
-
-        Uses a two-step approach:
-        1. Exact match on canonical_name and aliases
-        2. Fuzzy match using CONTAINS if no exact matches
-        """
-        # Step 1: Try exact match
+        """Find entities mentioned in the query using GraphQueryBuilder."""
         config = EntitySearchConfig(query=query.lower(), limit=self._max_entities)
         cypher = self._query_builder.build_entity_search_query(config)
 
@@ -191,32 +100,13 @@ class LadybugLocalContextBuilder(ContextBuilder):
             results = await self._pool.execute_query(
                 cypher, {"query": query.lower(), "limit": self._max_entities}
             )
-            exact_matches = [r["name"] for r in results if r.get("name")]
-            if exact_matches:
-                log.info(
-                    "entities_found_exact", count=len(exact_matches), entities=exact_matches[:5]
-                )
-                return exact_matches
+            matches = [r["name"] for r in results if r.get("name")]
+            if matches:
+                log.info("entities_found", count=len(matches), entities=matches[:5])
+                return matches
         except Exception as exc:
-            log.warning("find_query_entities_exact_failed", error=str(exc))
+            log.warning("find_query_entities_failed", error=str(exc))
 
-        # Step 2: Try fuzzy match using CONTAINS
-        cypher = self._query_builder.build_entity_search_query(config)
-
-        try:
-            results = await self._pool.execute_query(
-                cypher, {"query": query.lower(), "limit": self._max_entities}
-            )
-            fuzzy_matches = [r["name"] for r in results if r.get("name")]
-            if fuzzy_matches:
-                log.info(
-                    "entities_found_fuzzy", count=len(fuzzy_matches), entities=fuzzy_matches[:5]
-                )
-                return fuzzy_matches
-        except Exception as exc:
-            log.warning("find_query_entities_fuzzy_failed", error=str(exc))
-
-        log.info("no_entities_found", query=query)
         return []
 
     async def _get_entities_with_details(
@@ -281,7 +171,7 @@ class LadybugLocalContextBuilder(ContextBuilder):
             self._max_relationships,
         )
 
-        params = {"names": entity_names, "limit": self._max_relationships}
+        params: dict[str, Any] = {"names": entity_names, "limit": self._max_relationships}
         if relation_types:
             params["relation_types"] = relation_types
 
@@ -297,10 +187,7 @@ class LadybugLocalContextBuilder(ContextBuilder):
         entity_names: list[str],
         limit: int = 10,
     ) -> list[dict[str, Any]]:
-        """Get articles mentioning the query entities.
-
-        Enriches articles with body excerpts from PostgreSQL when available.
-        """
+        """Get articles mentioning the query entities."""
         if not entity_names:
             return []
 
@@ -312,7 +199,6 @@ class LadybugLocalContextBuilder(ContextBuilder):
             )
             articles = [dict(r) for r in results]
 
-            # Fetch body content from PostgreSQL
             pg_ids = [a.get("pg_id") or a.get("id") for a in articles]
             pg_ids = [str(pid) for pid in pg_ids if pid]
             bodies = await self.fetch_article_bodies(pg_ids)

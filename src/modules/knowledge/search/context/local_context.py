@@ -1,5 +1,5 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Local context builder for entity-based neighborhood search.
+"""Neo4j local context builder for entity-based neighborhood search.
 
 Builds context by:
 1. Finding relevant entities from the query
@@ -14,145 +14,35 @@ from typing import TYPE_CHECKING, Any
 from core.db.safe_query import validate_edge_type
 from core.observability import get_logger
 from modules.knowledge.graph.relation_type_normalizer import RelationTypeNormalizer
-from modules.knowledge.search.context.builder import ContextBuilder, SearchContext
+from modules.knowledge.search.context.base_local_context import BaseLocalContextBuilder
 
 if TYPE_CHECKING:
-    from core.protocols import GraphPool
+    pass
 
 log = get_logger(__name__)
 
 
-class LocalContextBuilder(ContextBuilder):
-    """Builds local context around query-relevant entities.
+class LocalContextBuilder(BaseLocalContextBuilder):
+    """Builds local context around query-relevant entities using Neo4j.
 
     This builder focuses on the immediate neighborhood of relevant entities,
     making it suitable for specific, targeted queries.
 
-    Context structure:
-    1. Query entities: Entities directly matching the query
-    2. Related entities: Entities connected to query entities
-    3. Relationships: Connections between entities
-    4. Source texts: Relevant text units or article excerpts
+    Neo4j-specific features:
+    - Alias search in entity matching
+    - Typed relationship queries with RelationTypeNormalizer
+    - MENTIONS edges for article-entity linking
+    - Direction indicators in relationship display
+
+    Implements: ContextBuilder (via BaseLocalContextBuilder)
     """
 
-    def __init__(
-        self,
-        graph_pool: GraphPool,
-        article_repo: ArticleRepo | None = None,
-        token_encoder: Any = None,
-        default_max_tokens: int = 8000,
-        max_entities: int = 20,
-        max_relationships: int = 50,
-        max_hops: int = 2,
-    ) -> None:
-        """Initialize local context builder.
-
-        Args:
-            graph_pool: Graph database connection pool.
-            article_repo: Optional PostgreSQL ArticleRepo for fetching body content.
-            token_encoder: Optional tokenizer.
-            default_max_tokens: Default max tokens for context.
-            max_entities: Maximum entities to include.
-            max_relationships: Maximum relationships to include.
-            max_hops: Maximum hops for neighborhood expansion.
-        """
-        super().__init__(token_encoder, default_max_tokens)
-        self._pool = graph_pool
-        self._article_repo = article_repo
-        self._max_entities = max_entities
-        self._max_relationships = max_relationships
-        self._max_hops = max_hops
-
-    async def build(
-        self,
-        query: str,
-        max_tokens: int | None = None,
-        entity_names: list[str] | None = None,
-        relation_types: list[str] | None = None,
-        **kwargs: Any,
-    ) -> SearchContext:
-        """Build local context for a query.
-
-        Args:
-            query: The search query.
-            max_tokens: Maximum tokens for context.
-            entity_names: Optional list of entity names to focus on.
-            relation_types: Optional list of relation type name_en values to filter by.
-            **kwargs: Additional parameters.
-
-        Returns:
-            SearchContext with local entity neighborhood.
-        """
-        context = self.create_context(query, max_tokens)
-
-        if entity_names is None:
-            entity_names = await self._find_query_entities(query)
-
-        if not entity_names:
-            context.add_content(
-                name="No Entities Found",
-                content="No relevant entities found for the query.",
-                priority=0,
-            )
-            return context
-
-        entities = await self._get_entities_with_details(entity_names)
-        if entities:
-            entity_content = self.format_entities_section(entities)
-            context.add_content(
-                name="Relevant Entities",
-                content=entity_content,
-                priority=100,
-                metadata={"entity_count": len(entities)},
-            )
-
-        related_entities = await self._get_related_entities(
-            entity_names,
-            relation_types=relation_types,
-        )
-        if related_entities:
-            related_content = self.format_entities_section(
-                related_entities, include_description=False
-            )
-            context.add_content(
-                name="Related Entities",
-                content=related_content,
-                priority=80,
-                metadata={"related_count": len(related_entities)},
-            )
-
-        relationships = await self._get_relationships(
-            entity_names,
-            relation_types=relation_types,
-        )
-        if relationships:
-            rel_content = self.format_relationships_section(relationships, include_direction=True)
-            context.add_content(
-                name="Relationships",
-                content=rel_content,
-                priority=90,
-                metadata={"relationship_count": len(relationships)},
-            )
-
-        articles = await self._get_related_articles(entity_names)
-        if articles:
-            article_content = self.format_articles_section(articles)
-            context.add_content(
-                name="Source Articles",
-                content=article_content,
-                priority=70,
-                metadata={"article_count": len(articles)},
-            )
-
-        context.metadata["total_entities"] = len(entities) + len(related_entities)
-        context.metadata["total_relationships"] = len(relationships)
-        if relation_types:
-            context.metadata["filtered_relation_types"] = relation_types
-
-        return context
+    def _include_relationship_direction(self) -> bool:
+        """Neo4j includes direction indicators in relationship section."""
+        return True
 
     async def _find_query_entities(self, query: str) -> list[str]:
-        """Find entities mentioned in the query."""
+        """Find entities mentioned in the query using alias search."""
         query_lower = query.lower()
 
         cypher = """
@@ -210,7 +100,6 @@ class LocalContextBuilder(ContextBuilder):
         if not entity_names:
             return []
 
-        # Build the relationship pattern clause
         rel_clause = self._build_rel_match_clause(relation_types)
 
         cypher = f"""
@@ -243,37 +132,24 @@ class LocalContextBuilder(ContextBuilder):
             return []
 
         if relation_types:
-            # Validate all relation types to prevent Cypher injection
             for rt in relation_types:
                 validate_edge_type(rt)
 
-            # Build UNION of queries for each relation type to handle direction
             queries = []
             for rt_name_en in relation_types:
-                # Default to asymmetric for typed relations unless known symmetric
                 is_symmetric = self.is_known_symmetric(rt_name_en)
                 pattern = RelationTypeNormalizer.get_cypher_pattern(
                     rt_name_en,
                     is_symmetric,
                 )
-                if is_symmetric:
-                    queries.append(f"""
-                        MATCH (e1:Entity){pattern}(e2:Entity)
-                        WHERE e1.canonical_name IN $names OR e2.canonical_name IN $names
-                        RETURN e1.canonical_name AS source_name,
-                               e2.canonical_name AS target_name,
-                               '{rt_name_en}' AS relation_type,
-                               true AS is_symmetric
-                    """)
-                else:
-                    queries.append(f"""
-                        MATCH (e1:Entity){pattern}(e2:Entity)
-                        WHERE e1.canonical_name IN $names OR e2.canonical_name IN $names
-                        RETURN e1.canonical_name AS source_name,
-                               e2.canonical_name AS target_name,
-                               '{rt_name_en}' AS relation_type,
-                               false AS is_symmetric
-                    """)
+                queries.append(f"""
+                    MATCH (e1:Entity){pattern}(e2:Entity)
+                    WHERE e1.canonical_name IN $names OR e2.canonical_name IN $names
+                    RETURN e1.canonical_name AS source_name,
+                           e2.canonical_name AS target_name,
+                           '{rt_name_en}' AS relation_type,
+                           true AS is_symmetric
+                """)
             cypher = "\n UNION ALL \n".join(queries) + "\n LIMIT $limit"
         else:
             cypher = """
@@ -302,10 +178,7 @@ class LocalContextBuilder(ContextBuilder):
         entity_names: list[str],
         limit: int = 10,
     ) -> list[dict[str, Any]]:
-        """Get articles mentioning the query entities.
-
-        Enriches articles with body excerpts from PostgreSQL when available.
-        """
+        """Get articles mentioning the query entities via MENTIONS edges."""
         if not entity_names:
             return []
 
@@ -327,7 +200,6 @@ class LocalContextBuilder(ContextBuilder):
             )
             articles = [dict(r) for r in results]
 
-            # Fetch body content from PostgreSQL
             pg_ids = [str(a.get("id", "")) for a in articles if a.get("id")]
             bodies = await self.fetch_article_bodies(pg_ids)
 

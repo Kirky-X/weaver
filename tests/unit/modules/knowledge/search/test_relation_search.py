@@ -251,14 +251,14 @@ class TestGlobalContextWithRelationTypes:
             # _find_relevant_communities: first cypher (community search) -> 2 communities
             [
                 {
-                    "id": "comm1",
+                    "id": "550e8400-e29b-41d4-a716-446655440001",
                     "title": "Tech",
                     "summary": "Tech community",
                     "rank": 0.9,
                     "entity_count": 5,
                 },
                 {
-                    "id": "comm2",
+                    "id": "550e8400-e29b-41d4-a716-446655440002",
                     "title": "Auto",
                     "summary": "Auto community",
                     "rank": 0.8,

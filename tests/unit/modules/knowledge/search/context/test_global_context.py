@@ -9,6 +9,10 @@ import pytest
 
 from modules.knowledge.search.context.global_context import GlobalContextBuilder
 
+# Valid UUIDs for tests (build_key_entities_query validates UUID format)
+UUID_C1 = "550e8400-e29b-41d4-a716-446655440001"
+UUID_C2 = "550e8400-e29b-41d4-a716-446655440002"
+
 
 def _make_pool() -> AsyncMock:
     """Create a mock Neo4jPool."""
@@ -56,7 +60,7 @@ class TestGlobalContextBuilderBuild:
         pool = _make_pool()
         communities = [
             {
-                "id": "c1",
+                "id": UUID_C1,
                 "title": "Tech",
                 "summary": "Technology community",
                 "rank": 5.0,
@@ -104,7 +108,7 @@ class TestGlobalContextBuilderBuild:
             if call_count == 1:
                 return [
                     {
-                        "id": "c1",
+                        "id": UUID_C1,
                         "title": "Tech",
                         "summary": "Summary",
                         "rank": 5.0,
@@ -184,7 +188,13 @@ class TestGlobalContextBuilderBuild:
             call_count += 1
             if call_count == 1:
                 return [
-                    {"id": "c1", "title": "Tech", "summary": "S1", "rank": 5.0, "entity_count": 10}
+                    {
+                        "id": UUID_C1,
+                        "title": "Tech",
+                        "summary": "S1",
+                        "rank": 5.0,
+                        "entity_count": 10,
+                    }
                 ]
             if call_count == 2:
                 return [
@@ -231,7 +241,7 @@ class TestGlobalContextBuilderBuild:
         pool.execute_query = AsyncMock(
             side_effect=[
                 [],  # vector search
-                [{"id": "c1", "title": "T", "summary": "S", "rank": 1.0, "entity_count": 5}],
+                [{"id": UUID_C1, "title": "T", "summary": "S", "rank": 1.0, "entity_count": 5}],
                 [{"canonical_name": "E1", "type": "ORG", "degree": 3, "community_count": 1}],
                 [],  # cross community
             ]
@@ -248,7 +258,7 @@ class TestGlobalContextBuilderBuild:
         pool.execute_query = AsyncMock(
             side_effect=[
                 [],  # vector search
-                [{"id": "c1", "title": "T", "summary": "S", "rank": 1.0, "entity_count": 5}],
+                [{"id": UUID_C1, "title": "T", "summary": "S", "rank": 1.0, "entity_count": 5}],
                 [{"canonical_name": "E1", "type": "ORG", "degree": 3, "community_count": 1}],
                 [],
             ]
@@ -346,7 +356,7 @@ class TestGlobalContextBuilderVectorSearch:
         pool.execute_query = AsyncMock(
             return_value=[
                 {
-                    "id": "c1",
+                    "id": UUID_C1,
                     "title": "Tech Community",
                     "summary": "A tech summary",
                     "rank": 5.0,
@@ -394,7 +404,7 @@ class TestGlobalContextBuilderTextSearch:
         pool.execute_query = AsyncMock(
             return_value=[
                 {
-                    "id": "c1",
+                    "id": UUID_C1,
                     "title": "Tech",
                     "summary": "Summary",
                     "rank": 5.0,
@@ -416,7 +426,7 @@ class TestGlobalContextBuilderTextSearch:
                 [],  # exact match returns empty
                 [
                     {
-                        "id": "c1",
+                        "id": UUID_C1,
                         "title": "Top",
                         "summary": "Top summary",
                         "rank": 10.0,
@@ -507,7 +517,7 @@ class TestGlobalContextBuilderGetKeyEntities:
             ]
         )
         builder = GlobalContextBuilder(graph_pool=pool)
-        result = await builder._get_key_entities([{"id": "c1"}])
+        result = await builder._get_key_entities([{"id": UUID_C1}])
         assert len(result) == 1
 
     @pytest.mark.asyncio
@@ -529,7 +539,7 @@ class TestGlobalContextBuilderGetKeyEntities:
         pool = _make_pool()
         pool.execute_query = AsyncMock(side_effect=Exception("DB error"))
         builder = GlobalContextBuilder(graph_pool=pool)
-        result = await builder._get_key_entities([{"id": "c1"}])
+        result = await builder._get_key_entities([{"id": UUID_C1}])
         assert result == []
 
 
@@ -552,7 +562,9 @@ class TestGlobalContextBuilderCrossCommunityRels:
         )
 
         builder = GlobalContextBuilder(graph_pool=pool)
-        result = await builder._get_cross_community_relationships([{"id": "c1"}, {"id": "c2"}])
+        result = await builder._get_cross_community_relationships(
+            [{"id": UUID_C1}, {"id": UUID_C2}]
+        )
 
         assert len(result) == 2  # typed + generic results combined
 
@@ -560,7 +572,7 @@ class TestGlobalContextBuilderCrossCommunityRels:
     async def test_single_community(self) -> None:
         pool = _make_pool()
         builder = GlobalContextBuilder(graph_pool=pool)
-        result = await builder._get_cross_community_relationships([{"id": "c1"}])
+        result = await builder._get_cross_community_relationships([{"id": UUID_C1}])
         assert result == []
 
     @pytest.mark.asyncio
@@ -568,7 +580,9 @@ class TestGlobalContextBuilderCrossCommunityRels:
         pool = _make_pool()
         pool.execute_query = AsyncMock(side_effect=Exception("DB error"))
         builder = GlobalContextBuilder(graph_pool=pool)
-        result = await builder._get_cross_community_relationships([{"id": "c1"}, {"id": "c2"}])
+        result = await builder._get_cross_community_relationships(
+            [{"id": UUID_C1}, {"id": UUID_C2}]
+        )
         assert result == []
 
 
@@ -644,7 +658,7 @@ class TestGlobalContextBuilderBuildMapReduceContext:
             return_value=(
                 [
                     {
-                        "id": "c1",
+                        "id": UUID_C1,
                         "title": "Tech",
                         "summary": "Summary",
                         "rank": 5.0,
@@ -693,7 +707,7 @@ class TestGlobalContextBuilderGetCommunityEntities:
             ]
         )
         builder = GlobalContextBuilder(graph_pool=pool)
-        result = await builder.get_community_entities("c1")
+        result = await builder.get_community_entities(UUID_C1)
         assert len(result) == 1
 
     @pytest.mark.asyncio
@@ -701,5 +715,5 @@ class TestGlobalContextBuilderGetCommunityEntities:
         pool = _make_pool()
         pool.execute_query = AsyncMock(side_effect=Exception("DB error"))
         builder = GlobalContextBuilder(graph_pool=pool)
-        result = await builder.get_community_entities("c1")
+        result = await builder.get_community_entities(UUID_C1)
         assert result == []

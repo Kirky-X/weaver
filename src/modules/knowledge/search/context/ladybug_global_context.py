@@ -9,26 +9,27 @@ from __future__ import annotations
 
 from typing import Any
 
-from core.db.graph_query import (
-    CommunitySearchConfig,
-    GraphQueryBuilder,
-    create_graph_query_builder,
-)
+from core.db.graph_query import create_graph_query_builder
 from core.llm.client import LLMClient
 from core.observability import get_logger
 from core.protocols import GraphPool
-from modules.knowledge.search.context.builder import ContextBuilder, SearchContext
+from modules.knowledge.search.context.base_global_context import BaseGlobalContextBuilder
 
 log = get_logger(__name__)
 
 
-class LadybugGlobalContextBuilder(ContextBuilder):
+class LadybugGlobalContextBuilder(BaseGlobalContextBuilder):
     """Builds global context using community reports from LadybugDB.
 
     This builder uses community-level aggregation to handle queries
     that require understanding of the overall graph structure.
 
-    Implements: ContextBuilder
+    LadybugDB-specific features:
+    - No native vector search (falls back to text search)
+    - Entity-based fallback (no MENTIONS edges)
+    - Uses r.edge_type instead of type(r)
+
+    Implements: ContextBuilder (via BaseGlobalContextBuilder)
     """
 
     def __init__(
@@ -41,161 +42,35 @@ class LadybugGlobalContextBuilder(ContextBuilder):
         llm_client: LLMClient | None = None,
         fallback_enabled: bool = True,
     ) -> None:
-        """Initialize global context builder.
-
-        Args:
-            graph_pool: GraphPool instance (LadybugPool).
-            token_encoder: Optional tokenizer.
-            default_max_tokens: Default max tokens for context.
-            max_communities: Maximum communities to include.
-            max_entities_per_community: Max entities per community.
-            llm_client: LLM client for query embedding (vector search).
-            fallback_enabled: Whether to use entity-article fallback when no communities.
-        """
-        super().__init__(token_encoder, default_max_tokens)
-        self._pool = graph_pool
-        self._max_communities = max_communities
-        self._max_entities_per_community = max_entities_per_community
-        self._llm_client = llm_client
-        self._fallback_enabled = fallback_enabled
-        self._query_builder: GraphQueryBuilder = create_graph_query_builder("ladybug")
-
-    async def build(
-        self,
-        query: str,
-        max_tokens: int | None = None,
-        community_level: int = 0,
-        **kwargs: Any,
-    ) -> SearchContext:
-        """Build global context for a query.
-
-        Args:
-            query: The search query.
-            max_tokens: Maximum tokens for context.
-            community_level: Community hierarchy level (0 = leaf).
-            **kwargs: Additional parameters.
-
-        Returns:
-            SearchContext with community-level information.
-        """
-        context = self.create_context(query, max_tokens)
-
-        relevant_communities, used_fallback, search_method = await self.find_relevant_communities(
-            query, community_level
+        super().__init__(
+            graph_pool=graph_pool,
+            token_encoder=token_encoder,
+            default_max_tokens=default_max_tokens,
+            max_communities=max_communities,
+            max_entities_per_community=max_entities_per_community,
+            llm_client=llm_client,
+            fallback_enabled=fallback_enabled,
         )
+        self._query_builder = create_graph_query_builder("ladybug")
 
-        if not relevant_communities:
-            has_communities = await self.has_any_communities(community_level)
-            if not has_communities:
-                context.add_content(
-                    name="No Communities",
-                    content="社区数据尚未初始化，请先执行社区检测。",
-                    priority=0,
-                )
-                context.metadata["communities"] = 0
-                context.metadata["hint"] = "run POST /api/v1/admin/communities/rebuild"
-            else:
-                context.add_content(
-                    name="No Communities Found",
-                    content="No relevant communities found for the query.",
-                    priority=0,
-                )
-                context.metadata["total_communities"] = 0
-            return context
+    def _should_skip_supplementary(self, used_fallback: bool) -> bool:
+        """LadybugDB skips supplementary queries for fallback results.
 
-        if relevant_communities:
-            community_content = self.format_communities_section(relevant_communities)
-            context.add_content(
-                name="Community Summaries",
-                content=community_content,
-                priority=100,
-                metadata={"community_count": len(relevant_communities)},
-            )
+        Fallback results are already entity-based, so key entities
+        and cross-community relationships are redundant.
+        """
+        return used_fallback
 
-        # Skip key entities and cross-community queries for entity fallback
-        # (fallback results are already entity-based)
-        cross_community_rels: list[dict[str, Any]] = []
-        if not used_fallback:
-            key_entities = await self._get_key_entities(relevant_communities)
-            if key_entities:
-                entity_content = self.format_entities_section(key_entities)
-                context.add_content(
-                    name="Key Entities",
-                    content=entity_content,
-                    priority=90,
-                    metadata={"entity_count": len(key_entities)},
-                )
-
-            cross_community_rels = await self._get_cross_community_relationships(
-                relevant_communities
-            )
-        if cross_community_rels:
-            rel_content = self.format_cross_community_section(cross_community_rels)
-            context.add_content(
-                name="Cross-Community Connections",
-                content=rel_content,
-                priority=80,
-                metadata={"connection_count": len(cross_community_rels)},
-            )
-
-        context.metadata["community_level"] = community_level
-        context.metadata["total_communities"] = len(relevant_communities)
-        context.metadata["search_method"] = search_method
-        if used_fallback:
-            context.metadata["fallback_source"] = "entity_article"
-
-        return context
-
-    async def has_any_communities(self, level: int | None = None) -> bool:
-        """Check if any communities exist in the graph."""
-        cypher = self._query_builder.build_communities_exist_query(level)
-
-        try:
-            params: dict[str, Any] = {}
-            if level is not None:
-                params["level"] = level
-            result = await self._pool.execute_query(cypher, params)
-            if result and result[0].get("count", 0) > 0:
-                return True
-        except (TypeError, KeyError, Exception) as exc:
-            log.debug("has_communities_check_failed", error=str(exc))
+    def _include_cross_community_direction(self) -> bool:
+        """LadybugDB does not include direction indicators."""
         return False
-
-    async def find_relevant_communities(
-        self,
-        query: str,
-        level: int,
-    ) -> tuple[list[dict[str, Any]], bool, str]:
-        """Find communities relevant to the query."""
-        # Step 1: Try vector similarity search on community reports
-        if self._llm_client:
-            vector_results = await self._vector_search_communities(query, level)
-            if vector_results:
-                return vector_results, False, "vector_similarity"
-
-        # Step 2: Try text-based search on community titles/summaries
-        text_results = await self._text_search_communities(query, level)
-        if text_results:
-            return text_results, False, "text_search"
-
-        # Step 3: Fall back to entity-article aggregation if enabled
-        if self._fallback_enabled:
-            fallback_results = await self._find_entity_article_fallback(query)
-            if fallback_results:
-                return fallback_results, True, "entity_article_fallback"
-
-        return [], False, "none"
 
     async def _vector_search_communities(
         self,
         query: str,
         level: int,
     ) -> list[dict[str, Any]]:
-        """Search communities using vector similarity on report embeddings.
-
-        Note: LadybugDB doesn't have native vector indexes, so this uses
-        full table scan for similarity calculation.
-        """
+        """LadybugDB doesn't support vector search, falls back to text search."""
         if not self._llm_client:
             return []
 
@@ -203,8 +78,6 @@ class LadybugGlobalContextBuilder(ContextBuilder):
             embeddings = await self._llm_client.embed_default([query])
             if not embeddings or not embeddings[0]:
                 return []
-
-            query_embedding = embeddings[0]
 
             # LadybugDB doesn't support vector.similarity.cosine
             # Fall back to text search for now
@@ -214,51 +87,19 @@ class LadybugGlobalContextBuilder(ContextBuilder):
             log.warning("vector_search_communities_failed", error=str(exc))
             return []
 
-    async def _text_search_communities(
-        self,
-        query: str,
-        level: int,
-    ) -> list[dict[str, Any]]:
-        """Search communities using text matching on title/summary."""
-        config = CommunitySearchConfig(level=level, query=query, limit=self._max_communities)
-        cypher = self._query_builder.build_community_search_query(config)
-
-        try:
-            results = await self._pool.execute_query(
-                cypher,
-                {"level": level, "query": query, "limit": self._max_communities},
-            )
-            if results:
-                return [dict(r) for r in results]
-        except Exception as exc:
-            log.debug("text_search_failed", error=str(exc))
-
-        # Fall back to top communities by rank
-        config_fallback = CommunitySearchConfig(level=level, limit=self._max_communities)
-        cypher_fallback = self._query_builder.build_community_search_query(config_fallback)
-
-        try:
-            results = await self._pool.execute_query(
-                cypher_fallback,
-                {"level": level, "limit": self._max_communities},
-            )
-            if results:
-                return [dict(r) for r in results]
-        except Exception as exc:
-            log.warning("community_fallback_failed", error=str(exc))
-
-        return []
-
     async def _find_entity_article_fallback(
         self,
         query: str,
     ) -> list[dict[str, Any]]:
-        """Find entity-article aggregation as fallback when no Community nodes exist."""
+        """Find entity-article aggregation as fallback.
+
+        LadybugDB searches Entity directly (MENTIONS edges may not exist).
+        Returns entity-based results.
+        """
         tokens = [t.strip() for t in query.split() if t.strip()]
         if not tokens:
             return []
 
-        # Use parameterized query via GraphQueryBuilder
         cypher = self._query_builder.build_entity_article_fallback_query(
             tokens, self._max_communities
         )
@@ -272,7 +113,6 @@ class LadybugGlobalContextBuilder(ContextBuilder):
             # If no results with token-based search, try full query substring match
             # For Chinese queries without spaces, split into individual keywords
             if not results and len(query) > 1:
-                # Try Chinese keyword extraction: take 2-4 character chunks
                 chinese_chunks: list[str] = []
                 for chunk_len in [4, 3, 2]:
                     for i in range(0, len(query) - chunk_len + 1):
@@ -308,72 +148,19 @@ class LadybugGlobalContextBuilder(ContextBuilder):
             log.warning("entity_article_fallback_failed", error=str(exc))
             return []
 
-    async def _get_key_entities(
-        self,
-        communities: list[dict[str, Any]],
-    ) -> list[dict[str, Any]]:
-        """Get key entities from the communities."""
-        if not communities:
-            return []
-
-        community_ids = [c.get("id") for c in communities if c.get("id")]
-
-        if not community_ids:
-            return []
-
-        cypher = self._query_builder.build_key_entities_query(
-            community_ids,
-            self._max_entities_per_community * len(community_ids),
-        )
-
-        try:
-            results = await self._pool.execute_query(cypher)
-            return [dict(r) for r in results]
-        except Exception as exc:
-            log.warning("get_key_entities_failed", error=str(exc))
-            return []
-
-    async def get_community_entities(
-        self,
-        community_id: str,
-    ) -> list[dict[str, Any]]:
-        """Get entities belonging to a specific community.
-
-        Args:
-            community_id: Community ID to get entities for.
-
-        Returns:
-            List of entity dictionaries with canonical_name, type, description.
-
-        """
-        if not community_id:
-            return []
-
-        cypher = self._query_builder.build_community_entities_query(
-            community_id, self._max_entities_per_community
-        )
-
-        try:
-            results = await self._pool.execute_query(
-                cypher,
-                {"community_id": community_id, "limit": self._max_entities_per_community},
-            )
-            return [dict(r) for r in results]
-        except Exception as exc:
-            log.warning("get_community_entities_failed", community_id=community_id, error=str(exc))
-            return []
-
     async def _get_cross_community_relationships(
         self,
         communities: list[dict[str, Any]],
     ) -> list[dict[str, Any]]:
-        """Get relationships that connect different communities."""
+        """Get relationships that connect different communities.
+
+        LadybugDB queries generic relationships only (no typed edge queries).
+        """
         if len(communities) < 2:
             return []
 
         community_ids = [c.get("id") for c in communities if c.get("id")]
 
-        # Use parameterized query via GraphQueryBuilder
         cypher = self._query_builder.build_cross_community_relationships_query(community_ids)
 
         try:
