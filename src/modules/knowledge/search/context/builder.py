@@ -273,3 +273,214 @@ class ContextBuilder(ABC):
             truncated = truncated[: cut_point + 1]
 
         return truncated + "..."
+
+    async def fetch_article_bodies(
+        self,
+        pg_ids: list[str],
+        article_repo: Any = None,
+    ) -> dict[str, str]:
+        """Fetch article body content from PostgreSQL by pg_ids.
+
+        Args:
+            pg_ids: List of PostgreSQL article IDs.
+            article_repo: Optional ArticleRepo override. Falls back to self._article_repo.
+
+        Returns:
+            Dict mapping pg_id to body content.
+        """
+        repo = article_repo or getattr(self, "_article_repo", None)
+        if not repo or not pg_ids:
+            return {}
+
+        bodies: dict[str, str] = {}
+        for pg_id in pg_ids[:5]:
+            try:
+                article = await repo.get(pg_id)
+                if article and article.body:
+                    bodies[str(pg_id)] = article.body
+            except Exception as exc:
+                from core.observability import get_logger
+
+                get_logger(__name__).warning("fetch_body_failed", pg_id=pg_id, error=str(exc))
+        return bodies
+
+    def extract_key_excerpt(
+        self,
+        body: str,
+        entity_names: list[str],
+        max_tokens: int = 300,
+    ) -> str:
+        """Extract key excerpt from article body.
+
+        Extracts sentences containing entity mentions, falling back to
+        head/tail truncation when no matches found.
+
+        Args:
+            body: Full article body text.
+            entity_names: Entity names to match in sentences.
+            max_tokens: Maximum tokens for excerpt.
+
+        Returns:
+            Truncated excerpt with entity-relevant content prioritized.
+        """
+        import re
+
+        sentences = re.split(r"(?<=[。！？.!?\n])", body)
+        matched: list[str] = []
+        others: list[str] = []
+
+        for s in sentences:
+            s = s.strip()
+            if not s:
+                continue
+            lower_s = s.lower()
+            if any(n.lower() in lower_s for n in entity_names):
+                matched.append(s)
+            else:
+                others.append(s)
+
+        selected = matched[:8]
+        if len(selected) < 4:
+            selected.extend(others[: 4 - len(selected)])
+
+        excerpt = "".join(selected)
+        return self.truncate_content(excerpt, max_tokens)
+
+    def format_entities_section(
+        self,
+        entities: list[dict[str, Any]],
+        include_description: bool = True,
+    ) -> str:
+        """Format entities section for context."""
+        lines = []
+        for entity in entities:
+            lines.append(self.format_entity(entity, include_description))
+        return "\n".join(lines)
+
+    def format_relationships_section(
+        self,
+        relationships: list[dict[str, Any]],
+        include_direction: bool = False,
+    ) -> str:
+        """Format relationships section for context.
+
+        Args:
+            relationships: List of relationship dicts.
+            include_direction: If True, show direction indicator (双向/单向).
+
+        Returns:
+            Formatted relationships string.
+        """
+        lines = []
+        for rel in relationships:
+            if include_direction:
+                lines.append(self.format_relation_with_direction(rel))
+            else:
+                source = rel.get("source_name", "Unknown")
+                target = rel.get("target_name", "Unknown")
+                rel_type = rel.get("relation_type", "RELATED_TO")
+                lines.append(f"- {source} --[{rel_type}]--> {target}")
+        return "\n".join(lines)
+
+    def format_articles_section(
+        self,
+        articles: list[dict[str, Any]],
+    ) -> str:
+        """Format articles section with body excerpt."""
+        lines = []
+        for article in articles:
+            title = article.get("title", "Unknown")
+            summary = article.get("summary", "")
+            body_excerpt = article.get("body_excerpt", "")
+
+            lines.append(f"- {title}")
+            if summary:
+                truncated = self.truncate_content(summary, 200)
+                lines.append(f"  概要: {truncated}")
+            if body_excerpt:
+                lines.append(f"  原文片段: {body_excerpt}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def is_known_symmetric(name_en: str) -> bool:
+        """Check if a relation type is known to be symmetric."""
+        symmetric_types = {
+            "PARTNERS_WITH",
+            "COLLABORATES_WITH",
+            "RELATED_TO",
+            "COOPERATES_WITH",
+            "ALLIED_WITH",
+            "ASSOCIATED_WITH",
+        }
+        return name_en in symmetric_types
+
+    @staticmethod
+    def format_relation_with_direction(rel: dict[str, Any]) -> str:
+        """Format a relationship with direction indicator.
+
+        Returns:
+            Formatted string like:
+                - 华为 --[合作(双向)]--> 比亚迪
+        """
+        source = rel.get("source_name", "Unknown")
+        target = rel.get("target_name", "Unknown")
+        rel_type = rel.get("relation_type", "RELATED_TO")
+        is_symmetric = rel.get("is_symmetric", False)
+
+        direction = "双向" if is_symmetric else "单向"
+        return f"- {source} --[{rel_type}({direction})]--> {target}"
+
+    def format_communities_section(
+        self,
+        communities: list[dict[str, Any]],
+    ) -> str:
+        """Format communities section for context."""
+        lines = []
+        for i, comm in enumerate(communities, 1):
+            title = comm.get("title", f"Community {i}")
+            summary = comm.get("summary", "")
+            entity_count = comm.get("entity_count", 0)
+
+            lines.append(f"### {title}")
+            lines.append(f"Entities: {entity_count}")
+            if summary:
+                truncated = self.truncate_content(summary, 200)
+                lines.append(f"Summary: {truncated}")
+            lines.append("")
+
+        return "\n".join(lines)
+
+    def format_cross_community_section(
+        self,
+        connections: list[dict[str, Any]],
+        include_direction: bool = False,
+    ) -> str:
+        """Format cross-community connections section.
+
+        Args:
+            connections: List of connection dicts.
+            include_direction: If True, show direction indicator.
+
+        Returns:
+            Formatted connections string.
+        """
+        lines = []
+        for conn in connections:
+            source_comm = conn.get("source_community", "Unknown")
+            target_comm = conn.get("target_community", "Unknown")
+            source_entity = conn.get("source_entity", "Unknown")
+            target_entity = conn.get("target_entity", "Unknown")
+            rel_type = conn.get("relation_type", "RELATED_TO")
+
+            if include_direction:
+                is_symmetric = self.is_known_symmetric(rel_type)
+                direction = "双向" if is_symmetric else "单向"
+                lines.append(
+                    f"- [{source_comm}] {source_entity} --[{rel_type}({direction})]--> {target_entity} [{target_comm}]"
+                )
+            else:
+                lines.append(
+                    f"- [{source_comm}] {source_entity} --[{rel_type}]--> {target_entity} [{target_comm}]"
+                )
+
+        return "\n".join(lines)

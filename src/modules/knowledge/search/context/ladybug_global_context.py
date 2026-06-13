@@ -104,7 +104,7 @@ class LadybugGlobalContextBuilder(ContextBuilder):
             return context
 
         if relevant_communities:
-            community_content = self._format_communities_section(relevant_communities)
+            community_content = self.format_communities_section(relevant_communities)
             context.add_content(
                 name="Community Summaries",
                 content=community_content,
@@ -118,7 +118,7 @@ class LadybugGlobalContextBuilder(ContextBuilder):
         if not used_fallback:
             key_entities = await self._get_key_entities(relevant_communities)
             if key_entities:
-                entity_content = self._format_entities_section(key_entities)
+                entity_content = self.format_entities_section(key_entities)
                 context.add_content(
                     name="Key Entities",
                     content=entity_content,
@@ -130,7 +130,7 @@ class LadybugGlobalContextBuilder(ContextBuilder):
                 relevant_communities
             )
         if cross_community_rels:
-            rel_content = self._format_cross_community_section(cross_community_rels)
+            rel_content = self.format_cross_community_section(cross_community_rels)
             context.add_content(
                 name="Cross-Community Connections",
                 content=rel_content,
@@ -401,52 +401,3 @@ class LadybugGlobalContextBuilder(ContextBuilder):
         except Exception as exc:
             log.debug("get_cross_community_rels_failed", error=str(exc))
             return []
-
-    def _format_communities_section(
-        self,
-        communities: list[dict[str, Any]],
-    ) -> str:
-        """Format communities section."""
-        lines = []
-        for i, comm in enumerate(communities, 1):
-            title = comm.get("title", f"Community {i}")
-            summary = comm.get("summary", "")
-            entity_count = comm.get("entity_count", 0)
-
-            lines.append(f"### {title}")
-            lines.append(f"Entities: {entity_count}")
-            if summary:
-                truncated = self.truncate_content(summary, 200)
-                lines.append(f"Summary: {truncated}")
-            lines.append("")
-
-        return "\n".join(lines)
-
-    def _format_entities_section(
-        self,
-        entities: list[dict[str, Any]],
-    ) -> str:
-        """Format entities section."""
-        lines = []
-        for entity in entities:
-            lines.append(self.format_entity(entity))
-        return "\n".join(lines)
-
-    def _format_cross_community_section(
-        self,
-        connections: list[dict[str, Any]],
-    ) -> str:
-        """Format cross-community connections section."""
-        lines = []
-        for conn in connections:
-            source_comm = conn.get("source_community", "Unknown")
-            target_comm = conn.get("target_community", "Unknown")
-            source_entity = conn.get("source_entity", "Unknown")
-            target_entity = conn.get("target_entity", "Unknown")
-            rel_type = conn.get("relation_type", "RELATED_TO")
-
-            lines.append(
-                f"- [{source_comm}] {source_entity} --[{rel_type}]--> {target_entity} [{target_comm}]"
-            )
-
-        return "\n".join(lines)

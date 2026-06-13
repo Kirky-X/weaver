@@ -98,7 +98,7 @@ class LocalContextBuilder(ContextBuilder):
 
         entities = await self._get_entities_with_details(entity_names)
         if entities:
-            entity_content = self._format_entities_section(entities)
+            entity_content = self.format_entities_section(entities)
             context.add_content(
                 name="Relevant Entities",
                 content=entity_content,
@@ -111,7 +111,7 @@ class LocalContextBuilder(ContextBuilder):
             relation_types=relation_types,
         )
         if related_entities:
-            related_content = self._format_entities_section(
+            related_content = self.format_entities_section(
                 related_entities, include_description=False
             )
             context.add_content(
@@ -126,7 +126,7 @@ class LocalContextBuilder(ContextBuilder):
             relation_types=relation_types,
         )
         if relationships:
-            rel_content = self._format_relationships_section(relationships)
+            rel_content = self.format_relationships_section(relationships, include_direction=True)
             context.add_content(
                 name="Relationships",
                 content=rel_content,
@@ -136,7 +136,7 @@ class LocalContextBuilder(ContextBuilder):
 
         articles = await self._get_related_articles(entity_names)
         if articles:
-            article_content = self._format_articles_section(articles)
+            article_content = self.format_articles_section(articles)
             context.add_content(
                 name="Source Articles",
                 content=article_content,
@@ -251,7 +251,7 @@ class LocalContextBuilder(ContextBuilder):
             queries = []
             for rt_name_en in relation_types:
                 # Default to asymmetric for typed relations unless known symmetric
-                is_symmetric = self._is_known_symmetric(rt_name_en)
+                is_symmetric = self.is_known_symmetric(rt_name_en)
                 pattern = RelationTypeNormalizer.get_cypher_pattern(
                     rt_name_en,
                     is_symmetric,
@@ -329,12 +329,12 @@ class LocalContextBuilder(ContextBuilder):
 
             # Fetch body content from PostgreSQL
             pg_ids = [str(a.get("id", "")) for a in articles if a.get("id")]
-            bodies = await self._fetch_article_bodies(pg_ids)
+            bodies = await self.fetch_article_bodies(pg_ids)
 
             for article in articles:
                 pg_id = str(article.get("id", ""))
                 if pg_id and pg_id in bodies:
-                    article["body_excerpt"] = self._extract_key_excerpt(
+                    article["body_excerpt"] = self.extract_key_excerpt(
                         bodies[pg_id],
                         entity_names,
                         max_tokens=300,
@@ -345,46 +345,6 @@ class LocalContextBuilder(ContextBuilder):
             log.warning("get_related_articles_failed", error=str(exc))
             return []
 
-    def _format_entities_section(
-        self,
-        entities: list[dict[str, Any]],
-        include_description: bool = True,
-    ) -> str:
-        """Format entities section."""
-        lines = []
-        for entity in entities:
-            lines.append(self.format_entity(entity, include_description))
-        return "\n".join(lines)
-
-    def _format_relationships_section(
-        self,
-        relationships: list[dict[str, Any]],
-    ) -> str:
-        """Format relationships section with direction info."""
-        lines = []
-        for rel in relationships:
-            lines.append(self._format_relation_with_direction(rel))
-        return "\n".join(lines)
-
-    @staticmethod
-    def _is_known_symmetric(name_en: str) -> bool:
-        """Check if a relation type is known to be symmetric.
-
-        This uses a hardcoded set of well-known symmetric types.
-        For a complete picture, the RelationTypeNormalizer database should
-        be consulted, but this avoids requiring a DB connection in the
-        context builder for simple pattern generation.
-        """
-        symmetric_types = {
-            "PARTNERS_WITH",
-            "COLLABORATES_WITH",
-            "RELATED_TO",
-            "COOPERATES_WITH",
-            "ALLIED_WITH",
-            "ASSOCIATED_WITH",
-        }
-        return name_en in symmetric_types
-
     def _build_rel_match_clause(
         self,
         relation_types: list[str] | None = None,
@@ -392,135 +352,18 @@ class LocalContextBuilder(ContextBuilder):
         """Build a Cypher relationship match clause.
 
         When relation_types is specified, generates a pattern that matches
-        any of the specified types. Uses directional patterns for asymmetric
-        relations and undirectional for symmetric ones, combined via '|'.
+        any of the specified types.
 
         Args:
             relation_types: Optional list of relation type name_en values.
 
         Returns:
             Cypher relationship match clause string.
-
-        Raises:
-            ValueError: If any relation type is invalid.
         """
         if not relation_types:
             return f"-[:RELATED_TO*1..{self._max_hops}]-"
 
-        # Validate all relation types to prevent Cypher injection
         for rt in relation_types:
             validate_edge_type(rt)
 
-        # For multiple typed relations, use alternation with proper directions
-        # Since Cypher alternation requires same directionality, we fall back
-        # to undirected matching for mixed types
         return f"-[:{'|'.join(relation_types)}*1..{self._max_hops}]-"
-
-    @staticmethod
-    def _format_relation_with_direction(rel: dict[str, Any]) -> str:
-        """Format a relationship with direction indicator.
-
-        Args:
-            rel: Relationship dict with source_name, target_name,
-                 relation_type, and optional is_symmetric.
-
-        Returns:
-            Formatted string like:
-                - 华为 --[合作(双向)]--> 比亚迪
-                - 工信部 --[监管(单向)]--> 华为
-        """
-        source = rel.get("source_name", "Unknown")
-        target = rel.get("target_name", "Unknown")
-        rel_type = rel.get("relation_type", "RELATED_TO")
-        is_symmetric = rel.get("is_symmetric", False)
-
-        display_name = rel_type
-        direction = "双向" if is_symmetric else "单向"
-
-        return f"- {source} --[{display_name}({direction})]--> {target}"
-
-    def _format_articles_section(
-        self,
-        articles: list[dict[str, Any]],
-    ) -> str:
-        """Format articles section with body excerpt."""
-        lines = []
-        for article in articles:
-            title = article.get("title", "Unknown")
-            summary = article.get("summary", "")
-            body_excerpt = article.get("body_excerpt", "")
-
-            lines.append(f"- {title}")
-            if summary:
-                truncated = self.truncate_content(summary, 200)
-                lines.append(f"  概要: {truncated}")
-            if body_excerpt:
-                lines.append(f"  原文片段: {body_excerpt}")
-        return "\n".join(lines)
-
-    async def _fetch_article_bodies(
-        self,
-        pg_ids: list[str],
-    ) -> dict[str, str]:
-        """Fetch article body content from PostgreSQL by pg_ids.
-
-        Args:
-            pg_ids: List of PostgreSQL article IDs.
-
-        Returns:
-            Dict mapping pg_id to body content.
-        """
-        if not self._article_repo or not pg_ids:
-            return {}
-
-        bodies: dict[str, str] = {}
-        for pg_id in pg_ids[:5]:
-            try:
-                article = await self._article_repo.get(pg_id)
-                if article and article.body:
-                    bodies[str(pg_id)] = article.body
-            except Exception as exc:
-                log.warning("fetch_body_failed", pg_id=pg_id, error=str(exc))
-        return bodies
-
-    def _extract_key_excerpt(
-        self,
-        body: str,
-        entity_names: list[str],
-        max_tokens: int = 300,
-    ) -> str:
-        """Extract key excerpt from article body.
-
-        Extracts sentences containing entity mentions, falling back to
-        head/tail truncation when no matches found.
-
-        Args:
-            body: Full article body text.
-            entity_names: Entity names to match in sentences.
-            max_tokens: Maximum tokens for excerpt.
-
-        Returns:
-            Truncated excerpt with entity-relevant content prioritized.
-        """
-        import re
-
-        sentences = re.split(r"(?<=[。！？.!?\n])", body)
-        matched: list[str] = []
-        others: list[str] = []
-
-        for s in sentences:
-            s = s.strip()
-            if not s:
-                continue
-            lower_s = s.lower()
-            if any(n.lower() in lower_s for n in entity_names):
-                matched.append(s)
-            else:
-                others.append(s)
-
-        selected = matched[:8]
-        if len(selected) < 4:
-            selected.extend(others[: 4 - len(selected)])
-
-        excerpt = "".join(selected)
-        return self.truncate_content(excerpt, max_tokens)

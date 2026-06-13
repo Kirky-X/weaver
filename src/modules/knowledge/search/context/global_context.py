@@ -105,7 +105,7 @@ class GlobalContextBuilder(ContextBuilder):
             return context
 
         if relevant_communities:
-            community_content = self._format_communities_section(relevant_communities)
+            community_content = self.format_communities_section(relevant_communities)
             context.add_content(
                 name="Community Summaries",
                 content=community_content,
@@ -115,7 +115,7 @@ class GlobalContextBuilder(ContextBuilder):
 
         key_entities = await self._get_key_entities(relevant_communities)
         if key_entities:
-            entity_content = self._format_entities_section(key_entities)
+            entity_content = self.format_entities_section(key_entities)
             context.add_content(
                 name="Key Entities",
                 content=entity_content,
@@ -125,7 +125,9 @@ class GlobalContextBuilder(ContextBuilder):
 
         cross_community_rels = await self._get_cross_community_relationships(relevant_communities)
         if cross_community_rels:
-            rel_content = self._format_cross_community_section(cross_community_rels)
+            rel_content = self.format_cross_community_section(
+                cross_community_rels, include_direction=True
+            )
             context.add_content(
                 name="Cross-Community Connections",
                 content=rel_content,
@@ -511,66 +513,6 @@ class GlobalContextBuilder(ContextBuilder):
 
         return typed_results + generic_results
 
-    def _format_communities_section(
-        self,
-        communities: list[dict[str, Any]],
-    ) -> str:
-        """Format communities section."""
-        lines = []
-        for i, comm in enumerate(communities, 1):
-            title = comm.get("title", f"Community {i}")
-            summary = comm.get("summary", "")
-            entity_count = comm.get("entity_count", 0)
-
-            lines.append(f"### {title}")
-            lines.append(f"Entities: {entity_count}")
-            if summary:
-                truncated = self.truncate_content(summary, 200)
-                lines.append(f"Summary: {truncated}")
-            lines.append("")
-
-        return "\n".join(lines)
-
-    def _format_entities_section(
-        self,
-        entities: list[dict[str, Any]],
-    ) -> str:
-        """Format entities section."""
-        lines = []
-        for entity in entities:
-            lines.append(self.format_entity(entity))
-        return "\n".join(lines)
-
-    def _format_cross_community_section(
-        self,
-        connections: list[dict[str, Any]],
-    ) -> str:
-        """Format cross-community connections section with relation type info."""
-        lines = []
-        for conn in connections:
-            source_comm = conn.get("source_community", "Unknown")
-            target_comm = conn.get("target_community", "Unknown")
-            source_entity = conn.get("source_entity", "Unknown")
-            target_entity = conn.get("target_entity", "Unknown")
-            rel_type = conn.get("relation_type", "RELATED_TO")
-
-            # Determine direction label based on relation type
-            is_symmetric = rel_type in {
-                "PARTNERS_WITH",
-                "COLLABORATES_WITH",
-                "RELATED_TO",
-                "COOPERATES_WITH",
-                "ALLIED_WITH",
-                "ASSOCIATED_WITH",
-            }
-            direction = "双向" if is_symmetric else "单向"
-
-            lines.append(
-                f"- [{source_comm}] {source_entity} --[{rel_type}({direction})]--> {target_entity} [{target_comm}]"
-            )
-
-        return "\n".join(lines)
-
     async def build_map_reduce_context(
         self,
         query: str,
@@ -610,7 +552,7 @@ class GlobalContextBuilder(ContextBuilder):
 
             entities = await self._get_community_entities(comm.get("id"))
             if entities:
-                entity_content = self._format_entities_section(entities)
+                entity_content = self.format_entities_section(entities)
                 context.add_content(
                     name="Community Entities",
                     content=entity_content,

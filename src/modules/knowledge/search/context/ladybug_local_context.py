@@ -123,7 +123,7 @@ class LadybugLocalContextBuilder(ContextBuilder):
 
         entities = await self._get_entities_with_details(entity_names)
         if entities:
-            entity_content = self._format_entities_section(entities)
+            entity_content = self.format_entities_section(entities)
             context.add_content(
                 name="Relevant Entities",
                 content=entity_content,
@@ -136,7 +136,7 @@ class LadybugLocalContextBuilder(ContextBuilder):
             relation_types=relation_types,
         )
         if related_entities:
-            related_content = self._format_entities_section(
+            related_content = self.format_entities_section(
                 related_entities, include_description=False
             )
             context.add_content(
@@ -151,7 +151,7 @@ class LadybugLocalContextBuilder(ContextBuilder):
             relation_types=relation_types,
         )
         if relationships:
-            rel_content = self._format_relationships_section(relationships)
+            rel_content = self.format_relationships_section(relationships)
             context.add_content(
                 name="Relationships",
                 content=rel_content,
@@ -161,7 +161,7 @@ class LadybugLocalContextBuilder(ContextBuilder):
 
         articles = await self._get_related_articles(entity_names)
         if articles:
-            article_content = self._format_articles_section(articles)
+            article_content = self.format_articles_section(articles)
             context.add_content(
                 name="Source Articles",
                 content=article_content,
@@ -320,12 +320,12 @@ class LadybugLocalContextBuilder(ContextBuilder):
             # Fetch body content from PostgreSQL
             pg_ids = [a.get("pg_id") or a.get("id") for a in articles]
             pg_ids = [str(pid) for pid in pg_ids if pid]
-            bodies = await self._fetch_article_bodies(pg_ids)
+            bodies = await self.fetch_article_bodies(pg_ids)
 
             for article in articles:
                 pg_id = str(article.get("pg_id") or article.get("id") or "")
                 if pg_id and pg_id in bodies:
-                    article["body_excerpt"] = self._extract_key_excerpt(
+                    article["body_excerpt"] = self.extract_key_excerpt(
                         bodies[pg_id],
                         entity_names,
                         max_tokens=300,
@@ -363,115 +363,3 @@ class LadybugLocalContextBuilder(ContextBuilder):
         except Exception as exc:
             log.warning("get_related_articles_by_text_failed", error=str(exc))
             return []
-
-    def _format_entities_section(
-        self,
-        entities: list[dict[str, Any]],
-        include_description: bool = True,
-    ) -> str:
-        """Format entities section."""
-        lines = []
-        for entity in entities:
-            lines.append(self.format_entity(entity, include_description))
-        return "\n".join(lines)
-
-    def _format_relationships_section(
-        self,
-        relationships: list[dict[str, Any]],
-    ) -> str:
-        """Format relationships section."""
-        lines = []
-        for rel in relationships:
-            source = rel.get("source_name", "Unknown")
-            target = rel.get("target_name", "Unknown")
-            rel_type = rel.get("relation_type", "RELATED_TO")
-            lines.append(f"- {source} --[{rel_type}]--> {target}")
-        return "\n".join(lines)
-
-    def _format_articles_section(
-        self,
-        articles: list[dict[str, Any]],
-    ) -> str:
-        """Format articles section with body excerpt."""
-        lines = []
-        for article in articles:
-            title = article.get("title", "Unknown")
-            summary = article.get("summary", "")
-            body_excerpt = article.get("body_excerpt", "")
-
-            lines.append(f"- {title}")
-            if summary:
-                truncated = self.truncate_content(summary, 200)
-                lines.append(f"  概要: {truncated}")
-            if body_excerpt:
-                lines.append(f"  原文片段: {body_excerpt}")
-        return "\n".join(lines)
-
-    async def _fetch_article_bodies(
-        self,
-        pg_ids: list[str],
-    ) -> dict[str, str]:
-        """Fetch article body content from PostgreSQL by pg_ids.
-
-        Args:
-            pg_ids: List of PostgreSQL article IDs.
-
-        Returns:
-            Dict mapping pg_id to body content.
-        """
-        if not self._article_repo or not pg_ids:
-            return {}
-
-        bodies: dict[str, str] = {}
-        for pg_id in pg_ids[:5]:
-            try:
-                article = await self._article_repo.get(pg_id)
-                if article and article.body:
-                    bodies[str(pg_id)] = article.body
-            except Exception as exc:
-                log.warning("fetch_body_failed", pg_id=pg_id, error=str(exc))
-        return bodies
-
-    def _extract_key_excerpt(
-        self,
-        body: str,
-        entity_names: list[str],
-        max_tokens: int = 300,
-    ) -> str:
-        """Extract key excerpt from article body.
-
-        Extracts sentences containing entity mentions, falling back to
-        head/tail truncation when no matches found.
-
-        Args:
-            body: Full article body text.
-            entity_names: Entity names to match in sentences.
-            max_tokens: Maximum tokens for excerpt.
-
-        Returns:
-            Truncated excerpt with entity-relevant content prioritized.
-        """
-        # Split into sentences
-        import re
-
-        sentences = re.split(r"(?<=[。！？.!?\n])", body)
-        matched: list[str] = []
-        others: list[str] = []
-
-        for s in sentences:
-            s = s.strip()
-            if not s:
-                continue
-            lower_s = s.lower()
-            if any(n.lower() in lower_s for n in entity_names):
-                matched.append(s)
-            else:
-                others.append(s)
-
-        # Prefer entity-matched sentences, fill with head sentences
-        selected = matched[:8]
-        if len(selected) < 4:
-            selected.extend(others[: 4 - len(selected)])
-
-        excerpt = "".join(selected)
-        return self.truncate_content(excerpt, max_tokens)
