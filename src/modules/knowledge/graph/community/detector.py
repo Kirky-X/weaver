@@ -14,6 +14,7 @@ import leidenalg
 
 from core.db.graph_query_builders import GraphDatabaseType
 from core.observability import get_logger
+from core.observability.metrics import MetricsCollector
 from modules.knowledge.graph.community.models import (
     Community,
     CommunityDetectionResult,
@@ -93,6 +94,10 @@ class CommunityDetector:
 
         if not edges:
             log.warning("community_detection_no_edges")
+            elapsed = (time.time() - start_time) * 1000
+            MetricsCollector.community_detection_duration_seconds.labels(
+                algorithm="leiden"
+            ).observe(elapsed / 1000.0)
             return CommunityDetectionResult(
                 communities=[],
                 total_entities=0,
@@ -100,7 +105,7 @@ class CommunityDetector:
                 modularity=0.0,
                 levels=0,
                 orphan_count=0,
-                execution_time_ms=(time.time() - start_time) * 1000,
+                execution_time_ms=elapsed,
             )
 
         # Step 2: Run Hierarchical Leiden
@@ -136,6 +141,10 @@ class CommunityDetector:
         levels = max((c.level for c in communities), default=0) + 1 if communities else 0
 
         execution_time = (time.time() - start_time) * 1000
+
+        MetricsCollector.community_detection_duration_seconds.labels(algorithm="leiden").observe(
+            execution_time / 1000.0
+        )
 
         log.info(
             "community_detection_complete",

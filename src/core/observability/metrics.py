@@ -315,6 +315,14 @@ class MetricsCollector:
         buckets=[0.01, 0.05, 0.1, 0.2, 0.3, 0.5, 1, 2, 5, 10],
     )
 
+    # Community detection metrics
+    community_detection_duration_seconds = Histogram(
+        "community_detection_duration_seconds",
+        "Community detection algorithm duration in seconds",
+        ["algorithm"],  # leiden, louvain
+        buckets=[1, 5, 10, 30, 60, 120, 300],
+    )
+
 
 # Global metrics instance for use across modules
 metrics = MetricsCollector()
