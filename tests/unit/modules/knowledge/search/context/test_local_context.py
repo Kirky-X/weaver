@@ -372,7 +372,7 @@ class TestLocalContextBuilderFormatMethods:
         entities = [
             {"canonical_name": "华为", "type": "组织机构", "description": "科技公司"},
         ]
-        result = builder._format_entities_section(entities)
+        result = builder.format_entities_section(entities)
         assert "华为" in result
 
     def test_format_entities_no_description(self) -> None:
@@ -381,7 +381,7 @@ class TestLocalContextBuilderFormatMethods:
         entities = [
             {"canonical_name": "华为", "type": "组织"},
         ]
-        result = builder._format_entities_section(entities, include_description=False)
+        result = builder.format_entities_section(entities, include_description=False)
         assert "华为" in result
 
     def test_format_relationships_section(self) -> None:
@@ -390,7 +390,7 @@ class TestLocalContextBuilderFormatMethods:
         rels = [
             {"source_name": "A", "target_name": "B", "relation_type": "合作", "is_symmetric": True},
         ]
-        result = builder._format_relationships_section(rels)
+        result = builder.format_relationships_section(rels)
         assert "A" in result
         assert "B" in result
 
@@ -400,7 +400,7 @@ class TestLocalContextBuilderFormatMethods:
         articles = [
             {"title": "Test Article", "summary": "Summary text"},
         ]
-        result = builder._format_articles_section(articles)
+        result = builder.format_articles_section(articles)
         assert "Test Article" in result
 
     def test_format_articles_with_body_excerpt(self) -> None:
@@ -409,7 +409,7 @@ class TestLocalContextBuilderFormatMethods:
         articles = [
             {"title": "Test Article", "summary": "Summary", "body_excerpt": "Key excerpt"},
         ]
-        result = builder._format_articles_section(articles)
+        result = builder.format_articles_section(articles)
         assert "原文片段" in result
 
 
@@ -417,11 +417,11 @@ class TestLocalContextBuilderStaticMethods:
     """Tests for static helper methods."""
 
     def test_is_known_symmetric(self) -> None:
-        assert LocalContextBuilder._is_known_symmetric("PARTNERS_WITH") is True
-        assert LocalContextBuilder._is_known_symmetric("RELATED_TO") is True
-        assert LocalContextBuilder._is_known_symmetric("COLLABORATES_WITH") is True
-        assert LocalContextBuilder._is_known_symmetric("REGULATES") is False
-        assert LocalContextBuilder._is_known_symmetric("INVESTS_IN") is False
+        assert LocalContextBuilder.is_known_symmetric("PARTNERS_WITH") is True
+        assert LocalContextBuilder.is_known_symmetric("RELATED_TO") is True
+        assert LocalContextBuilder.is_known_symmetric("COLLABORATES_WITH") is True
+        assert LocalContextBuilder.is_known_symmetric("REGULATES") is False
+        assert LocalContextBuilder.is_known_symmetric("INVESTS_IN") is False
 
     def test_format_relation_with_direction_symmetric(self) -> None:
         rel = {
@@ -430,7 +430,7 @@ class TestLocalContextBuilderStaticMethods:
             "relation_type": "PARTNERS_WITH",
             "is_symmetric": True,
         }
-        result = LocalContextBuilder._format_relation_with_direction(rel)
+        result = LocalContextBuilder.format_relation_with_direction(rel)
         assert "双向" in result
         assert "A" in result
         assert "B" in result
@@ -442,12 +442,12 @@ class TestLocalContextBuilderStaticMethods:
             "relation_type": "REGULATES",
             "is_symmetric": False,
         }
-        result = LocalContextBuilder._format_relation_with_direction(rel)
+        result = LocalContextBuilder.format_relation_with_direction(rel)
         assert "单向" in result
 
     def test_format_relation_default_values(self) -> None:
         rel = {}
-        result = LocalContextBuilder._format_relation_with_direction(rel)
+        result = LocalContextBuilder.format_relation_with_direction(rel)
         assert "Unknown" in result
         assert "RELATED_TO" in result
 
@@ -486,7 +486,7 @@ class TestLocalContextBuilderExtractKeyExcerpt:
         builder = LocalContextBuilder(graph_pool=pool)
 
         body = "华为发布了新产品。比亚迪也发布了新产品。这是另一句话。华为和比亚迪合作了。"
-        excerpt = builder._extract_key_excerpt(body, ["华为"], max_tokens=300)
+        excerpt = builder.extract_key_excerpt(body, ["华为"], max_tokens=300)
 
         assert "华为" in excerpt
 
@@ -495,7 +495,7 @@ class TestLocalContextBuilderExtractKeyExcerpt:
         builder = LocalContextBuilder(graph_pool=pool)
 
         body = "这是第一句话。这是第二句话。这是第三句话。这是第四句话。"
-        excerpt = builder._extract_key_excerpt(body, ["不存在的实体"], max_tokens=300)
+        excerpt = builder.extract_key_excerpt(body, ["不存在的实体"], max_tokens=300)
 
         assert len(excerpt) > 0
 
@@ -503,7 +503,7 @@ class TestLocalContextBuilderExtractKeyExcerpt:
         pool = _make_pool()
         builder = LocalContextBuilder(graph_pool=pool)
 
-        excerpt = builder._extract_key_excerpt("", ["华为"], max_tokens=300)
+        excerpt = builder.extract_key_excerpt("", ["华为"], max_tokens=300)
         assert excerpt == ""
 
 
@@ -514,14 +514,14 @@ class TestLocalContextBuilderFetchArticleBodies:
     async def test_no_article_repo(self) -> None:
         pool = _make_pool()
         builder = LocalContextBuilder(graph_pool=pool, article_repo=None)
-        result = await builder._fetch_article_bodies(["a1"])
+        result = await builder.fetch_article_bodies(["a1"])
         assert result == {}
 
     @pytest.mark.asyncio
     async def test_empty_ids(self) -> None:
         pool = _make_pool()
         builder = LocalContextBuilder(graph_pool=pool)
-        result = await builder._fetch_article_bodies([])
+        result = await builder.fetch_article_bodies([])
         assert result == {}
 
     @pytest.mark.asyncio
@@ -533,7 +533,7 @@ class TestLocalContextBuilderFetchArticleBodies:
         mock_repo.get = AsyncMock(return_value=mock_article)
 
         builder = LocalContextBuilder(graph_pool=pool, article_repo=mock_repo)
-        result = await builder._fetch_article_bodies(["a1"])
+        result = await builder.fetch_article_bodies(["a1"])
 
         assert "a1" in result
         assert result["a1"] == "Article body content"
@@ -545,7 +545,7 @@ class TestLocalContextBuilderFetchArticleBodies:
         mock_repo.get = AsyncMock(side_effect=Exception("DB error"))
 
         builder = LocalContextBuilder(graph_pool=pool, article_repo=mock_repo)
-        result = await builder._fetch_article_bodies(["a1"])
+        result = await builder.fetch_article_bodies(["a1"])
 
         assert result == {}
 

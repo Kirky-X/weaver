@@ -277,14 +277,14 @@ class TestFormatEntitiesSection:
         entities = [
             {"canonical_name": "华为", "type": "ORG", "description": "Tech company"},
         ]
-        result = builder._format_entities_section(entities)
+        result = builder.format_entities_section(entities)
         assert "华为" in result
         assert "ORG" in result
 
     def test_format_entities_empty(self) -> None:
         pool = _make_pool()
         builder = LocalContextBuilder(graph_pool=pool)
-        result = builder._format_entities_section([])
+        result = builder.format_entities_section([])
         assert result == ""
 
 
@@ -302,14 +302,14 @@ class TestFormatRelationshipSection:
                 "is_symmetric": True,
             },
         ]
-        result = builder._format_relationships_section(rels)
+        result = builder.format_relationships_section(rels, include_direction=True)
         assert "A" in result
         assert "双向" in result
 
     def test_format_relationships_empty(self) -> None:
         pool = _make_pool()
         builder = LocalContextBuilder(graph_pool=pool)
-        result = builder._format_relationships_section([])
+        result = builder.format_relationships_section([])
         assert result == ""
 
 
@@ -323,12 +323,12 @@ class TestFormatArticlesSection:
             {"title": "Article 1", "summary": "A summary of article 1"},
             {"title": "Article 2", "summary": ""},
         ]
-        result = builder._format_articles_section(articles)
+        result = builder.format_articles_section(articles)
         assert "Article 1" in result
         assert "A summary" in result
 
     def test_format_articles_empty(self) -> None:
         pool = _make_pool()
         builder = LocalContextBuilder(graph_pool=pool)
-        result = builder._format_articles_section([])
+        result = builder.format_articles_section([])
         assert result == ""

@@ -344,15 +344,15 @@ class TestCypherPatternSelection:
 
     def test_is_known_symmetric_positive(self, local_context_builder):
         """Known symmetric types return True."""
-        assert local_context_builder._is_known_symmetric("PARTNERS_WITH")
-        assert local_context_builder._is_known_symmetric("COLLABORATES_WITH")
-        assert local_context_builder._is_known_symmetric("RELATED_TO")
+        assert local_context_builder.is_known_symmetric("PARTNERS_WITH")
+        assert local_context_builder.is_known_symmetric("COLLABORATES_WITH")
+        assert local_context_builder.is_known_symmetric("RELATED_TO")
 
     def test_is_known_symmetric_negative(self, local_context_builder):
         """Non-symmetric types return False."""
-        assert not local_context_builder._is_known_symmetric("REGULATES")
-        assert not local_context_builder._is_known_symmetric("INVESTS_IN")
-        assert not local_context_builder._is_known_symmetric("OWNS")
+        assert not local_context_builder.is_known_symmetric("REGULATES")
+        assert not local_context_builder.is_known_symmetric("INVESTS_IN")
+        assert not local_context_builder.is_known_symmetric("OWNS")
 
 
 # ---------------------------------------------------------------------------
@@ -365,7 +365,7 @@ class TestFormatRelationWithDirection:
 
     def test_format_symmetric_relation(self):
         """Symmetric relation shows 双向."""
-        result = LocalContextBuilder._format_relation_with_direction(
+        result = LocalContextBuilder.format_relation_with_direction(
             {
                 "source_name": "华为",
                 "target_name": "比亚迪",
@@ -380,7 +380,7 @@ class TestFormatRelationWithDirection:
 
     def test_format_asymmetric_relation(self):
         """Asymmetric relation shows 单向."""
-        result = LocalContextBuilder._format_relation_with_direction(
+        result = LocalContextBuilder.format_relation_with_direction(
             {
                 "source_name": "工信部",
                 "target_name": "华为",
@@ -395,7 +395,7 @@ class TestFormatRelationWithDirection:
 
     def test_format_default_relation(self):
         """Default relation (no is_symmetric) shows 单向."""
-        result = LocalContextBuilder._format_relation_with_direction(
+        result = LocalContextBuilder.format_relation_with_direction(
             {
                 "source_name": "A",
                 "target_name": "B",

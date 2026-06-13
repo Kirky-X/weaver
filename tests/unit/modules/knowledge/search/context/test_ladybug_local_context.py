@@ -648,7 +648,7 @@ class TestFormatEntitiesSection:
             }
         ]
 
-        result = builder._format_entities_section(entities)
+        result = builder.format_entities_section(entities)
 
         assert "Python" in result
         assert "LANGUAGE" in result
@@ -663,7 +663,7 @@ class TestFormatEntitiesSection:
             {"canonical_name": "Rust", "type": "LANGUAGE", "description": "Rust"},
         ]
 
-        result = builder._format_entities_section(entities)
+        result = builder.format_entities_section(entities)
 
         assert "Python" in result
         assert "Rust" in result
@@ -672,7 +672,7 @@ class TestFormatEntitiesSection:
         """Test handling empty entities list."""
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
 
-        result = builder._format_entities_section([])
+        result = builder.format_entities_section([])
 
         assert result == ""
 
@@ -686,7 +686,7 @@ class TestFormatEntitiesSection:
             {},
         ]
 
-        result = builder._format_entities_section(entities)
+        result = builder.format_entities_section(entities)
 
         # Should handle missing fields gracefully
         assert isinstance(result, str)
@@ -703,7 +703,7 @@ class TestFormatEntitiesSection:
             }
         ]
 
-        result = builder._format_entities_section(entities, include_description=False)
+        result = builder.format_entities_section(entities, include_description=False)
 
         assert "Python" in result
         assert "LANGUAGE" in result
@@ -726,7 +726,7 @@ class TestFormatRelationshipsSection:
             }
         ]
 
-        result = builder._format_relationships_section(relationships)
+        result = builder.format_relationships_section(relationships)
 
         assert "Python" in result
         assert "Django" in result
@@ -743,7 +743,7 @@ class TestFormatRelationshipsSection:
             {"source_name": "B", "target_name": "C", "relation_type": "DEPENDS_ON"},
         ]
 
-        result = builder._format_relationships_section(relationships)
+        result = builder.format_relationships_section(relationships)
 
         assert result.count("- ") == 2
         assert "A" in result
@@ -760,7 +760,7 @@ class TestFormatRelationshipsSection:
             {},
         ]
 
-        result = builder._format_relationships_section(relationships)
+        result = builder.format_relationships_section(relationships)
 
         # Should use "Unknown" for missing fields
         assert "Unknown" in result
@@ -770,7 +770,7 @@ class TestFormatRelationshipsSection:
         """Test handling empty relationships list."""
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
 
-        result = builder._format_relationships_section([])
+        result = builder.format_relationships_section([])
 
         assert result == ""
 
@@ -789,7 +789,7 @@ class TestFormatArticlesSection:
             }
         ]
 
-        result = builder._format_articles_section(articles)
+        result = builder.format_articles_section(articles)
 
         assert "AI Revolution" in result
         assert "comprehensive article" in result
@@ -803,7 +803,7 @@ class TestFormatArticlesSection:
             {"title": "Article 2", "summary": "Summary 2"},
         ]
 
-        result = builder._format_articles_section(articles)
+        result = builder.format_articles_section(articles)
 
         assert "Article 1" in result
         assert "Article 2" in result
@@ -816,7 +816,7 @@ class TestFormatArticlesSection:
             {"title": "No Summary Article"},
         ]
 
-        result = builder._format_articles_section(articles)
+        result = builder.format_articles_section(articles)
 
         assert "No Summary Article" in result
 
@@ -824,7 +824,7 @@ class TestFormatArticlesSection:
         """Test handling empty articles list."""
         builder = LadybugLocalContextBuilder(graph_pool=mock_pool)
 
-        result = builder._format_articles_section([])
+        result = builder.format_articles_section([])
 
         assert result == ""
 
@@ -835,7 +835,7 @@ class TestFormatArticlesSection:
         long_summary = "A" * 500
         articles = [{"title": "Long Article", "summary": long_summary}]
 
-        result = builder._format_articles_section(articles)
+        result = builder.format_articles_section(articles)
 
         # Should be truncated
         assert len(result) < len(long_summary) + 100
@@ -848,7 +848,7 @@ class TestFormatArticlesSection:
             {"summary": "Summary without title"},
         ]
 
-        result = builder._format_articles_section(articles)
+        result = builder.format_articles_section(articles)
 
         # Should use "Unknown" for missing title
         assert "Unknown" in result

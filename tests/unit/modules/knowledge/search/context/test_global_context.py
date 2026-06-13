@@ -581,7 +581,7 @@ class TestGlobalContextBuilderFormatMethods:
         communities = [
             {"title": "Tech", "summary": "Summary", "entity_count": 5},
         ]
-        result = builder._format_communities_section(communities)
+        result = builder.format_communities_section(communities)
         assert "Tech" in result
         assert "5" in result
 
@@ -591,7 +591,7 @@ class TestGlobalContextBuilderFormatMethods:
         entities = [
             {"canonical_name": "华为", "type": "组织", "description": "Tech"},
         ]
-        result = builder._format_entities_section(entities)
+        result = builder.format_entities_section(entities)
         assert "华为" in result
 
     def test_format_cross_community_section_symmetric(self) -> None:
@@ -606,7 +606,7 @@ class TestGlobalContextBuilderFormatMethods:
                 "relation_type": "PARTNERS_WITH",
             },
         ]
-        result = builder._format_cross_community_section(connections)
+        result = builder.format_cross_community_section(connections, include_direction=True)
         assert "双向" in result
 
     def test_format_cross_community_section_asymmetric(self) -> None:
@@ -621,7 +621,7 @@ class TestGlobalContextBuilderFormatMethods:
                 "relation_type": "REGULATES",
             },
         ]
-        result = builder._format_cross_community_section(connections)
+        result = builder.format_cross_community_section(connections, include_direction=True)
         assert "单向" in result
 
 

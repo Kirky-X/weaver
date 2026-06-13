@@ -816,7 +816,7 @@ class TestFormatCommunitiesSection:
             }
         ]
 
-        result = builder._format_communities_section(communities)
+        result = builder.format_communities_section(communities)
 
         assert "### AI Community" in result
         assert "Entities: 15" in result
@@ -831,7 +831,7 @@ class TestFormatCommunitiesSection:
             {"title": "Science", "summary": "Science summary", "entity_count": 20},
         ]
 
-        result = builder._format_communities_section(communities)
+        result = builder.format_communities_section(communities)
 
         assert "### Tech" in result
         assert "### Science" in result
@@ -847,7 +847,7 @@ class TestFormatCommunitiesSection:
             {"entity_count": 5},
         ]
 
-        result = builder._format_communities_section(communities)
+        result = builder.format_communities_section(communities)
 
         assert "### Minimal Community" in result
         assert "### Community 2" in result  # Default title
@@ -860,7 +860,7 @@ class TestFormatCommunitiesSection:
         long_summary = "A" * 500
         communities = [{"title": "Long Summary", "summary": long_summary, "entity_count": 1}]
 
-        result = builder._format_communities_section(communities)
+        result = builder.format_communities_section(communities)
 
         # Should be truncated to ~200 tokens
         assert len(result) < len(long_summary) + 100
@@ -871,7 +871,7 @@ class TestFormatCommunitiesSection:
 
         communities = [{"title": "No Summary", "summary": "", "entity_count": 1}]
 
-        result = builder._format_communities_section(communities)
+        result = builder.format_communities_section(communities)
 
         assert "### No Summary" in result
         assert "Summary:" not in result
@@ -892,7 +892,7 @@ class TestFormatEntitiesSection:
             }
         ]
 
-        result = builder._format_entities_section(entities)
+        result = builder.format_entities_section(entities)
 
         assert "Python" in result
         assert "LANGUAGE" in result
@@ -907,7 +907,7 @@ class TestFormatEntitiesSection:
             {"canonical_name": "Rust", "type": "LANGUAGE", "description": "Rust"},
         ]
 
-        result = builder._format_entities_section(entities)
+        result = builder.format_entities_section(entities)
 
         assert "Python" in result
         assert "Rust" in result
@@ -916,7 +916,7 @@ class TestFormatEntitiesSection:
         """Test handling empty entities list."""
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
-        result = builder._format_entities_section([])
+        result = builder.format_entities_section([])
 
         assert result == ""
 
@@ -938,7 +938,7 @@ class TestFormatCrossCommunitySection:
             }
         ]
 
-        result = builder._format_cross_community_section(connections)
+        result = builder.format_cross_community_section(connections)
 
         assert "Tech" in result
         assert "Science" in result
@@ -967,7 +967,7 @@ class TestFormatCrossCommunitySection:
             },
         ]
 
-        result = builder._format_cross_community_section(connections)
+        result = builder.format_cross_community_section(connections)
 
         assert "Tech" in result
         assert "Math" in result
@@ -982,7 +982,7 @@ class TestFormatCrossCommunitySection:
             {},
         ]
 
-        result = builder._format_cross_community_section(connections)
+        result = builder.format_cross_community_section(connections)
 
         assert "Tech" in result
         assert "Unknown" in result  # Default for missing fields
@@ -991,7 +991,7 @@ class TestFormatCrossCommunitySection:
         """Test handling empty connections list."""
         builder = LadybugGlobalContextBuilder(graph_pool=mock_pool)
 
-        result = builder._format_cross_community_section([])
+        result = builder.format_cross_community_section([])
 
         assert result == ""
 
