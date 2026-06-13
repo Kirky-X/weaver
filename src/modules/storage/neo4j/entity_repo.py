@@ -12,6 +12,7 @@ from neo4j.exceptions import ConstraintError
 from core.mappers.neo4j_entity_mapper import Neo4jEntityMapper
 from core.models.shared import EntityView
 from core.observability import get_logger
+from core.utils.time_utils import convert_timestamp
 from modules.storage.base_entity_repo import BaseEntityRepo
 
 # Edge type validation pattern (compiled regex)
@@ -40,35 +41,6 @@ class Neo4jEntityRepo(BaseEntityRepo):
 
     def __init__(self, pool: GraphPool) -> None:
         self._pool = pool
-
-    @staticmethod
-    def _convert_timestamp(ts: Any) -> str | None:
-        """Convert Neo4j DateTime or int timestamp to ISO format string.
-
-        Handles multiple timestamp formats from Neo4j and LadybugDB:
-        - Neo4j DateTime objects (has isoformat/iso_format)
-        - Integer timestamps (seconds or milliseconds)
-        - Already formatted strings
-
-        Args:
-            ts: Timestamp value to convert.
-
-        Returns:
-            ISO format string or None.
-        """
-        if ts is None:
-            return None
-        if isinstance(ts, int):
-            from datetime import UTC, datetime
-
-            if ts > 1_000_000_000_000:
-                return datetime.fromtimestamp(ts / 1000, tz=UTC).isoformat()
-            return datetime.fromtimestamp(ts, tz=UTC).isoformat()
-        if hasattr(ts, "iso_format"):
-            return ts.iso_format()
-        if hasattr(ts, "isoformat"):
-            return ts.isoformat()
-        return str(ts)
 
     async def ensure_constraints(self) -> None:
         """Create uniqueness constraints if they don't exist.
@@ -221,8 +193,8 @@ class Neo4jEntityRepo(BaseEntityRepo):
         result = await self._pool.execute_query(query, params)
         if result:
             record = dict(result[0])
-            record["created_at"] = self._convert_timestamp(record.get("created_at"))
-            record["updated_at"] = self._convert_timestamp(record.get("updated_at"))
+            record["created_at"] = convert_timestamp(record.get("created_at"))
+            record["updated_at"] = convert_timestamp(record.get("updated_at"))
             return record
         return None
 
@@ -254,8 +226,8 @@ class Neo4jEntityRepo(BaseEntityRepo):
         result = await self._pool.execute_query(query, params)
         if result:
             record = dict(result[0])
-            record["created_at"] = self._convert_timestamp(record.get("created_at"))
-            record["updated_at"] = self._convert_timestamp(record.get("updated_at"))
+            record["created_at"] = convert_timestamp(record.get("created_at"))
+            record["updated_at"] = convert_timestamp(record.get("updated_at"))
             return Neo4jEntityMapper().to_view(record)
         return None
 
@@ -289,8 +261,8 @@ class Neo4jEntityRepo(BaseEntityRepo):
         result = await self._pool.execute_query(query, params)
         if result:
             record = dict(result[0])
-            record["created_at"] = self._convert_timestamp(record.get("created_at"))
-            record["updated_at"] = self._convert_timestamp(record.get("updated_at"))
+            record["created_at"] = convert_timestamp(record.get("created_at"))
+            record["updated_at"] = convert_timestamp(record.get("updated_at"))
             return Neo4jEntityMapper().to_view(record)
         return None
 
@@ -318,8 +290,8 @@ class Neo4jEntityRepo(BaseEntityRepo):
         result = await self._pool.execute_query(query, {"neo4j_id": neo4j_id})
         if result:
             record = dict(result[0])
-            record["created_at"] = self._convert_timestamp(record.get("created_at"))
-            record["updated_at"] = self._convert_timestamp(record.get("updated_at"))
+            record["created_at"] = convert_timestamp(record.get("created_at"))
+            record["updated_at"] = convert_timestamp(record.get("updated_at"))
             return Neo4jEntityMapper().to_view(record)
         return None
 
@@ -361,8 +333,8 @@ class Neo4jEntityRepo(BaseEntityRepo):
             Neo4jEntityMapper().to_view(
                 {
                     **record,
-                    "created_at": self._convert_timestamp(record.get("created_at")),
-                    "updated_at": self._convert_timestamp(record.get("updated_at")),
+                    "created_at": convert_timestamp(record.get("created_at")),
+                    "updated_at": convert_timestamp(record.get("updated_at")),
                 }
             )
             for record in (dict(r) for r in result)

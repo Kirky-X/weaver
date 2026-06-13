@@ -4,7 +4,7 @@
 from datetime import UTC, datetime
 from threading import Event, Thread
 from time import monotonic
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import ntplib  # type: ignore[import-untyped]
 
@@ -79,6 +79,33 @@ def get_current_time_with_timezone() -> str:
         return local_time.isoformat()
 
     return datetime.now(local_tz).isoformat()
+
+
+def convert_timestamp(ts: Any) -> str | None:
+    """Convert timestamp from Neo4j DateTime, LadybugDB INT64, or string to ISO format.
+
+    Handles multiple timestamp formats from Neo4j and LadybugDB:
+    - Neo4j DateTime objects (has isoformat/iso_format)
+    - Integer timestamps (seconds or milliseconds)
+    - Already formatted strings
+
+    Args:
+        ts: Timestamp value to convert.
+
+    Returns:
+        ISO format string or None.
+    """
+    if ts is None:
+        return None
+    if isinstance(ts, int):
+        if ts > 1_000_000_000_000:
+            return datetime.fromtimestamp(ts / 1000, tz=UTC).isoformat()
+        return datetime.fromtimestamp(ts, tz=UTC).isoformat()
+    if hasattr(ts, "iso_format"):
+        return ts.iso_format()
+    if hasattr(ts, "isoformat"):
+        return ts.isoformat()
+    return str(ts)
 
 
 def _get_ntp_time() -> datetime | None:

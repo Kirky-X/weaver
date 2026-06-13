@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from core.db.graph_query_builders import GraphQueryBuilder
 from core.observability import get_logger
+from core.utils.time_utils import convert_timestamp
 
 if TYPE_CHECKING:
     from core.protocols import GraphPool
@@ -51,30 +52,6 @@ class GraphRepository:
     def database_type(self) -> str:
         """Get the database type."""
         return self._query_builder.database_type.value
-
-    @staticmethod
-    def _convert_timestamp(ts: Any) -> str | None:
-        """Convert timestamp from Neo4j DateTime, LadybugDB INT64, or string to ISO format.
-
-        Args:
-            ts: Timestamp value (int, Neo4j DateTime, Python datetime, or string).
-
-        Returns:
-            ISO format string or None if input is None.
-        """
-        if ts is None:
-            return None
-        if isinstance(ts, int):
-            from datetime import UTC, datetime
-
-            if ts > 1_000_000_000_000:
-                return datetime.fromtimestamp(ts / 1000, tz=UTC).isoformat()
-            return datetime.fromtimestamp(ts, tz=UTC).isoformat()
-        if hasattr(ts, "iso_format"):
-            return ts.iso_format()
-        if hasattr(ts, "isoformat"):
-            return ts.isoformat()
-        return str(ts)
 
     async def _get_fallback_pool(self) -> GraphPool | None:
         """Get or lazily initialize the fallback pool with schema."""
@@ -129,7 +106,7 @@ class GraphRepository:
         )
         if result:
             record = result[0]
-            updated_at = self._convert_timestamp(record.get("updated_at"))
+            updated_at = convert_timestamp(record.get("updated_at"))
 
             return {
                 "id": record.get("id") or "",
@@ -159,7 +136,7 @@ class GraphRepository:
         )
         relations = []
         for row in result:
-            created_at = self._convert_timestamp(row.get("created_at"))
+            created_at = convert_timestamp(row.get("created_at"))
             relations.append(
                 {
                     "target": row["target"],
@@ -188,8 +165,8 @@ class GraphRepository:
         )
         entities = []
         for row in result:
-            updated_at = self._convert_timestamp(row.get("updated_at"))
-            created_at = self._convert_timestamp(row.get("created_at"))
+            updated_at = convert_timestamp(row.get("updated_at"))
+            created_at = convert_timestamp(row.get("created_at"))
 
             entities.append(
                 {
@@ -232,7 +209,7 @@ class GraphRepository:
         )
         articles = []
         for row in result:
-            publish_time = self._convert_timestamp(row.get("publish_time"))
+            publish_time = convert_timestamp(row.get("publish_time"))
             articles.append(
                 {
                     "id": row["id"],
@@ -261,7 +238,7 @@ class GraphRepository:
         )
         if result:
             record = result[0]
-            publish_time = self._convert_timestamp(record.get("publish_time"))
+            publish_time = convert_timestamp(record.get("publish_time"))
 
             return {
                 "id": record.get("id") or "",
@@ -287,8 +264,8 @@ class GraphRepository:
         )
         entities = []
         for row in result:
-            updated_at = self._convert_timestamp(row.get("updated_at"))
-            created_at = self._convert_timestamp(row.get("created_at"))
+            updated_at = convert_timestamp(row.get("updated_at"))
+            created_at = convert_timestamp(row.get("created_at"))
 
             entities.append(
                 {
@@ -318,7 +295,7 @@ class GraphRepository:
         )
         relationships = []
         for row in result:
-            created_at = self._convert_timestamp(row.get("created_at"))
+            created_at = convert_timestamp(row.get("created_at"))
             relationships.append(
                 {
                     "source_id": row["source"],
@@ -348,7 +325,7 @@ class GraphRepository:
         )
         articles = []
         for row in result:
-            publish_time = self._convert_timestamp(row.get("publish_time"))
+            publish_time = convert_timestamp(row.get("publish_time"))
             articles.append(
                 {
                     "id": row.get("id") or "",
