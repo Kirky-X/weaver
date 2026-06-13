@@ -184,7 +184,7 @@ class GlobalContextBuilder(BaseGlobalContextBuilder):
         if len(communities) < 2:
             return []
 
-        community_ids = [c.get("id") for c in communities if c.get("id")]
+        community_ids = [str(c["id"]) for c in communities if c.get("id")]
 
         # First try typed relationships (semantic edge types)
         typed_cypher = """

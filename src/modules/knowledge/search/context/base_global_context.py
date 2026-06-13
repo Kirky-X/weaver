@@ -317,7 +317,7 @@ class BaseGlobalContextBuilder(ContextBuilder):
                 metadata={"community_id": comm.get("id")},
             )
 
-            entities = await self.get_community_entities(comm.get("id"))
+            entities = await self.get_community_entities(str(comm.get("id", "")))
             if entities:
                 entity_content = self.format_entities_section(entities)
                 context.add_content(

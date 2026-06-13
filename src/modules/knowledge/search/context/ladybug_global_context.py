@@ -159,7 +159,7 @@ class LadybugGlobalContextBuilder(BaseGlobalContextBuilder):
         if len(communities) < 2:
             return []
 
-        community_ids = [c.get("id") for c in communities if c.get("id")]
+        community_ids = [str(c["id"]) for c in communities if c.get("id")]
 
         cypher = self._query_builder.build_cross_community_relationships_query(community_ids)
 
