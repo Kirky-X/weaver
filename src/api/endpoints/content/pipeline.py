@@ -4,14 +4,17 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import uuid
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 import json_repair
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
+from starlette.responses import StreamingResponse
 
 from api.dependencies import (
     get_cache_client,
@@ -113,6 +116,9 @@ class ProcessUrlResponse(BaseModel):
 TASK_QUEUE_KEY = "pipeline:task_queue"
 TASK_STATUS_KEY = "pipeline:task_status"
 QUEUE_DEPTH_GAUGE = metrics.pipeline_queue_depth
+
+# SSE concurrency limiter (default 3 concurrent streams)
+_sse_semaphore = asyncio.Semaphore(3)
 
 
 # ── Endpoints ───────────────────────────────────────────────────
@@ -640,3 +646,268 @@ async def process_single_url(
     _ = asyncio.create_task(_process_single_url(request.url, task_id, cache))  # noqa: RUF006
 
     return success_response(ProcessUrlResponse(task_id=task_id, queued_at=now))
+
+
+# ── SSE Streaming ──────────────────────────────────────────────
+
+
+def _sse_event(event: str, data: dict) -> str:
+    """Format a single SSE event.
+
+    Args:
+        event: Event type name.
+        data: Event payload.
+
+    Returns:
+        Formatted SSE string.
+
+    """
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+async def _stream_url_processing(
+    url: str,
+    task_id: str,
+    cache: CachePool,
+) -> AsyncIterator[str]:
+    """Async generator that yields SSE events for URL pipeline processing.
+
+    Yields log, heartbeat, result, and error events while processing a URL.
+
+    Args:
+        url: URL to process.
+        task_id: Task ID for tracking.
+        cache: Cache client for status updates.
+
+    """
+    from container import get_container
+
+    container = get_container()
+    crawler = container.crawler()
+    pipeline = container.pipeline()
+
+    # Heartbeat task runs concurrently
+    heartbeat_stop = asyncio.Event()
+
+    async def _heartbeat() -> None:
+        """Emit heartbeat events at 0.5s intervals until stopped."""
+        while not heartbeat_stop.is_set():
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(heartbeat_stop.wait(), timeout=0.5)
+            if not heartbeat_stop.is_set():
+                yield _sse_event(
+                    "heartbeat", {"task_id": task_id, "ts": datetime.now(UTC).isoformat()}
+                )
+
+    try:
+        # Update status to running
+        await _update_task_status(
+            cache,
+            task_id,
+            PipelineTaskStatus.RUNNING.value,
+            started_at=datetime.now(UTC).isoformat(),
+        )
+        yield _sse_event(
+            "log", {"task_id": task_id, "message": "Pipeline started", "status": "running"}
+        )
+
+        # Run heartbeat and processing concurrently
+        heartbeat_gen = _heartbeat()
+        processing_task = asyncio.ensure_future(_do_process(url, task_id, crawler, pipeline))
+
+        # Alternate between heartbeat and processing
+        heartbeat_iter = heartbeat_gen.__aiter__()
+        while not processing_task.done():
+            try:
+                event = await asyncio.wait_for(heartbeat_iter.__anext__(), timeout=0.5)
+                yield event
+            except (StopAsyncIteration, TimeoutError):
+                pass
+            await asyncio.sleep(0)
+
+        # Stop heartbeat
+        heartbeat_stop.set()
+
+        # Get result from processing
+        result = processing_task.result()
+        yield result
+
+        # Update cache status
+        if result_event := _parse_result_event(result):
+            await _update_task_status(cache, task_id, **result_event)
+        else:
+            await _update_task_status(
+                cache,
+                task_id,
+                PipelineTaskStatus.COMPLETED.value,
+                completed_at=datetime.now(UTC).isoformat(),
+            )
+
+    except Exception as exc:
+        heartbeat_stop.set()
+        log.warning("sse_pipeline_error", task_id=task_id, error=str(exc))
+        await _update_task_status(
+            cache,
+            task_id,
+            PipelineTaskStatus.FAILED.value,
+            error=str(exc),
+            completed_at=datetime.now(UTC).isoformat(),
+        )
+        yield _sse_event("error", {"task_id": task_id, "error": str(exc)})
+
+
+async def _do_process(
+    url: str,
+    task_id: str,
+    crawler: object,
+    pipeline: object,
+) -> str:
+    """Execute the pipeline processing and return the final SSE event string.
+
+    Args:
+        url: URL to process.
+        task_id: Task ID for tracking.
+        crawler: Crawler instance.
+        pipeline: Pipeline instance.
+
+    Returns:
+        SSE event string (result or error).
+
+    """
+    from modules.ingestion.domain.models import NewsItem
+    from modules.ingestion.fetching.exceptions import FetchError
+
+    try:
+        item = NewsItem(
+            url=url,
+            title="",
+            source="url_endpoint",
+            source_host=urlparse(url).netloc,
+        )
+        results = await crawler.crawl_batch([item])
+
+        if results and isinstance(results[0], FetchError):
+            raise results[0]
+
+        if not results:
+            raise RuntimeError("Crawler returned no results")
+
+        article = results[0]
+
+        states = await pipeline.process_batch(
+            [article],
+            task_id=uuid.UUID(task_id),
+        )
+
+        state = states[0] if states else {}
+        return _sse_event(
+            "result",
+            {
+                "task_id": task_id,
+                "status": PipelineTaskStatus.COMPLETED.value,
+                "article_id": state.get("article_id", ""),
+                "completed_at": datetime.now(UTC).isoformat(),
+            },
+        )
+
+    except Exception as exc:
+        return _sse_event("error", {"task_id": task_id, "error": str(exc)})
+
+
+def _parse_result_event(sse_str: str) -> dict | None:
+    """Extract status fields from a result SSE event for cache update.
+
+    Args:
+        sse_str: Raw SSE event string.
+
+    Returns:
+        Dict with status fields, or None if not a result event.
+
+    """
+    try:
+        for line in sse_str.strip().split("\n"):
+            if line.startswith("data: "):
+                data = json.loads(line[6:])
+                if data.get("status") and data.get("completed_at"):
+                    return {
+                        "status": data["status"],
+                        "completed_at": data["completed_at"],
+                        "article_id": data.get("article_id", ""),
+                    }
+    except (json.JSONDecodeError, KeyError):
+        pass
+    return None
+
+
+@router.post("/url/stream")
+async def process_url_stream(
+    request: ProcessUrlRequest,
+    _: str = Depends(verify_api_key),
+    cache: CachePool = Depends(get_cache_client),
+    settings: Settings = Depends(get_settings),
+) -> StreamingResponse:
+    """Process a single URL through the pipeline with SSE streaming.
+
+    Streams real-time progress events (log, heartbeat, result, error).
+    Default concurrency limit: 3 simultaneous streams.
+
+    Args:
+        request: URL processing request.
+        _: Verified API key.
+        cache: Cache client for task status.
+        settings: Application settings.
+
+    Returns:
+        StreamingResponse with SSE events.
+
+    Raises:
+        HTTPException: If URL is invalid, blocked, or concurrency limit reached.
+
+    """
+    # Validate URL
+    await _validate_url_for_processing(
+        request.url,
+        request.whitelist_mode,
+        settings,
+    )
+
+    # Check concurrency
+    if _sse_semaphore.locked():
+        raise HTTPException(
+            status_code=429,
+            detail="Too many concurrent stream requests. Please retry later.",
+        )
+
+    # Create task
+    task_id = str(uuid.uuid4())
+    now = datetime.now(UTC).isoformat()
+
+    # Store initial task status
+    await cache.hset(
+        TASK_STATUS_KEY,
+        task_id,
+        json.dumps(
+            {
+                "task_id": task_id,
+                "status": PipelineTaskStatus.QUEUED.value,
+                "url": request.url,
+                "queued_at": now,
+            }
+        ),
+    )
+
+    async def _stream_with_semaphore() -> AsyncIterator[str]:
+        """Wrap the stream generator with semaphore acquisition."""
+        async with _sse_semaphore:
+            async for event in _stream_url_processing(request.url, task_id, cache):
+                yield event
+
+    return StreamingResponse(
+        _stream_with_semaphore(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
