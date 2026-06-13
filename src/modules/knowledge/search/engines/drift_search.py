@@ -10,12 +10,14 @@ an iterative three-phase search process:
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
 from core.observability import get_logger
+from core.observability.metrics import MetricsCollector
 from modules.knowledge.search.engines.local_search import LocalSearchEngine
 
 log = get_logger(__name__)
@@ -103,68 +105,73 @@ class DRIFTSearchEngine:
             max_follow_ups=self._config.max_follow_ups,
         )
 
-        llm_calls = 0
-        hierarchy = DriftHierarchy()
+        start = time.monotonic()
+        try:
+            llm_calls = 0
+            hierarchy = DriftHierarchy()
 
-        # Phase 1: Primer
-        primer_result = await self._primer_phase(query)
-        llm_calls += primer_result.get("llm_calls", 0)
+            # Phase 1: Primer
+            primer_result = await self._primer_phase(query)
+            llm_calls += primer_result.get("llm_calls", 0)
 
-        if primer_result.get("fallback", False):
-            # No relevant communities, fallback to local search
-            log.info("drift_fallback_to_local", reason="no_communities")
-            local_result = await self._local_engine.search(query)
-            return DriftResult(
+            if primer_result.get("fallback", False):
+                # No relevant communities, fallback to local search
+                log.info("drift_fallback_to_local", reason="no_communities")
+                local_result = await self._local_engine.search(query)
+                return DriftResult(
+                    query=query,
+                    answer=local_result.answer,
+                    confidence=local_result.confidence,
+                    hierarchy=hierarchy,
+                    primer_communities=0,
+                    follow_up_iterations=0,
+                    total_llm_calls=llm_calls + 1,
+                    drift_mode="fallback_local",
+                )
+
+            hierarchy.primer = primer_result
+
+            # Phase 2: Follow-up iterations
+            follow_up_results = await self._follow_up_phase(
                 query=query,
-                answer=local_result.answer,
-                confidence=local_result.confidence,
-                hierarchy=hierarchy,
-                primer_communities=0,
-                follow_up_iterations=0,
-                total_llm_calls=llm_calls + 1,
-                drift_mode="fallback_local",
+                initial_answer=primer_result.get("answer", ""),
+                follow_up_questions=primer_result.get("follow_up_questions", []),
+            )
+            llm_calls += follow_up_results.get("llm_calls", 0)
+            hierarchy.follow_ups = follow_up_results.get("results", [])
+
+            # Phase 3: Output aggregation
+            final_result = await self._aggregate_results(
+                query=query,
+                primer=primer_result,
+                follow_ups=hierarchy.follow_ups,
+            )
+            llm_calls += 1
+
+            log.info(
+                "drift_search_complete",
+                primer_communities=primer_result.get("community_count", 0),
+                follow_up_iterations=len(hierarchy.follow_ups),
+                llm_calls=llm_calls,
             )
 
-        hierarchy.primer = primer_result
-
-        # Phase 2: Follow-up iterations
-        follow_up_results = await self._follow_up_phase(
-            query=query,
-            initial_answer=primer_result.get("answer", ""),
-            follow_up_questions=primer_result.get("follow_up_questions", []),
-        )
-        llm_calls += follow_up_results.get("llm_calls", 0)
-        hierarchy.follow_ups = follow_up_results.get("results", [])
-
-        # Phase 3: Output aggregation
-        final_result = await self._aggregate_results(
-            query=query,
-            primer=primer_result,
-            follow_ups=hierarchy.follow_ups,
-        )
-        llm_calls += 1
-
-        log.info(
-            "drift_search_complete",
-            primer_communities=primer_result.get("community_count", 0),
-            follow_up_iterations=len(hierarchy.follow_ups),
-            llm_calls=llm_calls,
-        )
-
-        return DriftResult(
-            query=query,
-            answer=final_result.get("answer", ""),
-            confidence=final_result.get("confidence", 0.5),
-            hierarchy=hierarchy,
-            primer_communities=primer_result.get("community_count", 0),
-            follow_up_iterations=len(hierarchy.follow_ups),
-            total_llm_calls=llm_calls,
-            metadata={
-                "primer_communities": primer_result.get("community_count", 0),
-                "follow_up_iterations": len(hierarchy.follow_ups),
-                "total_llm_calls": llm_calls,
-            },
-        )
+            return DriftResult(
+                query=query,
+                answer=final_result.get("answer", ""),
+                confidence=final_result.get("confidence", 0.5),
+                hierarchy=hierarchy,
+                primer_communities=primer_result.get("community_count", 0),
+                follow_up_iterations=len(hierarchy.follow_ups),
+                total_llm_calls=llm_calls,
+                metadata={
+                    "primer_communities": primer_result.get("community_count", 0),
+                    "follow_up_iterations": len(hierarchy.follow_ups),
+                    "total_llm_calls": llm_calls,
+                },
+            )
+        finally:
+            elapsed = time.monotonic() - start
+            MetricsCollector.search_latency_seconds.labels(mode="drift").observe(elapsed)
 
     async def _primer_phase(self, query: str) -> dict[str, Any]:
         """Execute Primer phase - vector search community reports.

@@ -7,6 +7,7 @@ precise, factual queries that require detailed entity information.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -14,6 +15,7 @@ from core.constants import SearchMode
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
 from core.observability import get_logger
+from core.observability.metrics import MetricsCollector
 from modules.knowledge.search.context.builder import ContextBuilder
 
 if TYPE_CHECKING:
@@ -96,69 +98,74 @@ class LocalSearchEngine:
         """
         max_tokens = max_tokens or self._default_max_tokens
 
-        context = await self._context_builder.build(
-            query=query,
-            max_tokens=min(max_tokens, self._max_context_tokens),
-            entity_names=entity_names,
-            relation_types=relation_types,
-        )
-
-        sources = self._extract_sources_from_context(context)
-
-        # If use_llm=False, return context without LLM generation
-        if not use_llm:
-            entities = self._extract_entities_from_context(context)
-            return SearchResult(
-                query=query,
-                answer="Context built successfully. LLM generation skipped.",
-                context_tokens=context.total_tokens,
-                sources=sources,
-                entities=entities,
-                confidence=self._estimate_confidence(context),
-                metadata={
-                    "context_sections": len(context.sections),
-                    "search_type": SearchMode.LOCAL.value,
-                    "llm_used": False,
-                    "hybrid_used": self._hybrid_engine is not None,
-                },
-            )
-
-        prompt = self._build_prompt(query, context)
-
+        start = time.monotonic()
         try:
-            response = await self._llm.call_at(
-                CallPoint.SEARCH_LOCAL,
-                payload={"query": query, "context": prompt},
-            )
-
-            answer = response if isinstance(response, str) else str(response)
-
-            entities = self._extract_entities_from_context(context)
-
-            return SearchResult(
+            context = await self._context_builder.build(
                 query=query,
-                answer=answer,
-                context_tokens=context.total_tokens,
-                sources=sources,
-                entities=entities,
-                confidence=self._estimate_confidence(context),
-                metadata={
-                    "context_sections": len(context.sections),
-                    "search_type": SearchMode.LOCAL.value,
-                    "llm_used": True,
-                    "hybrid_used": self._hybrid_engine is not None,
-                },
+                max_tokens=min(max_tokens, self._max_context_tokens),
+                entity_names=entity_names,
+                relation_types=relation_types,
             )
 
-        except Exception as exc:
-            log.error("local_search_failed", error=str(exc))
-            return SearchResult(
-                query=query,
-                answer=f"Search failed: {exc!s}",
-                context_tokens=0,
-                confidence=0.0,
-                metadata={"error": str(exc)},
-            )
+            sources = self._extract_sources_from_context(context)
+
+            # If use_llm=False, return context without LLM generation
+            if not use_llm:
+                entities = self._extract_entities_from_context(context)
+                return SearchResult(
+                    query=query,
+                    answer="Context built successfully. LLM generation skipped.",
+                    context_tokens=context.total_tokens,
+                    sources=sources,
+                    entities=entities,
+                    confidence=self._estimate_confidence(context),
+                    metadata={
+                        "context_sections": len(context.sections),
+                        "search_type": SearchMode.LOCAL.value,
+                        "llm_used": False,
+                        "hybrid_used": self._hybrid_engine is not None,
+                    },
+                )
+
+            prompt = self._build_prompt(query, context)
+
+            try:
+                response = await self._llm.call_at(
+                    CallPoint.SEARCH_LOCAL,
+                    payload={"query": query, "context": prompt},
+                )
+
+                answer = response if isinstance(response, str) else str(response)
+
+                entities = self._extract_entities_from_context(context)
+
+                return SearchResult(
+                    query=query,
+                    answer=answer,
+                    context_tokens=context.total_tokens,
+                    sources=sources,
+                    entities=entities,
+                    confidence=self._estimate_confidence(context),
+                    metadata={
+                        "context_sections": len(context.sections),
+                        "search_type": SearchMode.LOCAL.value,
+                        "llm_used": True,
+                        "hybrid_used": self._hybrid_engine is not None,
+                    },
+                )
+
+            except Exception as exc:
+                log.error("local_search_failed", error=str(exc))
+                return SearchResult(
+                    query=query,
+                    answer=f"Search failed: {exc!s}",
+                    context_tokens=0,
+                    confidence=0.0,
+                    metadata={"error": str(exc)},
+                )
+        finally:
+            elapsed = time.monotonic() - start
+            MetricsCollector.search_latency_seconds.labels(mode="local").observe(elapsed)
 
     def _build_prompt(self, query: str, context: Any) -> str:
         """Build the LLM prompt from context."""

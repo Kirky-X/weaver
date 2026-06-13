@@ -14,12 +14,14 @@ single-source retrieval.
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
 from core.constants import SearchMode
 from core.observability import get_logger
+from core.observability.metrics import MetricsCollector
 from modules.knowledge.search.fusion.rrf import reciprocal_rank_fusion
 from modules.knowledge.search.rerankers.flashrank_reranker import FlashrankReranker
 from modules.knowledge.search.rerankers.mmr_reranker import MMRReranker
@@ -136,37 +138,44 @@ class HybridSearchEngine:
             # Fallback to vector-only search
             return await self._vector_only_search(query, embedding, limit)
 
-        # Stage 1: Parallel retrieval
-        vector_results, bm25_results = await self._parallel_retrieve(query, embedding, limit * 2)
+        start = time.monotonic()
+        try:
+            # Stage 1: Parallel retrieval
+            vector_results, bm25_results = await self._parallel_retrieve(
+                query, embedding, limit * 2
+            )
 
-        # Stage 2: RRF fusion
-        fused = self._fuse_results(vector_results, bm25_results)
+            # Stage 2: RRF fusion
+            fused = self._fuse_results(vector_results, bm25_results)
 
-        # Stage 3: Optional re-ranking
-        if self._config.rerank_enabled and self._reranker:
-            fused = self._rerank_results(query, fused)
+            # Stage 3: Optional re-ranking
+            if self._config.rerank_enabled and self._reranker:
+                fused = self._rerank_results(query, fused)
 
-        # Stage 3.5: Temporal decay (after rerank, before MMR)
-        if self._config.temporal_decay_enabled:
-            fused = await self._apply_temporal_decay(fused)
+            # Stage 3.5: Temporal decay (after rerank, before MMR)
+            if self._config.temporal_decay_enabled:
+                fused = await self._apply_temporal_decay(fused)
 
-        # Stage 4: Optional MMR diversity
-        if self._config.mmr_enabled and self._mmr_reranker:
-            fused = self._apply_mmr(fused)
+            # Stage 4: Optional MMR diversity
+            if self._config.mmr_enabled and self._mmr_reranker:
+                fused = self._apply_mmr(fused)
 
-        # Convert to output format
-        results = self._to_hybrid_results(fused[:limit])
+            # Convert to output format
+            results = self._to_hybrid_results(fused[:limit])
 
-        log.debug(
-            "hybrid_search_complete",
-            query=query[:50],
-            vector_count=len(vector_results),
-            bm25_count=len(bm25_results),
-            fused_count=len(fused),
-            returned=len(results),
-        )
+            log.debug(
+                "hybrid_search_complete",
+                query=query[:50],
+                vector_count=len(vector_results),
+                bm25_count=len(bm25_results),
+                fused_count=len(fused),
+                returned=len(results),
+            )
 
-        return results
+            return results
+        finally:
+            elapsed = time.monotonic() - start
+            MetricsCollector.search_latency_seconds.labels(mode="hybrid").observe(elapsed)
 
     async def _parallel_retrieve(
         self,

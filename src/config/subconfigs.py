@@ -324,6 +324,32 @@ class PerformanceSettings(BaseModel):
     p99_threshold_ms: int = 200
 
 
+class SearchPerformanceSettings(BaseModel):
+    """Search performance monitoring thresholds per mode."""
+
+    hybrid_p99_threshold_ms: int = 300
+    local_p99_threshold_ms: int = 200
+    global_p99_threshold_ms: int = 500
+    drift_p99_threshold_ms: int = 1000
+
+    def get_threshold_ms(self, mode: str) -> int:
+        """Get P99 threshold in milliseconds for a search mode.
+
+        Args:
+            mode: Search mode (hybrid, local, global, drift).
+
+        Returns:
+            P99 threshold in milliseconds. Defaults to hybrid threshold
+            for unknown modes.
+        """
+        return {
+            "hybrid": self.hybrid_p99_threshold_ms,
+            "local": self.local_p99_threshold_ms,
+            "global": self.global_p99_threshold_ms,
+            "drift": self.drift_p99_threshold_ms,
+        }.get(mode, self.hybrid_p99_threshold_ms)
+
+
 class DedupSettings(BaseModel):
     """Deduplication settings."""
 

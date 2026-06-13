@@ -8,6 +8,7 @@ broad, exploratory queries that span multiple communities.
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -15,6 +16,7 @@ from core.constants import SearchMode
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
 from core.observability import get_logger
+from core.observability.metrics import MetricsCollector
 from modules.knowledge.search.engines.local_search import SearchResult
 
 if TYPE_CHECKING:
@@ -127,6 +129,7 @@ class GlobalSearchEngine:
         """
         max_tokens = max_tokens or self._default_max_tokens
 
+        start = time.monotonic()
         try:
             # Get community contexts with full reports
             communities = await self._get_community_contexts(
@@ -371,6 +374,9 @@ class GlobalSearchEngine:
                 confidence=0.0,
                 metadata={"error": str(exc)},
             )
+        finally:
+            elapsed = time.monotonic() - start
+            MetricsCollector.search_latency_seconds.labels(mode="global").observe(elapsed)
 
     async def _get_community_contexts(
         self,

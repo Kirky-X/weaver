@@ -307,6 +307,14 @@ class MetricsCollector:
         "Total times pipeline throughput dropped below threshold",
     )
 
+    # Search latency metrics
+    search_latency_seconds = Histogram(
+        "search_latency_seconds",
+        "Search request latency in seconds",
+        ["mode"],  # local, global, hybrid, drift
+        buckets=[0.01, 0.05, 0.1, 0.2, 0.3, 0.5, 1, 2, 5, 10],
+    )
+
 
 # Global metrics instance for use across modules
 metrics = MetricsCollector()
