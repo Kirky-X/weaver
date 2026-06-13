@@ -185,26 +185,31 @@ class SourceConfigRepo:
     async def update_crawl_state(
         self,
         source_id: str,
-        last_crawl_time: datetime,
+        last_crawl_time: datetime | None = None,
         etag: str | None = None,
         last_modified: str | None = None,
+        enabled: bool | None = None,
     ) -> None:
-        """Update crawl state after successful fetch.
+        """Update crawl state after successful fetch or auto-disable.
 
         Args:
             source_id: The source ID.
             last_crawl_time: Timestamp of last successful crawl.
             etag: HTTP ETag if available.
             last_modified: HTTP Last-Modified if available.
+            enabled: Set enabled state (used by auto-disable on consecutive failures).
         """
         values = {
-            "last_crawl_time": last_crawl_time,
             "updated_at": datetime.now(UTC),
         }
+        if last_crawl_time is not None:
+            values["last_crawl_time"] = last_crawl_time
         if etag is not None:
             values["etag"] = etag
         if last_modified is not None:
             values["last_modified"] = last_modified
+        if enabled is not None:
+            values["enabled"] = enabled
 
         async with self._pool.session() as session:
             await session.execute(

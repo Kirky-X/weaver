@@ -19,6 +19,9 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
+# After this many consecutive failures, auto-disable the source
+DEFAULT_MAX_CONSECUTIVE_FAILURES = 5
+
 
 class SourceScheduler:
     """Schedules periodic source parsing using APScheduler.
@@ -27,6 +30,7 @@ class SourceScheduler:
         registry: Source registry with source configurations.
         on_items_discovered: Callback invoked with newly discovered items.
         repo: Optional repo for persisting crawl state (last_crawl_time etc).
+        max_consecutive_failures: Threshold for auto-disabling a source.
     """
 
     def __init__(
@@ -36,10 +40,13 @@ class SourceScheduler:
             [list[NewsItem], SourceConfig, uuid.UUID | None, bool], Coroutine[Any, Any, None]
         ],
         repo: SourceConfigRepo | None = None,
+        max_consecutive_failures: int = DEFAULT_MAX_CONSECUTIVE_FAILURES,
     ) -> None:
         self._registry = registry
         self._on_items = on_items_discovered
         self._repo = repo
+        self._max_consecutive_failures = max_consecutive_failures
+        self._consecutive_failures: dict[str, int] = {}
         self._scheduler = AsyncIOScheduler()
 
     def start(self) -> None:
@@ -118,6 +125,8 @@ class SourceScheduler:
                             error=str(repo_exc),
                         )
                 await self._on_items(items, source, max_items, task_id, force)
+                # Reset consecutive failure counter on success
+                self._consecutive_failures.pop(source_id, None)
                 log.info(
                     "source_crawled",
                     source_id=source_id,
@@ -125,17 +134,70 @@ class SourceScheduler:
                     max_items=max_items,
                 )
             else:
+                # No new items is not a failure — reset counter
+                self._consecutive_failures.pop(source_id, None)
                 log.debug("source_no_new_items", source_id=source_id)
         except Exception as exc:
             import traceback
+
+            # Track consecutive failures
+            self._consecutive_failures[source_id] = self._consecutive_failures.get(source_id, 0) + 1
+            failure_count = self._consecutive_failures[source_id]
 
             log.error(
                 "source_crawl_failed",
                 source_id=source_id,
                 error=str(exc),
                 error_type=type(exc).__name__,
+                consecutive_failures=failure_count,
                 traceback=traceback.format_exc(),
             )
+
+            # Auto-disable source when threshold exceeded
+            if failure_count >= self._max_consecutive_failures:
+                await self._auto_disable_source(source, failure_count)
+
+    async def _auto_disable_source(self, source: SourceConfig, failure_count: int) -> None:
+        """Auto-disable a source after exceeding consecutive failure threshold.
+
+        Sets source.enabled = False, removes its scheduled job, and persists
+        the disabled state to the database.
+
+        Args:
+            source: Source configuration to disable.
+            failure_count: Current consecutive failure count.
+        """
+        source.enabled = False
+        self._consecutive_failures.pop(source.id, None)
+
+        # Remove scheduled job
+        job_id = f"source_{source.id}"
+        try:
+            self._scheduler.remove_job(job_id)
+        except Exception:
+            pass  # Job may not exist
+
+        # Persist disabled state
+        if self._repo:
+            try:
+                await self._repo.update_crawl_state(
+                    source_id=source.id,
+                    enabled=False,
+                )
+            except Exception as repo_exc:
+                log.warning(
+                    "persist_disabled_state_failed",
+                    source_id=source.id,
+                    error=str(repo_exc),
+                )
+
+        log.warning(
+            "source_auto_disabled",
+            source_id=source.id,
+            source_name=source.name,
+            consecutive_failures=failure_count,
+            threshold=self._max_consecutive_failures,
+        )
 
     async def trigger_now(
         self,
