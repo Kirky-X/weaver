@@ -52,6 +52,25 @@ class HMACSignatureMiddleware(BaseHTTPMiddleware):
         self.secret_key = secret_key.encode("utf-8")
         self.api_key = api_key
 
+    @staticmethod
+    def validate_config(secret_key: str | None, api_key: str | None) -> list[str]:
+        """Validate HMAC configuration completeness.
+
+        Args:
+            secret_key: HMAC secret key.
+            api_key: Optional API key for dual-factor.
+
+        Returns:
+            List of warning messages for misconfiguration.
+
+        """
+        warnings: list[str] = []
+        if not secret_key:
+            warnings.append("HMAC secret_key is not configured")
+        if secret_key and not api_key:
+            warnings.append("HMAC enabled without API key: dual-factor verification is disabled")
+        return warnings
+
     async def dispatch(self, request: Request, call_next) -> Response:
         """Verify HMAC signature for incoming requests.
 

@@ -430,7 +430,9 @@ def create_app(container: Container | None = None) -> FastAPI:
                 "hmac_secret_not_configured",
                 message="HMAC signing key falls back to API key. Set WEAVER_API__HMAC_SECRET for proper key separation.",
             )
-        app.add_middleware(HMACSignatureMiddleware, secret_key=hmac_secret)
+        app.add_middleware(
+            HMACSignatureMiddleware, secret_key=hmac_secret, api_key=settings.api.get_api_key()
+        )
 
     # Register audit logging middleware for admin and write endpoints
     from api.middleware.audit import AuditLogMiddleware
