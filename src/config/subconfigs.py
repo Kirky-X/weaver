@@ -317,6 +317,13 @@ class SearchSettings(BaseModel):
     global_reduce_timeout: float = 15.0
 
 
+class PerformanceSettings(BaseModel):
+    """Performance monitoring thresholds."""
+
+    p95_threshold_ms: int = 100
+    p99_threshold_ms: int = 200
+
+
 class DedupSettings(BaseModel):
     """Deduplication settings."""
 

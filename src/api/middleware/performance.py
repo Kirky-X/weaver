@@ -16,13 +16,26 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
-# Response time thresholds in milliseconds
-P95_THRESHOLD_MS = 500
-P99_THRESHOLD_MS = 1000
-
 
 class PerformanceMonitoringMiddleware(BaseHTTPMiddleware):
-    """Monitor API response times and log slow endpoints."""
+    """Monitor API response times and log slow endpoints.
+
+    Args:
+        app: ASGI application.
+        p95_threshold_ms: P95 latency threshold in milliseconds (default 100).
+        p99_threshold_ms: P99 latency threshold in milliseconds (default 200).
+
+    """
+
+    def __init__(
+        self,
+        app,
+        p95_threshold_ms: int = 100,
+        p99_threshold_ms: int = 200,
+    ) -> None:
+        super().__init__(app)
+        self._p95_threshold_ms = p95_threshold_ms
+        self._p99_threshold_ms = p99_threshold_ms
 
     async def dispatch(self, request: Request, call_next) -> Response:
         """Measure request duration and log slow responses.
@@ -51,21 +64,21 @@ class PerformanceMonitoringMiddleware(BaseHTTPMiddleware):
         )
 
         # Warn on slow responses
-        if duration_ms > P99_THRESHOLD_MS:
+        if duration_ms > self._p99_threshold_ms:
             log.error(
                 "very_slow_response",
                 method=request.method,
                 path=request.url.path,
                 duration_ms=round(duration_ms, 2),
-                threshold_ms=P99_THRESHOLD_MS,
+                threshold_ms=self._p99_threshold_ms,
             )
-        elif duration_ms > P95_THRESHOLD_MS:
+        elif duration_ms > self._p95_threshold_ms:
             log.warning(
                 "slow_response",
                 method=request.method,
                 path=request.url.path,
                 duration_ms=round(duration_ms, 2),
-                threshold_ms=P95_THRESHOLD_MS,
+                threshold_ms=self._p95_threshold_ms,
             )
 
         # Add timing header for client-side monitoring
