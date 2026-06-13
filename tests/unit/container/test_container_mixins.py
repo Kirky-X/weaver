@@ -280,24 +280,33 @@ class TestContainerPoolsInitCacheClient:
 
     @pytest.mark.asyncio
     async def test_init_cache_client_redis_success(self) -> None:
-        """init_cache_client should create RedisClient when Redis is available."""
+        """init_cache_client should create FallbackCachePool with Redis primary."""
+        from core.cache import FallbackCachePool
+
         c = _make_container()
         c._settings = _make_settings()
 
         mock_redis = MagicMock()
         mock_redis.startup = AsyncMock()
 
-        with patch("core.cache.RedisClient", return_value=mock_redis):
-            with patch("core.utils.time_utils.set_redis_client"):
-                result = await c.init_cache_client()
+        mock_cashews = MagicMock()
+        mock_cashews.startup = AsyncMock()
 
-        assert result is mock_redis
-        assert c._cache_client is mock_redis
+        with patch("core.cache.RedisClient", return_value=mock_redis):
+            with patch("core.cache.CashewsClient", return_value=mock_cashews):
+                with patch("core.utils.time_utils.set_redis_client"):
+                    result = await c.init_cache_client()
+
+        assert isinstance(result, FallbackCachePool)
+        assert result.primary_healthy is True
         mock_redis.startup.assert_called_once()
+        mock_cashews.startup.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_init_cache_client_fallback_to_cashews(self) -> None:
-        """init_cache_client should fallback to CashewsClient when Redis fails."""
+        """init_cache_client should mark FallbackCachePool as degraded when Redis fails."""
+        from core.cache import FallbackCachePool
+
         c = _make_container()
         c._settings = _make_settings()
 
@@ -314,8 +323,8 @@ class TestContainerPoolsInitCacheClient:
                 with patch("core.utils.time_utils.set_redis_client", side_effect=Exception):
                     result = await c.init_cache_client()
 
-        assert result is mock_cashews
-        assert c._cache_client is mock_cashews
+        assert isinstance(result, FallbackCachePool)
+        assert result.primary_healthy is False
         mock_cashews.startup.assert_called_once()
 
     @pytest.mark.asyncio

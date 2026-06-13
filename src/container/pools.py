@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from config.settings import Settings
-    from core.cache import CashewsClient, RedisClient
+    from core.cache import CashewsClient, FallbackCachePool, RedisClient
     from core.db import DatabaseStrategy
     from core.protocols import CachePool, GraphPool, RelationalPool
 
@@ -22,7 +22,7 @@ class ContainerPoolsMixin:
     # ── Private attributes (defined in Container.__init__) ─────────
     _settings: Settings | None
     _strategy: DatabaseStrategy | None
-    _cache_client: RedisClient | CashewsClient | None
+    _cache_client: RedisClient | CashewsClient | FallbackCachePool | None
 
     # ── Database Pools ──────────────────────────────────────────
 
@@ -84,34 +84,55 @@ class ContainerPoolsMixin:
         return self._strategy.graph_type
 
     async def init_cache_client(self) -> RedisClient | CashewsClient:
-        """Initialize cache pool with fallback support.
+        """Initialize cache pool with runtime fallback support.
 
-        Tries to connect to real Redis first. Falls back to CashewsClient
-        (in-memory) if Redis is unavailable.
+        Creates a FallbackCachePool that holds both RedisClient (primary)
+        and CashewsClient (fallback). When Redis operations fail at runtime,
+        the pool automatically degrades to CashewsClient. Periodic health
+        probes restore Redis when it recovers.
 
         Returns:
-            RedisClient or CashewsClient instance.
+            RedisClient or CashewsClient instance (wrapped in FallbackCachePool).
 
         """
         if self._cache_client is None:
-            from core.cache import CashewsClient, RedisClient
+            from core.cache import CashewsClient, FallbackCachePool, RedisClient
             from core.observability import get_logger
 
             log = get_logger(__name__)
+
+            # Create both clients
+            primary = RedisClient(self._settings.redis.url)
+            fallback = CashewsClient()
+
+            # Start both clients
+            primary_ok = False
             try:
-                self._cache_client = RedisClient(self._settings.redis.url)
-                await self._cache_client.startup()
+                await primary.startup()
+                primary_ok = True
                 log.info("redis_initialized")
-
-                # 注入 Redis 客户端到 NTP 时间工具 (跨进程缓存)
-                from core.utils.time_utils import set_redis_client
-
-                set_redis_client(self._cache_client)
             except Exception as exc:
                 log.warning("redis_unavailable_fallback_to_cashews", error=str(exc))
-                self._cache_client = CashewsClient()
-                await self._cache_client.startup()
-                log.info("cashews_client_initialized")
+
+            await fallback.startup()
+            log.info("cashews_client_initialized")
+
+            # Wrap in FallbackCachePool for runtime degradation
+            pool = FallbackCachePool(primary=primary, fallback=fallback)
+
+            # If primary failed at startup, mark as degraded
+            if not primary_ok:
+                pool._primary_healthy = False
+                pool._set_fallback_active(1)
+
+            self._cache_client = pool
+
+            # Inject Redis client to NTP time utility (cross-process cache)
+            if primary_ok:
+                from core.utils.time_utils import set_redis_client
+
+                set_redis_client(primary)
+
         return self._cache_client
 
     def cache_client(self) -> CachePool:
