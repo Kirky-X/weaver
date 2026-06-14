@@ -92,17 +92,17 @@ async def lifespan(app: FastAPI) -> None:
     set_container(container)
     set_settings(container.settings)
 
-    # Register audit logging middleware (requires initialized container)
+    # Late-init audit service if middleware was registered without pool
     from api.middleware.audit import AuditLogMiddleware
     from core.security import AuditLogService
 
-    audit_service = AuditLogService(pool=container.relational_pool())
-    app.add_middleware(
-        AuditLogMiddleware,
-        audit_service=audit_service,
-        audited_paths=["/api/v1/admin"],
-        write_only_paths=["/api/v1/pipeline", "/api/v1/content", "/api/v1/graph"],
-    )
+    for middleware in app.user_middleware:
+        if isinstance(middleware.cls, type) and issubclass(middleware.cls, AuditLogMiddleware):
+            if middleware.kwargs.get("audit_service") is None:
+                middleware.kwargs["audit_service"] = AuditLogService(
+                    pool=container.relational_pool()
+                )
+            break
 
     redis_client = container.cache_client()
     log.debug("cache_client_set", client_id=id(redis_client))
@@ -470,6 +470,21 @@ def create_app(container: Container | None = None) -> FastAPI:
                 config=traffic_config,
             )
             app.add_middleware(TrafficAnomalyMiddleware, detector=traffic_detector)
+
+    # Register audit logging middleware (requires initialized container)
+    from api.middleware.audit import AuditLogMiddleware
+    from core.security import AuditLogService
+
+    try:
+        audit_service = AuditLogService(pool=container.relational_pool())
+    except RuntimeError:
+        audit_service = None
+    app.add_middleware(
+        AuditLogMiddleware,
+        audit_service=audit_service,
+        audited_paths=["/api/v1/admin"],
+        write_only_paths=["/api/v1/pipeline", "/api/v1/content", "/api/v1/graph"],
+    )
 
     app.include_router(api_router)
 
