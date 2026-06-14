@@ -193,6 +193,27 @@ class CachePool(Protocol):
         """
         ...
 
+    async def mget(self, keys: list[str]) -> list[str | None]:
+        """Get multiple values by keys.
+
+        Args:
+            keys: List of keys to retrieve.
+
+        Returns:
+            List of values (None for missing keys).
+        """
+        ...
+
+    async def setex(self, key: str, ttl: int, value: str) -> None:
+        """Set a key with expiration.
+
+        Args:
+            key: Key to set.
+            ttl: Time to live in seconds.
+            value: Value to store.
+        """
+        ...
+
     # ── Hash Operations ───────────────────────────────────────────────
 
     async def hget(self, name: str, key: str) -> str | None:
@@ -386,5 +407,17 @@ class CachePool(Protocol):
 
         Returns:
             Tuple of (new_cursor, list of keys).
+        """
+        ...
+
+    async def scan_iter(self, pattern: str, count: int = 100):
+        """Iterate over keys matching pattern using SCAN (non-blocking).
+
+        Args:
+            pattern: Pattern to match (e.g., "session:*").
+            count: Hint for number of keys per iteration.
+
+        Yields:
+            Keys matching the pattern.
         """
         ...

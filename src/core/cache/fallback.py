@@ -203,6 +203,12 @@ class FallbackCachePool:
     async def expire(self, name: str, seconds: int) -> bool:
         return await self._execute("expire", name, seconds)
 
+    async def mget(self, keys: list[str]) -> list[str | None]:
+        return await self._execute("mget", keys)
+
+    async def setex(self, key: str, ttl: int, value: str) -> None:
+        return await self._execute("setex", key, ttl, value)
+
     # ── Hash Operations ────────────────────────────────────────────
 
     async def hget(self, name: str, key: str) -> str | None:
@@ -266,6 +272,24 @@ class FallbackCachePool:
         self, cursor: int = 0, match: str | None = None, count: int = 10
     ) -> tuple[int, list[str]]:
         return await self._execute("scan", cursor, match=match, count=count)
+
+    async def scan_iter(self, pattern: str, count: int = 100):
+        """Iterate over keys matching pattern using SCAN (non-blocking).
+
+        Args:
+            pattern: Pattern to match (e.g., "session:*").
+            count: Hint for number of keys per iteration.
+
+        Yields:
+            Keys matching the pattern.
+        """
+        cursor = 0
+        while True:
+            cursor, keys = await self.scan(cursor, match=pattern, count=count)
+            for key in keys:
+                yield key
+            if cursor == 0:
+                break
 
     # ── Script Operations ──────────────────────────────────────────
 
