@@ -4,13 +4,13 @@
 
 ## 脚本列表
 
-| 脚本                           | 描述                   |
-|------------------------------|----------------------|
-| `pipeline.py`                | 管道测试、待处理文章处理、重新处理    |
-| `db.py`                      | 数据库查询和检查工具           |
-| `tools.py`                   | 性能评估、环境验证、数据库种子、代码检查 |
-| `fix_incomplete_articles.py` | 修复未完成LLM处理的文章        |
-| `build_nuitka.py`            | Nuitka 编译构建          |
+| 脚本                | 描述                                 |
+|-------------------|------------------------------------|
+| `pipeline.py`     | 管道测试、待处理文章处理、重新处理                  |
+| `db.py`           | 数据库查询、检查、数据质量检查、修复工具              |
+| `tools.py`        | 性能评估、环境验证、数据库种子、代码检查              |
+| `build_nuitka.py` | Nuitka 编译构建                        |
+| `_common.py`      | 共享工具（init_script_container 等，非独立运行） |
 
 ---
 
@@ -38,6 +38,12 @@ uv run scripts/pipeline.py process-pending
 
 # 重新处理不完整文章
 uv run scripts/pipeline.py reprocess --incomplete
+
+# 预览不完整文章（不实际处理）
+uv run scripts/pipeline.py reprocess --incomplete --dry-run
+
+# 批量重新处理（自定义批次大小和延迟）
+uv run scripts/pipeline.py reprocess --incomplete --batch-size 5 --delay 30
 
 # 重新处理指定文章
 uv run scripts/pipeline.py reprocess --article-id <uuid>
@@ -67,10 +73,13 @@ uv run scripts/pipeline.py reprocess --article-id <uuid>
 
 重新处理不完整的文章。
 
-| 参数             | 描述            |
-|----------------|---------------|
-| `--incomplete` | 重新处理所有不完整文章   |
-| `--article-id` | 重新处理指定 ID 的文章 |
+| 参数             | 默认值  | 描述                      |
+|----------------|------|-------------------------|
+| `--incomplete` | -    | 重新处理所有不完整文章             |
+| `--article-id` | -    | 重新处理指定 ID 的文章           |
+| `--dry-run`    | -    | 预览不完整文章列表，不实际处理         |
+| `--batch-size` | 10   | 每批处理的文章数量               |
+| `--delay`      | 60   | 批次间隔秒数（避免429限流）         |
 
 ---
 
@@ -97,6 +106,14 @@ uv run scripts/db.py random --limit 3
 # 分页查询表数据
 uv run scripts/db.py rows articles --limit 20 --page 1
 uv run scripts/db.py rows Article --db neo4j --columns name,type
+
+# LadybugDB 数据质量检查
+uv run scripts/db.py dq-check
+uv run scripts/db.py dq-check --db-path data/weaver.lbug
+
+# 修复损坏的 model_id
+uv run scripts/db.py fix-model-id --dry-run
+uv run scripts/db.py fix-model-id --execute
 ```
 
 ### 子命令
@@ -140,6 +157,28 @@ uv run scripts/db.py rows Article --db neo4j --columns name,type
 | `--page`     | 1        | 页码                           |
 | `--order-by` | -        | 排序: column:asc 或 column:desc |
 | `--format`   | table    | 输出格式: table/json             |
+
+#### null-fields
+
+检查数据库表中的 NULL/空字段。
+
+#### dq-check
+
+LadybugDB 数据质量检查。
+
+| 参数          | 默认值                | 描述                    |
+|-------------|--------------------|-----------------------|
+| `--db-path` | data/weaver.lbug   | LadybugDB 数据库路径       |
+
+#### fix-model-id
+
+修复 article_vectors 中损坏的 model_id 值。
+
+| 参数          | 默认值                  | 描述             |
+|-------------|----------------------|----------------|
+| `--db-path` | data/weaver.duckdb   | DuckDB 数据库路径   |
+| `--dry-run` | -                    | 预览变更，不实际执行     |
+| `--execute` | -                    | 执行修复           |
 
 ---
 
@@ -251,70 +290,3 @@ uv run scripts/build_nuitka.py
 ### 输出
 
 编译产物位于 `dist/` 目录。
-
----
-
-## fix_incomplete_articles.py
-
-修复数据库中未完成LLM处理的文章（缺少 summary、score 或 primary_emotion）。
-
-### 用法
-
-```bash
-# 预览模式 - 显示需要修复的文章列表和统计信息
-uv run scripts/fix_incomplete_articles.py --dry-run
-
-# 执行修复 - 重新提交文章到pipeline进行处理
-uv run scripts/fix_incomplete_articles.py --fix
-
-# 自定义批次大小和延迟
-uv run scripts/fix_incomplete_articles.py --fix --batch-size 5 --delay 30
-
-# 使用 DuckDB 数据库
-uv run scripts/fix_incomplete_articles.py --dry-run --db duckdb
-```
-
-### 命令行参数
-
-| 参数             | 说明                     | 默认值      |
-|----------------|------------------------|----------|
-| `--dry-run`    | 预览模式，显示统计信息但不执行修复      | -        |
-| `--fix`        | 执行模式，重新处理不完整文章         | -        |
-| `--batch-size` | 每批处理的文章数量              | 10       |
-| `--delay`      | 批次间隔秒数（避免429限流）        | 60       |
-| `--db`         | 数据库类型（postgres/duckdb） | postgres |
-
-### 功能特性
-
-- **批量处理**：文章分批次处理，避免内存溢出和API限流
-- **断点续传**：自动跳过已成功处理的文章
-- **进度跟踪**：实时显示处理进度和统计信息
-- **错误处理**：遇到错误时记录日志并继续处理下一批
-- **日志记录**：使用项目现有的loguru日志系统
-- **速率控制**：批次间可配置延迟，避免429错误
-
-### 输出示例
-
-```
-================================================================================
-统计信息
-================================================================================
-不完整文章总数：213
-
-按持久化状态分布：
-  failed: 120
-  neo4j_done: 15
-  pending: 78
-
-================================================================================
-批次 1/22: 处理 10 篇文章
-================================================================================
-
-实际处理 10 篇文章...
-
-批次结果：
-  ✓ 成功：8
-  ✗ 失败：2
-
-等待 60 秒后处理下一批...
-```

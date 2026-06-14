@@ -746,19 +746,32 @@ async def _wait_for_llm_processing(
     return articles.get("total", 0), -1
 
 
-async def run_newsnow_test(
+async def _run_pipeline_test(
     client: PipelineAPIClient,
-    source_id: str,
+    source_config: dict[str, Any],
     max_items: int,
     timeout: int,
+    test_name: str,
+    phase_offset: int = 1,
 ) -> TestResult:
-    """Run NewsNow mode test with full LLM pipeline wait."""
-    phase_header("PHASE 1: Source Creation")
-    source_config = build_newsnow_source_config(source_id)
+    """Shared pipeline test runner for newsnow/rss/strategy modes.
+
+    Args:
+        client: API client.
+        source_config: Source configuration dict.
+        max_items: Max items to process.
+        timeout: Pipeline timeout.
+        test_name: Name for the test result message.
+        phase_offset: Phase number offset (strategy mode starts at phase 2).
+
+    Returns:
+        TestResult with pipeline execution outcome.
+    """
+    phase_header(f"PHASE {phase_offset}: Source Creation")
     source = await client.create_source(source_config)
     step(f"Created source: {source['id']}", True)
 
-    phase_header("PHASE 2: Pipeline Execution (crawl + queue)")
+    phase_header(f"PHASE {phase_offset + 1}: Pipeline Execution (crawl + queue)")
     task_id = await client.trigger_pipeline(source["id"], max_items)
     step(f"Pipeline triggered", True, f"task_id: {task_id[:8]}...")
 
@@ -772,7 +785,7 @@ async def run_newsnow_test(
     if status.error:
         step(f"Task error", False, status.error)
 
-    phase_header("PHASE 3: Waiting for LLM Processing (Phase 1→2→3)")
+    phase_header(f"PHASE {phase_offset + 2}: Waiting for LLM Processing (Phase 1→2→3)")
     total, incomplete = await _wait_for_llm_processing(client, timeout)
     llm_ok = incomplete == 0
     step(
@@ -781,17 +794,28 @@ async def run_newsnow_test(
         f"{total} articles fully processed" if llm_ok else f"timeout after {timeout}s",
     )
 
-    phase_header("PHASE 4: Final Verification")
+    phase_header(f"PHASE {phase_offset + 3}: Final Verification")
     articles = await client.list_articles(page=1, page_size=1)
     total = articles.get("total", 0)
     step(f"Articles stored", total > 0, f"{total} articles")
 
     return TestResult(
         success=llm_ok and total > 0,
-        message=f"NewsNow test: crawl={status.status}, llm={'complete' if llm_ok else 'timeout'}",
+        message=f"{test_name}: crawl={status.status}, llm={'complete' if llm_ok else 'timeout'}",
         articles_count=total,
         details={"task_id": task_id, "source_id": source["id"]},
     )
+
+
+async def run_newsnow_test(
+    client: PipelineAPIClient,
+    source_id: str,
+    max_items: int,
+    timeout: int,
+) -> TestResult:
+    """Run NewsNow mode test with full LLM pipeline wait."""
+    source_config = build_newsnow_source_config(source_id)
+    return await _run_pipeline_test(client, source_config, max_items, timeout, "NewsNow test")
 
 
 async def run_rss_test(
@@ -800,45 +824,9 @@ async def run_rss_test(
     max_items: int,
     timeout: int,
 ) -> TestResult:
-    phase_header("PHASE 1: Source Creation")
+    """Run RSS mode test with full LLM pipeline wait."""
     source_config = build_rss_source_config(source)
-    created = await client.create_source(source_config)
-    step(f"Created source: {created['id']}", True)
-
-    phase_header("PHASE 2: Pipeline Execution (crawl + queue)")
-    task_id = await client.trigger_pipeline(created["id"], max_items)
-    step(f"Pipeline triggered", True, f"task_id: {task_id[:8]}...")
-
-    status = await client.wait_for_task(task_id, timeout=timeout)
-    step(
-        f"Crawl task completed",
-        status.status == "completed",
-        f"status: {status.status}, processed: {status.total_processed}",
-    )
-
-    if status.error:
-        step(f"Task error", False, status.error)
-
-    phase_header("PHASE 3: Waiting for LLM Processing (Phase 1→2→3)")
-    total, incomplete = await _wait_for_llm_processing(client, timeout)
-    llm_ok = incomplete == 0
-    step(
-        "LLM pipeline complete",
-        llm_ok,
-        f"{total} articles fully processed" if llm_ok else f"timeout after {timeout}s",
-    )
-
-    phase_header("PHASE 4: Final Verification")
-    articles = await client.list_articles(page=1, page_size=1)
-    total = articles.get("total", 0)
-    step(f"Articles stored", total > 0, f"{total} articles")
-
-    return TestResult(
-        success=llm_ok and total > 0,
-        message=f"RSS test: crawl={status.status}, llm={'complete' if llm_ok else 'timeout'}",
-        articles_count=total,
-        details={"task_id": task_id, "source_id": created["id"]},
-    )
+    return await _run_pipeline_test(client, source_config, max_items, timeout, "RSS test")
 
 
 async def run_strategy_test(
@@ -848,6 +836,7 @@ async def run_strategy_test(
     timeout: int,
     server_ctx: ServerContext,
 ) -> TestResult:
+    """Run strategy mode test with fallback databases."""
     phase_header("PHASE 1: Strategy Verification")
     step(
         f"Relational database",
@@ -870,50 +859,14 @@ async def run_strategy_test(
             },
         )
 
-    phase_header("PHASE 2: Source Creation")
     source_config = build_newsnow_source_config(source_id)
-    source = await client.create_source(source_config)
-    step(f"Created source: {source['id']}", True)
-
-    phase_header("PHASE 3: Pipeline Execution (crawl + queue)")
-    task_id = await client.trigger_pipeline(source["id"], max_items)
-    step(f"Pipeline triggered", True, f"task_id: {task_id[:8]}...")
-
-    status = await client.wait_for_task(task_id, timeout=timeout)
-    step(
-        f"Crawl task completed",
-        status.status == "completed",
-        f"status: {status.status}, processed: {status.total_processed}",
+    result = await _run_pipeline_test(
+        client, source_config, max_items, timeout, "Strategy test", phase_offset=2
     )
-
-    if status.error:
-        step(f"Task error", False, status.error)
-
-    phase_header("PHASE 4: Waiting for LLM Processing (Phase 1→2→3)")
-    total, incomplete = await _wait_for_llm_processing(client, timeout)
-    llm_ok = incomplete == 0
-    step(
-        "LLM pipeline complete",
-        llm_ok,
-        f"{total} articles fully processed" if llm_ok else f"timeout after {timeout}s",
-    )
-
-    phase_header("PHASE 5: Final Verification")
-    articles = await client.list_articles(page=1, page_size=1)
-    total = articles.get("total", 0)
-    step(f"Articles stored", total > 0, f"{total} articles")
-
-    return TestResult(
-        success=llm_ok and total > 0,
-        message=f"Strategy test: crawl={status.status}, llm={'complete' if llm_ok else 'timeout'}",
-        articles_count=total,
-        details={
-            "relational_type": server_ctx.relational_type,
-            "graph_type": server_ctx.graph_type,
-            "task_id": task_id,
-            "source_id": source["id"],
-        },
-    )
+    # Enrich details with strategy info
+    result.details["relational_type"] = server_ctx.relational_type
+    result.details["graph_type"] = server_ctx.graph_type
+    return result
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1130,11 +1083,20 @@ async def cmd_process_pending(args: argparse.Namespace) -> int:
 
 
 async def cmd_reprocess(args: argparse.Namespace) -> int:
-    """Reprocess articles with incomplete LLM fields."""
+    """Reprocess articles with incomplete LLM fields.
+
+    Supports two modes:
+    - --dry-run: Preview incomplete articles without processing.
+    - Default: Reprocess incomplete articles through the pipeline.
+    """
     from sqlalchemy import case, func, select
 
     from modules.ingestion.domain.models import RawArticle
     from scripts._common import init_script_container
+
+    # Dry-run mode: just query and display, no container needed
+    if args.dry_run:
+        return await _cmd_reprocess_dry_run(args)
 
     ctx = await init_script_container(debug_logging=True)
 
@@ -1147,11 +1109,9 @@ async def cmd_reprocess(args: argparse.Namespace) -> int:
             from core.db.models import Article
 
             if args.article_id:
-                # Reprocess specific article
                 result = await session.execute(select(Article).where(Article.id == args.article_id))
                 articles_db = result.scalars().all()
             elif args.incomplete:
-                # Reprocess all incomplete articles
                 result = await session.execute(
                     select(Article)
                     .where(Article.credibility_score.is_(None) | Article.quality_score.is_(None))
@@ -1159,12 +1119,12 @@ async def cmd_reprocess(args: argparse.Namespace) -> int:
                 )
                 articles_db = result.scalars().all()
             else:
-                print("Error: Specify --incomplete or --article-id")
+                print("Error: Specify --incomplete, --article-id, or --dry-run")
                 return 1
 
         if not articles_db:
             print("No incomplete articles found")
-            return 1
+            return 0
 
         print(f"Found {len(articles_db)} incomplete articles")
 
@@ -1190,23 +1150,39 @@ async def cmd_reprocess(args: argparse.Namespace) -> int:
 
         if not articles:
             print("No articles to process (all have empty body)")
-            return 1
+            return 0
 
-        print(f"\nProcessing {len(articles)} articles through pipeline...")
+        # Process in batches
+        batch_size = args.batch_size
+        delay = args.delay
+        total_success = 0
+        total_failed = 0
+        batches = [articles[i : i + batch_size] for i in range(0, len(articles), batch_size)]
+        id_batches = [
+            article_ids[i : i + batch_size] for i in range(0, len(article_ids), batch_size)
+        ]
 
-        # Process through pipeline
-        task_id = uuid.uuid4()
-        states = await ctx.pipeline.process_batch(
-            articles, article_ids=article_ids, task_id=task_id
-        )
+        for batch_num, (batch, id_batch) in enumerate(zip(batches, id_batches, strict=True), 1):
+            print(f"\nBatch {batch_num}/{len(batches)}: processing {len(batch)} articles...")
+
+            task_id = uuid.uuid4()
+            states = await ctx.pipeline.process_batch(batch, article_ids=id_batch, task_id=task_id)
+
+            completed = sum(1 for s in states if not s.get("terminal"))
+            failed = sum(1 for s in states if s.get("terminal"))
+            total_success += completed
+            total_failed += failed
+
+            print(f"  Batch result: {completed} completed, {failed} failed")
+
+            if batch_num < len(batches) and delay > 0:
+                print(f"  Waiting {delay}s before next batch...")
+                await asyncio.sleep(delay)
 
         # Report results
-        completed = sum(1 for s in states if not s.get("terminal"))
-        failed = sum(1 for s in states if s.get("terminal"))
+        print(f"\nResults: {total_success} completed, {total_failed} failed")
 
-        print(f"\nResults: {completed} completed, {failed} failed")
-
-        if failed > 0:
+        if total_failed > 0:
             return 1
 
         # Verify final state
@@ -1237,6 +1213,87 @@ async def cmd_reprocess(args: argparse.Namespace) -> int:
 
     finally:
         await ctx.container.shutdown()
+
+
+async def _cmd_reprocess_dry_run(args: argparse.Namespace) -> int:
+    """Dry-run mode: preview incomplete articles without processing."""
+    from sqlalchemy import select
+
+    from config.settings import Settings
+    from container import Container
+
+    settings = Settings()
+    container = Container().configure(settings)
+    await container.startup()
+
+    try:
+        relational_pool = container.relational_pool()
+
+        async with relational_pool.session() as session:
+            from core.db.models import Article
+
+            if args.article_id:
+                result = await session.execute(select(Article).where(Article.id == args.article_id))
+                articles_db = result.scalars().all()
+            elif args.incomplete:
+                result = await session.execute(
+                    select(Article)
+                    .where(Article.credibility_score.is_(None) | Article.quality_score.is_(None))
+                    .order_by(Article.created_at.desc())
+                )
+                articles_db = result.scalars().all()
+            else:
+                # Default: find all incomplete
+                result = await session.execute(
+                    select(Article)
+                    .where(Article.credibility_score.is_(None) | Article.quality_score.is_(None))
+                    .order_by(Article.created_at.desc())
+                )
+                articles_db = result.scalars().all()
+
+        if not articles_db:
+            print("\n✓ No incomplete articles found")
+            return 0
+
+        print(f"\n{'=' * 80}")
+        print(f"  Incomplete Articles Preview (dry-run)")
+        print(f"{'=' * 80}")
+        print(f"Total: {len(articles_db)} articles\n")
+
+        # Count by persist_status
+        status_counts: dict[str, int] = {}
+        for article in articles_db:
+            status = article.persist_status.value if article.persist_status else "unknown"
+            status_counts[status] = status_counts.get(status, 0) + 1
+
+        if status_counts:
+            print("By persist_status:")
+            for status, count in sorted(status_counts.items()):
+                print(f"  {status}: {count}")
+            print()
+
+        print(f"{'ID':<38} {'Status':<15} {'Title'}")
+        print("-" * 80)
+        for article in articles_db:
+            title = (article.title or "N/A")[:50]
+            status = article.persist_status.value if article.persist_status else "unknown"
+            print(f"{article.id!s:<38} {status:<15} {title}")
+
+        print(f"\n{'=' * 80}")
+        print(f"To fix, run:")
+        print(f"  uv run scripts/pipeline.py reprocess --incomplete")
+        print(f"  uv run scripts/pipeline.py reprocess --incomplete --batch-size 5 --delay 30")
+        print(f"{'=' * 80}")
+
+        return 0
+
+    except Exception as exc:
+        print(f"\n✗ Query failed: {exc}")
+        __import__("traceback").print_exc()
+        return 1
+
+    finally:
+        await container.shutdown()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -1347,6 +1404,23 @@ Examples:
         "--article-id",
         type=str,
         help="Reprocess specific article by ID",
+    )
+    reprocess_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview incomplete articles without processing",
+    )
+    reprocess_parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=10,
+        help="Articles per batch (default: 10)",
+    )
+    reprocess_parser.add_argument(
+        "--delay",
+        type=int,
+        default=60,
+        help="Delay between batches in seconds (default: 60)",
     )
 
     args = parser.parse_args()

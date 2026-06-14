@@ -26,6 +26,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 from rich.console import Console
 from rich.table import Table
@@ -139,30 +140,7 @@ async def _stats_postgres(settings) -> None:
             except Exception as exc:
                 results.append({"table": table_name, "count": None, "error": str(exc)})
 
-        results.sort(key=lambda x: (x["has_data"], x["table"]))
-
-        print(f"{'表名':<40} {'记录数':>15} {'状态':<10}")
-        print("-" * 80)
-
-        empty_tables, non_empty_tables = [], []
-        for result in results:
-            table_name, count = result["table"], result["count"]
-            if count is not None:
-                status = "  空表" if count == 0 else "✓ 有数据"
-                (empty_tables if count == 0 else non_empty_tables).append(table_name)
-                print(f"{table_name:<40} {count:>15,} {status:<10}")
-            else:
-                print(f"{table_name:<40} {'ERROR':>15} ✗ {result.get('error', '')}")
-
-        print("\n" + "=" * 80)
-        print(f"统计摘要:")
-        print(f"  总表数：{len(results)}")
-        print(f"  有数据的表：{len(non_empty_tables)}")
-        print(f"  空表数量：{len(empty_tables)}")
-        if empty_tables:
-            print(f"\n空表列表 ({len(empty_tables)} 个):")
-            for t in empty_tables:
-                print(f"  - {t}")
+        _print_relational_stats_summary(results, "PostgreSQL")
 
         await conn.close()
     except Exception as exc:
@@ -202,8 +180,6 @@ async def _stats_duckdb(settings) -> None:
         ]
 
         print(f"\n检查 {len(tables_to_check)} 个表:\n")
-        print(f"{'表名':<40} {'记录数':>15} {'状态':<10}")
-        print("-" * 80)
 
         results = []
         async with pool.session_context() as session:
@@ -219,27 +195,7 @@ async def _stats_duckdb(settings) -> None:
                         {"table": table_name, "count": None, "has_data": False, "error": str(exc)}
                     )
 
-        results.sort(key=lambda x: (x.get("has_data", False), x["table"]))
-
-        empty_tables, non_empty_tables = [], []
-        for result in results:
-            table_name, count = result["table"], result["count"]
-            if count is not None:
-                status = "  空表" if count == 0 else "✓ 有数据"
-                (empty_tables if count == 0 else non_empty_tables).append(table_name)
-                print(f"{table_name:<40} {count:>15,} {status:<10}")
-            else:
-                print(f"{table_name:<40} {'ERROR':>15} ✗ {result.get('error', '')}")
-
-        print("\n" + "=" * 80)
-        print(f"统计摘要:")
-        print(f"  总表数：{len(results)}")
-        print(f"  有数据的表：{len(non_empty_tables)}")
-        print(f"  空表数量：{len(empty_tables)}")
-        if empty_tables:
-            print(f"\n空表列表 ({len(empty_tables)} 个):")
-            for t in empty_tables:
-                print(f"  - {t}")
+        _print_relational_stats_summary(results, "DuckDB")
 
         await pool.shutdown()
     except Exception as exc:
@@ -265,19 +221,16 @@ async def _stats_neo4j(settings) -> None:
         with driver.session() as session:
             labels = [r["label"] for r in session.run("CALL db.labels() YIELD label RETURN label")]
             print(f"\n找到 {len(labels)} 种节点标签:\n")
-            print(f"{'标签':<30} {'节点数':>15} {'状态':<10}")
-            print("-" * 80)
 
-            empty_labels, non_empty_labels = [], []
+            label_items = []
             for label in sorted(labels):
                 try:
                     cnt = session.run(f"MATCH (n:{label}) RETURN count(n) AS cnt").single()["cnt"]
-                    status = "  空" if cnt == 0 else "✓ 有数据"
-                    (empty_labels if cnt == 0 else non_empty_labels).append(label)
-                    print(f"{label:<30} {cnt:>15,} {status:<10}")
+                    label_items.append((label, cnt, None))
                 except Exception as exc:
-                    print(f"{label:<30} {'ERROR':>15} ✗ {exc}")
-                    empty_labels.append(label)
+                    label_items.append((label, None, str(exc)))
+
+            empty_labels, non_empty_labels = _print_graph_items_summary(label_items, "标签")
 
             rel_types = [
                 r["relationshipType"]
@@ -286,30 +239,22 @@ async def _stats_neo4j(settings) -> None:
                 )
             ]
             print(f"\n\n找到 {len(rel_types)} 种关系类型:\n")
-            print(f"{'关系类型':<30} {'数量':>15} {'状态':<10}")
-            print("-" * 80)
 
-            empty_rels, non_empty_rels = [], []
+            rel_items = []
             for rel_type in sorted(rel_types):
                 try:
                     cnt = session.run(
                         f"MATCH ()-[r:{rel_type}]->() RETURN count(r) AS cnt"
                     ).single()["cnt"]
-                    status = "  空" if cnt == 0 else "✓ 有数据"
-                    (empty_rels if cnt == 0 else non_empty_rels).append(rel_type)
-                    print(f"{rel_type:<30} {cnt:>15,} {status:<10}")
+                    rel_items.append((rel_type, cnt, None))
                 except Exception as exc:
-                    print(f"{rel_type:<30} {'ERROR':>15} ✗ {exc}")
-                    empty_rels.append(rel_type)
+                    rel_items.append((rel_type, None, str(exc)))
 
-            print("\n" + "=" * 80)
-            print(f"Neo4j 统计摘要:")
-            print(f"  节点标签总数：{len(labels)}")
-            print(f"  有数据的标签：{len(non_empty_labels)}")
-            print(f"  空标签数量：{len(empty_labels)}")
-            print(f"  关系类型总数：{len(rel_types)}")
-            print(f"  有数据的关系：{len(non_empty_rels)}")
-            print(f"  空关系数量：{len(empty_rels)}")
+            empty_rels, non_empty_rels = _print_graph_items_summary(rel_items, "关系类型")
+
+            _print_graph_stats_summary(
+                "Neo4j", empty_labels, non_empty_labels, empty_rels, non_empty_rels
+            )
 
         driver.close()
     except Exception as exc:
@@ -365,47 +310,36 @@ async def _stats_ladybug(settings) -> None:
                     node_labels.append(name)
 
         print(f"\n找到 {len(node_labels)} 种节点标签:\n")
-        print(f"{'标签':<30} {'节点数':>15} {'状态':<10}")
-        print("-" * 80)
 
-        empty_labels, non_empty_labels = [], []
+        label_items = []
         for label in sorted(node_labels):
             try:
                 result = await pool.execute_query(f"MATCH (n:{label}) RETURN COUNT(n) AS cnt")
                 cnt = result[0]["cnt"] if result else 0
-                status = "  空" if cnt == 0 else "✓ 有数据"
-                (empty_labels if cnt == 0 else non_empty_labels).append(label)
-                print(f"{label:<30} {cnt:>15,} {status:<10}")
+                label_items.append((label, cnt, None))
             except Exception as exc:
-                print(f"{label:<30} {'ERROR':>15} ✗ {exc}")
-                empty_labels.append(label)
+                label_items.append((label, None, str(exc)))
+
+        empty_labels, non_empty_labels = _print_graph_items_summary(label_items, "标签")
 
         print(f"\n\n找到 {len(rel_types)} 种关系类型:\n")
-        print(f"{'关系类型':<30} {'数量':>15} {'状态':<10}")
-        print("-" * 80)
 
-        empty_rels, non_empty_rels = [], []
+        rel_items = []
         for rel_type in sorted(rel_types):
             try:
                 result = await pool.execute_query(
                     f"MATCH ()-[r:{rel_type}]->() RETURN COUNT(r) AS cnt"
                 )
                 cnt = result[0]["cnt"] if result else 0
-                status = "  空" if cnt == 0 else "✓ 有数据"
-                (empty_rels if cnt == 0 else non_empty_rels).append(rel_type)
-                print(f"{rel_type:<30} {cnt:>15,} {status:<10}")
+                rel_items.append((rel_type, cnt, None))
             except Exception as exc:
-                print(f"{rel_type:<30} {'ERROR':>15} ✗ {exc}")
-                empty_rels.append(rel_type)
+                rel_items.append((rel_type, None, str(exc)))
 
-        print("\n" + "=" * 80)
-        print(f"LadybugDB 统计摘要:")
-        print(f"  节点标签总数：{len(node_labels)}")
-        print(f"  有数据的标签：{len(non_empty_labels)}")
-        print(f"  空标签数量：{len(empty_labels)}")
-        print(f"  关系类型总数：{len(rel_types)}")
-        print(f"  有数据的关系：{len(non_empty_rels)}")
-        print(f"  空关系数量：{len(empty_rels)}")
+        empty_rels, non_empty_rels = _print_graph_items_summary(rel_items, "关系类型")
+
+        _print_graph_stats_summary(
+            "LadybugDB", empty_labels, non_empty_labels, empty_rels, non_empty_rels
+        )
 
         await pool.shutdown()
     except Exception as exc:
@@ -907,6 +841,128 @@ def _truncate_value(value: str, max_len: int = 50) -> str:
     if len(s) > max_len:
         return s[: max_len - 3] + "..."
     return s
+
+
+def _print_relational_stats_summary(results: list[dict], db_name: str) -> None:
+    """打印关系型数据库统计摘要。
+
+    Args:
+        results: 查询结果列表，每项包含 table, count, has_data, 可选 error
+        db_name: 数据库名称
+    """
+    results.sort(key=lambda x: (x.get("has_data", False), x["table"]))
+
+    print(f"{'表名':<40} {'记录数':>15} {'状态':<10}")
+    print("-" * 80)
+
+    empty_tables, non_empty_tables = [], []
+    for result in results:
+        table_name, count = result["table"], result["count"]
+        if count is not None:
+            status = "  空表" if count == 0 else "✓ 有数据"
+            (empty_tables if count == 0 else non_empty_tables).append(table_name)
+            print(f"{table_name:<40} {count:>15,} {status:<10}")
+        else:
+            print(f"{table_name:<40} {'ERROR':>15} ✗ {result.get('error', '')}")
+
+    print("\n" + "=" * 80)
+    print(f"统计摘要:")
+    print(f"  总表数：{len(results)}")
+    print(f"  有数据的表：{len(non_empty_tables)}")
+    print(f"  空表数量：{len(empty_tables)}")
+    if empty_tables:
+        print(f"\n空表列表 ({len(empty_tables)} 个):")
+        for t in empty_tables:
+            print(f"  - {t}")
+
+
+def _print_graph_items_summary(
+    items: list[tuple[Any, int | None, str | None]],
+    item_type: str,
+) -> tuple[list[str], list[str]]:
+    """打印图数据库节点/关系统计表。
+
+    Args:
+        items: 已排序的 (名称, 计数, 错误信息) 列表，计数为 None 表示查询出错
+        item_type: "标签" 或 "关系类型"
+
+    Returns:
+        (empty_list, non_empty_list) 元组
+    """
+    col_name = "标签" if item_type == "标签" else "关系类型"
+    count_name = "节点数" if item_type == "标签" else "数量"
+
+    print(f"{col_name:<30} {count_name:>15} {'状态':<10}")
+    print("-" * 80)
+
+    empty_items, non_empty_items = [], []
+    for name, cnt, err in items:
+        if cnt is not None:
+            status = "  空" if cnt == 0 else "✓ 有数据"
+            (empty_items if cnt == 0 else non_empty_items).append(name)
+            print(f"{name:<30} {cnt:>15,} {status:<10}")
+        else:
+            print(f"{name:<30} {'ERROR':>15} ✗ {err}")
+            empty_items.append(name)
+
+    return empty_items, non_empty_items
+
+
+def _print_graph_stats_summary(
+    db_name: str,
+    labels_empty: list[str],
+    labels_non_empty: list[str],
+    rels_empty: list[str],
+    rels_non_empty: list[str],
+) -> None:
+    """打印图数据库统计摘要。
+
+    Args:
+        db_name: 数据库名称
+        labels_empty: 空标签列表
+        labels_non_empty: 有数据的标签列表
+        rels_empty: 空关系类型列表
+        rels_non_empty: 有数据的关系类型列表
+    """
+    print("\n" + "=" * 80)
+    print(f"{db_name} 统计摘要:")
+    print(f"  节点标签总数：{len(labels_empty) + len(labels_non_empty)}")
+    print(f"  有数据的标签：{len(labels_non_empty)}")
+    print(f"  空标签数量：{len(labels_empty)}")
+    print(f"  关系类型总数：{len(rels_empty) + len(rels_non_empty)}")
+    print(f"  有数据的关系：{len(rels_non_empty)}")
+    print(f"  空关系数量：{len(rels_empty)}")
+
+
+def _print_null_fields_report(null_info: list[dict], table_name: str, count: int) -> None:
+    """打印单表空字段报告。
+
+    Args:
+        null_info: 空字段信息列表，每项包含 column, null_count, total, null_pct, data_type
+        table_name: 表名
+        count: 表行数
+    """
+    print(f"\n表 {table_name} ({count} 行)：")
+    print(f"  {'列名':<30} {'空值数':>10} {'总数':>10} {'空值率':>10} {'类型':<20}")
+    print(f"  {'-' * 80}")
+    for info in sorted(null_info, key=lambda x: x["null_pct"], reverse=True):
+        print(
+            f"  {info['column']:<30} {info['null_count']:>10,} {info['total']:>10,}"
+            f" {info['null_pct']:>9.1f}% {info['data_type']:<20}"
+        )
+
+
+def _print_null_fields_summary(total_issues: int) -> None:
+    """打印空字段检查摘要。
+
+    Args:
+        total_issues: 存在空字段问题的表数量
+    """
+    if total_issues == 0:
+        print("\n所有表均无空字段问题")
+    else:
+        print(f"\n{'=' * 80}")
+        print(f"共 {total_issues} 个表存在空字段")
 
 
 def _format_output_table(
@@ -1414,20 +1470,9 @@ async def _null_fields_postgres(settings, table: str | None, threshold: float) -
 
             if null_info:
                 total_issues += 1
-                print(f"\n表 {tbl} ({count} 行)：")
-                print(f"  {'列名':<30} {'空值数':>10} {'总数':>10} {'空值率':>10} {'类型':<20}")
-                print(f"  {'-' * 80}")
-                for info in sorted(null_info, key=lambda x: x["null_pct"], reverse=True):
-                    print(
-                        f"  {info['column']:<30} {info['null_count']:>10,} {info['total']:>10,}"
-                        f" {info['null_pct']:>9.1f}% {info['data_type']:<20}"
-                    )
+                _print_null_fields_report(null_info, tbl, count)
 
-        if total_issues == 0:
-            print("\n所有表均无空字段问题")
-        else:
-            print(f"\n{'=' * 80}")
-            print(f"共 {total_issues} 个表存在空字段")
+        _print_null_fields_summary(total_issues)
     finally:
         await conn.close()
 
@@ -1498,20 +1543,9 @@ async def _null_fields_duckdb(settings, table: str | None, threshold: float) -> 
 
             if null_info:
                 total_issues += 1
-                print(f"\n表 {tbl} ({count} 行)：")
-                print(f"  {'列名':<30} {'空值数':>10} {'总数':>10} {'空值率':>10} {'类型':<20}")
-                print(f"  {'-' * 80}")
-                for info in sorted(null_info, key=lambda x: x["null_pct"], reverse=True):
-                    print(
-                        f"  {info['column']:<30} {info['null_count']:>10,} {info['total']:>10,}"
-                        f" {info['null_pct']:>9.1f}% {info['data_type']:<20}"
-                    )
+                _print_null_fields_report(null_info, tbl, count)
 
-        if total_issues == 0:
-            print("\n所有表均无空字段问题")
-        else:
-            print(f"\n{'=' * 80}")
-            print(f"共 {total_issues} 个表存在空字段")
+        _print_null_fields_summary(total_issues)
     finally:
         conn.close()
 
@@ -1529,6 +1563,358 @@ async def cmd_null_fields(args: argparse.Namespace) -> None:
         await _null_fields_duckdb(settings, table, threshold)
     else:
         print(f"null-fields 子命令不支持数据库：{db}（仅支持 postgres/duckdb）")
+
+
+# ---------------------------------------------------------------------------
+# Data Quality Check (from _dq_check.py)
+# ---------------------------------------------------------------------------
+
+ALLOWED_ENTITY_TYPES = {"人物", "组织机构", "地点", "事件", "数据指标", "法规与政策", "未知"}
+
+KNOWN_NODE_TABLES = [
+    "Entity",
+    "Article",
+    "Community",
+    "CommunityReport",
+    "EventNode",
+    "NarrativeNode",
+    "SchemaNode",
+]
+KNOWN_REL_TABLES = [
+    "MENTIONS",
+    "FOLLOWED_BY",
+    "EVENT_FOLLOWED_BY",
+    "CAUSES",
+    "ENABLES",
+    "PREVENTS",
+    "RELATED_TO",
+    "HAS_ENTITY",
+    "REPORTS_ON",
+    "HAS_PARTICIPANT",
+    "HAS_SUB_EVENT",
+    "HAS_NARRATIVE",
+    "HAS_EVENT",
+]
+
+
+async def cmd_dq_check(args: argparse.Namespace) -> None:
+    """Run LadybugDB data quality checks."""
+    from core.db.ladybug_pool import LadybugPool
+
+    db_path = args.db_path
+    pool = LadybugPool(db_path=db_path)
+    try:
+        await pool.startup()
+    except RuntimeError as exc:
+        if "lock" in str(exc).lower():
+            print(f"⚠ 主数据库被锁定: {exc}")
+            return
+        raise
+
+    issues: list[str] = []
+
+    try:
+        # ── 1. 节点统计 ──
+        print("\n── 1. 节点统计 ──")
+        node_counts: dict[str, int] = {}
+        existing_tables: list[str] = []
+        for table in KNOWN_NODE_TABLES:
+            try:
+                rows = await pool.execute_query(f"MATCH (n:{table}) RETURN count(n) AS cnt")
+                cnt = rows[0]["cnt"] if rows else 0
+                node_counts[table] = cnt
+                existing_tables.append(table)
+                print(f"  {table}: {cnt}")
+            except Exception as exc:
+                node_counts[table] = -1
+                print(f"  {table}: 不存在或查询失败 ({str(exc).split('.')[0]})")
+
+        total_nodes = sum(v for v in node_counts.values() if v >= 0)
+        print(f"  ── 总计: {total_nodes}")
+
+        # ── 2. EventNode 验证 ──
+        print("\n── 2. EventNode 验证 ──")
+        event_count = node_counts.get("EventNode", 0)
+        print(f"  EventNode 总数: {event_count}")
+
+        if event_count > 0:
+            required_attrs = ["content", "event_type", "name", "event_time"]
+            for attr in required_attrs:
+                try:
+                    if attr == "event_time":
+                        rows = await pool.execute_query(
+                            "MATCH (e:EventNode) WHERE e.event_time IS NULL RETURN count(e) AS cnt"
+                        )
+                        null_cnt = rows[0]["cnt"] if rows else 0
+                        rows_zero = await pool.execute_query(
+                            "MATCH (e:EventNode) WHERE e.event_time = 0 RETURN count(e) AS cnt"
+                        )
+                        zero_cnt = rows_zero[0]["cnt"] if rows_zero else 0
+                        pct = ((null_cnt + zero_cnt) / event_count * 100) if event_count else 0
+                        status = "✓" if null_cnt == 0 and zero_cnt == 0 else "✗"
+                        print(
+                            f"  {status} {attr}: {null_cnt} NULL + {zero_cnt} 为0/{event_count} ({pct:.1f}%)"
+                        )
+                        if null_cnt > 0 or zero_cnt > 0:
+                            issues.append(f"EventNode.{attr} 有 {null_cnt} NULL + {zero_cnt} 为0")
+                    else:
+                        rows = await pool.execute_query(
+                            f"MATCH (e:EventNode) WHERE e.{attr} IS NULL OR e.{attr} = '' RETURN count(e) AS cnt"
+                        )
+                        null_cnt = rows[0]["cnt"] if rows else 0
+                        pct = (null_cnt / event_count * 100) if event_count else 0
+                        status = "✓" if null_cnt == 0 else "✗"
+                        print(f"  {status} {attr}: {null_cnt}/{event_count} 缺失 ({pct:.1f}%)")
+                        if null_cnt > 0:
+                            issues.append(f"EventNode.{attr} 有 {null_cnt}/{event_count} 条缺失")
+                except Exception as exc:
+                    print(f"  ? {attr}: 查询失败 ({str(exc).split('.')[0]})")
+
+            # Article → EventNode relationships
+            print("\n  ── Article → EventNode 关系检查 ──")
+            try:
+                has_event_rows = await pool.execute_query(
+                    "MATCH (a:Article)-[r:HAS_EVENT]->(e:EventNode) RETURN count(r) AS cnt"
+                )
+                has_event_cnt = has_event_rows[0]["cnt"] if has_event_rows else 0
+                print(f"  HAS_EVENT 关系数 (Article→EventNode): {has_event_cnt}")
+            except Exception as exc:
+                print(f"  HAS_EVENT: 表不存在 ({str(exc).split('.')[0]})")
+
+            try:
+                has_participant_rows = await pool.execute_query(
+                    "MATCH (e:EventNode)-[r:HAS_PARTICIPANT]->(en:Entity) RETURN count(r) AS cnt"
+                )
+                has_participant_cnt = has_participant_rows[0]["cnt"] if has_participant_rows else 0
+                print(f"  HAS_PARTICIPANT 关系数 (EventNode→Entity): {has_participant_cnt}")
+            except Exception as exc:
+                print(f"  HAS_PARTICIPANT: 表不存在 ({str(exc).split('.')[0]})")
+        else:
+            print("  ⚠ EventNode 不存在或数量为 0！")
+            issues.append("EventNode 不存在或数量为 0")
+
+        # ── 3. 关系统计 ──
+        print("\n── 3. 关系统计 ──")
+        existing_rels: dict[str, int] = {}
+        for rel_table in KNOWN_REL_TABLES:
+            try:
+                rows = await pool.execute_query(
+                    f"MATCH ()-[r:{rel_table}]->() RETURN count(r) AS cnt"
+                )
+                cnt = rows[0]["cnt"] if rows else 0
+                existing_rels[rel_table] = cnt
+                print(f"  {rel_table}: {cnt}")
+            except Exception as exc:
+                print(f"  {rel_table}: 表不存在 ({str(exc).split('.')[0]})")
+
+        # ── 4. Article pg_id 检查 ──
+        print("\n── 4. Article 节点 pg_id 检查 ──")
+        article_cnt = node_counts.get("Article", 0)
+        if article_cnt > 0:
+            try:
+                no_pg_id_rows = await pool.execute_query(
+                    "MATCH (a:Article) WHERE a.pg_id IS NULL OR a.pg_id = '' RETURN count(a) AS cnt"
+                )
+                no_pg_id_cnt = no_pg_id_rows[0]["cnt"] if no_pg_id_rows else 0
+                status = "✓" if no_pg_id_cnt == 0 else "✗"
+                print(f"  {status} 缺少 pg_id 的 Article: {no_pg_id_cnt}/{article_cnt}")
+            except Exception as exc:
+                print(f"  pg_id 查询失败: {exc}")
+        else:
+            print("  Article 数量为 0，跳过检查")
+
+        # ── 5. Entity 类型检查 ──
+        print("\n── 5. Entity 节点类型检查 ──")
+        entity_cnt = node_counts.get("Entity", 0)
+        if entity_cnt > 0:
+            try:
+                type_rows = await pool.execute_query(
+                    "MATCH (e:Entity) RETURN e.type AS type, count(e) AS cnt ORDER BY cnt DESC"
+                )
+                if type_rows:
+                    print("  Entity 类型分布:")
+                    unknown_types = []
+                    for row in type_rows:
+                        etype = row.get("type", "NULL")
+                        cnt = row.get("cnt", 0)
+                        marker = "" if etype in ALLOWED_ENTITY_TYPES else " ⚠ 不在允许列表"
+                        print(f"    {etype}: {cnt}{marker}")
+                        if etype not in ALLOWED_ENTITY_TYPES and etype != "NULL":
+                            unknown_types.append(etype)
+                    if unknown_types:
+                        issues.append(f"Entity 存在未知类型: {unknown_types}")
+                    else:
+                        print("  ✓ 所有类型均在允许列表中")
+            except Exception as exc:
+                print(f"  Entity 类型查询失败: {exc}")
+        else:
+            print("  Entity 数量为 0，跳过检查")
+
+        # ── 6. 关系方向验证 ──
+        print("\n── 6. 关系方向验证（孤立关系检查）──")
+        for rel_table in sorted(existing_rels.keys()):
+            cnt = existing_rels[rel_table]
+            if cnt == 0:
+                continue
+            try:
+                bad_rows = await pool.execute_query(
+                    f"MATCH (src)-[r:{rel_table}]->(tgt) "
+                    f"WHERE src.id IS NULL OR tgt.id IS NULL "
+                    f"RETURN count(r) AS cnt"
+                )
+                bad_cnt = bad_rows[0]["cnt"] if bad_rows else 0
+                if bad_cnt > 0:
+                    print(f"  ✗ {rel_table}: {bad_cnt}/{cnt} 关系的端点节点 id 为空")
+                else:
+                    print(f"  ✓ {rel_table}: {cnt} 条关系端点节点正常")
+            except Exception:
+                print(f"  ✓ {rel_table}: {cnt} 条关系（端点检查跳过）")
+
+        # ── 附加：节点主键完整性 ──
+        print("\n── 附加检查：节点主键完整性 ──")
+        for table in existing_tables:
+            cnt = node_counts.get(table, 0)
+            if cnt <= 0:
+                continue
+            try:
+                null_id_rows = await pool.execute_query(
+                    f"MATCH (n:{table}) WHERE n.id IS NULL OR n.id = '' RETURN count(n) AS cnt"
+                )
+                null_id_cnt = null_id_rows[0]["cnt"] if null_id_rows else 0
+                if null_id_cnt > 0:
+                    print(f"  ✗ {table}: {null_id_cnt}/{cnt} 节点 id 为空")
+                else:
+                    print(f"  ✓ {table}: 所有节点 id 完整")
+            except Exception as exc:
+                print(f"  ? {table}: 检查失败 ({exc})")
+
+        # ── 附加：MENTIONS 方向 ──
+        print("\n── 附加检查：MENTIONS 关系方向 ──")
+        if "MENTIONS" in existing_rels and existing_rels["MENTIONS"] > 0:
+            try:
+                correct_dir = await pool.execute_query(
+                    "MATCH (a:Article)-[r:MENTIONS]->(e:Entity) RETURN count(r) AS cnt"
+                )
+                correct_cnt = correct_dir[0]["cnt"] if correct_dir else 0
+                print(f"  Article → Entity: {correct_cnt}")
+
+                reverse_dir = await pool.execute_query(
+                    "MATCH (e:Entity)-[r:MENTIONS]->(a:Article) RETURN count(r) AS cnt"
+                )
+                reverse_cnt = reverse_dir[0]["cnt"] if reverse_dir else 0
+                if reverse_cnt > 0:
+                    print(f"  ✗ Entity → Article (方向错误): {reverse_cnt}")
+                else:
+                    print(f"  ✓ 无反向 MENTIONS 关系")
+            except Exception as exc:
+                print(f"  MENTIONS 方向检查失败: {exc}")
+
+        # Summary
+        print(f"\n{'=' * 70}")
+        print("  检查摘要")
+        print(f"{'=' * 70}")
+        missing_tables = [t for t in KNOWN_NODE_TABLES if node_counts.get(t, -1) == -1]
+        if missing_tables:
+            issues.append(f"缺少节点表: {missing_tables}")
+        missing_rels = [r for r in KNOWN_REL_TABLES if r not in existing_rels]
+        if missing_rels:
+            issues.append(f"缺少关系表: {missing_rels}")
+
+        if issues:
+            print("  发现以下问题:")
+            for i, issue in enumerate(issues, 1):
+                print(f"    {i}. {issue}")
+        else:
+            print("  ✓ 未发现数据质量问题")
+
+    finally:
+        await pool.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Fix Model ID (from fix_model_id.py)
+# ---------------------------------------------------------------------------
+
+
+async def cmd_fix_model_id(args: argparse.Namespace) -> None:
+    """Fix corrupted model_id values in article_vectors table."""
+    db_path = Path(args.db_path)
+    if not db_path.exists():
+        print(f"Error: Database file not found: {db_path}")
+        return
+
+    import duckdb
+
+    conn = duckdb.connect(str(db_path))
+
+    try:
+        if args.dry_run:
+            print("=" * 60)
+            print("DRY RUN - Previewing fixes")
+            print("=" * 60)
+
+            query = """
+                SELECT model_id, COUNT(*) as count,
+                       MIN(created_at) as first_seen, MAX(created_at) as last_seen
+                FROM article_vectors GROUP BY model_id ORDER BY count DESC
+            """
+            result = conn.execute(query).fetchall()
+            print("\nCurrent model_id distribution:")
+            for model_id, count, first_seen, last_seen in result:
+                print(f"  {model_id!r:40s} {count:6d} rows  ({first_seen} to {last_seen})")
+
+            count_6b = conn.execute(
+                "SELECT COUNT(*) FROM article_vectors WHERE model_id = '6B'"
+            ).fetchone()[0]
+
+            if count_6b > 0:
+                print(f"\n⚠ Found {count_6b} rows with corrupted model_id='6B'")
+                print("  These will be updated to 'Qwen3-Embedding-0.6B'")
+            else:
+                print("\n✓ No corrupted model_id='6B' found")
+
+        elif args.execute:
+            print("=" * 60)
+            print("EXECUTING fixes")
+            print("=" * 60)
+
+            count_6b = conn.execute(
+                "SELECT COUNT(*) FROM article_vectors WHERE model_id = '6B'"
+            ).fetchone()[0]
+
+            if count_6b == 0:
+                print("✓ No corrupted model_id='6B' found. Nothing to fix.")
+                return
+
+            print(f"\nFound {count_6b} rows with model_id='6B'")
+            print("Updating to 'Qwen3-Embedding-0.6B'...")
+
+            conn.execute("BEGIN TRANSACTION")
+            try:
+                result = conn.execute("""
+                    UPDATE article_vectors SET model_id = 'Qwen3-Embedding-0.6B'
+                    WHERE model_id = '6B'
+                """)
+                updated_count = result.fetchone()[0] if result else 0
+                print(f"✓ Updated {updated_count} rows")
+
+                remaining = conn.execute(
+                    "SELECT COUNT(*) FROM article_vectors WHERE model_id = '6B'"
+                ).fetchone()[0]
+
+                if remaining == 0:
+                    print("✓ Verification passed: no more corrupted model_id='6B'")
+                    conn.execute("COMMIT")
+                    print("✓ Changes committed to database")
+                else:
+                    print(f"✗ Verification failed: {remaining} rows still have model_id='6B'")
+                    conn.execute("ROLLBACK")
+            except Exception as e:
+                print(f"✗ Error during update: {e}")
+                conn.execute("ROLLBACK")
+                raise
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -1622,6 +2008,34 @@ def main() -> None:
         help="Minimum null rate percentage to report (default: 0, show all)",
     )
 
+    # dq-check subcommand
+    p_dq = sub.add_parser("dq-check", help="Run LadybugDB data quality checks")
+    p_dq.add_argument(
+        "--db-path",
+        type=str,
+        default="data/weaver.lbug",
+        help="Path to LadybugDB database (default: data/weaver.lbug)",
+    )
+
+    # fix-model-id subcommand
+    p_fix = sub.add_parser("fix-model-id", help="Fix corrupted model_id values in article_vectors")
+    p_fix.add_argument(
+        "--db-path",
+        type=str,
+        default="data/weaver.duckdb",
+        help="Path to DuckDB database (default: data/weaver.duckdb)",
+    )
+    p_fix.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview changes without applying them",
+    )
+    p_fix.add_argument(
+        "--execute",
+        action="store_true",
+        help="Apply the fixes to the database",
+    )
+
     args = parser.parse_args()
 
     # Validate db arguments for stats
@@ -1637,6 +2051,8 @@ def main() -> None:
         "random": cmd_random,
         "rows": cmd_rows,
         "null-fields": cmd_null_fields,
+        "dq-check": cmd_dq_check,
+        "fix-model-id": cmd_fix_model_id,
     }
     asyncio.run(dispatch[args.command](args))
 
