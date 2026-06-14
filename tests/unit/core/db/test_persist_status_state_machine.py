@@ -57,9 +57,12 @@ class TestPersistStatusStateMachine:
     @pytest.mark.parametrize(
         "from_status,to_status",
         [
-            # PENDING → PROCESSING, FAILED
+            # PENDING → PROCESSING, FAILED, SAGA_STARTED, NEO4J_DONE, LADYBUG_DONE
             (PersistStatus.PENDING, PersistStatus.PROCESSING),
             (PersistStatus.PENDING, PersistStatus.FAILED),
+            (PersistStatus.PENDING, PersistStatus.SAGA_STARTED),
+            (PersistStatus.PENDING, PersistStatus.NEO4J_DONE),
+            (PersistStatus.PENDING, PersistStatus.LADYBUG_DONE),
             # PROCESSING → PG_DONE, FAILED
             (PersistStatus.PROCESSING, PersistStatus.PG_DONE),
             (PersistStatus.PROCESSING, PersistStatus.FAILED),
@@ -86,9 +89,9 @@ class TestPersistStatusStateMachine:
     @pytest.mark.parametrize(
         "from_status,to_status",
         [
-            # PENDING cannot skip steps
+            # PENDING cannot skip to PG_DONE (must go through PROCESSING)
             (PersistStatus.PENDING, PersistStatus.PG_DONE),
-            (PersistStatus.PENDING, PersistStatus.NEO4J_DONE),
+            # PENDING cannot skip to NEO4J_FAILED (must go through PROCESSING → PG_DONE)
             (PersistStatus.PENDING, PersistStatus.NEO4J_FAILED),
             # PROCESSING cannot go backward or skip
             (PersistStatus.PROCESSING, PersistStatus.PENDING),
@@ -107,10 +110,9 @@ class TestPersistStatusStateMachine:
             (PersistStatus.NEO4J_FAILED, PersistStatus.PROCESSING),
             (PersistStatus.NEO4J_FAILED, PersistStatus.NEO4J_DONE),
             (PersistStatus.NEO4J_FAILED, PersistStatus.FAILED),
-            # FAILED can only go to PENDING
+            # FAILED can only go to PENDING, NEO4J_DONE, LADYBUG_DONE
             (PersistStatus.FAILED, PersistStatus.PROCESSING),
             (PersistStatus.FAILED, PersistStatus.PG_DONE),
-            (PersistStatus.FAILED, PersistStatus.NEO4J_DONE),
             (PersistStatus.FAILED, PersistStatus.NEO4J_FAILED),
         ],
     )
@@ -166,6 +168,8 @@ class TestPersistStatusStateMachine:
             (PersistStatus.PENDING, PersistStatus.PROCESSING),
             (PersistStatus.PENDING, PersistStatus.FAILED),
             (PersistStatus.PENDING, PersistStatus.SAGA_STARTED),
+            (PersistStatus.PENDING, PersistStatus.NEO4J_DONE),
+            (PersistStatus.PENDING, PersistStatus.LADYBUG_DONE),
             (PersistStatus.PROCESSING, PersistStatus.PG_DONE),
             (PersistStatus.PROCESSING, PersistStatus.FAILED),
             (PersistStatus.PG_DONE, PersistStatus.NEO4J_DONE),
@@ -193,6 +197,8 @@ class TestPersistStatusStateMachine:
             (PersistStatus.NEO4J_FAILED, PersistStatus.PENDING),
             (PersistStatus.NEO4J_FAILED, PersistStatus.PG_DONE),
             (PersistStatus.FAILED, PersistStatus.PENDING),
+            (PersistStatus.FAILED, PersistStatus.NEO4J_DONE),
+            (PersistStatus.FAILED, PersistStatus.LADYBUG_DONE),
         }
 
         for from_status in all_statuses:
@@ -208,7 +214,7 @@ class TestPersistStatusStateMachine:
     @pytest.mark.parametrize(
         "from_status,to_status",
         [
-            (PersistStatus.PENDING, PersistStatus.NEO4J_DONE),
+            (PersistStatus.PENDING, PersistStatus.PG_DONE),
             (PersistStatus.PROCESSING, PersistStatus.PENDING),
             (PersistStatus.NEO4J_DONE, PersistStatus.PENDING),
         ],
@@ -225,11 +231,9 @@ class TestPersistStatusStateMachine:
 
     def test_error_message_format(self):
         """Test that error message follows expected format."""
-        error = InvalidStateTransitionError("pending", "neo4j_done")
+        error = InvalidStateTransitionError("pending", "pg_done")
 
-        expected_message = (
-            "Invalid state transition: cannot transition from 'pending' to 'neo4j_done'"
-        )
+        expected_message = "Invalid state transition: cannot transition from 'pending' to 'pg_done'"
         assert error.message == expected_message
         assert str(error) == expected_message
 

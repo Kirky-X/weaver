@@ -227,8 +227,27 @@ class TestSpacyModelManagerInstallFromLocal:
         config = SpacyModelConfig(strict_mode=True)
         manager = SpacyModelManager(config)
 
-        with patch("subprocess.run", side_effect=SystemExit(1)):
-            with pytest.raises(RuntimeError):
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stderr = "pip install failed"
+        mock_result.stdout = ""
+
+        # Mock Path to simulate a valid .whl file
+        mock_path = MagicMock()
+        mock_path.exists.return_value = True
+        mock_path.is_file.return_value = True
+        mock_path.suffix = ".whl"
+        mock_path.resolve.return_value = mock_path
+        mock_path.__str__ = lambda self: "/path/model.whl"
+
+        with (
+            patch("core.nlp.spacy_manager.Path", return_value=mock_path),
+            patch("subprocess.run", return_value=mock_result),
+            patch.object(
+                manager, "_install_from_network", side_effect=RuntimeError("network failed")
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="Failed to install spaCy model"):
                 manager._install_from_local("en_core_web_sm", "/path/model.whl")
 
 

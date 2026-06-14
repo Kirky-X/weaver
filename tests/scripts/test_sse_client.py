@@ -15,7 +15,7 @@ import json
 import httpx
 
 
-async def test_sse_stream(url: str, api_key: str, test_url: str) -> None:
+async def sse_stream(url: str, api_key: str, test_url: str) -> None:
     """Test SSE streaming endpoint.
 
     Args:
@@ -73,7 +73,7 @@ async def test_sse_stream(url: str, api_key: str, test_url: str) -> None:
             print(f"Stream completed. Total events: {event_count}")
 
 
-async def test_disconnect(url: str, api_key: str, test_url: str) -> None:
+async def disconnect(url: str, api_key: str, test_url: str) -> None:
     """Test client disconnect handling.
 
     Args:
@@ -135,9 +135,9 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.test_disconnect:
-        asyncio.run(test_disconnect(args.url, args.api_key, args.test_url))
+        asyncio.run(disconnect(args.url, args.api_key, args.test_url))
     else:
-        asyncio.run(test_sse_stream(args.url, args.api_key, args.test_url))
+        asyncio.run(sse_stream(args.url, args.api_key, args.test_url))
 
 
 if __name__ == "__main__":

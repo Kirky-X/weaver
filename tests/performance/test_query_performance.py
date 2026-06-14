@@ -59,6 +59,9 @@ class TestNPlusOneQueryFix:
         mock_container = MagicMock()
         mock_container.source_authority_repo.return_value = mock_repo
 
+        # Mock request
+        mock_request = MagicMock()
+
         import asyncio
 
         async def run_test():
@@ -67,10 +70,10 @@ class TestNPlusOneQueryFix:
                     "api.endpoints.admin.admin.Endpoints.get_relational_pool_optional",
                     return_value=mock_pool,
                 ),
-                patch("api.endpoints.admin.admin.get_container", return_value=mock_container),
             ):
-                # First param is API key result, second is container
-                response = await refresh_auto_scores("valid-admin-key", mock_container)
+                response = await refresh_auto_scores(
+                    mock_request, "valid-admin-key", mock_container
+                )
 
             # Verify execute was called exactly 2 times:
             # 1. Get distinct hosts
@@ -254,6 +257,8 @@ class TestGroupByNULLFilter:
         mock_container = MagicMock()
         mock_container.source_authority_repo.return_value = mock_repo
 
+        mock_request = MagicMock()
+
         import asyncio
 
         async def run_test():
@@ -262,10 +267,10 @@ class TestGroupByNULLFilter:
                     "api.endpoints.admin.admin.Endpoints.get_relational_pool_optional",
                     return_value=mock_pool,
                 ),
-                patch("api.endpoints.admin.admin.get_container", return_value=mock_container),
             ):
-                # First param is API key result, second is container
-                response = await refresh_auto_scores("valid-admin-key", mock_container)
+                response = await refresh_auto_scores(
+                    mock_request, "valid-admin-key", mock_container
+                )
 
             # Verify that update_auto_score was NOT called with None
             for call_args in mock_repo.update_auto_score.call_args_list:
