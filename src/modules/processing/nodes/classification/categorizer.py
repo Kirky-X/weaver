@@ -209,7 +209,19 @@ class CascadeCategorizerNode:
 
                 state["category"] = normalize_category(result.category)
                 state["language"] = result.language.strip()[:10]
-                state["region"] = result.region.strip()[:50]
+                # Rule-based region is ground truth; LLM region is only used
+                # when the rule couldn't determine (returned "国际") AND the
+                # LLM provides a non-generic region.  Generic TLDs (.org,
+                # .com, .net) should stay "国际" unless the LLM is confident.
+                source_host = getattr(state["raw"], "source_host", "") or ""
+                rule_region = infer_region_from_source_host(source_host)
+                if rule_region != "国际":
+                    state["region"] = rule_region
+                else:
+                    llm_region = result.region.strip()[:50]
+                    # Keep "国际" for generic TLDs — LLM region for .org/.com
+                    # is unreliable and often wrong
+                    state["region"] = "国际"
             except Exception as e:
                 log.warning(
                     "categorizer_failed_using_defaults",
