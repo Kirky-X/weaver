@@ -39,7 +39,11 @@ class ReVectorizeNode:
             f"{cleaned['title']}\n{cleaned['body'][:2000]}",
         ]
 
-        embeddings = await self._llm.embed_default(texts)
+        embeddings = await self._llm.embed_default(
+            texts,
+            article_id=state.get("article_id"),
+            task_id=state.get("task_id"),
+        )
 
         state["vectors"] = {
             "title": embeddings[0],

@@ -134,7 +134,11 @@ class EntityExtractorNode:
                     all_entity_names.append(e["text"])
 
                 if all_entity_texts:
-                    entity_embeds = await self._llm.embed_default(all_entity_texts)
+                    entity_embeds = await self._llm.embed_default(
+                        all_entity_texts,
+                        article_id=state.get("article_id"),
+                        task_id=state.get("task_id"),
+                    )
 
                     for i, name in enumerate(all_entity_names):
                         if i < len(entity_embeds) and entity_embeds[i]:
@@ -285,7 +289,11 @@ class EntityExtractorNode:
                             f"{e['name']}（{e.get('type', '未知')}）"
                             for e in entities_need_embedding
                         ]
-                        entity_embeds = await self._llm.embed_default(entity_texts)
+                        entity_embeds = await self._llm.embed_default(
+                            entity_texts,
+                            article_id=state.get("article_id"),
+                            task_id=state.get("task_id"),
+                        )
 
                         # Update entities with embeddings
                         entity_vectors_to_upsert = []

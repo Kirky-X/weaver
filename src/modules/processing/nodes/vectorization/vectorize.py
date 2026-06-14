@@ -29,7 +29,11 @@ class VectorizeNode:
         text = f"{cleaned['title']}\n{cleaned['body'][:2000]}"
 
         # Use embed_default for embedding with configured providers
-        embeddings = await self._llm.embed_default([text])
+        embeddings = await self._llm.embed_default(
+            [text],
+            article_id=state.get("article_id"),
+            task_id=state.get("task_id"),
+        )
         state["vectors"] = {"content": embeddings[0]}
 
         log.debug("vectorized", url=state["raw"].url)

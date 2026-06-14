@@ -608,6 +608,8 @@ class LLMClient:
         texts: list[str],
         batch_size: int = 32,
         use_cache: bool = True,
+        article_id: str | None = None,
+        task_id: str | None = None,
     ) -> list[list[float]]:
         """生成embedding向量.
 
@@ -616,6 +618,8 @@ class LLMClient:
             texts: 文本列表
             batch_size: 批处理大小
             use_cache: 是否使用缓存
+            article_id: 关联的文章ID（用于LLM调用追踪）
+            task_id: 关联的任务ID（用于LLM调用追踪）
 
         Returns:
             embedding向量列表
@@ -658,6 +662,8 @@ class LLMClient:
                     parsed_label,
                     {"texts": batch},
                     call_point=CallPoint.EMBEDDING,
+                    article_id=article_id,
+                    task_id=task_id,
                 )
                 new_embeddings.extend(response)
 
@@ -691,6 +697,8 @@ class LLMClient:
         texts: list[str],
         batch_size: int = 32,
         use_cache: bool = True,
+        article_id: str | None = None,
+        task_id: str | None = None,
     ) -> list[list[float]]:
         """使用默认provider生成embedding.
 
@@ -698,12 +706,16 @@ class LLMClient:
             texts: 文本列表
             batch_size: 批处理大小
             use_cache: 是否使用缓存
+            article_id: 关联的文章ID（用于LLM调用追踪）
+            task_id: 关联的任务ID（用于LLM调用追踪）
 
         Returns:
             embedding向量列表
         """
         label = self._router.get_default(LLMType.EMBEDDING)
-        return await self.embed(label, texts, batch_size, use_cache)
+        return await self.embed(
+            label, texts, batch_size, use_cache, article_id=article_id, task_id=task_id
+        )
 
     async def rerank(
         self,

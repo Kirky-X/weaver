@@ -531,7 +531,10 @@ class SchedulerJobs:
                         source_host=article.source_host,
                     )
 
-                    await self._pipeline.process_batch([raw], article_ids=[article.id])
+                    retry_task_id = uuid.uuid4()
+                    await self._pipeline.process_batch(
+                        [raw], article_ids=[article.id], task_id=retry_task_id
+                    )
                     retry_count += 1
                     success_count += 1
                     consecutive_failures = 0
