@@ -7,7 +7,7 @@ import pytest
 from modules.ingestion.parsing.newsnow_parser import NewsNowParser
 
 
-@pytest.mark.e2e
+@pytest.mark.integration
 class TestNewsNowParserListPageFilter:
     """Test NewsNowParser._is_list_page method."""
 
