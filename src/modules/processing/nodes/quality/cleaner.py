@@ -171,6 +171,8 @@ class CleanerNode:
                     CallPoint.CLEANER,
                     payload,
                     output_model=CleanerOutput,
+                    article_id=state.get("article_id"),
+                    task_id=state.get("task_id"),
                 )
 
                 state["cleaned"] = {

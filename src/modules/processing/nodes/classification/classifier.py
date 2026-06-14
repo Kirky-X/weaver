@@ -111,7 +111,11 @@ class CascadeClassifierNode:
                 "task_id": state.get("task_id"),
             }
             result: ClassifierOutput = await self._llm.call_at(
-                CallPoint.CLASSIFIER, payload, output_model=ClassifierOutput
+                CallPoint.CLASSIFIER,
+                payload,
+                output_model=ClassifierOutput,
+                article_id=state.get("article_id"),
+                task_id=state.get("task_id"),
             )
             state["is_news"] = result.is_news if result.is_news is not None else False
             state["terminal"] = not state["is_news"]

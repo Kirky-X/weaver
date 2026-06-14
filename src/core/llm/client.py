@@ -111,6 +111,8 @@ class LLMClient:
         token_usage: TokenUsage | None,
         success: bool,
         error_type: str | None = None,
+        article_id: str | None = None,
+        task_id: str | None = None,
     ) -> None:
         """发射LLMUsageEvent到EventBus.
 
@@ -121,6 +123,8 @@ class LLMClient:
             token_usage: Token使用量
             success: 是否成功
             error_type: 错误类型
+            article_id: 关联的文章ID
+            task_id: 关联的任务ID
         """
         try:
             from core.event import LLMUsageEvent
@@ -136,6 +140,8 @@ class LLMClient:
                 success=success,
                 error_type=error_type,
                 timestamp=get_current_time_with_timezone(),
+                article_id=article_id,
+                task_id=task_id,
             )
             await self._event_bus.publish(event)
         except Exception as exc:
@@ -215,6 +221,8 @@ class LLMClient:
                 latency_ms=0.0,
                 token_usage=cached.get("token_usage"),
                 success=True,
+                article_id=article_id,
+                task_id=task_id,
             )
             if output_model:
                 return parse_llm_json(cached["content"], output_model)
@@ -307,6 +315,8 @@ class LLMClient:
                     latency_ms=response.latency_ms,
                     token_usage=response.token_usage,
                     success=True,
+                    article_id=article_id,
+                    task_id=task_id,
                 )
 
                 # 解析输出
@@ -333,6 +343,8 @@ class LLMClient:
             token_usage=None,
             success=False,
             error_type=type(last_error).__name__,
+            article_id=article_id,
+            task_id=task_id,
         )
         raise last_error  # type: ignore[misc]
 
@@ -450,6 +462,8 @@ class LLMClient:
         payload: dict[str, Any],
         output_model: type[T] | None = None,
         timeout: float | None = None,
+        article_id: str | None = None,
+        task_id: str | None = None,
     ) -> T | str:
         """通过调用点配置路由.
 
@@ -458,6 +472,8 @@ class LLMClient:
             payload: 调用参数
             output_model: 可选的Pydantic模型
             timeout: 超时覆盖
+            article_id: 关联的文章ID（用于LLM调用追踪）
+            task_id: 关联的任务ID（用于LLM调用追踪）
 
         Returns:
             解析后的模型实例或原始字符串
@@ -524,6 +540,8 @@ class LLMClient:
             labels[0],
             request_payload,
             call_point=call_point,
+            article_id=article_id,
+            task_id=task_id,
             fallback_labels=labels[1:],
             output_model=output_model,
             timeout=timeout,

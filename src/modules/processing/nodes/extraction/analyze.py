@@ -124,6 +124,8 @@ class AnalyzeNode:
                     "task_id": state.get("task_id"),
                 },
                 output_model=AnalyzeOutput,
+                article_id=state.get("article_id"),
+                task_id=state.get("task_id"),
             )
 
             state["summary_info"] = {

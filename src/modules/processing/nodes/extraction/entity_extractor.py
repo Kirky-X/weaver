@@ -223,6 +223,8 @@ class EntityExtractorNode:
                     "relation_types_block": relation_types_block,
                 },
                 output_model=EntityExtractorOutput,
+                article_id=state.get("article_id"),
+                task_id=state.get("task_id"),
             )
             state["entities"] = result.entities
             state["relations"] = result.relations

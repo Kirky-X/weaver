@@ -299,6 +299,8 @@ class BatchMergerNode:
                 "task_id": group_states[0].get("task_id"),
             },
             output_model=MergerOutput,
+            article_id=group_states[0].get("article_id"),
+            task_id=group_states[0].get("task_id"),
         )
 
         primary = max(

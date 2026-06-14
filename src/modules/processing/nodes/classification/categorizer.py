@@ -167,6 +167,8 @@ class CascadeCategorizerNode:
                         "task_id": state.get("task_id"),
                     },
                     output_model=CategorizerOutput,
+                    article_id=state.get("article_id"),
+                    task_id=state.get("task_id"),
                 )
 
                 state["category"] = normalize_category(result.category)
