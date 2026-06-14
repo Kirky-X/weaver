@@ -109,45 +109,6 @@ class TestSearchFlow:
 
 
 @pytest.mark.e2e
-@pytest.mark.skip(reason="Endpoint /api/v1/admin/entities not implemented")
-class TestEntityManagementFlow:
-    """Test entity management workflow via real API."""
-
-    def test_entity_list_endpoint(
-        self,
-        client: TestClient,
-        auth_headers: dict[str, str],
-    ) -> None:
-        """Test listing entities via real API."""
-        response = client.get(
-            "/api/v1/admin/entities",
-            headers=auth_headers,
-            params={"limit": 10},
-        )
-
-        assert response.status_code == 200, f"Entity list failed: {response.text}"
-
-        data = response.json()
-        assert "data" in data
-
-    def test_entity_type_filter(
-        self,
-        client: TestClient,
-        auth_headers: dict[str, str],
-    ) -> None:
-        """Test filtering entities by type."""
-        response = client.get(
-            "/api/v1/admin/entities",
-            headers=auth_headers,
-            params={"entity_type": "PERSON", "limit": 5},
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "data" in data
-
-
-@pytest.mark.e2e
 class TestAnalyticsFlow:
     """Test analytics workflow via real API."""
 

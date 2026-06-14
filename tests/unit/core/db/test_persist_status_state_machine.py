@@ -11,8 +11,9 @@ class TestPersistStatusEnumSize:
     """Tests for PersistStatus enum size (12 states including saga)."""
 
     def test_enum_has_exactly_twelve_members(self):
-        """Test that PersistStatus has exactly 12 members."""
-        assert len(list(PersistStatus)) == 12
+        """Test that PersistStatus has exactly 12 members (excluding LADYBUG_DONE)."""
+        # LADYBUG_DONE is added for LadybugDB support, total is now 13
+        assert len(list(PersistStatus)) == 13
 
     def test_stored_not_in_enum(self):
         """Test that STORED is not a PersistStatus member."""
@@ -25,13 +26,14 @@ class TestPersistStatusEnumSize:
             _ = PersistStatus.COMPLETE
 
     def test_all_statuses_present(self):
-        """Test that all 12 expected statuses are present."""
+        """Test that all 13 expected statuses are present."""
         expected_names = {
             "PENDING",
             "PROCESSING",
             "PG_DONE",
             "NEO4J_DONE",
             "NEO4J_FAILED",
+            "LADYBUG_DONE",
             "FAILED",
             "SAGA_STARTED",
             "SAGA_PG_WRITING",
@@ -158,6 +160,7 @@ class TestPersistStatusStateMachine:
             (PersistStatus.PG_DONE, PersistStatus.PG_DONE),
             (PersistStatus.NEO4J_DONE, PersistStatus.NEO4J_DONE),
             (PersistStatus.NEO4J_FAILED, PersistStatus.NEO4J_FAILED),
+            (PersistStatus.LADYBUG_DONE, PersistStatus.LADYBUG_DONE),
             (PersistStatus.FAILED, PersistStatus.FAILED),
             # Forward transitions
             (PersistStatus.PENDING, PersistStatus.PROCESSING),
@@ -167,6 +170,7 @@ class TestPersistStatusStateMachine:
             (PersistStatus.PROCESSING, PersistStatus.FAILED),
             (PersistStatus.PG_DONE, PersistStatus.NEO4J_DONE),
             (PersistStatus.PG_DONE, PersistStatus.NEO4J_FAILED),
+            (PersistStatus.PG_DONE, PersistStatus.LADYBUG_DONE),
             (PersistStatus.PG_DONE, PersistStatus.FAILED),
             # Saga transitions
             (PersistStatus.SAGA_STARTED, PersistStatus.SAGA_PG_WRITING),
@@ -254,3 +258,59 @@ class TestPersistStatusStateMachine:
     def test_transition_to_itself_always_valid(self, status):
         """Test that any state can transition to itself (idempotency)."""
         assert PersistStatus.is_valid_transition(status, status) is True
+
+
+class TestLadybugDoneStatus:
+    """Tests for LADYBUG_DONE status added for LadybugDB support."""
+
+    def test_ladybug_done_value(self):
+        """Test that LADYBUG_DONE has the correct value."""
+        assert PersistStatus.LADYBUG_DONE.value == "ladybug_done"
+
+    def test_ladybug_done_is_valid_member(self):
+        """Test that LADYBUG_DONE is a valid PersistStatus member."""
+        assert PersistStatus.LADYBUG_DONE in list(PersistStatus)
+
+    def test_pg_done_to_ladybug_done_valid_transition(self):
+        """Test PG_DONE → LADYBUG_DONE is a valid transition."""
+        assert (
+            PersistStatus.is_valid_transition(PersistStatus.PG_DONE, PersistStatus.LADYBUG_DONE)
+            is True
+        )
+
+    def test_ladybug_done_is_complete(self):
+        """Test that LADYBUG_DONE is recognized as a complete (terminal) state."""
+        assert PersistStatus.is_terminal(PersistStatus.LADYBUG_DONE) is True
+
+    def test_ladybug_done_is_terminal_no_outgoing(self):
+        """Test that LADYBUG_DONE has no outgoing transitions (except self)."""
+        for target_status in PersistStatus:
+            if target_status != PersistStatus.LADYBUG_DONE:
+                assert (
+                    PersistStatus.is_valid_transition(PersistStatus.LADYBUG_DONE, target_status)
+                    is False
+                ), f"LADYBUG_DONE should be terminal, but can transition to {target_status}"
+
+    def test_ladybug_done_idempotent(self):
+        """Test that LADYBUG_DONE → LADYBUG_DONE is valid (idempotent)."""
+        assert (
+            PersistStatus.is_valid_transition(
+                PersistStatus.LADYBUG_DONE, PersistStatus.LADYBUG_DONE
+            )
+            is True
+        )
+
+    def test_neo4j_done_and_ladybug_done_both_complete(self):
+        """Test that both NEO4J_DONE and LADYBUG_DONE are recognized as complete."""
+        assert PersistStatus.is_terminal(PersistStatus.NEO4J_DONE) is True
+        assert PersistStatus.is_terminal(PersistStatus.LADYBUG_DONE) is True
+
+    def test_ladybug_done_not_allows_retry(self):
+        """Test that LADYBUG_DONE does not allow retry."""
+        assert PersistStatus.allows_retry(PersistStatus.LADYBUG_DONE) is False
+
+    def test_complete_ladybug_workflow(self):
+        """Test complete workflow: PENDING → PROCESSING → PG_DONE → LADYBUG_DONE."""
+        assert PersistStatus.is_valid_transition(PersistStatus.PENDING, PersistStatus.PROCESSING)
+        assert PersistStatus.is_valid_transition(PersistStatus.PROCESSING, PersistStatus.PG_DONE)
+        assert PersistStatus.is_valid_transition(PersistStatus.PG_DONE, PersistStatus.LADYBUG_DONE)

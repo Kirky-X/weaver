@@ -80,7 +80,8 @@ class PersistStatus(str, enum.Enum):
         PENDING: Initial state after article creation.
         PROCESSING: Traditional pipeline processing in progress.
         PG_DONE: PostgreSQL write successful.
-        NEO4J_DONE: All writes complete (terminal success state).
+        NEO4J_DONE: All writes complete (terminal success state for Neo4j).
+        LADYBUG_DONE: All writes complete (terminal success state for LadybugDB).
         NEO4J_FAILED: Neo4j write failed (retryable).
         FAILED: Final failure state (retryable).
 
@@ -97,6 +98,7 @@ class PersistStatus(str, enum.Enum):
     PROCESSING = "processing"
     PG_DONE = "pg_done"
     NEO4J_DONE = "neo4j_done"
+    LADYBUG_DONE = "ladybug_done"
     NEO4J_FAILED = "neo4j_failed"
     SAGA_STARTED = "saga_started"
     SAGA_PG_WRITING = "saga_pg_writing"
@@ -117,7 +119,7 @@ class PersistStatus(str, enum.Enum):
         Valid transitions:
         - PENDING → PROCESSING, FAILED, SAGA_STARTED
         - PROCESSING → PG_DONE, FAILED
-        - PG_DONE → NEO4J_DONE, NEO4J_FAILED, FAILED
+        - PG_DONE → NEO4J_DONE, LADYBUG_DONE, NEO4J_FAILED, FAILED
         - NEO4J_FAILED → PENDING, PG_DONE (allows retry)
         - SAGA_STARTED → SAGA_PG_WRITING, FAILED
         - SAGA_PG_WRITING → SAGA_NEO4J_WRITING, SAGA_COMPENSATING
@@ -127,6 +129,7 @@ class PersistStatus(str, enum.Enum):
         - SAGA_COMPLETED is terminal
         - FAILED → PENDING (allows retry)
         - NEO4J_DONE is terminal
+        - LADYBUG_DONE is terminal
 
         Args:
             from_status: Current status.
@@ -141,7 +144,7 @@ class PersistStatus(str, enum.Enum):
         valid_transitions = {
             cls.PENDING: {cls.PROCESSING, cls.FAILED, cls.SAGA_STARTED},
             cls.PROCESSING: {cls.PG_DONE, cls.FAILED},
-            cls.PG_DONE: {cls.NEO4J_DONE, cls.NEO4J_FAILED, cls.FAILED},
+            cls.PG_DONE: {cls.NEO4J_DONE, cls.LADYBUG_DONE, cls.NEO4J_FAILED, cls.FAILED},
             cls.NEO4J_FAILED: {cls.PENDING, cls.PG_DONE},
             cls.SAGA_STARTED: {cls.SAGA_PG_WRITING, cls.FAILED},
             cls.SAGA_PG_WRITING: {cls.SAGA_NEO4J_WRITING, cls.SAGA_COMPENSATING},
@@ -151,6 +154,7 @@ class PersistStatus(str, enum.Enum):
             cls.SAGA_COMPLETED: set(),
             cls.FAILED: {cls.PENDING},
             cls.NEO4J_DONE: set(),
+            cls.LADYBUG_DONE: set(),
         }
 
         allowed = valid_transitions.get(from_status, set())
@@ -166,7 +170,7 @@ class PersistStatus(str, enum.Enum):
         Returns:
             True if the status is terminal.
         """
-        return status in {cls.NEO4J_DONE, cls.SAGA_COMPLETED}
+        return status in {cls.NEO4J_DONE, cls.LADYBUG_DONE, cls.SAGA_COMPLETED}
 
     @classmethod
     def allows_retry(cls, status: PersistStatus) -> bool:
