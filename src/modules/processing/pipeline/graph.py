@@ -159,8 +159,10 @@ class Pipeline:
             llm,
             budget,
             prompt_loader,
-            min_body_chars=settings.cleaner_min_body_chars if settings else 100,
-            min_title_similarity=settings.cleaner_min_title_similarity if settings else 0.7,
+            min_body_chars=pipeline_settings.cleaner_min_body_chars if pipeline_settings else 100,
+            min_title_similarity=(
+                pipeline_settings.cleaner_min_title_similarity if pipeline_settings else 0.7
+            ),
         )
         self._categorizer = CascadeCategorizerNode(llm, prompt_loader, cascade=cascade_classifier)
         self._vectorize = VectorizeNode(llm)
