@@ -127,7 +127,7 @@ class PersistStatus(str, enum.Enum):
         - SAGA_COMPENSATING → SAGA_COMPENSATED, FAILED
         - SAGA_COMPENSATED → PENDING (allows retry)
         - SAGA_COMPLETED is terminal
-        - FAILED → PENDING (allows retry)
+        - FAILED → PENDING (allows retry), NEO4J_DONE, LADYBUG_DONE (allows recovery after graph write success)
         - NEO4J_DONE is terminal
         - LADYBUG_DONE is terminal
 
@@ -142,7 +142,13 @@ class PersistStatus(str, enum.Enum):
             return True
 
         valid_transitions = {
-            cls.PENDING: {cls.PROCESSING, cls.FAILED, cls.SAGA_STARTED},
+            cls.PENDING: {
+                cls.PROCESSING,
+                cls.FAILED,
+                cls.SAGA_STARTED,
+                cls.LADYBUG_DONE,
+                cls.NEO4J_DONE,
+            },
             cls.PROCESSING: {cls.PG_DONE, cls.FAILED},
             cls.PG_DONE: {cls.NEO4J_DONE, cls.LADYBUG_DONE, cls.NEO4J_FAILED, cls.FAILED},
             cls.NEO4J_FAILED: {cls.PENDING, cls.PG_DONE},
@@ -152,7 +158,7 @@ class PersistStatus(str, enum.Enum):
             cls.SAGA_COMPENSATING: {cls.SAGA_COMPENSATED, cls.FAILED},
             cls.SAGA_COMPENSATED: {cls.PENDING},
             cls.SAGA_COMPLETED: set(),
-            cls.FAILED: {cls.PENDING},
+            cls.FAILED: {cls.PENDING, cls.NEO4J_DONE, cls.LADYBUG_DONE},
             cls.NEO4J_DONE: set(),
             cls.LADYBUG_DONE: set(),
         }
