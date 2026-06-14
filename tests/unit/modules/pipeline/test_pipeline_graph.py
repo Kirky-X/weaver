@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from core.db import PersistStatus
 from modules.ingestion.domain.models import RawArticle
 from modules.processing.pipeline.graph import PHASE1_STAGES, PHASE3_STAGES, Pipeline
 from modules.processing.pipeline.state import PipelineState
@@ -1099,3 +1100,75 @@ class TestPipelineCommunityUpdate:
         await pipeline._maybe_trigger_community_update([state])
 
         mock_updater.run_incremental_update.assert_called_once()
+
+
+class TestPipelineGraphDoneStatus:
+    """Tests for _graph_done_status property (spec: pipeline-status-dynamic).
+
+    Verifies that persist_status is dynamically selected based on
+    graph_writer type: LadybugWriter → LADYBUG_DONE, Neo4jWriter → NEO4J_DONE.
+    """
+
+    @pytest.fixture
+    def mock_llm(self):
+        return AsyncMock()
+
+    @pytest.fixture
+    def mock_budget(self):
+        return MagicMock()
+
+    @pytest.fixture
+    def mock_prompt_loader(self):
+        return MagicMock()
+
+    @pytest.fixture
+    def mock_event_bus(self):
+        return MagicMock()
+
+    def test_ladybug_writer_returns_ladybug_done(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
+        """Scenario: Pipeline with LadybugWriter → LADYBUG_DONE."""
+        from modules.storage.ladybug.writer import LadybugWriter
+
+        mock_pool = MagicMock()
+        ladybug_writer = LadybugWriter(mock_pool)
+
+        pipeline = Pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+            graph_writer=ladybug_writer,
+        )
+
+        assert pipeline._graph_done_status == PersistStatus.LADYBUG_DONE
+
+    def test_neo4j_writer_returns_neo4j_done(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
+        """Scenario: Pipeline with Neo4jWriter → NEO4J_DONE."""
+        mock_neo4j_writer = MagicMock()
+
+        pipeline = Pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+            graph_writer=mock_neo4j_writer,
+        )
+
+        assert pipeline._graph_done_status == PersistStatus.NEO4J_DONE
+
+    def test_no_graph_writer_returns_neo4j_done(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
+    ):
+        """Scenario: Pipeline without graph_writer → NEO4J_DONE (default)."""
+        pipeline = Pipeline(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            event_bus=mock_event_bus,
+        )
+
+        assert pipeline._graph_done_status == PersistStatus.NEO4J_DONE

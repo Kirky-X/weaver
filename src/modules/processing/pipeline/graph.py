@@ -211,6 +211,18 @@ class Pipeline:
         self._vector_repo = vector_repo
         self._community_updater = community_updater
 
+    @property
+    def _graph_done_status(self) -> PersistStatus:
+        """Return the appropriate persist_status based on graph_writer type.
+
+        LadybugWriter → LADYBUG_DONE, Neo4jWriter → NEO4J_DONE.
+        """
+        from modules.storage.ladybug.writer import LadybugWriter
+
+        if isinstance(self._graph_writer, LadybugWriter):
+            return PersistStatus.LADYBUG_DONE
+        return PersistStatus.NEO4J_DONE
+
     @staticmethod
     def _create_spacy_extractor(settings: Settings | None) -> SpacyExtractor:
         """Create SpacyExtractor with settings if available."""
@@ -1163,7 +1175,7 @@ class Pipeline:
                         article_id = state.get("article_id")
                         if article_id and self._article_repo:
                             await self._article_repo.update_persist_status(
-                                uuid.UUID(article_id), PersistStatus.NEO4J_DONE
+                                uuid.UUID(article_id), self._graph_done_status
                             )
                     # Log errors
                     for article_id_str, error_msg in result.get("errors", []):
@@ -1195,7 +1207,7 @@ class Pipeline:
                             state["neo4j_ids"] = neo4j_ids
                             if self._article_repo and state.get("article_id"):
                                 await self._article_repo.update_persist_status(
-                                    uuid.UUID(state["article_id"]), PersistStatus.NEO4J_DONE
+                                    uuid.UUID(state["article_id"]), self._graph_done_status
                                 )
                             batch_completed += 1
                             self._log_progress(
@@ -1232,7 +1244,7 @@ class Pipeline:
                         state["neo4j_ids"] = neo4j_ids
                         if self._article_repo and state.get("article_id"):
                             await self._article_repo.update_persist_status(
-                                uuid.UUID(state["article_id"]), PersistStatus.NEO4J_DONE
+                                uuid.UUID(state["article_id"]), self._graph_done_status
                             )
                         batch_completed += 1
                         self._log_progress(
