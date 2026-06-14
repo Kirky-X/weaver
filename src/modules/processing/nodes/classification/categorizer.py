@@ -89,6 +89,42 @@ CATEGORY_KEYWORDS: dict[str, list[str]] = {
 
 VALID_CATEGORIES = {"政治", "军事", "经济", "科技", "社会", "文化", "体育", "国际"}
 
+SOURCE_HOST_REGION_MAP: dict[str, str] = {
+    ".cn": "中国",
+    ".com.cn": "中国",
+    ".jp": "日本",
+    ".co.jp": "日本",
+    ".kr": "韩国",
+    ".co.kr": "韩国",
+    ".us": "美国",
+    ".uk": "英国",
+    ".co.uk": "英国",
+    ".de": "德国",
+    ".fr": "法国",
+}
+
+
+def infer_region_from_source_host(source_host: str) -> str:
+    """Infer region from source_host TLD using SOURCE_HOST_REGION_MAP.
+
+    Checks longer suffixes first (e.g., .com.cn before .cn) to avoid
+    false matches.
+
+    Args:
+        source_host: The hostname to check (e.g., "news.cn", "bbc.co.uk").
+
+    Returns:
+        Region string, defaults to "国际" if no mapping found.
+    """
+    if not source_host:
+        return "国际"
+    host_lower = source_host.lower()
+    # Sort by suffix length descending to match .com.cn before .cn
+    for suffix in sorted(SOURCE_HOST_REGION_MAP, key=len, reverse=True):
+        if host_lower.endswith(suffix):
+            return SOURCE_HOST_REGION_MAP[suffix]
+    return "国际"
+
 
 def normalize_category(cat: str) -> str:
     """Normalize category to Chinese value."""
@@ -146,10 +182,10 @@ class CascadeCategorizerNode:
             state["category"] = rule_category
             if _has_chinese(title):
                 state["language"] = "zh"
-                state["region"] = "中国"
             else:
                 state["language"] = "en"
-                state["region"] = "国际"
+            source_host = getattr(state["raw"], "source_host", "") or ""
+            state["region"] = infer_region_from_source_host(source_host)
             log.info("cascade_rule_match", title=title, category=rule_category)
             return state
 
@@ -182,7 +218,8 @@ class CascadeCategorizerNode:
                 )
                 state["category"] = "社会"
                 state["language"] = "en"
-                state["region"] = "国际"
+                source_host = getattr(state["raw"], "source_host", "") or ""
+                state["region"] = infer_region_from_source_host(source_host)
                 state.setdefault("degraded_fields", []).extend(["category", "language", "region"])
                 state.setdefault("degradation_reasons", {}).update(
                     {
@@ -200,7 +237,8 @@ class CascadeCategorizerNode:
         else:
             state["category"] = "社会"
             state["language"] = "en"
-            state["region"] = "国际"
+            source_host = getattr(state["raw"], "source_host", "") or ""
+            state["region"] = infer_region_from_source_host(source_host)
 
         log.info(
             "categorized",

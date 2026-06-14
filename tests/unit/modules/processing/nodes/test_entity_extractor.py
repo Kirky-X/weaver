@@ -736,3 +736,184 @@ class TestEntityExtractorNodeVectorCleanup:
         # Should not raise exception
         result = await node.execute(state)
         assert len(result["entities"]) == 1
+
+
+class TestEntityOutputValidation:
+    """Tests for entity type validation and relation source/target validation."""
+
+    @pytest.mark.asyncio
+    async def test_valid_entity_type_preserved(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_settings, sample_raw
+    ):
+        """Valid entity type should be preserved unchanged."""
+        mock_spacy.extract = MagicMock(return_value=[])
+        mock_llm.call_at = AsyncMock(
+            return_value=EntityExtractorOutput(
+                entities=[{"name": "张三", "type": "人物"}],
+                relations=[],
+            )
+        )
+
+        node = EntityExtractorNode(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            spacy=mock_spacy,
+            settings=mock_settings,
+        )
+        state = PipelineState(raw=sample_raw)
+        state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
+
+        result = await node.execute(state)
+
+        assert result["entities"][0]["type"] == "人物"
+
+    @pytest.mark.asyncio
+    async def test_invalid_entity_type_mapped_to_unknown(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_settings, sample_raw
+    ):
+        """Invalid entity type should be mapped to '未知'."""
+        mock_spacy.extract = MagicMock(return_value=[])
+        mock_llm.call_at = AsyncMock(
+            return_value=EntityExtractorOutput(
+                entities=[{"name": "自由意志", "type": "概念"}],
+                relations=[],
+            )
+        )
+
+        node = EntityExtractorNode(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            spacy=mock_spacy,
+            settings=mock_settings,
+        )
+        state = PipelineState(raw=sample_raw)
+        state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
+
+        result = await node.execute(state)
+
+        assert result["entities"][0]["type"] == "未知"
+
+    @pytest.mark.asyncio
+    async def test_valid_relation_preserved(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_settings, sample_raw
+    ):
+        """Relation with valid source/target should be preserved."""
+        mock_spacy.extract = MagicMock(return_value=[])
+        mock_llm.call_at = AsyncMock(
+            return_value=EntityExtractorOutput(
+                entities=[
+                    {"name": "张三", "type": "人物"},
+                    {"name": "华为", "type": "组织机构"},
+                ],
+                relations=[{"source": "张三", "target": "华为", "type": "任职于"}],
+            )
+        )
+
+        node = EntityExtractorNode(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            spacy=mock_spacy,
+            settings=mock_settings,
+        )
+        state = PipelineState(raw=sample_raw)
+        state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
+
+        result = await node.execute(state)
+
+        assert len(result["relations"]) == 1
+        assert result["relations"][0]["source"] == "张三"
+
+    @pytest.mark.asyncio
+    async def test_relation_with_missing_source_discarded(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_settings, sample_raw
+    ):
+        """Relation with source not in entities should be discarded."""
+        mock_spacy.extract = MagicMock(return_value=[])
+        mock_llm.call_at = AsyncMock(
+            return_value=EntityExtractorOutput(
+                entities=[{"name": "华为", "type": "组织机构"}],
+                relations=[
+                    {"source": "李四", "target": "华为", "type": "任职于"},
+                ],
+            )
+        )
+
+        node = EntityExtractorNode(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            spacy=mock_spacy,
+            settings=mock_settings,
+        )
+        state = PipelineState(raw=sample_raw)
+        state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
+
+        result = await node.execute(state)
+
+        assert len(result["relations"]) == 0
+
+    @pytest.mark.asyncio
+    async def test_relation_with_missing_target_discarded(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_settings, sample_raw
+    ):
+        """Relation with target not in entities should be discarded."""
+        mock_spacy.extract = MagicMock(return_value=[])
+        mock_llm.call_at = AsyncMock(
+            return_value=EntityExtractorOutput(
+                entities=[{"name": "张三", "type": "人物"}],
+                relations=[
+                    {"source": "张三", "target": "不存在的公司", "type": "任职于"},
+                ],
+            )
+        )
+
+        node = EntityExtractorNode(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            spacy=mock_spacy,
+            settings=mock_settings,
+        )
+        state = PipelineState(raw=sample_raw)
+        state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
+
+        result = await node.execute(state)
+
+        assert len(result["relations"]) == 0
+
+    @pytest.mark.asyncio
+    async def test_mixed_valid_and_invalid_types(
+        self, mock_llm, mock_budget, mock_prompt_loader, mock_spacy, mock_settings, sample_raw
+    ):
+        """Mix of valid and invalid types should be handled correctly."""
+        mock_spacy.extract = MagicMock(return_value=[])
+        mock_llm.call_at = AsyncMock(
+            return_value=EntityExtractorOutput(
+                entities=[
+                    {"name": "张三", "type": "人物"},
+                    {"name": "自由意志", "type": "概念"},
+                    {"name": "北京", "type": "地点"},
+                ],
+                relations=[],
+            )
+        )
+
+        node = EntityExtractorNode(
+            llm=mock_llm,
+            budget=mock_budget,
+            prompt_loader=mock_prompt_loader,
+            spacy=mock_spacy,
+            settings=mock_settings,
+        )
+        state = PipelineState(raw=sample_raw)
+        state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
+
+        result = await node.execute(state)
+
+        assert len(result["entities"]) == 3
+        assert result["entities"][0]["type"] == "人物"
+        assert result["entities"][1]["type"] == "未知"
+        assert result["entities"][2]["type"] == "地点"

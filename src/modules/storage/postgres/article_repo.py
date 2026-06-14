@@ -459,6 +459,26 @@ class ArticleRepo:
         )
         await session.execute(analysis_stmt)
 
+        # Update ArticleProcessing.task_id if present in state
+        task_id = state.get("task_id")
+        if task_id is not None:
+            try:
+                task_uuid = uuid.UUID(str(task_id))
+                await session.execute(
+                    pg_insert(ArticleProcessing)
+                    .values(article_id=article_id, task_id=task_uuid)
+                    .on_conflict_do_update(
+                        index_elements=["article_id"],
+                        set_={"task_id": task_uuid},
+                    )
+                )
+            except (ValueError, AttributeError):
+                log.warning(
+                    "task_id_invalid_uuid",
+                    article_id=str(article_id),
+                    task_id=str(task_id),
+                )
+
         return article_id
 
     async def upsert(self, state: PipelineState) -> uuid.UUID:

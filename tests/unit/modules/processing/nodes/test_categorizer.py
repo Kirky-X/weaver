@@ -226,6 +226,136 @@ class TestCategorizerNodeErrorHandling:
         assert result["category"] == "社会"
 
 
+class TestRegionInferenceFromSourceHost:
+    """Tests for region inference from source_host (spec: categorizer-region).
+
+    Verifies that region is inferred from source_host TLD instead of
+    being hardcoded based on Chinese title detection.
+    """
+
+    def _make_state(self, title, source_host, body="Article body"):
+        """Create a PipelineState with given title and source_host."""
+        raw = RawArticle(
+            url=f"https://{source_host}/article",
+            title=title,
+            body=body,
+            source="test",
+            publish_time=datetime.now(UTC),
+            source_host=source_host,
+        )
+        state = PipelineState(raw=raw)
+        state["cleaned"] = {"title": title, "body": body}
+        return state
+
+    @pytest.mark.asyncio
+    async def test_cn_domain_chinese_title_maps_to_china(self):
+        """Scenario 1: .cn domain + Chinese title → region='中国'."""
+        node = CategorizerNode()
+        state = self._make_state("科技新闻：AI技术突破", "news.cn")
+        result = await node.execute(state)
+        assert result["region"] == "中国"
+
+    @pytest.mark.asyncio
+    async def test_non_cn_domain_chinese_title_maps_to_international(self):
+        """Scenario 2: non-.cn domain + Chinese title → region='国际'."""
+        node = CategorizerNode()
+        state = self._make_state("国际新闻：全球市场分析", "bbc.com")
+        result = await node.execute(state)
+        assert result["region"] == "国际"
+
+    @pytest.mark.asyncio
+    async def test_jp_domain_maps_to_japan(self):
+        """Scenario 3: .jp domain → region='日本'."""
+        node = CategorizerNode()
+        state = self._make_state("テクノロジー最新ニュース", "news.jp")
+        result = await node.execute(state)
+        assert result["region"] == "日本"
+
+    @pytest.mark.asyncio
+    async def test_unknown_domain_defaults_to_international(self):
+        """Scenario 4: unknown domain → region='国际'."""
+        node = CategorizerNode()
+        state = self._make_state("Some tech news", "randomsite.xyz")
+        result = await node.execute(state)
+        assert result["region"] == "国际"
+
+    @pytest.mark.asyncio
+    async def test_kr_domain_maps_to_korea(self):
+        """Extended: .kr domain → region='韩国'."""
+        node = CategorizerNode()
+        state = self._make_state("한국 기술 뉴스", "news.kr")
+        result = await node.execute(state)
+        assert result["region"] == "韩国"
+
+    @pytest.mark.asyncio
+    async def test_us_domain_maps_to_usa(self):
+        """Extended: .us domain → region='美国'."""
+        node = CategorizerNode()
+        state = self._make_state("US tech news", "news.us")
+        result = await node.execute(state)
+        assert result["region"] == "美国"
+
+    @pytest.mark.asyncio
+    async def test_uk_domain_maps_to_uk(self):
+        """Extended: .uk domain → region='英国'."""
+        node = CategorizerNode()
+        state = self._make_state("UK technology update", "bbc.uk")
+        result = await node.execute(state)
+        assert result["region"] == "英国"
+
+    @pytest.mark.asyncio
+    async def test_de_domain_maps_to_germany(self):
+        """Extended: .de domain → region='德国'."""
+        node = CategorizerNode()
+        state = self._make_state("Deutsche Technologie", "news.de")
+        result = await node.execute(state)
+        assert result["region"] == "德国"
+
+    @pytest.mark.asyncio
+    async def test_fr_domain_maps_to_france(self):
+        """Extended: .fr domain → region='法国'."""
+        node = CategorizerNode()
+        state = self._make_state("Nouvelles technologiques", "news.fr")
+        result = await node.execute(state)
+        assert result["region"] == "法国"
+
+    @pytest.mark.asyncio
+    async def test_cn_subdomain_maps_to_china(self):
+        """Edge case: subdomain.cn → region='中国'."""
+        node = CategorizerNode()
+        state = self._make_state("中国科技新闻", "www.solidot.cn")
+        result = await node.execute(state)
+        assert result["region"] == "中国"
+
+    @pytest.mark.asyncio
+    async def test_com_cn_domain_maps_to_china(self):
+        """Edge case: .com.cn → region='中国'."""
+        node = CategorizerNode()
+        state = self._make_state("科技新闻", "news.com.cn")
+        result = await node.execute(state)
+        assert result["region"] == "中国"
+
+    @pytest.mark.asyncio
+    async def test_source_host_mapping_constant_covers_major_tlds(self):
+        """Scenario: Mapping covers major TLDs (spec requirement)."""
+        from modules.processing.nodes.classification.categorizer import SOURCE_HOST_REGION_MAP
+
+        expected_mappings = {
+            ".cn": "中国",
+            ".jp": "日本",
+            ".kr": "韩国",
+            ".us": "美国",
+            ".uk": "英国",
+            ".de": "德国",
+            ".fr": "法国",
+        }
+        for tld, region in expected_mappings.items():
+            assert tld in SOURCE_HOST_REGION_MAP, f"Missing TLD: {tld}"
+            assert (
+                SOURCE_HOST_REGION_MAP[tld] == region
+            ), f"Wrong region for {tld}: expected {region}"
+
+
 class TestCategorizerNodeIntegration:
     @pytest.mark.asyncio
     async def test_preserves_state(self, mock_llm, mock_prompt_loader, sample_raw):

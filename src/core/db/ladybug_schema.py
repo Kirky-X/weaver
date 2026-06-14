@@ -191,6 +191,12 @@ SCHEMA_QUERIES = [
         created_at INT64
     )
     """,
+    # HAS_EVENT relationship - Article has EventNode
+    """
+    CREATE REL TABLE IF NOT EXISTS HAS_EVENT (
+        FROM Article TO EventNode
+    )
+    """,
 ]
 
 

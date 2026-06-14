@@ -7,6 +7,8 @@ Coordinates entity and article repositories for graph write operations.
 from __future__ import annotations
 
 import asyncio
+import json
+import time
 from typing import Any
 
 from core.observability import get_logger
@@ -104,6 +106,44 @@ class LadybugWriter:
             category=category_str,
             publish_time=publish_time,
             score=score,
+        )
+
+        # Create EventNode linked to Article
+        body = state.get("cleaned", {}).get("body", "")
+        event_content = f"{title}\n\n{body}" if body else title
+        event_attributes = {"category": category_str}
+        if score is not None:
+            event_attributes["score"] = score
+
+        await self._pool.execute_query(
+            """
+            MERGE (e:EventNode {id: $id})
+            SET e.content = $content,
+                e.attributes = $attributes,
+                e.event_type = $event_type,
+                e.name = $name,
+                e.event_time = $event_time,
+                e.created_at = $created_at
+            """,
+            {
+                "id": article_id,
+                "content": event_content,
+                "attributes": json.dumps(event_attributes, ensure_ascii=False),
+                "event_type": "news",
+                "name": title,
+                "event_time": publish_time or 0,
+                "created_at": int(time.time()),
+            },
+        )
+
+        # Create HAS_EVENT relationship: Article → EventNode
+        await self._pool.execute_query(
+            """
+            MATCH (a:Article {pg_id: $pg_id})
+            MATCH (e:EventNode {id: $event_id})
+            MERGE (a)-[:HAS_EVENT]->(e)
+            """,
+            {"pg_id": article_id, "event_id": article_id},
         )
 
         # Create entities and MENTIONS relationships

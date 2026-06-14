@@ -38,6 +38,8 @@ _DEFAULT_RELATION_TYPES = """
 竞争: 实体之间的竞争关系
 """.strip()
 
+ALLOWED_ENTITY_TYPES = {"人物", "组织机构", "地点", "事件", "数据指标", "法规与政策", "未知"}
+
 
 class EntityExtractorNode:
     """Pipeline node: extract entities using spaCy + LLM refinement.
@@ -228,6 +230,36 @@ class EntityExtractorNode:
             )
             state["entities"] = result.entities
             state["relations"] = result.relations
+
+            # Post-validation: validate entity types against allowed list
+            for entity in state["entities"]:
+                entity_type = entity.get("type", "未知")
+                if entity_type not in ALLOWED_ENTITY_TYPES:
+                    log.warning(
+                        "entity_type_not_allowed",
+                        entity_name=entity.get("name", ""),
+                        original_type=entity_type,
+                        mapped_type="未知",
+                    )
+                    entity["type"] = "未知"
+
+            # Post-validation: discard relations with missing source/target
+            entity_names = {e.get("name") for e in state["entities"]}
+            valid_relations = []
+            for rel in state["relations"]:
+                source = rel.get("source")
+                target = rel.get("target")
+                if source in entity_names and target in entity_names:
+                    valid_relations.append(rel)
+                else:
+                    log.warning(
+                        "relation_dropped_missing_entity",
+                        source=source,
+                        target=target,
+                        relation_type=rel.get("type", ""),
+                    )
+            state["relations"] = valid_relations
+
             entity_count = len(result.entities)
 
             # Filter data metrics entities when configured

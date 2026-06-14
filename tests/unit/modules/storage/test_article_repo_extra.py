@@ -826,6 +826,236 @@ class TestArticleRepoGetIncompleteArticles:
         assert len(result) == 1
 
 
+class TestArticleRepoTaskIdPersistence:
+    """Tests for task_id persistence in _upsert_single (spec: pipeline-task-persistence)."""
+
+    @pytest.fixture
+    def mock_pool(self):
+        """Create mock PostgreSQL pool."""
+        pool = MagicMock()
+        return pool
+
+    @pytest.fixture
+    def repo(self, mock_pool):
+        """Create ArticleRepo instance."""
+        return ArticleRepo(mock_pool)
+
+    def _make_state(self, task_id=None, **extra):
+        """Create a pipeline state dict with required fields."""
+        mock_raw = MagicMock()
+        mock_raw.url = "https://example.com/test"
+        mock_raw.source_host = "example.com"
+        mock_raw.title = "Test Article"
+        mock_raw.body = "Article body"
+        state = {"raw": mock_raw, "is_news": True}
+        if task_id is not None:
+            state["task_id"] = task_id
+        state.update(extra)
+        return state
+
+    def _setup_mock_session(self, mock_pool, execute_side_effects):
+        """Set up mock session with expected execute results."""
+        mock_session = AsyncMock()
+        mock_session.execute.side_effect = execute_side_effects
+        mock_session.commit = AsyncMock()
+
+        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
+        return mock_session
+
+    @pytest.mark.asyncio
+    async def test_task_id_present_writes_to_article_processing(self, repo, mock_pool):
+        """Scenario 1: task_id present in state → ArticleProcessing.task_id updated.
+
+        Verifies that when state contains task_id, _upsert_single issues
+        an INSERT ... ON CONFLICT DO UPDATE for ArticleProcessing with the task_id.
+        """
+        article_id = uuid.uuid4()
+        task_id = uuid.uuid4()
+        state = self._make_state(task_id=str(task_id))
+
+        # _upsert_single execute calls:
+        # 1. select existing ArticleCore (no existing)
+        # 2. pg_insert ArticleCore
+        # 3. select ArticleCore.id
+        # 4. pg_insert ArticleBody
+        # 5. pg_insert ArticleAnalysis
+        # 6. pg_insert ArticleProcessing (task_id upsert)
+        mock_existing_result = MagicMock()
+        mock_existing_result.one_or_none.return_value = None
+
+        mock_core_result = MagicMock()
+        mock_core_result.scalar_one.return_value = article_id
+
+        mock_session = self._setup_mock_session(
+            mock_pool,
+            [
+                mock_existing_result,  # select existing ArticleCore
+                MagicMock(),  # pg_insert ArticleCore
+                mock_core_result,  # select ArticleCore.id
+                MagicMock(),  # pg_insert ArticleBody
+                MagicMock(),  # pg_insert ArticleAnalysis
+                MagicMock(),  # pg_insert ArticleProcessing (task_id)
+            ],
+        )
+
+        result = await repo.upsert(state)
+
+        assert result == article_id
+        # 6 execute calls: 5 standard + 1 for ArticleProcessing task_id
+        assert mock_session.execute.call_count == 6
+
+        # Verify the last execute call is for ArticleProcessing with task_id
+        last_call_args = mock_session.execute.call_args_list[5]
+        last_stmt = last_call_args[0][0]
+        # The statement should be an insert with on_conflict_do_update
+        assert hasattr(last_stmt, "on_conflict_do_update")
+
+    @pytest.mark.asyncio
+    async def test_task_id_absent_no_article_processing_update(self, repo, mock_pool):
+        """Scenario 2: task_id absent in state → ArticleProcessing.task_id unchanged.
+
+        Verifies that when state does NOT contain task_id, _upsert_single
+        does NOT issue any ArticleProcessing update.
+        """
+        article_id = uuid.uuid4()
+        state = self._make_state()  # No task_id
+
+        mock_existing_result = MagicMock()
+        mock_existing_result.one_or_none.return_value = None
+
+        mock_core_result = MagicMock()
+        mock_core_result.scalar_one.return_value = article_id
+
+        mock_session = self._setup_mock_session(
+            mock_pool,
+            [
+                mock_existing_result,  # select existing ArticleCore
+                MagicMock(),  # pg_insert ArticleCore
+                mock_core_result,  # select ArticleCore.id
+                MagicMock(),  # pg_insert ArticleBody
+                MagicMock(),  # pg_insert ArticleAnalysis
+            ],
+        )
+
+        result = await repo.upsert(state)
+
+        assert result == article_id
+        # Only 5 execute calls: no ArticleProcessing task_id update
+        assert mock_session.execute.call_count == 5
+
+    @pytest.mark.asyncio
+    async def test_task_id_overwrites_existing(self, repo, mock_pool):
+        """Scenario 3: task_id already set → state's task_id overwrites old value.
+
+        The ON CONFLICT DO UPDATE ensures the new task_id overwrites
+        any existing value in ArticleProcessing.
+        """
+        article_id = uuid.uuid4()
+        new_task_id = uuid.uuid4()
+        state = self._make_state(task_id=str(new_task_id))
+
+        mock_existing_result = MagicMock()
+        mock_existing_result.one_or_none.return_value = None
+
+        mock_core_result = MagicMock()
+        mock_core_result.scalar_one.return_value = article_id
+
+        mock_session = self._setup_mock_session(
+            mock_pool,
+            [
+                mock_existing_result,  # select existing ArticleCore
+                MagicMock(),  # pg_insert ArticleCore
+                mock_core_result,  # select ArticleCore.id
+                MagicMock(),  # pg_insert ArticleBody
+                MagicMock(),  # pg_insert ArticleAnalysis
+                MagicMock(),  # pg_insert ArticleProcessing (task_id overwrite)
+            ],
+        )
+
+        result = await repo.upsert(state)
+
+        assert result == article_id
+        assert mock_session.execute.call_count == 6
+
+    @pytest.mark.asyncio
+    async def test_task_id_invalid_uuid_logs_warning(self, repo, mock_pool):
+        """Edge case: invalid task_id format → warning logged, no crash.
+
+        When task_id is not a valid UUID, the code should log a warning
+        and skip the ArticleProcessing update without raising.
+        """
+        article_id = uuid.uuid4()
+        state = self._make_state(task_id="not-a-valid-uuid")
+
+        mock_existing_result = MagicMock()
+        mock_existing_result.one_or_none.return_value = None
+
+        mock_core_result = MagicMock()
+        mock_core_result.scalar_one.return_value = article_id
+
+        mock_session = self._setup_mock_session(
+            mock_pool,
+            [
+                mock_existing_result,  # select existing ArticleCore
+                MagicMock(),  # pg_insert ArticleCore
+                mock_core_result,  # select ArticleCore.id
+                MagicMock(),  # pg_insert ArticleBody
+                MagicMock(),  # pg_insert ArticleAnalysis
+                # No 6th call — invalid UUID skips ArticleProcessing insert
+            ],
+        )
+
+        result = await repo.upsert(state)
+
+        assert result == article_id
+        # Only 5 execute calls: invalid task_id skipped
+        assert mock_session.execute.call_count == 5
+
+    @pytest.mark.asyncio
+    async def test_bulk_upsert_with_task_id(self, repo, mock_pool):
+        """Integration: bulk_upsert passes task_id through to _upsert_single.
+
+        Verifies the full path from bulk_upsert → _upsert_chunk → _upsert_single
+        correctly persists task_id.
+        """
+        article_id = uuid.uuid4()
+        task_id = uuid.uuid4()
+
+        mock_raw = MagicMock()
+        mock_raw.url = "https://example.com/bulk"
+        mock_raw.source_host = "example.com"
+        mock_raw.title = "Bulk Article"
+        mock_raw.body = "Article body"
+
+        state = {"raw": mock_raw, "is_news": True, "task_id": str(task_id)}
+
+        mock_existing_result = MagicMock()
+        mock_existing_result.one_or_none.return_value = None
+
+        mock_core_result = MagicMock()
+        mock_core_result.scalar_one.return_value = article_id
+
+        mock_session = AsyncMock()
+        mock_session.execute.side_effect = [
+            mock_existing_result,  # select existing ArticleCore
+            MagicMock(),  # pg_insert ArticleCore
+            mock_core_result,  # select ArticleCore.id
+            MagicMock(),  # pg_insert ArticleBody
+            MagicMock(),  # pg_insert ArticleAnalysis
+            MagicMock(),  # pg_insert ArticleProcessing (task_id)
+        ]
+        mock_session.commit = AsyncMock()
+
+        mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        result = await repo.bulk_upsert([state])
+
+        assert result == [article_id]
+        assert mock_session.execute.call_count == 6
+
+
 class TestArticleRepoGetTaskProgressStats:
     """Tests for ArticleRepo.get_task_progress_stats method."""
 
