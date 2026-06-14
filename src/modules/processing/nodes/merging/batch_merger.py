@@ -109,6 +109,15 @@ class BatchMergerNode:
         self._graph_writer = graph_writer
         self._saga_orchestrator = saga_orchestrator
 
+    @property
+    def _graph_done_status(self) -> PersistStatus:
+        """Return LADYBUG_DONE or NEO4J_DONE based on graph_writer type."""
+        from modules.storage.ladybug.writer import LadybugWriter
+
+        if isinstance(self._graph_writer, LadybugWriter):
+            return PersistStatus.LADYBUG_DONE
+        return PersistStatus.NEO4J_DONE
+
     async def execute_batch(
         self, states: list[PipelineState], pipeline_b_mode: bool = False
     ) -> list[PipelineState]:
@@ -489,7 +498,7 @@ class BatchMergerNode:
                     try:
                         await self._article_repo.update_persist_status(
                             uuid.UUID(article_id_str),
-                            PersistStatus.NEO4J_DONE,
+                            self._graph_done_status,
                         )
                     except Exception as status_exc:
                         log.warning(

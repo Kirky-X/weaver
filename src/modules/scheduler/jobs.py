@@ -69,6 +69,15 @@ class SchedulerJobs:
         self._llm_failure_repo = llm_failure_repo
         self._url_validator = url_validator
 
+    @property
+    def _graph_done_status(self) -> PersistStatus:
+        """Return LADYBUG_DONE or NEO4J_DONE based on graph_writer type."""
+        from modules.storage.ladybug.writer import LadybugWriter
+
+        if isinstance(self._graph_writer, LadybugWriter):
+            return PersistStatus.LADYBUG_DONE
+        return PersistStatus.NEO4J_DONE
+
     @scheduled_task("retry_neo4j_writes", timeout_seconds=300)
     async def retry_neo4j_writes(self) -> int:
         """Retry failed Neo4j writes.
@@ -129,7 +138,7 @@ class SchedulerJobs:
                     await self._graph_writer.write(state)
 
                     # Update status
-                    article.persist_status = PersistStatus.NEO4J_DONE
+                    article.persist_status = self._graph_done_status
                     await session.commit()
                     retry_count += 1
                     consecutive_failures = 0
@@ -481,11 +490,7 @@ class SchedulerJobs:
 
             # For each task, check if all articles are in terminal states
             # If so, update Redis task status to "completed"
-            terminal_statuses = {
-                PersistStatus.NEO4J_DONE,
-                PersistStatus.PG_DONE,
-                PersistStatus.FAILED,
-            }
+            terminal_statuses = PersistStatus.completed_statuses() | {PersistStatus.FAILED}
             for task_id, task_arts in task_articles.items():
                 all_terminal = all(art.persist_status in terminal_statuses for art in task_arts)
                 if all_terminal:
@@ -680,7 +685,7 @@ class SchedulerJobs:
 
                     # Update article persist status
                     await self._article_repo.update_persist_status(
-                        record.article_id, PersistStatus.NEO4J_DONE
+                        record.article_id, self._graph_done_status
                     )
 
                     # Mark record as synced

@@ -919,7 +919,7 @@ class ArticleRepo:
                 select(Article)
                 .where(
                     and_(
-                        Article.persist_status == PersistStatus.NEO4J_DONE,
+                        Article.persist_status.in_(PersistStatus.completed_statuses()),
                         or_(
                             Article.category.is_(None),
                             Article.score.is_(None),
@@ -1333,7 +1333,7 @@ class ArticleRepo:
                         sql_case(
                             (
                                 ArticleCore.persist_status.in_(
-                                    [PersistStatus.NEO4J_DONE, PersistStatus.PG_DONE]
+                                    list(PersistStatus.completed_statuses())
                                 ),
                                 1,
                             ),

@@ -104,7 +104,9 @@ class TestRuleLayer:
         state["cleaned"] = {"title": sample_raw.title, "body": sample_raw.body}
         result = await node.execute(state)
         assert result["language"] == "zh"
-        assert result["region"] == "中国"
+        # Region is inferred from source_host, not hardcoded from title
+        # example.com → "国际" (no .cn TLD)
+        assert result["region"] == "国际"
 
     @pytest.mark.asyncio
     async def test_sets_default_language_with_english_title(self, sample_raw):

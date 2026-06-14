@@ -314,3 +314,56 @@ class TestLadybugDoneStatus:
         assert PersistStatus.is_valid_transition(PersistStatus.PENDING, PersistStatus.PROCESSING)
         assert PersistStatus.is_valid_transition(PersistStatus.PROCESSING, PersistStatus.PG_DONE)
         assert PersistStatus.is_valid_transition(PersistStatus.PG_DONE, PersistStatus.LADYBUG_DONE)
+
+
+class TestCompletedStatuses:
+    """Tests for PersistStatus.completed_statuses() class method."""
+
+    def test_completed_statuses_includes_pg_done(self):
+        """PG_DONE is a completed status (intermediate success)."""
+        assert PersistStatus.PG_DONE in PersistStatus.completed_statuses()
+
+    def test_completed_statuses_includes_neo4j_done(self):
+        """NEO4J_DONE is a completed status (terminal success for Neo4j)."""
+        assert PersistStatus.NEO4J_DONE in PersistStatus.completed_statuses()
+
+    def test_completed_statuses_includes_ladybug_done(self):
+        """LADYBUG_DONE is a completed status (terminal success for LadybugDB)."""
+        assert PersistStatus.LADYBUG_DONE in PersistStatus.completed_statuses()
+
+    def test_completed_statuses_includes_saga_completed(self):
+        """SAGA_COMPLETED is a completed status (terminal success for Saga)."""
+        assert PersistStatus.SAGA_COMPLETED in PersistStatus.completed_statuses()
+
+    def test_completed_statuses_excludes_non_complete(self):
+        """Non-complete statuses are excluded."""
+        non_complete = {
+            PersistStatus.PENDING,
+            PersistStatus.PROCESSING,
+            PersistStatus.NEO4J_FAILED,
+            PersistStatus.FAILED,
+            PersistStatus.SAGA_STARTED,
+            PersistStatus.SAGA_PG_WRITING,
+            PersistStatus.SAGA_NEO4J_WRITING,
+            PersistStatus.SAGA_COMPENSATING,
+            PersistStatus.SAGA_COMPENSATED,
+        }
+        for status in non_complete:
+            assert (
+                status not in PersistStatus.completed_statuses()
+            ), f"{status} should not be in completed_statuses"
+
+    def test_completed_statuses_returns_frozenset(self):
+        """completed_statuses() returns a frozenset (immutable)."""
+        result = PersistStatus.completed_statuses()
+        assert isinstance(result, frozenset)
+
+    def test_completed_statuses_has_four_members(self):
+        """completed_statuses() contains exactly 4 statuses."""
+        assert len(PersistStatus.completed_statuses()) == 4
+
+    def test_all_terminal_success_states_included(self):
+        """All terminal success states from is_terminal are in completed_statuses."""
+        terminal_success = {s for s in PersistStatus if PersistStatus.is_terminal(s)}
+        # completed_statuses includes terminal success + PG_DONE
+        assert terminal_success.issubset(PersistStatus.completed_statuses())

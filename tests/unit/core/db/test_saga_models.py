@@ -122,8 +122,8 @@ class TestPersistStatusSagaStates:
     def test_saga_completed_exists(self):
         assert PersistStatus.SAGA_COMPLETED == "saga_completed"
 
-    def test_enum_has_twelve_members(self):
-        assert len(list(PersistStatus)) == 12
+    def test_enum_has_thirteen_members(self):
+        assert len(list(PersistStatus)) == 13
 
 
 class TestPersistStatusSagaTransitions:

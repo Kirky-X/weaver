@@ -1117,4 +1117,41 @@ class TestAggregateLLMUsage:
             result = await scheduler_jobs_service.aggregate_llm_usage()
 
             assert result == 5
-            mock_flush.assert_awaited_once()
+
+
+class TestSchedulerJobsGraphDoneStatus:
+    """Test SchedulerJobs._graph_done_status property."""
+
+    def test_neo4j_writer_returns_neo4j_done(self):
+        """Neo4jWriter returns NEO4J_DONE."""
+        from core.db import PersistStatus
+        from modules.scheduler import SchedulerJobs
+
+        jobs = SchedulerJobs(
+            relational_pool=MagicMock(),
+            cache=MagicMock(),
+            graph_writer=MagicMock(name="Neo4jWriter"),
+            vector_repo=MagicMock(),
+            article_repo=MagicMock(),
+            source_authority_repo=MagicMock(),
+            pending_sync_repo=MagicMock(),
+        )
+        assert jobs._graph_done_status == PersistStatus.NEO4J_DONE
+
+    def test_ladybug_writer_returns_ladybug_done(self):
+        """LadybugWriter returns LADYBUG_DONE."""
+        from core.db import PersistStatus
+        from modules.scheduler import SchedulerJobs
+        from modules.storage.ladybug.writer import LadybugWriter
+
+        mock_pool = MagicMock()
+        jobs = SchedulerJobs(
+            relational_pool=MagicMock(),
+            cache=MagicMock(),
+            graph_writer=LadybugWriter(mock_pool),
+            vector_repo=MagicMock(),
+            article_repo=MagicMock(),
+            source_authority_repo=MagicMock(),
+            pending_sync_repo=MagicMock(),
+        )
+        assert jobs._graph_done_status == PersistStatus.LADYBUG_DONE

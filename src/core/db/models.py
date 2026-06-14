@@ -161,6 +161,16 @@ class PersistStatus(str, enum.Enum):
         return to_status in allowed
 
     @classmethod
+    def completed_statuses(cls) -> frozenset[PersistStatus]:
+        """Return the set of statuses that indicate article processing is complete.
+
+        Includes all terminal success states and PG_DONE (intermediate success).
+        Used for queries that need to find "completed" articles regardless of
+        which graph database backend was used.
+        """
+        return frozenset({cls.PG_DONE, cls.NEO4J_DONE, cls.LADYBUG_DONE, cls.SAGA_COMPLETED})
+
+    @classmethod
     def is_terminal(cls, status: PersistStatus) -> bool:
         """Check if a status is terminal (no outgoing transitions except self).
 

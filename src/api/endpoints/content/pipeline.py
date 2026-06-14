@@ -367,9 +367,7 @@ async def get_queue_stats(
                 func.sum(
                     case(
                         (
-                            Article.persist_status.in_(
-                                [PersistStatus.NEO4J_DONE, PersistStatus.PG_DONE]
-                            ),
+                            Article.persist_status.in_(list(PersistStatus.completed_statuses())),
                             1,
                         ),
                         else_=0,

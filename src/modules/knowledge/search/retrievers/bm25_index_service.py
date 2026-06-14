@@ -160,12 +160,7 @@ class BM25IndexService:
             query = (
                 select(Article)
                 .where(
-                    Article.persist_status.in_(
-                        [
-                            PersistStatus.PG_DONE,
-                            PersistStatus.NEO4J_DONE,
-                        ]
-                    ),
+                    Article.persist_status.in_(list(PersistStatus.completed_statuses())),
                     Article.title.isnot(None),
                     Article.body.isnot(None),
                 )
