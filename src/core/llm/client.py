@@ -103,6 +103,11 @@ class LLMClient:
             providers=list(self._pools.keys()),
         )
 
+    @property
+    def default_embedding_label(self) -> str:
+        """Return the default embedding model label string."""
+        return str(self._router.get_default(LLMType.EMBEDDING))
+
     async def _emit_usage_event(
         self,
         label: Label,

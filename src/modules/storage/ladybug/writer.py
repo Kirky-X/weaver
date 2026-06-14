@@ -113,7 +113,7 @@ class LadybugWriter:
         event_content = f"{title}\n\n{body}" if body else title
         event_attributes = {"category": category_str}
         if score is not None:
-            event_attributes["score"] = score
+            event_attributes["score"] = float(score)
 
         await self._pool.execute_query(
             """

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from decimal import Decimal
 from typing import Any
 
 from core.mappers.neo4j_entity_mapper import Neo4jEntityMapper
@@ -255,7 +256,13 @@ class LadybugEntityRepo(BaseEntityRepo):
             "from_id": from_entity_id,
             "to_id": to_entity_id,
             "edge_type": edge_type,
-            "properties": json.dumps(properties or {}),
+            "properties": json.dumps(
+                {
+                    k: float(v) if isinstance(v, Decimal) else v
+                    for k, v in (properties or {}).items()
+                },
+                ensure_ascii=False,
+            ),
             "weight": weight,
             "created_at": now,
             "updated_at": now,
