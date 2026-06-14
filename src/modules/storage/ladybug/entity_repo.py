@@ -344,10 +344,21 @@ class LadybugEntityRepo(BaseEntityRepo):
         MATCH (e:Entity {id: $entity_id})
         MERGE (a)-[r:MENTIONS]->(e)
         SET r.role = $role
+        RETURN count(r) as cnt
         """
-        await self._pool.execute_query(
+        result = await self._pool.execute_query(
             query, {"article_id": article_id, "entity_id": entity_id, "role": role}
         )
+        if not result:
+            import structlog
+
+            log = structlog.get_logger(__name__)
+            log.warning(
+                "mentions_relation_creation_failed",
+                article_id=article_id,
+                entity_id=entity_id,
+                reason="Article or Entity node not found for MATCH",
+            )
 
     async def get_relation_types(
         self,

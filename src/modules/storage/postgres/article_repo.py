@@ -134,6 +134,16 @@ def _apply_state_to_analysis(analysis: ArticleAnalysis, state: PipelineState) ->
                 analysis.event_time = datetime.fromisoformat(si["event_time"])
             except (ValueError, TypeError):
                 pass
+        # Fallback: use publish_time when LLM didn't extract event_time
+        if analysis.event_time is None and state.get("cleaned", {}).get("publish_time"):
+            pt = state["cleaned"]["publish_time"]
+            try:
+                if isinstance(pt, datetime):
+                    analysis.event_time = pt
+                else:
+                    analysis.event_time = datetime.fromisoformat(str(pt))
+            except (ValueError, TypeError):
+                pass
     elif state.get("merged_source_ids"):
         # Article was merged — clear stale analysis
         analysis.subjects = None
@@ -211,6 +221,16 @@ class ArticleRepo:
             if si.get("event_time"):
                 try:
                     values["event_time"] = datetime.fromisoformat(si["event_time"])
+                except (ValueError, TypeError):
+                    pass
+            # Fallback: use publish_time when LLM didn't extract event_time
+            if "event_time" not in values and state.get("cleaned", {}).get("publish_time"):
+                pt = state["cleaned"]["publish_time"]
+                try:
+                    if isinstance(pt, datetime):
+                        values["event_time"] = pt
+                    else:
+                        values["event_time"] = datetime.fromisoformat(str(pt))
                 except (ValueError, TypeError):
                     pass
         if "sentiment" in state:
@@ -408,6 +428,8 @@ class ArticleRepo:
                     (ArticleCore.content_hash != content_hash, stmt.excluded.category),
                     else_=ArticleCore.category,
                 ),
+                "language": stmt.excluded.language,
+                "region": stmt.excluded.region,
                 "score": stmt.excluded.score,
                 "sentiment_score": stmt.excluded.sentiment_score,
                 "credibility_score": stmt.excluded.credibility_score,
