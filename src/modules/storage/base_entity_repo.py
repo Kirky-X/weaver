@@ -500,13 +500,6 @@ class BaseEntityRepo(ABC):
         for i in range(0, len(items), size):
             yield items[i : i + size]
 
-    @staticmethod
-    async def _sleep(seconds: float) -> None:
-        """Async sleep helper."""
-        import asyncio
-
-        await asyncio.sleep(seconds)
-
     # -------------------------------------------------------------------------
     # Abstract methods for subclass-specific queries
     # -------------------------------------------------------------------------

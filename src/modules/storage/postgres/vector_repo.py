@@ -230,7 +230,10 @@ class VectorRepo:
                     ef_value = self._ef_search_manager.get_ef_search(search_mode)
                 else:
                     ef_value = 100  # Default fallback
-                await session.execute(text(f"SET hnsw.ef_search = {ef_value}"))
+                await session.execute(
+                    text("SET hnsw.ef_search = :value"),
+                    {"value": ef_value},
+                )
                 log.debug("ef_search_set_in_session", ef_search=ef_value, mode=search_mode)
 
             query = text(self._query_builder.build_find_similar_articles_query(config))

@@ -12,7 +12,10 @@ Security Note:
 
 from __future__ import annotations
 
+import hashlib
 import pickle
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -83,6 +86,42 @@ class RestrictedUnpickler(pickle.Unpickler):
             f"Unsafe pickle: attempting to load {module}.{name} "
             f"which is not in allowed classes list"
         )
+
+
+@contextmanager
+def _secure_pickle_load() -> Generator[None, None, None]:
+    """Context manager that patches pickle.load to use RestrictedUnpickler.
+
+    This prevents arbitrary code execution when loading bm25s index files
+    that use pickle internally. The patch is scoped to the context manager
+    lifetime only.
+    """
+    _original_load = pickle.load
+
+    def _restricted_load(f, **kwargs):
+        return RestrictedUnpickler(f, **kwargs).load()
+
+    pickle.load = _restricted_load  # type: ignore[assignment]
+    try:
+        yield
+    finally:
+        pickle.load = _original_load  # type: ignore[assignment]
+
+
+def _compute_file_hash(path: Path) -> str:
+    """Compute SHA256 hash of a file for integrity verification.
+
+    Args:
+        path: Path to the file.
+
+    Returns:
+        Hex digest of the SHA256 hash.
+    """
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 log = get_logger(__name__)
@@ -405,6 +444,10 @@ class BM25Retriever:
         # Save bm25s index
         self._retriever.save(str(save_dir / self.INDEX_FILE))
 
+        # Compute hash of binary index file for integrity verification
+        index_data_dir = save_dir / self.INDEX_FILE
+        index_hash = _compute_file_hash(index_data_dir) if index_data_dir.exists() else ""
+
         # Save documents and metadata as signed JSON
         data = {
             "documents": [doc.to_dict() for doc in self._documents],
@@ -412,7 +455,8 @@ class BM25Retriever:
             "language": self._language,
             "k1": self._k1,
             "b": self._b,
-            "format_version": 2,  # v2 = JSON with signature
+            "index_hash": index_hash,
+            "format_version": 3,  # v3 = JSON with signature + binary index hash
         }
 
         save_signed_json(data, save_dir / self.DOCUMENTS_FILE, self._signing_key)
@@ -422,26 +466,45 @@ class BM25Retriever:
     def load(self, path: str | None = None) -> None:
         """Load BM25 index from disk with integrity verification.
 
+        Verifies both the HMAC-signed JSON metadata and the SHA256 hash
+        of the binary index file before loading. Uses RestrictedUnpickler
+        to prevent arbitrary code execution via pickle.
+
         Args:
             path: Directory path for loading. Uses index_dir if not specified.
 
         Raises:
-            IntegrityError: If index signature verification fails.
+            IntegrityError: If index signature verification or hash check fails.
         """
         load_dir = Path(path) if path else self._index_dir
         if load_dir is None:
             raise ValueError("No load path specified")
 
-        # Load bm25s index
-        self._retriever = bm25s.BM25.load(str(load_dir / self.INDEX_FILE), load_corpus=True)
-
-        # Load signed JSON
+        # Load signed JSON first to get metadata and expected hash
         json_path = load_dir / self.DOCUMENTS_FILE
 
-        if json_path.exists():
-            data = self._load_json_index(json_path)
-        else:
+        if not json_path.exists():
             raise FileNotFoundError(f"No index files found in {load_dir}")
+
+        data = self._load_json_index(json_path)
+
+        # Verify binary index file integrity via hash
+        expected_hash = data.get("index_hash", "")
+        if expected_hash:
+            index_data_dir = load_dir / self.INDEX_FILE
+            if index_data_dir.exists():
+                actual_hash = _compute_file_hash(index_data_dir)
+                if actual_hash != expected_hash:
+                    raise IntegrityError(
+                        f"Binary index hash mismatch: expected {expected_hash[:16]}..., "
+                        f"got {actual_hash[:16]}..."
+                    )
+            else:
+                raise IntegrityError(f"Binary index file not found: {index_data_dir}")
+
+        # Load bm25s index with secure pickle loading
+        with _secure_pickle_load():
+            self._retriever = bm25s.BM25.load(str(load_dir / self.INDEX_FILE), load_corpus=True)
 
         # Restore state from data
         self._documents = [BM25Document.from_dict(d) for d in data["documents"]]

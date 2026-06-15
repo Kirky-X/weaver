@@ -30,6 +30,7 @@ from core.llm.config.token_budget import TokenBudgetManager
 from core.observability import get_logger
 from core.prompt.loader import PromptLoader
 from core.services.pipeline_service import PipelineServiceImpl
+from core.utils.sanitize import sanitize_dsn
 from modules.ingestion.domain.models import RawArticle
 from modules.processing.nlp.spacy_extractor import SpacyExtractor
 from modules.processing.pipeline.graph import Pipeline
@@ -53,9 +54,7 @@ async def _init_minimal_container():
     await postgres_pool.startup()
     log.info(
         "postgres_initialized",
-        dsn=(
-            str(settings.postgres.dsn).split("@")[1] if "@" in str(settings.postgres.dsn) else "..."
-        ),
+        dsn=sanitize_dsn(settings.postgres.dsn),
     )
 
     cache_client = RedisClient(settings.redis.url)

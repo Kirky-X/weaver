@@ -3,20 +3,18 @@
 
 from __future__ import annotations
 
-import re
+import asyncio
 import uuid
 from typing import Any
 
 from neo4j.exceptions import ConstraintError
 
+from core.db.safe_query import validate_edge_type
 from core.mappers.neo4j_entity_mapper import Neo4jEntityMapper
 from core.models.shared import EntityView
 from core.observability import get_logger
 from core.utils.time_utils import convert_timestamp
 from modules.storage.base_entity_repo import BaseEntityRepo
-
-# Edge type validation pattern (compiled regex)
-_EDGE_TYPE_PATTERN = re.compile(r"^[\u4e00-\u9fffA-Z_][\u4e00-\u9fffA-Z_0-9]*$")
 
 log = get_logger(__name__)
 
@@ -158,7 +156,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
                 existing = await self._find_entity_dict(canonical_name, entity_type)
                 if existing:
                     return existing["neo4j_id"]
-                await self._sleep(0.05 * (attempt + 1))
+                await asyncio.sleep(0.05 * (attempt + 1))
 
     async def _find_entity_dict(
         self,
@@ -392,11 +390,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
         Raises:
             ValueError: If *edge_type* is not a valid Neo4j relationship type.
         """
-        if not _EDGE_TYPE_PATTERN.match(edge_type):
-            raise ValueError(f"Invalid edge type: {edge_type}")
-
-        if "'" in edge_type or "\\" in edge_type:
-            raise ValueError(f"Edge type contains dangerous characters: {edge_type!r}")
+        validate_edge_type(edge_type)
 
         query = f"""
         MATCH (from) WHERE elementId(from) = $from_id
@@ -626,10 +620,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
         else:
             # Validate all relation types
             for rt in relation_types:
-                if not _EDGE_TYPE_PATTERN.match(rt):
-                    raise ValueError(f"Invalid relation type: {rt}")
-                if "'" in rt or "\\" in rt:
-                    raise ValueError(f"Relation type contains dangerous characters: {rt!r}")
+                validate_edge_type(rt)
 
             # Build dynamic query with type-specific patterns.
             # Each type matches as undirected so we capture both directions.
@@ -654,13 +645,6 @@ class Neo4jEntityRepo(BaseEntityRepo):
 
         result = await self._pool.execute_query(query, params)
         return [dict(record) for record in result]
-
-    @staticmethod
-    async def _sleep(seconds: float) -> None:
-        """Async sleep helper."""
-        import asyncio
-
-        await asyncio.sleep(seconds)
 
     async def merge_entities_batch(
         self,
@@ -809,12 +793,11 @@ class Neo4jEntityRepo(BaseEntityRepo):
 
         total = 0
         for edge_type, group in by_type.items():
-            if not _EDGE_TYPE_PATTERN.match(edge_type):
+            try:
+                validate_edge_type(edge_type)
+            except ValueError:
                 log.warning("merge_relations_batch_invalid_type", edge_type=edge_type)
                 continue
-
-            if "'" in edge_type or "\\" in edge_type:
-                raise ValueError(f"Edge type contains dangerous characters: {edge_type!r}")
 
             for chunk in self._chunk(group, batch_size):
                 query = f"""

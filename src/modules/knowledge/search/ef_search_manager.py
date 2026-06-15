@@ -16,6 +16,8 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy import text
+
 from core.constants import SearchMode
 from core.observability import get_logger
 
@@ -127,7 +129,10 @@ class EfSearchManager:
 
         try:
             async with self._pool.session() as session:
-                await session.execute(f"SET hnsw.ef_search = {ef_search_value}")
+                await session.execute(
+                    text("SET hnsw.ef_search = :value"),
+                    {"value": ef_search_value},
+                )
                 log.debug(
                     "ef_search_set",
                     mode=str(mode),
@@ -150,6 +155,12 @@ class EfSearchManager:
     ) -> AsyncIterator[None]:
         """Context manager to apply ef_search for a block of operations.
 
+        .. deprecated::
+            This context manager sets ef_search in its own session, but the
+            actual query typically runs in a different session. Use
+            ``set_ef_search_in_session()`` instead to set ef_search within
+            the same session as the query.
+
         Sets ef_search on entry and restores original value on exit.
 
         Args:
@@ -170,14 +181,17 @@ class EfSearchManager:
             async with self._pool.session() as session:
                 # Get current ef_search value
                 try:
-                    result = await session.execute("SHOW hnsw.ef_search")
+                    result = await session.execute(text("SHOW hnsw.ef_search"))
                     original_ef_search = result.scalar()
                 except Exception:
                     # If we can't get current value, use default
                     original_ef_search = 40
 
                 # Set new ef_search value
-                await session.execute(f"SET hnsw.ef_search = {ef_search_value}")
+                await session.execute(
+                    text("SET hnsw.ef_search = :value"),
+                    {"value": ef_search_value},
+                )
                 log.debug(
                     "ef_search_applied",
                     mode=str(mode),
@@ -189,7 +203,10 @@ class EfSearchManager:
 
                 # Restore original ef_search value
                 if original_ef_search is not None:
-                    await session.execute(f"SET hnsw.ef_search = {original_ef_search}")
+                    await session.execute(
+                        text("SET hnsw.ef_search = :value"),
+                        {"value": int(original_ef_search)},
+                    )
                     log.debug(
                         "ef_search_restored",
                         ef_search=original_ef_search,

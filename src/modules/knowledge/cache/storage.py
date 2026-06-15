@@ -23,6 +23,7 @@ from typing import Any
 
 import duckdb
 
+from core.db.safe_query import validate_sql_identifier
 from core.observability import get_logger
 from core.protocols import KnowledgeCacheProtocol, KnowledgeCluster
 
@@ -74,7 +75,7 @@ class KnowledgeCache(KnowledgeCacheProtocol):
 
         # DuckDB in-memory
         self.db = duckdb.connect(":memory:")
-        self.table_name = "knowledge_clusters"
+        self.table_name = validate_sql_identifier("knowledge_clusters", "table_name")
 
         # FIFO queue management
         self._max_queries = max_queries

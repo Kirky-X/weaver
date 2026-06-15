@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import (
 
 from core.observability import get_logger
 from core.observability.metrics import MetricsCollector
+from core.utils.sanitize import sanitize_dsn
 
 log = get_logger(__name__)
 
@@ -86,7 +87,7 @@ class PostgresPool:
                 await conn.execute(text("SELECT 1"))
             log.info(
                 "postgres_pool_started",
-                dsn=self._dsn.split("@")[-1],
+                dsn=sanitize_dsn(self._dsn),
                 pool_size=self._pool_size,
                 max_overflow=self._max_overflow,
                 pool_timeout=self._pool_timeout,

@@ -13,6 +13,7 @@ from alembic import command
 from alembic.config import Config
 
 from core.observability import get_logger
+from core.utils.sanitize import sanitize_dsn
 
 log = get_logger(__name__)
 
@@ -120,7 +121,7 @@ def parse_dsn(dsn: str) -> ParsedDSN:
 
     parsed = urlparse(dsn)
     if not parsed.scheme or not parsed.hostname:
-        raise ValueError(f"Invalid DSN format: {dsn}")
+        raise ValueError(f"Invalid DSN format: {sanitize_dsn(dsn)}")
 
     return ParsedDSN(
         driver=parsed.scheme,

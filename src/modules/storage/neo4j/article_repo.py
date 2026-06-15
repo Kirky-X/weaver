@@ -283,18 +283,24 @@ class Neo4jArticleRepo:
         FOLLOWED_BY relationships (meaning no newer articles reference them).
 
         Args:
-            days: Number of days to retain articles.
+            days: Number of days to retain articles. Must be a positive integer.
 
         Returns:
             Number of articles deleted (Note: Neo4j doesn't return count easily).
+
+        Raises:
+            ValueError: If days is not a positive integer.
         """
-        query = f"""
+        if not isinstance(days, int) or days <= 0:
+            raise ValueError(f"days must be a positive integer, got {days!r}")
+
+        query = """
         MATCH (a:Article)
-        WHERE a.publish_time < datetime() - duration({{days: {days}}})
+        WHERE a.publish_time < datetime() - duration({days: $days})
           AND NOT (a)-[:FOLLOWED_BY]->()
         DETACH DELETE a
         """
-        await self._pool.execute_query(query)
+        await self._pool.execute_query(query, {"days": days})
         # Neo4j doesn't easily return count from DETACH DELETE
         # In production, you might want to count before deleting
         return 0
