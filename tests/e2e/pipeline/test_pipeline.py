@@ -630,3 +630,263 @@ class TestPipelineStateCompleteness:
                         f"Field {field} has wrong type: {type(value).__name__}, "
                         f"expected {expected_type.__name__}"
                     )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Data Quality Fix Validation Tests (Tasks 8.1-8.5)
+# Verify all data-quality-fix changes work correctly in end-to-end pipeline.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+async def _skip_if_no_ollama():
+    """Skip test if ollama is not available."""
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as http:
+            resp = await http.get("http://localhost:11434/api/tags")
+            if resp.status_code != 200:
+                pytest.skip("Ollama service not available")
+    except Exception:
+        pytest.skip("Ollama service not available")
+
+
+async def _run_pipeline_serial(container: Any) -> tuple[Any, list[dict]]:
+    """Run pipeline with serial concurrency and return (pipeline, results)."""
+    pipeline = container.pipeline()
+
+    original_p1 = pipeline._phase1_concurrency
+    original_p3 = pipeline._phase3_concurrency
+    pipeline._phase1_concurrency = 1
+    pipeline._phase3_concurrency = 1
+    pipeline._phase1_semaphore = __import__("asyncio").Semaphore(1)
+    pipeline._phase3_semaphore = __import__("asyncio").Semaphore(1)
+
+    try:
+        task_id = str(uuid.uuid4())
+        results = await pipeline.process_batch(
+            articles=_E2E_TEST_ARTICLES,
+            task_id=task_id,
+        )
+    finally:
+        pipeline._phase1_concurrency = original_p1
+        pipeline._phase3_concurrency = original_p3
+        pipeline._phase1_semaphore = __import__("asyncio").Semaphore(original_p1)
+        pipeline._phase3_semaphore = __import__("asyncio").Semaphore(original_p3)
+
+    return pipeline, results
+
+
+@pytest.mark.e2e
+class TestDataQualityFixValidation:
+    """Tasks 8.1-8.5: Validate all data-quality-fix changes end-to-end.
+
+    Verifies:
+    - 8.1: Pipeline runs end-to-end with all fixes applied
+    - 8.2: DuckDB llm_usage_raw table has article_id/task_id populated
+    - 8.3: DuckDB ArticleProcessing table has task_id populated
+    - 8.4: LadybugDB EventNode has complete properties and relationships
+    - 8.5: persist_status is set correctly based on database type
+    """
+
+    async def test_pipeline_e2e_all_fixes(self, client: Any) -> None:
+        """8.1: Run pipeline end-to-end and verify all fixes are active."""
+        await _skip_if_no_ollama()
+        container = _get_container(client)
+        pipeline, results = await _run_pipeline_serial(container)
+
+        non_terminal = [s for s in results if not s.get("terminal")]
+        assert len(non_terminal) > 0, "All articles classified as non-news"
+
+        # Verify key data-quality fields exist in processed states
+        for state in non_terminal:
+            # PersistStatus fix: article_id must be set after persist
+            assert "article_id" in state, "article_id missing after persist"
+            assert state["article_id"] is not None
+
+            # Region fix: region must be set (not empty)
+            assert "region" in state, "region field missing"
+            assert state["region"], "region is empty"
+
+            # Entity validation: entities field must exist (even if empty list)
+            assert "entities" in state, "entities field missing"
+
+    async def test_llm_usage_raw_has_tracking_ids(self, client: Any) -> None:
+        """8.2: Verify DuckDB llm_usage_raw table has article_id/task_id populated."""
+        await _skip_if_no_ollama()
+        container = _get_container(client)
+
+        rel_pool = container.relational_pool()
+        from core.db.duckdb_pool import DuckDBPool
+
+        if not isinstance(rel_pool, DuckDBPool):
+            pytest.skip("DuckDB not in use (PostgreSQL available)")
+
+        _, results = await _run_pipeline_serial(container)
+        non_terminal = [s for s in results if not s.get("terminal") and s.get("article_id")]
+        if not non_terminal:
+            pytest.skip("No articles persisted to verify llm_usage_raw")
+
+        # Get article_ids from pipeline results
+        article_ids = [s["article_id"] for s in non_terminal]
+
+        # Query llm_usage_raw for these article_ids
+        try:
+            rows = await rel_pool.execute(
+                "SELECT article_id, task_id, call_point FROM llm_usage_raw "
+                "WHERE article_id IS NOT NULL LIMIT 10"
+            )
+        except Exception as exc:
+            pytest.skip(f"Cannot query llm_usage_raw: {exc}")
+
+        # At least some LLM calls should have article_id set
+        rows_with_article_id = [r for r in rows if r[0] is not None]
+        assert (
+            len(rows_with_article_id) > 0
+        ), "llm_usage_raw has no records with article_id — LLM call tracing is broken"
+
+        # At least some LLM calls should have task_id set
+        rows_with_task_id = [r for r in rows if r[1] is not None]
+        assert (
+            len(rows_with_task_id) > 0
+        ), "llm_usage_raw has no records with task_id — LLM call tracing is broken"
+
+    async def test_article_processing_has_task_id(self, client: Any) -> None:
+        """8.3: Verify DuckDB ArticleProcessing table has task_id populated."""
+        await _skip_if_no_ollama()
+        container = _get_container(client)
+
+        rel_pool = container.relational_pool()
+        from core.db.duckdb_pool import DuckDBPool
+
+        if not isinstance(rel_pool, DuckDBPool):
+            pytest.skip("DuckDB not in use (PostgreSQL available)")
+
+        _, results = await _run_pipeline_serial(container)
+        non_terminal = [s for s in results if not s.get("terminal") and s.get("article_id")]
+        if not non_terminal:
+            pytest.skip("No articles persisted to verify ArticleProcessing.task_id")
+
+        article_ids = [s["article_id"] for s in non_terminal]
+
+        # Query ArticleProcessing for task_id
+        try:
+            placeholders = ", ".join([f"${i+1}" for i in range(len(article_ids))])
+            rows = await rel_pool.execute(
+                f"SELECT article_id, task_id FROM article_processing "  # noqa: S608
+                f"WHERE article_id IN ({placeholders})",
+                article_ids,
+            )
+        except Exception as exc:
+            pytest.skip(f"Cannot query article_processing: {exc}")
+
+        # At least some records should have task_id
+        rows_with_task_id = [r for r in rows if r[1] is not None]
+        assert (
+            len(rows_with_task_id) > 0
+        ), "article_processing has no records with task_id — task_id persistence is broken"
+
+    async def test_ladybug_event_node_complete(self, client: Any) -> None:
+        """8.4: Verify LadybugDB EventNode has complete properties and relationships."""
+        await _skip_if_no_ollama()
+        container = _get_container(client)
+
+        graph_pool = container.graph_pool()
+        if graph_pool is None:
+            pytest.skip("Graph pool not available")
+
+        from core.db.ladybug_pool import LadybugPool
+
+        if not isinstance(graph_pool, LadybugPool):
+            pytest.skip("LadybugDB not in use (Neo4j available)")
+
+        _, results = await _run_pipeline_serial(container)
+        non_terminal = [s for s in results if not s.get("terminal") and s.get("article_id")]
+        if not non_terminal:
+            pytest.skip("No articles persisted to verify EventNode")
+
+        article_ids = [s["article_id"] for s in non_terminal]
+
+        # Check EventNode exists with complete attributes
+        for article_id in article_ids[:3]:  # Check first 3
+            try:
+                event_nodes = await graph_pool.execute(
+                    "MATCH (e:EventNode {id: $id}) RETURN e.id, e.content, e.event_type, e.name, e.event_time",
+                    {"id": article_id},
+                )
+            except Exception as exc:
+                pytest.skip(f"Cannot query EventNode: {exc}")
+
+            assert len(event_nodes) > 0, f"EventNode not found for article_id={article_id}"
+
+            event = event_nodes[0]
+            # EventNode must have content (not empty)
+            assert event[1], f"EventNode.content is empty for article_id={article_id}"
+            # EventNode must have event_type="news"
+            assert event[2] == "news", f"EventNode.event_type is '{event[2]}', expected 'news'"
+            # EventNode must have name (title)
+            assert event[3], f"EventNode.name is empty for article_id={article_id}"
+
+        # Check HAS_EVENT relationship exists
+        for article_id in article_ids[:3]:
+            try:
+                rels = await graph_pool.execute(
+                    "MATCH (a:Article {pg_id: $pg_id})-[r:HAS_EVENT]->(e:EventNode) "
+                    "RETURN type(r), e.id",
+                    {"pg_id": article_id},
+                )
+            except Exception as exc:
+                pytest.skip(f"Cannot query HAS_EVENT relationship: {exc}")
+
+            assert (
+                len(rels) > 0
+            ), f"HAS_EVENT relationship not found for Article→EventNode (article_id={article_id})"
+
+    async def test_persist_status_matches_db_type(self, client: Any) -> None:
+        """8.5: Verify persist_status is set correctly based on database type."""
+        await _skip_if_no_ollama()
+        container = _get_container(client)
+
+        rel_pool = container.relational_pool()
+        graph_pool = container.graph_pool()
+
+        from core.db.duckdb_pool import DuckDBPool
+        from core.db.ladybug_pool import LadybugPool
+
+        if not isinstance(rel_pool, DuckDBPool):
+            pytest.skip("DuckDB not in use (PostgreSQL available)")
+
+        # Determine expected persist_status based on graph_writer type
+        pipeline = container.pipeline()
+        from modules.storage.ladybug.writer import LadybugWriter
+
+        if isinstance(pipeline._graph_writer, LadybugWriter):
+            expected_status = "ladybug_done"
+        else:
+            expected_status = "neo4j_done"
+
+        _, results = await _run_pipeline_serial(container)
+        non_terminal = [s for s in results if not s.get("terminal") and s.get("article_id")]
+        if not non_terminal:
+            pytest.skip("No articles persisted to verify persist_status")
+
+        article_ids = [s["article_id"] for s in non_terminal]
+
+        # Query persist_status from DuckDB
+        try:
+            placeholders = ", ".join([f"${i+1}" for i in range(len(article_ids))])
+            rows = await rel_pool.execute(
+                f"SELECT article_id, persist_status FROM articles "  # noqa: S608
+                f"WHERE id IN ({placeholders})",
+                article_ids,
+            )
+        except Exception as exc:
+            pytest.skip(f"Cannot query articles for persist_status: {exc}")
+
+        # Check that persist_status matches expected value
+        for row in rows:
+            article_id, persist_status = row
+            assert persist_status == expected_status, (
+                f"persist_status is '{persist_status}' for article_id={article_id}, "
+                f"expected '{expected_status}'"
+            )

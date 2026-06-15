@@ -753,7 +753,7 @@ class BatchMergerNode:
                         try:
                             await self._article_repo.update_persist_status(
                                 uuid.UUID(article_id_str),
-                                PersistStatus.NEO4J_DONE,
+                                self._graph_done_status,
                             )
                         except Exception as status_exc:
                             log.warning(
