@@ -138,7 +138,7 @@ class TestAdminEndpointAuthorityUpdate:
 
     def test_regular_api_key_cannot_update_authority(self) -> None:
         """Regular API key should receive 403 when calling PATCH /admin/authorities/{host}."""
-        from api.endpoints.admin.admin import router
+        from api.endpoints.admin import router
 
         app = FastAPI()
         app.include_router(router)
@@ -174,7 +174,7 @@ class TestAdminEndpointAuthorityUpdate:
 
     def test_no_api_key_rejected_for_authority_update(self) -> None:
         """Missing API key should receive 401 when calling PATCH /admin/authorities/{host}."""
-        from api.endpoints.admin.admin import router
+        from api.endpoints.admin import router
 
         app = FastAPI()
         app.include_router(router)
@@ -195,7 +195,7 @@ class TestAdminEndpointAuthorityUpdate:
 
     def test_admin_api_key_can_update_authority(self) -> None:
         """Admin API key should successfully call PATCH /admin/authorities/{host}."""
-        from api.endpoints.admin.admin import router
+        from api.endpoints.admin import router
 
         app = FastAPI()
         app.include_router(router)
@@ -233,7 +233,7 @@ class TestAdminEndpointDeduplicate:
 
     def test_regular_api_key_cannot_deduplicate(self) -> None:
         """Regular API key should receive 403 when calling POST /admin/articles/deduplicate."""
-        from api.endpoints.admin.admin import router
+        from api.endpoints.admin import router
 
         app = FastAPI()
         app.include_router(router)
@@ -257,7 +257,7 @@ class TestAdminEndpointDeduplicate:
 
     def test_no_api_key_rejected_for_deduplicate(self) -> None:
         """Missing API key should receive 401 when calling POST /admin/articles/deduplicate."""
-        from api.endpoints.admin.admin import router
+        from api.endpoints.admin import router
 
         app = FastAPI()
         app.include_router(router)
@@ -274,7 +274,8 @@ class TestAdminEndpointDeduplicate:
 
     def test_admin_api_key_can_deduplicate(self) -> None:
         """Admin API key should successfully call POST /admin/articles/deduplicate."""
-        from api.endpoints.admin.admin import router
+        from api.dependencies import get_relational_pool_optional
+        from api.endpoints.admin import router
 
         app = FastAPI()
         app.include_router(router)
@@ -301,21 +302,19 @@ class TestAdminEndpointDeduplicate:
         mock_session.__aexit__ = AsyncMock(return_value=None)
         mock_pool.session = MagicMock(return_value=mock_session)
 
-        with (
-            patch("container.get_settings", return_value=mock_settings),
-            patch(
-                "api.endpoints.deps_registry.Endpoints.get_relational_pool_optional",
-                return_value=mock_pool,
-            ),
-        ):
-            client = TestClient(app)
-            response = client.post(
-                "/admin/articles/deduplicate",
-                headers={"X-API-Key": admin_key},
-            )
+        with patch("container.get_settings", return_value=mock_settings):
+            app.dependency_overrides[get_relational_pool_optional] = lambda: mock_pool
+            try:
+                client = TestClient(app)
+                response = client.post(
+                    "/admin/articles/deduplicate",
+                    headers={"X-API-Key": admin_key},
+                )
 
-            # Auth should pass (not 401/403)
-            assert response.status_code not in [401, 403]
+                # Auth should pass (not 401/403)
+                assert response.status_code not in [401, 403]
+            finally:
+                app.dependency_overrides.clear()
 
 
 class TestAdminEndpointMemoryConsolidation:
@@ -323,7 +322,7 @@ class TestAdminEndpointMemoryConsolidation:
 
     def test_regular_api_key_cannot_trigger_consolidation(self) -> None:
         """Regular API key should receive 403 when calling POST /admin/memory/trigger-consolidation."""
-        from api.endpoints.admin.admin import router
+        from api.endpoints.admin import router
 
         app = FastAPI()
         app.include_router(router)
@@ -347,7 +346,7 @@ class TestAdminEndpointMemoryConsolidation:
 
     def test_no_api_key_rejected_for_consolidation(self) -> None:
         """Missing API key should receive 401 when calling POST /admin/memory/trigger-consolidation."""
-        from api.endpoints.admin.admin import router
+        from api.endpoints.admin import router
 
         app = FastAPI()
         app.include_router(router)
@@ -368,7 +367,7 @@ class TestAdminEndpointRefreshAutoScores:
 
     def test_regular_api_key_cannot_refresh_auto_scores(self) -> None:
         """Regular API key should receive 403 when calling POST /admin/authorities/refresh-auto-scores."""
-        from api.endpoints.admin.admin import router
+        from api.endpoints.admin import router
 
         app = FastAPI()
         app.include_router(router)
@@ -392,7 +391,7 @@ class TestAdminEndpointRefreshAutoScores:
 
     def test_no_api_key_rejected_for_refresh_auto_scores(self) -> None:
         """Missing API key should receive 401 when calling POST /admin/authorities/refresh-auto-scores."""
-        from api.endpoints.admin.admin import router
+        from api.endpoints.admin import router
 
         app = FastAPI()
         app.include_router(router)
@@ -409,7 +408,9 @@ class TestAdminEndpointRefreshAutoScores:
 
     def test_admin_api_key_can_refresh_auto_scores(self) -> None:
         """Admin API key should successfully call POST /admin/authorities/refresh-auto-scores."""
-        from api.endpoints.admin.admin import router
+        from api.dependencies import get_relational_pool_optional
+        from api.endpoints.admin import router
+        from api.endpoints.admin.admin import _get_container
 
         app = FastAPI()
         app.include_router(router)
@@ -428,7 +429,7 @@ class TestAdminEndpointRefreshAutoScores:
         # First execute call returns hosts
         mock_hosts_result = MagicMock()
         mock_hosts_result.__iter__ = MagicMock(return_value=iter([]))
-        async_session.execute = MagicMock(return_value=mock_hosts_result)
+        async_session.execute = AsyncMock(return_value=mock_hosts_result)
         mock_session.__aenter__ = AsyncMock(return_value=async_session)
         mock_session.__aexit__ = AsyncMock(return_value=None)
         mock_pool.session = MagicMock(return_value=mock_session)
@@ -439,22 +440,20 @@ class TestAdminEndpointRefreshAutoScores:
         mock_container = MagicMock()
         mock_container.source_authority_repo.return_value = mock_repo
 
-        with (
-            patch("container.get_settings", return_value=mock_settings),
-            patch("api.endpoints.admin.admin._get_container", return_value=mock_container),
-            patch(
-                "api.endpoints.deps_registry.Endpoints.get_relational_pool_optional",
-                return_value=mock_pool,
-            ),
-        ):
-            client = TestClient(app)
-            response = client.post(
-                "/admin/authorities/refresh-auto-scores",
-                headers={"X-API-Key": admin_key},
-            )
+        with patch("container.get_settings", return_value=mock_settings):
+            app.dependency_overrides[get_relational_pool_optional] = lambda: mock_pool
+            app.dependency_overrides[_get_container] = lambda: mock_container
+            try:
+                client = TestClient(app)
+                response = client.post(
+                    "/admin/authorities/refresh-auto-scores",
+                    headers={"X-API-Key": admin_key},
+                )
 
-            # Auth should pass (not 401/403)
-            assert response.status_code not in [401, 403]
+                # Auth should pass (not 401/403)
+                assert response.status_code not in [401, 403]
+            finally:
+                app.dependency_overrides.clear()
 
 
 class TestAdminAuthErrorMessages:

@@ -61,21 +61,6 @@ class TestSchedulerJobsInit:
 class TestRetryNeo4jWrites:
     """Test retry_neo4j_writes job."""
 
-    @pytest.fixture
-    def scheduler_jobs_service(self):
-        """Create SchedulerJobs instance."""
-        from modules.scheduler import SchedulerJobs
-
-        return SchedulerJobs(
-            relational_pool=MagicMock(),
-            cache=MagicMock(),
-            graph_writer=MagicMock(),
-            vector_repo=MagicMock(),
-            article_repo=MagicMock(),
-            source_authority_repo=MagicMock(),
-            pending_sync_repo=MagicMock(),
-        )
-
     @pytest.mark.asyncio
     async def test_retry_neo4j_writes_no_items(self, scheduler_jobs_service):
         """Test when no items need retry."""
@@ -212,21 +197,6 @@ class TestRetryNeo4jWrites:
 class TestFlushRetryQueue:
     """Test flush_retry_queue job."""
 
-    @pytest.fixture
-    def scheduler_jobs_service(self):
-        """Create SchedulerJobs instance."""
-        from modules.scheduler import SchedulerJobs
-
-        return SchedulerJobs(
-            relational_pool=MagicMock(),
-            cache=MagicMock(),
-            graph_writer=MagicMock(),
-            vector_repo=MagicMock(),
-            article_repo=MagicMock(),
-            source_authority_repo=MagicMock(),
-            pending_sync_repo=MagicMock(),
-        )
-
     @staticmethod
     def _make_async_gen(items: list):
         """Create an async generator from a list."""
@@ -278,21 +248,6 @@ class TestFlushRetryQueue:
 
 class TestUpdateSourceAutoScores:
     """Test update_source_auto_scores job."""
-
-    @pytest.fixture
-    def scheduler_jobs_service(self):
-        """Create SchedulerJobs instance."""
-        from modules.scheduler import SchedulerJobs
-
-        return SchedulerJobs(
-            relational_pool=MagicMock(),
-            cache=MagicMock(),
-            graph_writer=MagicMock(),
-            vector_repo=MagicMock(),
-            article_repo=MagicMock(),
-            source_authority_repo=MagicMock(),
-            pending_sync_repo=MagicMock(),
-        )
 
     @pytest.mark.asyncio
     async def test_update_source_auto_scores_no_sources(self, scheduler_jobs_service):
@@ -346,21 +301,6 @@ class TestUpdateSourceAutoScores:
 class TestArchiveOldNeo4jNodes:
     """Test archive_old_neo4j_nodes job."""
 
-    @pytest.fixture
-    def scheduler_jobs_service(self):
-        """Create SchedulerJobs instance."""
-        from modules.scheduler import SchedulerJobs
-
-        return SchedulerJobs(
-            relational_pool=MagicMock(),
-            cache=MagicMock(),
-            graph_writer=MagicMock(),
-            vector_repo=MagicMock(),
-            article_repo=MagicMock(),
-            source_authority_repo=MagicMock(),
-            pending_sync_repo=MagicMock(),
-        )
-
     @pytest.mark.asyncio
     async def test_archive_old_nodes_success(self, scheduler_jobs_service):
         """Test successful archiving of old nodes."""
@@ -386,21 +326,6 @@ class TestArchiveOldNeo4jNodes:
 class TestCleanupOrphanEntityVectors:
     """Test cleanup_orphan_entity_vectors job."""
 
-    @pytest.fixture
-    def scheduler_jobs_service(self):
-        """Create SchedulerJobs instance."""
-        from modules.scheduler import SchedulerJobs
-
-        return SchedulerJobs(
-            relational_pool=MagicMock(),
-            cache=MagicMock(),
-            graph_writer=MagicMock(),
-            vector_repo=MagicMock(),
-            article_repo=MagicMock(),
-            source_authority_repo=MagicMock(),
-            pending_sync_repo=MagicMock(),
-        )
-
     @pytest.mark.asyncio
     async def test_cleanup_orphan_vectors(self, scheduler_jobs_service):
         """Test cleanup of orphan vectors."""
@@ -424,38 +349,6 @@ class TestCleanupOrphanEntityVectors:
 
 class TestRetryPipelineProcessing:
     """Test retry_pipeline_processing job."""
-
-    @pytest.fixture
-    def scheduler_jobs_service_with_pipeline(self):
-        """Create SchedulerJobs instance with pipeline."""
-        from modules.scheduler import SchedulerJobs
-
-        return SchedulerJobs(
-            relational_pool=MagicMock(),
-            cache=MagicMock(),
-            graph_writer=MagicMock(),
-            vector_repo=MagicMock(),
-            article_repo=MagicMock(),
-            source_authority_repo=MagicMock(),
-            pending_sync_repo=MagicMock(),
-            pipeline=MagicMock(),
-        )
-
-    @pytest.fixture
-    def scheduler_jobs_service_no_pipeline(self):
-        """Create SchedulerJobs instance without pipeline."""
-        from modules.scheduler import SchedulerJobs
-
-        return SchedulerJobs(
-            relational_pool=MagicMock(),
-            cache=MagicMock(),
-            graph_writer=MagicMock(),
-            vector_repo=MagicMock(),
-            article_repo=MagicMock(),
-            source_authority_repo=MagicMock(),
-            pending_sync_repo=MagicMock(),
-            pipeline=None,
-        )
 
     @pytest.mark.asyncio
     async def test_retry_pipeline_no_pipeline(self, scheduler_jobs_service_no_pipeline):
@@ -502,21 +395,6 @@ class TestRetryPipelineProcessing:
 class TestReconstructState:
     """Test _reconstruct_state method."""
 
-    @pytest.fixture
-    def scheduler_jobs_service(self):
-        """Create SchedulerJobs instance."""
-        from modules.scheduler import SchedulerJobs
-
-        return SchedulerJobs(
-            relational_pool=MagicMock(),
-            cache=MagicMock(),
-            graph_writer=MagicMock(),
-            vector_repo=MagicMock(),
-            article_repo=MagicMock(),
-            source_authority_repo=MagicMock(),
-            pending_sync_repo=MagicMock(),
-        )
-
     @pytest.mark.asyncio
     async def test_reconstruct_state(self, scheduler_jobs_service):
         """Test state reconstruction from article."""
@@ -544,21 +422,6 @@ class TestReconstructState:
 
 class TestSyncNeo4jWithPostgres:
     """Test sync_neo4j_with_postgres job."""
-
-    @pytest.fixture
-    def scheduler_jobs_service(self):
-        """Create SchedulerJobs instance."""
-        from modules.scheduler import SchedulerJobs
-
-        return SchedulerJobs(
-            relational_pool=MagicMock(),
-            cache=MagicMock(),
-            graph_writer=MagicMock(),
-            vector_repo=MagicMock(),
-            article_repo=MagicMock(),
-            source_authority_repo=MagicMock(),
-            pending_sync_repo=MagicMock(),
-        )
 
     @pytest.mark.asyncio
     async def test_sync_neo4j_no_orphans_no_gaps(self, scheduler_jobs_service):
@@ -779,21 +642,6 @@ class TestGetIncompleteArticles:
 class TestSyncPendingToNeo4j:
     """Test sync_pending_to_neo4j job."""
 
-    @pytest.fixture
-    def scheduler_jobs_service(self):
-        """Create SchedulerJobs instance."""
-        from modules.scheduler import SchedulerJobs
-
-        return SchedulerJobs(
-            relational_pool=MagicMock(),
-            cache=MagicMock(),
-            graph_writer=MagicMock(),
-            vector_repo=MagicMock(),
-            article_repo=MagicMock(),
-            source_authority_repo=MagicMock(),
-            pending_sync_repo=MagicMock(),
-        )
-
     @pytest.mark.asyncio
     async def test_sync_pending_to_neo4j_no_items(self, scheduler_jobs_service):
         """Test when no pending records exist."""
@@ -872,21 +720,6 @@ class TestSyncPendingToNeo4j:
 
 class TestConsistencyCheck:
     """Test consistency_check job."""
-
-    @pytest.fixture
-    def scheduler_jobs_service(self):
-        """Create SchedulerJobs instance."""
-        from modules.scheduler import SchedulerJobs
-
-        return SchedulerJobs(
-            relational_pool=MagicMock(),
-            cache=MagicMock(),
-            graph_writer=MagicMock(),
-            vector_repo=MagicMock(),
-            article_repo=MagicMock(),
-            source_authority_repo=MagicMock(),
-            pending_sync_repo=MagicMock(),
-        )
 
     @pytest.mark.asyncio
     async def test_consistency_check_no_mismatch(self, scheduler_jobs_service):
@@ -981,21 +814,6 @@ class TestConsistencyCheck:
 class TestCleanupOldSynced:
     """Test cleanup_old_synced job."""
 
-    @pytest.fixture
-    def scheduler_jobs_service(self):
-        """Create SchedulerJobs instance."""
-        from modules.scheduler import SchedulerJobs
-
-        return SchedulerJobs(
-            relational_pool=MagicMock(),
-            cache=MagicMock(),
-            graph_writer=MagicMock(),
-            vector_repo=MagicMock(),
-            article_repo=MagicMock(),
-            source_authority_repo=MagicMock(),
-            pending_sync_repo=MagicMock(),
-        )
-
     @pytest.mark.asyncio
     async def test_cleanup_old_synced_success(self, scheduler_jobs_service):
         """Test cleanup of old synced records."""
@@ -1065,20 +883,6 @@ class TestLLMFailureCleanup:
 class TestLLMUsageRawCleanup:
     """Test llm_usage_raw_cleanup job."""
 
-    @pytest.fixture
-    def scheduler_jobs_service(self):
-        from modules.scheduler import SchedulerJobs
-
-        return SchedulerJobs(
-            relational_pool=MagicMock(),
-            cache=MagicMock(),
-            graph_writer=MagicMock(),
-            vector_repo=MagicMock(),
-            article_repo=MagicMock(),
-            source_authority_repo=MagicMock(),
-            pending_sync_repo=MagicMock(),
-        )
-
     @pytest.mark.asyncio
     async def test_llm_usage_raw_cleanup(self, scheduler_jobs_service):
         with patch("modules.analytics.llm_usage.repo.LLMUsageRepo") as MockRepo:
@@ -1095,20 +899,6 @@ class TestLLMUsageRawCleanup:
 class TestAggregateLLMUsage:
     """Test aggregate_llm_usage job."""
 
-    @pytest.fixture
-    def scheduler_jobs_service(self):
-        from modules.scheduler import SchedulerJobs
-
-        return SchedulerJobs(
-            relational_pool=MagicMock(),
-            cache=MagicMock(),
-            graph_writer=MagicMock(),
-            vector_repo=MagicMock(),
-            article_repo=MagicMock(),
-            source_authority_repo=MagicMock(),
-            pending_sync_repo=MagicMock(),
-        )
-
     @pytest.mark.asyncio
     async def test_aggregate_llm_usage(self, scheduler_jobs_service):
         with patch("modules.analytics.llm_usage.aggregator.flush_usage_buffer") as mock_flush:
@@ -1120,38 +910,22 @@ class TestAggregateLLMUsage:
 
 
 class TestSchedulerJobsGraphDoneStatus:
-    """Test SchedulerJobs._graph_done_status property."""
+    """Test GraphWriter.done_status property (replaces _graph_done_status)."""
 
     def test_neo4j_writer_returns_neo4j_done(self):
-        """Neo4jWriter returns NEO4J_DONE."""
+        """Neo4jWriter.done_status returns NEO4J_DONE."""
         from core.db import PersistStatus
-        from modules.scheduler import SchedulerJobs
+        from modules.knowledge.graph.neo4j_writer import Neo4jWriter
 
-        jobs = SchedulerJobs(
-            relational_pool=MagicMock(),
-            cache=MagicMock(),
-            graph_writer=MagicMock(name="Neo4jWriter"),
-            vector_repo=MagicMock(),
-            article_repo=MagicMock(),
-            source_authority_repo=MagicMock(),
-            pending_sync_repo=MagicMock(),
-        )
-        assert jobs._graph_done_status == PersistStatus.NEO4J_DONE
+        writer = MagicMock(spec=Neo4jWriter)
+        writer.done_status = PersistStatus.NEO4J_DONE
+        assert writer.done_status == PersistStatus.NEO4J_DONE
 
     def test_ladybug_writer_returns_ladybug_done(self):
-        """LadybugWriter returns LADYBUG_DONE."""
+        """LadybugWriter.done_status returns LADYBUG_DONE."""
         from core.db import PersistStatus
-        from modules.scheduler import SchedulerJobs
         from modules.storage.ladybug.writer import LadybugWriter
 
         mock_pool = MagicMock()
-        jobs = SchedulerJobs(
-            relational_pool=MagicMock(),
-            cache=MagicMock(),
-            graph_writer=LadybugWriter(mock_pool),
-            vector_repo=MagicMock(),
-            article_repo=MagicMock(),
-            source_authority_repo=MagicMock(),
-            pending_sync_repo=MagicMock(),
-        )
-        assert jobs._graph_done_status == PersistStatus.LADYBUG_DONE
+        writer = LadybugWriter(mock_pool)
+        assert writer.done_status == PersistStatus.LADYBUG_DONE

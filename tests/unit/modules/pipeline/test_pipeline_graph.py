@@ -10,6 +10,7 @@ from core.db import PersistStatus
 from modules.ingestion.domain.models import RawArticle
 from modules.processing.pipeline.graph import PHASE1_STAGES, PHASE3_STAGES, Pipeline
 from modules.processing.pipeline.state import PipelineState
+from tests.unit.modules.pipeline.conftest import make_pipeline
 
 
 class TestPipelineConstants:
@@ -37,7 +38,7 @@ class TestPipelineInit:
 
     def test_init_basic(self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus):
         """Test basic initialization."""
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=mock_llm,
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
@@ -51,14 +52,21 @@ class TestPipelineInit:
     def test_init_custom_concurrency(
         self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
     ):
-        """Test initialization with custom concurrency."""
-        pipeline = Pipeline(
+        """Test initialization with custom concurrency from settings."""
+        from modules.processing.pipeline.config import PhaseConfig, PipelineSettings
+
+        mock_settings = MagicMock()
+        mock_settings.pipeline = PipelineSettings(
+            phase1=PhaseConfig(concurrency=5),
+            phase3=PhaseConfig(concurrency=3),
+        )
+        pipeline = make_pipeline(
             llm=mock_llm,
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
             event_bus=mock_event_bus,
-            phase1_concurrency=5,
-            phase3_concurrency=3,
+            settings=mock_settings,
+            spacy=MagicMock(),
         )
 
         assert pipeline._phase1_concurrency == 5
@@ -74,7 +82,7 @@ class TestPipelineInit:
         mock_neo4j_writer = MagicMock()
         mock_source_auth_repo = MagicMock()
 
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=mock_llm,
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
@@ -86,12 +94,12 @@ class TestPipelineInit:
             source_auth_repo=mock_source_auth_repo,
         )
 
-        assert pipeline._article_repo == mock_article_repo
-        assert pipeline._graph_writer == mock_neo4j_writer
+        assert pipeline._deps.repos.article_repo == mock_article_repo
+        assert pipeline._deps.repos.graph_writer == mock_neo4j_writer
 
     def test_default_concurrency_values(self):
         """Test default concurrency values fall back to TOML default."""
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=MagicMock(),
             budget=MagicMock(),
             prompt_loader=MagicMock(),
@@ -107,7 +115,7 @@ class TestPipelineStopAccepting:
     @pytest.fixture
     def pipeline(self):
         """Create Pipeline instance."""
-        return Pipeline(
+        return make_pipeline(
             llm=MagicMock(),
             budget=MagicMock(),
             prompt_loader=MagicMock(),
@@ -128,7 +136,7 @@ class TestPipelineDrain:
     @pytest.fixture
     def pipeline(self):
         """Create Pipeline instance."""
-        return Pipeline(
+        return make_pipeline(
             llm=MagicMock(),
             budget=MagicMock(),
             prompt_loader=MagicMock(),
@@ -227,7 +235,7 @@ class TestPipelineProcessBatch:
         mock_source_auth_repo_for_batch,
     ):
         """Create Pipeline instance with mocks for batch tests."""
-        return Pipeline(
+        return make_pipeline(
             llm=mock_llm_for_batch,
             budget=mock_budget_for_batch,
             prompt_loader=mock_prompt_loader_for_batch,
@@ -339,7 +347,7 @@ class TestPipelinePhase1:
         self, mock_llm_for_phase1, mock_budget_for_phase1, mock_prompt_loader_for_phase1
     ):
         """Create Pipeline instance for phase1 tests."""
-        return Pipeline(
+        return make_pipeline(
             llm=mock_llm_for_phase1,
             budget=mock_budget_for_phase1,
             prompt_loader=mock_prompt_loader_for_phase1,
@@ -464,7 +472,7 @@ class TestPipelinePhase3:
         mock_source_auth_repo_for_phase3,
     ):
         """Create Pipeline instance for phase3 tests."""
-        return Pipeline(
+        return make_pipeline(
             llm=mock_llm_for_phase3,
             budget=mock_budget_for_phase3,
             prompt_loader=mock_prompt_loader_for_phase3,
@@ -515,7 +523,7 @@ class TestPipelinePhase3:
         def node_execute(s):
             return dict(s)
 
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=mock_llm_for_phase3,
             budget=mock_budget_for_phase3,
             prompt_loader=mock_prompt_loader_for_phase3,
@@ -527,7 +535,7 @@ class TestPipelinePhase3:
         pipeline._quality_scorer = MagicMock(execute=AsyncMock(side_effect=node_execute))
         pipeline._credibility = MagicMock(execute=AsyncMock(side_effect=node_execute))
         pipeline._entity_extractor = MagicMock(execute=AsyncMock(side_effect=node_execute))
-        pipeline._entity_resolver = MagicMock(execute=AsyncMock(side_effect=node_execute))
+        pipeline._deps.nlp.entity_resolver = MagicMock(execute=AsyncMock(side_effect=node_execute))
 
         raw = MagicMock()
         raw.title = "Test"
@@ -566,7 +574,7 @@ class TestPipelinePhase3:
         def node_execute(s):
             return dict(s)
 
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=mock_llm_for_phase3,
             budget=mock_budget_for_phase3,
             prompt_loader=mock_prompt_loader_for_phase3,
@@ -578,7 +586,7 @@ class TestPipelinePhase3:
         pipeline._quality_scorer = MagicMock(execute=AsyncMock(side_effect=node_execute))
         pipeline._credibility = MagicMock(execute=AsyncMock(side_effect=node_execute))
         pipeline._entity_extractor = MagicMock(execute=AsyncMock(side_effect=node_execute))
-        pipeline._entity_resolver = MagicMock(execute=AsyncMock(side_effect=node_execute))
+        pipeline._deps.nlp.entity_resolver = MagicMock(execute=AsyncMock(side_effect=node_execute))
 
         raw = MagicMock()
         raw.title = "Test"
@@ -617,7 +625,7 @@ class TestPipelineUpdateProcessingStage:
     @pytest.fixture
     def pipeline_no_repo(self):
         """Create Pipeline without article_repo."""
-        return Pipeline(
+        return make_pipeline(
             llm=MagicMock(),
             budget=MagicMock(),
             prompt_loader=MagicMock(),
@@ -627,7 +635,7 @@ class TestPipelineUpdateProcessingStage:
     @pytest.fixture
     def pipeline_with_repo(self):
         """Create Pipeline with article_repo."""
-        return Pipeline(
+        return make_pipeline(
             llm=MagicMock(),
             budget=MagicMock(),
             prompt_loader=MagicMock(),
@@ -701,7 +709,7 @@ class TestPipelinePersistBatch:
         self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
     ):
         """Test persist_batch with empty list."""
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=mock_llm,
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
@@ -715,7 +723,7 @@ class TestPipelinePersistBatch:
         self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
     ):
         """Test persist_batch skips all terminal articles."""
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=mock_llm,
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
@@ -739,7 +747,7 @@ class TestPipelinePersistBatch:
         mock_article_repo = MagicMock()
         mock_article_repo.bulk_upsert = AsyncMock(return_value=article_ids)
 
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=mock_llm,
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
@@ -774,7 +782,7 @@ class TestPipelinePersistBatch:
         mock_vector_repo = MagicMock()
         mock_vector_repo.bulk_upsert_article_vectors = AsyncMock(return_value=1)
 
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=mock_llm,
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
@@ -813,7 +821,7 @@ class TestPipelinePersistBatch:
         mock_neo4j_writer = MagicMock()
         mock_neo4j_writer.write = AsyncMock(return_value=["entity1"])
 
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=mock_llm,
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
@@ -845,7 +853,7 @@ class TestPipelinePersistBatch:
         mock_article_repo.bulk_upsert = AsyncMock(side_effect=Exception("PG error"))
         mock_article_repo.mark_failed = AsyncMock()
 
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=mock_llm,
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
@@ -878,7 +886,7 @@ class TestPipelinePersistBatch:
         mock_neo4j_writer = MagicMock()
         mock_neo4j_writer.write = AsyncMock(side_effect=Exception("Neo4j error"))
 
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=mock_llm,
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
@@ -926,7 +934,7 @@ class TestPipelineCommunityUpdate:
         self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
     ):
         """Test community update without updater."""
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=mock_llm,
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
@@ -949,7 +957,7 @@ class TestPipelineCommunityUpdate:
             return_value=MagicMock(pending_entity_count=0, last_incremental_update_at=None)
         )
 
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=mock_llm,
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
@@ -988,7 +996,7 @@ class TestPipelineCommunityUpdate:
             )
         )
 
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=mock_llm,
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
@@ -1016,7 +1024,7 @@ class TestPipelineCommunityUpdate:
         mock_updater.should_trigger = AsyncMock(return_value=False)
         mock_updater.increment_pending_count = AsyncMock()
 
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=mock_llm,
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
@@ -1040,7 +1048,7 @@ class TestPipelineCommunityUpdate:
         mock_updater = MagicMock()
         mock_updater.get_stats = AsyncMock(side_effect=Exception("Update error"))
 
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=mock_llm,
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
@@ -1080,7 +1088,7 @@ class TestPipelineCommunityUpdate:
             )
         )
 
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=mock_llm,
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
@@ -1103,7 +1111,7 @@ class TestPipelineCommunityUpdate:
 
 
 class TestPipelineGraphDoneStatus:
-    """Tests for _graph_done_status property (spec: pipeline-status-dynamic).
+    """Tests for graph_writer.done_status property (spec: pipeline-status-dynamic).
 
     Verifies that persist_status is dynamically selected based on
     graph_writer type: LadybugWriter → LADYBUG_DONE, Neo4jWriter → NEO4J_DONE.
@@ -1134,7 +1142,7 @@ class TestPipelineGraphDoneStatus:
         mock_pool = MagicMock()
         ladybug_writer = LadybugWriter(mock_pool)
 
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=mock_llm,
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
@@ -1142,15 +1150,16 @@ class TestPipelineGraphDoneStatus:
             graph_writer=ladybug_writer,
         )
 
-        assert pipeline._graph_done_status == PersistStatus.LADYBUG_DONE
+        assert pipeline._deps.repos.graph_writer.done_status == PersistStatus.LADYBUG_DONE
 
     def test_neo4j_writer_returns_neo4j_done(
         self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
     ):
         """Scenario: Pipeline with Neo4jWriter → NEO4J_DONE."""
         mock_neo4j_writer = MagicMock()
+        mock_neo4j_writer.done_status = PersistStatus.NEO4J_DONE
 
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=mock_llm,
             budget=mock_budget,
             prompt_loader=mock_prompt_loader,
@@ -1158,17 +1167,4 @@ class TestPipelineGraphDoneStatus:
             graph_writer=mock_neo4j_writer,
         )
 
-        assert pipeline._graph_done_status == PersistStatus.NEO4J_DONE
-
-    def test_no_graph_writer_returns_neo4j_done(
-        self, mock_llm, mock_budget, mock_prompt_loader, mock_event_bus
-    ):
-        """Scenario: Pipeline without graph_writer → NEO4J_DONE (default)."""
-        pipeline = Pipeline(
-            llm=mock_llm,
-            budget=mock_budget,
-            prompt_loader=mock_prompt_loader,
-            event_bus=mock_event_bus,
-        )
-
-        assert pipeline._graph_done_status == PersistStatus.NEO4J_DONE
+        assert pipeline._deps.repos.graph_writer.done_status == PersistStatus.NEO4J_DONE

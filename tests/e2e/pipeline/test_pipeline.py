@@ -19,6 +19,7 @@ import pytest
 
 from modules.ingestion.domain.models import RawArticle
 from modules.processing.pipeline.state import PipelineState
+from tests.e2e.conftest import require_ollama
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Test data helpers
@@ -204,15 +205,7 @@ class TestPipelineEndToEnd:
         container = _get_container(client)
 
         # Skip if ollama not available
-        import httpx
-
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as http:
-                resp = await http.get("http://localhost:11434/api/tags")
-                if resp.status_code != 200:
-                    pytest.skip("Ollama service not available")
-        except Exception:
-            pytest.skip("Ollama service not available")
+        await require_ollama()
 
         pipeline = container.pipeline()
 
@@ -253,15 +246,7 @@ class TestPhase1StateValidation:
         container = _get_container(client)
 
         # Skip if ollama not available
-        import httpx
-
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as http:
-                resp = await http.get("http://localhost:11434/api/tags")
-                if resp.status_code != 200:
-                    pytest.skip("Ollama service not available")
-        except Exception:
-            pytest.skip("Ollama service not available")
+        await require_ollama()
 
         pipeline = container.pipeline()
 
@@ -314,15 +299,7 @@ class TestPhase2StateValidation:
         container = _get_container(client)
 
         # Skip if ollama not available
-        import httpx
-
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as http:
-                resp = await http.get("http://localhost:11434/api/tags")
-                if resp.status_code != 200:
-                    pytest.skip("Ollama service not available")
-        except Exception:
-            pytest.skip("Ollama service not available")
+        await require_ollama()
 
         pipeline = container.pipeline()
 
@@ -860,7 +837,7 @@ class TestDataQualityFixValidation:
         pipeline = container.pipeline()
         from modules.storage.ladybug.writer import LadybugWriter
 
-        if isinstance(pipeline._graph_writer, LadybugWriter):
+        if isinstance(pipeline._deps.repos.graph_writer, LadybugWriter):
             expected_status = "ladybug_done"
         else:
             expected_status = "neo4j_done"

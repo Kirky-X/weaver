@@ -24,7 +24,7 @@ class TestNPlusOneQueryFix:
 
     def test_refresh_auto_scores_uses_single_aggregate_query(self) -> None:
         """Verify refresh-auto-scores uses 1 aggregate query instead of N queries."""
-        from api.endpoints.admin.admin import refresh_auto_scores
+        from api.endpoints.admin.authorities import refresh_auto_scores
         from core.db import Article
 
         # Mock pool and session
@@ -65,15 +65,9 @@ class TestNPlusOneQueryFix:
         import asyncio
 
         async def run_test():
-            with (
-                patch(
-                    "api.endpoints.admin.admin.Endpoints.get_relational_pool_optional",
-                    return_value=mock_pool,
-                ),
-            ):
-                response = await refresh_auto_scores(
-                    mock_request, "valid-admin-key", mock_container
-                )
+            response = await refresh_auto_scores(
+                mock_request, "valid-admin-key", mock_container, pool=mock_pool
+            )
 
             # Verify execute was called exactly 2 times:
             # 1. Get distinct hosts
@@ -219,7 +213,7 @@ class TestGroupByNULLFilter:
 
     def test_aggregate_query_filters_null_hosts(self) -> None:
         """Verify aggregate queries filter out NULL source_host."""
-        from api.endpoints.admin.admin import refresh_auto_scores
+        from api.endpoints.admin.authorities import refresh_auto_scores
         from core.db import Article
 
         # Mock pool
@@ -262,15 +256,9 @@ class TestGroupByNULLFilter:
         import asyncio
 
         async def run_test():
-            with (
-                patch(
-                    "api.endpoints.admin.admin.Endpoints.get_relational_pool_optional",
-                    return_value=mock_pool,
-                ),
-            ):
-                response = await refresh_auto_scores(
-                    mock_request, "valid-admin-key", mock_container
-                )
+            response = await refresh_auto_scores(
+                mock_request, "valid-admin-key", mock_container, pool=mock_pool
+            )
 
             # Verify that update_auto_score was NOT called with None
             for call_args in mock_repo.update_auto_score.call_args_list:
@@ -376,7 +364,7 @@ class TestOptimizationCodeQuality:
         """Verify refresh_auto_scores uses container for repo access."""
         import inspect
 
-        from api.endpoints.admin.admin import refresh_auto_scores
+        from api.endpoints.admin.authorities import refresh_auto_scores
 
         source = inspect.getsource(refresh_auto_scores)
         assert "container" in source
@@ -386,7 +374,7 @@ class TestOptimizationCodeQuality:
         """Verify aggregate query uses proper SQLAlchemy patterns."""
         import inspect
 
-        from api.endpoints.admin.admin import refresh_auto_scores
+        from api.endpoints.admin.authorities import refresh_auto_scores
 
         source = inspect.getsource(refresh_auto_scores)
 
@@ -399,7 +387,7 @@ class TestOptimizationCodeQuality:
         """Verify batch updates have proper error handling."""
         import inspect
 
-        from api.endpoints.admin.admin import refresh_auto_scores
+        from api.endpoints.admin.authorities import refresh_auto_scores
 
         source = inspect.getsource(refresh_auto_scores)
 

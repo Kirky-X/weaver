@@ -350,28 +350,27 @@ class TestCausalSearchEndpoint:
             "modules.memory.retrieval.adaptive_search.AdaptiveSearchEngine",
             return_value=mock_adaptive_engine,
         ):
-            with patch(
-                "api.endpoints.content.search.deps.get_graph_pool",
-                return_value=mock_graph_pool,
-            ):
-                body = CausalSearchRequest(
-                    query="Why did the market crash?",
-                    max_depth=3,
-                    min_confidence=0.7,
-                )
+            body = CausalSearchRequest(
+                query="Why did the market crash?",
+                max_depth=3,
+                min_confidence=0.7,
+            )
 
-                result = await search_causal(
-                    request=mock_request,
-                    body=body,
-                    _=api_key,
-                )
+            result = await search_causal(
+                request=mock_request,
+                body=body,
+                _=api_key,
+                graph_pool=mock_graph_pool,
+                embedding_service=None,
+                intent_classifier=None,
+            )
 
-                assert result.data.query == "Why did the market crash?"
-                assert len(result.data.causal_chain) == 2
-                assert result.data.causal_chain[0].id == "1"
-                assert result.data.causal_chain[1].content == "Event B led to Event C"
-                assert result.data.confidence == pytest.approx(0.875, rel=1e-2)
-                assert result.data.metadata["depth"] == 3
+            assert result.data.query == "Why did the market crash?"
+            assert len(result.data.causal_chain) == 2
+            assert result.data.causal_chain[0].id == "1"
+            assert result.data.causal_chain[1].content == "Event B led to Event C"
+            assert result.data.confidence == pytest.approx(0.875, rel=1e-2)
+            assert result.data.metadata["depth"] == 3
 
     @pytest.mark.asyncio
     async def test_causal_search_empty_results(
@@ -390,37 +389,37 @@ class TestCausalSearchEndpoint:
             "modules.memory.retrieval.adaptive_search.AdaptiveSearchEngine",
             return_value=mock_adaptive_engine,
         ):
-            with patch(
-                "api.endpoints.content.search.deps.get_graph_pool",
-                return_value=mock_graph_pool,
-            ):
-                body = CausalSearchRequest(
-                    query="Why did nothing happen?",
-                    max_depth=2,
-                    min_confidence=0.9,
-                )
+            body = CausalSearchRequest(
+                query="Why did nothing happen?",
+                max_depth=2,
+                min_confidence=0.9,
+            )
 
-                result = await search_causal(
-                    request=mock_request,
-                    body=body,
-                    _=api_key,
-                )
+            result = await search_causal(
+                request=mock_request,
+                body=body,
+                _=api_key,
+                graph_pool=mock_graph_pool,
+                embedding_service=None,
+                intent_classifier=None,
+            )
 
-                assert len(result.data.causal_chain) == 0
-                assert result.data.confidence == 0.0
-                assert "相关" in result.data.answer or "causal events" in result.data.answer
+            assert len(result.data.causal_chain) == 0
+            assert result.data.confidence == 0.0
+            assert "相关" in result.data.answer or "causal events" in result.data.answer
 
     @pytest.mark.asyncio
     async def test_causal_search_graph_service_error(
         self,
         mock_request: MagicMock,
+        mock_graph_pool: MagicMock,
         api_key: str,
     ) -> None:
         """Test causal search when graph service is unavailable."""
         from api.endpoints.content.search import CausalSearchRequest, search_causal
 
         with patch(
-            "api.endpoints.content.search.deps.get_graph_pool",
+            "modules.memory.graphs.temporal.TemporalGraphRepo",
             side_effect=Exception("Neo4j connection refused"),
         ):
             body = CausalSearchRequest(query="Why did X happen?")
@@ -430,6 +429,9 @@ class TestCausalSearchEndpoint:
                     request=mock_request,
                     body=body,
                     _=api_key,
+                    graph_pool=mock_graph_pool,
+                    embedding_service=None,
+                    intent_classifier=None,
                 )
 
             assert exc_info.value.status_code == 503
@@ -449,21 +451,20 @@ class TestCausalSearchEndpoint:
             "modules.memory.retrieval.adaptive_search.AdaptiveSearchEngine",
             side_effect=Exception("Internal error"),
         ):
-            with patch(
-                "api.endpoints.content.search.deps.get_graph_pool",
-                return_value=mock_graph_pool,
-            ):
-                body = CausalSearchRequest(query="test query")
+            body = CausalSearchRequest(query="test query")
 
-                with pytest.raises(HTTPException) as exc_info:
-                    await search_causal(
-                        request=mock_request,
-                        body=body,
-                        _=api_key,
-                    )
+            with pytest.raises(HTTPException) as exc_info:
+                await search_causal(
+                    request=mock_request,
+                    body=body,
+                    _=api_key,
+                    graph_pool=mock_graph_pool,
+                    embedding_service=None,
+                    intent_classifier=None,
+                )
 
-                assert exc_info.value.status_code == 500
-                assert "Internal server error during causal search" in exc_info.value.detail
+            assert exc_info.value.status_code == 500
+            assert "Internal server error during causal search" in exc_info.value.detail
 
 
 # ── Temporal Search Tests (Lines 472-507) ───────────────────────────
@@ -495,28 +496,25 @@ class TestTemporalSearchEndpoint:
             "modules.memory.graphs.temporal.TemporalGraphRepo",
             return_value=mock_temporal_repo,
         ):
-            with patch(
-                "api.endpoints.content.search.deps.get_graph_pool",
-                return_value=mock_graph_pool,
-            ):
-                body = TemporalSearchRequest(
-                    query="What happened in January 2024?",
-                    time_window_days=30,
-                    limit=10,
-                )
+            body = TemporalSearchRequest(
+                query="What happened in January 2024?",
+                time_window_days=30,
+                limit=10,
+            )
 
-                result = await search_temporal(
-                    request=mock_request,
-                    body=body,
-                    _=api_key,
-                )
+            result = await search_temporal(
+                request=mock_request,
+                body=body,
+                _=api_key,
+                graph_pool=mock_graph_pool,
+            )
 
-                assert result.data.query == "What happened in January 2024?"
-                assert len(result.data.events) == 3
-                assert result.data.time_range["start"] == "2024-01-01T00:00:00Z"
-                assert result.data.time_range["end"] == "2024-01-10T00:00:00Z"
-                assert result.data.time_range["window_days"] == 30
-                assert result.data.metadata["limit"] == 10
+            assert result.data.query == "What happened in January 2024?"
+            assert len(result.data.events) == 3
+            assert result.data.time_range["start"] == "2024-01-01T00:00:00Z"
+            assert result.data.time_range["end"] == "2024-01-10T00:00:00Z"
+            assert result.data.time_range["window_days"] == 30
+            assert result.data.metadata["limit"] == 10
 
     @pytest.mark.asyncio
     async def test_temporal_search_empty_events(
@@ -535,26 +533,23 @@ class TestTemporalSearchEndpoint:
             "modules.memory.graphs.temporal.TemporalGraphRepo",
             return_value=mock_temporal_repo,
         ):
-            with patch(
-                "api.endpoints.content.search.deps.get_graph_pool",
-                return_value=mock_graph_pool,
-            ):
-                body = TemporalSearchRequest(
-                    query="What happened?",
-                    time_window_days=7,
-                    limit=5,
-                )
+            body = TemporalSearchRequest(
+                query="What happened?",
+                time_window_days=7,
+                limit=5,
+            )
 
-                result = await search_temporal(
-                    request=mock_request,
-                    body=body,
-                    _=api_key,
-                )
+            result = await search_temporal(
+                request=mock_request,
+                body=body,
+                _=api_key,
+                graph_pool=mock_graph_pool,
+            )
 
-                assert len(result.data.events) == 0
-                assert result.data.time_range["start"] is None
-                assert result.data.time_range["end"] is None
-                assert result.data.time_range["window_days"] == 7
+            assert len(result.data.events) == 0
+            assert result.data.time_range["start"] is None
+            assert result.data.time_range["end"] is None
+            assert result.data.time_range["window_days"] == 7
 
     @pytest.mark.asyncio
     async def test_temporal_search_partial_timestamps(
@@ -579,37 +574,35 @@ class TestTemporalSearchEndpoint:
             "modules.memory.graphs.temporal.TemporalGraphRepo",
             return_value=mock_temporal_repo,
         ):
-            with patch(
-                "api.endpoints.content.search.deps.get_graph_pool",
-                return_value=mock_graph_pool,
-            ):
-                body = TemporalSearchRequest(
-                    query="Timeline query",
-                    time_window_days=14,
-                    limit=10,
-                )
+            body = TemporalSearchRequest(
+                query="Timeline query",
+                time_window_days=14,
+                limit=10,
+            )
 
-                result = await search_temporal(
-                    request=mock_request,
-                    body=body,
-                    _=api_key,
-                )
+            result = await search_temporal(
+                request=mock_request,
+                body=body,
+                _=api_key,
+                graph_pool=mock_graph_pool,
+            )
 
-                assert len(result.data.events) == 3
-                assert result.data.time_range["start"] == "2024-01-01T00:00:00Z"
-                assert result.data.time_range["end"] == "2024-01-10T00:00:00Z"
+            assert len(result.data.events) == 3
+            assert result.data.time_range["start"] == "2024-01-01T00:00:00Z"
+            assert result.data.time_range["end"] == "2024-01-10T00:00:00Z"
 
     @pytest.mark.asyncio
     async def test_temporal_search_graph_service_error(
         self,
         mock_request: MagicMock,
+        mock_graph_pool: MagicMock,
         api_key: str,
     ) -> None:
         """Test temporal search when graph service is unavailable."""
         from api.endpoints.content.search import TemporalSearchRequest, search_temporal
 
         with patch(
-            "api.endpoints.content.search.deps.get_graph_pool",
+            "modules.memory.graphs.temporal.TemporalGraphRepo",
             side_effect=Exception("Neo4j connection timeout"),
         ):
             body = TemporalSearchRequest(query="When did X happen?")
@@ -619,6 +612,7 @@ class TestTemporalSearchEndpoint:
                     request=mock_request,
                     body=body,
                     _=api_key,
+                    graph_pool=mock_graph_pool,
                 )
 
             assert exc_info.value.status_code == 503
@@ -638,21 +632,18 @@ class TestTemporalSearchEndpoint:
             "modules.memory.graphs.temporal.TemporalGraphRepo",
             side_effect=Exception("Database error"),
         ):
-            with patch(
-                "api.endpoints.content.search.deps.get_graph_pool",
-                return_value=mock_graph_pool,
-            ):
-                body = TemporalSearchRequest(query="test query")
+            body = TemporalSearchRequest(query="test query")
 
-                with pytest.raises(HTTPException) as exc_info:
-                    await search_temporal(
-                        request=mock_request,
-                        body=body,
-                        _=api_key,
-                    )
+            with pytest.raises(HTTPException) as exc_info:
+                await search_temporal(
+                    request=mock_request,
+                    body=body,
+                    _=api_key,
+                    graph_pool=mock_graph_pool,
+                )
 
-                assert exc_info.value.status_code == 500
-                assert "Internal server error during temporal search" in exc_info.value.detail
+            assert exc_info.value.status_code == 500
+            assert "Internal server error during temporal search" in exc_info.value.detail
 
 
 # ── Parameterized Error Handling Tests ───────────────────────────────
@@ -759,32 +750,28 @@ class TestErrorHandling:
                 "modules.memory.retrieval.adaptive_search.AdaptiveSearchEngine",
                 side_effect=Exception(error_message),
             ):
-                with patch(
-                    "api.endpoints.content.search.deps.get_graph_pool",
-                    return_value=mock_graph_pool,
-                ):
-                    with pytest.raises(HTTPException) as exc_info:
-                        await search_causal(
-                            request=mock_request,
-                            body=request_body,
-                            _=api_key,
-                        )
+                with pytest.raises(HTTPException) as exc_info:
+                    await search_causal(
+                        request=mock_request,
+                        body=request_body,
+                        _=api_key,
+                        graph_pool=mock_graph_pool,
+                        embedding_service=None,
+                        intent_classifier=None,
+                    )
         else:  # temporal
             request_body = TemporalSearchRequest(query="test")
             with patch(
                 "modules.memory.graphs.temporal.TemporalGraphRepo",
                 side_effect=Exception(error_message),
             ):
-                with patch(
-                    "api.endpoints.content.search.deps.get_graph_pool",
-                    return_value=mock_graph_pool,
-                ):
-                    with pytest.raises(HTTPException) as exc_info:
-                        await search_temporal(
-                            request=mock_request,
-                            body=request_body,
-                            _=api_key,
-                        )
+                with pytest.raises(HTTPException) as exc_info:
+                    await search_temporal(
+                        request=mock_request,
+                        body=request_body,
+                        _=api_key,
+                        graph_pool=mock_graph_pool,
+                    )
 
         assert exc_info.value.status_code == expected_status
         assert expected_detail in exc_info.value.detail

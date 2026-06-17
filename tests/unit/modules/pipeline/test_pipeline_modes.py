@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from modules.ingestion.domain.models import RawArticle
+from tests.unit.modules.pipeline.conftest import make_pipeline
 
 
 @pytest.fixture
@@ -155,8 +156,6 @@ class TestFastModeLLMCallCount:
 
         Total: 3-4 calls per article
         """
-        from modules.processing.pipeline.graph import Pipeline
-
         # Track LLM calls
         call_count = {"call_at": 0, "embed": 0}
 
@@ -186,7 +185,7 @@ class TestFastModeLLMCallCount:
         )
 
         # Create pipeline with minimal dependencies for fast mode
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=mock_llm,
             budget=mock_token_budget,
             prompt_loader=mock_prompt_loader,
@@ -223,8 +222,6 @@ class TestFastModeLLMCallCount:
 
         For N articles, fast mode should make ~3*N LLM calls.
         """
-        from modules.processing.pipeline.graph import Pipeline
-
         # Track LLM calls
         call_count = 0
 
@@ -239,7 +236,7 @@ class TestFastModeLLMCallCount:
 
         mock_llm.call_at = AsyncMock(side_effect=track_call_at)
 
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=mock_llm,
             budget=mock_token_budget,
             prompt_loader=mock_prompt_loader,
@@ -282,8 +279,6 @@ class TestDeepModeLLMCallCount:
 
         Total: ~7-8 calls per article
         """
-        from modules.processing.pipeline.graph import Pipeline
-
         # Track LLM calls
         call_count = 0
 
@@ -309,7 +304,7 @@ class TestDeepModeLLMCallCount:
 
         mock_llm.call_at = AsyncMock(side_effect=track_call_at)
 
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=mock_llm,
             budget=mock_token_budget,
             prompt_loader=mock_prompt_loader,
@@ -349,9 +344,7 @@ class TestProcessingModeOutput:
         mock_event_bus: MagicMock,
     ) -> None:
         """Test that fast mode produces Phase 1 fields only."""
-        from modules.processing.pipeline.graph import Pipeline
-
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=mock_llm,
             budget=mock_token_budget,
             prompt_loader=mock_prompt_loader,
@@ -381,10 +374,8 @@ class TestProcessingModeOutput:
         mock_event_bus: MagicMock,
     ) -> None:
         """Test that fast mode and deep mode produce different outputs."""
-        from modules.processing.pipeline.graph import Pipeline
-
         # Create pipeline
-        pipeline = Pipeline(
+        pipeline = make_pipeline(
             llm=mock_llm,
             budget=mock_token_budget,
             prompt_loader=mock_prompt_loader,

@@ -256,14 +256,23 @@ class TestSearchUnifiedHTTPAuth:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
+        from api.dependencies import (
+            get_global_search_engine,
+            get_hybrid_engine,
+            get_llm_client,
+            get_local_search_engine,
+            get_vector_repo,
+        )
         from api.endpoints.content.search import router
 
         app = FastAPI()
         app.include_router(router)
-        Endpoints._local_engine = _make_mock_local_engine()
-        Endpoints._global_engine = _make_mock_global_engine()
-        Endpoints._vector_repo = _make_mock_vector_repo()
-        Endpoints._llm = _make_mock_llm()
+        # Override dependencies with mocks
+        app.dependency_overrides[get_local_search_engine] = lambda: _make_mock_local_engine()
+        app.dependency_overrides[get_global_search_engine] = lambda: _make_mock_global_engine()
+        app.dependency_overrides[get_vector_repo] = lambda: _make_mock_vector_repo()
+        app.dependency_overrides[get_llm_client] = lambda: _make_mock_llm()
+        app.dependency_overrides[get_hybrid_engine] = lambda: _make_mock_hybrid_engine()
 
         with TestClient(app, raise_server_exceptions=False) as client:
             # Without API key header -> 401
@@ -276,14 +285,23 @@ class TestSearchUnifiedHTTPAuth:
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
 
+        from api.dependencies import (
+            get_global_search_engine,
+            get_hybrid_engine,
+            get_llm_client,
+            get_local_search_engine,
+            get_vector_repo,
+        )
         from api.endpoints.content.search import router
 
         app = FastAPI()
         app.include_router(router)
-        Endpoints._local_engine = _make_mock_local_engine()
-        Endpoints._global_engine = _make_mock_global_engine()
-        Endpoints._vector_repo = _make_mock_vector_repo()
-        Endpoints._llm = _make_mock_llm()
+        # Override dependencies with mocks
+        app.dependency_overrides[get_local_search_engine] = lambda: _make_mock_local_engine()
+        app.dependency_overrides[get_global_search_engine] = lambda: _make_mock_global_engine()
+        app.dependency_overrides[get_vector_repo] = lambda: _make_mock_vector_repo()
+        app.dependency_overrides[get_llm_client] = lambda: _make_mock_llm()
+        app.dependency_overrides[get_hybrid_engine] = lambda: _make_mock_hybrid_engine()
 
         with TestClient(app, raise_server_exceptions=False) as client:
             response = client.get(
@@ -301,10 +319,18 @@ class TestSearchUnifiedHTTPAuth:
 class TestSearchDependencyGetters:
     """Tests for dependency getter functions via Endpoints."""
 
+    @pytest.fixture(autouse=True)
+    def reset_state(self):
+        """Reset container state before and after each test."""
+        from api.endpoints.deps_registry import Endpoints
+
+        Endpoints.reset()
+        yield
+        Endpoints.reset()
+
     @pytest.mark.asyncio
     async def test_get_local_search_engine_raises_503_when_uninitialized(self):
         """Test Endpoints.get_local_search_engine() raises 503 when engine not set."""
-        Endpoints._local_engine = None
         with pytest.raises(HTTPException) as exc_info:
             Endpoints.get_local_search_engine()
         assert exc_info.value.status_code == 503
@@ -312,7 +338,6 @@ class TestSearchDependencyGetters:
     @pytest.mark.asyncio
     async def test_get_global_search_engine_raises_503_when_uninitialized(self):
         """Test Endpoints.get_global_search_engine() raises 503 when engine not set."""
-        Endpoints._global_engine = None
         with pytest.raises(HTTPException) as exc_info:
             Endpoints.get_global_search_engine()
         assert exc_info.value.status_code == 503
@@ -320,7 +345,6 @@ class TestSearchDependencyGetters:
     @pytest.mark.asyncio
     async def test_get_vector_repo_raises_503_when_uninitialized(self):
         """Test Endpoints.get_vector_repo() raises 503 when repo not set."""
-        Endpoints._vector_repo = None
         with pytest.raises(HTTPException) as exc_info:
             Endpoints.get_vector_repo()
         assert exc_info.value.status_code == 503
@@ -328,7 +352,6 @@ class TestSearchDependencyGetters:
     @pytest.mark.asyncio
     async def test_get_llm_client_raises_503_when_uninitialized(self):
         """Test Endpoints.get_llm_client() raises 503 when client not set."""
-        Endpoints._llm = None
         with pytest.raises(HTTPException) as exc_info:
             Endpoints.get_llm_client()
         assert exc_info.value.status_code == 503

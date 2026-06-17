@@ -1168,16 +1168,18 @@ class TestBatchMergerSagaCompensation:
 
 
 class TestBatchMergerGraphDoneStatus:
-    """Test BatchMergerNode._graph_done_status property."""
+    """Test BatchMergerNode graph_writer.done_status property."""
 
     def test_neo4j_writer_returns_neo4j_done(self):
         """Non-LadybugWriter graph_writer returns NEO4J_DONE."""
+        mock_writer = MagicMock(name="Neo4jWriter")
+        mock_writer.done_status = PersistStatus.NEO4J_DONE
         node = BatchMergerNode(
             llm=MagicMock(),
             prompt_loader=MagicMock(),
-            graph_writer=MagicMock(name="Neo4jWriter"),
+            graph_writer=mock_writer,
         )
-        assert node._graph_done_status == PersistStatus.NEO4J_DONE
+        assert node._graph_writer.done_status == PersistStatus.NEO4J_DONE
 
     def test_ladybug_writer_returns_ladybug_done(self):
         """LadybugWriter graph_writer returns LADYBUG_DONE."""
@@ -1189,13 +1191,4 @@ class TestBatchMergerGraphDoneStatus:
             prompt_loader=MagicMock(),
             graph_writer=LadybugWriter(mock_pool),
         )
-        assert node._graph_done_status == PersistStatus.LADYBUG_DONE
-
-    def test_none_writer_returns_neo4j_done(self):
-        """None graph_writer returns NEO4J_DONE (default)."""
-        node = BatchMergerNode(
-            llm=MagicMock(),
-            prompt_loader=MagicMock(),
-            graph_writer=None,
-        )
-        assert node._graph_done_status == PersistStatus.NEO4J_DONE
+        assert node._graph_writer.done_status == PersistStatus.LADYBUG_DONE

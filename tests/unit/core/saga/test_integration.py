@@ -503,87 +503,63 @@ class TestPerformanceStress:
         assert len(result.completed_steps) == 10
 
 
-class TestSpecCoverageVerification:
-    """Verify all spec scenarios are covered by tests (Task 11.5)."""
-
-    def test_compensation_transaction_spec_coverage(self):
-        """Verify compensation-transaction spec scenarios are covered.
-
-        Spec scenarios:
-        - Define compensation command: test_compensation.py TestPostgresCompensation
-        - Serialize compensation command: test_compensation.py test_serialize_*
-        - Deserialize compensation command: test_compensation.py test_deserialize_*
-        - Rollback article insert/update/status: test_compensation.py + test_saga_persistence.py
-        - Rollback entity/relationship/community: test_compensation.py TestNeo4jCompensation
-        - Execute compensation in reverse order: test_executor.py TestCompensationExecutorReverseOrder
-        - Handle partial compensation: test_executor.py TestCompensationExecutorPartialFailure
-        - Complete compensation successfully: test_orchestrator.py test_step_failure_triggers_compensation
-        - Execute same compensation twice (idempotency): test_compensation.py test_execute_does_not_raise
-        - Handle missing target: covered by idempotent design
-        - Compensation exceeds timeout: test_executor.py TestCompensationExecutorTimeout
-        - Configure compensation timeout: test_integration.py TestSagaConfiguration
-        - Track compensation metrics: test_integration.py TestSagaMetrics
-        - Alert on compensation failures: test_alerts.py TestSagaAlertServiceCompensationFailure
-        """
-        # This test serves as a documentation/verification of spec coverage
-        assert True
-
-    def test_persist_status_spec_coverage(self):
-        """Verify persist-status spec scenarios are covered.
-
-        Spec scenarios:
-        - Validate state transition: test_saga_models.py TestPersistStatusSagaTransitions
-        - Support Saga states: test_saga_models.py TestPersistStatusSagaStates
-        - Transition to Saga state: test_saga_models.py test_valid_saga_transitions
-        - Transition from Saga state: test_saga_models.py test_invalid_saga_transitions
-        - PENDING transitions: test_saga_models.py
-        - SAGA_STARTED/PG_WRITING/NEO4J_WRITING transitions: test_saga_models.py
-        - SAGA_COMPENSATING/COMPENSATED/COMPLETED transitions: test_saga_models.py
-        - Validate valid/invalid transition: test_saga_models.py
-        - Get valid transitions: test_persist_status_state_machine.py
-        - Check if terminal: test_saga_models.py test_saga_completed_is_terminal
-        - Check if allows retry: test_saga_models.py test_saga_compensated_allows_retry
-        - Saga updates status: test_pipeline_integration.py test_saga_with_persist_status_integration
-        - Compensation resets status: test_saga_models.py test_saga_compensation_workflow
-        """
-        assert True
-
-    def test_saga_logging_spec_coverage(self):
-        """Verify saga-logging spec scenarios are covered.
-
-        Spec scenarios:
-        - Create saga log entry: test_repository.py TestSagaLogRepoCreate
-        - Update saga log entry: test_repository.py TestSagaLogRepoUpdate
-        - Store compensation data: test_repository.py test_create_with_compensation_data
-        - Schema includes required fields: test_saga_models.py TestSagaLogModel
-        - Schema includes indexes: migration 20_create_saga_logs
-        - Query logs by saga_id: test_repository.py test_get_by_saga_id
-        - Query logs by article_id: test_repository.py test_get_by_article_id
-        - Query failed logs: test_repository.py test_get_failed_logs
-        - Archive old logs: test_repository.py TestSagaLogRepoArchive
-        - Configure retention period: test_integration.py TestSagaConfiguration
-        - Batch log writes: test_repository.py TestSagaLogRepoBatchCreate
-        - Track log volume: test_integration.py TestSagaMetrics
-        """
-        assert True
-
-    def test_saga_orchestrator_spec_coverage(self):
-        """Verify saga-orchestrator spec scenarios are covered.
-
-        Spec scenarios:
-        - Start new saga: test_orchestrator.py TestSagaOrchestratorStart
-        - Execute saga step: test_orchestrator.py test_successful_saga
-        - Handle step failure: test_orchestrator.py TestSagaOrchestratorFailure
-        - Complete saga successfully: test_orchestrator.py test_successful_saga
-        - Query saga status: test_orchestrator.py TestSagaOrchestratorStatus
-        - List active sagas: test_saga_api.py TestListFailedSagas
-        - Retry failed saga: test_orchestrator.py TestSagaOrchestratorRetry + test_saga_api.py TestRetrySaga
-        - Detect saga timeout: test_orchestrator.py TestSagaOrchestratorTimeout
-        - Configure timeout: test_integration.py TestSagaConfiguration
-        - Pipeline triggers saga: test_pipeline_integration.py TestPipelineSagaIntegration
-        - Saga coordinates with PersistStatus: test_pipeline_integration.py test_saga_with_persist_status_integration
-        - Database connection failure (retry): test_orchestrator.py test_step_retries_on_failure
-        - Compensation failure: test_orchestrator.py test_compensation_failure_results_in_failed
-        - Maximum retries exceeded: test_orchestrator.py test_step_fails_after_max_retries
-        """
-        assert True
+# ─────────────────────────────────────────────────────────────────────────────
+# Spec Coverage Documentation (Task 11.5)
+# ─────────────────────────────────────────────────────────────────────────────
+# The following scenarios are covered by tests in the corresponding files:
+#
+# compensation-transaction spec:
+# - Define compensation command: test_compensation.py TestPostgresCompensation
+# - Serialize compensation command: test_compensation.py test_serialize_*
+# - Deserialize compensation command: test_compensation.py test_deserialize_*
+# - Rollback article insert/update/status: test_compensation.py + test_saga_persistence.py
+# - Rollback entity/relationship/community: test_compensation.py TestNeo4jCompensation
+# - Execute compensation in reverse order: test_executor.py TestCompensationExecutorReverseOrder
+# - Handle partial compensation: test_executor.py TestCompensationExecutorPartialFailure
+# - Complete compensation successfully: test_orchestrator.py test_step_failure_triggers_compensation
+# - Execute same compensation twice (idempotency): test_compensation.py test_execute_does_not_raise
+# - Handle missing target: covered by idempotent design
+# - Compensation exceeds timeout: test_executor.py TestCompensationExecutorTimeout
+# - Configure compensation timeout: test_integration.py TestSagaConfiguration
+# - Track compensation metrics: test_integration.py TestSagaMetrics
+# - Alert on compensation failures: test_alerts.py TestSagaAlertServiceCompensationFailure
+#
+# persist-status spec:
+# - Validate state transition: test_saga_models.py TestPersistStatusSagaTransitions
+# - Support Saga states: test_saga_models.py TestPersistStatusSagaStates
+# - Transition to/from Saga state: test_saga_models.py test_valid/invalid_saga_transitions
+# - PENDING/SAGA_STARTED/PG_WRITING/NEO4J_WRITING transitions: test_saga_models.py
+# - SAGA_COMPENSATING/COMPENSATED/COMPLETED transitions: test_saga_models.py
+# - Get valid transitions: test_persist_status_state_machine.py
+# - Check if terminal: test_saga_models.py test_saga_completed_is_terminal
+# - Check if allows retry: test_saga_models.py test_saga_compensated_allows_retry
+# - Saga updates status: test_pipeline_integration.py test_saga_with_persist_status_integration
+# - Compensation resets status: test_saga_models.py test_saga_compensation_workflow
+#
+# saga-logging spec:
+# - Create/Update saga log entry: test_repository.py TestSagaLogRepoCreate/Update
+# - Store compensation data: test_repository.py test_create_with_compensation_data
+# - Schema includes required fields: test_saga_models.py TestSagaLogModel
+# - Schema includes indexes: migration 20_create_saga_logs
+# - Query logs by saga_id/article_id: test_repository.py test_get_by_saga_id/article_id
+# - Query failed logs: test_repository.py test_get_failed_logs
+# - Archive old logs: test_repository.py TestSagaLogRepoArchive
+# - Configure retention period: test_integration.py TestSagaConfiguration
+# - Batch log writes: test_repository.py TestSagaLogRepoBatchCreate
+# - Track log volume: test_integration.py TestSagaMetrics
+#
+# saga-orchestrator spec:
+# - Start new saga: test_orchestrator.py TestSagaOrchestratorStart
+# - Execute saga step: test_orchestrator.py test_successful_saga
+# - Handle step failure: test_orchestrator.py TestSagaOrchestratorFailure
+# - Complete saga successfully: test_orchestrator.py test_successful_saga
+# - Query saga status: test_orchestrator.py TestSagaOrchestratorStatus
+# - List active sagas: test_saga_api.py TestListFailedSagas
+# - Retry failed saga: test_orchestrator.py TestSagaOrchestratorRetry + test_saga_api.py TestRetrySaga
+# - Detect saga timeout: test_orchestrator.py TestSagaOrchestratorTimeout
+# - Configure timeout: test_integration.py TestSagaConfiguration
+# - Pipeline triggers saga: test_pipeline_integration.py TestPipelineSagaIntegration
+# - Saga coordinates with PersistStatus: test_pipeline_integration.py test_saga_with_persist_status_integration
+# - Database connection failure (retry): test_orchestrator.py test_step_retries_on_failure
+# - Compensation failure: test_orchestrator.py test_compensation_failure_results_in_failed
+# - Maximum retries exceeded: test_orchestrator.py test_step_fails_after_max_retries

@@ -89,46 +89,12 @@ def reset_endpoints_registry():
     from api.endpoints import deps_registry as deps
 
     # Reset before test
-    deps.Endpoints._relational_pool = None
-    deps.Endpoints._relational_pool_type = None
-    deps.Endpoints._graph_pool = None
-    deps.Endpoints._graph_pool_type = None
-    deps.Endpoints._cache = None
-    deps.Endpoints._llm = None
-    deps.Endpoints._scheduler = None
-    deps.Endpoints._vector_repo = None
-    deps.Endpoints._source_config_repo = None
-    deps.Endpoints._source_authority_repo = None
-    deps.Endpoints._llm_failure_repo = None
-    deps.Endpoints._llm_usage_repo = None
-    deps.Endpoints._local_engine = None
-    deps.Endpoints._global_engine = None
-    deps.Endpoints._hybrid_engine = None
-    deps.Endpoints._pipeline_service = None
-    deps.Endpoints._task_registry = None
-    deps.Endpoints._graph_repo = None
+    deps.Endpoints.reset()
 
     yield
 
     # Reset after test
-    deps.Endpoints._relational_pool = None
-    deps.Endpoints._relational_pool_type = None
-    deps.Endpoints._graph_pool = None
-    deps.Endpoints._graph_pool_type = None
-    deps.Endpoints._cache = None
-    deps.Endpoints._llm = None
-    deps.Endpoints._scheduler = None
-    deps.Endpoints._vector_repo = None
-    deps.Endpoints._source_config_repo = None
-    deps.Endpoints._source_authority_repo = None
-    deps.Endpoints._llm_failure_repo = None
-    deps.Endpoints._llm_usage_repo = None
-    deps.Endpoints._local_engine = None
-    deps.Endpoints._global_engine = None
-    deps.Endpoints._hybrid_engine = None
-    deps.Endpoints._pipeline_service = None
-    deps.Endpoints._task_registry = None
-    deps.Endpoints._graph_repo = None
+    deps.Endpoints.reset()
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -230,13 +196,19 @@ class TestLifespan:
 
     @pytest.mark.asyncio
     async def test_startup_populates_endpoints_registry(self, mock_container):
-        """Test that Endpoints registry is populated with all dependencies."""
+        """Test that global container registry is populated during startup.
+
+        After deps_registry refactoring, ``Endpoints`` no longer stores
+        class-level attributes. Instead, ``main.lifespan`` registers the
+        container globally via ``set_container(container)`` and
+        ``set_settings(container.settings)``, and ``api.dependencies.get_*()``
+        resolves dependencies from the global container at request time.
+        """
         with patch("main.configure_tracing"):
             with patch("main.instrument_fastapi"):
-                with patch("main.set_container"):
-                    with patch("main.set_settings"):
+                with patch("main.set_container") as mock_set_container:
+                    with patch("main.set_settings") as mock_set_settings:
                         with patch("main.log"):
-                            from api.endpoints import deps_registry as deps
                             from main import lifespan
 
                             app = FastAPI()
@@ -245,39 +217,9 @@ class TestLifespan:
                             async with lifespan(app):
                                 pass
 
-                            # Verify all endpoints were set
-                            assert (
-                                deps.Endpoints._relational_pool is mock_container.relational_pool()
-                            )
-                            assert deps.Endpoints._graph_pool is mock_container.graph_pool()
-                            assert deps.Endpoints._cache is mock_container.cache_client()
-                            assert deps.Endpoints._llm is mock_container.llm_client()
-                            assert deps.Endpoints._scheduler is mock_container.source_scheduler()
-                            assert deps.Endpoints._vector_repo is mock_container.vector_repo()
-                            assert (
-                                deps.Endpoints._source_config_repo
-                                is mock_container.source_config_repo()
-                            )
-                            assert (
-                                deps.Endpoints._source_authority_repo
-                                is mock_container.source_authority_repo()
-                            )
-                            assert (
-                                deps.Endpoints._llm_failure_repo
-                                is mock_container.llm_failure_repo()
-                            )
-                            assert deps.Endpoints._llm_usage_repo is mock_container.llm_usage_repo()
-                            assert (
-                                deps.Endpoints._local_engine is mock_container.local_search_engine()
-                            )
-                            assert (
-                                deps.Endpoints._global_engine
-                                is mock_container.global_search_engine()
-                            )
-                            assert (
-                                deps.Endpoints._hybrid_engine
-                                is mock_container.hybrid_search_engine()
-                            )
+                            # Verify global container registry was populated
+                            mock_set_container.assert_called_once_with(mock_container)
+                            mock_set_settings.assert_called_once_with(mock_container.settings)
 
     @pytest.mark.asyncio
     async def test_shutdown_calls_graceful_shutdown(self, mock_container):

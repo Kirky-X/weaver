@@ -59,8 +59,8 @@ class TestContentHashCacheHit:
         cache_client.mget.return_value = [cached_result]
 
         # Create pipeline with mock cache
-        pipeline = MagicMock(spec=Pipeline)
-        pipeline._cache_client = cache_client
+        pipeline = MagicMock()
+        pipeline._deps.infrastructure.cache_client = cache_client
         pipeline._settings = MagicMock()
 
         # Call the method under test
@@ -91,8 +91,8 @@ class TestContentHashCacheHit:
         ]
         cache_client.mget.return_value = cached_results
 
-        pipeline = MagicMock(spec=Pipeline)
-        pipeline._cache_client = cache_client
+        pipeline = MagicMock()
+        pipeline._deps.infrastructure.cache_client = cache_client
         pipeline._settings = MagicMock()
 
         result = await Pipeline._check_content_hash_cache(pipeline, articles)
@@ -113,8 +113,8 @@ class TestContentHashCacheMiss:
         cache_client = AsyncMock()
         cache_client.mget.return_value = [None]
 
-        pipeline = MagicMock(spec=Pipeline)
-        pipeline._cache_client = cache_client
+        pipeline = MagicMock()
+        pipeline._deps.infrastructure.cache_client = cache_client
         pipeline._settings = MagicMock()
 
         result = await Pipeline._check_content_hash_cache(pipeline, [article])
@@ -132,8 +132,8 @@ class TestContentHashCacheMiss:
         cache_client = AsyncMock()
         cache_client.mget.return_value = [None, None]
 
-        pipeline = MagicMock(spec=Pipeline)
-        pipeline._cache_client = cache_client
+        pipeline = MagicMock()
+        pipeline._deps.infrastructure.cache_client = cache_client
         pipeline._settings = MagicMock()
 
         result = await Pipeline._check_content_hash_cache(pipeline, articles)
@@ -155,8 +155,8 @@ class TestContentHashCacheWrite:
         cache_client = AsyncMock()
         cache_client.set.return_value = None
 
-        pipeline = MagicMock(spec=Pipeline)
-        pipeline._cache_client = cache_client
+        pipeline = MagicMock()
+        pipeline._deps.infrastructure.cache_client = cache_client
         pipeline._settings = MagicMock()
 
         state = PipelineState(raw=article)
@@ -187,8 +187,8 @@ class TestContentHashCacheWrite:
         cache_client = AsyncMock()
         cache_client.set.return_value = None
 
-        pipeline = MagicMock(spec=Pipeline)
-        pipeline._cache_client = cache_client
+        pipeline = MagicMock()
+        pipeline._deps.infrastructure.cache_client = cache_client
         pipeline._settings = MagicMock()
 
         states = []
@@ -213,8 +213,8 @@ class TestContentHashCacheDisabled:
         """When cache_client is None, return None for all articles."""
         article = _make_raw_article()
 
-        pipeline = MagicMock(spec=Pipeline)
-        pipeline._cache_client = None
+        pipeline = MagicMock()
+        pipeline._deps.infrastructure.cache_client = None
         pipeline._settings = MagicMock()
 
         result = await Pipeline._check_content_hash_cache(pipeline, [article])
@@ -226,8 +226,8 @@ class TestContentHashCacheDisabled:
         """When cache_client is None, don't attempt to write."""
         article = _make_raw_article()
 
-        pipeline = MagicMock(spec=Pipeline)
-        pipeline._cache_client = None
+        pipeline = MagicMock()
+        pipeline._deps.infrastructure.cache_client = None
         pipeline._settings = MagicMock()
 
         state = PipelineState(raw=article)
@@ -248,8 +248,8 @@ class TestContentHashCacheMetrics:
         cache_client = AsyncMock()
         cache_client.mget.return_value = ['{"title": "Test"}']
 
-        pipeline = MagicMock(spec=Pipeline)
-        pipeline._cache_client = cache_client
+        pipeline = MagicMock()
+        pipeline._deps.infrastructure.cache_client = cache_client
         pipeline._settings = MagicMock()
 
         with patch("modules.processing.pipeline.graph.MetricsCollector") as mock_metrics:
@@ -266,8 +266,8 @@ class TestContentHashCacheMetrics:
         cache_client = AsyncMock()
         cache_client.mget.return_value = [None]
 
-        pipeline = MagicMock(spec=Pipeline)
-        pipeline._cache_client = cache_client
+        pipeline = MagicMock()
+        pipeline._deps.infrastructure.cache_client = cache_client
         pipeline._settings = MagicMock()
 
         with patch("modules.processing.pipeline.graph.MetricsCollector") as mock_metrics:

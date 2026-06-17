@@ -62,6 +62,27 @@ def _load_env_file(env_file: Path) -> dict[str, str]:
     return env
 
 
+# ── Service Availability Checks ─────────────────────────────────────
+
+
+async def require_ollama() -> None:
+    """Skip the current test if the Ollama service is not available.
+
+    Probes http://localhost:11434/api/tags and calls pytest.skip() when the
+    service is unreachable. Exception handling is intentionally narrowed to
+    connection-related errors to avoid masking unexpected failures.
+    """
+    import httpx
+
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as http:
+            resp = await http.get("http://localhost:11434/api/tags")
+            if resp.status_code != 200:
+                pytest.skip("Ollama service not available")
+    except (httpx.ConnectError, httpx.TimeoutException, ConnectionRefusedError, OSError):
+        pytest.skip("Ollama service not available")
+
+
 # ── Docker Detection ────────────────────────────────────────────────
 
 

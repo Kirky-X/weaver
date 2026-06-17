@@ -909,6 +909,9 @@ class TestPersistBatchSagaStatusUpdates:
                 "errors": [],
             }
         )
+        # GraphWriter Protocol exposes done_status property; BatchMergerNode
+        # uses it to update persist status after Phase 2.
+        writer.done_status = PersistStatus.NEO4J_DONE
         return writer
 
     @pytest.fixture

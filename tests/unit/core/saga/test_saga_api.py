@@ -5,10 +5,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi.testclient import TestClient
 
 from core.saga.orchestrator import SagaResult, SagaStatus
 
@@ -18,18 +17,6 @@ def mock_orchestrator():
     """Create a mock SagaOrchestrator."""
     orchestrator = AsyncMock()
     return orchestrator
-
-
-@pytest.fixture
-def client(mock_orchestrator):
-    """Create a test client with mocked saga orchestrator."""
-    with patch(
-        "api.endpoints.saga.Endpoints.get_saga_orchestrator", return_value=mock_orchestrator
-    ):
-        from main import app
-
-        with TestClient(app) as c:
-            yield c
 
 
 class TestGetSagaStatus:
@@ -53,12 +40,9 @@ class TestGetSagaStatus:
             ],
         }
 
-        with patch(
-            "api.endpoints.saga.Endpoints.get_saga_orchestrator", return_value=mock_orchestrator
-        ):
-            from api.endpoints.saga import get_saga_status
+        from api.endpoints.saga import get_saga_status
 
-            result = await get_saga_status(saga_id)
+        result = await get_saga_status(saga_id, orchestrator=mock_orchestrator)
 
         assert result["status"] == "completed"
         assert len(result["steps"]) == 1
@@ -72,16 +56,13 @@ class TestGetSagaStatus:
             "steps": [],
         }
 
-        with patch(
-            "api.endpoints.saga.Endpoints.get_saga_orchestrator", return_value=mock_orchestrator
-        ):
-            from fastapi import HTTPException
+        from fastapi import HTTPException
 
-            from api.endpoints.saga import get_saga_status
+        from api.endpoints.saga import get_saga_status
 
-            with pytest.raises(HTTPException) as exc_info:
-                await get_saga_status(saga_id)
-            assert exc_info.value.status_code == 404
+        with pytest.raises(HTTPException) as exc_info:
+            await get_saga_status(saga_id, orchestrator=mock_orchestrator)
+        assert exc_info.value.status_code == 404
 
 
 class TestCompensateSaga:
@@ -100,12 +81,9 @@ class TestCompensateSaga:
         )
         mock_orchestrator.compensate_saga.return_value = mock_result
 
-        with patch(
-            "api.endpoints.saga.Endpoints.get_saga_orchestrator", return_value=mock_orchestrator
-        ):
-            from api.endpoints.saga import compensate_saga
+        from api.endpoints.saga import compensate_saga
 
-            result = await compensate_saga(saga_id)
+        result = await compensate_saga(saga_id, orchestrator=mock_orchestrator)
 
         assert result["status"] == "compensated"
 
@@ -122,16 +100,13 @@ class TestCompensateSaga:
         )
         mock_orchestrator.compensate_saga.return_value = mock_result
 
-        with patch(
-            "api.endpoints.saga.Endpoints.get_saga_orchestrator", return_value=mock_orchestrator
-        ):
-            from fastapi import HTTPException
+        from fastapi import HTTPException
 
-            from api.endpoints.saga import compensate_saga
+        from api.endpoints.saga import compensate_saga
 
-            with pytest.raises(HTTPException) as exc_info:
-                await compensate_saga(saga_id)
-            assert exc_info.value.status_code == 500
+        with pytest.raises(HTTPException) as exc_info:
+            await compensate_saga(saga_id, orchestrator=mock_orchestrator)
+        assert exc_info.value.status_code == 500
 
 
 class TestRetrySaga:
@@ -163,12 +138,9 @@ class TestRetrySaga:
         mock_log_repo.get_by_saga_id.return_value = [mock_entry]
         mock_orchestrator._log_repo = mock_log_repo
 
-        with patch(
-            "api.endpoints.saga.Endpoints.get_saga_orchestrator", return_value=mock_orchestrator
-        ):
-            from api.endpoints.saga import retry_saga
+        from api.endpoints.saga import retry_saga
 
-            result = await retry_saga(saga_id)
+        result = await retry_saga(saga_id, orchestrator=mock_orchestrator)
 
         assert result["article_id"] == str(article_id)
         assert result["previous_status"] == "failed"
@@ -182,16 +154,13 @@ class TestRetrySaga:
             "steps": [],
         }
 
-        with patch(
-            "api.endpoints.saga.Endpoints.get_saga_orchestrator", return_value=mock_orchestrator
-        ):
-            from fastapi import HTTPException
+        from fastapi import HTTPException
 
-            from api.endpoints.saga import retry_saga
+        from api.endpoints.saga import retry_saga
 
-            with pytest.raises(HTTPException) as exc_info:
-                await retry_saga(saga_id)
-            assert exc_info.value.status_code == 404
+        with pytest.raises(HTTPException) as exc_info:
+            await retry_saga(saga_id, orchestrator=mock_orchestrator)
+        assert exc_info.value.status_code == 404
 
 
 class TestListFailedSagas:
@@ -211,12 +180,9 @@ class TestListFailedSagas:
         mock_log_repo.get_failed_logs.return_value = [mock_entry]
         mock_orchestrator._log_repo = mock_log_repo
 
-        with patch(
-            "api.endpoints.saga.Endpoints.get_saga_orchestrator", return_value=mock_orchestrator
-        ):
-            from api.endpoints.saga import list_failed_sagas
+        from api.endpoints.saga import list_failed_sagas
 
-            result = await list_failed_sagas(limit=10)
+        result = await list_failed_sagas(limit=10, orchestrator=mock_orchestrator)
 
         assert result["failed_count"] == 1
         assert len(result["entries"]) == 1
@@ -227,12 +193,9 @@ class TestListFailedSagas:
         mock_log_repo.get_failed_logs.return_value = []
         mock_orchestrator._log_repo = mock_log_repo
 
-        with patch(
-            "api.endpoints.saga.Endpoints.get_saga_orchestrator", return_value=mock_orchestrator
-        ):
-            from api.endpoints.saga import list_failed_sagas
+        from api.endpoints.saga import list_failed_sagas
 
-            result = await list_failed_sagas(limit=500)
+        result = await list_failed_sagas(limit=500, orchestrator=mock_orchestrator)
 
         # Limit should be capped to 200
         mock_log_repo.get_failed_logs.assert_called_once_with(limit=200)

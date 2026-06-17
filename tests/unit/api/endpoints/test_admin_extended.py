@@ -19,24 +19,27 @@ import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from api.endpoints.admin.admin import (
+from api.endpoints.admin.articles import DeduplicateResponse, deduplicate_articles
+from api.endpoints.admin.authorities import (
     AutoScoreRefreshResponse,
-    ConsolidationResult,
-    DeduplicateResponse,
-    LLMFailureResponse,
-    LLMFailureStatsResponse,
-    MemoryDiagnosticResponse,
     UpdateAuthorityRequest,
     UpdateAuthorityResponse,
-    deduplicate_articles,
+    list_authorities,
+    refresh_auto_scores,
+    update_authority,
+)
+from api.endpoints.admin.llm_monitoring import (
+    LLMFailureResponse,
+    LLMFailureStatsResponse,
     get_llm_failure_stats,
     get_llm_usage_unified,
-    list_authorities,
     list_llm_failures,
+)
+from api.endpoints.admin.memory import (
+    ConsolidationResult,
+    MemoryDiagnosticResponse,
     memory_diagnostics,
-    refresh_auto_scores,
     trigger_consolidation,
-    update_authority,
 )
 
 
@@ -646,20 +649,16 @@ class TestArticleDeduplication:
             return_value={"removed": 150, "kept": 850}
         )
 
-        with (
-            patch(
-                "api.endpoints.admin.admin.Endpoints.get_relational_pool_optional",
-                return_value=mock_pool,
-            ),
-            patch(
-                "modules.storage.postgres.article_repo.ArticleRepo",
-                return_value=mock_article_repo,
-            ),
+        with patch(
+            "modules.storage.postgres.article_repo.ArticleRepo",
+            return_value=mock_article_repo,
         ):
             mock_pool.session.return_value.__aenter__ = AsyncMock(return_value=MagicMock())
             mock_pool.session.return_value.__aexit__ = AsyncMock(return_value=False)
 
-            response = await deduplicate_articles(request=mock_request, _=mock_api_key)
+            response = await deduplicate_articles(
+                request=mock_request, _=mock_api_key, pool=mock_pool
+            )
 
             assert response.data.removed == 150
             assert response.data.kept == 850
@@ -667,15 +666,11 @@ class TestArticleDeduplication:
     @pytest.mark.asyncio
     async def test_deduplicate_no_database_raises_error(self, mock_api_key, mock_request):
         """Test deduplication raises error when database not initialized."""
-        with patch(
-            "api.endpoints.admin.admin.Endpoints.get_relational_pool_optional",
-            return_value=None,
-        ):
-            with pytest.raises(HTTPException) as exc_info:
-                await deduplicate_articles(request=mock_request, _=mock_api_key)
+        with pytest.raises(HTTPException) as exc_info:
+            await deduplicate_articles(request=mock_request, _=mock_api_key, pool=None)
 
-            assert exc_info.value.status_code == 503
-            assert "Database not initialized" in exc_info.value.detail
+        assert exc_info.value.status_code == 503
+        assert "Database not initialized" in exc_info.value.detail
 
 
 # ── Memory System Tests ──────────────────────────────────────────
@@ -853,39 +848,31 @@ class TestRefreshAutoScores:
             mock_result2,
         ]
 
-        with (
-            patch(
-                "api.endpoints.admin.admin.Endpoints.get_relational_pool_optional",
-                return_value=mock_pool,
-            ),
-        ):
-            response = await refresh_auto_scores(
-                request=mock_request,
-                _=mock_api_key,
-                container=mock_container,
-            )
+        response = await refresh_auto_scores(
+            request=mock_request,
+            _=mock_api_key,
+            container=mock_container,
+            pool=mock_pool,
+        )
 
-            assert response.data.sources_updated >= 0
-            assert response.data.triggered_at is not None
+        assert response.data.sources_updated >= 0
+        assert response.data.triggered_at is not None
 
     @pytest.mark.asyncio
     async def test_refresh_no_database_raises_error(
         self, mock_api_key, mock_request, mock_container
     ):
         """Test refresh raises error when database not initialized."""
-        with patch(
-            "api.endpoints.admin.admin.Endpoints.get_relational_pool_optional",
-            return_value=None,
-        ):
-            with pytest.raises(HTTPException) as exc_info:
-                await refresh_auto_scores(
-                    request=mock_request,
-                    _=mock_api_key,
-                    container=mock_container,
-                )
+        with pytest.raises(HTTPException) as exc_info:
+            await refresh_auto_scores(
+                request=mock_request,
+                _=mock_api_key,
+                container=mock_container,
+                pool=None,
+            )
 
-            assert exc_info.value.status_code == 503
-            assert "Database not initialized" in exc_info.value.detail
+        assert exc_info.value.status_code == 503
+        assert "Database not initialized" in exc_info.value.detail
 
     @pytest.mark.asyncio
     async def test_refresh_handles_individual_errors(
@@ -906,19 +893,14 @@ class TestRefreshAutoScores:
             MagicMock(scalars=MagicMock(return_value=MagicMock(all=MagicMock(return_value=[])))),
         ]
 
-        with (
-            patch(
-                "api.endpoints.admin.admin.Endpoints.get_relational_pool_optional",
-                return_value=mock_pool,
-            ),
-        ):
-            response = await refresh_auto_scores(
-                request=mock_request,
-                _=mock_api_key,
-                container=mock_container,
-            )
+        response = await refresh_auto_scores(
+            request=mock_request,
+            _=mock_api_key,
+            container=mock_container,
+            pool=mock_pool,
+        )
 
-            assert response.data.sources_updated == 0
+        assert response.data.sources_updated == 0
 
 
 # ── Response Model Tests ─────────────────────────────────────────
@@ -929,7 +911,7 @@ class TestResponseModels:
 
     def test_authority_response_model(self):
         """Test AuthorityResponse model."""
-        from api.endpoints.admin.admin import AuthorityResponse
+        from api.endpoints.admin.authorities import AuthorityResponse
 
         response = AuthorityResponse(
             id=1,

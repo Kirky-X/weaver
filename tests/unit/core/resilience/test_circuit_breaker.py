@@ -49,7 +49,7 @@ class TestCircuitBreaker:
         assert cb.state == CBState.OPEN
         await asyncio.sleep(0.6)
         # pybreaker transitions to half-open via half_open() call
-        cb._breaker.half_open()
+        cb.force_half_open()
         assert cb.state == CBState.HALF_OPEN
 
     @pytest.mark.asyncio
@@ -58,7 +58,7 @@ class TestCircuitBreaker:
         cb = CircuitBreaker(threshold=1, timeout_secs=0.5)
         await cb.record_failure()
         await asyncio.sleep(0.6)
-        cb._breaker.half_open()
+        cb.force_half_open()
         assert cb.state == CBState.HALF_OPEN
         await cb.record_success()
         assert cb.state == CBState.CLOSED
@@ -69,7 +69,7 @@ class TestCircuitBreaker:
         cb = CircuitBreaker(threshold=1, timeout_secs=0.5)
         await cb.record_failure()
         await asyncio.sleep(0.6)
-        cb._breaker.half_open()
+        cb.force_half_open()
         assert cb.state == CBState.HALF_OPEN
         await cb.record_failure()
         assert cb.state == CBState.OPEN
@@ -112,7 +112,7 @@ class TestCircuitBreaker:
         await cb.record_failure()
         assert cb.state == CBState.OPEN
         await asyncio.sleep(0.6)
-        cb._breaker.half_open()
+        cb.force_half_open()
         assert cb.state == CBState.HALF_OPEN
 
     @pytest.mark.asyncio
@@ -135,7 +135,7 @@ class TestCircuitBreaker:
         await cb.record_failure()
         assert cb.state == CBState.OPEN
         await asyncio.sleep(0.6)
-        cb._breaker.half_open()
+        cb.force_half_open()
         assert cb.state == CBState.HALF_OPEN
 
     @pytest.mark.asyncio

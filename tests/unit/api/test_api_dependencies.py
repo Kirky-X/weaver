@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import HTTPException
@@ -44,174 +44,178 @@ class TestGetContainer:
 
 @pytest.mark.xdist_group(name="endpoints_deps")
 class TestEndpointsDependencyRegistry:
-    """Tests for Endpoints class dependency registry."""
+    """Tests for Endpoints class dependency registry.
+
+    The Endpoints class is a thin wrapper that delegates to
+    api.dependencies.get_* functions, which in turn call container methods.
+    Tests set up a mock container and verify the delegation chain.
+    """
 
     @pytest.fixture(autouse=True)
-    def cleanup_endpoints(self):
-        """自动清理 Endpoints 状态,每个测试后执行"""
+    def cleanup_container(self):
+        """Ensure container is cleared after each test for isolation."""
+        yield
         from api.endpoints.deps_registry import Endpoints
 
-        yield  # 运行测试
-        # 清理 - 确保测试间隔离
-        Endpoints._relational_pool = None
-        Endpoints._relational_pool_type = None
-        Endpoints._graph_pool = None
-        Endpoints._graph_pool_type = None
-        Endpoints._cache = None
-        Endpoints._llm = None
-        Endpoints._local_engine = None
-        Endpoints._global_engine = None
-        Endpoints._hybrid_engine = None
-        Endpoints._vector_repo = None
-        Endpoints._graph_repo = None
-        Endpoints._scheduler = None
-        Endpoints._source_config_repo = None
-        Endpoints._source_authority_repo = None
-        Endpoints._llm_failure_repo = None
-        Endpoints._llm_usage_repo = None
-        Endpoints._pipeline_service = None
-        Endpoints._task_registry = None
+        Endpoints.reset()
 
-    def test_get_relational_pool_returns_when_set(self):
-        """Test get_relational_pool returns pool when set."""
+    def _set_mock_container(self, **service_mocks):
+        """Set up a mock container with the given service mocks.
+
+        Each keyword argument sets up a container method that returns the
+        mock. For example, _set_mock_container(relational_pool=mock_pool)
+        makes container.relational_pool() return mock_pool.
+        """
+        import container as container_module
+
+        mock_container = MagicMock()
+        for method_name, return_value in service_mocks.items():
+            getattr(mock_container, method_name).return_value = return_value
+        container_module._container = mock_container
+        return mock_container
+
+    def test_get_relational_pool_returns_from_container(self):
+        """Test get_relational_pool returns pool from container."""
         from api.endpoints.deps_registry import Endpoints
 
         mock_pool = MagicMock()
-        Endpoints._relational_pool = mock_pool
+        self._set_mock_container(relational_pool=mock_pool)
         result = Endpoints.get_relational_pool()
         assert result == mock_pool
 
-    def test_get_relational_pool_raises_when_not_set(self):
-        """Test get_relational_pool raises HTTPException when not set."""
+    def test_get_relational_pool_raises_503_when_no_container(self):
+        """Test get_relational_pool raises HTTPException when no container."""
         from api.endpoints.deps_registry import Endpoints
 
-        Endpoints._relational_pool = None
+        Endpoints.reset()
         with pytest.raises(HTTPException) as exc_info:
             Endpoints.get_relational_pool()
         assert exc_info.value.status_code == 503
 
-    def test_get_graph_pool_returns_when_set(self):
-        """Test get_graph_pool returns pool when set."""
+    def test_get_graph_pool_returns_from_container(self):
+        """Test get_graph_pool returns pool from container."""
         from api.endpoints.deps_registry import Endpoints
 
         mock_pool = MagicMock()
-        Endpoints._graph_pool = mock_pool
+        self._set_mock_container(graph_pool=mock_pool)
         result = Endpoints.get_graph_pool()
         assert result == mock_pool
 
-    def test_get_graph_pool_raises_when_not_set(self):
-        """Test get_graph_pool raises HTTPException when not set."""
+    def test_get_graph_pool_raises_503_when_not_set(self):
+        """Test get_graph_pool raises HTTPException when pool is None."""
         from api.endpoints.deps_registry import Endpoints
 
-        Endpoints._graph_pool = None
+        self._set_mock_container(graph_pool=None)
         with pytest.raises(HTTPException) as exc_info:
             Endpoints.get_graph_pool()
         assert exc_info.value.status_code == 503
 
-    def test_get_cache_returns_when_set(self):
-        """Test get_cache_client returns client when set."""
+    def test_get_cache_client_returns_from_container(self):
+        """Test get_cache_client returns client from container."""
         from api.endpoints.deps_registry import Endpoints
 
         mock_cache = MagicMock()
-        Endpoints._cache = mock_cache
+        self._set_mock_container(cache_client=mock_cache)
         result = Endpoints.get_cache_client()
         assert result == mock_cache
 
-    def test_get_cache_raises_when_not_set(self):
-        """Test get_cache_client raises HTTPException when not set."""
+    def test_get_cache_client_raises_503_when_no_container(self):
+        """Test get_cache_client raises HTTPException when no container."""
         from api.endpoints.deps_registry import Endpoints
 
-        Endpoints._cache = None
+        Endpoints.reset()
         with pytest.raises(HTTPException) as exc_info:
             Endpoints.get_cache_client()
         assert exc_info.value.status_code == 503
 
-    def test_get_llm_returns_when_set(self):
-        """Test get_llm returns client when set."""
+    def test_get_llm_client_returns_from_container(self):
+        """Test get_llm_client returns client from container."""
         from api.endpoints.deps_registry import Endpoints
 
         mock_llm = MagicMock()
-        Endpoints._llm = mock_llm
+        mock_container = self._set_mock_container()
+        mock_container.llm_client.return_value = mock_llm
         result = Endpoints.get_llm_client()
         assert result == mock_llm
 
-    def test_get_llm_raises_when_not_set(self):
-        """Test get_llm raises HTTPException when not set."""
+    def test_get_llm_client_raises_503_when_not_set(self):
+        """Test get_llm_client raises HTTPException when client is None."""
         from api.endpoints.deps_registry import Endpoints
 
-        Endpoints._llm = None
+        mock_container = self._set_mock_container()
+        mock_container.llm_client.return_value = None
         with pytest.raises(HTTPException) as exc_info:
             Endpoints.get_llm_client()
         assert exc_info.value.status_code == 503
 
-    def test_get_vector_repo_returns_when_set(self):
-        """Test get_vector_repo returns repo when set."""
+    def test_get_vector_repo_returns_from_container(self):
+        """Test get_vector_repo returns repo from container."""
         from api.endpoints.deps_registry import Endpoints
 
         mock_repo = MagicMock()
-        Endpoints._vector_repo = mock_repo
+        self._set_mock_container(vector_repo=mock_repo)
         result = Endpoints.get_vector_repo()
         assert result == mock_repo
 
-    def test_get_vector_repo_raises_when_not_set(self):
-        """Test get_vector_repo raises HTTPException when not set."""
+    def test_get_vector_repo_raises_503_when_no_container(self):
+        """Test get_vector_repo raises HTTPException when no container."""
         from api.endpoints.deps_registry import Endpoints
 
-        Endpoints._vector_repo = None
+        Endpoints.reset()
         with pytest.raises(HTTPException) as exc_info:
             Endpoints.get_vector_repo()
         assert exc_info.value.status_code == 503
 
-    def test_get_scheduler_returns_when_set(self):
-        """Test get_scheduler returns scheduler when set."""
+    def test_get_source_scheduler_returns_from_container(self):
+        """Test get_source_scheduler returns scheduler from container."""
         from api.endpoints.deps_registry import Endpoints
 
         mock_scheduler = MagicMock()
-        Endpoints._scheduler = mock_scheduler
+        self._set_mock_container(source_scheduler=mock_scheduler)
         result = Endpoints.get_source_scheduler()
         assert result == mock_scheduler
 
-    def test_get_scheduler_raises_when_not_set(self):
-        """Test get_scheduler raises HTTPException when not set."""
+    def test_get_source_scheduler_raises_503_when_no_container(self):
+        """Test get_source_scheduler raises HTTPException when no container."""
         from api.endpoints.deps_registry import Endpoints
 
-        Endpoints._scheduler = None
+        Endpoints.reset()
         with pytest.raises(HTTPException) as exc_info:
             Endpoints.get_source_scheduler()
         assert exc_info.value.status_code == 503
 
-    def test_get_source_config_repo_returns_when_set(self):
-        """Test get_source_config_repo returns repo when set."""
+    def test_get_source_config_repo_returns_from_container(self):
+        """Test get_source_config_repo returns repo from container."""
         from api.endpoints.deps_registry import Endpoints
 
         mock_repo = MagicMock()
-        Endpoints._source_config_repo = mock_repo
+        self._set_mock_container(source_config_repo=mock_repo)
         result = Endpoints.get_source_config_repo()
         assert result == mock_repo
 
-    def test_get_source_config_repo_raises_when_not_set(self):
-        """Test get_source_config_repo raises HTTPException when not set."""
+    def test_get_source_config_repo_raises_503_when_no_container(self):
+        """Test get_source_config_repo raises HTTPException when no container."""
         from api.endpoints.deps_registry import Endpoints
 
-        Endpoints._source_config_repo = None
+        Endpoints.reset()
         with pytest.raises(HTTPException) as exc_info:
             Endpoints.get_source_config_repo()
         assert exc_info.value.status_code == 503
 
-    def test_get_source_authority_repo_returns_when_set(self):
-        """Test get_source_authority_repo returns repo when set."""
+    def test_get_source_authority_repo_returns_from_container(self):
+        """Test get_source_authority_repo returns repo from container."""
         from api.endpoints.deps_registry import Endpoints
 
         mock_repo = MagicMock()
-        Endpoints._source_authority_repo = mock_repo
+        self._set_mock_container(source_authority_repo=mock_repo)
         result = Endpoints.get_source_authority_repo()
         assert result == mock_repo
 
-    def test_get_source_authority_repo_raises_when_not_set(self):
-        """Test get_source_authority_repo raises HTTPException when not set."""
+    def test_get_source_authority_repo_raises_503_when_no_container(self):
+        """Test get_source_authority_repo raises HTTPException when no container."""
         from api.endpoints.deps_registry import Endpoints
 
-        Endpoints._source_authority_repo = None
+        Endpoints.reset()
         with pytest.raises(HTTPException) as exc_info:
             Endpoints.get_source_authority_repo()
         assert exc_info.value.status_code == 503
@@ -219,142 +223,124 @@ class TestEndpointsDependencyRegistry:
 
 @pytest.mark.xdist_group(name="endpoints_deps")
 class TestDependencyFunctions:
-    """Tests for dependency functions in api/dependencies.py."""
+    """Tests for dependency functions in api/dependencies.py.
 
-    @pytest.fixture(autouse=True)
-    def cleanup_endpoints(self):
-        """自动清理 Endpoints 状态,每个测试后执行"""
-        from api.endpoints.deps_registry import Endpoints
+    These tests call the dependency functions directly with a mock container,
+    bypassing FastAPI's Depends resolution.
+    """
 
-        yield  # 运行测试
-        # 清理 - 确保测试间隔离
-        Endpoints._relational_pool = None
-        Endpoints._relational_pool_type = None
-        Endpoints._graph_pool = None
-        Endpoints._graph_pool_type = None
-        Endpoints._cache = None
-        Endpoints._llm = None
-        Endpoints._local_engine = None
-        Endpoints._global_engine = None
-        Endpoints._hybrid_engine = None
-        Endpoints._vector_repo = None
-        Endpoints._graph_repo = None
-        Endpoints._scheduler = None
-        Endpoints._source_config_repo = None
-        Endpoints._source_authority_repo = None
-        Endpoints._llm_failure_repo = None
-        Endpoints._llm_usage_repo = None
-        Endpoints._pipeline_service = None
-        Endpoints._task_registry = None
+    def _make_mock_container(self):
+        """Create a mock container with all service methods."""
+        return MagicMock()
 
-    def test_get_relational_pool_delegates_to_endpoints(self):
-        """Test get_relational_pool delegates to Endpoints."""
+    def test_get_relational_pool_returns_from_container(self):
+        """Test get_relational_pool returns pool from container."""
         from api.dependencies import get_relational_pool
-        from api.endpoints.deps_registry import Endpoints
 
+        mock_container = self._make_mock_container()
         mock_pool = MagicMock()
-        Endpoints._relational_pool = mock_pool
-        result = get_relational_pool()
+        mock_container.relational_pool.return_value = mock_pool
+        result = get_relational_pool(container=mock_container)
         assert result == mock_pool
 
-    def test_get_cache_client_delegates_to_endpoints(self):
-        """Test get_cache_client delegates to Endpoints."""
+    def test_get_cache_client_returns_from_container(self):
+        """Test get_cache_client returns client from container."""
         from api.dependencies import get_cache_client
-        from api.endpoints.deps_registry import Endpoints
 
+        mock_container = self._make_mock_container()
         mock_cache = MagicMock()
-        Endpoints._cache = mock_cache
-        result = get_cache_client()
+        mock_container.cache_client.return_value = mock_cache
+        result = get_cache_client(container=mock_container)
         assert result == mock_cache
 
-    def test_get_graph_pool_delegates_to_endpoints(self):
-        """Test get_graph_pool delegates to Endpoints."""
+    def test_get_graph_pool_returns_from_container(self):
+        """Test get_graph_pool returns pool from container."""
         from api.dependencies import get_graph_pool
-        from api.endpoints.deps_registry import Endpoints
 
+        mock_container = self._make_mock_container()
         mock_pool = MagicMock()
-        Endpoints._graph_pool = mock_pool
-        result = get_graph_pool()
+        mock_container.graph_pool.return_value = mock_pool
+        result = get_graph_pool(container=mock_container)
         assert result == mock_pool
 
-    def test_get_llm_client_delegates_to_endpoints(self):
-        """Test get_llm_client delegates to Endpoints."""
+    def test_get_llm_client_returns_from_container(self):
+        """Test get_llm_client returns client from container."""
         from api.dependencies import get_llm_client
-        from api.endpoints.deps_registry import Endpoints
 
+        mock_container = self._make_mock_container()
         mock_llm = MagicMock()
-        Endpoints._llm = mock_llm
-        result = get_llm_client()
+        mock_container.llm_client.return_value = mock_llm
+        result = get_llm_client(container=mock_container)
         assert result == mock_llm
 
-    def test_get_vector_repo_delegates_to_endpoints(self):
-        """Test get_vector_repo delegates to Endpoints."""
+    def test_get_vector_repo_returns_from_container(self):
+        """Test get_vector_repo returns repo from container."""
         from api.dependencies import get_vector_repo
-        from api.endpoints.deps_registry import Endpoints
 
+        mock_container = self._make_mock_container()
         mock_repo = MagicMock()
-        Endpoints._vector_repo = mock_repo
-        result = get_vector_repo()
+        mock_container.vector_repo.return_value = mock_repo
+        result = get_vector_repo(container=mock_container)
         assert result == mock_repo
 
-    def test_get_local_search_engine_delegates_to_endpoints(self):
-        """Test get_local_search_engine delegates to Endpoints."""
+    def test_get_local_search_engine_returns_from_container(self):
+        """Test get_local_search_engine returns engine from container."""
         from api.dependencies import get_local_search_engine
-        from api.endpoints.deps_registry import Endpoints
 
+        mock_container = self._make_mock_container()
         mock_engine = MagicMock()
-        Endpoints._local_engine = mock_engine
-        result = get_local_search_engine()
+        mock_container.local_search_engine.return_value = mock_engine
+        result = get_local_search_engine(container=mock_container)
         assert result == mock_engine
 
-    def test_get_global_search_engine_delegates_to_endpoints(self):
-        """Test get_global_search_engine delegates to Endpoints."""
+    def test_get_global_search_engine_returns_from_container(self):
+        """Test get_global_search_engine returns engine from container."""
         from api.dependencies import get_global_search_engine
-        from api.endpoints.deps_registry import Endpoints
 
+        mock_container = self._make_mock_container()
         mock_engine = MagicMock()
-        Endpoints._global_engine = mock_engine
-        result = get_global_search_engine()
+        mock_container.global_search_engine.return_value = mock_engine
+        result = get_global_search_engine(container=mock_container)
         assert result == mock_engine
 
-    def test_get_hybrid_engine_delegates_to_endpoints(self):
-        """Test get_hybrid_engine delegates to Endpoints."""
+    def test_get_hybrid_engine_returns_from_container(self):
+        """Test get_hybrid_engine returns engine from container."""
         from api.dependencies import get_hybrid_engine
-        from api.endpoints.deps_registry import Endpoints
 
+        mock_container = self._make_mock_container()
         mock_engine = MagicMock()
-        Endpoints._hybrid_engine = mock_engine
-        result = get_hybrid_engine()
+        mock_container.hybrid_search_engine.return_value = mock_engine
+        result = get_hybrid_engine(container=mock_container)
         assert result == mock_engine
 
-    def test_get_source_scheduler_delegates_to_endpoints(self):
-        """Test get_source_scheduler delegates to Endpoints."""
+    def test_get_source_scheduler_returns_from_container(self):
+        """Test get_source_scheduler returns scheduler from container."""
         from api.dependencies import get_source_scheduler
-        from api.endpoints.deps_registry import Endpoints
 
+        mock_container = self._make_mock_container()
         mock_scheduler = MagicMock()
-        Endpoints._scheduler = mock_scheduler
-        result = get_source_scheduler()
+        mock_container.source_scheduler.return_value = mock_scheduler
+        result = get_source_scheduler(container=mock_container)
         assert result == mock_scheduler
 
-    def test_get_source_config_repo_delegates_to_endpoints(self):
-        """Test get_source_config_repo delegates to Endpoints."""
+    def test_get_source_config_repo_returns_from_container(self):
+        """Test get_source_config_repo returns repo from container."""
         from api.dependencies import get_source_config_repo
-        from api.endpoints.deps_registry import Endpoints
 
+        mock_container = self._make_mock_container()
         mock_repo = MagicMock()
-        Endpoints._source_config_repo = mock_repo
-        result = get_source_config_repo()
+        mock_container.source_config_repo.return_value = mock_repo
+        result = get_source_config_repo(container=mock_container)
         assert result == mock_repo
 
-    def test_get_source_authority_repo_delegates_to_endpoints(self):
-        """Test get_source_authority_repo delegates to Endpoints."""
+    def test_get_source_authority_repo_returns_from_container(self):
+        """Test get_source_authority_repo returns repo from container."""
         from api.dependencies import get_source_authority_repo
-        from api.endpoints.deps_registry import Endpoints
 
+        mock_container = self._make_mock_container()
         mock_repo = MagicMock()
-        Endpoints._source_authority_repo = mock_repo
-        result = get_source_authority_repo()
+        mock_container.source_authority_repo.return_value = mock_repo
+        result = get_source_authority_repo(container=mock_container)
         assert result == mock_repo
 
 
@@ -393,57 +379,24 @@ class TestTypeAliases:
 
 @pytest.mark.xdist_group(name="endpoints_deps")
 class TestDependencyErrorHandling:
-    """Tests for dependency error handling."""
+    """Tests for dependency error handling.
+
+    When no container is registered, all getters should raise HTTPException(503).
+    """
 
     @pytest.fixture(autouse=True)
-    def cleanup_endpoints(self):
-        """自动清理 Endpoints 状态,每个测试后执行"""
+    def cleanup_container(self):
+        """Ensure container is cleared after each test for isolation."""
+        yield
         from api.endpoints.deps_registry import Endpoints
 
-        yield  # 运行测试
-        # 清理 - 确保测试间隔离
-        Endpoints._relational_pool = None
-        Endpoints._relational_pool_type = None
-        Endpoints._graph_pool = None
-        Endpoints._graph_pool_type = None
-        Endpoints._cache = None
-        Endpoints._llm = None
-        Endpoints._local_engine = None
-        Endpoints._global_engine = None
-        Endpoints._hybrid_engine = None
-        Endpoints._vector_repo = None
-        Endpoints._graph_repo = None
-        Endpoints._scheduler = None
-        Endpoints._source_config_repo = None
-        Endpoints._source_authority_repo = None
-        Endpoints._llm_failure_repo = None
-        Endpoints._llm_usage_repo = None
-        Endpoints._pipeline_service = None
-        Endpoints._task_registry = None
+        Endpoints.reset()
 
     def test_dependency_raises_503_on_uninitialized(self):
-        """Test all dependencies raise 503 when not initialized."""
+        """Test all Endpoints getters raise 503 when no container is set."""
         from api.endpoints.deps_registry import Endpoints
 
-        # Reset all to None
-        Endpoints._relational_pool = None
-        Endpoints._relational_pool_type = None
-        Endpoints._graph_pool = None
-        Endpoints._graph_pool_type = None
-        Endpoints._cache = None
-        Endpoints._llm = None
-        Endpoints._local_engine = None
-        Endpoints._global_engine = None
-        Endpoints._hybrid_engine = None
-        Endpoints._vector_repo = None
-        Endpoints._graph_repo = None
-        Endpoints._scheduler = None
-        Endpoints._source_config_repo = None
-        Endpoints._source_authority_repo = None
-        Endpoints._llm_failure_repo = None
-        Endpoints._llm_usage_repo = None
-        Endpoints._pipeline_service = None
-        Endpoints._task_registry = None
+        Endpoints.reset()
 
         # All getters should raise HTTPException with 503
         getters = [
@@ -476,33 +429,31 @@ class TestPipelineServiceDependency:
     """Tests for pipeline_service dependency."""
 
     @pytest.fixture(autouse=True)
-    def cleanup_endpoints(self):
-        """自动清理 Endpoints 状态,每个测试后执行"""
+    def cleanup_container(self):
+        """Ensure container is cleared after each test for isolation."""
+        yield
         from api.endpoints.deps_registry import Endpoints
 
-        # 清理before测试
-        Endpoints._pipeline_service = None
+        Endpoints.reset()
 
-        yield  # 运行测试
-
-        # 清理after测试 - 确保测试间隔离
-        Endpoints._pipeline_service = None
-
-    def test_get_pipeline_service_returns_when_set(self):
-        """Test get_pipeline_service returns service when set."""
+    def test_get_pipeline_service_returns_from_container(self):
+        """Test get_pipeline_service returns service from container."""
+        import container as container_module
         from api.endpoints.deps_registry import Endpoints
 
         mock_service = MagicMock()
-        Endpoints._pipeline_service = mock_service
+        mock_container = MagicMock()
+        mock_container.pipeline_service.return_value = mock_service
+        container_module._container = mock_container
+
         result = Endpoints.get_pipeline_service()
         assert result == mock_service
 
-    def test_get_pipeline_service_raises_when_not_set(self):
-        """Test get_pipeline_service raises HTTPException when not set."""
+    def test_get_pipeline_service_raises_503_when_no_container(self):
+        """Test get_pipeline_service raises HTTPException when no container."""
         from api.endpoints.deps_registry import Endpoints
 
-        Endpoints._pipeline_service = None
+        Endpoints.reset()
         with pytest.raises(HTTPException) as exc_info:
             Endpoints.get_pipeline_service()
         assert exc_info.value.status_code == 503
-        assert "Pipeline service" in exc_info.value.detail

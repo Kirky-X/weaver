@@ -14,6 +14,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from modules.processing.pipeline.deps import (
+    PipelineAnalyzers,
+    PipelineDeps,
+    PipelineNlpTools,
+)
+
 # ---------------------------------------------------------------------------
 # Task 3.1 — Pipeline ML component pass-through tests
 # ---------------------------------------------------------------------------
@@ -60,11 +66,13 @@ class TestCascadeClassifierNodeReceivesCascade:
         mock_event_bus = MagicMock()
 
         Pipeline(
-            llm=mock_llm,
-            budget=mock_budget,
-            prompt_loader=mock_prompt_loader,
-            event_bus=mock_event_bus,
-            cascade_classifier=mock_cascade,
+            deps=PipelineDeps(
+                llm=mock_llm,
+                budget=mock_budget,
+                prompt_loader=mock_prompt_loader,
+                event_bus=mock_event_bus,
+                analyzers=PipelineAnalyzers(cascade_classifier=mock_cascade),
+            ),
         )
 
         _mock_classifier.assert_called_once_with(
@@ -113,11 +121,13 @@ class TestCascadeCategorizerNodeReceivesCascade:
         mock_event_bus = MagicMock()
 
         Pipeline(
-            llm=mock_llm,
-            budget=mock_budget,
-            prompt_loader=mock_prompt_loader,
-            event_bus=mock_event_bus,
-            cascade_classifier=mock_cascade,
+            deps=PipelineDeps(
+                llm=mock_llm,
+                budget=mock_budget,
+                prompt_loader=mock_prompt_loader,
+                event_bus=mock_event_bus,
+                analyzers=PipelineAnalyzers(cascade_classifier=mock_cascade),
+            ),
         )
 
         _mock_categorizer.assert_called_once_with(
@@ -166,11 +176,13 @@ class TestEntityExtractorNodeReceivesGliner:
         mock_event_bus = MagicMock()
 
         Pipeline(
-            llm=mock_llm,
-            budget=mock_budget,
-            prompt_loader=mock_prompt_loader,
-            event_bus=mock_event_bus,
-            gliner_extractor=mock_gliner,
+            deps=PipelineDeps(
+                llm=mock_llm,
+                budget=mock_budget,
+                prompt_loader=mock_prompt_loader,
+                event_bus=mock_event_bus,
+                nlp=PipelineNlpTools(gliner_extractor=mock_gliner),
+            ),
         )
 
         _mock_entity.assert_called_once()
@@ -219,11 +231,13 @@ class TestAnalyzeNodeReceivesMcSampler:
         mock_event_bus = MagicMock()
 
         Pipeline(
-            llm=mock_llm,
-            budget=mock_budget,
-            prompt_loader=mock_prompt_loader,
-            event_bus=mock_event_bus,
-            mc_sampler=mock_sampler,
+            deps=PipelineDeps(
+                llm=mock_llm,
+                budget=mock_budget,
+                prompt_loader=mock_prompt_loader,
+                event_bus=mock_event_bus,
+                analyzers=PipelineAnalyzers(mc_sampler=mock_sampler),
+            ),
         )
 
         _mock_analyze.assert_called_once()
@@ -270,10 +284,12 @@ class TestPipelineNoMlComponentsDefaultsToNone:
         mock_event_bus = MagicMock()
 
         Pipeline(
-            llm=mock_llm,
-            budget=mock_budget,
-            prompt_loader=mock_prompt_loader,
-            event_bus=mock_event_bus,
+            deps=PipelineDeps(
+                llm=mock_llm,
+                budget=mock_budget,
+                prompt_loader=mock_prompt_loader,
+                event_bus=mock_event_bus,
+            ),
         )
 
         _mock_classifier.assert_called_once_with(
@@ -316,10 +332,12 @@ class TestPipelineNoMlComponentsDefaultsToNone:
         mock_event_bus = MagicMock()
 
         Pipeline(
-            llm=mock_llm,
-            budget=mock_budget,
-            prompt_loader=mock_prompt_loader,
-            event_bus=mock_event_bus,
+            deps=PipelineDeps(
+                llm=mock_llm,
+                budget=mock_budget,
+                prompt_loader=mock_prompt_loader,
+                event_bus=mock_event_bus,
+            ),
         )
 
         _mock_entity.assert_called_once()
@@ -362,10 +380,12 @@ class TestPipelineNoMlComponentsDefaultsToNone:
         mock_event_bus = MagicMock()
 
         Pipeline(
-            llm=mock_llm,
-            budget=mock_budget,
-            prompt_loader=mock_prompt_loader,
-            event_bus=mock_event_bus,
+            deps=PipelineDeps(
+                llm=mock_llm,
+                budget=mock_budget,
+                prompt_loader=mock_prompt_loader,
+                event_bus=mock_event_bus,
+            ),
         )
 
         _mock_analyze.assert_called_once()
