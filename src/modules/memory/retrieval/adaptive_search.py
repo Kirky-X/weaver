@@ -12,9 +12,10 @@ Enhanced with Phase 0 knowledge cache check for semantic similarity matching.
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any
 
 from core.observability import get_logger
+from core.protocols import EmbeddingServiceProtocol, IntentClassifierProtocol
 from modules.knowledge.search.rerankers.beam_search_reranker import BeamSearchReranker
 from modules.memory.core.event_node import EventNode
 from modules.memory.core.graph_types import EdgeType, IntentType
@@ -26,32 +27,6 @@ if TYPE_CHECKING:
     from modules.memory.graphs.temporal import TemporalGraphRepo
 
 log = get_logger(__name__)
-
-
-class EmbeddingServiceProtocol(Protocol):
-    """Protocol for embedding service."""
-
-    async def embed(self, text: str) -> list[float]:
-        """Compute embedding for a single text."""
-        ...
-
-    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        """Compute embeddings for multiple texts."""
-        ...
-
-    def is_ready(self) -> bool:
-        """Check if the embedding service is ready."""
-        ...
-
-    def start_loading(self) -> None:
-        """Start loading the model in background."""
-        ...
-
-
-class IntentClassifierProtocol(Protocol):
-    """Protocol for intent classifier."""
-
-    async def classify(self, query: str) -> Any: ...
 
 
 class _IntentGraphAdapter:

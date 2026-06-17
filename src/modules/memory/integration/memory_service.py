@@ -16,9 +16,10 @@ Components:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any
 
 from core.observability import get_logger
+from core.protocols import EmbeddingServiceProtocol
 from modules.memory.core.event_node import EventNode
 from modules.memory.core.graph_types import IntentType
 from modules.memory.evolution.fast_path import SynapticIngestionService
@@ -104,12 +105,6 @@ class MemoryServiceConfig:
     when_anchor_limit: int = 3
     default_anchor_limit: int = 3
     event_lookup_limit: int = 1000
-
-
-class EmbeddingServiceProtocol(Protocol):
-    """Protocol for embedding service."""
-
-    async def embed(self, text: str) -> list[float]: ...
 
 
 class MemoryIntegrationService:

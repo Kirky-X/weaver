@@ -33,6 +33,12 @@ from core.services.pipeline_service import PipelineServiceImpl
 from core.utils.sanitize import sanitize_dsn
 from modules.ingestion.domain.models import RawArticle
 from modules.processing.nlp.spacy_extractor import SpacyExtractor
+from modules.processing.pipeline.deps import (
+    PipelineDeps,
+    PipelineInfra,
+    PipelineNlpTools,
+    PipelineRepos,
+)
 from modules.processing.pipeline.graph import Pipeline
 from modules.processing.pipeline.state import PipelineState
 
@@ -120,18 +126,23 @@ async def repair_articles(limit: int = 10, force: bool = False, dry_run: bool = 
             en_model_path=settings.spacy.en_model_path,
         )
         pipeline = Pipeline(
-            llm=llm_client,
-            budget=TokenBudgetManager(),
-            prompt_loader=prompt_loader,
-            event_bus=event_bus,  # 复用上面创建的 EventBus
+            deps=PipelineDeps(
+                llm=llm_client,
+                budget=TokenBudgetManager(),
+                prompt_loader=prompt_loader,
+                event_bus=event_bus,  # 复用上面创建的 EventBus
+                repos=PipelineRepos(
+                    vector_repo=None,  # Not needed for repair (terminal articles skip vector ops)
+                    article_repo=article_repo,
+                    graph_writer=None,  # Idempotent: do NOT write to Neo4j
+                    source_auth_repo=None,
+                ),
+                nlp=PipelineNlpTools(spacy=spacy_extractor),
+                infrastructure=PipelineInfra(
+                    cache_client=cache_client,
+                ),
+            ),
             settings=settings,
-            spacy=spacy_extractor,
-            vector_repo=None,  # Not needed for repair (terminal articles skip vector ops)
-            article_repo=article_repo,
-            graph_writer=None,  # Idempotent: do NOT write to Neo4j
-            source_auth_repo=None,
-            entity_resolver=None,
-            cache_client=cache_client,
         )
 
         # Wrap pipeline with service interface for stable API
