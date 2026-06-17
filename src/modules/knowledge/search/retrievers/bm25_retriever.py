@@ -109,18 +109,33 @@ def _secure_pickle_load() -> Generator[None, None, None]:
 
 
 def _compute_file_hash(path: Path) -> str:
-    """Compute SHA256 hash of a file for integrity verification.
+    """Compute SHA256 hash of a file or directory for integrity verification.
+
+    When ``path`` is a directory (e.g., bm25s index directory), hashes
+    all files recursively in sorted order to produce a deterministic digest.
+    When ``path`` is a file, hashes the file content directly.
 
     Args:
-        path: Path to the file.
+        path: Path to the file or directory.
 
     Returns:
         Hex digest of the SHA256 hash.
     """
     h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            h.update(chunk)
+    if path.is_dir():
+        # Hash all files in the directory recursively (sorted for determinism)
+        for file_path in sorted(path.rglob("*")):
+            if file_path.is_file():
+                h.update(str(file_path.relative_to(path)).encode())
+                h.update(b"\0")
+                with open(file_path, "rb") as f:
+                    for chunk in iter(lambda: f.read(8192), b""):
+                        h.update(chunk)
+                h.update(b"\0")
+    else:
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(8192), b""):
+                h.update(chunk)
     return h.hexdigest()
 
 

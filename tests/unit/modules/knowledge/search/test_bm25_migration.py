@@ -154,7 +154,7 @@ class TestBM25IndexMigration:
             # Verify it's a valid signed JSON
             loaded = load_signed_json(json_path, key)
             assert "documents" in loaded
-            assert loaded["format_version"] == 2
+            assert loaded["format_version"] == 3
 
     def test_load_signed_json_index(self) -> None:
         """Test loading a signed JSON index."""
@@ -321,4 +321,4 @@ class TestIndexIntegrityVerification:
             json_path = Path(tmpdir) / "documents.json"
             data = load_signed_json(json_path, key)
 
-            assert data["format_version"] == 2  # v2 = signed JSON
+            assert data["format_version"] == 3  # v3 = JSON with signature + binary index hash

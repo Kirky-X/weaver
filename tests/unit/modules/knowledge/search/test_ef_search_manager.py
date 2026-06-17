@@ -116,7 +116,8 @@ class TestEfSearchManager:
 
         mock_session.execute.assert_called_once()
         call_args = mock_session.execute.call_args
-        assert "SET hnsw.ef_search = 40" in str(call_args)
+        sql_arg = call_args[0][0]  # First positional arg to execute() (TextClause)
+        assert "SET hnsw.ef_search = 40" in str(sql_arg)
 
     @pytest.mark.asyncio
     async def test_set_ef_search_with_custom_value(self, manager: EfSearchManager) -> None:
@@ -131,7 +132,8 @@ class TestEfSearchManager:
 
         mock_session.execute.assert_called_once()
         call_args = mock_session.execute.call_args
-        assert "SET hnsw.ef_search = 150" in str(call_args)
+        sql_arg = call_args[0][0]  # First positional arg to execute() (TextClause)
+        assert "SET hnsw.ef_search = 150" in str(sql_arg)
 
     @pytest.mark.asyncio
     async def test_set_ef_search_handles_error(self, manager: EfSearchManager) -> None:
@@ -158,6 +160,11 @@ class TestEfSearchManagerIntegration:
         manager._pool.session = MagicMock()
         manager._pool.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
         manager._pool.session.return_value.__aexit__ = AsyncMock(return_value=False)
+
+        # Mock the initial ef_search value so int() works on restore
+        mock_result = MagicMock()
+        mock_result.scalar.return_value = 40
+        mock_session.execute.return_value = mock_result
 
         async with manager.apply_ef_search(SearchMode.LOCAL):
             # Inside the context manager, ef_search should be set
