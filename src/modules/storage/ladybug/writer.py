@@ -11,6 +11,7 @@ import json
 import time
 from typing import Any
 
+from core.db import PersistStatus
 from core.observability import get_logger
 from modules.storage.ladybug.article_repo import LadybugArticleRepo
 from modules.storage.ladybug.entity_repo import LadybugEntityRepo
@@ -61,6 +62,11 @@ class LadybugWriter:
         Schema is created during initialization in schema.py.
         """
         pass
+
+    @property
+    def done_status(self) -> PersistStatus:
+        """Return the PersistStatus for completed LadybugDB writes."""
+        return PersistStatus.LADYBUG_DONE
 
     async def write(self, state: Any) -> list[str]:
         """Write pipeline state to the graph.

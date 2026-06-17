@@ -7,8 +7,9 @@ import asyncio
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from core.db import PersistStatus
 from core.observability import get_logger
-from modules.processing.pipeline.state import PipelineState
+from core.types.pipeline_state import PipelineState
 from modules.storage.neo4j.article_repo import Neo4jArticleRepo
 from modules.storage.neo4j.entity_repo import Neo4jEntityRepo
 
@@ -63,6 +64,11 @@ class Neo4jWriter:
     async def ensure_constraints(self) -> None:
         """Ensure Neo4j constraints exist."""
         await self._entity_repo.ensure_constraints()
+
+    @property
+    def done_status(self) -> PersistStatus:
+        """Return the PersistStatus for completed Neo4j writes."""
+        return PersistStatus.NEO4J_DONE
 
     async def write(self, state: PipelineState) -> list[str]:
         """Write pipeline state to Neo4j.

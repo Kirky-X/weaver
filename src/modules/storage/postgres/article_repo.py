@@ -21,14 +21,14 @@ from core.db import (
     ArticleCore,
     ArticleProcessing,
     ArticleVersion,
-    EmotionType,
     PersistStatus,
 )
 from core.exceptions import InvalidStateTransitionError
+from core.mappers.article_state_mapper import ArticleStateMapper, _to_emotion
 from core.observability import get_logger
 from core.protocols import RelationalPool
-from modules.ingestion.deduplication.deduplicator import Deduplicator
-from modules.processing.pipeline.state import PipelineState
+from core.types.pipeline_state import PipelineState
+from core.url_utils import normalize_url
 
 log = get_logger(__name__)
 
@@ -43,16 +43,6 @@ STATE_TO_ARTICLE_FIELDS: dict[str, tuple[str, Callable[[Any], Any]]] = {
     "is_merged": ("is_merged", lambda v: v),
     "prompt_versions": ("prompt_versions", lambda v: v),
 }
-
-
-def _to_emotion(value: str | None) -> EmotionType | None:
-    """Convert string emotion value to EmotionType enum for PostgreSQL ENUM column."""
-    if not value:
-        return None
-    for member in EmotionType:
-        if member.value == value or member.name.lower() == value.lower():
-            return member
-    return None
 
 
 def _apply_state_to_core(core: ArticleCore, state: PipelineState) -> None:
@@ -200,65 +190,6 @@ class ArticleRepo:
     def __init__(self, pool: RelationalPool) -> None:
         self._pool = pool
 
-    def _build_analysis_values(self, article_id: uuid.UUID, state: PipelineState) -> dict:
-        """Extract analysis fields from PipelineState into a dict for ArticleAnalysis insert.
-
-        Args:
-            article_id: UUID of the article.
-            state: Pipeline state containing analysis data.
-
-        Returns:
-            Dict suitable for ArticleAnalysis insert/upsert.
-        """
-        values: dict[str, Any] = {"article_id": article_id}
-        if "is_news" in state:
-            values["is_news"] = state["is_news"]
-        if "summary_info" in state:
-            si = state["summary_info"]
-            values["subjects"] = si.get("subjects")
-            values["key_data"] = si.get("key_data")
-            values["impact"] = si.get("impact")
-            values["has_data"] = si.get("has_data")
-            if si.get("event_time"):
-                try:
-                    values["event_time"] = datetime.fromisoformat(si["event_time"])
-                except (ValueError, TypeError):
-                    pass
-            # Fallback: use publish_time when LLM didn't extract event_time
-            if "event_time" not in values and state.get("cleaned", {}).get("publish_time"):
-                pt = state["cleaned"]["publish_time"]
-                try:
-                    if isinstance(pt, datetime):
-                        values["event_time"] = pt
-                    else:
-                        values["event_time"] = datetime.fromisoformat(str(pt))
-                except (ValueError, TypeError):
-                    pass
-        if "sentiment" in state:
-            sent = state["sentiment"]
-            sentiment_value = sent.get("sentiment")
-            values["sentiment"] = (
-                sentiment_value.strip()[:10]
-                if isinstance(sentiment_value, str)
-                else sentiment_value
-            )
-            values["primary_emotion"] = _to_emotion(sent.get("primary_emotion"))
-            values["emotion_targets"] = sent.get("emotion_targets")
-        if "credibility" in state:
-            cred = state["credibility"]
-            values["source_credibility"] = cred.get("source_credibility")
-            values["cross_verification"] = cred.get("cross_verification")
-            values["content_check_score"] = cred.get("content_check")
-            values["credibility_flags"] = cred.get("flags")
-            values["verified_by_sources"] = cred.get("verified_by_sources", 0)
-        if "quality_score" in state:
-            values["quality_score"] = state["quality_score"]
-        if "data_conflicts" in state:
-            values["data_conflicts"] = state["data_conflicts"]
-        if "prompt_versions" in state:
-            values["prompt_versions"] = state["prompt_versions"]
-        return values
-
     async def bulk_upsert(self, states: list[PipelineState]) -> list[uuid.UUID]:
         """Bulk upsert articles from pipeline states.
 
@@ -336,11 +267,12 @@ class ArticleRepo:
         Returns:
             The article UUID.
         """
-        raw = state["raw"]
-        normalized_url = Deduplicator.normalize_url(raw.url)
-        title = state.get("cleaned", {}).get("title", getattr(raw, "title", ""))
-        body = state.get("cleaned", {}).get("body", getattr(raw, "body", ""))
-        content_hash = ChangeDetector.compute_hash({"title": title, "body": body})
+        core_values = ArticleStateMapper.to_core_values(state)
+        body_values = ArticleStateMapper.to_body_values(state)
+        normalized_url = core_values["source_url"]
+        title = core_values["title"]
+        content_hash = core_values["content_hash"]
+        body = body_values["body"]
 
         # --- Version history: snapshot old values before upsert ---
         existing_core = await session.execute(
@@ -358,7 +290,6 @@ class ArticleRepo:
             existing_id, old_title, old_category, old_score, old_hash = existing_row
             # Content changed → create version snapshot with old values
             if old_hash != content_hash:
-                # Get old body/summary from article_bodies
                 body_result = await session.execute(
                     select(ArticleBody.body, ArticleBody.summary).where(
                         ArticleBody.article_id == existing_id
@@ -368,33 +299,30 @@ class ArticleRepo:
                 old_body = body_row[0] if body_row else ""
                 old_summary = body_row[1] if body_row else None
 
-                # Detect which fields changed
                 changed_fields = ChangeDetector.detect_changed_fields(
                     {"title": old_title, "body": old_body, "category": old_category},
                     {"title": title, "body": body, "category": state.get("category")},
                 )
 
-                # Get next version number
                 max_ver_result = await session.execute(
                     select(func.max(ArticleVersion.version)).where(
                         ArticleVersion.article_id == existing_id
                     )
                 )
-                max_ver = max_ver_result.scalar_one_or_none()
-                next_ver = (max_ver or 0) + 1
+                next_ver = (max_ver_result.scalar_one_or_none() or 0) + 1
 
-                version = ArticleVersion(
-                    article_id=existing_id,
-                    version=next_ver,
-                    title=old_title,
-                    body=old_body,
-                    summary=old_summary,
-                    category=old_category,
-                    score=old_score,
-                    changed_fields=changed_fields or None,
+                session.add(
+                    ArticleVersion(
+                        article_id=existing_id,
+                        version=next_ver,
+                        title=old_title,
+                        body=old_body,
+                        summary=old_summary,
+                        category=old_category,
+                        score=old_score,
+                        changed_fields=changed_fields or None,
+                    )
                 )
-                session.add(version)
-
                 log.debug(
                     "version_snapshot_created",
                     article_id=str(existing_id),
@@ -403,25 +331,6 @@ class ArticleRepo:
                 )
 
         # Upsert articles_core with ON CONFLICT DO UPDATE
-        core_values = {
-            "source_url": normalized_url,
-            "source_host": (
-                getattr(raw, "source_host", None)
-                or (raw.get("source_host") if isinstance(raw, dict) else None)
-            ),
-            "title": title,
-            "category": state.get("category"),
-            "language": state.get("language", "").strip()[:10] if state.get("language") else None,
-            "region": state.get("region", "").strip()[:50] if state.get("region") else None,
-            "score": state.get("score"),
-            "sentiment_score": state.get("sentiment", {}).get("sentiment_score"),
-            "credibility_score": state.get("credibility", {}).get("score"),
-            "persist_status": PersistStatus.PG_DONE.value,
-            "publish_time": getattr(raw, "publish_time", None),
-            "content_hash": content_hash,
-            "updated_at": datetime.now(UTC),
-        }
-
         stmt = pg_insert(ArticleCore).values(**core_values)
         stmt = stmt.on_conflict_do_update(
             index_elements=["source_url"],
@@ -461,22 +370,15 @@ class ArticleRepo:
         article_id = core_result.scalar_one()
 
         # Upsert article_bodies
-        body_stmt = pg_insert(ArticleBody).values(
-            article_id=article_id,
-            body=body,
-            summary=state.get("summary_info", {}).get("summary"),
-        )
+        body_stmt = pg_insert(ArticleBody).values(article_id=article_id, **body_values)
         body_stmt = body_stmt.on_conflict_do_update(
             index_elements=["article_id"],
-            set_={
-                "body": body_stmt.excluded.body,
-                "summary": body_stmt.excluded.summary,
-            },
+            set_={k: body_stmt.excluded[k] for k in body_values},
         )
         await session.execute(body_stmt)
 
         # Upsert article_analysis
-        analysis_values = self._build_analysis_values(article_id, state)
+        analysis_values = {"article_id": article_id, **ArticleStateMapper.to_analysis_values(state)}
         analysis_stmt = pg_insert(ArticleAnalysis).values(**analysis_values)
         analysis_stmt = analysis_stmt.on_conflict_do_update(
             index_elements=["article_id"],
@@ -568,7 +470,7 @@ class ArticleRepo:
         if not urls:
             return set()
 
-        normalized_urls = [Deduplicator.normalize_url(u) for u in urls]
+        normalized_urls = [normalize_url(u) for u in urls]
         async with self._pool.session() as session:
             result = await session.execute(
                 select(ArticleCore.source_url).where(ArticleCore.source_url.in_(normalized_urls))
@@ -775,7 +677,7 @@ class ArticleRepo:
                 desc_len=len(raw.description),
             )
 
-        normalized_url = Deduplicator.normalize_url(raw.url)
+        normalized_url = normalize_url(raw.url)
         content_hash = ChangeDetector.compute_hash(
             {"title": raw.title or "", "body": effective_body}
         )
