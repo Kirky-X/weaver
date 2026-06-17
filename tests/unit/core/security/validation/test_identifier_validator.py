@@ -1,5 +1,9 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Tests for core.security.validation.identifier_validator module."""
+"""Tests for core.security.validation.identifier_validator module.
+
+The identifier_validator module is a deprecated shim that re-exports from
+core.db.safe_query. These tests verify the actual safe_query API.
+"""
 
 import pytest
 
@@ -21,17 +25,14 @@ class TestInvalidIdentifierError:
         error = InvalidIdentifierError(
             identifier="1invalid",
             identifier_type="table",
-            pattern=r"^[a-zA-Z_][a-zA-Z0-9_]*$",
         )
-        assert "Invalid table identifier: '1invalid'" in str(error)
-        assert "Must match pattern" in str(error)
+        assert "Invalid table: '1invalid'" in str(error)
         assert error.identifier == "1invalid"
         assert error.identifier_type == "table"
-        assert error.pattern == r"^[a-zA-Z_][a-zA-Z0-9_]*$"
 
     def test_is_value_error_subclass(self):
         """Test that InvalidIdentifierError is a ValueError subclass."""
-        error = InvalidIdentifierError("test", "column", "pattern")
+        error = InvalidIdentifierError("test", "column")
         assert isinstance(error, ValueError)
 
 
@@ -64,7 +65,6 @@ class TestValidateSQLIdentifier:
             "table.name",
             "DROP TABLE",
             "table name",
-            "",
             "table;DROP",
             "table'",
             'table"',
@@ -75,13 +75,19 @@ class TestValidateSQLIdentifier:
         with pytest.raises(InvalidIdentifierError) as exc_info:
             validate_sql_identifier(identifier)
         assert identifier in str(exc_info.value)
-        assert exc_info.value.identifier_type == "SQL"
+        assert exc_info.value.identifier_type == "identifier"
+
+    def test_empty_identifier(self):
+        """Test empty identifier raises with (empty) suffix."""
+        with pytest.raises(InvalidIdentifierError) as exc_info:
+            validate_sql_identifier("")
+        assert exc_info.value.identifier_type == "identifier (empty)"
 
     def test_custom_identifier_type(self):
         """Test custom identifier_type in error message."""
         with pytest.raises(InvalidIdentifierError) as exc_info:
             validate_sql_identifier("123", "custom_type")
-        assert "Invalid custom_type identifier" in str(exc_info.value)
+        assert "Invalid custom_type:" in str(exc_info.value)
 
 
 class TestValidateCypherEdgeType:
@@ -112,7 +118,6 @@ class TestValidateCypherEdgeType:
             "edge-type",
             "edge.type",
             "123EDGE",
-            "",
             "EDGE TYPE",
             "edge/type",
             "Edge123",
@@ -123,7 +128,13 @@ class TestValidateCypherEdgeType:
         with pytest.raises(InvalidIdentifierError) as exc_info:
             validate_cypher_edge_type(edge_type)
         assert edge_type in str(exc_info.value)
-        assert exc_info.value.identifier_type == "edge_type"
+        assert exc_info.value.identifier_type == "edge type"
+
+    def test_empty_edge_type(self):
+        """Test empty edge type raises with (empty) suffix."""
+        with pytest.raises(InvalidIdentifierError) as exc_info:
+            validate_cypher_edge_type("")
+        assert exc_info.value.identifier_type == "edge_type (empty)"
 
 
 class TestValidateCypherLabel:
@@ -155,7 +166,6 @@ class TestValidateCypherLabel:
             "123Label",
             "label-name",
             "label.name",
-            "",
             "LABEL NAME",
         ],
     )
@@ -164,7 +174,13 @@ class TestValidateCypherLabel:
         with pytest.raises(InvalidIdentifierError) as exc_info:
             validate_cypher_label(label)
         assert label in str(exc_info.value)
-        assert exc_info.value.identifier_type == "label"
+        assert exc_info.value.identifier_type == "Neo4j label"
+
+    def test_empty_label(self):
+        """Test empty label raises with (empty) suffix."""
+        with pytest.raises(InvalidIdentifierError) as exc_info:
+            validate_cypher_label("")
+        assert exc_info.value.identifier_type == "label (empty)"
 
 
 class TestValidateRelationTypes:
