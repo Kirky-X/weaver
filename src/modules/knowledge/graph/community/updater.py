@@ -1510,7 +1510,7 @@ class IncrementalCommunityUpdater:
             result: Update result to record.
         """
         query = """
-        MERGE (m:_CommunityMetadata)
+        MERGE (m:_CommunityMetadata {id: 'singleton'})
         SET m.last_incremental_update_at = datetime(),
             m.pending_entity_count = 0
         """
@@ -1528,7 +1528,7 @@ class IncrementalCommunityUpdater:
         MATCH (e:Entity)
         WHERE (e.pruned IS NULL OR e.pruned = false)
         WITH count(e) AS entity_count
-        MERGE (m:_CommunityMetadata)
+        MERGE (m:_CommunityMetadata {id: 'singleton'})
         SET m.last_full_rebuild_at = datetime(),
             m.last_incremental_update_at = datetime(),
             m.pending_entity_count = 0,
@@ -1548,7 +1548,7 @@ class IncrementalCommunityUpdater:
             count: Number to add (default: 1).
         """
         query = """
-        MERGE (m:_CommunityMetadata)
+        MERGE (m:_CommunityMetadata {id: 'singleton'})
         SET m.pending_entity_count = coalesce(m.pending_entity_count, 0) + $count
         """
 

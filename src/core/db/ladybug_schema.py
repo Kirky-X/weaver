@@ -169,6 +169,17 @@ SCHEMA_QUERIES = [
         updated_at INT64
     )
     """,
+    # _CommunityMetadata node table — singleton node for community detection state
+    """
+    CREATE NODE TABLE IF NOT EXISTS _CommunityMetadata (
+        id STRING PRIMARY KEY,
+        last_full_rebuild_at INT64,
+        last_incremental_update_at INT64,
+        pending_entity_count INT64,
+        entity_count INT64,
+        modularity DOUBLE
+    )
+    """,
     # HAS_PARTICIPANT relationship - EventNode has Entity participant
     """
     CREATE REL TABLE IF NOT EXISTS HAS_PARTICIPANT (

@@ -266,8 +266,15 @@ class RedisClient:
         """Return a pipeline for batch operations."""
         return self.client.pipeline()
 
-    async def register_script(self, script: str) -> Any:
-        """Register a Lua script."""
+    def register_script(self, script: str) -> Any:
+        """Register a Lua script.
+
+        Note: ``redis-py``'s ``Redis.register_script`` is synchronous — it
+        only builds a ``Script`` object; the actual network call happens
+        when the returned object is awaited. Keep this method synchronous
+        so callers (e.g. ``FallbackCachePool.register_script``) can stay
+        synchronous as well.
+        """
         return self.client.register_script(script)
 
 

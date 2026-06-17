@@ -8,6 +8,7 @@ numerical claim extraction with ATTRIBUTE_SYNONYMS matching.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import TYPE_CHECKING, Any
 
@@ -99,9 +100,30 @@ class ConflictDetectorNode:
         """
         if self._llm_client is not None:
             try:
-                claims = await self._llm_client.extract_numerical_claims(text)
-                if claims is not None:
-                    return claims
+                result = await self._llm_client.call_at(
+                    "claim_extraction",
+                    {"text": text[:4000]},
+                )
+                # call_at may return a string (raw LLM response); parse JSON if needed
+                if isinstance(result, str):
+                    try:
+                        result = json.loads(result)
+                    except (json.JSONDecodeError, TypeError):
+                        log.warning(
+                            "claim_extraction_response_not_json",
+                            response_preview=result[:200],
+                        )
+                        return self._extract_claims_regex(text)
+
+                # Result may be a list of claims directly, or a dict with a "claims" key
+                if isinstance(result, list):
+                    return result
+                if isinstance(result, dict) and "claims" in result:
+                    return result["claims"]
+                if isinstance(result, dict):
+                    return [result]
+
+                return self._extract_claims_regex(text)
             except Exception as exc:
                 log.warning("llm_claim_extraction_failed", error=str(exc))
 

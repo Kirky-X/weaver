@@ -42,6 +42,8 @@ class CallPoint(str, Enum):
     NARRATIVE_SYNTHESIS = "narrative_synthesis"
     EVIDENCE_SAMPLING = "evidence_sampling"
     ROI_SUMMARY = "roi_summary"
+    SENTIMENT = "sentiment"
+    CLAIM_EXTRACTION = "claim_extraction"
 
 
 class Capability(str, Enum):

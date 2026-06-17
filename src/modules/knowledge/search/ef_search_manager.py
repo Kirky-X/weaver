@@ -129,10 +129,10 @@ class EfSearchManager:
 
         try:
             async with self._pool.session() as session:
-                await session.execute(
-                    text("SET hnsw.ef_search = :value"),
-                    {"value": ef_search_value},
-                )
+                # PostgreSQL SET command does not support parameter binding.
+                # ef_search_value originates from get_ef_search() (int) or
+                # caller-supplied int — int() cast guarantees safety.
+                await session.execute(text(f"SET hnsw.ef_search = {int(ef_search_value)}"))
                 log.debug(
                     "ef_search_set",
                     mode=str(mode),
@@ -188,10 +188,8 @@ class EfSearchManager:
                     original_ef_search = 40
 
                 # Set new ef_search value
-                await session.execute(
-                    text("SET hnsw.ef_search = :value"),
-                    {"value": ef_search_value},
-                )
+                # PostgreSQL SET command does not support parameter binding.
+                await session.execute(text(f"SET hnsw.ef_search = {int(ef_search_value)}"))
                 log.debug(
                     "ef_search_applied",
                     mode=str(mode),
@@ -203,10 +201,7 @@ class EfSearchManager:
 
                 # Restore original ef_search value
                 if original_ef_search is not None:
-                    await session.execute(
-                        text("SET hnsw.ef_search = :value"),
-                        {"value": int(original_ef_search)},
-                    )
+                    await session.execute(text(f"SET hnsw.ef_search = {int(original_ef_search)}"))
                     log.debug(
                         "ef_search_restored",
                         ef_search=original_ef_search,

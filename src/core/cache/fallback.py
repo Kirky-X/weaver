@@ -68,6 +68,17 @@ class FallbackCachePool:
         """Current active cache backend type: 'redis' or 'cashews'."""
         return "redis" if self._primary_healthy else "cashews"
 
+    @property
+    def client(self) -> Any:
+        """Return the active underlying cache client.
+
+        When primary (Redis) is healthy, returns the primary client.
+        When degraded, returns the fallback (CashewsClient).
+        This property exists for compatibility with code that accesses
+        ``cache_pool.client`` directly (e.g. ``client.delete(key)``).
+        """
+        return self._primary if self._primary_healthy else self._fallback
+
     # ── Lifecycle ──────────────────────────────────────────────────
 
     async def startup(self) -> None:

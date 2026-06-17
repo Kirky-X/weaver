@@ -711,7 +711,13 @@ class ArticleVector(Base):
         nullable=False,
     )
     vector_type: Mapped[VectorType] = mapped_column(
-        Enum(VectorType, name="vector_type", create_type=True), nullable=False
+        Enum(
+            VectorType,
+            name="vector_type",
+            create_type=True,
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        nullable=False,
     )
     embedding: Mapped[Any] = mapped_column(Vector(1024), nullable=False)
     model_id: Mapped[str] = mapped_column(
@@ -766,6 +772,7 @@ class EntityVector(Base):
             "embedding",
             postgresql_using="hnsw",
             postgresql_with={"m": 16, "ef_construction": 200},
+            postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
     )
 
@@ -1014,7 +1021,7 @@ class LLMUsageRaw(Base):
     latency_ms: Mapped[float] = mapped_column(Float, nullable=False)
     success: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     error_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    article_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    article_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     task_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -1264,12 +1271,14 @@ class CommunityVector(Base):
             "embedding",
             postgresql_using="hnsw",
             postgresql_with={"m": 16, "ef_construction": 200},
+            postgresql_ops={"embedding": "vector_cosine_ops"},
         ),
         # GIN index for text search on title (design doc §8.6)
         Index(
             "idx_community_vectors_title_gin",
             "title",
             postgresql_using="gin",
+            postgresql_ops={"title": "gin_trgm_ops"},
         ),
     )
 

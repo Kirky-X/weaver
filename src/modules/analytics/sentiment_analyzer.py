@@ -11,6 +11,7 @@ Performance:
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -201,6 +202,17 @@ class SentimentAnalyzer:
             {"text": text[:2000]},  # Truncate for LLM
         )
 
+        # call_at may return a string (raw LLM response); parse JSON if needed
+        if isinstance(result, str):
+            try:
+                result = json.loads(result)
+            except (json.JSONDecodeError, TypeError):
+                # LLM may return thinking text before JSON; extract JSON block
+                # Find the last balanced brace pair (handles nested objects)
+                result = self._extract_json_from_text(result)
+                if result is None:
+                    return self._default_result("llm")
+
         sentiment = result.get("sentiment", "neutral")
         sentiment_score = result.get("sentiment_score", 0.5)
 
@@ -240,6 +252,38 @@ class SentimentAnalyzer:
         if label_lower in ("positive", "negative", "neutral"):
             return label_lower
         return "neutral"
+
+    def _extract_json_from_text(self, text: str) -> dict[str, Any] | None:
+        """Extract JSON object from text that may contain thinking/reasoning.
+
+        LLMs with think mode may return reasoning text before the JSON output.
+        This method finds the last valid JSON object in the text by scanning
+        for balanced braces.
+
+        Args:
+            text: Raw LLM response text.
+
+        Returns:
+            Parsed dict if JSON found, None otherwise.
+        """
+        # Find all positions of opening braces
+        for i in range(len(text) - 1, -1, -1):
+            if text[i] != "{":
+                continue
+            # Try to parse from this position to end
+            depth = 0
+            for j in range(i, len(text)):
+                if text[j] == "{":
+                    depth += 1
+                elif text[j] == "}":
+                    depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(text[i : j + 1])
+                    except (json.JSONDecodeError, TypeError):
+                        break
+        log.warning("sentiment_llm_response_not_json", response_preview=text[:200])
+        return None
 
     def _default_result(self, source: str) -> dict[str, Any]:
         """Return default sentiment result.

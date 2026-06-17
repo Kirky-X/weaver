@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -285,10 +286,14 @@ class ArticleRepo:
         return all_article_ids
 
     async def _upsert_chunk(self, states: list[PipelineState]) -> list[uuid.UUID]:
-        """Upsert a chunk of articles within a single transaction.
+        """Upsert a chunk of articles, each in its own transaction.
 
         Uses INSERT ... ON CONFLICT DO UPDATE for each state individually,
         eliminating the query-then-write race condition.
+
+        Each article is upserted in a separate transaction so that a failure
+        on one article does not abort the entire batch (critical for DuckDB
+        which enters an aborted state on any transaction error).
 
         Args:
             states: List of pipeline states to upsert.
@@ -303,19 +308,20 @@ class ArticleRepo:
 
         article_ids: list[uuid.UUID] = []
 
-        async with self._pool.session() as session:
-            for state in valid_states:
+        for state in valid_states:
+            async with self._pool.session() as session:
                 try:
                     article_id = await self._upsert_single(session, state)
+                    await session.commit()
                     article_ids.append(article_id)
                 except Exception as exc:
                     raw = state.get("raw")
                     url = getattr(raw, "url", "unknown") if raw else "unknown"
                     log.error("bulk_upsert_single_failed", url=url, error=str(exc))
+                    await session.rollback()
 
-            await session.commit()
-            log.debug("bulk_upsert_chunk_complete", count=len(article_ids))
-            return article_ids
+        log.debug("bulk_upsert_chunk_complete", count=len(article_ids))
+        return article_ids
 
     async def _upsert_single(self, session: AsyncSession, state: PipelineState) -> uuid.UUID:
         """Upsert a single article using ON CONFLICT DO UPDATE.
@@ -424,10 +430,7 @@ class ArticleRepo:
                     (ArticleCore.content_hash != content_hash, stmt.excluded.title),
                     else_=ArticleCore.title,
                 ),
-                "category": case(
-                    (ArticleCore.content_hash != content_hash, stmt.excluded.category),
-                    else_=ArticleCore.category,
-                ),
+                "category": stmt.excluded.category,
                 "language": stmt.excluded.language,
                 "region": stmt.excluded.region,
                 "score": stmt.excluded.score,
@@ -1102,29 +1105,51 @@ class ArticleRepo:
         Uses INSERT ... ON CONFLICT for each article to handle cases
         where an ArticleProcessing row does not yet exist.
 
+        Includes DuckDB retry for single-writer transaction conflicts.
+
         Args:
             article_ids: List of article UUIDs to update.
             stage: The processing stage name to set.
         """
         if not article_ids:
             return
-        async with self._pool.session() as session:
-            now = datetime.now(UTC)
-            for article_id in article_ids:
-                stmt = pg_insert(ArticleProcessing).values(
-                    article_id=article_id,
-                    processing_stage=stage,
-                    updated_at=now,
-                )
-                stmt = stmt.on_conflict_do_update(
-                    index_elements=["article_id"],
-                    set_={
-                        "processing_stage": stmt.excluded.processing_stage,
-                        "updated_at": stmt.excluded.updated_at,
-                    },
-                )
-                await session.execute(stmt)
-            await session.commit()
+
+        max_retries = 3
+        base_delay = 0.2
+        for attempt in range(max_retries):
+            try:
+                async with self._pool.session() as session:
+                    now = datetime.now(UTC)
+                    for article_id in article_ids:
+                        stmt = pg_insert(ArticleProcessing).values(
+                            article_id=article_id,
+                            processing_stage=stage,
+                            updated_at=now,
+                        )
+                        stmt = stmt.on_conflict_do_update(
+                            index_elements=["article_id"],
+                            set_={
+                                "processing_stage": stmt.excluded.processing_stage,
+                                "updated_at": stmt.excluded.updated_at,
+                            },
+                        )
+                        await session.execute(stmt)
+                    await session.commit()
+                return
+            except Exception as exc:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2**attempt)
+                    log.debug(
+                        "duckdb_bulk_update_stage_retry",
+                        attempt=attempt + 1,
+                        max_retries=max_retries,
+                        delay=delay,
+                        stage=stage,
+                        error=str(exc)[:100],
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    raise
 
     async def mark_failed(
         self, article_id: uuid.UUID, error: str, increment_retry: bool = True

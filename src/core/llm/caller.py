@@ -30,11 +30,14 @@ litellm.drop_params = True
 
 # 3. Suppress Pydantic serialization warnings (LiteLLM internal issue)
 # Reference: https://github.com/BerriAI/litellm/issues/11759
+# Note: The warning message is multi-line ("Pydantic serializer warnings:\n  ..."),
+# so we match the first line. Using re.DOTALL would also work but matching the
+# first line is more precise and avoids unintended suppression.
 warnings.filterwarnings(
     "ignore",
     category=UserWarning,
     module="pydantic.main",
-    message=".*PydanticSerializationUnexpectedValue.*",
+    message="Pydantic serializer warnings.*",
 )
 
 # LiteLLM原生支持的rerank provider类型

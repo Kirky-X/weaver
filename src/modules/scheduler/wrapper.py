@@ -79,6 +79,17 @@ def scheduled_task(job_id: str, timeout_seconds: int = 600):
                     span.record_exception(Exception("Timeout"))
                     return -1
 
+                except asyncio.CancelledError:
+                    duration = time.monotonic() - start
+                    log.info(
+                        "scheduler_task_cancelled",
+                        job_id=job_id,
+                        duration_seconds=round(duration, 2),
+                    )
+                    span.set_attribute("success", False)
+                    span.set_attribute("error", "cancelled")
+                    return -2
+
                 except Exception as exc:
                     duration = time.monotonic() - start
                     log.error(

@@ -170,7 +170,15 @@ class TokenBucketRateLimiter:
         )
 
         if redis is not None:
-            self._script = redis.register_script(TOKEN_BUCKET_LUA_SCRIPT)
+            # If redis is a FallbackCachePool with unhealthy primary, the
+            # registered script will be a _CashewsScript that cannot execute
+            # Lua. Pre-emptively activate local fallback to avoid TypeError
+            # on every request (which would otherwise log CRITICAL).
+            if hasattr(redis, "primary_healthy") and not redis.primary_healthy:
+                self._script = None
+                self._fallback_active = True
+            else:
+                self._script = redis.register_script(TOKEN_BUCKET_LUA_SCRIPT)
         else:
             self._script = None
             self._fallback_active = True

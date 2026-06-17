@@ -97,7 +97,7 @@ class TestLLMClaimExtraction:
     async def test_llm_extracts_numerical_claims(self):
         """LLM extracts structured numerical claims from text."""
         mock_llm = AsyncMock()
-        mock_llm.extract_numerical_claims.return_value = [
+        mock_llm.call_at.return_value = [
             {"attribute": "GDP增长率", "value": 6.5, "unit": "%", "context": "GDP增长6.5%"},
             {"attribute": "通胀率", "value": 2.3, "unit": "%", "context": "通胀率2.3%"},
         ]
@@ -118,7 +118,7 @@ class TestLLMClaimExtraction:
     async def test_llm_no_numerical_claims(self):
         """LLM returns empty list when no numerical data in text."""
         mock_llm = AsyncMock()
-        mock_llm.extract_numerical_claims.return_value = []
+        mock_llm.call_at.return_value = []
 
         node = ConflictDetectorNode(
             article_repo=MagicMock(),

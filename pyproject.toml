@@ -8,6 +8,7 @@ dependencies = [
     "alembic>=1.18.4",
     "apscheduler>=3.11.2",
     "asyncpg==0.30.0",
+    "bcrypt>=4.2.0",
     "fastapi>=0.135.1",
     "feedparser>=6.0.12",
     "httpx[http2]>=0.28.1",
@@ -58,8 +59,6 @@ dependencies = [
     "ruptures>=1.1.10",
     # ── Fake News Detection ──────────────────────────────
     "lightgbm>=4.0.0",
-    # ── Sentiment Analysis ──────────────────────────────
-    "paddlenlp>=2.7.0",
     # ── Zero-shot Entity Extraction ──────────────────────────────
     "gliner>=0.2.0",
     # ── Cascade Classification ──────────────────────────────
@@ -79,6 +78,12 @@ cache-fallback = [
 search-enhancement = [
     "flashrank>=0.2.10",
 ]
+# NOTE: PaddleNLP SKEP sentiment analysis (paddlenlp>=2.7.0) is NOT declared
+# as a dependency because it conflicts with opentelemetry-exporter-otlp>=1.40.0
+# via protobuf version pin (paddlenlp→protobuf==3.20.2 vs otel→protobuf>=5.0,<7.0).
+# To enable SKEP sentiment analysis, manually install in a separate environment:
+#   pip install paddlenlp>=2.7.0
+# Code uses lazy import with fallback (skep_model_init_failed → self._skep=None).
 
 [build-system]
 requires = ["hatchling"]

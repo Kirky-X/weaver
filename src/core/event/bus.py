@@ -82,7 +82,7 @@ class LLMUsageEvent(BaseEvent):
     latency_ms: float = 0.0
     success: bool = True
     error_type: str | None = None
-    article_id: int | None = None
+    article_id: str | None = None
     task_id: str | None = None
 
 

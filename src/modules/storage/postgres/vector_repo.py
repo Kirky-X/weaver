@@ -230,10 +230,11 @@ class VectorRepo:
                     ef_value = self._ef_search_manager.get_ef_search(search_mode)
                 else:
                     ef_value = 100  # Default fallback
-                await session.execute(
-                    text("SET hnsw.ef_search = :value"),
-                    {"value": ef_value},
-                )
+                # PostgreSQL SET command does not support parameter binding
+                # (asyncpg converts :value to $1, but SET rejects placeholders).
+                # ef_value originates from EfSearchManager.get_ef_search() (int)
+                # or the hardcoded default 100 — int() cast guarantees safety.
+                await session.execute(text(f"SET hnsw.ef_search = {int(ef_value)}"))
                 log.debug("ef_search_set_in_session", ef_search=ef_value, mode=search_mode)
 
             query = text(self._query_builder.build_find_similar_articles_query(config))
@@ -370,12 +371,17 @@ class VectorRepo:
             filter_by_category=category is not None,
             filter_by_model_id=model_id is not None,
         )
+
+        if self._query_builder.database_type == DatabaseType.DUCKDB:
+            return await self._batch_find_similar_duckdb(
+                queries, config, category, threshold, limit, model_id, vector_type
+            )
+
         results: dict[uuid.UUID, list[ArticleSearchResultView]] = {}
 
         async with self._pool.session() as session:
             # Set ef_search dynamically for PostgreSQL
-            if self._query_builder.database_type == DatabaseType.POSTGRES:
-                await session.execute(text("SET hnsw.ef_search = 100"))
+            await session.execute(text("SET hnsw.ef_search = 100"))
 
             # Build query configurations for parallel execution
             async def execute_single_query(
@@ -420,6 +426,63 @@ class VectorRepo:
 
         return results
 
+    async def _batch_find_similar_duckdb(
+        self,
+        queries: list[tuple[uuid.UUID, list[float]]],
+        config: SimilarityQuery,
+        category: str | None,
+        threshold: float,
+        limit: int,
+        model_id: str | None,
+        vector_type: str,
+    ) -> dict[uuid.UUID, list[ArticleSearchResultView]]:
+        """Batch find similar with DuckDB retry for single-writer conflicts.
+
+        DuckDB sessions are NOT thread-safe, so queries must run sequentially
+        (no asyncio.gather) on a single session.
+        """
+        max_retries = 3
+        base_delay = 0.2
+        for attempt in range(max_retries):
+            try:
+                results: dict[uuid.UUID, list[ArticleSearchResultView]] = {}
+                async with self._pool.session() as session:
+                    for query_id, embedding in queries:
+                        query = text(self._query_builder.build_find_similar_articles_query(config))
+                        formatted_emb = self._query_builder.format_embedding_param(embedding)
+                        params: dict[str, str | list[float] | float] = {
+                            "embedding": formatted_emb,
+                            "threshold": threshold,
+                            "vector_type": vector_type,
+                        }
+                        if category is not None:
+                            params["category"] = category
+                        if model_id is not None:
+                            params["model_id"] = model_id
+                        rows = await session.execute(query, params)
+                        results[query_id] = [
+                            ArticleSearchResultView(
+                                article_id=row.article_id,
+                                category=row.category,
+                                similarity=row.similarity,
+                            )
+                            for row in rows
+                        ]
+                return results
+            except Exception as exc:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2**attempt)
+                    log.debug(
+                        "duckdb_batch_find_similar_retry",
+                        attempt=attempt + 1,
+                        max_retries=max_retries,
+                        delay=delay,
+                        error=str(exc)[:100],
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    raise
+
     async def upsert_entity_vectors(
         self,
         entities: list[tuple[str, list[float]]],
@@ -436,20 +499,7 @@ class VectorRepo:
         """
         # Check if using DuckDB (use query_builder approach)
         if self._query_builder.database_type == DatabaseType.DUCKDB:
-            async with self._pool.session() as session:
-                for name, embedding in entities:
-                    key = f"temp:{name}" if use_temp_key else name
-                    formatted_emb = self._query_builder.format_embedding_param(embedding)
-                    query = text(self._query_builder.build_upsert_entity_vector_query())
-                    await session.execute(
-                        query,
-                        {
-                            "neo4j_id": key,
-                            "embedding": formatted_emb,
-                            "model_id": model_id,
-                        },
-                    )
-                await session.commit()
+            await self._upsert_entity_vectors_duckdb(entities, model_id, use_temp_key)
         else:
             # PostgreSQL: use ORM approach
             async with self._pool.session() as session:
@@ -471,6 +521,46 @@ class VectorRepo:
                         session.add(ev)
 
                 await session.commit()
+
+    async def _upsert_entity_vectors_duckdb(
+        self,
+        entities: list[tuple[str, list[float]]],
+        model_id: str,
+        use_temp_key: bool,
+    ) -> None:
+        """Upsert entity vectors with DuckDB retry for single-writer conflicts."""
+        max_retries = 3
+        base_delay = 0.1
+        for attempt in range(max_retries):
+            try:
+                async with self._pool.session() as session:
+                    for name, embedding in entities:
+                        key = f"temp:{name}" if use_temp_key else name
+                        formatted_emb = self._query_builder.format_embedding_param(embedding)
+                        query = text(self._query_builder.build_upsert_entity_vector_query())
+                        await session.execute(
+                            query,
+                            {
+                                "neo4j_id": key,
+                                "embedding": formatted_emb,
+                                "model_id": model_id,
+                            },
+                        )
+                    await session.commit()
+                return
+            except Exception as exc:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2**attempt)
+                    log.debug(
+                        "duckdb_upsert_entity_retry",
+                        attempt=attempt + 1,
+                        max_retries=max_retries,
+                        delay=delay,
+                        error=str(exc)[:100],
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    raise
 
     async def upsert_entity_vector(
         self, neo4j_id: str, embedding: list[float], model_id: str
@@ -603,12 +693,41 @@ class VectorRepo:
         if not neo4j_ids:
             return 0
 
+        if self._query_builder.database_type == DatabaseType.DUCKDB:
+            return await self._delete_entity_vectors_duckdb(neo4j_ids)
+
         async with self._pool.session() as session:
             result = await session.execute(
                 delete(EntityVector).where(EntityVector.neo4j_id.in_(neo4j_ids))
             )
             await session.commit()
             return result.rowcount
+
+    async def _delete_entity_vectors_duckdb(self, neo4j_ids: list[str]) -> int:
+        """Delete entity vectors with DuckDB retry for single-writer conflicts."""
+        max_retries = 3
+        base_delay = 0.1
+        for attempt in range(max_retries):
+            try:
+                async with self._pool.session() as session:
+                    result = await session.execute(
+                        delete(EntityVector).where(EntityVector.neo4j_id.in_(neo4j_ids))
+                    )
+                    await session.commit()
+                    return result.rowcount
+            except Exception as exc:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2**attempt)
+                    log.debug(
+                        "duckdb_delete_entity_retry",
+                        attempt=attempt + 1,
+                        max_retries=max_retries,
+                        delay=delay,
+                        error=str(exc)[:100],
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    raise
 
     async def update_entity_vectors_by_temp_keys(self, temp_key_to_neo4j: dict[str, str]) -> int:
         """Update entity vectors by replacing temp keys with real Neo4j IDs.

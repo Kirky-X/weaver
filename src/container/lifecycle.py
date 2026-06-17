@@ -988,6 +988,12 @@ class ContainerLifecycleMixin:
                 await self._llm_usage_buffer.accumulate(event)
 
         async def _handle_llm_usage_raw(event: LLMUsageEvent) -> None:
+            # During shutdown, in-flight LLM calls may complete after pools are
+            # closed. The usage data is also buffered to Redis via
+            # _handle_llm_usage_buffer, so skipping the raw insert is safe.
+            if self._shutdown:
+                log.debug("llm_usage_raw_insert_skipped_shutdown", label=event.label)
+                return
             try:
                 from core.db.duckdb_pool import DuckDBPool
                 from modules.storage.duckdb import DuckDBLLMUsageRepo
@@ -1000,9 +1006,20 @@ class ContainerLifecycleMixin:
                     repo = self.llm_usage_repo()
                 await repo.insert_raw(event)
             except Exception as e:
-                log.error(
-                    "llm_usage_raw_insert_failed", error=str(e), label=event.label, exc_info=True
-                )
+                if self._shutdown:
+                    # Race: pool closed between the pre-check and the write.
+                    log.debug(
+                        "llm_usage_raw_insert_skipped_shutdown",
+                        error=str(e),
+                        label=event.label,
+                    )
+                else:
+                    log.error(
+                        "llm_usage_raw_insert_failed",
+                        error=str(e),
+                        label=event.label,
+                        exc_info=True,
+                    )
 
         self._event_bus.subscribe(LLMUsageEvent, _handle_llm_usage_buffer)
         self._event_bus.subscribe(LLMUsageEvent, _handle_llm_usage_raw)

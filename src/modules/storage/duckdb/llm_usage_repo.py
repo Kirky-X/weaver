@@ -7,6 +7,7 @@ Focuses on raw record insertion for testing purposes.
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -43,6 +44,7 @@ class DuckDBLLMUsageRepo:
         Args:
             event: The LLM usage event to persist.
         """
+        article_id = uuid.UUID(event.article_id) if event.article_id else None
         async with self._pool.session() as session:
             session.add(
                 LLMUsageRaw(
@@ -57,7 +59,7 @@ class DuckDBLLMUsageRepo:
                     latency_ms=event.latency_ms,
                     success=event.success,
                     error_type=event.error_type,
-                    article_id=event.article_id,
+                    article_id=article_id,
                     task_id=event.task_id,
                     created_at=event.timestamp,
                 )
@@ -91,7 +93,7 @@ class DuckDBLLMUsageRepo:
                 latency_ms=event.latency_ms,
                 success=event.success,
                 error_type=event.error_type,
-                article_id=event.article_id,
+                article_id=uuid.UUID(event.article_id) if event.article_id else None,
                 task_id=event.task_id,
                 created_at=event.timestamp,
             )

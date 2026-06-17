@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import fasttext
-from setfit import SetFitModel
 
 from core.observability import get_logger
 
@@ -38,6 +37,8 @@ class CascadeClassifier:
             self._ft_model = fasttext.load_model(self._ft_path)
             log.info("fasttext_model_loaded", path=self._ft_path)
         if self._sf_path:
+            from setfit import SetFitModel
+
             self._sf_model = SetFitModel.from_pretrained(self._sf_path)
             log.info("setfit_model_loaded", path=self._sf_path)
 
