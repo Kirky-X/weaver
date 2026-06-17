@@ -416,7 +416,10 @@ async def start_server(port: int = 8000, container: Any = None) -> tuple[Any, as
             response = await client.get(f"{base_url}/health")
             if response.status_code == 200:
                 break
-        except (httpx.ConnectError, httpx.ReadError):
+        except (httpx.ConnectError, httpx.ReadError, httpx.TimeoutException):
+            # ConnectTimeout/ReadTimeout/PoolTimeout all inherit from
+            # TimeoutException — server may need a moment to bind the port
+            # after lifespan startup completes.
             await asyncio.sleep(poll_interval)
     else:
         raise RuntimeError(f"Server failed to start within {max_attempts * poll_interval}s")
@@ -509,15 +512,23 @@ async def clear_databases(server_ctx: ServerContext) -> None:
     pool = server_ctx.strategy.relational_pool
     graph_pool = server_ctx.strategy.graph_pool
 
-    # Clear DuckDB/PostgreSQL tables
+    # Clear DuckDB/PostgreSQL tables.
+    # NOTE: `articles` is a VIEW over `articles_core` — must DELETE from the
+    # base table. `source_configs` is safe to clear because the test runner
+    # re-creates the source via `client.create_source()`.
     tables = [
-        "articles",
+        "articles_core",
+        "article_bodies",
+        "article_processing",
+        "article_versions",
+        "article_analysis",
         "article_vectors",
         "entity_vectors",
         "source_authorities",
-        "llm_failures",
+        "llm_failure_records",
         "llm_usage_raw",
         "llm_usage_hourly",
+        "llm_compare_hourly",
         "pending_sync",
         "unknown_relation_types",
         "source_configs",
