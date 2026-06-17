@@ -14,6 +14,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    from core.db import PersistStatus
+    from core.types.pipeline_state import PipelineState
+
+if TYPE_CHECKING:
     import uuid
 
     from core.models.shared import (
@@ -452,7 +456,15 @@ class GraphWriter(Protocol):
 
     async def ensure_constraints(self) -> None: ...
 
-    async def write(self, state: Any) -> list[str]: ...
+    @property
+    def done_status(self) -> PersistStatus:
+        """Return the PersistStatus for completed graph writes.
+
+        Returns LADYBUG_DONE or NEO4J_DONE based on the graph backend type.
+        """
+        ...
+
+    async def write(self, state: PipelineState) -> list[str]: ...
 
     async def write_batch(
         self,

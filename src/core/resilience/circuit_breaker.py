@@ -184,6 +184,15 @@ class CircuitBreaker:
             )
             return True
 
+    def force_half_open(self) -> None:  # pragma: no cover
+        """Force the circuit breaker into HALF_OPEN state.
+
+        This is a test-only helper that delegates to the underlying pybreaker
+        instance's half_open() method. It exists to avoid tests reaching into
+        the private _breaker attribute.
+        """
+        self._breaker.half_open()
+
     def _emit_state_transition(self, from_state: CBState, to_state: CBState) -> None:
         """Emit a CircuitStateEvent for state transition.
 

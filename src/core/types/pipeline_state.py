@@ -1,0 +1,135 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
+"""Pipeline state type definitions.
+
+Moved from modules.processing.pipeline.state to break circular dependencies
+between storage/processing/ingestion modules.
+
+This module is in core/types/ because PipelineState is a pure TypedDict
+with zero runtime dependencies on any business module.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, TypedDict
+
+if TYPE_CHECKING:
+    from modules.ingestion.domain.models import RawArticle
+
+
+class CredibilityInfo(TypedDict, total=False):
+    """Credibility assessment result.
+
+    Attributes:
+        score: Final credibility score (0.0-1.0).
+        source_credibility: Source authority score.
+        cross_verification: Cross-verification score (body-length proxy).
+        content_check: Content check score (body-length proxy, no LLM).
+        timeliness: Timeliness score.
+        flags: List of credibility flags/issues.
+    """
+
+    score: float
+    source_credibility: float
+    cross_verification: float
+    content_check: float
+    timeliness: float
+    flags: list[str]
+
+
+class PipelineState(TypedDict, total=False):
+    """Typed dictionary representing the state flowing through the pipeline.
+
+    Each pipeline node reads from and writes to this shared state.
+    """
+
+    # Input
+    raw: RawArticle
+
+    # Classifier
+    is_news: bool
+    terminal: bool  # If True, skip remaining nodes
+
+    # Cleaner
+    cleaned: dict[str, Any]  # {"title": str, "body": str, "publish_time": ...}
+    tags: list[str]
+    cleaner_entities: list[dict[str, Any]]  # Entities from cleaner prompt
+    cleaner_method: str  # "trafilatura" or "llm"
+
+    # Categorizer
+    category: str
+    language: str
+    region: str
+
+    # Vectorize
+    vectors: dict[str, list[float]]  # {"content": [...], "title": [...]}
+
+    # Merger
+    is_merged: bool
+    merged_into: str | None
+    merged_source_ids: list[str]
+
+    # Analyze
+    summary_info: dict[str, Any]
+    sentiment: dict[str, Any]
+    score: float
+    quality_score: float
+
+    # Credibility (updated: removed cross_verification, verified_by_sources)
+    credibility: CredibilityInfo
+
+    # Entity extraction
+    entities: list[dict[str, Any]]
+    relations: list[dict[str, Any]]
+    resolved_entities: list[dict[str, Any]]
+
+    # Persist
+    article_id: str
+    task_id: str
+    neo4j_ids: list[str]
+
+    # Prompt version tracking
+    prompt_versions: dict[str, str]
+
+    # Degraded value tracking
+    # Records fields that were set to fallback/default values due to LLM failures
+    degraded_fields: list[str]  # Field names that used fallback values
+    degradation_reasons: dict[str, str]  # Field name -> reason for degradation
+
+    # Conflict detection
+    data_conflicts: list[dict[str, Any]]
+
+    # Fake news detection
+    fake_news_detection: dict[
+        str, Any
+    ]  # {"fake_score": float, "level": str, "features": dict, ...}
+
+    # Error tracking
+    error: str
+    phase3_error: str
+
+
+def has_degraded_data(state: PipelineState) -> bool:
+    """Check if the state contains any degraded fields.
+
+    Args:
+        state: Pipeline state to check.
+
+    Returns:
+        True if any fields are marked as degraded.
+    """
+    return bool(state.get("degraded_fields"))
+
+
+def get_degradation_summary(state: PipelineState) -> dict[str, str]:
+    """Get a summary of all degraded fields and their reasons.
+
+    Args:
+        state: Pipeline state to check.
+
+    Returns:
+        Dict mapping field names to degradation reasons.
+        Empty dict if no degraded fields.
+    """
+    degraded_fields = state.get("degraded_fields", [])
+    reasons = state.get("degradation_reasons", {})
+    return {field: reasons.get(field, "Unknown reason") for field in degraded_fields}

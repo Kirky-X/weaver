@@ -46,6 +46,9 @@ from core.protocols.repositories import (
 
 # Service protocols
 from core.protocols.services import (
+    DeduplicationStrategy,
+    EmbeddingServiceProtocol,
+    IntentClassifierProtocol,
     PipelineService,
     TaskRegistryService,
 )
@@ -60,10 +63,13 @@ __all__ = [
     "ArticleRepository",
     "CachePool",
     "CommunityVectorRepository",
+    "DeduplicationStrategy",
+    "EmbeddingServiceProtocol",
     "EntityRepository",
     "GraphArticleRepository",
     "GraphPool",
     "GraphWriter",
+    "IntentClassifierProtocol",
     "KnowledgeCacheProtocol",
     "KnowledgeCluster",
     "MapperProtocol",

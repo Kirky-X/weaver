@@ -140,7 +140,60 @@ class TaskRegistryService(Protocol):
         ...
 
 
+@runtime_checkable
+class EmbeddingServiceProtocol(Protocol):
+    """Protocol for embedding service.
+
+    Implementations:
+        - EmbeddingServiceWrapper: Container-managed embedding service
+    """
+
+    async def embed(self, text: str) -> list[float]:
+        """Compute embedding for a single text."""
+        ...
+
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """Compute embeddings for multiple texts."""
+        ...
+
+    def is_ready(self) -> bool:
+        """Check if the embedding service is ready."""
+        ...
+
+    def start_loading(self) -> None:
+        """Start loading the model in background."""
+        ...
+
+
+@runtime_checkable
+class IntentClassifierProtocol(Protocol):
+    """Protocol for intent classifier.
+
+    Implementations:
+        - _IntentGraphAdapter: Adaptive search intent classifier
+    """
+
+    async def classify(self, query: str) -> Any: ...
+
+
+@runtime_checkable
+class DeduplicationStrategy(Protocol):
+    """Protocol for URL deduplication strategy.
+
+    Implementations:
+        - Deduplicator: Two-level cache + DB deduplication
+    """
+
+    @staticmethod
+    def normalize_url(url: str) -> str:
+        """Normalize a URL for consistent deduplication."""
+        ...
+
+
 __all__ = [
+    "DeduplicationStrategy",
+    "EmbeddingServiceProtocol",
+    "IntentClassifierProtocol",
     "PipelineService",
     "TaskRegistryService",
 ]
