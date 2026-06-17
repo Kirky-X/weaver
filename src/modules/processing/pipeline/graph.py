@@ -10,20 +10,11 @@ import uuid
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any
 
-from core.db import PersistStatus
-from core.event import EventBus
-from core.llm.client import LLMClient
-from core.llm.config.token_budget import TokenBudgetManager
 from core.llm.resilience.pool import AllProvidersFailedError
 from core.observability import get_logger
 from core.observability.metrics import MetricsCollector
 from core.observability.throughput import PipelineThroughputTracker
-from core.prompt.loader import PromptLoader
 from modules.ingestion.domain.models import RawArticle
-from modules.knowledge.graph.community.updater import (
-    IncrementalCommunityUpdater,
-)
-from modules.knowledge.graph.entity_resolver import EntityResolver
 from modules.processing.nlp.spacy_extractor import SpacyExtractor
 from modules.processing.nodes.checkpoint_cleanup import CheckpointCleanupNode
 from modules.processing.nodes.classification.categorizer import CascadeCategorizerNode
@@ -40,11 +31,11 @@ from modules.processing.nodes.quality.fake_news_node import FakeNewsDetectorNode
 from modules.processing.nodes.quality.quality_scorer import RuleBasedQualityScorerNode
 from modules.processing.nodes.vectorization.re_vectorize import ReVectorizeNode
 from modules.processing.nodes.vectorization.vectorize import VectorizeNode
+from modules.processing.pipeline.deps import PipelineDeps
 from modules.processing.pipeline.state import PipelineState
 
 if TYPE_CHECKING:
     from config.settings import Settings
-    from modules.analytics.sentiment_analyzer import SentimentAnalyzer
 
 log = get_logger(__name__)
 
@@ -98,32 +89,12 @@ class Pipeline:
 
     def __init__(
         self,
-        llm: LLMClient,
-        budget: TokenBudgetManager,
-        prompt_loader: PromptLoader,
-        event_bus: EventBus,
+        deps: PipelineDeps,
         settings: Settings | None = None,
-        spacy: SpacyExtractor | None = None,
-        vector_repo: Any = None,
-        article_repo: Any = None,
-        graph_writer: Any = None,
-        source_auth_repo: Any = None,
-        entity_resolver: EntityResolver | None = None,
-        cache_client: Any = None,
-        community_updater: IncrementalCommunityUpdater | None = None,
-        phase1_concurrency: int | None = None,
-        phase3_concurrency: int | None = None,
-        relation_type_normalizer: Any = None,
-        sentiment_analyzer: SentimentAnalyzer | None = None,
-        cascade_classifier: Any | None = None,
-        gliner_extractor: Any | None = None,
-        mc_sampler: Any | None = None,
-        fake_news_detector: Any | None = None,
-        saga_orchestrator: Any | None = None,
         debug: bool = False,
     ) -> None:
         self._accepting = True
-        self._event_bus = event_bus
+        self._deps = deps
         self._settings = settings
         self._debug = debug
         self._throughput_tracker = PipelineThroughputTracker()
@@ -131,15 +102,11 @@ class Pipeline:
         # Concurrency limits - read from PipelineSettings, fallback to TOML default (5)
         pipeline_settings = settings.pipeline if settings else None
         self._phase1_concurrency = (
-            phase1_concurrency
-            or (pipeline_settings.phase1.concurrency if pipeline_settings else None)
-            or 5  # TOML default
-        )
+            pipeline_settings.phase1.concurrency if pipeline_settings else None
+        ) or 5  # TOML default
         self._phase3_concurrency = (
-            phase3_concurrency
-            or (pipeline_settings.phase3.concurrency if pipeline_settings else None)
-            or 5  # TOML default
-        )
+            pipeline_settings.phase3.concurrency if pipeline_settings else None
+        ) or 5  # TOML default
 
         # Semaphores for concurrency control
         self._phase1_semaphore = asyncio.Semaphore(self._phase1_concurrency)
@@ -150,6 +117,26 @@ class Pipeline:
             phase1_concurrency=self._phase1_concurrency,
             phase3_concurrency=self._phase3_concurrency,
         )
+
+        # Unpack deps for node construction
+        llm = deps.llm
+        budget = deps.budget
+        prompt_loader = deps.prompt_loader
+        spacy = deps.nlp.spacy or self._create_spacy_extractor(settings)
+        vector_repo = deps.repos.vector_repo
+        article_repo = deps.repos.article_repo
+        graph_writer = deps.repos.graph_writer
+        source_auth_repo = deps.repos.source_auth_repo
+        entity_resolver = deps.nlp.entity_resolver
+        cache_client = deps.infrastructure.cache_client
+        community_updater = deps.infrastructure.community_updater
+        saga_orchestrator = deps.infrastructure.saga_orchestrator
+        relation_type_normalizer = deps.nlp.relation_type_normalizer
+        sentiment_analyzer = deps.analyzers.sentiment_analyzer
+        cascade_classifier = deps.analyzers.cascade_classifier
+        gliner_extractor = deps.nlp.gliner_extractor
+        mc_sampler = deps.analyzers.mc_sampler
+        fake_news_detector = deps.analyzers.fake_news_detector
 
         # Initialize nodes
         self._classifier = CascadeClassifierNode(
@@ -182,12 +169,12 @@ class Pipeline:
             sentiment_analyzer=sentiment_analyzer,
         )
         self._quality_scorer = RuleBasedQualityScorerNode()
-        self._credibility = RuleBasedCredibilityCheckerNode(event_bus, source_auth_repo)
+        self._credibility = RuleBasedCredibilityCheckerNode(deps.event_bus, source_auth_repo)
         self._entity_extractor = EntityExtractorNode(
             llm,
             budget,
             prompt_loader,
-            spacy or self._create_spacy_extractor(settings),
+            spacy,
             settings,
             vector_repo,
             relation_type_normalizer=relation_type_normalizer,
@@ -203,25 +190,7 @@ class Pipeline:
             if fake_news_detector is not None
             else None
         )
-        self._entity_resolver = entity_resolver
-        self._cache_client = cache_client
         self._checkpoint_cleanup = CheckpointCleanupNode(cache_client)
-        self._article_repo = article_repo
-        self._graph_writer = graph_writer
-        self._vector_repo = vector_repo
-        self._community_updater = community_updater
-
-    @property
-    def _graph_done_status(self) -> PersistStatus:
-        """Return the appropriate persist_status based on graph_writer type.
-
-        LadybugWriter → LADYBUG_DONE, Neo4jWriter → NEO4J_DONE.
-        """
-        from modules.storage.ladybug.writer import LadybugWriter
-
-        if isinstance(self._graph_writer, LadybugWriter):
-            return PersistStatus.LADYBUG_DONE
-        return PersistStatus.NEO4J_DONE
 
     @staticmethod
     def _create_spacy_extractor(settings: Settings | None) -> SpacyExtractor:
@@ -263,7 +232,7 @@ class Pipeline:
             pending_updates: Batch-local list of (article_id, stage) tuples.
                 Will be cleared after flush.
         """
-        if not pending_updates or not self._article_repo:
+        if not pending_updates or not self._deps.repos.article_repo:
             return
 
         stage_groups: dict[str, list[uuid.UUID]] = defaultdict(list)
@@ -277,7 +246,7 @@ class Pipeline:
 
         for stage, ids in stage_groups.items():
             try:
-                await self._article_repo.bulk_update_processing_stage(ids, stage)
+                await self._deps.repos.article_repo.bulk_update_processing_stage(ids, stage)
             except Exception as e:
                 log.warning("flush_stage_updates_failed", stage=stage, count=len(ids), error=str(e))
                 # Re-enqueue failed updates for retry on next flush
@@ -314,7 +283,7 @@ class Pipeline:
 
         # Publish all events concurrently
         results = await asyncio.gather(
-            *[self._event_bus.publish(e) for e in events],
+            *[self._deps.event_bus.publish(e) for e in events],
             return_exceptions=True,
         )
 
@@ -341,7 +310,7 @@ class Pipeline:
         Returns:
             List of cached results (None for cache misses).
         """
-        if not self._cache_client:
+        if not self._deps.infrastructure.cache_client:
             return [None] * len(articles)
 
         import hashlib
@@ -355,7 +324,7 @@ class Pipeline:
             cache_keys.append(f"content_hash:{content_hash}")
 
         try:
-            cached_values = await self._cache_client.mget(cache_keys)
+            cached_values = await self._deps.infrastructure.cache_client.mget(cache_keys)
             results: list[dict[str, Any] | None] = []
             for cached in cached_values:
                 if cached:
@@ -379,7 +348,7 @@ class Pipeline:
         Args:
             state: Completed pipeline state to cache.
         """
-        if not self._cache_client:
+        if not self._deps.infrastructure.cache_client:
             return
 
         import hashlib
@@ -404,7 +373,7 @@ class Pipeline:
         }
 
         try:
-            await self._cache_client.set(
+            await self._deps.infrastructure.cache_client.set(
                 cache_key,
                 json.dumps(cache_data, ensure_ascii=False),
                 ex=604800,  # 7 days TTL
@@ -1008,8 +977,8 @@ class Pipeline:
             )
 
             # === Entity Resolver 阶段 ===
-            if state.get("entities") and self._entity_resolver:
-                resolved_entities = await self._entity_resolver.resolve_entities_batch(
+            if state.get("entities") and self._deps.nlp.entity_resolver:
+                resolved_entities = await self._deps.nlp.entity_resolver.resolve_entities_batch(
                     entities=state["entities"]
                 )
                 state["resolved_entities"] = resolved_entities
@@ -1030,7 +999,8 @@ class Pipeline:
     ) -> tuple[int, int]:
         """Persist batch of articles to Postgres and Neo4j.
 
-        Uses bulk operations for better performance.
+        Orchestrates terminal-state handling, PG persistence, and graph
+        persistence. Sub-methods preserve the original transaction semantics.
 
         Args:
             states: List of pipeline states to persist.
@@ -1045,239 +1015,269 @@ class Pipeline:
         valid_states = [s for s in states if not s.get("terminal")]
         terminal_states = [s for s in states if s.get("terminal")]
 
-        # Handle terminal articles: update persist_status so they don't stay stuck in PENDING
-        if terminal_states and self._article_repo:
-            for state in terminal_states:
-                try:
-                    source_url = state["raw"].url
-                    updated = await self._article_repo.mark_terminal_by_url(source_url)
-                    if updated:
-                        log.info(
-                            "terminal_article_status_updated",
-                            url=source_url[:50],
-                        )
-                except Exception as exc:
-                    log.warning(
-                        "terminal_article_status_update_failed",
-                        url=state["raw"].url[:50] if state.get("raw") else "unknown",
-                        error=str(exc),
-                    )
+        await self._handle_terminal_states(terminal_states)
 
         if not valid_states:
             return batch_completed, batch_failed
 
-        if self._article_repo:
+        # PG persistence — on failure, skip graph persistence
+        if self._deps.repos.article_repo:
             try:
-                article_ids = await self._article_repo.bulk_upsert(valid_states)
-                log.info(
-                    "persist_articles_committed",
-                    article_ids=[str(aid) for aid in article_ids],
-                    count=len(article_ids),
+                await self._persist_articles_to_pg(valid_states)
+            except Exception as exc:
+                return await self._handle_pg_persist_failure(
+                    valid_states, exc, batch_total, batch_completed, batch_failed
                 )
-                for state, aid in zip(valid_states, article_ids):
-                    state["article_id"] = str(aid)
-                    # persist_status is set to STORED in bulk_upsert._upsert_chunk
 
-                if self._vector_repo:
-                    vector_data = []
-                    for state in valid_states:
-                        if "vectors" in state:
-                            vectors = state["vectors"]
-                            log.debug(
-                                "persist_vectors_check",
-                                article_id=state.get("article_id"),
-                                has_title=(
-                                    "title" in vectors if isinstance(vectors, dict) else False
-                                ),
-                                has_content=(
-                                    "content" in vectors if isinstance(vectors, dict) else False
-                                ),
-                            )
-                            if (
-                                isinstance(vectors, dict)
-                                and "title" in vectors
-                                and "content" in vectors
-                            ):
-                                vector_data.append(
-                                    (
-                                        uuid.UUID(state["article_id"]),
-                                        vectors.get("title"),
-                                        vectors.get("content"),
-                                        vectors.get("model_id", "unknown"),
-                                    )
-                                )
-                        else:
-                            log.debug("persist_vectors_missing", article_id=state.get("article_id"))
-                    if vector_data:
-                        log.info(
-                            "persist_vectors_about_to_insert",
-                            article_ids=[str(v[0]) for v in vector_data],
-                            count=len(vector_data),
+        # Graph persistence
+        if self._deps.repos.graph_writer:
+            return await self._persist_to_graph_batch(
+                valid_states, batch_total, batch_completed, batch_failed
+            )
+
+        # No graph writer: PG success counts as complete
+        for state in valid_states:
+            batch_completed += 1
+            self._log_progress(state["raw"].url, batch_total, batch_completed, batch_failed)
+        return batch_completed, batch_failed
+
+    async def _handle_terminal_states(self, states: list[PipelineState]) -> None:
+        """Update persist_status for terminal articles.
+
+        Ensures terminal articles don't stay stuck in PENDING status.
+        """
+        if not states or not self._deps.repos.article_repo:
+            return
+        for state in states:
+            try:
+                source_url = state["raw"].url
+                updated = await self._deps.repos.article_repo.mark_terminal_by_url(source_url)
+                if updated:
+                    log.info("terminal_article_status_updated", url=source_url[:50])
+            except Exception as exc:
+                log.warning(
+                    "terminal_article_status_update_failed",
+                    url=state["raw"].url[:50] if state.get("raw") else "unknown",
+                    error=str(exc),
+                )
+
+    async def _persist_articles_to_pg(self, valid_states: list[PipelineState]) -> None:
+        """Persist articles to PostgreSQL via bulk_upsert.
+
+        Raises:
+            Exception: If bulk_upsert or vector persistence fails. The caller
+                is responsible for calling _handle_pg_persist_failure.
+        """
+        article_ids = await self._deps.repos.article_repo.bulk_upsert(valid_states)
+        log.info(
+            "persist_articles_committed",
+            article_ids=[str(aid) for aid in article_ids],
+            count=len(article_ids),
+        )
+        for state, aid in zip(valid_states, article_ids):
+            state["article_id"] = str(aid)
+            # persist_status is set to STORED in bulk_upsert._upsert_chunk
+
+        await self._persist_vectors(valid_states)
+        log.info("batch_pg_persisted", count=len(article_ids))
+
+    async def _persist_vectors(self, valid_states: list[PipelineState]) -> None:
+        """Persist article vectors to the vector repository."""
+        if not self._deps.repos.vector_repo:
+            return
+        vector_data = []
+        for state in valid_states:
+            if "vectors" in state:
+                vectors = state["vectors"]
+                log.debug(
+                    "persist_vectors_check",
+                    article_id=state.get("article_id"),
+                    has_title=("title" in vectors if isinstance(vectors, dict) else False),
+                    has_content=("content" in vectors if isinstance(vectors, dict) else False),
+                )
+                if isinstance(vectors, dict) and "title" in vectors and "content" in vectors:
+                    vector_data.append(
+                        (
+                            uuid.UUID(state["article_id"]),
+                            vectors.get("title"),
+                            vectors.get("content"),
+                            vectors.get("model_id", "unknown"),
                         )
-                        count = await self._vector_repo.bulk_upsert_article_vectors(vector_data)
-                        log.debug("vectors_bulk_persisted", count=count)
+                    )
+            else:
+                log.debug("persist_vectors_missing", article_id=state.get("article_id"))
+        if vector_data:
+            log.info(
+                "persist_vectors_about_to_insert",
+                article_ids=[str(v[0]) for v in vector_data],
+                count=len(vector_data),
+            )
+            count = await self._deps.repos.vector_repo.bulk_upsert_article_vectors(vector_data)
+            log.debug("vectors_bulk_persisted", count=count)
 
-                log.info("batch_pg_persisted", count=len(article_ids))
+    async def _handle_pg_persist_failure(
+        self,
+        valid_states: list[PipelineState],
+        exc: Exception,
+        batch_total: int,
+        batch_completed: int,
+        batch_failed: int,
+    ) -> tuple[int, int]:
+        """Handle PG persistence failure.
+
+        Marks all valid articles as failed, updates counters, and returns
+        so the caller skips graph persistence.
+        """
+        log.error(
+            "persist_batch_pg_failed",
+            error=str(exc),
+            exc_type=type(exc).__name__,
+            traceback=traceback.format_exc(),
+        )
+        # All articles in batch failed due to PG error
+        for state in valid_states:
+            batch_failed += 1
+            self._log_progress(state["raw"].url, batch_total, batch_completed, batch_failed)
+        # Log article IDs for debugging
+        for state in valid_states:
+            if state.get("article_id"):
+                log.warning("persist_debug_article_exists", article_id=state["article_id"])
+        # Mark articles as failed
+        for state in valid_states:
+            if state.get("article_id"):
+                try:
+                    await self._deps.repos.article_repo.mark_failed(
+                        uuid.UUID(state["article_id"]), f"PG error: {exc!s}"
+                    )
+                except Exception as mark_exc:
+                    log.error(
+                        "mark_failed_after_pg_error_failed",
+                        article_id=state.get("article_id"),
+                        original_error=str(exc),
+                        mark_error=str(mark_exc),
+                    )
+        return batch_completed, batch_failed
+
+    async def _persist_to_graph_batch(
+        self,
+        valid_states: list[PipelineState],
+        batch_total: int,
+        batch_completed: int,
+        batch_failed: int,
+    ) -> tuple[int, int]:
+        """Persist articles to Neo4j using batch write with per-article fallback."""
+        log.debug(
+            "persist_batch_graph_writer_check",
+            has_graph_writer=self._deps.repos.graph_writer is not None,
+        )
+        if hasattr(self._deps.repos.graph_writer, "write_batch"):
+            try:
+                result = await self._deps.repos.graph_writer.write_batch(
+                    valid_states, concurrency=self._phase3_concurrency
+                )
+                log.info(
+                    "neo4j_batch_write_complete",
+                    total=len(valid_states),
+                    success=len(result.get("article_ids", [])),
+                    failed=len(result.get("errors", [])),
+                )
+                # Update article IDs and persist status
+                for i, state in enumerate(valid_states):
+                    if i < len(result.get("neo4j_ids", [])):
+                        state["neo4j_ids"] = result["neo4j_ids"][i]
+                    article_id = state.get("article_id")
+                    if article_id and self._deps.repos.article_repo:
+                        await self._deps.repos.article_repo.update_persist_status(
+                            uuid.UUID(article_id), self._deps.repos.graph_writer.done_status
+                        )
+                # Log errors
+                for article_id_str, error_msg in result.get("errors", []):
+                    log.error(
+                        "persist_neo4j_batch_failed",
+                        article_id=article_id_str,
+                        error=error_msg,
+                    )
+                    batch_failed += 1
+                # Success count
+                batch_completed += len(result.get("article_ids", []))
+                # Log progress for each successful article
+                for state in valid_states:
+                    if state.get("article_id") in result.get("article_ids", []):
+                        self._log_progress(
+                            state["raw"].url, batch_total, batch_completed, batch_failed
+                        )
+                return batch_completed, batch_failed
             except Exception as exc:
                 log.error(
-                    "persist_batch_pg_failed",
+                    "neo4j_batch_write_failed",
                     error=str(exc),
                     exc_type=type(exc).__name__,
-                    traceback=traceback.format_exc(),
                 )
-                # All articles in batch failed due to PG error
-                for state in valid_states:
-                    batch_failed += 1
-                    self._log_progress(state["raw"].url, batch_total, batch_completed, batch_failed)
-                # Log article IDs for debugging
-                for state in valid_states:
-                    if state.get("article_id"):
-                        log.warning(
-                            "persist_debug_article_exists",
-                            article_id=state["article_id"],
-                        )
-                for state in valid_states:
-                    if state.get("article_id"):
-                        try:
-                            await self._article_repo.mark_failed(
-                                uuid.UUID(state["article_id"]), f"PG error: {exc!s}"
-                            )
-                        except Exception as mark_exc:
-                            log.error(
-                                "mark_failed_after_pg_error_failed",
-                                article_id=state.get("article_id"),
-                                original_error=str(exc),
-                                mark_error=str(mark_exc),
-                            )
-                return batch_completed, batch_failed
+                # Fallback to per-article write
+                log.warning("falling_back_to_per_article_write")
 
-        # Debug: check graph_writer availability
-        log.debug(
-            "persist_batch_graph_writer_check", has_graph_writer=self._graph_writer is not None
+        # Per-article write (fallback after batch failure, or no batch support)
+        for state in valid_states:
+            batch_completed, batch_failed = await self._persist_to_graph_single(
+                state, batch_total, batch_completed, batch_failed
+            )
+        return batch_completed, batch_failed
+
+    async def _persist_to_graph_single(
+        self,
+        state: PipelineState,
+        batch_total: int,
+        batch_completed: int,
+        batch_failed: int,
+    ) -> tuple[int, int]:
+        """Persist a single article to Neo4j.
+
+        Used by both the batch-write fallback path and the no-batch-support path
+        to deduplicate per-article write logic.
+        """
+        try:
+            neo4j_ids = await self._deps.repos.graph_writer.write(state)
+            state["neo4j_ids"] = neo4j_ids
+            if self._deps.repos.article_repo and state.get("article_id"):
+                await self._deps.repos.article_repo.update_persist_status(
+                    uuid.UUID(state["article_id"]), self._deps.repos.graph_writer.done_status
+                )
+            batch_completed += 1
+            self._log_progress(state["raw"].url, batch_total, batch_completed, batch_failed)
+            return batch_completed, batch_failed
+        except Exception as exc:
+            return await self._handle_graph_persist_failure(
+                state, exc, batch_total, batch_completed, batch_failed
+            )
+
+    async def _handle_graph_persist_failure(
+        self,
+        state: PipelineState,
+        exc: Exception,
+        batch_total: int,
+        batch_completed: int,
+        batch_failed: int,
+    ) -> tuple[int, int]:
+        """Handle Neo4j persistence failure for a single article."""
+        log.error(
+            "persist_neo4j_failed",
+            article_id=state.get("article_id"),
+            error=str(exc),
         )
-        if self._graph_writer:
-            # Use batch write if available, otherwise fall back to per-article write
-            if hasattr(self._graph_writer, "write_batch"):
-                try:
-                    result = await self._graph_writer.write_batch(
-                        valid_states, concurrency=self._phase3_concurrency
-                    )
-                    log.info(
-                        "neo4j_batch_write_complete",
-                        total=len(valid_states),
-                        success=len(result.get("article_ids", [])),
-                        failed=len(result.get("errors", [])),
-                    )
-                    # Update article IDs and persist status
-                    for i, state in enumerate(valid_states):
-                        if i < len(result.get("neo4j_ids", [])):
-                            state["neo4j_ids"] = result["neo4j_ids"][i]
-                        article_id = state.get("article_id")
-                        if article_id and self._article_repo:
-                            await self._article_repo.update_persist_status(
-                                uuid.UUID(article_id), self._graph_done_status
-                            )
-                    # Log errors
-                    for article_id_str, error_msg in result.get("errors", []):
-                        log.error(
-                            "persist_neo4j_batch_failed",
-                            article_id=article_id_str,
-                            error=error_msg,
-                        )
-                        batch_failed += 1
-                    # Success count
-                    batch_completed += len(result.get("article_ids", []))
-                    # Log progress for each successful article
-                    for state in valid_states:
-                        if state.get("article_id") in result.get("article_ids", []):
-                            self._log_progress(
-                                state["raw"].url, batch_total, batch_completed, batch_failed
-                            )
-                except Exception as exc:
-                    log.error(
-                        "neo4j_batch_write_failed",
-                        error=str(exc),
-                        exc_type=type(exc).__name__,
-                    )
-                    # Fallback to per-article write
-                    log.warning("falling_back_to_per_article_write")
-                    for state in valid_states:
-                        try:
-                            neo4j_ids = await self._graph_writer.write(state)
-                            state["neo4j_ids"] = neo4j_ids
-                            if self._article_repo and state.get("article_id"):
-                                await self._article_repo.update_persist_status(
-                                    uuid.UUID(state["article_id"]), self._graph_done_status
-                                )
-                            batch_completed += 1
-                            self._log_progress(
-                                state["raw"].url, batch_total, batch_completed, batch_failed
-                            )
-                        except Exception as inner_exc:
-                            log.error(
-                                "persist_neo4j_failed",
-                                article_id=state.get("article_id"),
-                                error=str(inner_exc),
-                            )
-                            if state.get("article_id") and self._article_repo:
-                                try:
-                                    await self._article_repo.mark_failed(
-                                        uuid.UUID(state["article_id"]),
-                                        f"Neo4j error: {inner_exc!s}",
-                                    )
-                                except Exception as mark_exc:
-                                    log.error(
-                                        "mark_failed_after_neo4j_persist_error_failed",
-                                        article_id=state.get("article_id"),
-                                        original_error=str(inner_exc),
-                                        mark_error=str(mark_exc),
-                                    )
-                            batch_failed += 1
-                            self._log_progress(
-                                state["raw"].url, batch_total, batch_completed, batch_failed
-                            )
-            else:
-                # No batch write support, use per-article write
-                for state in valid_states:
-                    try:
-                        neo4j_ids = await self._graph_writer.write(state)
-                        state["neo4j_ids"] = neo4j_ids
-                        if self._article_repo and state.get("article_id"):
-                            await self._article_repo.update_persist_status(
-                                uuid.UUID(state["article_id"]), self._graph_done_status
-                            )
-                        batch_completed += 1
-                        self._log_progress(
-                            state["raw"].url, batch_total, batch_completed, batch_failed
-                        )
-                    except Exception as exc:
-                        log.error(
-                            "persist_neo4j_failed",
-                            article_id=state.get("article_id"),
-                            error=str(exc),
-                        )
-                        if state.get("article_id") and self._article_repo:
-                            try:
-                                await self._article_repo.mark_failed(
-                                    uuid.UUID(state["article_id"]), f"Neo4j error: {exc!s}"
-                                )
-                            except Exception as mark_exc:
-                                log.error(
-                                    "mark_failed_after_neo4j_persist_error_failed",
-                                    article_id=state.get("article_id"),
-                                    original_error=str(exc),
-                                    mark_error=str(mark_exc),
-                                )
-                        batch_failed += 1
-                        self._log_progress(
-                            state["raw"].url, batch_total, batch_completed, batch_failed
-                        )
-        else:
-            # No Neo4j writer: PG success counts as complete
-            for state in valid_states:
-                batch_completed += 1
-                self._log_progress(state["raw"].url, batch_total, batch_completed, batch_failed)
-
+        if state.get("article_id") and self._deps.repos.article_repo:
+            try:
+                await self._deps.repos.article_repo.mark_failed(
+                    uuid.UUID(state["article_id"]), f"Neo4j error: {exc!s}"
+                )
+            except Exception as mark_exc:
+                log.error(
+                    "mark_failed_after_neo4j_persist_error_failed",
+                    article_id=state.get("article_id"),
+                    original_error=str(exc),
+                    mark_error=str(mark_exc),
+                )
+        batch_failed += 1
+        self._log_progress(state["raw"].url, batch_total, batch_completed, batch_failed)
         return batch_completed, batch_failed
 
     async def stop_accepting(self) -> None:
@@ -1330,10 +1330,10 @@ class Pipeline:
 
         if state is None:
             # Build minimal state from article_id
-            if self._article_repo is None:
+            if self._deps.repos.article_repo is None:
                 raise RuntimeError("article_repo required for process_article_phase3")
 
-            article = await self._article_repo.get_by_id(article_id)
+            article = await self._deps.repos.article_repo.get_by_id(article_id)
             if article is None:
                 raise ValueError(f"Article not found: {article_id}")
 
@@ -1368,10 +1368,10 @@ class Pipeline:
         Returns:
             Status dict with phase completion flags.
         """
-        if self._article_repo is None:
+        if self._deps.repos.article_repo is None:
             return {"error": "article_repo not configured"}
 
-        article = await self._article_repo.get_by_id(article_id)
+        article = await self._deps.repos.article_repo.get_by_id(article_id)
         if article is None:
             return {"status": "not_found", "article_id": article_id}
 
@@ -1393,7 +1393,7 @@ class Pipeline:
         Args:
             states: Pipeline states after persist.
         """
-        if not self._community_updater:
+        if not self._deps.infrastructure.community_updater:
             return
 
         # Extract entity names from processed states
@@ -1418,11 +1418,11 @@ class Pipeline:
 
         try:
             # Get current stats to check trigger conditions
-            stats = await self._community_updater.get_stats()
+            stats = await self._deps.infrastructure.community_updater.get_stats()
             pending_count = stats.pending_entity_count + len(entity_names)
 
             # Check if update should be triggered
-            if await self._community_updater.should_trigger(
+            if await self._deps.infrastructure.community_updater.should_trigger(
                 pending_count, stats.last_incremental_update_at
             ):
                 log.info(
@@ -1432,7 +1432,7 @@ class Pipeline:
                 )
                 # Run update asynchronously (fire and forget) — non-blocking
                 task = asyncio.create_task(
-                    self._community_updater.run_incremental_update(entity_names)
+                    self._deps.infrastructure.community_updater.run_incremental_update(entity_names)
                 )
 
                 def _on_community_update_done(t: asyncio.Task[object]) -> None:
@@ -1455,7 +1455,9 @@ class Pipeline:
                 task.add_done_callback(_on_community_update_done)
             else:
                 # Increment pending count for next time
-                await self._community_updater.increment_pending_count(len(entity_names))
+                await self._deps.infrastructure.community_updater.increment_pending_count(
+                    len(entity_names)
+                )
                 log.debug(
                     "community_update_pending",
                     added=len(entity_names),

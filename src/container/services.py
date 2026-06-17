@@ -502,6 +502,13 @@ class ContainerServicesMixin:
             SentimentAnalyzerConfig,
         )
         from modules.processing.nlp.spacy_extractor import SpacyExtractor
+        from modules.processing.pipeline.deps import (
+            PipelineAnalyzers,
+            PipelineDeps,
+            PipelineInfra,
+            PipelineNlpTools,
+            PipelineRepos,
+        )
         from modules.processing.pipeline.graph import Pipeline
 
         log = get_logger(__name__)
@@ -549,28 +556,38 @@ class ContainerServicesMixin:
             )
 
             self._pipeline = Pipeline(
-                llm=self._llm_client,
-                budget=budget,
-                prompt_loader=self._prompt_loader,
-                event_bus=self._event_bus,
-                settings=self._settings,
-                spacy=spacy_extractor,
-                vector_repo=self.vector_repo(),
-                article_repo=self.article_repo(),
-                graph_writer=self.graph_writer(),
-                source_auth_repo=self.source_authority_repo(),
-                entity_resolver=self.entity_resolver(),
-                cache_client=self._cache_client,
-                community_updater=(
-                    self.community_updater() if self.graph_pool() is not None else None
+                deps=PipelineDeps(
+                    llm=self._llm_client,
+                    budget=budget,
+                    prompt_loader=self._prompt_loader,
+                    event_bus=self._event_bus,
+                    repos=PipelineRepos(
+                        vector_repo=self.vector_repo(),
+                        article_repo=self.article_repo(),
+                        graph_writer=self.graph_writer(),
+                        source_auth_repo=self.source_authority_repo(),
+                    ),
+                    nlp=PipelineNlpTools(
+                        spacy=spacy_extractor,
+                        entity_resolver=self.entity_resolver(),
+                        gliner_extractor=self._gliner_extractor,
+                        relation_type_normalizer=self.relation_normalizer(),
+                    ),
+                    analyzers=PipelineAnalyzers(
+                        sentiment_analyzer=sentiment_analyzer,
+                        cascade_classifier=self._cascade_classifier,
+                        fake_news_detector=fake_news_detector,
+                        mc_sampler=self._mc_sampler,
+                    ),
+                    infrastructure=PipelineInfra(
+                        cache_client=self._cache_client,
+                        community_updater=(
+                            self.community_updater() if self.graph_pool() is not None else None
+                        ),
+                        saga_orchestrator=self._saga_orchestrator,
+                    ),
                 ),
-                relation_type_normalizer=self.relation_normalizer(),
-                sentiment_analyzer=sentiment_analyzer,
-                cascade_classifier=self._cascade_classifier,
-                gliner_extractor=self._gliner_extractor,
-                mc_sampler=self._mc_sampler,
-                fake_news_detector=fake_news_detector,
-                saga_orchestrator=self._saga_orchestrator,
+                settings=self._settings,
                 debug=self._debug_mode,
             )
             log.info("pipeline_initialized")
