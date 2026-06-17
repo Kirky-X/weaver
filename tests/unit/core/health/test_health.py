@@ -12,6 +12,7 @@ from api.endpoints.health import (
     check_redis_health,
     health_check,
 )
+from container import set_container
 from core.cache.redis import RedisClient
 from core.db import PostgresPool
 from core.db.neo4j import Neo4jPool
@@ -200,54 +201,29 @@ class TestCheckRedisHealth:
 
 
 @pytest.mark.xdist_group(name="endpoints_deps")
-@pytest.mark.xdist_group(name="endpoints_deps")
 class TestHealthCheck:
     """Tests for aggregated health check."""
 
     @pytest.fixture(autouse=True)
-    def reset_global_pools(self):
-        """Reset Endpoints pool references before and after each test."""
-        # Reset before test - ALL attributes
-        Endpoints._relational_pool = None
-        Endpoints._relational_pool_type = None
-        Endpoints._graph_pool = None
-        Endpoints._graph_pool_type = None
-        Endpoints._cache = None
-        Endpoints._llm = None
-        Endpoints._local_engine = None
-        Endpoints._global_engine = None
-        Endpoints._hybrid_engine = None
-        Endpoints._vector_repo = None
-        Endpoints._graph_repo = None
-        Endpoints._scheduler = None
-        Endpoints._source_config_repo = None
-        Endpoints._source_authority_repo = None
-        Endpoints._llm_failure_repo = None
-        Endpoints._llm_usage_repo = None
-        Endpoints._pipeline_service = None
-        Endpoints._task_registry = None
-
+    def reset_container(self):
+        """Reset global container before and after each test for isolation."""
+        set_container(None)
         yield
+        set_container(None)
 
-        # Reset after test - ensure complete cleanup
-        Endpoints._relational_pool = None
-        Endpoints._relational_pool_type = None
-        Endpoints._graph_pool = None
-        Endpoints._graph_pool_type = None
-        Endpoints._cache = None
-        Endpoints._llm = None
-        Endpoints._local_engine = None
-        Endpoints._global_engine = None
-        Endpoints._hybrid_engine = None
-        Endpoints._vector_repo = None
-        Endpoints._graph_repo = None
-        Endpoints._scheduler = None
-        Endpoints._source_config_repo = None
-        Endpoints._source_authority_repo = None
-        Endpoints._llm_failure_repo = None
-        Endpoints._llm_usage_repo = None
-        Endpoints._pipeline_service = None
-        Endpoints._task_registry = None
+    @staticmethod
+    def _set_mock_container(relational_pool=None, graph_pool=None, cache_client=None):
+        """Register a mock container returning the given pools.
+
+        Mirrors the DI pattern used by ``health_check()`` which calls
+        ``container.relational_pool()``, ``container.graph_pool()`` and
+        ``container.cache_client()``.
+        """
+        container = MagicMock()
+        container.relational_pool.return_value = relational_pool
+        container.graph_pool.return_value = graph_pool
+        container.cache_client.return_value = cache_client
+        set_container(container)
 
     @pytest.fixture
     def mock_relational_pool(self):
@@ -278,9 +254,11 @@ class TestHealthCheck:
     @pytest.mark.asyncio
     async def test_all_healthy(self, mock_relational_pool, mock_graph_pool, mock_cache_client):
         """Test health check when all dependencies are healthy."""
-        Endpoints._relational_pool = mock_relational_pool
-        Endpoints._graph_pool = mock_graph_pool
-        Endpoints._cache = mock_cache_client
+        self._set_mock_container(
+            relational_pool=mock_relational_pool,
+            graph_pool=mock_graph_pool,
+            cache_client=mock_cache_client,
+        )
 
         result = await health_check()
 
@@ -303,9 +281,11 @@ class TestHealthCheck:
         async_context.__aexit__ = AsyncMock(return_value=None)
         mock_relational_pool.session_context = MagicMock(return_value=async_context)
 
-        Endpoints._relational_pool = mock_relational_pool
-        Endpoints._graph_pool = mock_graph_pool
-        Endpoints._cache = mock_cache_client
+        self._set_mock_container(
+            relational_pool=mock_relational_pool,
+            graph_pool=mock_graph_pool,
+            cache_client=mock_cache_client,
+        )
 
         result = await health_check()
 
@@ -319,9 +299,11 @@ class TestHealthCheck:
         """Test health check when Neo4j is unhealthy."""
         mock_graph_pool.execute_query = AsyncMock(side_effect=Exception("ServiceUnavailable"))
 
-        Endpoints._relational_pool = mock_relational_pool
-        Endpoints._graph_pool = mock_graph_pool
-        Endpoints._cache = mock_cache_client
+        self._set_mock_container(
+            relational_pool=mock_relational_pool,
+            graph_pool=mock_graph_pool,
+            cache_client=mock_cache_client,
+        )
 
         result = await health_check()
 
@@ -335,9 +317,11 @@ class TestHealthCheck:
         """Test health check when Redis is unhealthy."""
         mock_cache_client.ping = AsyncMock(side_effect=Exception("Connection refused"))
 
-        Endpoints._relational_pool = mock_relational_pool
-        Endpoints._graph_pool = mock_graph_pool
-        Endpoints._cache = mock_cache_client
+        self._set_mock_container(
+            relational_pool=mock_relational_pool,
+            graph_pool=mock_graph_pool,
+            cache_client=mock_cache_client,
+        )
 
         result = await health_check()
 
@@ -360,9 +344,11 @@ class TestHealthCheck:
         mock_graph_pool.execute_query = AsyncMock(side_effect=Exception("Failed"))
         mock_cache_client.ping = AsyncMock(side_effect=Exception("Failed"))
 
-        Endpoints._relational_pool = mock_relational_pool
-        Endpoints._graph_pool = mock_graph_pool
-        Endpoints._cache = mock_cache_client
+        self._set_mock_container(
+            relational_pool=mock_relational_pool,
+            graph_pool=mock_graph_pool,
+            cache_client=mock_cache_client,
+        )
 
         result = await health_check()
 
@@ -387,9 +373,11 @@ class TestHealthCheck:
     @pytest.mark.asyncio
     async def test_partial_pools_initialized(self, mock_graph_pool, mock_cache_client):
         """Test health check when only some pools are initialized."""
-        Endpoints._graph_pool = mock_graph_pool
-        Endpoints._cache = mock_cache_client
-        # PostgreSQL pool not set
+        self._set_mock_container(
+            relational_pool=None,
+            graph_pool=mock_graph_pool,
+            cache_client=mock_cache_client,
+        )
 
         result = await health_check()
 
@@ -414,9 +402,11 @@ class TestHealthCheck:
         mock_graph_pool.execute_query = AsyncMock(side_effect=TimeoutError())
         mock_cache_client.ping = AsyncMock(side_effect=TimeoutError())
 
-        Endpoints._relational_pool = mock_relational_pool
-        Endpoints._graph_pool = mock_graph_pool
-        Endpoints._cache = mock_cache_client
+        self._set_mock_container(
+            relational_pool=mock_relational_pool,
+            graph_pool=mock_graph_pool,
+            cache_client=mock_cache_client,
+        )
 
         result = await health_check()
 
@@ -443,9 +433,11 @@ class TestHealthCheck:
 
         # Redis: healthy (default)
 
-        Endpoints._relational_pool = mock_relational_pool
-        Endpoints._graph_pool = mock_graph_pool
-        Endpoints._cache = mock_cache_client
+        self._set_mock_container(
+            relational_pool=mock_relational_pool,
+            graph_pool=mock_graph_pool,
+            cache_client=mock_cache_client,
+        )
 
         result = await health_check()
 
@@ -459,9 +451,11 @@ class TestHealthCheck:
         self, mock_relational_pool, mock_graph_pool, mock_cache_client
     ):
         """Test that latency is measured for all dependency checks."""
-        Endpoints._relational_pool = mock_relational_pool
-        Endpoints._graph_pool = mock_graph_pool
-        Endpoints._cache = mock_cache_client
+        self._set_mock_container(
+            relational_pool=mock_relational_pool,
+            graph_pool=mock_graph_pool,
+            cache_client=mock_cache_client,
+        )
 
         result = await health_check()
 
@@ -487,9 +481,11 @@ class TestHealthCheck:
         mock_graph_pool.execute_query = AsyncMock(side_effect=Exception("Neo4j connection failed"))
         mock_cache_client.ping = AsyncMock(side_effect=Exception("Redis connection failed"))
 
-        Endpoints._relational_pool = mock_relational_pool
-        Endpoints._graph_pool = mock_graph_pool
-        Endpoints._cache = mock_cache_client
+        self._set_mock_container(
+            relational_pool=mock_relational_pool,
+            graph_pool=mock_graph_pool,
+            cache_client=mock_cache_client,
+        )
 
         result = await health_check()
 
