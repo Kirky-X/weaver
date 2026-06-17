@@ -159,13 +159,23 @@ async def health_check() -> HealthCheckResponse:
         HealthCheckResponse with overall status and individual check results.
 
     """
-    from api.endpoints.deps_registry import Endpoints
+    from container import get_container
+
+    try:
+        container = get_container()
+    except RuntimeError:
+        container = None
 
     checks: dict[str, ServiceHealthCheck] = {}
     all_healthy = True
 
     # Check PostgreSQL
-    pg_pool = Endpoints.get_relational_pool_optional()
+    pg_pool = None
+    if container is not None:
+        try:
+            pg_pool = container.relational_pool()
+        except RuntimeError:
+            pg_pool = None
     if pg_pool is not None:
         pg_result = await check_postgres_health(pg_pool)
         checks["postgres"] = ServiceHealthCheck(**pg_result)
@@ -181,7 +191,7 @@ async def health_check() -> HealthCheckResponse:
         all_healthy = False
 
     # Check Neo4j
-    neo4j_pool = Endpoints.get_graph_pool_optional()
+    neo4j_pool = container.graph_pool() if container is not None else None
     if neo4j_pool is not None:
         neo4j_result = await check_neo4j_health(neo4j_pool)
         checks["neo4j"] = ServiceHealthCheck(**neo4j_result)
@@ -197,7 +207,12 @@ async def health_check() -> HealthCheckResponse:
         all_healthy = False
 
     # Check Redis
-    cache_client = Endpoints.get_cache_client_optional()
+    cache_client = None
+    if container is not None:
+        try:
+            cache_client = container.cache_client()
+        except RuntimeError:
+            cache_client = None
     if cache_client is not None:
         redis_result = await check_redis_health(cache_client)
         checks["redis"] = ServiceHealthCheck(**redis_result)

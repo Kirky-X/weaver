@@ -19,7 +19,7 @@ def get_container() -> Container:
 
     This will be overridden by the actual dependency injection.
     """
-    from api.endpoints.deps_registry import get_container as _get_container
+    from api.dependencies import get_container as _get_container
 
     return _get_container()
 

@@ -1,335 +1,343 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Centralized dependency registry for API endpoints.
+"""Centralized dependency registry for API endpoints (transitional thin wrapper).
 
-All endpoint modules use Endpoints.get_*() to obtain pool/client instances.
-The Container calls register_endpoints() once at startup to inject all dependencies.
+This module retains the ``Endpoints`` class as a backward-compatibility wrapper
+around :mod:`api.dependencies`. All ``get_*`` methods delegate to the
+corresponding FastAPI dependency functions in :mod:`api.dependencies`.
+
+New code should depend on :mod:`api.dependencies` directly via FastAPI's
+``Depends()`` pattern instead of using ``Endpoints.get_*()``.
 
 All getters return Protocol types, not concrete implementations.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
-
-from fastapi import HTTPException
+from typing import TYPE_CHECKING
 
 from core.observability import get_logger
-from core.protocols import VectorRepository
 
 if TYPE_CHECKING:
+    from container import Container
     from core.llm import LLMClient
-    from core.protocols import CachePool, GraphPool, RelationalPool
+    from core.protocols import (
+        CachePool,
+        EmbeddingServiceProtocol,
+        GraphPool,
+        IntentClassifierProtocol,
+        RelationalPool,
+        VectorRepository,
+    )
+    from core.saga import SagaOrchestrator
     from core.services.pipeline_service import PipelineServiceImpl
     from core.services.task_registry import InMemoryTaskRegistry
     from modules.analytics import LLMFailureRepo, LLMUsageRepo
     from modules.ingestion import SourceConfigRepo, SourceScheduler
-    from modules.knowledge.search import GlobalSearchEngine, HybridSearchEngine, LocalSearchEngine
-    from modules.storage import SourceAuthorityRepo, VectorRepo
+    from modules.knowledge.search import (
+        GlobalSearchEngine,
+        HybridSearchEngine,
+        LocalSearchEngine,
+    )
+    from modules.storage import SourceAuthorityRepo
     from modules.storage.graph_repo import GraphRepository
+
+log = get_logger(__name__)
 
 
 class Endpoints:
-    """Centralized dependency registry for all endpoint modules.
+    """Transitional thin wrapper around :mod:`api.dependencies`.
 
-    All pool/client instances are set once by Container.register_endpoints()
-    at application startup. Endpoint modules access dependencies via
-    Endpoints.get_*() static methods.
+    All ``get_*`` static methods delegate to the corresponding FastAPI
+    dependency functions in :mod:`api.dependencies`. This class exists
+    solely for backward compatibility during the migration period.
+
+    New code MUST use ``from api.dependencies import get_*`` with FastAPI's
+    ``Depends()`` pattern instead of ``Endpoints.get_*()``.
 
     All types are Protocol types, enabling database abstraction.
     """
 
-    # ── Pool Instances (Protocol Types) ───────────────────────────────
-    _relational_pool: RelationalPool | None = None
-    _graph_pool: GraphPool | None = None
-    _graph_pool_type: str | None = None
-    _cache: CachePool | None = None
-    _relational_pool_type: str | None = None
+    @staticmethod
+    def _container() -> Container:
+        """Get the current container for direct (non-FastAPI) calls.
 
-    # ── Service Instances ─────────────────────────────────────────────
-    _llm: LLMClient | None = None
-    _local_engine: LocalSearchEngine | None = None
-    _global_engine: GlobalSearchEngine | None = None
-    _hybrid_engine: HybridSearchEngine | None = None
-    _vector_repo: VectorRepo | None = None
-    _graph_repo: GraphRepository | None = None
-    _scheduler: SourceScheduler | None = None
-    _source_config_repo: SourceConfigRepo | None = None
-    _source_authority_repo: SourceAuthorityRepo | None = None
-    _llm_failure_repo: LLMFailureRepo | None = None
-    _llm_usage_repo: LLMUsageRepo | None = None
-    _pipeline_service: PipelineServiceImpl | None = None
-    _task_registry: InMemoryTaskRegistry | None = None
-    _saga_orchestrator: Any = None
-    _embedding_service: Any = None
-    _intent_classifier: Any = None
+        Uses :func:`api.dependencies.get_container` so that the same
+        error handling (HTTPException 503) applies when no container
+        is registered.
+        """
+        from api.dependencies import get_container
+
+        return get_container()
 
     # ── Relational Pool ───────────────────────────────────────────────
 
     @staticmethod
     def get_relational_pool() -> RelationalPool:
         """Get relational database pool (PostgreSQL or DuckDB)."""
-        if Endpoints._relational_pool is None:
-            raise HTTPException(503, detail="Relational pool not initialized")
-        return Endpoints._relational_pool
+        from api.dependencies import get_relational_pool
+
+        return get_relational_pool(container=Endpoints._container())
 
     # ── Graph Pool ────────────────────────────────────────────────────
 
     @staticmethod
     def get_graph_pool() -> GraphPool:
         """Get graph database pool (Neo4j or LadybugDB)."""
-        if Endpoints._graph_pool is None:
-            raise HTTPException(503, detail="Graph pool not initialized")
-        return Endpoints._graph_pool
+        from api.dependencies import get_graph_pool
+
+        return get_graph_pool(container=Endpoints._container())
 
     @staticmethod
     def get_graph_pool_type() -> str:
         """Get graph database type ('neo4j' or 'ladybug')."""
-        if Endpoints._graph_pool_type is None:
-            raise HTTPException(503, detail="Graph pool type not initialized")
-        return Endpoints._graph_pool_type
+        from api.dependencies import get_graph_pool_type
+
+        return get_graph_pool_type(container=Endpoints._container())
 
     @staticmethod
     def get_relational_type() -> str:
         """Get relational database type ('postgres' or 'duckdb')."""
-        return Endpoints._relational_pool_type or "unknown"
+        from api.dependencies import get_relational_type
+
+        return get_relational_type(container=Endpoints._container())
 
     @staticmethod
     def get_graph_type() -> str:
         """Get graph database type ('neo4j' or 'ladybug')."""
-        return Endpoints._graph_pool_type or "unknown"
+        from api.dependencies import get_graph_type
+
+        return get_graph_type(container=Endpoints._container())
 
     @staticmethod
     def get_cache_type() -> str:
         """Get cache type ('redis' or 'cashews')."""
-        if Endpoints._cache is not None:
-            return type(Endpoints._cache).__name__
-        return "none"
+        from api.dependencies import get_cache_type
+
+        return get_cache_type(container=Endpoints._container())
 
     # ── Cache ─────────────────────────────────────────────────────────
 
     @staticmethod
     def get_cache_client() -> CachePool:
         """Get cache pool (Redis or in-memory fallback)."""
-        if Endpoints._cache is None:
-            raise HTTPException(503, detail="Cache pool not initialized")
-        return Endpoints._cache
+        from api.dependencies import get_cache_client
+
+        return get_cache_client(container=Endpoints._container())
 
     # ── LLM ───────────────────────────────────────────────────────────
 
     @staticmethod
     def get_llm_client() -> LLMClient:
         """Get LLM client."""
-        if Endpoints._llm is None:
-            raise HTTPException(503, detail="LLM client not initialized")
-        return Endpoints._llm
+        from api.dependencies import get_llm_client
+
+        return get_llm_client(container=Endpoints._container())
 
     @staticmethod
     def get_llm_client_optional() -> LLMClient | None:
         """Get LLM client or None if unavailable."""
-        return Endpoints._llm
+        from api.dependencies import get_llm_client_optional
+
+        return get_llm_client_optional(container=Endpoints._container())
 
     # ── Search Engines ────────────────────────────────────────────────
 
     @staticmethod
     def get_local_search_engine() -> LocalSearchEngine:
         """Get local search engine."""
-        if Endpoints._local_engine is None:
-            raise HTTPException(503, detail="Search service not initialized")
-        return Endpoints._local_engine
+        from api.dependencies import get_local_search_engine
+
+        return get_local_search_engine(container=Endpoints._container())
 
     @staticmethod
     def get_global_search_engine() -> GlobalSearchEngine:
         """Get global search engine."""
-        if Endpoints._global_engine is None:
-            raise HTTPException(503, detail="Search service not initialized")
-        return Endpoints._global_engine
+        from api.dependencies import get_global_search_engine
+
+        return get_global_search_engine(container=Endpoints._container())
 
     @staticmethod
     def get_hybrid_engine() -> HybridSearchEngine:
         """Get hybrid search engine."""
-        if Endpoints._hybrid_engine is None:
-            raise HTTPException(503, detail="Hybrid search service not initialized")
-        return Endpoints._hybrid_engine
+        from api.dependencies import get_hybrid_engine
+
+        return get_hybrid_engine(container=Endpoints._container())
 
     # ── Repositories ──────────────────────────────────────────────────
 
     @staticmethod
     def get_vector_repo() -> VectorRepository:
         """Get vector repository."""
-        if Endpoints._vector_repo is None:
-            raise HTTPException(503, detail="Vector store not initialized")
-        return Endpoints._vector_repo
+        from api.dependencies import get_vector_repo
+
+        return get_vector_repo(container=Endpoints._container())
 
     @staticmethod
     def get_graph_repo() -> GraphRepository:
         """Get graph repository with database-agnostic query builder."""
-        if Endpoints._graph_repo is None:
-            raise HTTPException(503, detail="Graph repository not initialized")
-        return Endpoints._graph_repo
+        from api.dependencies import get_graph_repo
+
+        return get_graph_repo(container=Endpoints._container())
 
     # ── Scheduler ──────────────────────────────────────────────────────
 
     @staticmethod
     def get_source_scheduler() -> SourceScheduler:
         """Get source scheduler."""
-        if Endpoints._scheduler is None:
-            raise HTTPException(503, detail="Source scheduler not initialized")
-        return Endpoints._scheduler
+        from api.dependencies import get_source_scheduler
+
+        return get_source_scheduler(container=Endpoints._container())
 
     # ── Config Repos ──────────────────────────────────────────────────
 
     @staticmethod
     def get_source_config_repo() -> SourceConfigRepo:
         """Get source config repository."""
-        if Endpoints._source_config_repo is None:
-            raise HTTPException(503, detail="Source config repository not initialized")
-        return Endpoints._source_config_repo
+        from api.dependencies import get_source_config_repo
+
+        return get_source_config_repo(container=Endpoints._container())
 
     @staticmethod
     def get_source_authority_repo() -> SourceAuthorityRepo:
         """Get source authority repository."""
-        if Endpoints._source_authority_repo is None:
-            raise HTTPException(503, detail="Source authority repo not initialized")
-        return Endpoints._source_authority_repo
+        from api.dependencies import get_source_authority_repo
+
+        return get_source_authority_repo(container=Endpoints._container())
 
     @staticmethod
     def get_llm_failure_repo() -> LLMFailureRepo:
         """Get LLM failure repository."""
-        if Endpoints._llm_failure_repo is None:
-            raise HTTPException(503, detail="LLM failure repo not initialized")
-        return Endpoints._llm_failure_repo
+        from api.dependencies import get_llm_failure_repo
+
+        return get_llm_failure_repo(container=Endpoints._container())
 
     @staticmethod
     def get_llm_usage_repo() -> LLMUsageRepo:
         """Get LLM usage repository."""
-        if Endpoints._llm_usage_repo is None:
-            raise HTTPException(503, detail="LLM usage repo not initialized")
-        return Endpoints._llm_usage_repo
+        from api.dependencies import get_llm_usage_repo
+
+        return get_llm_usage_repo(container=Endpoints._container())
 
     # ── Pipeline Service ───────────────────────────────────────────────
 
     @staticmethod
     def get_pipeline_service() -> PipelineServiceImpl:
         """Get the pipeline service."""
-        if Endpoints._pipeline_service is None:
-            raise HTTPException(503, detail="Pipeline service not initialized")
-        return Endpoints._pipeline_service
+        from api.dependencies import get_pipeline_service
+
+        return get_pipeline_service(container=Endpoints._container())
 
     # ── Task Registry ──────────────────────────────────────────────────
 
     @staticmethod
     def get_task_registry() -> InMemoryTaskRegistry:
         """Get the task registry for background task tracking."""
-        if Endpoints._task_registry is None:
-            raise HTTPException(503, detail="Task registry not initialized")
-        return Endpoints._task_registry
+        from api.dependencies import get_task_registry
+
+        return get_task_registry(container=Endpoints._container())
 
     # ── Saga Orchestrator ──────────────────────────────────────────────
 
     @staticmethod
-    def get_saga_orchestrator() -> Any:
+    def get_saga_orchestrator() -> SagaOrchestrator:
         """Get the Saga orchestrator for cross-database transaction coordination."""
-        if Endpoints._saga_orchestrator is None:
-            raise HTTPException(503, detail="Saga orchestrator not initialized")
-        return Endpoints._saga_orchestrator
+        from api.dependencies import get_saga_orchestrator
+
+        return get_saga_orchestrator(container=Endpoints._container())
+
+    # ── Embedding & Intent Services ────────────────────────────────────
+
+    @staticmethod
+    def get_embedding_service() -> EmbeddingServiceProtocol:
+        """Get embedding service for search endpoints."""
+        from api.dependencies import get_embedding_service
+
+        return get_embedding_service(container=Endpoints._container())
+
+    @staticmethod
+    def get_embedding_service_optional() -> EmbeddingServiceProtocol | None:
+        """Get embedding service or None if not initialized."""
+        from api.dependencies import get_embedding_service_optional
+
+        return get_embedding_service_optional(container=Endpoints._container())
+
+    @staticmethod
+    def get_intent_classifier() -> IntentClassifierProtocol:
+        """Get intent classifier for search endpoints."""
+        from api.dependencies import get_intent_classifier
+
+        return get_intent_classifier(container=Endpoints._container())
+
+    @staticmethod
+    def get_intent_classifier_optional() -> IntentClassifierProtocol | None:
+        """Get intent classifier or None if not initialized."""
+        from api.dependencies import get_intent_classifier_optional
+
+        return get_intent_classifier_optional(container=Endpoints._container())
 
     # ── Optional Getters (return None instead of raising) ──────────────
 
     @staticmethod
     def get_relational_pool_optional() -> RelationalPool | None:
         """Get relational pool or None if not initialized."""
-        return Endpoints._relational_pool
+        from api.dependencies import get_relational_pool_optional
+
+        return get_relational_pool_optional(container=Endpoints._container())
 
     @staticmethod
     def get_graph_pool_optional() -> GraphPool | None:
         """Get graph pool or None if not initialized."""
-        return Endpoints._graph_pool
+        from api.dependencies import get_graph_pool_optional
+
+        return get_graph_pool_optional(container=Endpoints._container())
 
     @staticmethod
     def get_cache_client_optional() -> CachePool | None:
         """Get cache pool or None if not initialized."""
-        return Endpoints._cache
+        from api.dependencies import get_cache_client_optional
 
-    @staticmethod
-    def get_embedding_service() -> Any:
-        """Get embedding service for search endpoints."""
-        if Endpoints._embedding_service is None:
-            raise HTTPException(503, detail="Embedding service not initialized")
-        return Endpoints._embedding_service
+        return get_cache_client_optional(container=Endpoints._container())
 
-    @staticmethod
-    def get_embedding_service_optional() -> Any | None:
-        """Get embedding service or None if not initialized."""
-        return Endpoints._embedding_service
-
-    @staticmethod
-    def get_intent_classifier() -> Any:
-        """Get intent classifier for search endpoints."""
-        if Endpoints._intent_classifier is None:
-            raise HTTPException(503, detail="Intent classifier not initialized")
-        return Endpoints._intent_classifier
-
-    @staticmethod
-    def get_intent_classifier_optional() -> Any | None:
-        """Get intent classifier or None if not initialized."""
-        return Endpoints._intent_classifier
+    # ── Lifecycle ──────────────────────────────────────────────────────
 
     @classmethod
     def initialize(cls, container: object) -> None:
         """Initialize all endpoints dependencies from container.
 
-        This is the proper way to set up the endpoints registry,
-        avoiding direct access to private attributes.
+        This method is called by Container.startup() to ensure the
+        global container is registered. The actual dependency resolution
+        now happens via :mod:`api.dependencies` using the container.
 
         Args:
             container: Application container with all services.
 
         """
-        log = get_logger(__name__)
+        from container import set_container
 
-        # Pool instances
-        cls._relational_pool = container.relational_pool()
-        cls._relational_pool_type = container.relational_pool_type
-        cls._graph_pool = container.graph_pool()
-        cls._graph_pool_type = container.graph_pool_type
-        cls._cache = container.cache_client()
-
-        # Services and repositories
-        cls._llm = container.llm_client()
-        cls._scheduler = container.source_scheduler()
-        cls._vector_repo = container.vector_repo()
-        cls._graph_repo = container.graph_repo()
-        cls._source_config_repo = container.source_config_repo()
-        cls._source_authority_repo = container.source_authority_repo()
-        cls._llm_failure_repo = container.llm_failure_repo()
-        cls._llm_usage_repo = container.llm_usage_repo()
-
-        # Search engines (may be None if not configured)
-        cls._local_engine = container.local_search_engine()
-        cls._global_engine = container.global_search_engine()
-        cls._hybrid_engine = container.hybrid_search_engine()
-
-        if cls._local_engine is None:
-            log.warning("local_search_engine_not_initialized")
-        if cls._global_engine is None:
-            log.warning("global_search_engine_not_initialized")
-        if cls._hybrid_engine is None:
-            log.warning("hybrid_search_engine_not_initialized")
-
-        # Pipeline services
-        cls._pipeline_service = container.pipeline_service()
-        cls._task_registry = container.task_registry()
-        cls._saga_orchestrator = container.saga_orchestrator()
-
-        # Embedding and intent services (may be None if not configured)
-        cls._embedding_service = getattr(container, "_embedding_service", None)
-        cls._intent_classifier = getattr(container, "_intent_classifier", None)
+        set_container(container)
 
         log.info(
             "endpoints_initialized",
-            relational_type=cls._relational_pool_type,
-            graph_type=cls._graph_pool_type,
-            cache_type=type(cls._cache).__name__ if cls._cache else "none",
-            llm_enabled=cls._llm is not None,
-            search_enabled=cls._local_engine is not None,
+            relational_type=getattr(container, "relational_pool_type", "unknown"),
+            graph_type=getattr(container, "graph_pool_type", None),
+            cache_type=(
+                type(getattr(container, "_cache_client", None)).__name__
+                if hasattr(container, "_cache_client") and container._cache_client is not None
+                else "none"
+            ),
+            llm_enabled=getattr(container, "_llm_client", None) is not None,
+            search_enabled=getattr(container, "_local_search_engine", None) is not None,
         )
+
+    @classmethod
+    def reset(cls) -> None:
+        """Reset all cached state for test isolation.
+
+        Clears the global container so that subsequent dependency
+        lookups will raise HTTPException(503) until a new container
+        is set via :func:`container.set_container`.
+        """
+        import container as container_module
+
+        with container_module._container_lock:
+            container_module._container = None

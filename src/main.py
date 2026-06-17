@@ -18,6 +18,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
+from api.dependencies import (
+    get_cache_type as get_cache_type_dep,
+    get_graph_type as get_graph_type_dep,
+    get_relational_type as get_relational_type_dep,
+)
 from api.endpoints.deps_registry import Endpoints as deps  # noqa: N813
 from api.endpoints.health import health_check
 from api.middleware.api_response import register_exception_handlers
@@ -501,6 +506,9 @@ def create_app(container: Container | None = None) -> FastAPI:
     @app.get("/api/v1/status", response_model=APIResponse[dict])
     async def system_status(
         _: str = Depends(verify_api_key),
+        relational_type: str = Depends(get_relational_type_dep),
+        graph_type: str = Depends(get_graph_type_dep),
+        cache_type: str = Depends(get_cache_type_dep),
     ) -> APIResponse[dict]:
         """System status endpoint (requires authentication).
 
@@ -515,12 +523,6 @@ def create_app(container: Container | None = None) -> FastAPI:
             version = pyproject.get("project", {}).get("version", "unknown")
         except Exception:
             pass
-
-        from api.endpoints.deps_registry import Endpoints
-
-        relational_type = Endpoints.get_relational_type()
-        graph_type = Endpoints.get_graph_type()
-        cache_type = Endpoints.get_cache_type()
 
         return success_response(
             {
@@ -537,21 +539,33 @@ def create_app(container: Container | None = None) -> FastAPI:
     @app.get("/api/v1/config", response_model=APIResponse[dict])
     async def system_config(
         _: str = Depends(verify_admin_api_key),
+        relational_type: str = Depends(get_relational_type_dep),
+        graph_type: str = Depends(get_graph_type_dep),
     ) -> APIResponse[dict]:
         """System configuration endpoint (requires admin authentication).
 
         Returns current configuration including available features.
         This endpoint contains sensitive information and requires admin API key.
         """
-        from api.endpoints.deps_registry import Endpoints
+        from container import get_container
+
+        try:
+            container = get_container()
+            llm_enabled = getattr(container, "_llm_client", None) is not None
+            search_enabled = getattr(container, "_local_search_engine", None) is not None
+            graph_available = container.graph_pool() is not None
+        except RuntimeError:
+            llm_enabled = False
+            search_enabled = False
+            graph_available = False
 
         return success_response(
             {
-                "relational_pool_type": Endpoints.get_relational_type(),
-                "graph_pool_type": Endpoints.get_graph_type(),
-                "llm_enabled": Endpoints._llm is not None,
-                "search_enabled": Endpoints._local_engine is not None,
-                "graph_available": Endpoints._graph_pool is not None,
+                "relational_pool_type": relational_type,
+                "graph_pool_type": graph_type,
+                "llm_enabled": llm_enabled,
+                "search_enabled": search_enabled,
+                "graph_available": graph_available,
             }
         )
 
