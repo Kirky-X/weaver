@@ -36,6 +36,24 @@ _api_key_validation_duration = metrics.api_key_validation_duration_seconds
 _KEY_ID_PREFIX_PATTERN = re.compile(r"^weaver_(key_[0-9a-f]{8,16})_.+$")
 
 
+def _prehash_key(key_value: str) -> bytes:
+    """Pre-hash API key with SHA-256 before bcrypt.
+
+    bcrypt has a 72-byte input limit. The API key format
+    ``weaver_{key_id}_{secret}`` can exceed this (76+ bytes).
+    SHA-256 output is always 32 bytes, well within the limit.
+
+    Args:
+        key_value: Raw API key string.
+
+    Returns:
+        SHA-256 hex digest encoded to bytes (64 bytes, ASCII-safe).
+    """
+    import hashlib
+
+    return hashlib.sha256(key_value.encode()).hexdigest().encode()
+
+
 class ApiKeyManager:
     """API Key lifecycle management with bcrypt hashing and ORM.
 
@@ -65,7 +83,10 @@ class ApiKeyManager:
 
     @staticmethod
     def _hash_key(key_value: str) -> str:
-        """Hash API key using bcrypt.
+        """Hash API key using bcrypt with SHA-256 pre-hashing.
+
+        Pre-hashes with SHA-256 to handle keys longer than bcrypt's
+        72-byte input limit.
 
         Args:
             key_value: Raw API key string.
@@ -74,11 +95,14 @@ class ApiKeyManager:
             bcrypt hash string (60 chars, starts with $2b$).
         """
         salt = bcrypt.gensalt()
-        return bcrypt.hashpw(key_value.encode(), salt).decode()
+        return bcrypt.hashpw(_prehash_key(key_value), salt).decode()
 
     @staticmethod
     def _verify_key(key_value: str, key_hash: str) -> bool:
         """Verify API key against bcrypt hash.
+
+        Pre-hashes the key with SHA-256 before bcrypt verification
+        to match the hashing in :meth:`_hash_key`.
 
         Args:
             key_value: Raw API key string.
@@ -87,7 +111,7 @@ class ApiKeyManager:
         Returns:
             True if key matches hash.
         """
-        return bcrypt.checkpw(key_value.encode(), key_hash.encode())
+        return bcrypt.checkpw(_prehash_key(key_value), key_hash.encode())
 
     async def create_key(
         self,

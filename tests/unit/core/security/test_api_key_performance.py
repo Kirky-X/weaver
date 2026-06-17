@@ -16,7 +16,6 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
-import bcrypt
 import pytest
 
 from core.db import ApiKey
@@ -51,7 +50,7 @@ def _make_api_key(
     if expires_at is None:
         expires_at = datetime.now(UTC) + timedelta(days=90)
 
-    key_hash = bcrypt.hashpw(key_value.encode(), bcrypt.gensalt()).decode()
+    key_hash = ApiKeyManager._hash_key(key_value)
 
     api_key = ApiKey(
         key_id=key_id,

@@ -7,7 +7,6 @@ import json
 from datetime import UTC, datetime, timedelta
 from unittest.mock import MagicMock
 
-import bcrypt
 import pytest
 
 from core.db import ApiKey
@@ -80,8 +79,8 @@ class TestCreateKey:
         added_objects = [call[0][0] for call in session.add.call_args_list]
         api_key_obj = next(obj for obj in added_objects if isinstance(obj, ApiKey))
 
-        # Verify the hash matches the key
-        assert bcrypt.checkpw(result["key_value"].encode(), api_key_obj.key_hash.encode())
+        # Verify the hash matches the key (using same pre-hash as production)
+        assert ApiKeyManager._verify_key(result["key_value"], api_key_obj.key_hash)
 
 
 class TestValidateKey:
