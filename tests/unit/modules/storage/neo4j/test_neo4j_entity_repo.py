@@ -141,7 +141,7 @@ class TestNeo4jEntityRepo:
             ]
         )
 
-        with patch.object(repo, "_sleep", AsyncMock()):
+        with patch("modules.storage.neo4j.entity_repo.asyncio.sleep", AsyncMock()):
             result = await repo.merge_entity(
                 canonical_name="张三",
                 entity_type="人物",
@@ -166,7 +166,7 @@ class TestNeo4jEntityRepo:
             ]
         )
 
-        with patch.object(repo, "_sleep", AsyncMock()):
+        with patch("modules.storage.neo4j.entity_repo.asyncio.sleep", AsyncMock()):
             with pytest.raises(ConstraintError):
                 await repo.merge_entity(
                     canonical_name="张三",
@@ -385,15 +385,6 @@ class TestNeo4jEntityRepo:
         )
 
         mock_pool.execute_query.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_sleep(self):
-        """Test _sleep helper method."""
-        import asyncio
-
-        with patch("asyncio.sleep", AsyncMock()) as mock_sleep:
-            await Neo4jEntityRepo._sleep(0.1)
-            mock_sleep.assert_called_once_with(0.1)
 
     @pytest.mark.asyncio
     async def test_merge_entities_batch_empty(self, repo):
@@ -759,7 +750,7 @@ class TestFindByRelationTypes:
     @pytest.mark.asyncio
     async def test_find_by_relation_types_invalid_type(self, repo):
         """Test find_by_relation_types rejects invalid type."""
-        with pytest.raises(ValueError, match="Invalid relation type"):
+        with pytest.raises(ValueError, match="Invalid edge type"):
             await repo.find_by_relation_types(
                 "张三",
                 "人物",

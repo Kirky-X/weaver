@@ -233,7 +233,16 @@ class TestInitMinimalContainer:
                         with patch(
                             "modules.management.commands.repair_articles.PromptLoader"
                         ) as mock_prompt:
-                            mock_settings.return_value = MagicMock()
+                            # Build a settings mock with string attributes required by
+                            # sanitize_dsn() and other string-consuming code paths
+                            settings_mock = MagicMock()
+                            settings_mock.postgres.dsn = "postgresql://user:pass@localhost/db"
+                            settings_mock.redis.url = "redis://localhost:6379"
+                            settings_mock.prompt.dir = "/prompts"
+                            settings_mock.llm = MagicMock()
+                            settings_mock.spacy.zh_model_path = "zh_core_web_sm"
+                            settings_mock.spacy.en_model_path = "en_core_web_sm"
+                            mock_settings.return_value = settings_mock
                             mock_pg.return_value.startup = AsyncMock()
                             mock_redis.return_value.startup = AsyncMock()
                             mock_llm.create_from_settings = AsyncMock()

@@ -212,16 +212,19 @@ class TestModelLoading:
         mock_fasttext.load_model.assert_called_once_with("/models/ft.bin")
         assert clf._ft_model is not None
 
-    @patch("modules.processing.nodes.classification.cascade_classifier.SetFitModel")
-    def test_setfit_model_loading(self, mock_setfit_cls):
+    def test_setfit_model_loading(self):
         """SetFit model is loaded from configured path."""
-        mock_setfit_cls.from_pretrained.return_value = MagicMock()
+        # SetFitModel is imported lazily inside load_models() via
+        # `from setfit import SetFitModel`. Inject a mock setfit module
+        # into sys.modules so the import resolves to the mock without
+        # triggering the real (environment-incompatible) setfit import.
+        mock_setfit = MagicMock()
+        with patch.dict("sys.modules", {"setfit": mock_setfit}):
+            clf = CascadeClassifier(setfit_model_path="/models/sf")
+            clf.load_models()
 
-        clf = CascadeClassifier(setfit_model_path="/models/sf")
-        clf.load_models()
-
-        mock_setfit_cls.from_pretrained.assert_called_once_with("/models/sf")
-        assert clf._sf_model is not None
+            mock_setfit.SetFitModel.from_pretrained.assert_called_once_with("/models/sf")
+            assert clf._sf_model is not None
 
     def test_no_models_available_falls_to_rules(self):
         """If no fasttext/setfit models loaded, classify returns None (falls to rules)."""
