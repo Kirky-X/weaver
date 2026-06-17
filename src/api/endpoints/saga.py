@@ -10,9 +10,9 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
-from api.endpoints.deps_registry import Endpoints
+from api.dependencies import get_saga_orchestrator
 from core.observability import get_logger
 
 log = get_logger(__name__)
@@ -21,11 +21,15 @@ router = APIRouter(prefix="/saga", tags=["saga"])
 
 
 @router.get("/{saga_id}", summary="Get saga status")
-async def get_saga_status(saga_id: uuid.UUID) -> dict[str, Any]:
+async def get_saga_status(
+    saga_id: uuid.UUID,
+    orchestrator: Any = Depends(get_saga_orchestrator),
+) -> dict[str, Any]:
     """Get the status of a saga by its ID.
 
     Args:
         saga_id: UUID of the saga.
+        orchestrator: Saga orchestrator instance.
 
     Returns:
         Dict with saga status, step details, and error information.
@@ -34,7 +38,6 @@ async def get_saga_status(saga_id: uuid.UUID) -> dict[str, Any]:
         HTTPException: 404 if saga not found.
 
     """
-    orchestrator = Endpoints.get_saga_orchestrator()
     status = await orchestrator.get_saga_status(saga_id)
 
     if status.get("status") == "unknown":
@@ -44,7 +47,10 @@ async def get_saga_status(saga_id: uuid.UUID) -> dict[str, Any]:
 
 
 @router.post("/{saga_id}/compensate", summary="Trigger manual compensation")
-async def compensate_saga(saga_id: uuid.UUID) -> dict[str, Any]:
+async def compensate_saga(
+    saga_id: uuid.UUID,
+    orchestrator: Any = Depends(get_saga_orchestrator),
+) -> dict[str, Any]:
     """Manually trigger compensation for a saga.
 
     Used for manual intervention when automatic compensation fails
@@ -52,6 +58,7 @@ async def compensate_saga(saga_id: uuid.UUID) -> dict[str, Any]:
 
     Args:
         saga_id: UUID of the saga to compensate.
+        orchestrator: Saga orchestrator instance.
 
     Returns:
         Dict with compensation result.
@@ -60,7 +67,6 @@ async def compensate_saga(saga_id: uuid.UUID) -> dict[str, Any]:
         HTTPException: 404 if saga not found, 500 if compensation fails.
 
     """
-    orchestrator = Endpoints.get_saga_orchestrator()
     result = await orchestrator.compensate_saga(saga_id)
 
     if result.status.value == "failed":
@@ -84,7 +90,10 @@ async def compensate_saga(saga_id: uuid.UUID) -> dict[str, Any]:
 
 
 @router.post("/{saga_id}/retry", summary="Retry a failed saga")
-async def retry_saga(saga_id: uuid.UUID) -> dict[str, Any]:
+async def retry_saga(
+    saga_id: uuid.UUID,
+    orchestrator: Any = Depends(get_saga_orchestrator),
+) -> dict[str, Any]:
     """Retry a failed saga by re-processing the associated article.
 
     Looks up the saga's article_id from logs and returns it so the caller
@@ -93,6 +102,7 @@ async def retry_saga(saga_id: uuid.UUID) -> dict[str, Any]:
 
     Args:
         saga_id: UUID of the failed saga to retry.
+        orchestrator: Saga orchestrator instance.
 
     Returns:
         Dict with article_id for re-processing.
@@ -101,7 +111,6 @@ async def retry_saga(saga_id: uuid.UUID) -> dict[str, Any]:
         HTTPException: 404 if saga not found.
 
     """
-    orchestrator = Endpoints.get_saga_orchestrator()
     status = await orchestrator.get_saga_status(saga_id)
 
     if status.get("status") == "unknown":
@@ -135,17 +144,20 @@ async def retry_saga(saga_id: uuid.UUID) -> dict[str, Any]:
 
 
 @router.get("/article/{article_id}", summary="Get sagas for article")
-async def get_article_sagas(article_id: uuid.UUID) -> dict[str, Any]:
+async def get_article_sagas(
+    article_id: uuid.UUID,
+    orchestrator: Any = Depends(get_saga_orchestrator),
+) -> dict[str, Any]:
     """Get all saga log entries for an article.
 
     Args:
         article_id: UUID of the article.
+        orchestrator: Saga orchestrator instance.
 
     Returns:
         Dict with list of saga log entries.
 
     """
-    orchestrator = Endpoints.get_saga_orchestrator()
     log_repo = orchestrator._log_repo
     logs = await log_repo.get_by_article_id(article_id)
 
@@ -168,11 +180,15 @@ async def get_article_sagas(article_id: uuid.UUID) -> dict[str, Any]:
 
 
 @router.get("/failed/list", summary="List failed sagas")
-async def list_failed_sagas(limit: int = 50) -> dict[str, Any]:
+async def list_failed_sagas(
+    limit: int = 50,
+    orchestrator: Any = Depends(get_saga_orchestrator),
+) -> dict[str, Any]:
     """List saga log entries with failed status.
 
     Args:
         limit: Maximum number of entries to return (default 50, max 200).
+        orchestrator: Saga orchestrator instance.
 
     Returns:
         Dict with list of failed saga log entries.
@@ -180,7 +196,6 @@ async def list_failed_sagas(limit: int = 50) -> dict[str, Any]:
     """
     limit = min(limit, 200)
 
-    orchestrator = Endpoints.get_saga_orchestrator()
     log_repo = orchestrator._log_repo
     failed_logs = await log_repo.get_failed_logs(limit=limit)
 

@@ -8,11 +8,21 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from api.endpoints.deps_registry import Endpoints as deps  # noqa: N813
+from api.dependencies import (
+    get_embedding_service_optional,
+    get_global_search_engine,
+    get_graph_pool,
+    get_hybrid_engine,
+    get_intent_classifier_optional,
+    get_llm_client,
+    get_local_search_engine,
+    get_vector_repo,
+)
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from core.llm import LLMClient
 from core.observability import get_logger
+from core.protocols import GraphPool
 from modules.knowledge.search import (
     GlobalSearchEngine,
     HybridSearchEngine,
@@ -72,11 +82,11 @@ async def search_unified(
         description="Enable entity aggregation to enrich results with entity neighborhoods",
     ),
     _: str = Depends(verify_api_key),
-    local_engine: LocalSearchEngine = Depends(deps.get_local_search_engine),
-    global_engine: GlobalSearchEngine = Depends(deps.get_global_search_engine),
-    vector_repo: VectorRepo = Depends(deps.get_vector_repo),
-    llm: LLMClient = Depends(deps.get_llm_client),
-    hybrid_engine: HybridSearchEngine = Depends(deps.get_hybrid_engine),
+    local_engine: LocalSearchEngine = Depends(get_local_search_engine),
+    global_engine: GlobalSearchEngine = Depends(get_global_search_engine),
+    vector_repo: VectorRepo = Depends(get_vector_repo),
+    llm: LLMClient = Depends(get_llm_client),
+    hybrid_engine: HybridSearchEngine = Depends(get_hybrid_engine),
 ) -> APIResponse[SearchResponse]:
     """Unified search endpoint with MAGMA-inspired intent-aware routing.
 
@@ -218,8 +228,8 @@ async def search_drift(
     request: Request,
     body: DriftSearchRequest,
     _: str = Depends(verify_api_key),
-    local_engine: LocalSearchEngine = Depends(deps.get_local_search_engine),
-    global_engine: GlobalSearchEngine = Depends(deps.get_global_search_engine),
+    local_engine: LocalSearchEngine = Depends(get_local_search_engine),
+    global_engine: GlobalSearchEngine = Depends(get_global_search_engine),
 ) -> APIResponse[DriftSearchResponse]:
     """DRIFT Search - Dynamic Reasoning and Inference Framework.
 
@@ -355,8 +365,9 @@ async def search_causal(
     request: Request,
     body: CausalSearchRequest,
     _: str = Depends(verify_api_key),
-    embedding_service: Any | None = Depends(deps.get_embedding_service_optional),
-    intent_classifier: Any | None = Depends(deps.get_intent_classifier_optional),
+    graph_pool: GraphPool = Depends(get_graph_pool),
+    embedding_service: Any | None = Depends(get_embedding_service_optional),
+    intent_classifier: Any | None = Depends(get_intent_classifier_optional),
 ) -> APIResponse[CausalSearchResponse]:
     """Causal reasoning search using MAGMA multi-graph architecture.
 
@@ -370,6 +381,7 @@ async def search_causal(
     Args:
         body: Causal search request with query and parameters.
         _: Verified API key.
+        graph_pool: Graph database pool.
         embedding_service: Embedding service (optional, degrades gracefully).
         intent_classifier: Intent classifier (optional, degrades gracefully).
 
@@ -383,9 +395,6 @@ async def search_causal(
     log = get_logger(__name__)
 
     try:
-        # Get dependencies
-        graph_pool = deps.get_graph_pool()
-
         # Create repositories
         from modules.memory.graphs.temporal import TemporalGraphRepo
 
@@ -480,6 +489,7 @@ async def search_temporal(
     request: Request,
     body: TemporalSearchRequest,
     _: str = Depends(verify_api_key),
+    graph_pool: GraphPool = Depends(get_graph_pool),
 ) -> APIResponse[TemporalSearchResponse]:
     """Temporal reasoning search using MAGMA multi-graph architecture.
 
@@ -493,6 +503,7 @@ async def search_temporal(
     Args:
         body: Temporal search request with query and parameters.
         _: Verified API key.
+        graph_pool: Graph database pool.
 
     Returns:
         Ordered list of events with temporal metadata.
@@ -503,9 +514,6 @@ async def search_temporal(
     log = get_logger(__name__)
 
     try:
-        # Get dependencies
-        graph_pool = deps.get_graph_pool()
-
         # Create repository
         temporal_repo = TemporalGraphRepo(pool=graph_pool)
 

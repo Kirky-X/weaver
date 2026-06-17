@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
-from api.endpoints.deps_registry import Endpoints
+from api.dependencies import get_llm_failure_repo, get_llm_usage_repo
 from api.middleware.auth import verify_admin_api_key
 from api.schemas.response import APIResponse, success_response
 
@@ -17,16 +17,6 @@ if TYPE_CHECKING:
     from modules.analytics import LLMFailureRepo, LLMUsageRepo
 
 router = APIRouter(prefix="/monitoring/llm", tags=["monitoring", "llm"])
-
-
-def get_llm_failure_repo() -> LLMFailureRepo:
-    """Get the LLM failure repo instance."""
-    return Endpoints.get_llm_failure_repo()
-
-
-def get_llm_usage_repo() -> LLMUsageRepo:
-    """Get the LLM usage repo instance."""
-    return Endpoints.get_llm_usage_repo()
 
 
 # ── Response Models ─────────────────────────────────────────────
