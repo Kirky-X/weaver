@@ -99,10 +99,11 @@ async def flush_usage_buffer(
 
             # For each group, upsert to hourly table
             for (label, call_point), agg in aggregated.items():
-                # Query min/max latency from raw records
-                latency_min, latency_max = await repo.get_latency_bounds(
-                    time_bucket, label, call_point
-                )
+                # Read min/max from Redis buffer
+                latency_min_val = await cache.hget(key, f"{label}::{call_point}::latency_min")
+                latency_max_val = await cache.hget(key, f"{label}::{call_point}::latency_max")
+                latency_min = float(latency_min_val) if latency_min_val else 0.0
+                latency_max = float(latency_max_val) if latency_max_val else 0.0
 
                 await repo.upsert_hourly(
                     time_bucket=time_bucket,
@@ -115,6 +116,9 @@ async def flush_usage_buffer(
                     input_tokens_sum=agg["input_tok"],
                     output_tokens_sum=agg["output_tok"],
                     total_tokens_sum=agg["total_tok"],
+                    cached_tokens_sum=agg["cached_tok"],
+                    reasoning_tokens_sum=agg["reasoning_tok"],
+                    cost_usd_sum=agg["cost_cents"] / 100.0,
                     latency_sum=agg["latency_ms"],
                     latency_min=latency_min,
                     latency_max=latency_max,
@@ -201,8 +205,20 @@ def _aggregate_metric(agg: dict[str, Any], metric: str, value: int) -> None:
         agg["output_tok"] += value
     elif metric == "total_tok":
         agg["total_tok"] += value
+    elif metric == "cached_tok":
+        agg["cached_tok"] += value
+    elif metric == "reasoning_tok":
+        agg["reasoning_tok"] += value
+    elif metric == "cost_cents":
+        agg["cost_cents"] += value
     elif metric == "latency_ms":
         agg["latency_ms"] += float(value)
+    elif metric == "latency_min":
+        if agg["latency_min"] == 0.0 or float(value) < agg["latency_min"]:
+            agg["latency_min"] = float(value)
+    elif metric == "latency_max":
+        if float(value) > agg["latency_max"]:
+            agg["latency_max"] = float(value)
     elif metric == "success":
         agg["success"] += value
     elif metric == "failure":
@@ -227,7 +243,12 @@ def aggregate_usage_data(data: dict[str, str]) -> dict[tuple[str, str], dict[str
             "input_tok": 0,
             "output_tok": 0,
             "total_tok": 0,
+            "cached_tok": 0,
+            "reasoning_tok": 0,
+            "cost_cents": 0,
             "latency_ms": 0.0,
+            "latency_min": 0.0,
+            "latency_max": 0.0,
             "success": 0,
             "failure": 0,
             "llm_type": "",
