@@ -6,12 +6,15 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
+import os
 from typing import TYPE_CHECKING, Any, TypeVar
 
 from cachetools import TTLCache
 from pydantic import BaseModel
 
 from core.constants import RedisKeys
+from core.llm.cache_key import build_stable_cache_key
+from core.llm.prefix_shape import PrefixHashTracker
 from core.llm.resilience.pool import ProviderPool
 from core.llm.routing.router import LabelRouter
 from core.llm.types import (
@@ -26,6 +29,7 @@ from core.llm.types import (
 from core.llm.utils.input_truncation import truncate_input
 from core.llm.utils.json_parser import parse_llm_json
 from core.observability import get_logger
+from core.observability.metrics import metrics
 from core.utils.time_utils import get_current_time_with_timezone
 
 if TYPE_CHECKING:
@@ -85,6 +89,9 @@ class LLMClient:
         self._response_cache: TTLCache[str, dict[str, Any]] = TTLCache(maxsize=1000, ttl=3600)
         self._cache_hits: int = 0
         self._cache_misses: int = 0
+
+        # Prefix shape diagnostics tracker (pure observability, does not affect cache logic)
+        self._prefix_tracker = PrefixHashTracker()
 
         # 创建provider池映射,必须传递event_bus
         self._pools: dict[str, ProviderPool] = {}
@@ -197,7 +204,7 @@ class LLMClient:
         else:
             cp = call_point
 
-        cache_key = f"cache:llm:{cp.value}:{hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()}"
+        cache_key = self._build_cache_key(cp.value, payload)
 
         ttl = CACHE_TTL.get(cp.value, CACHE_TTL["default"])
 
@@ -303,6 +310,59 @@ class LLMClient:
                     label=str(label),
                     latency_ms=response.latency_ms,
                 )
+
+                # 记录服务端缓存信息(客户端 cache miss 后 provider 返回的 cache 命中情况)
+                total_cache = response.cache_hit_tokens + response.cache_miss_tokens
+                server_hit_rate = (
+                    response.cache_hit_tokens / total_cache if total_cache > 0 else 0.0
+                )
+                log.info(
+                    "llm_cache_miss_with_server_info",
+                    label=str(label),
+                    server_cache_hit=response.cache_hit_tokens,
+                    server_cache_miss=response.cache_miss_tokens,
+                    server_hit_rate=server_hit_rate,
+                )
+
+                # 递增 Prometheus 服务端缓存指标
+                if response.cache_hit_tokens > 0:
+                    metrics.llm_server_cache_hit_tokens.labels(
+                        call_point=cp.value, provider=label.provider
+                    ).inc(response.cache_hit_tokens)
+                if response.cache_miss_tokens > 0:
+                    metrics.llm_server_cache_miss_tokens.labels(
+                        call_point=cp.value, provider=label.provider
+                    ).inc(response.cache_miss_tokens)
+
+                # Prefix shape diagnostics: capture and compare prefix shape (pure observability)
+                system_prompt = ""
+                messages = payload.get("messages", [])
+                for msg in messages:
+                    if isinstance(msg, dict) and msg.get("role") == "system":
+                        system_prompt = msg.get("content", "")
+                        break
+                tools_schema = payload.get("tools")
+
+                prefix_hash, prefix_changed, change_reasons = (
+                    self._prefix_tracker.compute_prefix_hash(
+                        call_point=cp.value,
+                        system_prompt=system_prompt,
+                        payload=payload,
+                        tools_schema=tools_schema,
+                    )
+                )
+                self._prefix_tracker.update_cache_stats(
+                    call_point=cp.value,
+                    server_cache_hit=response.cache_hit_tokens,
+                    server_cache_miss=response.cache_miss_tokens,
+                )
+                if prefix_changed:
+                    log.info(
+                        "llm_cache_miss_diagnosed",
+                        call_point=cp.value,
+                        change_reasons=change_reasons,
+                        prefix_hash=prefix_hash,
+                    )
 
                 # 发射使用事件
                 await self._emit_usage_event(
@@ -777,6 +837,25 @@ class LLMClient:
         """生成缓存key."""
         text_hash = hashlib.sha256(text.encode()).hexdigest()[:32]
         return f"{EMBEDDING_CACHE_PREFIX}{text_hash}"
+
+    def _build_cache_key(self, call_point: str, payload: dict[str, Any]) -> str:
+        """Build cache key with grayscale switch for v2 stable key.
+
+        When LLM_CACHE_KEY_V2_ENABLED=true, uses build_stable_cache_key
+        which excludes non-semantic fields. Otherwise uses the legacy
+        exact-hash behavior.
+
+        Args:
+            call_point: The call point identifier.
+            payload: The request payload.
+
+        Returns:
+            Cache key string.
+        """
+        if os.getenv("LLM_CACHE_KEY_V2_ENABLED", "false").lower() == "true":
+            return build_stable_cache_key(call_point, payload)
+
+        return f"cache:llm:{call_point}:{hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()}"
 
     def get_metrics(self) -> dict[str, dict[str, Any]]:
         """获取所有provider的监控指标."""

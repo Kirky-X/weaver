@@ -125,6 +125,82 @@ class TokenUsage:
     reasoning_tokens: int = 0
 
 
+@dataclass(frozen=True, slots=True)
+class CacheUsage:
+    """服务端 prompt cache 使用情况归一化表示.
+
+    用于统一表示 DeepSeek 顶层字段（prompt_cache_hit_tokens / prompt_cache_miss_tokens）
+    与 OpenAI 嵌套字段（prompt_tokens_details.cached_tokens）的缓存命中信息。
+
+    Attributes:
+        cache_hit_tokens: 命中服务端缓存的 token 数.
+        cache_miss_tokens: 未命中服务端缓存的 token 数.
+        reasoning_tokens: 推理 token 数（来自 completion_tokens_details.reasoning_tokens）.
+    """
+
+    cache_hit_tokens: int = 0
+    cache_miss_tokens: int = 0
+    reasoning_tokens: int = 0
+
+    @property
+    def cache_hit_rate(self) -> float:
+        """缓存命中率 = hit / (hit + miss).
+
+        总数为零时返回 0.0（除零保护）.
+        """
+        total = self.cache_hit_tokens + self.cache_miss_tokens
+        if total == 0:
+            return 0.0
+        return self.cache_hit_tokens / total
+
+
+def _parse_cache_usage(raw_usage: dict[str, Any]) -> CacheUsage:
+    """解析 provider 响应中的 cache 字段为归一化 CacheUsage.
+
+    作为服务端缓存字段解析的**唯一入口**，优先读取 DeepSeek 顶层字段
+    `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`；当两者缺失或全为 0 时，
+    回退读取 OpenAI/MiMo 嵌套字段 `prompt_tokens_details.cached_tokens`，
+    并从 `prompt_tokens - hit` 推导 `miss`。
+
+    Args:
+        raw_usage: LiteLLM 响应的 usage 字典（已转为 dict）。
+
+    Returns:
+        归一化的 CacheUsage；无任何 cache 字段时返回全 0（优雅降级，不抛异常）。
+    """
+    if not raw_usage:
+        return CacheUsage()
+
+    # 1. DeepSeek 顶层字段(优先)
+    deepseek_hit = raw_usage.get("prompt_cache_hit_tokens") or 0
+    deepseek_miss = raw_usage.get("prompt_cache_miss_tokens") or 0
+
+    if deepseek_hit > 0 or deepseek_miss > 0:
+        hit = deepseek_hit
+        miss = deepseek_miss
+    else:
+        # 2. OpenAI/MiMo 嵌套字段回退
+        details = raw_usage.get("prompt_tokens_details") or {}
+        cached = details.get("cached_tokens") or 0 if isinstance(details, dict) else 0
+        if cached > 0:
+            hit = cached
+            prompt_tokens = raw_usage.get("prompt_tokens") or 0
+            miss = max(prompt_tokens - hit, 0)
+        else:
+            hit = 0
+            miss = 0
+
+    # 3. reasoning_tokens(独立于 hit/miss 逻辑)
+    comp_details = raw_usage.get("completion_tokens_details") or {}
+    reasoning = comp_details.get("reasoning_tokens") or 0 if isinstance(comp_details, dict) else 0
+
+    return CacheUsage(
+        cache_hit_tokens=hit,
+        cache_miss_tokens=miss,
+        reasoning_tokens=reasoning,
+    )
+
+
 @dataclass
 class LLMResponse:
     """LLM调用响应."""
@@ -134,6 +210,9 @@ class LLMResponse:
     latency_ms: float
     token_usage: TokenUsage | None
     model: str
+    # 服务端 prompt cache 字段(由 _parse_cache_usage 填充; provider 无 cache 字段时为 0)
+    cache_hit_tokens: int = 0
+    cache_miss_tokens: int = 0
 
 
 class TierConfig(BaseModel):

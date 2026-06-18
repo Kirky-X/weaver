@@ -32,6 +32,7 @@ Usage:
 
 from core.llm.client import LLMClient
 from core.llm.types import (
+    CacheUsage,
     CallPoint,
     CandidateScore,
     Capability,
@@ -52,6 +53,7 @@ from core.llm.types import (
 )
 
 __all__ = [
+    "CacheUsage",
     "CallPoint",
     "CandidateScore",
     "Capability",
