@@ -7,7 +7,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from modules.knowledge.core.relation_types import NormalizedRelation, RelationTypeNormalizer
+from modules.knowledge.graph.relation_type_normalizer import (
+    NormalizedRelation,
+    RelationTypeNormalizer,
+)
 
 
 def _make_mock_pool() -> AsyncMock:
