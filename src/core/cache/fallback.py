@@ -257,6 +257,18 @@ class FallbackCachePool:
     async def llen(self, name: str) -> int:
         return await self._execute("llen", name)
 
+    # ── Pipeline Operations ─────────────────────────────────────────
+
+    def pipeline(self) -> Any:
+        """Return a pipeline from the active cache backend.
+
+        Returns:
+            Pipeline object from primary (Redis) or fallback (Cashews).
+        """
+        if self._primary_healthy:
+            return self._primary.pipeline()
+        return self._fallback.pipeline()
+
     # ── Sorted Set Operations ──────────────────────────────────────
 
     async def zadd(self, name: str, mapping: dict[str, float]) -> int:

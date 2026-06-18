@@ -28,7 +28,20 @@ REDIS_KEY_PREFIX = "llm:usage"
 # 默认 TTL: 2 小时
 DEFAULT_TTL_SECONDS = 7200
 # 支持的指标列表
-METRICS = ("count", "input_tok", "output_tok", "total_tok", "latency_ms", "success", "failure")
+METRICS = (
+    "count",
+    "input_tok",
+    "output_tok",
+    "total_tok",
+    "cached_tok",
+    "reasoning_tok",
+    "cost_cents",
+    "latency_ms",
+    "latency_min",
+    "latency_max",
+    "success",
+    "failure",
+)
 
 
 def _parse_timestamp(ts: datetime | str) -> datetime:
@@ -102,7 +115,7 @@ class LLMUsageBuffer:
     async def accumulate(self, event: LLMUsageEvent) -> None:
         """累加 LLMUsageEvent 到缓存 HASH。
 
-        使用 pipeline 批量执行 HINCRBY 操作。
+        使用 pipeline 批量执行 HINCRBY 操作以保证原子性。
         首次写入时设置 TTL。
         所有异常被捕获并记录日志,不阻塞主链路。
 
@@ -117,54 +130,46 @@ class LLMUsageBuffer:
             # 构建 field 前缀
             field_prefix = f"{event.label}::{event.call_point}"
 
-            # 批量执行 HINCRBY 操作
-            # count: +1
-            await self._cache.hincrby(bucket_key, f"{field_prefix}::count", 1)
+            # 使用 pipeline 原子执行所有 HINCRBY 操作
+            async with self._cache.pipeline() as pipe:
+                pipe.hincrby(bucket_key, f"{field_prefix}::count", 1)
+                pipe.hincrby(bucket_key, f"{field_prefix}::input_tok", event.tokens.input_tokens)
+                pipe.hincrby(bucket_key, f"{field_prefix}::output_tok", event.tokens.output_tokens)
+                pipe.hincrby(bucket_key, f"{field_prefix}::total_tok", event.tokens.total_tokens)
+                pipe.hincrby(bucket_key, f"{field_prefix}::latency_ms", int(event.latency_ms))
+                pipe.hincrby(bucket_key, f"{field_prefix}::success", 1 if event.success else 0)
+                pipe.hincrby(bucket_key, f"{field_prefix}::failure", 0 if event.success else 1)
+                pipe.hincrby(bucket_key, f"{field_prefix}::cached_tok", event.tokens.cached_tokens)
+                pipe.hincrby(
+                    bucket_key, f"{field_prefix}::reasoning_tok", event.tokens.reasoning_tokens
+                )
+                pipe.hincrby(bucket_key, f"{field_prefix}::cost_cents", int(event.cost_usd * 100))
+                await pipe.execute()
 
-            # input_tok: +event.tokens.input_tokens
-            await self._cache.hincrby(
-                bucket_key,
-                f"{field_prefix}::input_tok",
-                event.tokens.input_tokens,
-            )
+            # latency_min/latency_max: 需要读-写,无法 pipeline
+            latency_val = int(event.latency_ms)
+            min_key = f"{field_prefix}::latency_min"
+            max_key = f"{field_prefix}::latency_max"
+            try:
+                current_min = await self._cache.hget(bucket_key, min_key)
+                if current_min is None or latency_val < int(current_min):
+                    await self._cache.hset(bucket_key, min_key, str(latency_val))
+            except Exception:
+                await self._cache.hset(bucket_key, min_key, str(latency_val))
+            try:
+                current_max = await self._cache.hget(bucket_key, max_key)
+                if current_max is None or latency_val > int(current_max):
+                    await self._cache.hset(bucket_key, max_key, str(latency_val))
+            except Exception:
+                await self._cache.hset(bucket_key, max_key, str(latency_val))
 
-            # output_tok: +event.tokens.output_tokens
-            await self._cache.hincrby(
-                bucket_key,
-                f"{field_prefix}::output_tok",
-                event.tokens.output_tokens,
-            )
-
-            # total_tok: +event.tokens.total_tokens
-            await self._cache.hincrby(
-                bucket_key,
-                f"{field_prefix}::total_tok",
-                event.tokens.total_tokens,
-            )
-
-            # latency_ms: +event.latency_ms(取整)
-            await self._cache.hincrby(
-                bucket_key,
-                f"{field_prefix}::latency_ms",
-                int(event.latency_ms),
-            )
-
-            # success: +1 if event.success else 0
-            await self._cache.hincrby(
-                bucket_key,
-                f"{field_prefix}::success",
-                1 if event.success else 0,
-            )
-
-            # failure: +0 if event.success else 1
-            await self._cache.hincrby(
-                bucket_key,
-                f"{field_prefix}::failure",
-                0 if event.success else 1,
-            )
-
-            # 设置 TTL
-            await self._cache.expire(bucket_key, self._ttl)
+            # 仅在首次写入时设置 TTL,避免重置
+            try:
+                existing = await self._cache.hgetall(bucket_key)
+            except Exception:
+                existing = {}
+            if not existing:
+                await self._cache.expire(bucket_key, self._ttl)
 
             log.debug(
                 "llm_usage_buffered",

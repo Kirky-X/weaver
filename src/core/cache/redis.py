@@ -311,6 +311,9 @@ class _CashewsPipeline:
     def hdel(self, name: str, *keys: str) -> None:
         self._commands.append(("hdel", (name, *keys), {}))
 
+    def hincrby(self, name: str, key: str, amount: int = 1) -> None:
+        self._commands.append(("hincrby", (name, key, amount), {}))
+
     def lpush(self, name: str, *values: str) -> None:
         self._commands.append(("lpush", (name, *values), {}))
 

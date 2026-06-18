@@ -286,6 +286,20 @@ class CachePool(Protocol):
         """
         ...
 
+    # ── Pipeline Operations ───────────────────────────────────────────
+
+    def pipeline(self) -> Any:
+        """Return a pipeline for batch operations.
+
+        Returns:
+            A pipeline object supporting hincrby, hset, expire, etc.
+            Must be used as an async context manager:
+                async with pool.pipeline() as pipe:
+                    pipe.hincrby(...)
+                    await pipe.execute()
+        """
+        ...
+
     # ── List Operations ───────────────────────────────────────────────
 
     async def lpush(self, name: str, *values: str) -> int:
