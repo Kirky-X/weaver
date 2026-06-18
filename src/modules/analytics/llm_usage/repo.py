@@ -7,9 +7,8 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import and_, cast, delete, func, select
+from sqlalchemy import and_, delete, func, select
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.types import Integer
 
 from core.db import LLMUsageHourly, LLMUsageRaw
 from core.event import LLMUsageEvent
@@ -60,6 +59,9 @@ class LLMUsageRepo:
                     input_tokens=event.tokens.input_tokens,
                     output_tokens=event.tokens.output_tokens,
                     total_tokens=event.tokens.total_tokens,
+                    cached_tokens=event.tokens.cached_tokens,
+                    reasoning_tokens=event.tokens.reasoning_tokens,
+                    cost_usd=event.cost_usd,
                     latency_ms=event.latency_ms,
                     success=event.success,
                     error_type=event.error_type,
@@ -91,6 +93,9 @@ class LLMUsageRepo:
                 input_tokens=event.tokens.input_tokens,
                 output_tokens=event.tokens.output_tokens,
                 total_tokens=event.tokens.total_tokens,
+                cached_tokens=event.tokens.cached_tokens,
+                reasoning_tokens=event.tokens.reasoning_tokens,
+                cost_usd=event.cost_usd,
                 latency_ms=event.latency_ms,
                 success=event.success,
                 error_type=event.error_type,
@@ -221,6 +226,9 @@ class LLMUsageRepo:
         latency_max: float,
         success_count: int,
         failure_count: int,
+        cached_tokens_sum: int = 0,
+        reasoning_tokens_sum: int = 0,
+        cost_usd_sum: float = 0.0,
     ) -> None:
         """Upsert an hourly aggregated record.
 
@@ -237,6 +245,9 @@ class LLMUsageRepo:
             input_tokens_sum: Sum of input tokens.
             output_tokens_sum: Sum of output tokens.
             total_tokens_sum: Sum of total tokens.
+            cached_tokens_sum: Sum of cached tokens.
+            reasoning_tokens_sum: Sum of reasoning tokens.
+            cost_usd_sum: Sum of cost in USD.
             latency_sum: Sum of latency (for avg calculation).
             latency_min: Minimum latency.
             latency_max: Maximum latency.
@@ -257,6 +268,9 @@ class LLMUsageRepo:
                 input_tokens_sum=input_tokens_sum,
                 output_tokens_sum=output_tokens_sum,
                 total_tokens_sum=total_tokens_sum,
+                cached_tokens_sum=cached_tokens_sum,
+                reasoning_tokens_sum=reasoning_tokens_sum,
+                cost_usd_sum=cost_usd_sum,
                 latency_avg_ms=latency_avg,
                 latency_min_ms=latency_min,
                 latency_max_ms=latency_max,
@@ -272,6 +286,9 @@ class LLMUsageRepo:
                     "input_tokens_sum": input_tokens_sum,
                     "output_tokens_sum": output_tokens_sum,
                     "total_tokens_sum": total_tokens_sum,
+                    "cached_tokens_sum": cached_tokens_sum,
+                    "reasoning_tokens_sum": reasoning_tokens_sum,
+                    "cost_usd_sum": cost_usd_sum,
                     "latency_avg_ms": latency_avg,
                     "latency_min_ms": latency_min,
                     "latency_max_ms": latency_max,
@@ -392,7 +409,14 @@ class LLMUsageRepo:
                 func.sum(LLMUsageHourly.input_tokens_sum).label("input_tokens_sum"),
                 func.sum(LLMUsageHourly.output_tokens_sum).label("output_tokens_sum"),
                 func.sum(LLMUsageHourly.total_tokens_sum).label("total_tokens_sum"),
-                func.avg(LLMUsageHourly.latency_avg_ms).label("latency_avg_ms"),
+                func.case(
+                    (
+                        func.sum(LLMUsageHourly.call_count) > 0,
+                        func.sum(LLMUsageHourly.latency_avg_ms * LLMUsageHourly.call_count)
+                        / func.sum(LLMUsageHourly.call_count),
+                    ),
+                    else_=0.0,
+                ).label("latency_avg_ms"),
                 func.min(LLMUsageHourly.latency_min_ms).label("latency_min_ms"),
                 func.max(LLMUsageHourly.latency_max_ms).label("latency_max_ms"),
                 func.sum(LLMUsageHourly.success_count).label("success_count"),
@@ -474,59 +498,49 @@ class LLMUsageRepo:
             - total_input_tokens: Total input tokens
             - total_output_tokens: Total output tokens
             - total_tokens: Total tokens
-            - avg_latency_ms: Average latency
+            - avg_latency_ms: Weighted average latency
             - max_latency_ms: Maximum latency
             - min_latency_ms: Minimum latency
             - success_rate: Success rate (0.0 to 1.0)
-            - error_types: Dict of error type -> count
+            - error_types: Dict of error type -> count (empty for hourly)
         """
-        # Build base query conditions
         conditions = [
-            LLMUsageRaw.created_at >= start_time,
-            LLMUsageRaw.created_at <= end_time,
+            LLMUsageHourly.time_bucket >= start_time,
+            LLMUsageHourly.time_bucket <= end_time,
         ]
         if provider:
-            conditions.append(LLMUsageRaw.provider == provider)
+            conditions.append(LLMUsageHourly.provider == provider)
         if model:
-            conditions.append(LLMUsageRaw.model == model)
+            conditions.append(LLMUsageHourly.model == model)
         if llm_type:
-            conditions.append(LLMUsageRaw.llm_type == llm_type)
+            conditions.append(LLMUsageHourly.llm_type == llm_type)
         if call_point:
-            conditions.append(LLMUsageRaw.call_point == call_point)
+            conditions.append(LLMUsageHourly.call_point == call_point)
 
-        # Main summary query
         summary_stmt = select(
-            func.count().label("total_calls"),
-            func.sum(LLMUsageRaw.input_tokens).label("total_input_tokens"),
-            func.sum(LLMUsageRaw.output_tokens).label("total_output_tokens"),
-            func.sum(LLMUsageRaw.total_tokens).label("total_tokens"),
-            func.avg(LLMUsageRaw.latency_ms).label("avg_latency_ms"),
-            func.max(LLMUsageRaw.latency_ms).label("max_latency_ms"),
-            func.min(LLMUsageRaw.latency_ms).label("min_latency_ms"),
-            func.sum(cast(LLMUsageRaw.success, Integer)).label("success_count"),
+            func.sum(LLMUsageHourly.call_count).label("total_calls"),
+            func.sum(LLMUsageHourly.input_tokens_sum).label("total_input_tokens"),
+            func.sum(LLMUsageHourly.output_tokens_sum).label("total_output_tokens"),
+            func.sum(LLMUsageHourly.total_tokens_sum).label("total_tokens"),
+            func.case(
+                (
+                    func.sum(LLMUsageHourly.call_count) > 0,
+                    func.sum(LLMUsageHourly.latency_avg_ms * LLMUsageHourly.call_count)
+                    / func.sum(LLMUsageHourly.call_count),
+                ),
+                else_=0.0,
+            ).label("avg_latency_ms"),
+            func.max(LLMUsageHourly.latency_max_ms).label("max_latency_ms"),
+            func.min(LLMUsageHourly.latency_min_ms).label("min_latency_ms"),
+            func.sum(LLMUsageHourly.success_count).label("success_count"),
         ).where(and_(*conditions))
-
-        # Error type breakdown
-        error_stmt = (
-            select(
-                LLMUsageRaw.error_type,
-                func.count().label("count"),
-            )
-            .where(and_(*conditions, LLMUsageRaw.success.is_(False)))
-            .group_by(LLMUsageRaw.error_type)
-        )
 
         async with self._pool.session() as session:
             summary_result = await session.execute(summary_stmt)
             summary_row = summary_result.first()
 
-            error_result = await session.execute(error_stmt)
-            error_rows = error_result.all()
-
         total_calls = summary_row.total_calls or 0
         success_count = summary_row.success_count or 0
-
-        error_types = {row.error_type or "unknown": row.count for row in error_rows}
 
         return {
             "total_calls": total_calls,
@@ -537,7 +551,7 @@ class LLMUsageRepo:
             "max_latency_ms": float(summary_row.max_latency_ms or 0),
             "min_latency_ms": float(summary_row.min_latency_ms or 0),
             "success_rate": success_count / total_calls if total_calls > 0 else 1.0,
-            "error_types": error_types,
+            "error_types": {},
         }
 
     async def get_summary_stats(
@@ -570,7 +584,14 @@ class LLMUsageRepo:
                 func.sum(LLMUsageHourly.input_tokens_sum).label("total_input_tokens"),
                 func.sum(LLMUsageHourly.output_tokens_sum).label("total_output_tokens"),
                 func.sum(LLMUsageHourly.total_tokens_sum).label("total_tokens"),
-                func.avg(LLMUsageHourly.latency_avg_ms).label("avg_latency_ms"),
+                func.case(
+                    (
+                        func.sum(LLMUsageHourly.call_count) > 0,
+                        func.sum(LLMUsageHourly.latency_avg_ms * LLMUsageHourly.call_count)
+                        / func.sum(LLMUsageHourly.call_count),
+                    ),
+                    else_=0.0,
+                ).label("avg_latency_ms"),
                 func.sum(LLMUsageHourly.success_count).label("total_success"),
                 func.sum(LLMUsageHourly.failure_count).label("total_failure"),
             )
@@ -617,29 +638,36 @@ class LLMUsageRepo:
             - provider: Provider name
             - call_count: Total calls
             - total_tokens: Total tokens
-            - avg_latency_ms: Average latency
+            - avg_latency_ms: Weighted average latency
             - success_rate: Success rate
         """
         conditions = [
-            LLMUsageRaw.created_at >= start_time,
-            LLMUsageRaw.created_at <= end_time,
+            LLMUsageHourly.time_bucket >= start_time,
+            LLMUsageHourly.time_bucket <= end_time,
         ]
         if llm_type:
-            conditions.append(LLMUsageRaw.llm_type == llm_type)
+            conditions.append(LLMUsageHourly.llm_type == llm_type)
 
         stmt = (
             select(
-                LLMUsageRaw.provider,
-                func.count().label("call_count"),
-                func.sum(LLMUsageRaw.input_tokens).label("input_tokens"),
-                func.sum(LLMUsageRaw.output_tokens).label("output_tokens"),
-                func.sum(LLMUsageRaw.total_tokens).label("total_tokens"),
-                func.avg(LLMUsageRaw.latency_ms).label("avg_latency_ms"),
-                func.sum(cast(LLMUsageRaw.success, Integer)).label("success_count"),
+                LLMUsageHourly.provider,
+                func.sum(LLMUsageHourly.call_count).label("call_count"),
+                func.sum(LLMUsageHourly.input_tokens_sum).label("input_tokens"),
+                func.sum(LLMUsageHourly.output_tokens_sum).label("output_tokens"),
+                func.sum(LLMUsageHourly.total_tokens_sum).label("total_tokens"),
+                func.case(
+                    (
+                        func.sum(LLMUsageHourly.call_count) > 0,
+                        func.sum(LLMUsageHourly.latency_avg_ms * LLMUsageHourly.call_count)
+                        / func.sum(LLMUsageHourly.call_count),
+                    ),
+                    else_=0.0,
+                ).label("avg_latency_ms"),
+                func.sum(LLMUsageHourly.success_count).label("success_count"),
             )
             .where(and_(*conditions))
-            .group_by(LLMUsageRaw.provider)
-            .order_by(func.sum(LLMUsageRaw.total_tokens).desc())
+            .group_by(LLMUsageHourly.provider)
+            .order_by(func.sum(LLMUsageHourly.total_tokens_sum).desc())
         )
 
         async with self._pool.session() as session:
@@ -678,30 +706,37 @@ class LLMUsageRepo:
             - provider: Provider name
             - call_count: Total calls
             - total_tokens: Total tokens
-            - avg_latency_ms: Average latency
+            - avg_latency_ms: Weighted average latency
             - success_rate: Success rate
         """
         conditions = [
-            LLMUsageRaw.created_at >= start_time,
-            LLMUsageRaw.created_at <= end_time,
+            LLMUsageHourly.time_bucket >= start_time,
+            LLMUsageHourly.time_bucket <= end_time,
         ]
         if provider:
-            conditions.append(LLMUsageRaw.provider == provider)
+            conditions.append(LLMUsageHourly.provider == provider)
 
         stmt = (
             select(
-                LLMUsageRaw.model,
-                LLMUsageRaw.provider,
-                func.count().label("call_count"),
-                func.sum(LLMUsageRaw.input_tokens).label("input_tokens"),
-                func.sum(LLMUsageRaw.output_tokens).label("output_tokens"),
-                func.sum(LLMUsageRaw.total_tokens).label("total_tokens"),
-                func.avg(LLMUsageRaw.latency_ms).label("avg_latency_ms"),
-                func.sum(cast(LLMUsageRaw.success, Integer)).label("success_count"),
+                LLMUsageHourly.model,
+                LLMUsageHourly.provider,
+                func.sum(LLMUsageHourly.call_count).label("call_count"),
+                func.sum(LLMUsageHourly.input_tokens_sum).label("input_tokens"),
+                func.sum(LLMUsageHourly.output_tokens_sum).label("output_tokens"),
+                func.sum(LLMUsageHourly.total_tokens_sum).label("total_tokens"),
+                func.case(
+                    (
+                        func.sum(LLMUsageHourly.call_count) > 0,
+                        func.sum(LLMUsageHourly.latency_avg_ms * LLMUsageHourly.call_count)
+                        / func.sum(LLMUsageHourly.call_count),
+                    ),
+                    else_=0.0,
+                ).label("avg_latency_ms"),
+                func.sum(LLMUsageHourly.success_count).label("success_count"),
             )
             .where(and_(*conditions))
-            .group_by(LLMUsageRaw.model, LLMUsageRaw.provider)
-            .order_by(func.sum(LLMUsageRaw.total_tokens).desc())
+            .group_by(LLMUsageHourly.model, LLMUsageHourly.provider)
+            .order_by(func.sum(LLMUsageHourly.total_tokens_sum).desc())
         )
 
         async with self._pool.session() as session:
@@ -738,20 +773,27 @@ class LLMUsageRepo:
         """
         stmt = (
             select(
-                LLMUsageRaw.call_point,
-                func.count().label("call_count"),
-                func.sum(LLMUsageRaw.total_tokens).label("total_tokens"),
-                func.avg(LLMUsageRaw.latency_ms).label("avg_latency_ms"),
-                func.sum(cast(LLMUsageRaw.success, Integer)).label("success_count"),
+                LLMUsageHourly.call_point,
+                func.sum(LLMUsageHourly.call_count).label("call_count"),
+                func.sum(LLMUsageHourly.total_tokens_sum).label("total_tokens"),
+                func.case(
+                    (
+                        func.sum(LLMUsageHourly.call_count) > 0,
+                        func.sum(LLMUsageHourly.latency_avg_ms * LLMUsageHourly.call_count)
+                        / func.sum(LLMUsageHourly.call_count),
+                    ),
+                    else_=0.0,
+                ).label("avg_latency_ms"),
+                func.sum(LLMUsageHourly.success_count).label("success_count"),
             )
             .where(
                 and_(
-                    LLMUsageRaw.created_at >= start_time,
-                    LLMUsageRaw.created_at <= end_time,
+                    LLMUsageHourly.time_bucket >= start_time,
+                    LLMUsageHourly.time_bucket <= end_time,
                 )
             )
-            .group_by(LLMUsageRaw.call_point)
-            .order_by(func.sum(LLMUsageRaw.total_tokens).desc())
+            .group_by(LLMUsageHourly.call_point)
+            .order_by(func.sum(LLMUsageHourly.total_tokens_sum).desc())
         )
 
         async with self._pool.session() as session:
