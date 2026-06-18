@@ -183,6 +183,8 @@ def _make_mock_response() -> MagicMock:
     resp.label = _make_label()
     resp.latency_ms = 100.0
     resp.model = "gpt-4o"
+    resp.cache_hit_tokens = 0
+    resp.cache_miss_tokens = 0
     return resp
 
 

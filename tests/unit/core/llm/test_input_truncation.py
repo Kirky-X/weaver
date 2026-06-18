@@ -131,6 +131,8 @@ class TestTruncationIntegration:
                 label=Label(llm_type=LLMType.CHAT, provider="openai", model="gpt-4o"),
                 latency_ms=100.0,
                 model="gpt-4o",
+                cache_hit_tokens=0,
+                cache_miss_tokens=0,
             )
             await client.call("chat.openai.gpt-4o", payload, call_point="classifier")
 
@@ -177,6 +179,8 @@ class TestTruncationIntegration:
                 label=Label(llm_type=LLMType.CHAT, provider="openai", model="gpt-4o"),
                 latency_ms=100.0,
                 model="gpt-4o",
+                cache_hit_tokens=0,
+                cache_miss_tokens=0,
             )
             await client.call("chat.openai.gpt-4o", payload, call_point="classifier")
 
