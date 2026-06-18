@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from core.llm.types import (
+    TYPE_TO_CAPABILITY,
     Capability,
     Label,
     LLMType,
@@ -151,12 +152,7 @@ class ModelSelector:
         if required is None:
             return candidates
 
-        type_to_cap = {
-            LLMType.CHAT: Capability.CHAT,
-            LLMType.EMBEDDING: Capability.EMBEDDING,
-            LLMType.RERANK: Capability.RERANK,
-        }
-        required_cap = type_to_cap.get(required)
+        required_cap = TYPE_TO_CAPABILITY.get(required)
         if required_cap is None:
             return candidates
 

@@ -55,6 +55,14 @@ class Capability(str, Enum):
     VISION = "vision"
 
 
+# Shared mapping from LLMType to Capability (canonical, used across modules)
+TYPE_TO_CAPABILITY: dict[LLMType, Capability] = {
+    LLMType.CHAT: Capability.CHAT,
+    LLMType.EMBEDDING: Capability.EMBEDDING,
+    LLMType.RERANK: Capability.RERANK,
+}
+
+
 class CircuitState(str, Enum):
     """熔断器状态."""
 
@@ -243,6 +251,41 @@ class RoutingConfig(BaseModel):
             self.fallbacks = []
 
 
+def parse_routing_dict_shared(v: Any) -> dict[str, RoutingConfig]:
+    """Parse routing config dict (shared validator logic).
+
+    Converts raw dict data into RoutingConfig objects, including tier parsing.
+    Used by both GlobalConfig and LLMSettings field validators.
+
+    Args:
+        v: Raw value from TOML/config (dict, None, or dict of RoutingConfig).
+
+    Returns:
+        Dict mapping call point name to RoutingConfig.
+    """
+    if v is None:
+        return {}
+    if isinstance(v, dict):
+        result: dict[str, RoutingConfig] = {}
+        for key, val in v.items():
+            if isinstance(val, RoutingConfig):
+                result[key] = val
+            elif isinstance(val, dict):
+                # Parse tiers if present (enhanced version)
+                tiers_data = val.pop("tiers", None)
+                tiers: list[TierConfig] = []
+                if isinstance(tiers_data, list):
+                    for tier_data in tiers_data:
+                        if isinstance(tier_data, TierConfig):
+                            tiers.append(tier_data)
+                        elif isinstance(tier_data, dict):
+                            tiers.append(TierConfig(**tier_data))
+                val["tiers"] = tiers
+                result[key] = RoutingConfig(**val)
+        return result
+    return {}
+
+
 class ModelConfig(BaseModel):
     """模型配置(第二层)- pydantic BaseModel for TOML loading."""
 
@@ -264,12 +307,7 @@ class ModelConfig(BaseModel):
 
     def supports(self, llm_type: LLMType) -> bool:
         """检查是否支持指定的LLM类型."""
-        type_to_cap = {
-            LLMType.CHAT: Capability.CHAT,
-            LLMType.EMBEDDING: Capability.EMBEDDING,
-            LLMType.RERANK: Capability.RERANK,
-        }
-        return type_to_cap.get(llm_type) in self.capabilities
+        return TYPE_TO_CAPABILITY.get(llm_type) in self.capabilities
 
 
 class ProviderConfig(BaseModel):
@@ -311,18 +349,8 @@ class GlobalConfig(BaseModel):
     @field_validator("defaults", "call_points", mode="before")
     @classmethod
     def parse_routing_dict(cls, v: Any) -> dict[str, RoutingConfig]:
-        """Parse routing config dict."""
-        if v is None:
-            return {}
-        if isinstance(v, dict):
-            result: dict[str, RoutingConfig] = {}
-            for key, val in v.items():
-                if isinstance(val, RoutingConfig):
-                    result[key] = val
-                elif isinstance(val, dict):
-                    result[key] = RoutingConfig(**val)
-            return result
-        return {}
+        """Parse routing config dict (delegates to shared function)."""
+        return parse_routing_dict_shared(v)
 
 
 class RoutingMode(str, Enum):

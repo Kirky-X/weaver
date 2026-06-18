@@ -19,7 +19,7 @@ from core.llm.types import (
     ProviderConfig,
     RoutingConfig,
     RoutingMode,
-    TierConfig,
+    parse_routing_dict_shared,
 )
 from core.observability import get_logger
 from core.utils.paths import PROJECT_ROOT
@@ -104,28 +104,8 @@ class LLMSettings(BaseSettings):
     @field_validator("defaults", "call_points", mode="before")
     @classmethod
     def parse_routing_dict(cls, v: Any) -> dict[str, RoutingConfig]:
-        """Parse routing config dict."""
-        if v is None:
-            return {}
-        if isinstance(v, dict):
-            result: dict[str, RoutingConfig] = {}
-            for key, val in v.items():
-                if isinstance(val, RoutingConfig):
-                    result[key] = val
-                elif isinstance(val, dict):
-                    # Parse tiers if present
-                    tiers_data = val.pop("tiers", None)
-                    tiers: list[TierConfig] = []
-                    if isinstance(tiers_data, list):
-                        for tier_data in tiers_data:
-                            if isinstance(tier_data, TierConfig):
-                                tiers.append(tier_data)
-                            elif isinstance(tier_data, dict):
-                                tiers.append(TierConfig(**tier_data))
-                    val["tiers"] = tiers
-                    result[key] = RoutingConfig(**val)
-            return result
-        return {}
+        """Parse routing config dict (delegates to shared function)."""
+        return parse_routing_dict_shared(v)
 
     @field_validator("routing", mode="before")
     @classmethod
