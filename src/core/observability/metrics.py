@@ -57,6 +57,18 @@ class MetricsCollector:
         ["provider", "model", "call_point"],
     )
 
+    # LLM server-side prompt cache metrics (DeepSeek/OpenAI server cache)
+    llm_server_cache_hit_tokens = Counter(
+        "llm_server_cache_hit_tokens_total",
+        "Total server-side prompt cache hit tokens",
+        ["call_point", "provider"],
+    )
+    llm_server_cache_miss_tokens = Counter(
+        "llm_server_cache_miss_tokens_total",
+        "Total server-side prompt cache miss tokens",
+        ["call_point", "provider"],
+    )
+
     # Pipeline metrics
     pipeline_stage_latency = Histogram(
         "pipeline_stage_latency_seconds",

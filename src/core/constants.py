@@ -439,3 +439,22 @@ class TiktokenEncoding(str, enum.Enum):
         except ValueError:
             valid_values = [m.value for m in cls]
             raise ValueError(f"Invalid tiktoken encoding '{value}'. Valid values: {valid_values}")
+
+
+# ── Entity Type Constants ──────────────────────────────────
+
+
+class EntityType(str, enum.Enum):
+    """Common entity types with resolution hints.
+
+    Used across knowledge graph modules for consistent entity type representation.
+    """
+
+    PERSON = "人物"
+    ORGANIZATION = "组织机构"
+    LOCATION = "地点"
+    PRODUCT = "产品"
+    EVENT = "事件"
+    CONCEPT = "概念"
+    DATA_METRIC = "数据指标"
+    UNKNOWN = "未知"
