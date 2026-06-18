@@ -481,34 +481,11 @@ class IncrementalCommunityUpdater:
         Returns:
             Dict mapping node_id -> community_id (UUID string).
         """
-        adjacency: dict[str, set[str]] = defaultdict(set)
-        all_nodes: set[str] = set(nodes)
+        adjacency, all_nodes = build_adjacency(edges)
+        all_nodes.update(nodes)
 
-        for source, target, _ in edges:
-            adjacency[source].add(target)
-            adjacency[target].add(source)
-            all_nodes.add(source)
-            all_nodes.add(target)
-
-        visited: set[str] = set()
-        assignments: dict[str, str] = {}
-
-        def dfs(start: str, comm_uuid: str) -> None:
-            stack = [start]
-            while stack:
-                node = stack.pop()
-                if node in visited:
-                    continue
-                visited.add(node)
-                assignments[node] = comm_uuid
-                for neighbor in adjacency.get(node, []):
-                    if neighbor not in visited:
-                        stack.append(neighbor)
-
-        for node in all_nodes:
-            if node not in visited:
-                comm_uuid = str(uuid.uuid4())
-                dfs(node, comm_uuid)
+        components = find_connected_components_dfs(adjacency, all_nodes)
+        assignments = assign_components_to_uuids(components)
 
         log.debug(
             "local_clustering_complete",
@@ -930,40 +907,14 @@ class IncrementalCommunityUpdater:
         if not node_ids:
             return {}
 
-        # Build adjacency list
-        adjacency: dict[str, set[str]] = defaultdict(set)
+        # Build adjacency list (filtered by node_id_set)
         node_id_set = set(node_ids)
+        adjacency, _ = build_adjacency(edges, node_filter=node_id_set)
 
-        for source, target, _weight in edges:
-            if source in node_id_set and target in node_id_set:
-                adjacency[source].add(target)
-                adjacency[target].add(source)
-
-        # Find connected components
-        visited: set[str] = set()
-        assignments: dict[str, str] = {}
-        community_num = 0
-
-        for node_id in node_ids:
-            if node_id in visited:
-                continue
-
-            # Start a new community
-            community_id = str(uuid.uuid4())
-            stack = [node_id]
-
-            while stack:
-                current = stack.pop()
-                if current in visited:
-                    continue
-                visited.add(current)
-                assignments[current] = community_id
-
-                for neighbor in adjacency.get(current, []):
-                    if neighbor not in visited and neighbor in node_id_set:
-                        stack.append(neighbor)
-
-            community_num += 1
+        # Find connected components and assign UUIDs
+        components = find_connected_components_dfs(adjacency, node_id_set)
+        assignments = assign_components_to_uuids(components)
+        community_num = len(components)
 
         log.debug(
             "clustering_complete",
@@ -1211,7 +1162,7 @@ class IncrementalCommunityUpdater:
         try:
             results = await self._pool.execute_query(query, {"names": entity_names})
 
-            # Build adjacency
+            # Build adjacency from query results
             adjacency: dict[str, set[str]] = defaultdict(set)
             all_entities: set[str] = set()
 
@@ -1226,34 +1177,15 @@ class IncrementalCommunityUpdater:
                             adjacency[neighbor].add(entity)
                             all_entities.add(neighbor)
 
-            # Find connected components
-            visited: set[str] = set()
+            # Find connected components and create communities
+            components = find_connected_components_dfs(adjacency, all_entities)
             created = 0
 
-            for entity in all_entities:
-                if entity in visited:
-                    continue
-
-                # Create new community for this component
+            for component in components:
                 community_id = str(uuid.uuid4())
-                stack = [entity]
-                component_entities: list[str] = []
-
-                while stack:
-                    current = stack.pop()
-                    if current in visited:
-                        continue
-                    visited.add(current)
-                    component_entities.append(current)
-
-                    for neighbor in adjacency.get(current, []):
-                        if neighbor not in visited:
-                            stack.append(neighbor)
-
-                # Create community and assign entities
-                if component_entities:
-                    await self._create_community_with_entities(community_id, component_entities)
-                    created += 1
+                component_entities = list(component)
+                await self._create_community_with_entities(community_id, component_entities)
+                created += 1
 
             return created
 
@@ -1413,7 +1345,7 @@ class IncrementalCommunityUpdater:
             # Get community assignments for modularity calculation
             assignments = await self._get_community_assignments_for_modularity()
 
-            return self._compute_modularity(edges, assignments)
+            return _compute_modularity(edges, assignments)
 
         except Exception as exc:
             log.debug("calculate_modularity_failed", error=str(exc))
@@ -1452,56 +1384,6 @@ class IncrementalCommunityUpdater:
         except Exception as exc:
             log.debug("get_community_assignments_failed", error=str(exc))
             return {}
-
-    def _compute_modularity(
-        self,
-        edges: list[tuple[str, str, float]],
-        partitions: dict[str, int],
-        resolution: float = 1.0,
-    ) -> float:
-        """Compute modularity score from edges and partitions.
-
-        Based on the standard modularity formula.
-
-        Args:
-            edges: List of (source, target, weight) tuples.
-            partitions: Dict mapping node name to community ID.
-            resolution: Resolution parameter.
-
-        Returns:
-            Modularity score.
-        """
-        if not edges or not partitions:
-            return 0.0
-
-        total_weight = sum(e[2] for e in edges)
-        if total_weight == 0:
-            return 0.0
-
-        degree_sums_within: dict[int, float] = defaultdict(float)
-        degree_sums_for: dict[int, float] = defaultdict(float)
-
-        for source, target, weight in edges:
-            src_comm = partitions.get(source, -1)
-            tgt_comm = partitions.get(target, -1)
-
-            if src_comm == tgt_comm and src_comm != -1:
-                degree_sums_within[src_comm] += weight * 2
-
-            if src_comm != -1:
-                degree_sums_for[src_comm] += weight
-            if tgt_comm != -1:
-                degree_sums_for[tgt_comm] += weight
-
-        modularity = 0.0
-        for comm in set(partitions.values()):
-            if comm == -1:
-                continue
-            intra = degree_sums_within[comm]
-            total = degree_sums_for[comm]
-            modularity += intra - resolution * (total**2) / (2 * total_weight)
-
-        return modularity / (2 * total_weight)
 
     async def _update_metadata(self, result: IncrementalUpdateResult) -> None:
         """Update community metadata after incremental update.

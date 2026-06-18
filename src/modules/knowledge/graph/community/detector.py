@@ -575,37 +575,8 @@ class CommunityDetector:
         if not node_to_cluster:
             return 0.0
 
-        # Calculate total edge weight
-        total_weight = sum(w for _, _, w in edges)
-        if total_weight == 0:
-            return 0.0
-
-        # Calculate community degree sums
-        community_degree: dict[int, float] = defaultdict(float)
-        community_internal: dict[int, float] = defaultdict(float)
-
-        for source, target, weight in edges:
-            source_cluster = node_to_cluster.get(source)
-            target_cluster = node_to_cluster.get(target)
-
-            if source_cluster is not None:
-                community_degree[source_cluster] += weight
-            if target_cluster is not None:
-                community_degree[target_cluster] += weight
-
-            # Internal edges
-            if source_cluster is not None and source_cluster == target_cluster:
-                community_internal[source_cluster] += weight * 2
-
-        # Calculate modularity
-        modularity = 0.0
-        for cluster in set(node_to_cluster.values()):
-            internal = community_internal.get(cluster, 0.0)
-            degree = community_degree.get(cluster, 0.0)
-            modularity += internal - (degree * degree) / (2 * total_weight)
-
-        modularity /= 2 * total_weight
-        return modularity
+        # Delegate to shared modularity function
+        return _compute_modularity(edges, node_to_cluster)
 
     async def _persist_communities(self, communities: list[Community]) -> int:
         """Persist communities to Neo4j.
