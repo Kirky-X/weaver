@@ -60,16 +60,22 @@ class InMemoryTaskRegistry:
             entry = self._tasks.get(task_id)
             if entry is None:
                 return
+            import time
+
+            completed_at = time.time()
             try:
                 entry["result"] = t.result()
                 entry["status"] = TaskStatus.DONE.value
+                entry["completed_at"] = completed_at
                 log.debug("task_completed", task_id=task_id)
             except asyncio.CancelledError:
                 entry["status"] = TaskStatus.CANCELLED.value
+                entry["completed_at"] = completed_at
                 log.debug("task_cancelled", task_id=task_id)
             except Exception as e:
                 entry["error"] = str(e)
                 entry["status"] = TaskStatus.FAILED.value
+                entry["completed_at"] = completed_at
                 log.error("task_failed", task_id=task_id, error=str(e))
 
         async_task.add_done_callback(on_done)
@@ -136,15 +142,18 @@ class InMemoryTaskRegistry:
             List of task status dicts.
         """
         results = []
-        for task_id, entry in list(self._tasks.items())[:limit]:
-            if status is None or entry["status"] == status:
-                results.append(
-                    {
-                        "task_id": task_id,
-                        "status": entry["status"],
-                        "metadata": entry["metadata"],
-                    }
-                )
+        for task_id, entry in self._tasks.items():
+            if status is not None and entry["status"] != status:
+                continue
+            results.append(
+                {
+                    "task_id": task_id,
+                    "status": entry["status"],
+                    "metadata": entry["metadata"],
+                }
+            )
+            if len(results) >= limit:
+                break
         return results
 
     async def cleanup_completed(self, max_age_seconds: int = 3600) -> int:
@@ -156,12 +165,16 @@ class InMemoryTaskRegistry:
         Returns:
             Number of tasks removed.
         """
-        # For now, just remove all done/cancelled/failed tasks
+        # Remove done/cancelled/failed tasks older than max_age_seconds
+        import time
+
+        current_time = time.time()
         to_remove = [
             tid
             for tid, entry in self._tasks.items()
             if entry["status"]
             in (TaskStatus.DONE.value, TaskStatus.CANCELLED.value, TaskStatus.FAILED.value)
+            and (current_time - entry.get("completed_at", current_time)) > max_age_seconds
         ]
         for tid in to_remove:
             del self._tasks[tid]

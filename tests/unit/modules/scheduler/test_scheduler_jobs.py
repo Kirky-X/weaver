@@ -929,3 +929,64 @@ class TestSchedulerJobsGraphDoneStatus:
         mock_pool = MagicMock()
         writer = LadybugWriter(mock_pool)
         assert writer.done_status == PersistStatus.LADYBUG_DONE
+
+
+class TestDailyHotnessDecay:
+    """Test daily_hotness_decay job (Task 8)."""
+
+    @pytest.fixture
+    def scheduler_jobs_service_with_cache(self):
+        """Create SchedulerJobs with mock knowledge_cache."""
+        from modules.scheduler import SchedulerJobs
+
+        mock_knowledge_cache = MagicMock()
+        mock_knowledge_cache.decay_hotness = AsyncMock(return_value=5)
+        return SchedulerJobs(
+            relational_pool=MagicMock(),
+            cache=MagicMock(),
+            graph_writer=MagicMock(),
+            vector_repo=MagicMock(),
+            article_repo=MagicMock(),
+            source_authority_repo=MagicMock(),
+            pending_sync_repo=MagicMock(),
+            knowledge_cache=mock_knowledge_cache,
+        )
+
+    @pytest.mark.asyncio
+    async def test_daily_hotness_decay_calls_decay(self, scheduler_jobs_service_with_cache):
+        """daily_hotness_decay 调用 knowledge_cache.decay_hotness(0.95)."""
+        result = await scheduler_jobs_service_with_cache.daily_hotness_decay()
+
+        assert result == 5
+        scheduler_jobs_service_with_cache._knowledge_cache.decay_hotness.assert_awaited_once_with(
+            0.95
+        )
+
+    @pytest.mark.asyncio
+    async def test_daily_hotness_decay_no_cache_returns_zero(self):
+        """knowledge_cache=None 时返回 0."""
+        from modules.scheduler import SchedulerJobs
+
+        jobs = SchedulerJobs(
+            relational_pool=MagicMock(),
+            cache=MagicMock(),
+            graph_writer=MagicMock(),
+            vector_repo=MagicMock(),
+            article_repo=MagicMock(),
+            source_authority_repo=MagicMock(),
+            pending_sync_repo=MagicMock(),
+            knowledge_cache=None,
+        )
+        result = await jobs.daily_hotness_decay()
+        assert result == 0
+
+    @pytest.mark.asyncio
+    async def test_daily_hotness_decay_exception_returns_zero(
+        self, scheduler_jobs_service_with_cache
+    ):
+        """异常时返回 0."""
+        scheduler_jobs_service_with_cache._knowledge_cache.decay_hotness = AsyncMock(
+            side_effect=Exception("db error")
+        )
+        result = await scheduler_jobs_service_with_cache.daily_hotness_decay()
+        assert result == 0

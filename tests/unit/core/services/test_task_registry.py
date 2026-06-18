@@ -160,7 +160,7 @@ class TestInMemoryTaskRegistry:
         assert len(tasks) == 3
 
     async def test_cleanup_completed(self, registry: InMemoryTaskRegistry) -> None:
-        """Test cleaning up completed tasks."""
+        """Test cleaning up completed tasks with time-based filtering."""
 
         async def quick_task() -> str:
             return "done"
@@ -178,12 +178,26 @@ class TestInMemoryTaskRegistry:
 
         await asyncio.sleep(0.2)  # Wait for quick tasks to complete
 
-        removed = await registry.cleanup_completed()
+        # max_age_seconds=0 removes all completed tasks immediately
+        removed = await registry.cleanup_completed(max_age_seconds=0)
         assert removed == 2  # done-task and fail-task
 
         # Running task should still exist
         status = await registry.get_status("running-task")
         assert status["status"] == "running"
+
+    async def test_cleanup_completed_respects_max_age(self, registry: InMemoryTaskRegistry) -> None:
+        """Test that cleanup_completed respects max_age_seconds (does not delete recent tasks)."""
+
+        async def quick_task() -> str:
+            return "done"
+
+        await registry.register("done-task", quick_task())
+        await asyncio.sleep(0.2)  # Wait for task to complete
+
+        # Large max_age_seconds should NOT remove recently completed tasks
+        removed = await registry.cleanup_completed(max_age_seconds=3600)
+        assert removed == 0  # Task is recent, should not be removed
 
     async def test_register_duplicate_task_id(self, registry: InMemoryTaskRegistry) -> None:
         """Test that registering with duplicate ID is ignored."""
