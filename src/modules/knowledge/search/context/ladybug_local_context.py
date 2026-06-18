@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from core.db.graph_query import (
+from core.db.graph_query_builders import (
     EntitySearchConfig,
     GraphQueryBuilder,
     RelatedEntitiesConfig,

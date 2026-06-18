@@ -11,7 +11,7 @@ from typing import Any
 
 from sqlalchemy import text
 
-from core.db.query_builders import validate_sql_identifier
+from core.db.safe_query import validate_sql_identifier
 from modules.migration.models import ColumnDef, MigrationSchema
 
 

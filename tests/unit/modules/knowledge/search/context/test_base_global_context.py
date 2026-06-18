@@ -21,7 +21,7 @@ class ConcreteGlobalContextBuilder(BaseGlobalContextBuilder):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         # Use Neo4j query builder by default for testing
-        from core.db.graph_query import create_graph_query_builder
+        from core.db.graph_query_builders import create_graph_query_builder
 
         self._query_builder = create_graph_query_builder("neo4j")
 

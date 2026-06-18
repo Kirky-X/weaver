@@ -10,7 +10,7 @@ from __future__ import annotations
 from abc import abstractmethod
 from typing import TYPE_CHECKING, Any
 
-from core.db.graph_query import (
+from core.db.graph_query_builders import (
     CommunitySearchConfig,
     GraphQueryBuilder,
 )

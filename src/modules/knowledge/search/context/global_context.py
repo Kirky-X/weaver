@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from core.db.graph_query import create_graph_query_builder
+from core.db.graph_query_builders import create_graph_query_builder
 from core.llm.client import LLMClient
 from core.observability import get_logger
 from modules.knowledge.search.context.base_global_context import BaseGlobalContextBuilder
