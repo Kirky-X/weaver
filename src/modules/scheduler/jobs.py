@@ -55,6 +55,7 @@ class SchedulerJobs:
         settings: SchedulerSettings | None = None,
         llm_failure_repo: Any = None,
         url_validator: Any = None,
+        knowledge_cache: Any = None,
     ) -> None:
         self._relational_pool = relational_pool
         self._cache = cache
@@ -68,6 +69,7 @@ class SchedulerJobs:
         self._settings = settings or SchedulerSettings()
         self._llm_failure_repo = llm_failure_repo
         self._url_validator = url_validator
+        self._knowledge_cache = knowledge_cache
 
     @scheduled_task("retry_neo4j_writes", timeout_seconds=300)
     async def retry_neo4j_writes(self) -> int:
@@ -1009,6 +1011,29 @@ class SchedulerJobs:
         except Exception as exc:
             log.error("detect_sentiment_shifts_failed", error=str(exc))
             return []
+
+    @scheduled_task("daily_hotness_decay", timeout_seconds=300)
+    async def daily_hotness_decay(self) -> int:
+        """Decay knowledge cache hotness daily.
+
+        Executes knowledge_cache.decay_hotness(0.95) to reduce
+        hotness of all clusters by 5%, ensuring stale entries
+        gradually become eligible for cleanup.
+
+        Returns:
+            Number of clusters decayed.
+        """
+        if self._knowledge_cache is None:
+            log.info("daily_hotness_decay_skipped", reason="no_knowledge_cache")
+            return 0
+
+        try:
+            decayed = await self._knowledge_cache.decay_hotness(0.95)
+            log.info("daily_hotness_decay_complete", decayed=decayed)
+            return decayed
+        except Exception as exc:
+            log.error("daily_hotness_decay_failed", error=str(exc))
+            return 0
 
     async def _fetch_sentiment_signal(self, window_days: int) -> list[float]:
         """Fetch daily sentiment scores for shift detection.

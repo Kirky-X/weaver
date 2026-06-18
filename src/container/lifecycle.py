@@ -635,6 +635,16 @@ class ContainerLifecycleMixin:
             coalesce=True,
         )
 
+        # Knowledge Cache - Daily Hotness Decay (凌晨 3 点执行)
+        scheduler.add_job(
+            jobs.daily_hotness_decay,
+            CronTrigger(hour=3, minute=0),
+            id="daily_hotness_decay",
+            name="Daily knowledge cache hotness decay",
+            max_instances=1,
+            coalesce=True,
+        )
+
         # Startup: run sync once immediately
         scheduler.add_job(
             jobs.sync_pending_to_neo4j,

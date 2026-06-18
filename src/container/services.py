@@ -250,6 +250,7 @@ class ContainerServicesMixin:
                 settings=self._settings.scheduler if self._settings else None,
                 llm_failure_repo=self.llm_failure_repo(),
                 url_validator=None,
+                knowledge_cache=self._knowledge_cache,
             )
         return self._scheduler_jobs_service
 
@@ -360,7 +361,7 @@ class ContainerServicesMixin:
     def relation_normalizer(self) -> Any | None:
         """Get cached RelationTypeNormalizer instance."""
         if self._relation_type_normalizer is None and self._strategy is not None:
-            from modules.knowledge.core.relation_types import RelationTypeNormalizer
+            from modules.knowledge.graph.relation_type_normalizer import RelationTypeNormalizer
 
             self._relation_type_normalizer = RelationTypeNormalizer(self._strategy.relational_pool)
         return self._relation_type_normalizer
