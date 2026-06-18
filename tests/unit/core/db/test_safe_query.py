@@ -1,8 +1,8 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Unit tests for SQL identifier validation in query builders.
+"""Unit tests for SQL identifier validation in safe_query.
 
-This module tests the validate_sql_identifier() function added for SQL injection
-protection in the migration module. The function enforces:
+This module tests the validate_sql_identifier() function from core.db.safe_query,
+which is the canonical module for identifier validation. The function enforces:
 - Minimum 2 characters (prevent single-char identifiers)
 - Maximum 63 characters (PostgreSQL identifier limit)
 - Only alphanumeric and underscore characters
@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import pytest
 
-from core.db.query_builders import validate_sql_identifier
+from core.db.safe_query import validate_sql_identifier
 
 
 class TestValidateSQLIdentifier:
@@ -76,7 +76,7 @@ class TestValidateSQLIdentifier:
         long_identifier = "a" * 64
         with pytest.raises(ValueError) as exc_info:
             validate_sql_identifier(long_identifier)
-        assert "Invalid SQL identifier" in str(exc_info.value)
+        assert "Invalid identifier" in str(exc_info.value)
 
     def test_accept_exactly_63_characters(self) -> None:
         """Identifier with exactly 63 characters should be accepted."""
@@ -114,7 +114,7 @@ class TestValidateSQLIdentifier:
         """SQL injection patterns should be rejected."""
         with pytest.raises(ValueError) as exc_info:
             validate_sql_identifier(identifier)
-        assert "Invalid SQL identifier" in str(exc_info.value)
+        assert "Invalid identifier" in str(exc_info.value)
         # Verify the malicious identifier is mentioned in error message
         assert identifier in str(exc_info.value) or identifier[:20] in str(exc_info.value)
 
@@ -148,7 +148,7 @@ class TestValidateSQLIdentifier:
         """Identifiers with special characters should be rejected."""
         with pytest.raises(ValueError) as exc_info:
             validate_sql_identifier(identifier)
-        assert "Invalid SQL identifier" in str(exc_info.value)
+        assert "Invalid identifier" in str(exc_info.value)
 
     @pytest.mark.parametrize(
         "identifier",
@@ -166,7 +166,7 @@ class TestValidateSQLIdentifier:
         """Identifiers with whitespace or control characters should be rejected."""
         with pytest.raises(ValueError) as exc_info:
             validate_sql_identifier(identifier)
-        assert "Invalid SQL identifier" in str(exc_info.value)
+        assert "Invalid identifier" in str(exc_info.value)
 
     # ── Error Message Quality Tests ──────────────────────────────────────────
 

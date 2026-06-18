@@ -3,7 +3,7 @@
 
 import pytest
 
-from core.db.graph_query import (
+from core.db.graph_query_builders import (
     CommunitySearchConfig,
     EntitySearchConfig,
     GraphDatabaseType,
