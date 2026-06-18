@@ -220,15 +220,6 @@ class LLMClient:
             cached = self._response_cache[cache_key]
             self._cache_hits += 1
             log.info("llm_cache_hit", label=str(parsed_label), source="memory")
-            await self._emit_usage_event(
-                label=parsed_label,
-                call_point=cp,
-                latency_ms=0.0,
-                token_usage=cached.get("token_usage"),
-                success=True,
-                article_id=article_id,
-                task_id=task_id,
-            )
             if output_model:
                 return parse_llm_json(cached["content"], output_model)
             return cached["content"]
@@ -447,7 +438,7 @@ class LLMClient:
                             else json.dumps(result, ensure_ascii=False)
                         )
                         mapping[cache_keys[idx]] = json.dumps(
-                            {"content": content, "token_usage": {}},
+                            {"content": content},
                             ensure_ascii=False,
                         )
                     if mapping:
