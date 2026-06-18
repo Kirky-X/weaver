@@ -1018,6 +1018,11 @@ class LLMUsageRaw(Base):
     input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cached_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    reasoning_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    cost_usd: Mapped[float] = mapped_column(
+        Numeric(12, 8), nullable=False, server_default=text("0.0")
+    )
     latency_ms: Mapped[float] = mapped_column(Float, nullable=False)
     success: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     error_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -1032,6 +1037,7 @@ class LLMUsageRaw(Base):
     __table_args__ = (
         Index("ix_llm_usage_raw_created_at", "created_at"),
         Index("ix_llm_usage_raw_label", "label"),
+        Index("ix_llm_usage_raw_label_callpoint_created", "label", "call_point", "created_at"),
     )
 
 
@@ -1055,6 +1061,15 @@ class LLMUsageHourly(Base):
     input_tokens_sum: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     output_tokens_sum: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     total_tokens_sum: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    cached_tokens_sum: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    reasoning_tokens_sum: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    cost_usd_sum: Mapped[float] = mapped_column(
+        Numeric(14, 8), nullable=False, server_default=text("0.0")
+    )
     latency_avg_ms: Mapped[float] = mapped_column(Float, nullable=False)
     latency_min_ms: Mapped[float] = mapped_column(Float, nullable=False)
     latency_max_ms: Mapped[float] = mapped_column(Float, nullable=False)
