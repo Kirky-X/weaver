@@ -201,10 +201,21 @@ class LiteLLMCaller:
                 )
 
             usage = response.usage
+            cached = 0
+            reasoning = 0
+            if usage:
+                details = getattr(usage, "prompt_tokens_details", None)
+                if details:
+                    cached = getattr(details, "cached_tokens", 0) or 0
+                comp_details = getattr(usage, "completion_tokens_details", None)
+                if comp_details:
+                    reasoning = getattr(comp_details, "reasoning_tokens", 0) or 0
             token_usage = TokenUsage(
                 input_tokens=usage.prompt_tokens if usage else 0,
                 output_tokens=usage.completion_tokens if usage else 0,
                 total_tokens=usage.total_tokens if usage else 0,
+                cached_tokens=cached,
+                reasoning_tokens=reasoning,
             )
 
             log.debug(
@@ -281,6 +292,8 @@ class LiteLLMCaller:
             token_usage = TokenUsage(
                 input_tokens=usage.prompt_tokens if usage else 0,
                 total_tokens=usage.total_tokens if usage else 0,
+                cached_tokens=0,
+                reasoning_tokens=0,
             )
 
             log.debug(
@@ -397,7 +410,11 @@ class LiteLLMCaller:
                 content=results,
                 label=label,
                 latency_ms=latency_ms,
-                token_usage=None,
+                token_usage=TokenUsage(
+                    input_tokens=estimated_tokens,
+                    output_tokens=0,
+                    total_tokens=estimated_tokens,
+                ),
                 model=label.model,
             )
 
