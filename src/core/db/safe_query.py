@@ -51,6 +51,12 @@ class InvalidIdentifierError(ValueError):
 def validate_sql_identifier(identifier: str, name: str = "identifier") -> str:
     """Validate a SQL identifier (table name, column name).
 
+    Enforces:
+    - Minimum 2 characters (prevent single-char identifiers)
+    - Maximum 63 characters (PostgreSQL identifier limit)
+    - Only alphanumeric and underscore characters
+    - Must start with letter or underscore
+
     Args:
         identifier: The identifier to validate.
         name: Human-readable name for error messages.
@@ -61,8 +67,11 @@ def validate_sql_identifier(identifier: str, name: str = "identifier") -> str:
     Raises:
         InvalidIdentifierError: If the identifier is invalid.
     """
-    if not identifier:
-        raise InvalidIdentifierError(identifier, f"{name} (empty)")
+    if not identifier or len(identifier) < 2:
+        raise InvalidIdentifierError(identifier, f"{name} (too short, min 2 chars)")
+
+    if len(identifier) > 63:
+        raise InvalidIdentifierError(identifier, f"{name} (too long, max 63 chars)")
 
     if not _SQL_IDENTIFIER_RE.match(identifier):
         raise InvalidIdentifierError(identifier, name)

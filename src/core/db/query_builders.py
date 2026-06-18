@@ -7,10 +7,11 @@ for vector operations, supporting both PostgreSQL (pgvector) and DuckDB backends
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+from core.db.models import VectorType
 
 if TYPE_CHECKING:
     pass
@@ -23,36 +24,10 @@ class DatabaseType(str, Enum):
     DUCKDB = "duckdb"
 
 
-class VectorType(str, Enum):
-    """Allowed vector types for similarity queries."""
-
-    CONTENT = "content"
-    TITLE = "title"
-
-
-# SQL-safe identifier pattern (alphanumeric and underscore only)
-# Safe SQL identifier pattern: letters, digits, underscore, 2-63 chars
-# Min 2 chars to prevent single-char identifiers, max 63 for PostgreSQL limit
-_SAFE_IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]{1,62}$")
-
-
-def validate_sql_identifier(identifier: str) -> str:
-    """Validate that a string is a safe SQL identifier.
-
-    Args:
-        identifier: String to validate.
-
-    Returns:
-        The validated identifier.
-
-    Raises:
-        ValueError: If identifier contains unsafe characters or invalid length.
-    """
-    if not identifier or len(identifier) < 2:
-        raise ValueError(f"SQL identifier too short (min 2 chars): {identifier}")
-    if not _SAFE_IDENTIFIER_PATTERN.match(identifier):
-        raise ValueError(f"Invalid SQL identifier: {identifier}")
-    return identifier
+# Re-exported from safe_query for backward compatibility:
+# - validate_sql_identifier (canonical: core.db.safe_query)
+# Re-exported from models for backward compatibility:
+# - VectorType (canonical: core.db.models)
 
 
 def validate_limit(limit: int) -> int:

@@ -163,7 +163,9 @@ class DuckDBPool:
     def engine(self) -> AsyncEngine:
         """Return the engine wrapped as AsyncEngine-compatible.
 
-        Note: Returns a wrapper since DuckDB doesn't have true async engine.
+        Note: Returns the sync engine since DuckDB doesn't have true async engine.
+        The sync Engine is returned with a type: ignore to satisfy the
+        RelationalPool Protocol's AsyncEngine return type annotation.
         For direct engine access, use _sync_engine property.
 
         Raises:
@@ -171,7 +173,7 @@ class DuckDBPool:
         """
         if self._engine is None:
             raise RuntimeError("DuckDBPool not started")
-        return self._async_engine  # type: ignore
+        return self._engine  # type: ignore[return-value]
 
     def session(self) -> _DuckDBAsyncSession:
         """Create a new async-compatible session.
