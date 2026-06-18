@@ -84,6 +84,7 @@ class LLMUsageEvent(BaseEvent):
     error_type: str | None = None
     article_id: str | None = None
     task_id: str | None = None
+    cost_usd: float = 0.0
 
 
 @dataclass
