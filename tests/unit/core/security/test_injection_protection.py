@@ -211,19 +211,19 @@ class TestGraphQueryBuilders:
 
     def test_neo4j_query_builder_exists(self) -> None:
         """Neo4jQueryBuilder should be importable."""
-        from core.db.graph_query import Neo4jQueryBuilder
+        from core.db.graph_query_builders import Neo4jQueryBuilder
 
         assert Neo4jQueryBuilder is not None
 
     def test_ladybug_query_builder_exists(self) -> None:
         """LadybugQueryBuilder should be importable."""
-        from core.db.graph_query import LadybugQueryBuilder
+        from core.db.graph_query_builders import LadybugQueryBuilder
 
         assert LadybugQueryBuilder is not None
 
     def test_create_graph_query_builder_factory(self) -> None:
         """create_graph_query_builder should return appropriate builder."""
-        from core.db.graph_query import create_graph_query_builder
+        from core.db.graph_query_builders import create_graph_query_builder
 
         neo4j_builder = create_graph_query_builder("neo4j")
         assert neo4j_builder is not None
@@ -304,7 +304,7 @@ class TestSecurityHardeningVerification:
 
     def test_graph_query_builder_factory(self) -> None:
         """Graph query builder factory should work correctly."""
-        from core.db.graph_query import GraphDatabaseType, create_graph_query_builder
+        from core.db.graph_query_builders import GraphDatabaseType, create_graph_query_builder
 
         neo4j = create_graph_query_builder("neo4j")
         assert neo4j.database_type == GraphDatabaseType.NEO4J

@@ -46,7 +46,7 @@ class TestValidateSQLIdentifier:
             "user_table",
             "_private",
             "Table123",
-            "a",
+            "ab",
             "very_long_identifier_with_many_underscores",
             "UPPERCASE",
             "mixedCase",
@@ -78,10 +78,10 @@ class TestValidateSQLIdentifier:
         assert exc_info.value.identifier_type == "identifier"
 
     def test_empty_identifier(self):
-        """Test empty identifier raises with (empty) suffix."""
+        """Test empty identifier raises with (too short) suffix."""
         with pytest.raises(InvalidIdentifierError) as exc_info:
             validate_sql_identifier("")
-        assert exc_info.value.identifier_type == "identifier (empty)"
+        assert exc_info.value.identifier_type == "identifier (too short, min 2 chars)"
 
     def test_custom_identifier_type(self):
         """Test custom identifier_type in error message."""
@@ -269,10 +269,17 @@ class TestEdgeCases:
             validate_sql_identifier("用户")
 
     def test_max_length_identifier(self):
-        """Test very long identifier."""
-        long_id = "a" * 100
-        result = validate_sql_identifier(long_id)
-        assert result == long_id
+        """Test identifier at PostgreSQL max length (63 chars) is accepted."""
+        max_id = "a" * 63
+        result = validate_sql_identifier(max_id)
+        assert result == max_id
+
+    def test_over_max_length_identifier_rejected(self):
+        """Test identifier over PostgreSQL max length (63 chars) is rejected."""
+        too_long_id = "a" * 64
+        with pytest.raises(InvalidIdentifierError) as exc_info:
+            validate_sql_identifier(too_long_id)
+        assert "too long" in str(exc_info.value)
 
     def test_mixed_case_cypher_edge(self):
         """Test mixed case edge type is invalid."""

@@ -775,7 +775,7 @@ class TestContainerServicesRelationNormalizer:
 
         mock_norm = MagicMock()
         with patch(
-            "modules.knowledge.core.relation_types.RelationTypeNormalizer",
+            "modules.knowledge.graph.relation_type_normalizer.RelationTypeNormalizer",
             return_value=mock_norm,
         ):
             result = c.relation_normalizer()
