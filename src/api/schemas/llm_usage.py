@@ -26,6 +26,9 @@ class LLMUsageRecord(BaseModel):
     latency_avg_ms: RoundedFloat = Field(description="Average latency in milliseconds")
     latency_min_ms: RoundedFloat = Field(description="Minimum latency in milliseconds")
     latency_max_ms: RoundedFloat = Field(description="Maximum latency in milliseconds")
+    cost_usd: float = Field(default=0.0, description="Total cost in USD")
+    cached_tokens: int = Field(default=0, description="Number of cached tokens")
+    reasoning_tokens: int = Field(default=0, description="Number of reasoning tokens")
     success_count: int = Field(description="Number of successful calls")
     failure_count: int = Field(description="Number of failed calls")
 
@@ -44,6 +47,7 @@ class LLMUsageSummary(BaseModel):
     total_input_tokens: int = Field(description="Total input tokens")
     total_output_tokens: int = Field(description="Total output tokens")
     total_tokens: int = Field(description="Total tokens")
+    total_cost_usd: float = Field(default=0.0, description="Total cost in USD")
     avg_latency_ms: RoundedFloat = Field(description="Average latency in milliseconds")
     max_latency_ms: RoundedFloat = Field(default=0.0, description="Maximum latency in milliseconds")
     min_latency_ms: RoundedFloat = Field(default=0.0, description="Minimum latency in milliseconds")
@@ -62,6 +66,7 @@ class LLMUsageByProvider(BaseModel):
     input_tokens: int = Field(default=0, description="Total input tokens")
     output_tokens: int = Field(default=0, description="Total output tokens")
     total_tokens: int = Field(description="Total tokens")
+    cost_usd: float = Field(default=0.0, description="Total cost in USD")
     avg_latency_ms: RoundedFloat = Field(default=0.0, description="Average latency in milliseconds")
     success_rate: RoundedFloat = Field(default=1.0, description="Success rate (0.0 to 1.0)")
 
@@ -75,6 +80,7 @@ class LLMUsageByModel(BaseModel):
     input_tokens: int = Field(default=0, description="Total input tokens")
     output_tokens: int = Field(default=0, description="Total output tokens")
     total_tokens: int = Field(description="Total tokens")
+    cost_usd: float = Field(default=0.0, description="Total cost in USD")
     avg_latency_ms: RoundedFloat = Field(default=0.0, description="Average latency in milliseconds")
     success_rate: RoundedFloat = Field(default=1.0, description="Success rate (0.0 to 1.0)")
 
@@ -85,5 +91,6 @@ class LLMUsageByCallPoint(BaseModel):
     call_point: str = Field(description="Call point identifier")
     call_count: int = Field(description="Total number of calls")
     total_tokens: int = Field(description="Total tokens")
+    cost_usd: float = Field(default=0.0, description="Total cost in USD")
     avg_latency_ms: RoundedFloat = Field(default=0.0, description="Average latency in milliseconds")
     success_rate: RoundedFloat = Field(default=1.0, description="Success rate (0.0 to 1.0)")

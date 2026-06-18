@@ -59,6 +59,7 @@ async def query_llm_usage(
                 "avg_latency_ms": summary["avg_latency_ms"],
                 "max_latency_ms": summary.get("max_latency_ms", 0.0),
                 "min_latency_ms": summary.get("min_latency_ms", 0.0),
+                "total_cost_usd": summary.get("total_cost_usd", 0.0),
                 "success_rate": summary["success_rate"],
                 "error_types": summary.get("error_types", {}),
             }
@@ -90,6 +91,9 @@ async def query_llm_usage(
                 "input_tokens": r.get("input_tokens_sum", 0),
                 "output_tokens": r.get("output_tokens_sum", 0),
                 "total_tokens": r.get("total_tokens_sum", 0),
+                "cost_usd": r.get("cost_usd", 0.0),
+                "cached_tokens": r.get("cached_tokens", 0),
+                "reasoning_tokens": r.get("reasoning_tokens", 0),
                 "latency_avg_ms": r["latency_avg_ms"],
                 "success_count": r["success_count"],
                 "failure_count": r["failure_count"],
@@ -116,6 +120,7 @@ async def query_llm_usage(
                         "input_tokens": r.get("input_tokens", 0),
                         "output_tokens": r.get("output_tokens", 0),
                         "total_tokens": r["total_tokens"],
+                        "cost_usd": r.get("cost_usd", 0.0),
                         "avg_latency_ms": r.get("avg_latency_ms", 0.0),
                         "success_rate": r.get("success_rate", 1.0),
                     }
@@ -141,6 +146,7 @@ async def query_llm_usage(
                         "input_tokens": r.get("input_tokens", 0),
                         "output_tokens": r.get("output_tokens", 0),
                         "total_tokens": r["total_tokens"],
+                        "cost_usd": r.get("cost_usd", 0.0),
                         "avg_latency_ms": r.get("avg_latency_ms", 0.0),
                         "success_rate": r.get("success_rate", 1.0),
                     }
@@ -162,6 +168,7 @@ async def query_llm_usage(
                         "call_point": r["call_point"],
                         "call_count": r["call_count"],
                         "total_tokens": r["total_tokens"],
+                        "cost_usd": r.get("cost_usd", 0.0),
                         "avg_latency_ms": r.get("avg_latency_ms", 0.0),
                         "success_rate": r.get("success_rate", 1.0),
                     }
