@@ -190,7 +190,7 @@ class KnowledgeCache(KnowledgeCacheProtocol):
     async def find_similar_cluster(
         self,
         query: str,
-        threshold: float = 0.85,
+        threshold: float = 0.75,
     ) -> KnowledgeCluster | None:
         """Find similar cluster by query embedding.
 
@@ -221,6 +221,9 @@ class KnowledgeCache(KnowledgeCacheProtocol):
             """).fetchone()
 
             if result and result[10] >= threshold:
+                similarity = result[10]
+                # 分级置信度: >= 0.85 为 high, 0.75 ~ 0.85 为 medium
+                confidence = "high" if similarity >= 0.85 else "medium"
                 cluster = KnowledgeCluster(
                     id=result[0],
                     name=result[1],
@@ -236,8 +239,9 @@ class KnowledgeCache(KnowledgeCacheProtocol):
                 log.info(
                     "cache_hit",
                     cluster_id=cluster.id,
-                    similarity=result[10],
+                    similarity=similarity,
                     query=query[:50],
+                    confidence=confidence,
                 )
                 return cluster
 
@@ -412,6 +416,39 @@ class KnowledgeCache(KnowledgeCacheProtocol):
 
         except Exception as e:
             log.error("cleanup_stale_failed", error=str(e))
+            return 0
+
+    async def decay_hotness(self, decay_factor: float = 0.95) -> int:
+        """Decay hotness of all clusters with hotness > 0.
+
+        Multiplies hotness by decay_factor for all clusters where hotness > 0,
+        then triggers persistence if any records were affected.
+
+        Args:
+            decay_factor: Multiplicative decay factor (default: 0.95 = 5% reduction).
+
+        Returns:
+            Number of clusters decayed.
+        """
+        try:
+            # Count records that will be affected
+            count_result = self.db.execute(
+                f"SELECT COUNT(*) FROM {self.table_name} WHERE hotness > 0"
+            ).fetchone()
+            affected = count_result[0] if count_result else 0
+
+            if affected > 0:
+                self.db.execute(
+                    f"UPDATE {self.table_name} SET hotness = hotness * ?",
+                    [decay_factor],
+                )
+                self._mark_dirty()
+                log.info("decay_hotness_complete", decayed=affected)
+
+            return affected
+
+        except Exception as e:
+            log.error("decay_hotness_failed", error=str(e))
             return 0
 
     async def update_hotness(self, cluster_id: str, delta: float = 0.1) -> None:

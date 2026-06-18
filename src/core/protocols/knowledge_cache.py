@@ -50,7 +50,7 @@ class KnowledgeCacheProtocol(Protocol):
 
     Usage:
         cache = container.knowledge_cache()
-        similar = await cache.find_similar_cluster(query, threshold=0.85)
+        similar = await cache.find_similar_cluster(query, threshold=0.75)
         if similar:
             return similar.content  # Cache hit
     """
@@ -58,13 +58,13 @@ class KnowledgeCacheProtocol(Protocol):
     async def find_similar_cluster(
         self,
         query: str,
-        threshold: float = 0.85,
+        threshold: float = 0.75,
     ) -> KnowledgeCluster | None:
         """Find similar cached cluster by query embedding similarity.
 
         Args:
             query: The search query.
-            threshold: Minimum cosine similarity threshold (default: 0.85).
+            threshold: Minimum cosine similarity threshold (default: 0.75).
 
         Returns:
             KnowledgeCluster if found, None otherwise.
@@ -114,6 +114,17 @@ class KnowledgeCacheProtocol(Protocol):
 
         Returns:
             Number of clusters removed.
+        """
+        ...
+
+    async def decay_hotness(self, decay_factor: float = 0.95) -> int:
+        """Decay hotness of all clusters with hotness > 0.
+
+        Args:
+            decay_factor: Multiplicative decay factor (default: 0.95 = 5% reduction).
+
+        Returns:
+            Number of clusters decayed.
         """
         ...
 
