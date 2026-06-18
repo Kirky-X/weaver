@@ -16,6 +16,7 @@ from typing import Any
 
 from core.llm.client import LLMClient
 from core.llm.types import CallPoint
+from core.llm.utils.json_parser import parse_llm_json
 from core.observability import get_logger
 from core.observability.metrics import MetricsCollector
 from modules.knowledge.search.engines.local_search import LocalSearchEngine
