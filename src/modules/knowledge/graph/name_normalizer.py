@@ -17,9 +17,58 @@ import unicodedata
 from dataclasses import dataclass
 from enum import Enum
 
+from core.constants import EntityType
 from core.observability import get_logger
 
 log = get_logger(__name__)
+
+
+# Shared organization suffix list for variant matching (Chinese + English)
+ORGANIZATION_SUFFIXES: tuple[str, ...] = (
+    # Chinese suffixes
+    "有限公司",
+    "股份有限公司",
+    "集团",
+    "公司",
+    "科技",
+    "技术",
+    "网络",
+    "信息",
+    "互联网",
+    "有限",
+    "股份",
+    # English suffixes
+    "Inc.",
+    "Inc",
+    "Corp.",
+    "Corp",
+    "Ltd.",
+    "Ltd",
+    "LLC",
+    "Co.",
+    "Co",
+    "Corporation",
+    "Incorporated",
+    "Limited",
+    "GmbH",
+    "AG",
+    "SA",
+)
+
+
+def strip_bracket_variant(name: str) -> tuple[str, str]:
+    """Strip trailing parenthetical bracket from a name.
+
+    Returns (base_name, bracket_content).
+    Example: "Headphone (1)" → ("Headphone", "(1)")
+             "Phone (4a) Pro" → ("Phone (4a) Pro", "")  (non-trailing bracket, not stripped)
+             "Phone (4a)" → ("Phone", "(4a)")
+    """
+    # Match trailing bracket: "Name (content)"
+    m = re.match(r"^(.+?)\s*\(([^)]+)\)\s*$", name)
+    if m:
+        return m.group(1).strip(), f"({m.group(2)})"
+    return name, ""
 
 
 class NameScript(Enum):
@@ -150,7 +199,7 @@ class NameNormalizer:
             if name != prev:
                 changes.append("case_normalization")
 
-        if self._normalize_org_suffixes and entity_type == "组织机构":
+        if self._normalize_org_suffixes and entity_type == EntityType.ORGANIZATION.value:
             prev = name
             name = self._normalize_organization_suffix(name)
             if name != prev:
@@ -363,16 +412,9 @@ class NameNormalizer:
     def _strip_bracket_variant(self, name: str) -> tuple[str, str]:
         """Strip trailing parenthetical bracket from a name.
 
-        Returns (base_name, bracket_content).
-        Example: "Headphone (1)" → ("Headphone", "(1)")
-                 "Phone (4a) Pro" → ("Phone (4a) Pro", "")  (non-trailing bracket, not stripped)
-                 "Phone (4a)" → ("Phone", "(4a)")
+        Delegates to module-level strip_bracket_variant function.
         """
-        # Match trailing bracket: "Name (content)"
-        m = re.match(r"^(.+?)\s*\(([^)]+)\)\s*$", name)
-        if m:
-            return m.group(1).strip(), f"({m.group(2)})"
-        return name, ""
+        return strip_bracket_variant(name)
 
     def _compare_without_suffixes(self, name1: str, name2: str) -> bool:
         """Compare names ignoring organization suffixes."""

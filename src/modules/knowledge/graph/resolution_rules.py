@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
+from core.constants import EntityType
 from core.observability import get_logger
 from modules.knowledge.graph.location_resolver import LocationResolver
 
@@ -29,18 +30,6 @@ class MatchType(Enum):
     TRANSLATION = "translation"
     FUZZY = "fuzzy"
     NONE = "none"
-
-
-class EntityType(Enum):
-    """Common entity types with resolution hints."""
-
-    PERSON = "人物"
-    ORGANIZATION = "组织机构"
-    LOCATION = "地点"
-    PRODUCT = "产品"
-    EVENT = "事件"
-    CONCEPT = "概念"
-    UNKNOWN = "未知"
 
 
 @dataclass
@@ -123,7 +112,7 @@ class EntityResolutionRules:
             ),
             ResolutionRule(
                 name="location_standardization",
-                entity_types=["地点"],
+                entity_types=[EntityType.LOCATION.value],
                 priority=35,
                 matcher=self._location_standardization_match,
                 description="Standardize location names using ISO 3166",
@@ -137,21 +126,21 @@ class EntityResolutionRules:
             ),
             ResolutionRule(
                 name="person_name_variant",
-                entity_types=["人物"],
+                entity_types=[EntityType.PERSON.value],
                 priority=50,
                 matcher=self._person_name_variant_match,
                 description="Match person name variants (with/without title)",
             ),
             ResolutionRule(
                 name="organization_variant",
-                entity_types=["组织机构"],
+                entity_types=[EntityType.ORGANIZATION.value],
                 priority=51,
                 matcher=self._organization_variant_match,
                 description="Match organization name variants",
             ),
             ResolutionRule(
                 name="location_variant",
-                entity_types=["地点"],
+                entity_types=[EntityType.LOCATION.value],
                 priority=52,
                 matcher=self._location_variant_match,
                 description="Match location name variants",
@@ -298,8 +287,8 @@ class EntityResolutionRules:
         - "Phone (4a)" vs "Phone (4a)" → exact match (already handled)
         - "Phone (4a)" vs "Phone (4a) Pro" → NOT same (different product line)
         """
-        stripped1, bracket1 = self._strip_bracket_variant(name)
-        stripped2, bracket2 = self._strip_bracket_variant(canonical)
+        stripped1, bracket1 = strip_bracket_variant(name)
+        stripped2, bracket2 = strip_bracket_variant(canonical)
 
         if not stripped1 or not stripped2:
             return None
@@ -315,17 +304,6 @@ class EntityResolutionRules:
             should_merge=True,
             reason=f"Same entity with bracket-variant annotation: '{name}' → '{canonical}'",
         )
-
-    def _strip_bracket_variant(self, name: str) -> tuple[str, str]:
-        """Strip trailing parenthetical annotation from a name.
-
-        Returns (base_name, bracket_content).
-        Only strips if the bracket is at the END of the name.
-        """
-        m = re.match(r"^(.+?)\s*\(([^)]+)\)\s*$", name)
-        if m:
-            return m.group(1).strip(), f"({m.group(2)})"
-        return name, ""
 
     def _case_insensitive_match(
         self,
@@ -445,7 +423,7 @@ class EntityResolutionRules:
             )
 
         # For locations, check if both names map to same ISO country code
-        if entity_type == "地点":
+        if entity_type == EntityType.LOCATION.value:
             name_result = self._location_resolver.normalize(name)
             canonical_result = self._location_resolver.normalize(canonical)
 
@@ -530,23 +508,8 @@ class EntityResolutionRules:
         entity_type: str,
     ) -> ResolutionResult | None:
         """Match organization name variants."""
-        suffixes = [
-            "公司",
-            "集团",
-            "有限",
-            "股份",
-            "科技",
-            "技术",
-            "Inc.",
-            "Corp.",
-            "Ltd.",
-            "LLC",
-            "GmbH",
-            "Co.",
-            "Corporation",
-            "Incorporated",
-            "Limited",
-        ]
+        # Use shared suffix list from NameNormalizer (canonical, more complete)
+        suffixes = ORGANIZATION_SUFFIXES
 
         name_stripped = name
         canonical_stripped = canonical

@@ -16,6 +16,7 @@ from tenacity import (
     wait_exponential_jitter,
 )
 
+from core.constants import EntityType
 from core.llm.client import LLMClient
 from core.llm.utils.json_parser import parse_llm_json
 from core.observability import get_logger
@@ -125,7 +126,7 @@ class EntityResolver:
             - confidence: Resolution confidence score
         """
         # Filter data metrics entities when configured
-        if entity_type == "数据指标":
+        if entity_type == EntityType.DATA_METRIC.value:
             if self._disable_data_metrics:
                 return self._filtered_metric_result(name)
             # Fallback to existing string check
