@@ -12,13 +12,34 @@ log = get_logger(__name__)
 
 # Per-call-point token limits
 LIMITS: dict[CallPoint, int] = {
+    # Article processing pipeline
+    CallPoint.CLASSIFIER: 1000,
     CallPoint.CLEANER: 6000,
+    CallPoint.CATEGORIZER: 1000,
+    CallPoint.MERGER: 8000,
     CallPoint.ANALYZE: 4000,
-    CallPoint.ENTITY_EXTRACTOR: 4000,
     CallPoint.CREDIBILITY_CHECKER: 3000,
     CallPoint.QUALITY_SCORER: 3000,
-    CallPoint.CLASSIFIER: 1000,
-    CallPoint.MERGER: 8000,
+    # Entity extraction & resolution
+    CallPoint.ENTITY_EXTRACTOR: 4000,
+    CallPoint.ENTITY_RESOLVER: 2000,
+    # Embedding & reranking
+    CallPoint.EMBEDDING: 500,
+    CallPoint.RERANK: 500,
+    # Search operations
+    CallPoint.SEARCH_LOCAL: 1000,
+    CallPoint.SEARCH_GLOBAL: 1000,
+    # Community & graph operations
+    CallPoint.COMMUNITY_REPORT: 6000,
+    CallPoint.COMMUNITY_TITLE: 1000,
+    CallPoint.ENTITY_FACTS: 3000,
+    # Advanced analysis
+    CallPoint.CAUSAL_INFERENCE: 4000,
+    CallPoint.NARRATIVE_SYNTHESIS: 8000,
+    CallPoint.EVIDENCE_SAMPLING: 2000,
+    CallPoint.ROI_SUMMARY: 4000,
+    CallPoint.SENTIMENT: 1000,
+    CallPoint.CLAIM_EXTRACTION: 3000,
 }
 
 DEFAULT_LIMIT = 4000
