@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+from collections import deque
 from dataclasses import dataclass, field
 from time import monotonic
 from typing import Any
@@ -18,6 +19,31 @@ from core.llm.types import ExperienceData
 from core.observability import get_logger
 
 log = get_logger(__name__)
+
+# Beta distribution prior parameters (Beta(2,2) is a weak prior centered at 0.5)
+BETA_PRIOR_ALPHA = 2.0
+BETA_PRIOR_BETA = 2.0
+# Beta prior floor: never let alpha/beta drop below this
+BETA_PRIOR_FLOOR = 2.0
+
+# Warmup defaults
+WARMUP_CALLS_DEFAULT = 20
+EXPLORATION_WEIGHT_DEFAULT = 0.15
+
+# Time window constants (in seconds)
+RECENT_WINDOW_SECONDS = 24 * 3600  # 24 hours
+OLDER_WINDOW_SECONDS = 7 * 24 * 3600  # 7 days
+CALL_HISTORY_TTL_SECONDS = 7 * 24 * 3600  # 7 days
+
+# Time-weighted scoring weights
+RECENT_WINDOW_WEIGHT = 1.0  # <24h
+OLDER_WINDOW_WEIGHT = 0.5  # 24h-7d
+
+# Synthetic history distribution ratio (70% recent, 30% older)
+RECENT_CALLS_RATIO = 0.7
+
+# Call history capacity (prevent unbounded memory growth)
+MAX_CALL_HISTORY = 10000
 
 
 @dataclass
@@ -30,11 +56,13 @@ class _ModelExperience:
     total_latency_ms: float = 0.0
     last_call_time: float = 0.0
     # Thompson Sampling Beta distribution params (prior: Beta(2,2))
-    alpha: float = 2.0
-    beta: float = 2.0
+    alpha: float = BETA_PRIOR_ALPHA
+    beta: float = BETA_PRIOR_BETA
     last_error_type: str = ""
-    # Time-weighted tracking: list of (timestamp, latency_ms, success) tuples
-    call_history: list[tuple[float, float, bool]] = field(default_factory=list)
+    # Time-weighted tracking: deque of (timestamp, latency_ms, success) tuples
+    call_history: deque[tuple[float, float, bool]] = field(
+        default_factory=lambda: deque(maxlen=MAX_CALL_HISTORY)
+    )
 
 
 class ExperienceStore:
@@ -48,8 +76,8 @@ class ExperienceStore:
         self,
         event_bus: EventBus,
         warmup_data: dict[str, dict[str, Any]] | None = None,
-        warmup_calls: int = 20,
-        exploration_weight: float = 0.15,
+        warmup_calls: int = WARMUP_CALLS_DEFAULT,
+        exploration_weight: float = EXPLORATION_WEIGHT_DEFAULT,
     ) -> None:
         """Initialize the experience store.
 
@@ -80,27 +108,29 @@ class ExperienceStore:
 
                 # Generate synthetic call history for time-weighted calculations
                 # Distribute calls across the last 7 days with realistic timestamps
-                call_history = []
+                call_history: deque[tuple[float, float, bool]] = deque(maxlen=MAX_CALL_HISTORY)
                 if call_count > 0:
                     avg_latency = total_latency_ms / call_count if call_count > 0 else 0.0
                     now = monotonic()
-                    # Create synthetic calls: 70% in last 24h, 30% in 24h-7d
-                    recent_calls = int(call_count * 0.7)
+                    # Create synthetic calls: RECENT_CALLS_RATIO in last 24h, rest in 24h-7d
+                    recent_calls = int(call_count * RECENT_CALLS_RATIO)
                     old_calls = call_count - recent_calls
 
                     # Distribute successes proportionally
-                    recent_successes = int(success_count * 0.7)
+                    recent_successes = int(success_count * RECENT_CALLS_RATIO)
                     old_successes = success_count - recent_successes
 
                     # Recent calls (0-24h ago)
                     for i in range(recent_calls):
-                        timestamp = now - random.uniform(0, 24 * 3600)
+                        timestamp = now - random.uniform(0, RECENT_WINDOW_SECONDS)
                         success = i < recent_successes
                         call_history.append((timestamp, avg_latency, success))
 
                     # Older calls (24h-7d ago)
                     for i in range(old_calls):
-                        timestamp = now - random.uniform(24 * 3600, 7 * 24 * 3600)
+                        timestamp = now - random.uniform(
+                            RECENT_WINDOW_SECONDS, OLDER_WINDOW_SECONDS
+                        )
                         success = i < old_successes
                         call_history.append((timestamp, avg_latency, success))
 
@@ -113,8 +143,8 @@ class ExperienceStore:
                     last_error_type=data.get("last_error_type", ""),
                     call_history=call_history,
                 )
-                exp.alpha = max(2.0, exp.success_count + 2.0)
-                exp.beta = max(2.0, exp.failure_count + 2.0)
+                exp.alpha = max(BETA_PRIOR_FLOOR, exp.success_count + BETA_PRIOR_ALPHA)
+                exp.beta = max(BETA_PRIOR_FLOOR, exp.failure_count + BETA_PRIOR_BETA)
                 self._experiences[key] = exp
 
         # Subscribe to events
@@ -145,6 +175,9 @@ class ExperienceStore:
             # Record call history for time-weighted scoring
             exp.call_history.append((now, event.latency_ms, event.success))
 
+            # Periodic cleanup: remove calls older than TTL to bound memory
+            self._cleanup_old_calls(exp, now)
+
     def get_experience(self, call_point: str, provider: str, model: str) -> ExperienceData:
         """Get experience data for a specific model at a call point."""
         key = f"{call_point}.{provider}.{model}"
@@ -173,26 +206,27 @@ class ExperienceStore:
             current_time: Current monotonic time.
 
         Returns:
-            Weight: 1.0 for <24h, 0.5 for 24h-7d, 0.0 for >7d.
+            Weight: RECENT_WINDOW_WEIGHT for <24h, OLDER_WINDOW_WEIGHT for 24h-7d, 0.0 for >7d.
         """
         age_seconds = current_time - timestamp
-        hours_24 = 24 * 3600
-        days_7 = 7 * 24 * 3600
 
-        if age_seconds > days_7:
+        if age_seconds > OLDER_WINDOW_SECONDS:
             return 0.0
-        elif age_seconds > hours_24:
-            return 0.5
+        elif age_seconds > RECENT_WINDOW_SECONDS:
+            return OLDER_WINDOW_WEIGHT
         else:
-            return 1.0
+            return RECENT_WINDOW_WEIGHT
 
     def _cleanup_old_calls(self, exp: _ModelExperience, current_time: float) -> None:
-        """Remove calls older than 7 days to prevent memory growth."""
-        days_7 = 7 * 24 * 3600
-        # Keep only calls within last 7 days
-        exp.call_history = [
-            (ts, lat, succ) for ts, lat, succ in exp.call_history if current_time - ts <= days_7
-        ]
+        """Remove calls older than TTL to prevent memory growth."""
+        # Keep only calls within last TTL window (in-place filter for deque)
+        retained = deque(
+            (ts, lat, succ)
+            for ts, lat, succ in exp.call_history
+            if current_time - ts <= CALL_HISTORY_TTL_SECONDS
+        )
+        exp.call_history.clear()
+        exp.call_history.extend(retained)
 
     def reliability(self, call_point: str, provider: str, model: str) -> float:
         """Get time-weighted reliability score (success rate). Returns 1.0 for new models.
@@ -264,7 +298,7 @@ class ExperienceStore:
         key = f"{call_point}.{provider}.{model}"
         exp = self._experiences.get(key)
         if exp is None:
-            return random.betavariate(2.0, 2.0)
+            return random.betavariate(BETA_PRIOR_ALPHA, BETA_PRIOR_BETA)
         return random.betavariate(exp.alpha, exp.beta)
 
     def select_provider(self, call_point: str, providers: list[str], model: str) -> str:

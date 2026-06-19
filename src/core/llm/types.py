@@ -133,17 +133,18 @@ class TokenUsage:
     reasoning_tokens: int = 0
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class CacheUsage:
-    """服务端 prompt cache 使用情况归一化表示.
+    """Server-side prompt cache usage (DeepSeek/OpenAI).
 
-    用于统一表示 DeepSeek 顶层字段（prompt_cache_hit_tokens / prompt_cache_miss_tokens）
-    与 OpenAI 嵌套字段（prompt_tokens_details.cached_tokens）的缓存命中信息。
+    Normalized representation of provider-specific cache fields:
+    - DeepSeek: prompt_cache_hit_tokens / prompt_cache_miss_tokens
+    - OpenAI: prompt_tokens_details.cached_tokens (mapped to cache_hit_tokens)
 
     Attributes:
-        cache_hit_tokens: 命中服务端缓存的 token 数.
-        cache_miss_tokens: 未命中服务端缓存的 token 数.
-        reasoning_tokens: 推理 token 数（来自 completion_tokens_details.reasoning_tokens）.
+        cache_hit_tokens: Tokens served from server cache.
+        cache_miss_tokens: Tokens not served from cache (computed as prompt_tokens - cache_hit_tokens when available).
+        reasoning_tokens: Reasoning tokens (from completion_tokens_details.reasoning_tokens).
     """
 
     cache_hit_tokens: int = 0
@@ -152,61 +153,11 @@ class CacheUsage:
 
     @property
     def cache_hit_rate(self) -> float:
-        """缓存命中率 = hit / (hit + miss).
-
-        总数为零时返回 0.0（除零保护）.
-        """
+        """Cache hit rate (0.0-1.0). Returns 0.0 on zero-division."""
         total = self.cache_hit_tokens + self.cache_miss_tokens
         if total == 0:
             return 0.0
         return self.cache_hit_tokens / total
-
-
-def _parse_cache_usage(raw_usage: dict[str, Any]) -> CacheUsage:
-    """解析 provider 响应中的 cache 字段为归一化 CacheUsage.
-
-    作为服务端缓存字段解析的**唯一入口**，优先读取 DeepSeek 顶层字段
-    `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`；当两者缺失或全为 0 时，
-    回退读取 OpenAI/MiMo 嵌套字段 `prompt_tokens_details.cached_tokens`，
-    并从 `prompt_tokens - hit` 推导 `miss`。
-
-    Args:
-        raw_usage: LiteLLM 响应的 usage 字典（已转为 dict）。
-
-    Returns:
-        归一化的 CacheUsage；无任何 cache 字段时返回全 0（优雅降级，不抛异常）。
-    """
-    if not raw_usage:
-        return CacheUsage()
-
-    # 1. DeepSeek 顶层字段(优先)
-    deepseek_hit = raw_usage.get("prompt_cache_hit_tokens") or 0
-    deepseek_miss = raw_usage.get("prompt_cache_miss_tokens") or 0
-
-    if deepseek_hit > 0 or deepseek_miss > 0:
-        hit = deepseek_hit
-        miss = deepseek_miss
-    else:
-        # 2. OpenAI/MiMo 嵌套字段回退
-        details = raw_usage.get("prompt_tokens_details") or {}
-        cached = details.get("cached_tokens") or 0 if isinstance(details, dict) else 0
-        if cached > 0:
-            hit = cached
-            prompt_tokens = raw_usage.get("prompt_tokens") or 0
-            miss = max(prompt_tokens - hit, 0)
-        else:
-            hit = 0
-            miss = 0
-
-    # 3. reasoning_tokens(独立于 hit/miss 逻辑)
-    comp_details = raw_usage.get("completion_tokens_details") or {}
-    reasoning = comp_details.get("reasoning_tokens") or 0 if isinstance(comp_details, dict) else 0
-
-    return CacheUsage(
-        cache_hit_tokens=hit,
-        cache_miss_tokens=miss,
-        reasoning_tokens=reasoning,
-    )
 
 
 @dataclass
@@ -218,9 +169,8 @@ class LLMResponse:
     latency_ms: float
     token_usage: TokenUsage | None
     model: str
-    # 服务端 prompt cache 字段(由 _parse_cache_usage 填充; provider 无 cache 字段时为 0)
-    cache_hit_tokens: int = 0
-    cache_miss_tokens: int = 0
+    # 服务端 prompt cache 使用情况(由 caller.py chat() 填充; provider 无 cache 字段时为 None)
+    cache_usage: CacheUsage | None = None
 
 
 class TierConfig(BaseModel):
@@ -229,6 +179,90 @@ class TierConfig(BaseModel):
     label: str = ""
     max_difficulty: float = 1.0
     input_truncation: int | None = None
+
+
+def validate_tiers(tiers: list[TierConfig]) -> list[str]:
+    """Validate a list of TierConfig entries for correctness.
+
+    Checks:
+    - max_difficulty values are in range [0.0, 1.0]
+    - max_difficulty values are strictly ascending
+    - No duplicate max_difficulty values
+    - Last tier covers max_difficulty=1.0 (warning if not)
+
+    Args:
+        tiers: List of TierConfig entries to validate.
+
+    Returns:
+        List of error/warning strings. Empty list means valid.
+    """
+    errors: list[str] = []
+
+    if not tiers:
+        return errors
+
+    for i, tier in enumerate(tiers):
+        if not (0.0 <= tier.max_difficulty <= 1.0):
+            errors.append(
+                f"Tier {i} ({tier.label}): max_difficulty={tier.max_difficulty} "
+                f"is out of range [0.0, 1.0]"
+            )
+
+    for i in range(1, len(tiers)):
+        if tiers[i].max_difficulty <= tiers[i - 1].max_difficulty:
+            errors.append(
+                f"Non-ascending max_difficulty: tier {i - 1} "
+                f"({tiers[i - 1].max_difficulty}) >= tier {i} "
+                f"({tiers[i].max_difficulty})"
+            )
+
+    # Check for duplicates
+    difficulties = [t.max_difficulty for t in tiers]
+    seen: set[float] = set()
+    for d in difficulties:
+        if d in seen:
+            errors.append(f"Duplicate max_difficulty value: {d}")
+        seen.add(d)
+
+    # Check coverage
+    if tiers[-1].max_difficulty < 1.0:
+        errors.append(
+            f"Last tier max_difficulty={tiers[-1].max_difficulty} < 1.0: "
+            f"difficulty scores above this value will have no coverage"
+        )
+
+    return errors
+
+
+def describe_routing(tiers: list[TierConfig]) -> str:
+    """Generate a human-readable description of the routing table.
+
+    Args:
+        tiers: List of TierConfig entries.
+
+    Returns:
+        Multi-line string describing the routing decisions.
+    """
+    if not tiers:
+        return "No tiers configured — tiered routing is disabled."
+
+    lines = ["Tiered routing configuration:"]
+    prev_bound = 0.0
+    for i, tier in enumerate(tiers):
+        range_str = f"[{prev_bound:.1f}, {tier.max_difficulty:.1f})"
+        truncation = f", truncation={tier.input_truncation}" if tier.input_truncation else ""
+        lines.append(f"  Tier {i}: difficulty {range_str} → {tier.label}{truncation}")
+        prev_bound = tier.max_difficulty
+
+    # Validate and append warnings
+    errors = validate_tiers(tiers)
+    if errors:
+        lines.append("")
+        lines.append("Validation warnings:")
+        for error in errors:
+            lines.append(f"  ⚠ {error}")
+
+    return "\n".join(lines)
 
 
 class RoutingConfig(BaseModel):
@@ -495,7 +529,7 @@ class LLMTask:
     payload: dict[str, Any]
     priority: int = 5
     attempt: int = 0
-    provider_cfg: Any = field(default=None, init=False)
+    provider_cfg: ProviderConfig | None = field(default=None, init=False)
     future: asyncio.Future | None = field(default=None, init=False)
 
     def __lt__(self, other: LLMTask) -> bool:

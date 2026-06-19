@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import time
 import warnings
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -13,7 +14,7 @@ from litellm import acompletion, aembedding, arerank
 from litellm.utils import token_counter
 from openai import AsyncOpenAI
 
-from core.llm.types import Label, LLMResponse, LLMType, TokenUsage
+from core.llm.types import CacheUsage, Label, LLMResponse, LLMType, TokenUsage
 from core.observability import get_logger
 
 log = get_logger(__name__)
@@ -42,6 +43,75 @@ warnings.filterwarnings(
 
 # LiteLLM原生支持的rerank provider类型
 LITELLM_RERANK_PROVIDERS = frozenset({"cohere", "huggingface", "jina", "infinity"})
+
+# Reasoning fallback: filter prefixes and substrings for extracting content
+# from reasoning_content when the primary content is empty.
+REASONING_FILTER_PREFIXES = (
+    "*",
+    "#",
+    "-",
+    "1.",
+    "2.",
+    "3.",
+    "4.",
+    "5.",
+    "6.",
+    "7.",
+    "8.",
+    "9.",
+)
+REASONING_FILTER_SUBSTRINGS = ("Thinking Process", "**")
+
+
+@dataclass(frozen=True)
+class ReasoningFallbackConfig:
+    """Configuration for reasoning content fallback extraction.
+
+    Controls which lines are filtered out when extracting usable content
+    from reasoning_content (when primary content is empty).
+
+    Attributes:
+        exclude_prefixes: Line prefixes that indicate reasoning metadata.
+        exclude_patterns: Substrings that indicate reasoning metadata.
+    """
+
+    exclude_prefixes: tuple[str, ...] = field(default_factory=lambda: REASONING_FILTER_PREFIXES)
+    exclude_patterns: tuple[str, ...] = field(default_factory=lambda: REASONING_FILTER_SUBSTRINGS)
+
+
+# Default config instance (uses module-level constants)
+_DEFAULT_REASONING_CONFIG = ReasoningFallbackConfig()
+
+
+def extract_reasoning_fallback(
+    reasoning: str,
+    config: ReasoningFallbackConfig | None = None,
+) -> str | None:
+    """Extract usable content from reasoning_content when primary content is empty.
+
+    Filters out lines that look like reasoning metadata (numbered lists,
+    markdown headers, bold text, "Thinking Process" markers) and returns
+    the last substantive line as fallback content.
+
+    Args:
+        reasoning: The raw reasoning_content string from the LLM response.
+        config: Optional configuration for filter prefixes/patterns.
+            Defaults to module-level constants.
+
+    Returns:
+        The last valid line as fallback content, or None if no valid lines found.
+    """
+    cfg = config or _DEFAULT_REASONING_CONFIG
+    lines = [
+        line.strip()
+        for line in reasoning.split("\n")
+        if line.strip()
+        and not line.strip().startswith(cfg.exclude_prefixes)
+        and all(pattern not in line for pattern in cfg.exclude_patterns)
+    ]
+    if lines:
+        return lines[-1]
+    return None
 
 
 class LiteLLMCaller:
@@ -161,31 +231,9 @@ class LiteLLMCaller:
             if not content:
                 reasoning = getattr(message, "reasoning_content", None) or ""
                 if reasoning:
-                    lines = [
-                        line.strip()
-                        for line in reasoning.split("\n")
-                        if line.strip()
-                        and not line.strip().startswith(
-                            (
-                                "*",
-                                "#",
-                                "-",
-                                "1.",
-                                "2.",
-                                "3.",
-                                "4.",
-                                "5.",
-                                "6.",
-                                "7.",
-                                "8.",
-                                "9.",
-                            )
-                        )
-                        and "Thinking Process" not in line
-                        and "**" not in line
-                    ]
-                    if lines:
-                        content = lines[-1]
+                    fallback = extract_reasoning_fallback(reasoning)
+                    if fallback:
+                        content = fallback
                         log.warning(
                             "chat_fallback_to_reasoning",
                             model=model,
@@ -203,10 +251,25 @@ class LiteLLMCaller:
             usage = response.usage
             cached = 0
             reasoning = 0
+            cache_hit = 0
+            cache_miss = 0
             if usage:
-                details = getattr(usage, "prompt_tokens_details", None)
-                if details:
-                    cached = getattr(details, "cached_tokens", 0) or 0
+                # DeepSeek top-level cache fields (priority)
+                deepseek_hit = getattr(usage, "prompt_cache_hit_tokens", 0) or 0
+                deepseek_miss = getattr(usage, "prompt_cache_miss_tokens", 0) or 0
+                if deepseek_hit > 0 or deepseek_miss > 0:
+                    cache_hit = deepseek_hit
+                    cache_miss = deepseek_miss
+                    cached = deepseek_hit
+                else:
+                    # OpenAI/MiMo nested prompt_tokens_details.cached_tokens
+                    details = getattr(usage, "prompt_tokens_details", None)
+                    if details:
+                        cached = getattr(details, "cached_tokens", 0) or 0
+                        if cached > 0:
+                            cache_hit = cached
+                            prompt_tokens = getattr(usage, "prompt_tokens", 0) or 0
+                            cache_miss = max(prompt_tokens - cache_hit, 0)
                 comp_details = getattr(usage, "completion_tokens_details", None)
                 if comp_details:
                     reasoning = getattr(comp_details, "reasoning_tokens", 0) or 0
@@ -228,12 +291,22 @@ class LiteLLMCaller:
                 latency_ms=latency_ms,
             )
 
+            # Build CacheUsage from provider response (None if no cache fields)
+            cache_usage: CacheUsage | None = None
+            if usage and (cache_hit > 0 or cache_miss > 0):
+                cache_usage = CacheUsage(
+                    cache_hit_tokens=cache_hit,
+                    cache_miss_tokens=cache_miss,
+                    reasoning_tokens=reasoning,
+                )
+
             return LLMResponse(
                 content=content,
                 label=label,
                 latency_ms=latency_ms,
                 token_usage=token_usage,
                 model=label.model,
+                cache_usage=cache_usage,
             )
 
         except Exception as exc:

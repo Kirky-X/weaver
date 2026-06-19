@@ -26,7 +26,6 @@ from core.llm.types import (
     ProviderConfig,
     TokenUsage,
 )
-from core.llm.utils.input_truncation import truncate_input
 from core.llm.utils.json_parser import parse_llm_json
 from core.observability import get_logger
 from core.observability.metrics import metrics
@@ -46,6 +45,18 @@ T = TypeVar("T", bound=BaseModel)
 # Embedding cache settings
 EMBEDDING_CACHE_PREFIX = RedisKeys.EMBEDDING_PREFIX
 EMBEDDING_CACHE_TTL = 7 * 24 * 60 * 60  # 7 days
+
+# Input limits per call point (in characters)
+_INPUT_LIMITS: dict[str, int] = {
+    "classifier": 600,
+    "categorizer": 1100,
+    "quality_scorer": 1500,
+    "credibility_checker": 2000,
+    "analyze": 3000,
+    "summary": 2000,
+    "entity_extractor": 2000,
+    "default": 2000,
+}
 
 
 class LLMClient:
@@ -237,9 +248,13 @@ class LLMClient:
         # Truncate input body based on call point limits
         if "body" in payload:
             truncated_payload = dict(payload)
-            truncated_payload["body"] = truncate_input(
-                cp.value, payload["body"], title=payload.get("title")
-            )
+            limit = _INPUT_LIMITS.get(cp.value, _INPUT_LIMITS["default"])
+            body = payload["body"]
+            title = payload.get("title")
+            if title:
+                truncated_payload["body"] = f"标题：{title}\n\n正文：{body[:limit]}"
+            else:
+                truncated_payload["body"] = body[:limit]
         else:
             truncated_payload = payload
 
@@ -291,9 +306,8 @@ class LLMClient:
                                 response.token_usage.total_tokens if response.token_usage else 0
                             ),
                         }
-                        await self._redis.setex(
+                        await self._redis.set(
                             cache_key,
-                            ttl,
                             json.dumps(
                                 {
                                     "content": response.content,
@@ -301,6 +315,7 @@ class LLMClient:
                                 },
                                 ensure_ascii=False,
                             ),
+                            ex=ttl,
                         )
                     except Exception as exc:
                         log.debug("redis_cache_write_failed", error=str(exc))
@@ -312,27 +327,28 @@ class LLMClient:
                 )
 
                 # 记录服务端缓存信息(客户端 cache miss 后 provider 返回的 cache 命中情况)
-                total_cache = response.cache_hit_tokens + response.cache_miss_tokens
-                server_hit_rate = (
-                    response.cache_hit_tokens / total_cache if total_cache > 0 else 0.0
-                )
+                cache_usage = response.cache_usage
+                cache_hit_tokens = cache_usage.cache_hit_tokens if cache_usage else 0
+                cache_miss_tokens = cache_usage.cache_miss_tokens if cache_usage else 0
+                total_cache = cache_hit_tokens + cache_miss_tokens
+                server_hit_rate = cache_hit_tokens / total_cache if total_cache > 0 else 0.0
                 log.info(
                     "llm_cache_miss_with_server_info",
                     label=str(label),
-                    server_cache_hit=response.cache_hit_tokens,
-                    server_cache_miss=response.cache_miss_tokens,
+                    server_cache_hit=cache_hit_tokens,
+                    server_cache_miss=cache_miss_tokens,
                     server_hit_rate=server_hit_rate,
                 )
 
                 # 递增 Prometheus 服务端缓存指标
-                if response.cache_hit_tokens > 0:
+                if cache_hit_tokens > 0:
                     metrics.llm_server_cache_hit_tokens.labels(
                         call_point=cp.value, provider=label.provider
-                    ).inc(response.cache_hit_tokens)
-                if response.cache_miss_tokens > 0:
+                    ).inc(cache_hit_tokens)
+                if cache_miss_tokens > 0:
                     metrics.llm_server_cache_miss_tokens.labels(
                         call_point=cp.value, provider=label.provider
-                    ).inc(response.cache_miss_tokens)
+                    ).inc(cache_miss_tokens)
 
                 # Prefix shape diagnostics: capture and compare prefix shape (pure observability)
                 system_prompt = ""
@@ -353,8 +369,8 @@ class LLMClient:
                 )
                 self._prefix_tracker.update_cache_stats(
                     call_point=cp.value,
-                    server_cache_hit=response.cache_hit_tokens,
-                    server_cache_miss=response.cache_miss_tokens,
+                    server_cache_hit=cache_hit_tokens,
+                    server_cache_miss=cache_miss_tokens,
                 )
                 if prefix_changed:
                     log.info(
@@ -729,10 +745,10 @@ class LLMClient:
                 if use_cache and self._redis and embedding:
                     cache_key = self._make_cache_key(texts[idx])
                     try:
-                        await self._redis.setex(
+                        await self._redis.set(
                             cache_key,
-                            EMBEDDING_CACHE_TTL,
                             json.dumps(embedding),
+                            ex=EMBEDDING_CACHE_TTL,
                         )
                     except Exception as exc:
                         log.debug("embedding_cache_write_failed", error=str(exc))

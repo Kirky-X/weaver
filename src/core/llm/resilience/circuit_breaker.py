@@ -61,6 +61,9 @@ class ProviderCircuitBreaker:
         self._slow_threshold = slow_threshold
         self._consecutive_slow = 0
         self._timeout: float = 120.0
+        # Self-maintained counters to avoid pybreaker private _state_storage API
+        self._failure_counter: int = 0
+        self._success_counter: int = 0
 
     @property
     def slow_count(self) -> int:
@@ -110,30 +113,42 @@ class ProviderCircuitBreaker:
                 "circuit_failure_recorded",
                 provider=self.name,
                 error=str(e),
-                fail_counter=self._breaker.fail_counter,
+                fail_counter=self._failure_counter,
             )
             raise
 
     def _handle_success(self) -> None:
-        storage = self._breaker._state_storage
+        # Self-maintained counters avoid pybreaker's private _state_storage API
         if self._breaker.current_state == "half-open":
-            storage.increment_success_counter()
-            if self._breaker.success_counter >= self._breaker.success_threshold:
+            self._success_counter += 1
+            if self._success_counter >= self._breaker.success_threshold:
+                self._success_counter = 0
+                self._failure_counter = 0
                 self._breaker.close()
                 log.info("circuit_closed_after_success", provider=self.name)
         else:
-            storage.reset_counter()
+            # In closed state, reset counters on success
+            self._success_counter = 0
+            self._failure_counter = 0
             self._breaker.close()
 
     def _handle_failure(self) -> None:
-        storage = self._breaker._state_storage
-        storage.increment_counter()
-        if self._breaker.fail_counter >= self._breaker.fail_max:
+        # Self-maintained counter avoids pybreaker's private _state_storage API
+        self._failure_counter += 1
+        if self._failure_counter >= self._breaker.fail_max:
+            self._failure_counter = 0
+            self._success_counter = 0
             self._breaker.open()
             log.error(
                 "circuit_opened_after_failures",
                 provider=self.name,
-                fail_counter=self._breaker.fail_counter,
+                fail_max=self._breaker.fail_max,
+            )
+        else:
+            log.warning(
+                "circuit_failure_recorded",
+                provider=self.name,
+                fail_counter=self._failure_counter,
                 fail_max=self._breaker.fail_max,
             )
 
