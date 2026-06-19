@@ -264,18 +264,18 @@ class Neo4jEntityRepo(BaseEntityRepo):
             return Neo4jEntityMapper().to_view(record)
         return None
 
-    async def find_entity_by_id(self, neo4j_id: str) -> EntityView | None:
+    async def find_entity_by_id(self, entity_id: str) -> EntityView | None:
         """Find an entity by Neo4j internal ID.
 
         Args:
-            neo4j_id: The Neo4j internal element ID.
+            entity_id: The Neo4j internal element ID.
 
         Returns:
             EntityView if found, None otherwise.
         """
         query = """
         MATCH (e)
-        WHERE elementId(e) = $neo4j_id
+        WHERE elementId(e) = $entity_id
         RETURN elementId(e) AS neo4j_id,
                e.id AS id,
                e.canonical_name AS canonical_name,
@@ -285,7 +285,7 @@ class Neo4jEntityRepo(BaseEntityRepo):
                e.created_at AS created_at,
                e.updated_at AS updated_at
         """
-        result = await self._pool.execute_query(query, {"neo4j_id": neo4j_id})
+        result = await self._pool.execute_query(query, {"entity_id": entity_id})
         if result:
             record = dict(result[0])
             record["created_at"] = convert_timestamp(record.get("created_at"))

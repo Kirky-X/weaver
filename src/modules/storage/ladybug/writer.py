@@ -107,7 +107,7 @@ class LadybugWriter:
 
         # Create article node
         await self.article_repo.create_article(
-            pg_id=article_id,
+            article_id=article_id,
             title=title,
             category=category_str,
             publish_time=publish_time,
@@ -191,8 +191,8 @@ class LadybugWriter:
                 time_gap = related.get("time_gap_hours")
                 if related_pg_id:
                     await self.article_repo.create_followed_by_relation(
-                        from_pg_id=article_id,
-                        to_pg_id=related_pg_id,
+                        from_article_id=article_id,
+                        to_article_id=related_pg_id,
                         time_gap_hours=time_gap,
                     )
 

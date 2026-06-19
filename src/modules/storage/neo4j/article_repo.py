@@ -27,7 +27,7 @@ class Neo4jArticleRepo:
 
     async def create_article(
         self,
-        pg_id: str,
+        article_id: str,
         title: str,
         category: str,
         publish_time: datetime | None,
@@ -36,7 +36,7 @@ class Neo4jArticleRepo:
         """Create an Article node in Neo4j.
 
         Args:
-            pg_id: PostgreSQL UUID of the article.
+            article_id: PostgreSQL UUID of the article.
             title: Article title.
             category: Article category.
             publish_time: Publication timestamp.
@@ -61,7 +61,7 @@ class Neo4jArticleRepo:
         RETURN elementId(a) AS neo4j_id
         """
         params = {
-            "pg_id": pg_id,
+            "pg_id": article_id,
             "title": title,
             "category": category,
             "publish_time": publish_time,
@@ -107,11 +107,11 @@ class Neo4jArticleRepo:
         result = await self._pool.execute_query(query, params)
         return [r["neo4j_id"] for r in result if r.get("neo4j_id")]
 
-    async def find_article_by_pg_id(self, pg_id: str) -> dict[str, Any] | None:
+    async def find_article_by_pg_id(self, article_id: str) -> dict[str, Any] | None:
         """Find an article node by PostgreSQL ID.
 
         Args:
-            pg_id: The PostgreSQL UUID.
+            article_id: The PostgreSQL UUID.
 
         Returns:
             Article dict if found, None otherwise.
@@ -126,7 +126,7 @@ class Neo4jArticleRepo:
                a.score AS score,
                a.created_at AS created_at
         """
-        result = await self._pool.execute_query(query, {"pg_id": pg_id})
+        result = await self._pool.execute_query(query, {"pg_id": article_id})
         if result:
             return dict(result[0])
         return None
@@ -158,8 +158,8 @@ class Neo4jArticleRepo:
 
     async def create_followed_by_relation(
         self,
-        from_pg_id: str,
-        to_pg_id: str,
+        from_article_id: str,
+        to_article_id: str,
         time_gap_hours: float | None = None,
     ) -> None:
         """Create a FOLLOWED_BY relationship between two articles.
@@ -168,8 +168,8 @@ class Neo4jArticleRepo:
         (e.g., in a series of coverage about the same event).
 
         Args:
-            from_pg_id: The source article's PostgreSQL ID.
-            to_pg_id: The target article's PostgreSQL ID.
+            from_article_id: The source article's PostgreSQL ID.
+            to_article_id: The target article's PostgreSQL ID.
             time_gap_hours: Optional time gap between articles in hours.
         """
         query = """
@@ -178,8 +178,8 @@ class Neo4jArticleRepo:
         MERGE (from)-[r:FOLLOWED_BY]->(to)
         """
         params = {
-            "from_pg_id": from_pg_id,
-            "to_pg_id": to_pg_id,
+            "from_pg_id": from_article_id,
+            "to_pg_id": to_article_id,
         }
 
         if time_gap_hours is not None:
@@ -217,14 +217,14 @@ class Neo4jArticleRepo:
 
     async def get_followed_articles(
         self,
-        pg_id: str,
+        article_id: str,
         direction: str = "outgoing",
         limit: int = 10,
     ) -> list[dict[str, Any]]:
         """Get articles that follow or are followed by the given article.
 
         Args:
-            pg_id: The article's PostgreSQL ID.
+            article_id: The article's PostgreSQL ID.
             direction: 'outgoing' for articles that follow this one,
                       'incoming' for articles that this one follows.
             limit: Maximum number of articles to return.
@@ -253,17 +253,17 @@ class Neo4jArticleRepo:
             LIMIT $limit
             """
 
-        params = {"pg_id": pg_id, "limit": limit}
+        params = {"pg_id": article_id, "limit": limit}
         result = await self._pool.execute_query(query, params)
         return [dict(record) for record in result]
 
-    async def delete_article(self, pg_id: str) -> bool:
+    async def delete_article(self, article_id: str) -> bool:
         """Delete an Article node by PostgreSQL ID.
 
         This will also remove all MENTIONS and FOLLOWED_BY relationships.
 
         Args:
-            pg_id: The article's PostgreSQL ID.
+            article_id: The article's PostgreSQL ID.
 
         Returns:
             True if deleted, False if not found.
@@ -272,7 +272,7 @@ class Neo4jArticleRepo:
         MATCH (a:Article {pg_id: $pg_id})
         DETACH DELETE a
         """
-        await self._pool.execute_query(query, {"pg_id": pg_id})
+        await self._pool.execute_query(query, {"pg_id": article_id})
         return True
 
     async def delete_old_articles(self, days: int = 90) -> int:
@@ -307,12 +307,12 @@ class Neo4jArticleRepo:
 
     async def get_article_entities(
         self,
-        pg_id: str,
+        article_id: str,
     ) -> list[dict[str, Any]]:
         """Get all entities mentioned in an article.
 
         Args:
-            pg_id: The article's PostgreSQL ID.
+            article_id: The article's PostgreSQL ID.
 
         Returns:
             List of entity dictionaries with role information.
@@ -325,38 +325,38 @@ class Neo4jArticleRepo:
                e.type AS entity_type,
                r.role AS role
         """
-        result = await self._pool.execute_query(query, {"pg_id": pg_id})
+        result = await self._pool.execute_query(query, {"pg_id": article_id})
         return [dict(record) for record in result]
 
     async def update_article_score(
         self,
-        pg_id: str,
+        article_id: str,
         score: float,
     ) -> None:
         """Update the score of an existing article.
 
         Args:
-            pg_id: The article's PostgreSQL ID.
+            article_id: The article's PostgreSQL ID.
             score: New score value.
         """
         query = """
         MATCH (a:Article {pg_id: $pg_id})
         SET a.score = $score
         """
-        await self._pool.execute_query(query, {"pg_id": pg_id, "score": score})
+        await self._pool.execute_query(query, {"pg_id": article_id, "score": score})
 
-    async def delete_orphan_articles(self, valid_pg_ids: list[str]) -> int:
+    async def delete_orphan_articles(self, valid_article_ids: list[str]) -> int:
         """Delete Article nodes whose pg_id is not in the valid list.
 
         This cleans up orphan articles that exist in Neo4j but not in PostgreSQL.
 
         Args:
-            valid_pg_ids: List of valid PostgreSQL article IDs.
+            valid_article_ids: List of valid PostgreSQL article IDs.
 
         Returns:
             Number of articles deleted.
         """
-        if not valid_pg_ids:
+        if not valid_article_ids:
             query = """
             MATCH (a:Article)
             WITH a, count(a) AS total
@@ -373,7 +373,7 @@ class Neo4jArticleRepo:
         DETACH DELETE a
         RETURN orphan_count
         """
-        result = await self._pool.execute_query(query, {"valid_pg_ids": valid_pg_ids})
+        result = await self._pool.execute_query(query, {"valid_pg_ids": valid_article_ids})
         return result[0]["orphan_count"] if result else 0
 
     async def list_all_article_pg_ids(self) -> list[str]:

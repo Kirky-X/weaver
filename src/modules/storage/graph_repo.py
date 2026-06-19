@@ -3,6 +3,16 @@
 
 Provides database-agnostic graph operations by delegating query building
 to GraphQueryBuilder implementations.
+
+Read operations are composed from four reader classes, each with a single
+responsibility:
+- GraphEntityReader: entity-centric reads
+- GraphArticleReader: article-centric reads
+- GraphVisualizer: visualization reads
+- GraphTraverser: multi-hop traversal
+
+This class owns the shared fallback-aware query execution and delegates
+the read methods to the composed readers.
 """
 
 from __future__ import annotations
@@ -11,7 +21,10 @@ from typing import TYPE_CHECKING, Any
 
 from core.db.graph_query_builders import GraphQueryBuilder
 from core.observability import get_logger
-from core.utils.time_utils import convert_timestamp
+from modules.storage.graph_readers.article import GraphArticleReader
+from modules.storage.graph_readers.entity import GraphEntityReader
+from modules.storage.graph_readers.traverser import GraphTraverser
+from modules.storage.graph_readers.visualizer import GraphVisualizer
 
 if TYPE_CHECKING:
     from core.protocols import GraphPool
@@ -24,6 +37,10 @@ class GraphRepository:
 
     Handles entity and article graph operations using the QueryBuilder pattern
     to abstract Neo4j/LadybugDB syntax differences.
+
+    Read operations are delegated to four composed reader instances. This
+    class retains the shared fallback-aware query execution logic and the
+    primary database connection state.
 
     Supports automatic fallback: if the primary database (Neo4j) returns
     empty results, queries the fallback (LadybugDB).
@@ -47,6 +64,14 @@ class GraphRepository:
         self._fallback_pool_factory = fallback_pool_factory
         self._fallback_query_builder = fallback_query_builder
         self._fallback_pool: GraphPool | None = None  # Lazy-initialized
+
+        # Compose readers, injecting shared dependencies. The execute_fn
+        # callable binds _execute_with_fallback so all readers share the
+        # same fallback pool state owned by this repository.
+        self._entity_reader = GraphEntityReader(pool, query_builder, self._execute_with_fallback)
+        self._article_reader = GraphArticleReader(pool, query_builder, self._execute_with_fallback)
+        self._visualizer = GraphVisualizer(pool, query_builder, self._execute_with_fallback)
+        self._traverser = GraphTraverser(pool, query_builder, self._execute_with_fallback)
 
     @property
     def database_type(self) -> str:
@@ -89,7 +114,7 @@ class GraphRepository:
             log.warning("graph_repo_fallback_failed", error=str(exc))
             return result
 
-    # ── Entity Operations ─────────────────────────────────────────────
+    # ── Entity Operations (delegated to GraphEntityReader) ──────────
 
     async def get_entity(self, canonical_name: str) -> dict[str, Any] | None:
         """Get entity by canonical name.
@@ -100,23 +125,7 @@ class GraphRepository:
         Returns:
             Entity dict or None if not found.
         """
-        result = await self._execute_with_fallback(
-            lambda qb: qb.build_get_entity_query(),
-            {"name": canonical_name},
-        )
-        if result:
-            record = result[0]
-            updated_at = convert_timestamp(record.get("updated_at"))
-
-            return {
-                "id": record.get("id") or "",
-                "canonical_name": record.get("canonical_name") or "",
-                "type": record.get("type") or "未知",
-                "aliases": record.get("aliases"),
-                "description": record.get("description"),
-                "updated_at": updated_at,
-            }
-        return None
+        return await self._entity_reader.get_entity(canonical_name)
 
     async def get_entity_relations(
         self, canonical_name: str, limit: int = 10
@@ -130,22 +139,7 @@ class GraphRepository:
         Returns:
             List of relationship dicts.
         """
-        result = await self._execute_with_fallback(
-            lambda qb: qb.build_get_entity_relations_query(),
-            {"name": canonical_name, "limit": limit},
-        )
-        relations = []
-        for row in result:
-            created_at = convert_timestamp(row.get("created_at"))
-            relations.append(
-                {
-                    "target": row["target"],
-                    "relation_type": row["relation_type"] or "RELATED_TO",
-                    "source_article_id": row.get("source_article_id"),
-                    "created_at": created_at,
-                }
-            )
-        return relations
+        return await self._entity_reader.get_entity_relations(canonical_name, limit)
 
     async def get_related_entities(
         self, canonical_name: str, limit: int = 10
@@ -159,37 +153,7 @@ class GraphRepository:
         Returns:
             List of entity dicts.
         """
-        result = await self._execute_with_fallback(
-            lambda qb: qb.build_get_related_entities_query(),
-            {"name": canonical_name, "limit": limit},
-        )
-        entities = []
-        for row in result:
-            updated_at = convert_timestamp(row.get("updated_at"))
-            created_at = convert_timestamp(row.get("created_at"))
-
-            entities.append(
-                {
-                    "id": row.get("id") or "",
-                    "canonical_name": row.get("canonical_name") or "",
-                    "type": row.get("type") or "未知",
-                    "aliases": row.get("aliases"),
-                    "description": row.get("description"),
-                    "created_at": created_at,
-                    "updated_at": updated_at,
-                }
-            )
-
-        # Remove duplicates based on entity ID
-        seen_ids = set()
-        deduplicated = []
-        for entity in entities:
-            entity_id = entity.get("id")
-            if entity_id and entity_id not in seen_ids:
-                seen_ids.add(entity_id)
-                deduplicated.append(entity)
-
-        return deduplicated
+        return await self._entity_reader.get_related_entities(canonical_name, limit)
 
     async def get_entity_articles(
         self, canonical_name: str, limit: int = 10
@@ -203,25 +167,9 @@ class GraphRepository:
         Returns:
             List of article dicts.
         """
-        result = await self._execute_with_fallback(
-            lambda qb: qb.build_get_entity_articles_query(),
-            {"name": canonical_name, "limit": limit},
-        )
-        articles = []
-        for row in result:
-            publish_time = convert_timestamp(row.get("publish_time"))
-            articles.append(
-                {
-                    "id": row["id"],
-                    "title": row["title"],
-                    "category": row.get("category"),
-                    "publish_time": publish_time,
-                    "score": row.get("score"),
-                }
-            )
-        return articles
+        return await self._article_reader.get_entity_articles(canonical_name, limit)
 
-    # ── Article Graph Operations ───────────────────────────────────────
+    # ── Article Graph Operations (delegated to GraphArticleReader) ───
 
     async def get_article(self, article_id: str) -> dict[str, Any] | None:
         """Get article node from graph.
@@ -232,22 +180,7 @@ class GraphRepository:
         Returns:
             Article dict or None if not found.
         """
-        result = await self._execute_with_fallback(
-            lambda qb: qb.build_get_article_graph_query(),
-            {"id": article_id},
-        )
-        if result:
-            record = result[0]
-            publish_time = convert_timestamp(record.get("publish_time"))
-
-            return {
-                "id": record.get("id") or "",
-                "title": record.get("title") or "",
-                "category": record.get("category"),
-                "publish_time": publish_time,
-                "score": record.get("score"),
-            }
-        return None
+        return await self._article_reader.get_article(article_id)
 
     async def get_article_entities(self, article_id: str) -> list[dict[str, Any]]:
         """Get entities mentioned in an article.
@@ -258,27 +191,7 @@ class GraphRepository:
         Returns:
             List of entity dicts.
         """
-        result = await self._execute_with_fallback(
-            lambda qb: qb.build_get_article_entities_query(),
-            {"id": article_id},
-        )
-        entities = []
-        for row in result:
-            updated_at = convert_timestamp(row.get("updated_at"))
-            created_at = convert_timestamp(row.get("created_at"))
-
-            entities.append(
-                {
-                    "id": row.get("id") or "",
-                    "canonical_name": row.get("canonical_name") or "",
-                    "type": row.get("type") or "未知",
-                    "aliases": row.get("aliases"),
-                    "description": row.get("description"),
-                    "created_at": created_at,
-                    "updated_at": updated_at,
-                }
-            )
-        return entities
+        return await self._article_reader.get_article_entities(article_id)
 
     async def get_article_relationships(self, article_id: str) -> list[dict[str, Any]]:
         """Get relationships between entities in an article.
@@ -289,26 +202,7 @@ class GraphRepository:
         Returns:
             List of relationship dicts.
         """
-        result = await self._execute_with_fallback(
-            lambda qb: qb.build_get_article_relationships_query(),
-            {"id": article_id},
-        )
-        relationships = []
-        for row in result:
-            created_at = convert_timestamp(row.get("created_at"))
-            relationships.append(
-                {
-                    "source_id": row["source"],
-                    "target_id": row["target"],
-                    "relation_type": row["relation_type"] or "RELATED_TO",
-                    "properties": {
-                        "description": row.get("description"),
-                        "weight": row.get("weight", 1.0),
-                        "created_at": created_at,
-                    },
-                }
-            )
-        return relationships
+        return await self._article_reader.get_article_relationships(article_id)
 
     async def get_related_articles(self, article_id: str) -> list[dict[str, Any]]:
         """Get related articles.
@@ -319,25 +213,9 @@ class GraphRepository:
         Returns:
             List of article dicts.
         """
-        result = await self._execute_with_fallback(
-            lambda qb: qb.build_get_related_articles_query(),
-            {"id": article_id},
-        )
-        articles = []
-        for row in result:
-            publish_time = convert_timestamp(row.get("publish_time"))
-            articles.append(
-                {
-                    "id": row.get("id") or "",
-                    "title": row.get("title") or "",
-                    "category": row.get("category"),
-                    "publish_time": publish_time,
-                    "score": row.get("score"),
-                }
-            )
-        return articles
+        return await self._article_reader.get_related_articles(article_id)
 
-    # ── Relation Type Operations ────────────────────────────────────────
+    # ── Relation Type Operations (delegated to GraphEntityReader) ────
 
     async def get_relation_types(self, entity_name: str, entity_type: str) -> list[dict[str, Any]]:
         """Get all relation types for an entity.
@@ -349,18 +227,7 @@ class GraphRepository:
         Returns:
             List of relation type summaries.
         """
-        result = await self._execute_with_fallback(
-            lambda qb: qb.build_get_relation_types_query(),
-            {"name": entity_name, "type": entity_type},
-        )
-        return [
-            {
-                "relation_type": r["relation_type"],
-                "target_count": r["target_count"],
-                "primary_direction": r["primary_direction"],
-            }
-            for r in result
-        ]
+        return await self._entity_reader.get_relation_types(entity_name, entity_type)
 
     async def find_by_relation_types(
         self,
@@ -380,94 +247,11 @@ class GraphRepository:
         Returns:
             List of related entity dicts with computed co-occurrence weight.
         """
-        params: dict[str, Any] = {"name": entity_name, "limit": limit}
-        if entity_type is not None:
-            params["type"] = entity_type
-        result = await self._execute_with_fallback(
-            lambda qb: qb.build_find_by_relation_types_query(relation_types, entity_type),
-            params,
+        return await self._entity_reader.find_by_relation_types(
+            entity_name, entity_type, relation_types, limit
         )
 
-        # Compute weight dynamically as co-occurrence article count
-        # Find articles that mention both the source entity and each target
-        weights = await self._compute_cooccurrence_weights(
-            entity_name, [r["target_name"] for r in result]
-        )
-
-        # Use stored weight when it's been computed (weight > 1.0),
-        # otherwise fall back to co-occurrence calculation for default 1.0 weights
-        return [
-            {
-                "relation_type": r["relation_type"],
-                "direction": r["direction"],
-                "target_name": r["target_name"],
-                "target_type": r["target_type"],
-                "target_description": r.get("target_description"),
-                "weight": (
-                    r.get("weight", 1.0)
-                    if r.get("weight", 1.0) > 1.0
-                    else weights.get(r["target_name"], r.get("weight", 1.0))
-                ),
-            }
-            for r in result
-        ]
-
-    async def _compute_cooccurrence_weights(
-        self, source_name: str, target_names: list[str]
-    ) -> dict[str, float]:
-        """Compute co-occurrence weights as shared article counts.
-
-        Uses two-pass approach: get articles mentioning source, then check
-        which of those also mention each target. Works with LadybugDB.
-
-        Args:
-            source_name: Source entity canonical name.
-            target_names: List of target entity canonical names.
-
-        Returns:
-            Dict mapping target name to co-occurrence count.
-        """
-        if not target_names:
-            return {}
-
-        try:
-            # Get articles mentioning source entity
-            source_articles_query = """
-                MATCH (a:Article)-[:MENTIONS]->(src:Entity {canonical_name: $name})
-                RETURN DISTINCT a.pg_id AS article_id
-            """
-            source_result = await self._pool.execute_query(
-                source_articles_query, {"name": source_name}
-            )
-            if not source_result:
-                return {}
-
-            source_article_ids = {row["article_id"] for row in source_result}
-            if not source_article_ids:
-                return {}
-
-            # For each target, count shared articles
-            weights = {}
-            for target in target_names:
-                target_articles_query = """
-                    MATCH (a:Article)-[:MENTIONS]->(tgt:Entity {canonical_name: $target})
-                    RETURN DISTINCT a.pg_id AS article_id
-                """
-                target_result = await self._pool.execute_query(
-                    target_articles_query, {"target": target}
-                )
-                target_article_ids = {row["article_id"] for row in target_result}
-                shared = source_article_ids & target_article_ids
-                if shared:
-                    weights[target] = float(len(shared))
-
-            return weights
-        except Exception:
-            log.warning("calculate_entity_co_occurrence_failed", exc_info=True)
-            # Fallback: return empty, stored weight will be used
-            return {}
-
-    # ── Visualization Operations ───────────────────────────────────────
+    # ── Visualization Operations (delegated to GraphVisualizer) ──────
 
     async def get_visualization_nodes(self, limit: int = 100) -> list[dict[str, Any]]:
         """Get nodes for graph visualization.
@@ -478,22 +262,7 @@ class GraphRepository:
         Returns:
             List of node dicts with id, label, type, description, and degree.
         """
-        result = await self._execute_with_fallback(
-            lambda qb: qb.build_visualization_nodes_query(),
-            {"limit": limit},
-        )
-        nodes = []
-        for row in result:
-            nodes.append(
-                {
-                    "id": row.get("id") or "",
-                    "label": row.get("label") or "",
-                    "type": row.get("type") or "未知",
-                    "description": row.get("description"),
-                    "degree": row.get("degree", 0),
-                }
-            )
-        return nodes
+        return await self._visualizer.get_visualization_nodes(limit)
 
     async def get_visualization_edges(
         self, node_ids: list[str], edge_limit: int = 300
@@ -507,21 +276,7 @@ class GraphRepository:
         Returns:
             List of edge dicts with source, target, relation_type, and weight.
         """
-        result = await self._execute_with_fallback(
-            lambda qb: qb.build_visualization_edges_query(),
-            {"node_ids": node_ids, "edge_limit": edge_limit},
-        )
-        edges = []
-        for row in result:
-            edges.append(
-                {
-                    "source": row.get("source") or "",
-                    "target": row.get("target") or "",
-                    "relation_type": row.get("relation_type") or "RELATED_TO",
-                    "weight": row.get("weight"),
-                }
-            )
-        return edges
+        return await self._visualizer.get_visualization_edges(node_ids, edge_limit)
 
     async def get_subgraph_nodes(
         self,
@@ -541,27 +296,9 @@ class GraphRepository:
         Returns:
             List of node dicts with id, label, type, and description.
         """
-        params: dict[str, Any] = {"center": center_entity}
-        if include_types:
-            params["include_types"] = include_types
-        result = await self._execute_with_fallback(
-            lambda qb: qb.build_subgraph_nodes_query(hop_pattern, include_types is not None),
-            params,
+        return await self._visualizer.get_subgraph_nodes(
+            center_entity, hop_pattern, include_types, exclude_types
         )
-        nodes = []
-        for row in result:
-            entity_type = row.get("type") or "未知"
-            if exclude_types and entity_type in exclude_types:
-                continue
-            nodes.append(
-                {
-                    "id": row.get("id") or "",
-                    "label": row.get("label") or "",
-                    "type": entity_type,
-                    "description": row.get("description"),
-                }
-            )
-        return nodes
 
     async def get_subgraph_edges(self, node_ids: list[str]) -> list[dict[str, Any]]:
         """Get edges for subgraph visualization.
@@ -572,23 +309,9 @@ class GraphRepository:
         Returns:
             List of edge dicts with source, target, relation_type, and weight.
         """
-        result = await self._execute_with_fallback(
-            lambda qb: qb.build_subgraph_edges_query(),
-            {"node_ids": node_ids},
-        )
-        edges = []
-        for row in result:
-            edges.append(
-                {
-                    "source": row.get("source") or "",
-                    "target": row.get("target") or "",
-                    "relation_type": row.get("relation_type") or "RELATED_TO",
-                    "weight": row.get("weight"),
-                }
-            )
-        return edges
+        return await self._visualizer.get_subgraph_edges(node_ids)
 
-    # ── Traverse Operations ─────────────────────────────────────────
+    # ── Traverse Operations (delegated to GraphTraverser) ────────────
 
     async def traverse(
         self,
@@ -619,115 +342,13 @@ class GraphRepository:
         Returns:
             List of result dicts containing nodes, edges, and optionally paths/aggregate.
         """
-        # Build and execute the traversal query
-        result = await self._execute_with_fallback(
-            lambda qb: qb.build_traverse_query(
-                max_depth=max_depth,
-                relation_types=relation_types,
-                return_paths=return_paths,
-                mode=mode,
-                min_confidence=min_confidence,
-            ),
-            {
-                "center": start_entity,
-                "limit": max_results,
-            },
+        return await self._traverser.traverse(
+            start_entity,
+            max_depth=max_depth,
+            relation_types=relation_types,
+            max_results=max_results,
+            timeout_seconds=timeout_seconds,
+            return_paths=return_paths,
+            mode=mode,
+            min_confidence=min_confidence,
         )
-
-        if not result:
-            return []
-
-        # Process results based on mode
-        if mode == "aggregate":
-            return self._process_traverse_aggregate(result)
-
-        return self._process_traverse_full(result, return_paths)
-
-    def _process_traverse_full(
-        self, result: list[dict[str, Any]], return_paths: bool
-    ) -> list[dict[str, Any]]:
-        """Process full traversal results into structured output.
-
-        Args:
-            result: Raw query results.
-            return_paths: Whether to include path information.
-
-        Returns:
-            List of result dicts with nodes, edges, and optionally paths.
-        """
-        nodes_seen: dict[str, dict[str, Any]] = {}
-        edges_seen: set[tuple[str, str, str]] = set()
-        paths: list[dict[str, Any]] = []
-
-        for row in result:
-            # Collect nodes
-            node_name = row.get("node_name", "")
-            if node_name and node_name not in nodes_seen:
-                nodes_seen[node_name] = {
-                    "id": row.get("node_id", ""),
-                    "canonical_name": node_name,
-                    "type": row.get("node_type", ""),
-                    "description": row.get("node_description"),
-                }
-
-            # Collect edges
-            source = row.get("source", "")
-            target = row.get("target", "")
-            rel_type = row.get("relation_type", "")
-            if source and target and rel_type:
-                edge_key = (source, target, rel_type)
-                if edge_key not in edges_seen:
-                    edges_seen.add(edge_key)
-
-            # Collect path data
-            if return_paths and row.get("path_nodes"):
-                paths.append(
-                    {
-                        "nodes": row.get("path_nodes", []),
-                        "edges": row.get("path_edges", []),
-                    }
-                )
-
-        return [
-            {
-                "nodes": list(nodes_seen.values()),
-                "edges": [
-                    {"source": s, "target": t, "relation_type": r, "weight": 1.0}
-                    for s, t, r in edges_seen
-                ],
-                "paths": paths if return_paths else None,
-            }
-        ]
-
-    def _process_traverse_aggregate(self, result: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Process aggregate traversal results.
-
-        Args:
-            result: Raw query results.
-
-        Returns:
-            List with single result dict containing aggregate statistics.
-        """
-        total_nodes = 0
-        total_edges = 0
-        relation_type_counts: dict[str, int] = {}
-
-        for row in result:
-            total_nodes = max(total_nodes, row.get("total_nodes", 0))
-            total_edges = max(total_edges, row.get("total_edges", 0))
-            rt = row.get("relation_type", "")
-            count = row.get("type_count", 0)
-            if rt:
-                relation_type_counts[rt] = count
-
-        return [
-            {
-                "nodes": [],
-                "edges": [],
-                "aggregate": {
-                    "total_nodes": total_nodes,
-                    "total_edges": total_edges,
-                    "relation_type_counts": relation_type_counts,
-                },
-            }
-        ]

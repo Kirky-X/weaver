@@ -30,7 +30,7 @@ class LadybugArticleRepo:
 
     async def create_article(
         self,
-        pg_id: str,
+        article_id: str,
         title: str,
         category: str,
         publish_time: int | None = None,
@@ -39,7 +39,7 @@ class LadybugArticleRepo:
         """Create or update an article node.
 
         Args:
-            pg_id: PostgreSQL article ID.
+            article_id: PostgreSQL article ID.
             title: Article title.
             category: Article category.
             publish_time: Publish timestamp (int, not datetime).
@@ -48,10 +48,10 @@ class LadybugArticleRepo:
         Returns:
             The article ID.
         """
-        article_id = str(uuid.uuid4())
+        generated_id = str(uuid.uuid4())
 
         # Check if article already exists
-        existing = await self.find_article_by_pg_id(pg_id)
+        existing = await self.find_article_by_pg_id(article_id)
         if existing:
             # Update existing article
             query = """
@@ -65,7 +65,7 @@ class LadybugArticleRepo:
             result = await self._pool.execute_query(
                 query,
                 {
-                    "pg_id": pg_id,
+                    "pg_id": article_id,
                     "title": title,
                     "category": category,
                     "publish_time": publish_time or 0,
@@ -93,8 +93,8 @@ class LadybugArticleRepo:
         result = await self._pool.execute_query(
             query,
             {
-                "id": article_id,
-                "pg_id": pg_id,
+                "id": generated_id,
+                "pg_id": article_id,
                 "title": title,
                 "category": category,
                 "publish_time": publish_time or 0,
@@ -103,7 +103,7 @@ class LadybugArticleRepo:
         )
         if result:
             return result[0]["id"]
-        return article_id
+        return generated_id
 
     async def create_articles_batch(
         self,
@@ -182,7 +182,7 @@ class LadybugArticleRepo:
 
         return created_ids + list(existing_ids.values())
 
-    async def find_article_by_pg_id(self, pg_id: str) -> dict[str, Any] | None:
+    async def find_article_by_pg_id(self, article_id: str) -> dict[str, Any] | None:
         """Find an article by its PostgreSQL ID."""
         query = """
         MATCH (a:Article {pg_id: $pg_id})
@@ -193,7 +193,7 @@ class LadybugArticleRepo:
                a.publish_time AS publish_time,
                a.score AS score
         """
-        result = await self._pool.execute_query(query, {"pg_id": pg_id})
+        result = await self._pool.execute_query(query, {"pg_id": article_id})
         if result:
             return dict(result[0])
         return None
@@ -216,8 +216,8 @@ class LadybugArticleRepo:
 
     async def create_followed_by_relation(
         self,
-        from_pg_id: str,
-        to_pg_id: str,
+        from_article_id: str,
+        to_article_id: str,
         time_gap_hours: float | None = None,
     ) -> None:
         """Create a FOLLOWED_BY relationship between two articles."""
@@ -230,8 +230,8 @@ class LadybugArticleRepo:
         await self._pool.execute_query(
             query,
             {
-                "from_pg_id": from_pg_id,
-                "to_pg_id": to_pg_id,
+                "from_pg_id": from_article_id,
+                "to_pg_id": to_article_id,
                 "time_gap_hours": time_gap_hours or 0.0,
             },
         )
@@ -265,7 +265,7 @@ class LadybugArticleRepo:
 
     async def get_followed_articles(
         self,
-        pg_id: str,
+        article_id: str,
         direction: str = "outgoing",
         limit: int = 10,
     ) -> list[dict[str, Any]]:
@@ -290,10 +290,10 @@ class LadybugArticleRepo:
                    r.time_gap_hours AS time_gap_hours
             LIMIT $limit
             """
-        result = await self._pool.execute_query(query, {"pg_id": pg_id, "limit": limit})
+        result = await self._pool.execute_query(query, {"pg_id": article_id, "limit": limit})
         return [dict(r) for r in result]
 
-    async def delete_article(self, pg_id: str) -> bool:
+    async def delete_article(self, article_id: str) -> bool:
         """Delete an article and its relationships."""
         query = """
         MATCH (a:Article {pg_id: $pg_id})
@@ -301,7 +301,7 @@ class LadybugArticleRepo:
         DELETE a
         RETURN count
         """
-        result = await self._pool.execute_query(query, {"pg_id": pg_id})
+        result = await self._pool.execute_query(query, {"pg_id": article_id})
         return bool(result and result[0].get("count", 0) > 0)
 
     async def delete_old_articles(self, days: int = 90) -> int:
@@ -320,7 +320,7 @@ class LadybugArticleRepo:
             count += 1
         return count
 
-    async def get_article_entities(self, pg_id: str) -> list[dict[str, Any]]:
+    async def get_article_entities(self, article_id: str) -> list[dict[str, Any]]:
         """Get all entities mentioned by an article."""
         query = """
         MATCH (a:Article {pg_id: $pg_id})-[r:MENTIONS]->(e:Entity)
@@ -329,18 +329,18 @@ class LadybugArticleRepo:
                e.type AS type,
                r.role AS role
         """
-        result = await self._pool.execute_query(query, {"pg_id": pg_id})
+        result = await self._pool.execute_query(query, {"pg_id": article_id})
         return [dict(r) for r in result]
 
-    async def update_article_score(self, pg_id: str, score: float) -> None:
+    async def update_article_score(self, article_id: str, score: float) -> None:
         """Update an article's score."""
         query = """
         MATCH (a:Article {pg_id: $pg_id})
         SET a.score = $score
         """
-        await self._pool.execute_query(query, {"pg_id": pg_id, "score": score})
+        await self._pool.execute_query(query, {"pg_id": article_id, "score": score})
 
-    async def delete_orphan_articles(self, valid_pg_ids: list[str]) -> int:
+    async def delete_orphan_articles(self, valid_article_ids: list[str]) -> int:
         """Delete articles that don't exist in PostgreSQL."""
         # Find orphan articles
         query = """
@@ -348,7 +348,7 @@ class LadybugArticleRepo:
         RETURN a.pg_id AS pg_id
         """
         result = await self._pool.execute_query(query)
-        orphan_pg_ids = [r["pg_id"] for r in result if r["pg_id"] not in valid_pg_ids]
+        orphan_pg_ids = [r["pg_id"] for r in result if r["pg_id"] not in valid_article_ids]
         count = 0
         for pg_id in orphan_pg_ids:
             await self.delete_article(pg_id)
