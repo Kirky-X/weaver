@@ -4,38 +4,37 @@
 Periodically updates community assignments based on new entities and relationships,
 avoiding full graph rebuilds. Uses 2 hop subgraph extraction and Leiden algorithm
 for optimal community detection (falls back to connected components if unavailable).
+
+The updater is now a thin orchestrator composed of four collaborators, each with a
+single responsibility:
+
+- ``UpdateTriggerPolicy`` — decides when updates/rebuilds run.
+- ``SubgraphClusteringService`` — extracts subgraphs and clusters communities.
+- ``DiffWriter`` — persists assignment diffs to the graph database.
+- ``ModularityCalculator`` — computes graph modularity.
+
+Public and private methods that previously lived here are preserved as delegating
+wrappers so existing callers and tests keep working unchanged.
 """
 
 from __future__ import annotations
 
-import uuid
-from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING
 
-from core.constants import DatabaseType
 from core.observability import get_logger
-
-# Optional: Leiden algorithm for better community detection
-try:
-    import igraph as ig
-    import leidenalg
-
-    LEIDEN_AVAILABLE = True
-except ImportError:
-    LEIDEN_AVAILABLE = False
+from modules.knowledge.graph.community.health.checker import CommunityHealthChecker
+from modules.knowledge.graph.community.health.models import HealthIssue
+from modules.knowledge.graph.community.repair_service import CommunityRepairService
+from modules.knowledge.graph.community.updater_clustering import SubgraphClusteringService
+from modules.knowledge.graph.community.updater_diff import DiffWriter
+from modules.knowledge.graph.community.updater_modularity import ModularityCalculator
+from modules.knowledge.graph.community.updater_trigger import UpdateTriggerPolicy
 
 if TYPE_CHECKING:
     from core.llm import LLMClient
     from core.protocols import GraphPool
-
-from modules.knowledge.graph.community.health.checker import CommunityHealthChecker
-from modules.knowledge.graph.community.health.models import (
-    CommunityHealthStatus,
-    HealthIssue,
-)
-from modules.knowledge.graph.community.repair_service import CommunityRepairService
 
 log = get_logger(__name__)
 
@@ -121,269 +120,31 @@ class IncrementalCommunityUpdater:
         else:
             self._database_type = database_type
 
-    async def should_trigger(
-        self,
-        pending_count: int,
-        last_update_at: datetime | None,
-    ) -> bool:
-        """Check if incremental update should be triggered.
+        # Compose collaborators, sharing the same pool and wiring cross-service
+        # references back to this updater (used only at call time).
+        self._modularity_calculator = ModularityCalculator(pool)
+        self._diff_writer = DiffWriter(pool)
+        self._clustering_service = SubgraphClusteringService(
+            pool=pool,
+            max_subgraph_size=max_subgraph_size,
+            database_type=self._database_type,
+            llm_client=llm_client,
+            modularity_calculator=self._modularity_calculator,
+            diff_writer=self._diff_writer,
+            updater=self,
+        )
+        self._trigger_policy = UpdateTriggerPolicy(
+            pool=pool,
+            update_threshold=update_threshold,
+            interval_minutes=interval_minutes,
+            full_rebuild_interval_days=full_rebuild_interval_days,
+            clustering_service=self._clustering_service,
+            updater=self,
+        )
 
-        Args:
-            pending_count: Number of pending entities since last update.
-            last_update_at: Timestamp of last incremental update.
-
-        Returns:
-            True if update should be triggered.
-        """
-        # Condition 1: pending count >= threshold
-        if pending_count >= self.update_threshold:
-            log.info(
-                "should_trigger_count_threshold",
-                pending_count=pending_count,
-                threshold=self.update_threshold,
-            )
-            return True
-
-        # Condition 2: time interval passed AND has pending data
-        if last_update_at and pending_count > 0:
-            minutes_since = (datetime.now(UTC) - last_update_at).total_seconds() / 60
-            if minutes_since >= self.interval_minutes:
-                log.info(
-                    "should_trigger_time_threshold",
-                    minutes_since=minutes_since,
-                    pending_count=pending_count,
-                )
-                return True
-
-        return False
-
-    async def check_and_run(self) -> dict[str, object]:
-        """Unified entry point for community auto-scheduling.
-
-        Checks all trigger conditions and runs full rebuild if any is met.
-
-        Returns:
-            Dict with triggered, reason, and optional details.
-        """
-        # Check if any communities exist
-        community_count = await self._get_community_count()
-        if community_count == 0:
-            log.info("check_and_run_no_communities")
-            result = await self.run_full_rebuild()
-            return {
-                "triggered": True,
-                "reason": "no_communities_exist",
-                "communities_created": result.communities_created,
-                "entities_reassigned": result.entities_reassigned,
-                "duration_seconds": result.duration_seconds,
-            }
-
-        # Check entity percentage change
-        entity_change_exceeded, current_count, previous_count = await self._check_entity_change()
-        if entity_change_exceeded:
-            log.info(
-                "check_and_run_entity_change_exceeded",
-                current_count=current_count,
-                previous_count=previous_count,
-            )
-            result = await self.run_full_rebuild()
-            return {
-                "triggered": True,
-                "reason": "entity_change_exceeded",
-                "current_entity_count": current_count,
-                "previous_entity_count": previous_count,
-                "communities_created": result.communities_created,
-                "duration_seconds": result.duration_seconds,
-            }
-
-        # Check rebuild interval
-        if await self.check_full_rebuild_needed():
-            log.info("check_and_run_interval_exceeded")
-            result = await self.run_full_rebuild()
-            return {
-                "triggered": True,
-                "reason": "rebuild_interval_exceeded",
-                "communities_created": result.communities_created,
-                "duration_seconds": result.duration_seconds,
-            }
-
-        # Health check for degraded/critical status
-        health_report = await self._run_health_check()
-        if health_report.status in (
-            CommunityHealthStatus.DEGRADED,
-            CommunityHealthStatus.CRITICAL,
-        ):
-            log.info(
-                "check_and_run_health_check_failed",
-                status=health_report.status.value,
-                issues=len(health_report.issues),
-            )
-            repair_result = await self._auto_repair(health_report.issues)
-            return {
-                "triggered": True,
-                "reason": "health_check_failed",
-                "health_status": health_report.status.value,
-                "health_score": health_report.score,
-                "repaired": repair_result.to_dict(),
-            }
-
-        # No conditions met
-        return {
-            "triggered": False,
-            "reason": None,
-            "health_status": health_report.status.value,
-            "health_score": health_report.score,
-        }
-
-    async def force_rebuild(self) -> dict[str, object]:
-        """Force full community rebuild unconditionally.
-
-        Returns:
-            Dict with triggered=True, reason='forced', and rebuild results.
-        """
-        log.info("force_rebuild_start")
-        result = await self.run_full_rebuild()
-        return {
-            "triggered": True,
-            "reason": "forced",
-            "communities_created": result.communities_created,
-            "modularity": result.modularity_after,
-            "duration_seconds": result.duration_seconds,
-        }
-
-    async def _get_community_count(self) -> int:
-        """Get total number of Community nodes.
-
-        Returns:
-            Count of Community nodes in Neo4j.
-        """
-        query = "MATCH (c:Community) RETURN count(c) AS total"
-        try:
-            result = await self._pool.execute_query(query)
-            return result[0]["total"] if result and result[0] else 0
-        except Exception:
-            log.warning("community_count_failed", exc_info=True)
-            return 0
-
-    async def _check_entity_change(self) -> tuple[bool, int, int]:
-        """Check if entity count change exceeds threshold.
-
-        Compares current entity count with the count stored at last rebuild.
-
-        Returns:
-            Tuple of (exceeded, current_count, previous_count).
-        """
-        # Get current entity count
-        current_query = """
-        MATCH (e:Entity)
-        WHERE (e.pruned IS NULL OR e.pruned = false)
-        RETURN count(e) AS total
-        """
-        try:
-            result = await self._pool.execute_query(current_query)
-            current_count = result[0]["total"] if result and result[0] else 0
-        except Exception:
-            log.warning("check_entity_count_change_failed", exc_info=True)
-            return False, 0, 0
-
-        # Get previous count from metadata
-        previous_query = """
-        MATCH (m:_CommunityMetadata)
-        RETURN m.entity_count AS previous_count
-        """
-        try:
-            result = await self._pool.execute_query(previous_query)
-            previous_count = result[0].get("previous_count", 0) if result and result[0] else 0
-        except Exception:
-            log.warning("community_metadata_query_failed", exc_info=True)
-            return False, current_count, 0
-
-        if previous_count is None:
-            previous_count = 0
-
-        # Calculate change ratio
-        if previous_count > 0:
-            change_ratio = abs(current_count - previous_count) / previous_count
-            if change_ratio > self.ENTITY_CHANGE_THRESHOLD:
-                return True, current_count, previous_count
-
-        return False, current_count, previous_count
-
-    async def get_stats(self) -> CommunityStats:
-        """Get current community update statistics.
-
-        Returns:
-            CommunityStats with current state.
-        """
-        stats = CommunityStats()
-
-        # Get last update timestamps from metadata
-        metadata_query = """
-        MATCH (m:_CommunityMetadata)
-        RETURN m.last_full_rebuild_at AS last_full_rebuild,
-               m.last_incremental_update_at AS last_incremental,
-               m.pending_entity_count AS pending_count
-        """
-
-        try:
-            result = await self._pool.execute_query(metadata_query)
-            if result and result[0]:
-                row = result[0]
-                stats.last_full_rebuild_at = row.get("last_full_rebuild")
-                stats.last_incremental_update_at = row.get("last_incremental")
-                stats.pending_entity_count = row.get("pending_count", 0)
-        except Exception as exc:
-            log.debug("get_community_stats_failed", error=str(exc))
-
-        # Also get current community count
-        community_count_query = """
-        MATCH (c:Community)
-        RETURN count(c) AS total
-        """
-
-        try:
-            result = await self._pool.execute_query(community_count_query)
-            stats.total_communities = result[0]["total"] if result and result[0] else 0
-        except Exception:
-            log.warning("community_count_in_stats_failed", exc_info=True)
-            stats.total_communities = 0
-
-        return stats
-
-    async def check_full_rebuild_needed(self) -> bool:
-        """Check if full rebuild is needed.
-
-        Returns:
-            True if full rebuild is needed.
-        """
-        stats = await self.get_stats()
-
-        # Condition 1: Time since last full rebuild
-        if stats.last_full_rebuild_at:
-            days_since = (datetime.now(UTC) - stats.last_full_rebuild_at).total_seconds() / 86400
-            if days_since >= self.full_rebuild_interval_days:
-                log.info(
-                    "full_rebuild_needed_time",
-                    days_since=days_since,
-                    threshold=self.full_rebuild_interval_days,
-                )
-                return True
-        else:
-            # Never done a full rebuild
-            log.info("full_rebuild_needed_never")
-            return True
-
-        # Condition 2: Modularity degradation
-        # Check if modularity has dropped cumulatively >0.05 over last 3 checks
-        if len(stats.modularity_history) >= 3:
-            recent = stats.modularity_history[-3:]
-            if len(recent) >= 3:
-                drop = recent[0] - recent[-1]
-                if drop > 0.05:
-                    log.info("full_rebuild_needed_modularity", drop=drop)
-                    return True
-
-        return False
+    # ------------------------------------------------------------------ #
+    # Orchestration (kept on this class)
+    # ------------------------------------------------------------------ #
 
     async def execute(self, entity_names: list[str]) -> IncrementalUpdateResult:
         """Provide main entry point for incremental community update.
@@ -462,928 +223,6 @@ class IncrementalCommunityUpdater:
         )
 
         return result
-
-    def _run_local_clustering(
-        self,
-        nodes: list[str],
-        edges: list[tuple[str, str, float]],
-    ) -> dict[str, str]:
-        """Run local clustering using connected components.
-
-        Uses connected component analysis for local clustering.
-        Each component gets a UUID as its community_id.
-        Falls back to connected components when leidenalg is unavailable.
-
-        Args:
-            nodes: List of entity IDs.
-            edges: List of (source, target, weight) tuples.
-
-        Returns:
-            Dict mapping node_id -> community_id (UUID string).
-        """
-        adjacency, all_nodes = build_adjacency(edges)
-        all_nodes.update(nodes)
-
-        components = find_connected_components_dfs(adjacency, all_nodes)
-        assignments = assign_components_to_uuids(components)
-
-        log.debug(
-            "local_clustering_complete",
-            components=len(set(assignments.values())),
-            entities=len(assignments),
-        )
-        return assignments
-
-    async def run_incremental_update(
-        self,
-        entity_names: list[str] | None = None,
-    ) -> IncrementalUpdateResult:
-        """Run incremental community update.
-
-        Args:
-            entity_names: Optional list of new/updated entity names.
-                If None, will query for pending entities.
-
-        Returns:
-            IncrementalUpdateResult with statistics.
-        """
-        import time
-
-        start = time.monotonic()
-        result = IncrementalUpdateResult()
-
-        log.info("incremental_community_update_start")
-
-        # Get modularity before
-        result.modularity_before = await self._calculate_modularity()
-
-        # If entity names not provided, get pending entities
-        if entity_names is None:
-            entity_names = await self._get_pending_entity_names()
-
-        if not entity_names:
-            log.info("incremental_community_update_no_pending")
-            await self._update_metadata(result)
-            result.duration_seconds = time.monotonic() - start
-            return result
-
-        # Step 1: Identify affected communities
-        affected_communities = await self._identify_affected_communities(entity_names)
-        result.affected_communities = len(affected_communities)
-
-        if not affected_communities:
-            log.info("incremental_community_update_no_affected")
-            # Create new communities for new entities
-            new_communities = await self._create_communities_for_entities(entity_names)
-            result.communities_created = new_communities
-            await self._update_metadata(result)
-            result.duration_seconds = time.monotonic() - start
-            return result
-
-        # Step 2: Extract subgraph
-        node_ids, edges = await self._extract_subgraph(affected_communities)
-
-        if not node_ids:
-            log.warning("incremental_community_update_empty_subgraph")
-            result.duration_seconds = time.monotonic() - start
-            return result
-
-        # Step 3: Get current assignments
-        old_assignments = await self._get_current_assignments(node_ids)
-
-        # Step 4: Run clustering to get new assignments
-        new_assignments = await self._cluster_communities(node_ids, edges)
-
-        # Step 4.5: Delete affected communities to prevent duplicate accumulation
-        await self._delete_communities_by_ids(affected_communities)
-
-        # Step 5: Write new assignments (creates fresh communities)
-        diff_result = await self._write_new_assignments(new_assignments)
-        result.entities_reassigned = diff_result["reassigned"]
-        result.communities_created = diff_result["created"]
-        result.communities_emptied = diff_result["emptied"]
-
-        # Step 6: Mark stale reports
-        result.reports_marked_stale = await self._mark_stale_reports(
-            affected_communities, diff_result["entity_count_changes"]
-        )
-
-        # Get modularity after
-        result.modularity_after = await self._calculate_modularity()
-
-        # Update metadata
-        await self._update_metadata(result)
-
-        result.duration_seconds = time.monotonic() - start
-
-        log.info(
-            "incremental_community_update_complete",
-            affected=result.affected_communities,
-            reassigned=result.entities_reassigned,
-            created=result.communities_created,
-            emptied=result.communities_emptied,
-            stale=result.reports_marked_stale,
-            duration=result.duration_seconds,
-        )
-
-        return result
-
-    async def run_full_rebuild(self) -> IncrementalUpdateResult:
-        """Run full community rebuild on the entire graph.
-
-        Delegates to CommunityDetector.rebuild_communities() which uses
-        Hierarchical Leiden algorithm for high-quality community detection.
-
-        Returns:
-            IncrementalUpdateResult with statistics.
-        """
-        import time
-
-        start = time.monotonic()
-        result = IncrementalUpdateResult()
-
-        log.info("full_community_rebuild_start")
-
-        # Get modularity before
-        result.modularity_before = await self._calculate_modularity()
-
-        # Delegate to CommunityDetector for Leiden-based rebuild
-        from core.db.graph_query_builders import GraphDatabaseType
-        from modules.knowledge.graph.community.detector import CommunityDetector
-
-        db_type = (
-            GraphDatabaseType.LADYBUG
-            if self._database_type == DatabaseType.LADYBUG.value
-            else GraphDatabaseType.NEO4J
-        )
-        detector = CommunityDetector(pool=self._pool, llm_client=self._llm, database_type=db_type)
-        detection_result = await detector.rebuild_communities()
-
-        result.communities_created = detection_result.total_communities
-        result.entities_reassigned = detection_result.total_entities
-        result.modularity_after = detection_result.modularity
-
-        # Update metadata including entity count
-        await self._update_full_rebuild_metadata()
-
-        result.duration_seconds = time.monotonic() - start
-
-        log.info(
-            "full_community_rebuild_complete",
-            communities=result.communities_created,
-            entities=result.entities_reassigned,
-            modularity=result.modularity_after,
-            duration=result.duration_seconds,
-        )
-
-        return result
-
-    async def _get_pending_entity_names(self) -> list[str]:
-        """Get names of entities pending community assignment.
-
-        Returns:
-            List of entity canonical names.
-        """
-        query = """
-        MATCH (e:Entity)
-        WHERE NOT (e)<-[:HAS_ENTITY]-(:Community)
-          AND (e.pruned IS NULL OR e.pruned = false)
-        RETURN e.canonical_name AS name
-        LIMIT $limit
-        """
-
-        try:
-            results = await self._pool.execute_query(query, {"limit": self.max_subgraph_size})
-            return [r["name"] for r in results if r.get("name")]
-        except Exception as exc:
-            log.error("get_pending_entities_failed", error=str(exc))
-            return []
-
-    async def _identify_affected_communities(
-        self,
-        entity_names: list[str],
-    ) -> list[str]:
-        """Find communities affected by new/updated entities via 2-hop traversal.
-
-        Args:
-            entity_names: List of entity canonical names.
-
-        Returns:
-            List of affected community IDs.
-        """
-        if not entity_names:
-            return []
-
-        # First, find communities directly containing these entities
-        # Then, find neighboring communities through 2-hop entity relationships
-        query = """
-        MATCH (e:Entity)-[:HAS_ENTITY]-(c:Community)
-        WHERE e.canonical_name IN $names
-        WITH DISTINCT c.id AS community_id
-        MATCH (c:Community)-[:HAS_ENTITY]-(e1:Entity)-[r]-(e2:Entity)-[:HAS_ENTITY]-(c2:Community)
-        WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
-          AND (e2.pruned IS NULL OR e2.pruned = false)
-        RETURN DISTINCT community_id, c2.id AS neighbor_community_id
-        """
-
-        try:
-            results = await self._pool.execute_query(query, {"names": entity_names})
-            community_ids = set()
-            for row in results:
-                if row.get("community_id"):
-                    community_ids.add(row["community_id"])
-                if row.get("neighbor_community_id"):
-                    community_ids.add(row["neighbor_community_id"])
-            return list(community_ids)
-        except Exception as exc:
-            log.error("identify_affected_communities_failed", error=str(exc))
-            return []
-
-    async def _extract_subgraph(
-        self,
-        community_ids: list[str],
-    ) -> tuple[list[str], list[tuple[str, str, float]]]:
-        """Extract 2-hop subgraph around affected communities.
-
-        Args:
-            community_ids: List of community IDs to extract around.
-
-        Returns:
-            Tuple of (node_ids, edges_with_weights).
-        """
-        if not community_ids:
-            return [], []
-
-        id_expr1 = "e1.id" if self._database_type == DatabaseType.LADYBUG.value else "elementId(e1)"
-        id_expr2 = "e2.id" if self._database_type == DatabaseType.LADYBUG.value else "elementId(e2)"
-
-        query = f"""
-        MATCH (c:Community)-[:HAS_ENTITY]-(e1:Entity)
-        WHERE c.id IN $community_ids
-          AND (e1.pruned IS NULL OR e1.pruned = false)
-        WITH e1
-        MATCH (e1)-[r]-(e2:Entity)
-        WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
-          AND (e2.pruned IS NULL OR e2.pruned = false)
-        RETURN DISTINCT
-               {id_expr1} AS id1,
-               {id_expr2} AS id2,
-               coalesce(r.weight, 1.0) AS weight
-        LIMIT $max_edges
-        """
-
-        try:
-            results = await self._pool.execute_query(
-                query,
-                {"community_ids": community_ids, "max_edges": self.max_subgraph_size * 2},
-            )
-
-            node_ids: set[str] = set()
-            edges: list[tuple[str, str, float]] = []
-
-            for row in results:
-                id1 = row.get("id1")
-                id2 = row.get("id2")
-                weight = row.get("weight", 1.0)
-                if id1 and id2:
-                    node_ids.add(id1)
-                    node_ids.add(id2)
-                    edges.append((id1, id2, float(weight)))
-
-                    # Enforce max subgraph size
-                    if len(node_ids) >= self.max_subgraph_size:
-                        break
-
-            log.debug(
-                "subgraph_extracted",
-                nodes=len(node_ids),
-                edges=len(edges),
-            )
-            return list(node_ids), edges
-
-        except Exception as exc:
-            log.error("extract_subgraph_failed", error=str(exc))
-            return [], []
-
-    async def _get_current_assignments(
-        self,
-        node_ids: list[str],
-    ) -> dict[str, str]:
-        """Get current community assignments for nodes.
-
-        Args:
-            node_ids: List of Neo4j element IDs for entities.
-
-        Returns:
-            Dict mapping node_id to community_id.
-        """
-        if not node_ids:
-            return {}
-
-        query = """
-        MATCH (e)<-[:HAS_ENTITY]-(c:Community)
-        WHERE elementId(e) IN $node_ids
-        RETURN elementId(e) AS node_id, c.id AS community_id
-        """
-
-        try:
-            results = await self._pool.execute_query(query, {"node_ids": node_ids})
-            return {r["node_id"]: r["community_id"] for r in results if r.get("node_id")}
-        except Exception as exc:
-            log.error("get_current_assignments_failed", error=str(exc))
-            return {}
-
-    async def _cluster_communities(
-        self,
-        node_ids: list[str],
-        edges: list[tuple[str, str, float]],
-    ) -> dict[str, str]:
-        """Cluster nodes into communities using Leiden algorithm.
-
-        Uses Leiden algorithm for optimal community detection with modularity
-        optimization. Falls back to connected components when leidenalg is unavailable.
-
-        Args:
-            node_ids: List of node IDs.
-            edges: List of (source, target, weight) tuples.
-
-        Returns:
-            Dict mapping node_id to new community_id.
-        """
-        if not node_ids:
-            return {}
-
-        # Try Leiden algorithm first
-        if LEIDEN_AVAILABLE:
-            return self._cluster_with_leiden(node_ids, edges)
-        else:
-            log.debug("leiden_unavailable_using_connected_components")
-            return self._cluster_with_connected_components(node_ids, edges)
-
-    def _cluster_with_leiden(
-        self,
-        node_ids: list[str],
-        edges: list[tuple[str, str, float]],
-    ) -> dict[str, str]:
-        """Cluster nodes using Leiden algorithm for optimal modularity.
-
-        Args:
-            node_ids: List of node IDs.
-            edges: List of (source, target, weight) tuples.
-
-        Returns:
-            Dict mapping node_id to community_id.
-        """
-        try:
-            # Create node ID to index mapping
-            node_id_to_idx = {node_id: idx for idx, node_id in enumerate(node_ids)}
-
-            # Build edge list for igraph (using indices)
-            edge_list = []
-            weights = []
-            node_id_set = set(node_ids)
-
-            for source, target, weight in edges:
-                if source in node_id_set and target in node_id_set:
-                    edge_list.append((node_id_to_idx[source], node_id_to_idx[target]))
-                    weights.append(weight)
-
-            if not edge_list:
-                # No edges - each node is its own community
-                return {node_id: str(uuid.uuid4()) for node_id in node_ids}
-
-            # Create igraph graph
-            g = ig.Graph(n=len(node_ids), edges=edge_list, directed=False)
-            g.es["weight"] = weights
-
-            # Apply Leiden algorithm with modularity optimization
-            partition = leidenalg.find_partition(
-                g,
-                leidenalg.ModularityVertexPartition,
-                weights="weight",
-                seed=42,  # Reproducible results
-            )
-
-            # Map nodes to communities
-            assignments = {}
-            for idx, community_id in enumerate(partition.membership):
-                node_id = node_ids[idx]
-                # Use community index as part of UUID for reproducibility
-                community_uuid = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"community_{community_id}"))
-                assignments[node_id] = community_uuid
-
-            log.debug(
-                "leiden_clustering_complete",
-                communities=len(set(partition.membership)),
-                nodes=len(assignments),
-                modularity=partition.q,
-            )
-
-            return assignments
-
-        except Exception as exc:
-            log.warning(
-                "leiden_clustering_failed_using_fallback",
-                error=str(exc),
-                error_type=type(exc).__name__,
-            )
-            # Fall back to connected components
-            return self._cluster_with_connected_components(node_ids, edges)
-
-    def _cluster_with_connected_components(
-        self,
-        node_ids: list[str],
-        edges: list[tuple[str, str, float]],
-    ) -> dict[str, str]:
-        """Cluster nodes using connected components (fallback method).
-
-        Args:
-            node_ids: List of node IDs.
-            edges: List of (source, target, weight) tuples.
-
-        Returns:
-            Dict mapping node_id to community_id.
-        """
-        if not node_ids:
-            return {}
-
-        # Build adjacency list (filtered by node_id_set)
-        node_id_set = set(node_ids)
-        adjacency, _ = build_adjacency(edges, node_filter=node_id_set)
-
-        # Find connected components and assign UUIDs
-        components = find_connected_components_dfs(adjacency, node_id_set)
-        assignments = assign_components_to_uuids(components)
-        community_num = len(components)
-
-        log.debug(
-            "clustering_complete",
-            communities=community_num,
-            nodes=len(assignments),
-        )
-
-        return assignments
-
-    async def _write_diff(
-        self,
-        old_assignments: dict[str, str],
-        new_assignments: dict[str, str],
-    ) -> dict[str, int | dict[str, float]]:
-        """Compare old and new assignments, write only changes.
-
-        Args:
-            old_assignments: Dict mapping node_id to old community_id.
-            new_assignments: Dict mapping node_id to new community_id.
-
-        Returns:
-            Dict with reassigned, created, emptied counts and entity_count_changes.
-        """
-        reassigned = 0
-        created = 0
-        emptied = 0
-        entity_count_changes: dict[str, float] = defaultdict(float)
-
-        # Track communities that lost entities
-        old_communities: set[str] = set(old_assignments.values())
-        new_communities: set[str] = set(new_assignments.values())
-
-        # New communities created
-        created = len(new_communities - old_communities)
-
-        # Find changed assignments
-        for node_id, new_comm in new_assignments.items():
-            old_comm = old_assignments.get(node_id)
-            if old_comm != new_comm:
-                reassigned += 1
-                if old_comm:
-                    entity_count_changes[old_comm] -= 1
-                entity_count_changes[new_comm] += 1
-
-        # Write changes to Neo4j
-        for node_id, new_comm in new_assignments.items():
-            old_comm = old_assignments.get(node_id)
-            if old_comm != new_comm:
-                await self._reassign_entity(node_id, old_comm, new_comm)
-
-        # Check for emptied communities
-        for comm_id, change in entity_count_changes.items():
-            # Get current entity count for the community
-            count_query = """
-            MATCH (c:Community {id: $community_id})<-[:HAS_ENTITY]-(e:Entity)
-            WHERE (e.pruned IS NULL OR e.pruned = false)
-            RETURN count(e) AS count
-            """
-            try:
-                result = await self._pool.execute_query(count_query, {"community_id": comm_id})
-                if result and result[0]["count"] == 0:
-                    await self._mark_community_empty(comm_id)
-                    emptied += 1
-            except Exception as exc:
-                log.warning("check_empty_community_failed", comm_id=comm_id, error=str(exc))
-
-        log.debug(
-            "write_diff_complete",
-            reassigned=reassigned,
-            created=created,
-            emptied=emptied,
-        )
-
-        return {
-            "reassigned": reassigned,
-            "created": created,
-            "emptied": emptied,
-            "entity_count_changes": dict(entity_count_changes),
-        }
-
-    async def _reassign_entity(
-        self,
-        node_id: str,
-        old_community_id: str | None,
-        new_community_id: str,
-    ) -> None:
-        """Reassign entity from old community to new community.
-
-        Args:
-            node_id: Neo4j element ID of the entity.
-            old_community_id: Old community ID (may be None).
-            new_community_id: New community ID.
-        """
-        # Delete old HAS_ENTITY relationship
-        if old_community_id:
-            delete_query = """
-            MATCH (c:Community {id: $community_id})-[r:HAS_ENTITY]-(e)
-            WHERE elementId(e) = $node_id
-            DELETE r
-            """
-            try:
-                await self._pool.execute_query(
-                    delete_query, {"community_id": old_community_id, "node_id": node_id}
-                )
-            except Exception as exc:
-                log.warning(
-                    "delete_old_relationship_failed",
-                    node_id=node_id,
-                    community_id=old_community_id,
-                    error=str(exc),
-                )
-
-        # Create new HAS_ENTITY relationship and community if needed
-        create_query = """
-        MERGE (c:Community {id: $community_id})
-        ON CREATE SET
-            c.created_at = datetime(),
-            c.level = 0
-        WITH c
-        MATCH (e)
-        WHERE elementId(e) = $node_id
-        MERGE (c)-[r:HAS_ENTITY]->(e)
-        """
-
-        try:
-            await self._pool.execute_query(
-                create_query, {"community_id": new_community_id, "node_id": node_id}
-            )
-        except Exception as exc:
-            log.error(
-                "create_new_relationship_failed",
-                node_id=node_id,
-                community_id=new_community_id,
-                error=str(exc),
-            )
-
-    async def _mark_community_empty(self, community_id: str) -> None:
-        """Mark a community as empty.
-
-        Args:
-            community_id: Community ID to mark.
-        """
-        query = """
-        MATCH (c:Community {id: $community_id})
-        SET c.status = 'empty',
-            c.emptied_at = datetime()
-        """
-
-        try:
-            await self._pool.execute_query(query, {"community_id": community_id})
-        except Exception as exc:
-            log.warning("mark_community_empty_failed", community_id=community_id, error=str(exc))
-
-    async def _mark_stale_reports(
-        self,
-        community_ids: list[str],
-        entity_count_changes: dict[str, float],
-    ) -> int:
-        """Mark reports stale for communities with >10% entity count change.
-
-        Args:
-            community_ids: List of community IDs to check.
-            entity_count_changes: Dict mapping community_id to change amount.
-
-        Returns:
-            Number of reports marked stale.
-        """
-        if not community_ids:
-            return 0
-
-        # Get current entity counts
-        counts_query = """
-        MATCH (c:Community)-[:HAS_ENTITY]->(e:Entity)
-        WHERE c.id IN $community_ids
-          AND (e.pruned IS NULL OR e.pruned = false)
-        RETURN c.id AS community_id, count(e) AS entity_count
-        """
-
-        try:
-            results = await self._pool.execute_query(counts_query, {"community_ids": community_ids})
-            current_counts = {r["community_id"]: r["entity_count"] for r in results}
-        except Exception as exc:
-            log.error("get_entity_counts_failed", error=str(exc))
-            return 0
-
-        # Find communities with >10% change
-        stale_communities: list[str] = []
-        for comm_id, current_count in current_counts.items():
-            change = entity_count_changes.get(comm_id, 0)
-            if current_count > 0 and abs(change) / current_count > 0.1:
-                stale_communities.append(comm_id)
-
-        if not stale_communities:
-            return 0
-
-        # Mark reports stale
-        stale_query = """
-        MATCH (c:Community)-[:HAS_REPORT]->(r:CommunityReport)
-        WHERE c.id IN $community_ids
-        SET r.stale = true,
-            r.stale_at = datetime()
-        RETURN count(r) AS stale_count
-        """
-
-        try:
-            results = await self._pool.execute_query(
-                stale_query, {"community_ids": stale_communities}
-            )
-            count = results[0]["stale_count"] if results else 0
-            log.info("reports_marked_stale", count=count, communities=stale_communities)
-            return count
-        except Exception as exc:
-            log.warning("mark_stale_reports_failed", error=str(exc))
-            return 0
-
-    async def _create_communities_for_entities(
-        self,
-        entity_names: list[str],
-    ) -> int:
-        """Create new communities for entities without assignments.
-
-        Args:
-            entity_names: List of entity names to assign.
-
-        Returns:
-            Number of communities created.
-        """
-        if not entity_names:
-            return 0
-
-        # Group entities by relationships to create communities
-        # For now, create one community per connected component
-        query = """
-        MATCH (e:Entity)
-        WHERE e.canonical_name IN $names
-          AND (e.pruned IS NULL OR e.pruned = false)
-        OPTIONAL MATCH (e)-[r]-(other:Entity)
-        WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
-          AND other.canonical_name IN $names
-          AND (other.pruned IS NULL OR other.pruned = false)
-        WITH e, collect(DISTINCT other.canonical_name) AS neighbors
-        RETURN e.canonical_name AS entity, neighbors
-        """
-
-        try:
-            results = await self._pool.execute_query(query, {"names": entity_names})
-
-            # Build adjacency from query results
-            adjacency: dict[str, set[str]] = defaultdict(set)
-            all_entities: set[str] = set()
-
-            for row in results:
-                entity = row.get("entity")
-                neighbors = row.get("neighbors", [])
-                if entity:
-                    all_entities.add(entity)
-                    for neighbor in neighbors:
-                        if neighbor:
-                            adjacency[entity].add(neighbor)
-                            adjacency[neighbor].add(entity)
-                            all_entities.add(neighbor)
-
-            # Find connected components and create communities
-            components = find_connected_components_dfs(adjacency, all_entities)
-            created = 0
-
-            for component in components:
-                community_id = str(uuid.uuid4())
-                component_entities = list(component)
-                await self._create_community_with_entities(community_id, component_entities)
-                created += 1
-
-            return created
-
-        except Exception as exc:
-            log.error("create_communities_failed", error=str(exc))
-            return 0
-
-    async def _create_community_with_entities(
-        self,
-        community_id: str,
-        entity_names: list[str],
-    ) -> None:
-        """Create a community and assign entities to it.
-
-        Args:
-            community_id: Community ID to create.
-            entity_names: List of entity names to assign.
-        """
-        query = """
-        MERGE (c:Community {id: $community_id})
-        ON CREATE SET
-            c.created_at = datetime(),
-            c.level = 0,
-            c.entity_count = 0
-        WITH c
-        MATCH (e:Entity)
-        WHERE e.canonical_name IN $names
-        MERGE (c)-[r:HAS_ENTITY]->(e)
-        WITH c, count(r) AS added
-        SET c.entity_count = c.entity_count + added
-        """
-
-        try:
-            await self._pool.execute_query(
-                query, {"community_id": community_id, "names": entity_names}
-            )
-        except Exception as exc:
-            log.error(
-                "create_community_with_entities_failed",
-                community_id=community_id,
-                error=str(exc),
-            )
-
-    async def _delete_communities_by_ids(self, community_ids: list[str]) -> None:
-        """Delete specific communities by their IDs to prevent duplicate accumulation.
-
-        Args:
-            community_ids: List of community IDs to delete.
-        """
-        if not community_ids:
-            return
-
-        query = """
-        UNWIND $ids AS cid
-        MATCH (c:Community {id: cid})
-        DETACH DELETE c
-        """
-
-        try:
-            await self._pool.execute_query(query, {"ids": community_ids})
-            log.debug(
-                "deleted_affected_communities",
-                count=len(community_ids),
-            )
-        except Exception as exc:
-            log.warning(
-                "delete_communities_by_ids_failed",
-                count=len(community_ids),
-                error=str(exc),
-            )
-
-    async def _write_new_assignments(
-        self,
-        new_assignments: dict[str, str],
-    ) -> dict[str, int]:
-        """Write new community assignments after clearing old ones.
-
-        Unlike _write_diff which compares old vs new, this simply
-        creates fresh communities for all new assignments.
-
-        Args:
-            new_assignments: Dict mapping node_id to community_id.
-
-        Returns:
-            Dict with created and reassigned counts.
-        """
-        created_communities: set[str] = set()
-        reassigned = 0
-
-        for node_id, community_id in new_assignments.items():
-            try:
-                query = """
-                MERGE (c:Community {id: $community_id})
-                ON CREATE SET
-                    c.created_at = datetime(),
-                    c.level = 0,
-                    c.entity_count = 0
-                WITH c
-                MATCH (e)
-                WHERE elementId(e) = $node_id
-                MERGE (c)-[r:HAS_ENTITY]->(e)
-                WITH c, count(r) AS added
-                SET c.entity_count = c.entity_count + added
-                """
-                await self._pool.execute_query(
-                    query,
-                    {"community_id": community_id, "node_id": node_id},
-                )
-                created_communities.add(community_id)
-                reassigned += 1
-            except Exception as exc:
-                log.warning(
-                    "write_new_assignment_failed",
-                    node_id=node_id,
-                    community_id=community_id,
-                    error=str(exc),
-                )
-
-        log.debug(
-            "write_new_assignments_complete",
-            communities_created=len(created_communities),
-            entities_assigned=reassigned,
-        )
-
-        return {
-            "created": len(created_communities),
-            "reassigned": reassigned,
-            "emptied": 0,
-            "entity_count_changes": {},
-        }
-
-    async def _calculate_modularity(self) -> float | None:
-        """Calculate current graph modularity.
-
-        Returns:
-            Modularity score or None if calculation fails.
-        """
-        query = """
-        MATCH (e1:Entity)-[r]->(e2:Entity)
-        WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
-          AND (e1.pruned IS NULL OR e1.pruned = false)
-          AND (e2.pruned IS NULL OR e2.pruned = false)
-        RETURN e1.canonical_name AS source,
-               e2.canonical_name AS target,
-               coalesce(r.weight, 1.0) AS weight
-        """
-
-        try:
-            results = await self._pool.execute_query(query)
-            if not results:
-                return None
-
-            edges = [(r["source"], r["target"], r["weight"]) for r in results]
-            if not edges:
-                return None
-
-            # Get community assignments for modularity calculation
-            assignments = await self._get_community_assignments_for_modularity()
-
-            return _compute_modularity(edges, assignments)
-
-        except Exception as exc:
-            log.debug("calculate_modularity_failed", error=str(exc))
-            return None
-
-    async def _get_community_assignments_for_modularity(self) -> dict[str, int]:
-        """Get community assignments for modularity calculation.
-
-        Returns:
-            Dict mapping entity canonical name to community ID (int).
-        """
-        query = """
-        MATCH (e:Entity)<-[:HAS_ENTITY]-(c:Community)
-        WHERE (e.pruned IS NULL OR e.pruned = false)
-        RETURN e.canonical_name AS entity_name, c.id AS community_id
-        """
-
-        try:
-            results = await self._pool.execute_query(query)
-            # Convert community IDs to integers for modularity calculation
-            unique_communities: dict[str, int] = {}
-            next_id = 0
-            assignments: dict[str, int] = {}
-
-            for r in results:
-                comm_id = r.get("community_id")
-                entity_name = r.get("entity_name")
-                if comm_id and entity_name:
-                    if comm_id not in unique_communities:
-                        unique_communities[comm_id] = next_id
-                        next_id += 1
-                    assignments[entity_name] = unique_communities[comm_id]
-
-            return assignments
-
-        except Exception as exc:
-            log.debug("get_community_assignments_failed", error=str(exc))
-            return {}
 
     async def _update_metadata(self, result: IncrementalUpdateResult) -> None:
         """Update community metadata after incremental update.
@@ -1468,3 +307,178 @@ class IncrementalCommunityUpdater:
 
         repair_service = CommunityRepairService(self._pool)
         return await repair_service.auto_repair(repairable)
+
+    # ------------------------------------------------------------------ #
+    # Delegating wrappers (backward compatibility)
+    # ------------------------------------------------------------------ #
+
+    # --- UpdateTriggerPolicy ---
+
+    async def should_trigger(
+        self,
+        pending_count: int,
+        last_update_at: datetime | None,
+    ) -> bool:
+        """Check if incremental update should be triggered. Delegates to trigger policy."""
+        return await self._trigger_policy.should_trigger(pending_count, last_update_at)
+
+    async def check_and_run(self) -> dict[str, object]:
+        """Unified entry point for community auto-scheduling. Delegates to trigger policy."""
+        return await self._trigger_policy.check_and_run()
+
+    async def force_rebuild(self) -> dict[str, object]:
+        """Force full community rebuild unconditionally. Delegates to trigger policy."""
+        return await self._trigger_policy.force_rebuild()
+
+    async def _get_community_count(self) -> int:
+        """Get total number of Community nodes. Delegates to trigger policy."""
+        return await self._trigger_policy._get_community_count()
+
+    async def _check_entity_change(self) -> tuple[bool, int, int]:
+        """Check if entity count change exceeds threshold. Delegates to trigger policy."""
+        return await self._trigger_policy._check_entity_change()
+
+    async def check_full_rebuild_needed(self) -> bool:
+        """Check if full rebuild is needed. Delegates to trigger policy."""
+        return await self._trigger_policy.check_full_rebuild_needed()
+
+    async def get_stats(self) -> CommunityStats:
+        """Get current community update statistics. Delegates to trigger policy."""
+        return await self._trigger_policy.get_stats()
+
+    # --- SubgraphClusteringService ---
+
+    def _run_local_clustering(
+        self,
+        nodes: list[str],
+        edges: list[tuple[str, str, float]],
+    ) -> dict[str, str]:
+        """Run local clustering using connected components. Delegates to clustering service."""
+        return self._clustering_service._run_local_clustering(nodes, edges)
+
+    async def run_incremental_update(
+        self,
+        entity_names: list[str] | None = None,
+    ) -> IncrementalUpdateResult:
+        """Run incremental community update. Delegates to clustering service."""
+        return await self._clustering_service.run_incremental_update(entity_names)
+
+    async def run_full_rebuild(self) -> IncrementalUpdateResult:
+        """Run full community rebuild on the entire graph. Delegates to clustering service."""
+        return await self._clustering_service.run_full_rebuild()
+
+    async def _get_pending_entity_names(self) -> list[str]:
+        """Get names of entities pending community assignment. Delegates to clustering service."""
+        return await self._clustering_service._get_pending_entity_names()
+
+    async def _identify_affected_communities(
+        self,
+        entity_names: list[str],
+    ) -> list[str]:
+        """Find communities affected by new/updated entities. Delegates to clustering service."""
+        return await self._clustering_service._identify_affected_communities(entity_names)
+
+    async def _extract_subgraph(
+        self,
+        community_ids: list[str],
+    ) -> tuple[list[str], list[tuple[str, str, float]]]:
+        """Extract 2-hop subgraph around affected communities. Delegates to clustering service."""
+        return await self._clustering_service._extract_subgraph(community_ids)
+
+    async def _get_current_assignments(
+        self,
+        node_ids: list[str],
+    ) -> dict[str, str]:
+        """Get current community assignments for nodes. Delegates to clustering service."""
+        return await self._clustering_service._get_current_assignments(node_ids)
+
+    async def _cluster_communities(
+        self,
+        node_ids: list[str],
+        edges: list[tuple[str, str, float]],
+    ) -> dict[str, str]:
+        """Cluster nodes into communities. Delegates to clustering service."""
+        return await self._clustering_service._cluster_communities(node_ids, edges)
+
+    def _cluster_with_leiden(
+        self,
+        node_ids: list[str],
+        edges: list[tuple[str, str, float]],
+    ) -> dict[str, str]:
+        """Cluster nodes using Leiden algorithm. Delegates to clustering service."""
+        return self._clustering_service._cluster_with_leiden(node_ids, edges)
+
+    def _cluster_with_connected_components(
+        self,
+        node_ids: list[str],
+        edges: list[tuple[str, str, float]],
+    ) -> dict[str, str]:
+        """Cluster nodes using connected components. Delegates to clustering service."""
+        return self._clustering_service._cluster_with_connected_components(node_ids, edges)
+
+    # --- DiffWriter ---
+
+    async def _write_diff(
+        self,
+        old_assignments: dict[str, str],
+        new_assignments: dict[str, str],
+    ) -> dict[str, int | dict[str, float]]:
+        """Compare old and new assignments, write only changes. Delegates to diff writer."""
+        return await self._diff_writer._write_diff(old_assignments, new_assignments)
+
+    async def _reassign_entity(
+        self,
+        node_id: str,
+        old_community_id: str | None,
+        new_community_id: str,
+    ) -> None:
+        """Reassign entity from old community to new community. Delegates to diff writer."""
+        await self._diff_writer._reassign_entity(node_id, old_community_id, new_community_id)
+
+    async def _mark_community_empty(self, community_id: str) -> None:
+        """Mark a community as empty. Delegates to diff writer."""
+        await self._diff_writer._mark_community_empty(community_id)
+
+    async def _mark_stale_reports(
+        self,
+        community_ids: list[str],
+        entity_count_changes: dict[str, float],
+    ) -> int:
+        """Mark reports stale for communities with >10% entity count change. Delegates to diff writer."""
+        return await self._diff_writer._mark_stale_reports(community_ids, entity_count_changes)
+
+    async def _create_communities_for_entities(
+        self,
+        entity_names: list[str],
+    ) -> int:
+        """Create new communities for entities without assignments. Delegates to diff writer."""
+        return await self._diff_writer._create_communities_for_entities(entity_names)
+
+    async def _create_community_with_entities(
+        self,
+        community_id: str,
+        entity_names: list[str],
+    ) -> None:
+        """Create a community and assign entities to it. Delegates to diff writer."""
+        await self._diff_writer._create_community_with_entities(community_id, entity_names)
+
+    async def _delete_communities_by_ids(self, community_ids: list[str]) -> None:
+        """Delete specific communities by their IDs. Delegates to diff writer."""
+        await self._diff_writer._delete_communities_by_ids(community_ids)
+
+    async def _write_new_assignments(
+        self,
+        new_assignments: dict[str, str],
+    ) -> dict[str, int]:
+        """Write new community assignments after clearing old ones. Delegates to diff writer."""
+        return await self._diff_writer._write_new_assignments(new_assignments)
+
+    # --- ModularityCalculator ---
+
+    async def _calculate_modularity(self) -> float | None:
+        """Calculate current graph modularity. Delegates to modularity calculator."""
+        return await self._modularity_calculator._calculate_modularity()
+
+    async def _get_community_assignments_for_modularity(self) -> dict[str, int]:
+        """Get community assignments for modularity calculation. Delegates to modularity calculator."""
+        return await self._modularity_calculator._get_community_assignments_for_modularity()

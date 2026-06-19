@@ -1,0 +1,101 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
+"""Modularity calculator collaborator for the incremental community updater.
+
+Extracted from ``IncrementalCommunityUpdater`` to give modularity scoring a
+single, focused home. Computes graph modularity over the entity graph using
+the shared ``_compute_modularity`` helper.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+from core.observability import get_logger
+from modules.knowledge.graph.community.modularity import _compute_modularity
+
+if TYPE_CHECKING:
+    from core.protocols import GraphPool
+
+log = get_logger(__name__)
+
+
+class ModularityCalculator:
+    """Calculate graph modularity for the community structure.
+
+    Single responsibility: query the entity graph edges and current community
+    assignments, then compute a modularity score via ``_compute_modularity``.
+
+    Args:
+        pool: Graph database connection pool.
+    """
+
+    def __init__(self, pool: GraphPool) -> None:
+        self._pool = pool
+
+    async def _calculate_modularity(self) -> float | None:
+        """Calculate current graph modularity.
+
+        Returns:
+            Modularity score or None if calculation fails.
+        """
+        query = """
+        MATCH (e1:Entity)-[r]->(e2:Entity)
+        WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
+          AND (e1.pruned IS NULL OR e1.pruned = false)
+          AND (e2.pruned IS NULL OR e2.pruned = false)
+        RETURN e1.canonical_name AS source,
+               e2.canonical_name AS target,
+               coalesce(r.weight, 1.0) AS weight
+        """
+
+        try:
+            results = await self._pool.execute_query(query)
+            if not results:
+                return None
+
+            edges = [(r["source"], r["target"], r["weight"]) for r in results]
+            if not edges:
+                return None
+
+            # Get community assignments for modularity calculation
+            assignments = await self._get_community_assignments_for_modularity()
+
+            return _compute_modularity(edges, assignments)
+
+        except Exception as exc:
+            log.debug("calculate_modularity_failed", error=str(exc))
+            return None
+
+    async def _get_community_assignments_for_modularity(self) -> dict[str, int]:
+        """Get community assignments for modularity calculation.
+
+        Returns:
+            Dict mapping entity canonical name to community ID (int).
+        """
+        query = """
+        MATCH (e:Entity)<-[:HAS_ENTITY]-(c:Community)
+        WHERE (e.pruned IS NULL OR e.pruned = false)
+        RETURN e.canonical_name AS entity_name, c.id AS community_id
+        """
+
+        try:
+            results = await self._pool.execute_query(query)
+            # Convert community IDs to integers for modularity calculation
+            unique_communities: dict[str, int] = {}
+            next_id = 0
+            assignments: dict[str, int] = {}
+
+            for r in results:
+                comm_id = r.get("community_id")
+                entity_name = r.get("entity_name")
+                if comm_id and entity_name:
+                    if comm_id not in unique_communities:
+                        unique_communities[comm_id] = next_id
+                        next_id += 1
+                    assignments[entity_name] = unique_communities[comm_id]
+
+            return assignments
+
+        except Exception as exc:
+            log.debug("get_community_assignments_failed", error=str(exc))
+            return {}

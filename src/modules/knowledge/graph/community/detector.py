@@ -20,6 +20,7 @@ from modules.knowledge.graph.community.models import (
     CommunityDetectionResult,
     HierarchicalCluster,
 )
+from modules.knowledge.graph.community.modularity import _compute_modularity
 from modules.knowledge.graph.community.repo import Neo4jCommunityRepo
 
 if TYPE_CHECKING:
