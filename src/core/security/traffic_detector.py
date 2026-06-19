@@ -247,10 +247,10 @@ class TrafficAnomalyDetector:
 
             if count > self._config.ip_rate_limit:
                 # Ban the IP
-                await self._redis.setex(
+                await self._redis.set(
                     f"traffic:blocked:ip:{ip}",
-                    self._config.ip_ban_duration_seconds,
                     "1",
+                    ex=self._config.ip_ban_duration_seconds,
                 )
                 log.warning(
                     "ip_rate_exceeded_banned",

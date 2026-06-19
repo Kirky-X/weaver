@@ -15,6 +15,7 @@ State machine:
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from enum import Enum
 from typing import TYPE_CHECKING
 
@@ -83,6 +84,12 @@ class CircuitBreaker:
         )
         self._lock = asyncio.Lock()
         self._last_state: CBState = CBState.CLOSED
+        # Self-maintained counters and timestamps to avoid pybreaker's
+        # private _state_storage API. These mirror what pybreaker would
+        # track internally but expose via private attributes.
+        self._failure_counter: int = 0
+        self._success_counter: int = 0
+        self._opened_at: datetime | None = None
         # Initialize metrics
         metrics.circuit_breaker_state.labels(provider=self._provider).set(
             self.STATE_CODES[CBState.CLOSED]
@@ -111,15 +118,9 @@ class CircuitBreaker:
 
     def _can_attempt_reset(self) -> bool:
         """Check if enough time has passed to attempt reset from OPEN state."""
-        from datetime import UTC, datetime
-
-        opened_at = self._breaker._state_storage.opened_at
-        if opened_at is None:
+        if self._opened_at is None:
             return False
-        if isinstance(opened_at, datetime):
-            elapsed = (datetime.now(UTC) - opened_at).total_seconds()
-        else:
-            elapsed = time.monotonic() - opened_at
+        elapsed = (datetime.now(UTC) - self._opened_at).total_seconds()
         return elapsed >= self._timeout
 
     async def record_success(self) -> bool:
@@ -130,15 +131,19 @@ class CircuitBreaker:
         """
         async with self._lock:
             prev_state = self.state
-            storage = self._breaker._state_storage
 
             if prev_state == CBState.HALF_OPEN:
-                storage.increment_success_counter()
-                if self._breaker.success_counter >= self._breaker.success_threshold:
+                self._success_counter += 1
+                if self._success_counter >= self._breaker.success_threshold:
+                    self._success_counter = 0
+                    self._failure_counter = 0
+                    self._opened_at = None
                     self._breaker.close()
                     self._emit_state_transition(CBState.HALF_OPEN, CBState.CLOSED)
             else:
-                storage.reset_counter()
+                # In CLOSED state, reset counters on success
+                self._success_counter = 0
+                self._failure_counter = 0
                 self._breaker.close()
 
             metrics.circuit_breaker_state.labels(provider=self._provider).set(
@@ -154,14 +159,19 @@ class CircuitBreaker:
         """
         async with self._lock:
             prev_state = self.state
-            storage = self._breaker._state_storage
 
             if prev_state == CBState.HALF_OPEN:
+                self._failure_counter = 0
+                self._success_counter = 0
+                self._opened_at = datetime.now(UTC)
                 self._breaker.open()
                 self._emit_state_transition(CBState.HALF_OPEN, CBState.OPEN)
             else:
-                storage.increment_counter()
-                if self._breaker.fail_counter >= self._breaker.fail_max:
+                self._failure_counter += 1
+                if self._failure_counter >= self._breaker.fail_max:
+                    self._failure_counter = 0
+                    self._success_counter = 0
+                    self._opened_at = datetime.now(UTC)
                     self._breaker.open()
                     self._emit_state_transition(CBState.CLOSED, CBState.OPEN)
 
@@ -175,7 +185,9 @@ class CircuitBreaker:
         """Manually reset the circuit breaker to CLOSED state."""
         async with self._lock:
             prev_state = self.state
-            self._breaker._state_storage.reset_counter()
+            self._failure_counter = 0
+            self._success_counter = 0
+            self._opened_at = None
             self._breaker.close()
             if prev_state != CBState.CLOSED:
                 self._emit_state_transition(prev_state, CBState.CLOSED)

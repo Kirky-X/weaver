@@ -157,7 +157,7 @@ def _get_ntp_time() -> datetime | None:
         if _redis_client:
             try:
                 iso_time = result["time"].isoformat()
-                _redis_client.setex(NTP_REDIS_KEY, CACHE_TTL, iso_time)
+                _redis_client.set(NTP_REDIS_KEY, iso_time, ex=CACHE_TTL)
             except Exception as exc:
                 log.debug("ntp_redis_cache_write_failed", error=str(exc))
 

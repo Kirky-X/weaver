@@ -114,10 +114,10 @@ class URLSecurityCache:
             value = json.dumps(result)
 
             # Use appropriate redis method
-            if hasattr(self._redis, "setex"):
-                await self._redis.setex(key, ttl, value)
+            if hasattr(self._redis, "set"):
+                await self._redis.set(key, value, ex=ttl)
             elif hasattr(self._redis, "execute_command"):
-                await self._redis.execute_command("SETEX", key, ttl, value)
+                await self._redis.execute_command("SET", key, value, "EX", ttl)
 
             log.debug("cache_set", url=url, risk=risk, ttl=ttl)
 
