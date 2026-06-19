@@ -54,20 +54,11 @@ async def flush_compare_buffer(
     current_hour_key = f"{REDIS_KEY_PREFIX}:{current_hour_bucket.strftime('%Y%m%d%H')}"
 
     # Scan all llm:compare:* keys
-    cursor = 0
     keys_to_process: list[str] = []
-
-    while True:
-        cursor, keys = await cache.scan(
-            cursor=cursor,
-            match=f"{REDIS_KEY_PREFIX}:*",
-            count=REDIS_SCAN_BATCH_SIZE,
-        )
+    async for key in cache.scan_iter(f"{REDIS_KEY_PREFIX}:*", count=REDIS_SCAN_BATCH_SIZE):
         # Filter out current hour
-        keys_to_process.extend(k for k in keys if k != current_hour_key)
-
-        if cursor == 0:
-            break
+        if key != current_hour_key:
+            keys_to_process.append(key)
 
     if not keys_to_process:
         log.debug("llm_compare_aggregator_no_keys")

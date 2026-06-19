@@ -14,11 +14,11 @@ if TYPE_CHECKING:
         ArticleRepository,
         EntityRepository,
         GraphWriter,
+        PipelineService,
+        TaskRegistryService,
         VectorRepository,
     )
     from core.saga import SagaOrchestrator
-    from core.services.pipeline_service import PipelineServiceImpl
-    from core.services.task_registry import InMemoryTaskRegistry
     from modules.analytics import LLMUsageBuffer, LLMUsageRepo
     from modules.analytics.llm_failure.repo import LLMFailureRepo
     from modules.ingestion import (
@@ -63,8 +63,8 @@ class ContainerServicesMixin:
     _smart_fetcher: SmartFetcher | None
     _crawler: Crawler | None
     _pipeline: Pipeline | None
-    _pipeline_service: PipelineServiceImpl | None
-    _task_registry: InMemoryTaskRegistry | None
+    _pipeline_service: PipelineService | None
+    _task_registry: TaskRegistryService | None
     _deduplicator: Deduplicator | None
     _event_bus: Any
     _llm_failure_repo: LLMFailureRepo | None
@@ -621,7 +621,7 @@ class ContainerServicesMixin:
             )
         return self._pipeline_worker
 
-    def pipeline_service(self) -> PipelineServiceImpl:
+    def pipeline_service(self) -> PipelineService:
         """Get the pipeline service with stable public interface."""
         from core.services.pipeline_service import PipelineServiceImpl
 
@@ -631,7 +631,7 @@ class ContainerServicesMixin:
             self._pipeline_service = PipelineServiceImpl(self._pipeline)
         return self._pipeline_service
 
-    def task_registry(self) -> InMemoryTaskRegistry:
+    def task_registry(self) -> TaskRegistryService:
         """Get the task registry."""
         from core.services.task_registry import InMemoryTaskRegistry
 

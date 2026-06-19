@@ -12,7 +12,7 @@ This package provides the Container as a facade combining four mixins:
 from __future__ import annotations
 
 import threading
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from config.settings import Settings
 from core.observability import get_logger
@@ -24,6 +24,9 @@ from src.container.lifecycle import (
 from src.container.pools import ContainerPoolsMixin
 from src.container.search import ContainerSearchMixin
 from src.container.services import ContainerServicesMixin
+
+if TYPE_CHECKING:
+    from core.protocols.services import PipelineService, TaskRegistryService
 
 log = get_logger(__name__)
 
@@ -67,8 +70,8 @@ class Container(
         self._smart_fetcher: Any = None
         self._crawler: Any = None
         self._pipeline: Any = None
-        self._pipeline_service: Any = None
-        self._task_registry: Any = None
+        self._pipeline_service: PipelineService | None = None
+        self._task_registry: TaskRegistryService | None = None
         self._deduplicator: Any = None
         self._event_bus: Any = None
         self._llm_failure_repo: Any = None

@@ -32,12 +32,12 @@ if TYPE_CHECKING:
         EmbeddingServiceProtocol,
         GraphPool,
         IntentClassifierProtocol,
+        PipelineService,
         RelationalPool,
+        TaskRegistryService,
         VectorRepository,
     )
     from core.saga import SagaOrchestrator
-    from core.services.pipeline_service import PipelineServiceImpl
-    from core.services.task_registry import InMemoryTaskRegistry
     from modules.analytics import LLMFailureRepo, LLMUsageRepo
     from modules.ingestion import SourceConfigRepo, SourceScheduler
     from modules.knowledge.search import (
@@ -405,14 +405,14 @@ def get_saga_orchestrator(
 
 def get_pipeline_service(
     container: Container = Depends(get_container),
-) -> PipelineServiceImpl:
+) -> PipelineService:
     """FastAPI dependency for pipeline service.
 
     Raises:
         HTTPException: 503 if service is not initialized.
 
     Returns:
-        PipelineServiceImpl instance.
+        PipelineService instance (Protocol type; concrete impl is PipelineServiceImpl).
 
     """
     try:
@@ -423,14 +423,14 @@ def get_pipeline_service(
 
 def get_task_registry(
     container: Container = Depends(get_container),
-) -> InMemoryTaskRegistry:
+) -> TaskRegistryService:
     """FastAPI dependency for task registry.
 
     Raises:
         HTTPException: 503 if registry is not initialized.
 
     Returns:
-        InMemoryTaskRegistry instance.
+        TaskRegistryService instance (Protocol type; concrete impl is InMemoryTaskRegistry).
 
     """
     try:

@@ -12,8 +12,7 @@ from modules.analytics import LLMUsageBuffer
 if TYPE_CHECKING:
     from config.settings import Settings
     from core.llm import LLMClient
-    from core.services.pipeline_service import PipelineServiceImpl
-    from core.services.task_registry import InMemoryTaskRegistry
+    from core.protocols.services import PipelineService, TaskRegistryService
     from modules.ingestion import SourceScheduler
     from modules.processing.pipeline.graph import Pipeline
 
@@ -96,8 +95,8 @@ class ContainerLifecycleMixin:
     _prompt_loader: Any
     _source_scheduler: SourceScheduler | None
     _pipeline: Pipeline | None
-    _pipeline_service: PipelineServiceImpl | None
-    _task_registry: InMemoryTaskRegistry | None
+    _pipeline_service: PipelineService | None
+    _task_registry: TaskRegistryService | None
     _event_bus: Any
     _llm_usage_buffer: LLMUsageBuffer | None
     _llm_usage_repo: Any
@@ -196,7 +195,8 @@ class ContainerLifecycleMixin:
         a TieredRouter with per-call-point tier configurations.
         """
         from core.llm.routing.difficulty_estimator import DifficultyEstimator
-        from core.llm.routing.tiered_router import TierConfig, TieredRouter
+        from core.llm.routing.tiered_router import TieredRouter
+        from core.llm.types import TierConfig
         from core.observability import get_logger
 
         log = get_logger(__name__)
@@ -208,14 +208,8 @@ class ContainerLifecycleMixin:
         tiers_by_call_point: dict[str, list[TierConfig]] = {}
         for cp_name, cp_config in call_points.items():
             if cp_config.tiered_routing and cp_config.tiers:
-                tiers_by_call_point[cp_name] = [
-                    TierConfig(
-                        label=t.label,
-                        max_difficulty=t.max_difficulty,
-                        input_truncation=t.input_truncation,
-                    )
-                    for t in cp_config.tiers
-                ]
+                # pydantic TierConfig is the single source; no conversion needed
+                tiers_by_call_point[cp_name] = list(cp_config.tiers)
 
         if not tiers_by_call_point:
             log.debug("tiered_routing_no_configured_call_points")
