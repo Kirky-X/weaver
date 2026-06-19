@@ -388,21 +388,178 @@ class BatchMergerNode:
             result["success"] = True
             return result
 
-        # Delegate to SagaOrchestrator if available
-        if self._saga_orchestrator is not None:
-            return await self._persist_batch_saga_orchestrated(new_states, result)
+        # Delegate to unified saga executor (orchestrated or manual mode)
+        mode = "orchestrated" if self._saga_orchestrator is not None else "manual"
+        return await self._persist_batch_saga(new_states, valid_states, result, mode)
 
-        # Fallback: hand-written two-phase commit
-        return await self._persist_batch_saga_manual(new_states, valid_states, result)
+    async def _persist_to_pg(
+        self,
+        new_states: list[PipelineState],
+        vector_article_ids: list[uuid.UUID],
+    ) -> list[str]:
+        """Phase 1: Persist articles and vectors to PostgreSQL.
 
-    async def _persist_batch_saga_orchestrated(
+        Args:
+            new_states: New pipeline states to persist.
+            vector_article_ids: Mutable list to track article IDs whose vectors
+                were prepared (for compensation cleanup on failure).
+
+        Returns:
+            List of article IDs as strings.
+
+        Raises:
+            RuntimeError: If article repository is not configured.
+        """
+        if not self._article_repo:
+            raise RuntimeError("Article repository not configured")
+
+        article_ids = await self._article_repo.bulk_upsert(new_states)
+        pg_ids = [str(aid) for aid in article_ids]
+
+        # Update persist status and link IDs to states
+        for state, aid in zip(new_states, article_ids):
+            state["article_id"] = str(aid)
+            await self._article_repo.update_persist_status(aid, PersistStatus.PG_DONE)
+
+        # Persist vectors
+        if self._vector_repo:
+            vector_data = []
+            for state in new_states:
+                if "vectors" in state:
+                    vectors = state["vectors"]
+                    if isinstance(vectors, dict) and "title" in vectors and "content" in vectors:
+                        art_id = uuid.UUID(state["article_id"])
+                        vector_data.append(
+                            (
+                                art_id,
+                                vectors.get("title"),
+                                vectors.get("content"),
+                                vectors.get("model_id", "unknown"),
+                            )
+                        )
+                        vector_article_ids.append(art_id)
+            if vector_data:
+                await self._vector_repo.bulk_upsert_article_vectors(vector_data)
+
+        log.info("saga_phase1_complete", pg_count=len(article_ids))
+        return pg_ids
+
+    async def _persist_to_neo4j(
+        self,
+        new_states: list[PipelineState],
+    ) -> dict[str, Any]:
+        """Phase 2: Persist to Neo4j using batch write.
+
+        Updates persist status for successfully written articles and marks
+        FAILED for articles with partial failures. Does not raise on partial
+        failures — the caller inspects the returned ``errors`` list.
+
+        Args:
+            new_states: Pipeline states to persist to graph.
+
+        Returns:
+            Batch result dict with ``neo4j_ids``, ``article_ids``, and
+            ``errors`` keys. Returns an empty-shaped dict if no graph writer
+            is configured.
+        """
+        if not self._graph_writer:
+            return {"neo4j_ids": [], "article_ids": [], "errors": []}
+
+        batch_result = await self._graph_writer.write_batch(
+            new_states,
+            concurrency=10,
+        )
+
+        # Update persist status for successfully written articles
+        for article_id_str in batch_result.get("article_ids", []):
+            if self._article_repo and article_id_str:
+                try:
+                    await self._article_repo.update_persist_status(
+                        uuid.UUID(article_id_str),
+                        self._graph_writer.done_status,
+                    )
+                except Exception as status_exc:
+                    log.warning(
+                        "saga_phase2_status_update_failed",
+                        article_id=article_id_str,
+                        error=str(status_exc),
+                    )
+
+        # Mark FAILED for partial failures (compensation within the step)
+        neo4j_errors = batch_result.get("errors", [])
+        if neo4j_errors:
+            log.warning(
+                "saga_phase2_partial_failure",
+                failed_count=len(neo4j_errors),
+                total=len(new_states),
+            )
+            for article_id_str, error_msg in neo4j_errors:
+                try:
+                    if article_id_str and article_id_str != "unknown":
+                        pg_id = uuid.UUID(article_id_str)
+                        await self._article_repo.update_persist_status(
+                            pg_id,
+                            PersistStatus.FAILED,
+                        )
+                        log.info(
+                            "saga_compensation_marked_failed",
+                            article_id=str(pg_id),
+                            error=error_msg,
+                        )
+                except Exception as comp_exc:
+                    log.error(
+                        "saga_compensation_mark_failed_error",
+                        article_id=article_id_str,
+                        error=str(comp_exc),
+                    )
+
+        log.info(
+            "saga_phase2_complete",
+            neo4j_count=sum(len(ids) for ids in batch_result.get("neo4j_ids", [])),
+        )
+        return batch_result
+
+    async def _persist_batch_saga(
+        self,
+        new_states: list[PipelineState],
+        valid_states: list[PipelineState],
+        result: dict[str, Any],
+        mode: str = "orchestrated",
+    ) -> dict[str, Any]:
+        """Persist batch with Saga pattern for atomic cross-database consistency.
+
+        When ``mode`` is ``"orchestrated"``, delegates step execution, retry,
+        and compensation logging to SagaOrchestrator. When ``mode`` is
+        ``"manual"``, uses hand-written two-phase commit with compensation.
+
+        Two-phase commit with compensation:
+        1. Phase 1: Persist to PostgreSQL, record successful IDs
+        2. Phase 2: Persist to Neo4j
+        3. Compensation: If Phase 2 fails, mark PostgreSQL records as FAILED
+
+        Args:
+            new_states: New states to persist (duplicates filtered).
+            valid_states: All valid states (used for Phase 1 compensation
+                in manual mode).
+            result: Result dict to populate.
+            mode: ``"orchestrated"`` to use SagaOrchestrator, ``"manual"``
+                for hand-written two-phase commit.
+
+        Returns:
+            Populated result dict.
+        """
+        if mode == "orchestrated":
+            return await self._run_orchestrated_saga(new_states, result)
+        return await self._run_manual_saga(new_states, valid_states, result)
+
+    async def _run_orchestrated_saga(
         self,
         new_states: list[PipelineState],
         result: dict[str, Any],
     ) -> dict[str, Any]:
-        """Persist batch using SagaOrchestrator for step coordination.
+        """Execute saga via SagaOrchestrator for step coordination.
 
-        Defines two SagaSteps:
+        Defines two SagaSteps wrapping the shared persistence helpers:
         - persist_postgresql: Phase 1 (PostgreSQL + vectors)
         - persist_neo4j: Phase 2 (Neo4j)
 
@@ -433,98 +590,16 @@ class BatchMergerNode:
 
         async def execute_persist_postgresql() -> None:
             """Phase 1: Persist to PostgreSQL + vectors."""
-            if not self._article_repo:
-                raise RuntimeError("Article repository not configured")
-
-            article_ids = await self._article_repo.bulk_upsert(new_states)
-            saga_context["article_ids"] = [str(aid) for aid in article_ids]
-
-            # Update persist status and link IDs to states
-            for state, aid in zip(new_states, article_ids):
-                state["article_id"] = str(aid)
-                await self._article_repo.update_persist_status(aid, PersistStatus.PG_DONE)
-
-            # Persist vectors
-            if self._vector_repo:
-                vector_data = []
-                for state in new_states:
-                    if "vectors" in state:
-                        vectors = state["vectors"]
-                        if (
-                            isinstance(vectors, dict)
-                            and "title" in vectors
-                            and "content" in vectors
-                        ):
-                            art_id = uuid.UUID(state["article_id"])
-                            vector_data.append(
-                                (
-                                    art_id,
-                                    vectors.get("title"),
-                                    vectors.get("content"),
-                                    vectors.get("model_id", "unknown"),
-                                )
-                            )
-                            saga_context["vector_article_ids"].append(str(art_id))
-                if vector_data:
-                    await self._vector_repo.bulk_upsert_article_vectors(vector_data)
-
-            log.info("saga_phase1_complete", pg_count=len(article_ids))
+            saga_context["article_ids"] = await self._persist_to_pg(
+                new_states, saga_context["vector_article_ids"]
+            )
 
         async def execute_persist_neo4j() -> None:
             """Phase 2: Persist to Neo4j using batch write."""
-            if not self._graph_writer:
-                return
-
-            batch_result = await self._graph_writer.write_batch(
-                new_states,
-                concurrency=10,
-            )
+            batch_result = await self._persist_to_neo4j(new_states)
             saga_context["neo4j_ids"] = batch_result.get("neo4j_ids", [])
             saga_context["neo4j_article_ids"] = batch_result.get("article_ids", [])
             saga_context["neo4j_errors"] = batch_result.get("errors", [])
-
-            # Update persist status for successfully written articles
-            for article_id_str in batch_result.get("article_ids", []):
-                if self._article_repo and article_id_str:
-                    try:
-                        await self._article_repo.update_persist_status(
-                            uuid.UUID(article_id_str),
-                            self._graph_writer.done_status,
-                        )
-                    except Exception as status_exc:
-                        log.warning(
-                            "saga_phase2_status_update_failed",
-                            article_id=article_id_str,
-                            error=str(status_exc),
-                        )
-
-            # Partial failures: mark failed articles but don't raise
-            # (saga step succeeds; partial failures handled in result mapping)
-            neo4j_errors = batch_result.get("errors", [])
-            if neo4j_errors:
-                log.warning(
-                    "saga_phase2_partial_failure",
-                    failed_count=len(neo4j_errors),
-                    total=len(new_states),
-                )
-                for article_id_str, error_msg in neo4j_errors:
-                    try:
-                        if article_id_str and article_id_str != "unknown":
-                            await self._article_repo.update_persist_status(
-                                uuid.UUID(article_id_str),
-                                PersistStatus.FAILED,
-                            )
-                    except Exception as comp_exc:
-                        log.error(
-                            "saga_compensation_mark_failed_error",
-                            article_id=article_id_str,
-                            error=str(comp_exc),
-                        )
-
-            log.info(
-                "saga_phase2_complete",
-                neo4j_count=sum(len(ids) for ids in batch_result.get("neo4j_ids", [])),
-            )
 
         # Build saga steps
         steps = [
@@ -603,15 +678,16 @@ class BatchMergerNode:
                 vector_article_ids = saga_context.get("vector_article_ids", [])
                 if vector_article_ids and self._vector_repo:
                     try:
+                        # Helper already stores UUIDs directly (no string conversion needed)
                         deleted = await self._vector_repo.delete_article_vectors_by_article_ids(
-                            [uuid.UUID(aid) for aid in vector_article_ids]
+                            vector_article_ids
                         )
                         log.info("saga_phase1_vectors_cleaned", count=deleted)
                     except Exception as vec_exc:
                         log.warning(
                             "saga_phase1_vector_cleanup_failed",
                             error=str(vec_exc),
-                            article_ids=vector_article_ids,
+                            article_ids=[str(a) for a in vector_article_ids],
                         )
             else:
                 # Phase 2 failed — mark all articles as FAILED
@@ -631,64 +707,30 @@ class BatchMergerNode:
 
         return result
 
-    async def _persist_batch_saga_manual(
+    async def _run_manual_saga(
         self,
         new_states: list[PipelineState],
         valid_states: list[PipelineState],
         result: dict[str, Any],
     ) -> dict[str, Any]:
-        """Persist batch with hand-written two-phase commit (fallback).
+        """Execute saga via hand-written two-phase commit (fallback).
 
         Implements two-phase commit with compensation:
         1. Phase 1: Persist to PostgreSQL, record successful IDs
         2. Phase 2: Persist to Neo4j
         3. Compensation: If Phase 2 fails, mark PostgreSQL records as FAILED
+
+        Delegates persistence to shared helpers (``_persist_to_pg`` and
+        ``_persist_to_neo4j``) to eliminate duplication with the orchestrated
+        saga path. Compensation logic (marking FAILED, cleaning vectors) is
+        retained here because it differs from the orchestrated path.
         """
         # Track article IDs that have vectors written (for compensation cleanup)
         vector_article_ids: list[uuid.UUID] = []
 
         # Phase 1: Persist to PostgreSQL
         try:
-            if not self._article_repo:
-                raise RuntimeError("Article repository not configured")
-
-            article_ids = await self._article_repo.bulk_upsert(new_states)
-            result["pg_ids"] = [str(aid) for aid in article_ids]
-
-            # Update persist status and link IDs to states
-            for state, aid in zip(new_states, article_ids):
-                state["article_id"] = str(aid)
-                await self._article_repo.update_persist_status(aid, PersistStatus.PG_DONE)
-
-            # Persist vectors
-            if self._vector_repo:
-                vector_data = []
-                for state in new_states:
-                    if "vectors" in state:
-                        vectors = state["vectors"]
-                        if (
-                            isinstance(vectors, dict)
-                            and "title" in vectors
-                            and "content" in vectors
-                        ):
-                            art_id = uuid.UUID(state["article_id"])
-                            vector_data.append(
-                                (
-                                    art_id,
-                                    vectors.get("title"),
-                                    vectors.get("content"),
-                                    vectors.get("model_id", "unknown"),
-                                )
-                            )
-                            vector_article_ids.append(art_id)
-                if vector_data:
-                    await self._vector_repo.bulk_upsert_article_vectors(vector_data)
-
-            log.info(
-                "saga_phase1_complete",
-                pg_count=len(article_ids),
-            )
-
+            result["pg_ids"] = await self._persist_to_pg(new_states, vector_article_ids)
         except Exception as exc:
             error_msg = f"Phase 1 (PostgreSQL) failed: {type(exc).__name__}: {exc}"
             result["error"] = error_msg
@@ -730,68 +772,16 @@ class BatchMergerNode:
         # Phase 2: Persist to Neo4j using batch write with concurrency control
         if self._graph_writer:
             try:
-                batch_result = await self._graph_writer.write_batch(
-                    new_states,
-                    concurrency=10,
-                )
-                successful_neo4j_ids = batch_result.get("neo4j_ids", [])
-                result["neo4j_ids"] = successful_neo4j_ids
+                batch_result = await self._persist_to_neo4j(new_states)
+                result["neo4j_ids"] = batch_result.get("neo4j_ids", [])
 
-                # Update persist status for successfully written articles
-                successful_article_ids = batch_result.get("article_ids", [])
-                for article_id_str in successful_article_ids:
-                    if self._article_repo and article_id_str:
-                        try:
-                            await self._article_repo.update_persist_status(
-                                uuid.UUID(article_id_str),
-                                self._graph_writer.done_status,
-                            )
-                        except Exception as status_exc:
-                            log.warning(
-                                "saga_phase2_status_update_failed",
-                                article_id=article_id_str,
-                                error=str(status_exc),
-                            )
-
-                # Process errors - mark failed instead of deleting
+                # Check for partial failures (helper already marked FAILED for errors)
                 neo4j_errors = batch_result.get("errors", [])
                 if neo4j_errors:
-                    log.warning(
-                        "saga_phase2_partial_failure",
-                        failed_count=len(neo4j_errors),
-                        total=len(new_states),
-                    )
                     result["compensation_executed"] = True
-
-                    for article_id_str, error_msg in neo4j_errors:
-                        try:
-                            if article_id_str and article_id_str != "unknown":
-                                pg_id = uuid.UUID(article_id_str)
-                                # Mark as FAILED instead of deleting
-                                await self._article_repo.update_persist_status(
-                                    pg_id,
-                                    PersistStatus.FAILED,
-                                )
-                                log.info(
-                                    "saga_compensation_marked_failed",
-                                    article_id=str(pg_id),
-                                    error=error_msg,
-                                )
-                        except Exception as comp_exc:
-                            log.error(
-                                "saga_compensation_mark_failed_error",
-                                article_id=article_id_str,
-                                error=str(comp_exc),
-                            )
-
                     result["error"] = f"Phase 2 failed for {len(neo4j_errors)} articles"
                     result["success"] = False
                     return result
-
-                log.info(
-                    "saga_phase2_complete",
-                    neo4j_count=sum(len(ids) for ids in successful_neo4j_ids),
-                )
 
             except Exception as exc:
                 error_msg = f"Phase 2 batch write failed: {type(exc).__name__}: {exc}"
