@@ -40,10 +40,6 @@ from modules.knowledge.graph.resolution_rules import (
     resolution_rules,
 )
 
-# Create global instances
-location_resolver = LocationResolver()
-location_hierarchy = LocationHierarchy()
-
 __all__ = [
     "CommunityDetector",
     "CommunityHealthChecker",
@@ -72,8 +68,6 @@ __all__ = [
     "ReportGenerationResult",
     "ResolutionResult",
     "ResolutionRule",
-    "location_hierarchy",
-    "location_resolver",
     "name_normalizer",
     "resolution_rules",
 ]

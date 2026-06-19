@@ -622,10 +622,11 @@ class EntityResolutionRules:
             if self._is_chinese(name):
                 return loc_result.canonical_name
             # If input is English, try to find Chinese name in our mapping
-            for chinese_name, iso_code in self._location_resolver._name_to_iso.items():
-                if iso_code == loc_result.iso_alpha2 and self._is_chinese(chinese_name):
-                    # Return the most common Chinese name (shortest one)
-                    return chinese_name
+            chinese_name = self._location_resolver.find_name_by_iso(
+                loc_result.iso_alpha2, predicate=self._is_chinese
+            )
+            if chinese_name:
+                return chinese_name
 
         return None
 

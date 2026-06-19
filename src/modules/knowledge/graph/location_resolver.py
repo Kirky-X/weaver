@@ -143,6 +143,22 @@ class LocationResolver:
             confidence=0.0,
         )
 
+    def find_name_by_iso(self, iso_code: str, predicate=None) -> str | None:
+        """Find a name in the index matching the given ISO code.
+
+        Args:
+            iso_code: ISO 3166 alpha-2 country code.
+            predicate: Optional callable to filter candidate names.
+
+        Returns:
+            First matching name, or None if not found.
+        """
+        for name, code in self._name_to_iso.items():
+            if code == iso_code:
+                if predicate is None or predicate(name):
+                    return name
+        return None
+
     def is_location(self, name: str) -> bool:
         """Check if a name is a known location.
 

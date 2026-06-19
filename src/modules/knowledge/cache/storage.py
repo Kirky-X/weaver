@@ -179,8 +179,12 @@ class KnowledgeCache(KnowledgeCacheProtocol):
         if hasattr(self, "db") and self.db is not None:
             try:
                 self.db.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                log.warning(
+                    "knowledge_cache_close_failed",
+                    error=str(exc),
+                    exc_type=type(exc).__name__,
+                )
             self.db = None
 
     # ------------------------------------------------------------------

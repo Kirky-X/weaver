@@ -378,10 +378,12 @@ async def list_communities(
         communities = await repo.list_communities(level=level, limit=limit, offset=offset)
         total = await repo.count_communities(level=level)
 
-        # Check which communities have reports
+        # Batch check which communities have reports (avoids N+1 queries)
+        community_ids = [c.id for c in communities]
+        has_report_map = await repo.get_reports_existence(community_ids)
+
         community_responses = []
         for c in communities:
-            report = await repo.get_report(c.id)
             community_responses.append(
                 CommunityResponse(
                     id=c.id,
@@ -391,7 +393,7 @@ async def list_communities(
                     parent_id=c.parent_id,
                     rank=c.rank,
                     period=c.period,
-                    has_report=report is not None,
+                    has_report=has_report_map.get(c.id, False),
                 )
             )
 

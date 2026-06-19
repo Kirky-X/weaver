@@ -54,15 +54,3 @@ class LocationHierarchy:
         if country:
             return country.get("continent")
         return None
-
-    def get_subdivisions(self, iso_code: str) -> list[dict]:
-        """Get administrative subdivisions for a country.
-
-        Args:
-            iso_code: ISO 3166 alpha-2 country code.
-
-        Returns:
-            List of subdivision dictionaries.
-        """
-        # Simplified version - can be extended with geonamescache US states data
-        return []

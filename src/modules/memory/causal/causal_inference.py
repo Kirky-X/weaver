@@ -431,24 +431,16 @@ class CausalInferenceService:
             return existing_event_id
 
         # Check if entity has type='事件' (already an event)
-        if self._is_ladybug:
-            query = f"""
-            MATCH (e:Entity)
-            WHERE e.canonical_name = '{entity_name}'
-            AND e.type = '事件'
-            RETURN e.id AS event_id
-            """
-        else:
-            query = """
-            MATCH (e:Entity {canonical_name: $entity_name})
-            WHERE e.type = '事件'
-            RETURN e.id AS event_id
-            """
+        query = """
+        MATCH (e:Entity {canonical_name: $entity_name})
+        WHERE e.type = '事件'
+        RETURN e.id AS event_id
+        """
 
         try:
             result = await self._pool.execute_query(
                 query,
-                {"entity_name": entity_name} if not self._is_ladybug else {},
+                {"entity_name": entity_name},
             )
 
             if result and result[0].get("event_id"):
