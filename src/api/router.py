@@ -21,6 +21,7 @@ from api.endpoints import (
     saga_router,
     search_router,
     sources_router,
+    system_router,
     visualization_router,
 )
 
@@ -34,6 +35,9 @@ api_router.include_router(graph_router)
 api_router.include_router(visualization_router)
 api_router.include_router(admin_router)
 api_router.include_router(communities_router)
+
+# System endpoints (status, config)
+api_router.include_router(system_router)
 
 # Saga management endpoints
 api_router.include_router(saga_router)

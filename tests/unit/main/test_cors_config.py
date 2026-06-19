@@ -127,7 +127,8 @@ class TestCORSProductionEnvironment:
                 {"ENVIRONMENT": "production", "CORS_ORIGINS": "https://app.example.com"},
             ),
         ):
-            from main import create_app, log
+            from api.middleware.setup import log
+            from main import create_app
 
             mock_settings = _make_mock_settings()
             with patch("main.Settings", return_value=mock_settings):
@@ -170,7 +171,8 @@ class TestCORSProductionEnvironment:
                 },
             ),
         ):
-            from main import create_app, log
+            from api.middleware.setup import log
+            from main import create_app
 
             mock_settings = _make_mock_settings()
             mock_settings.environment = "production"
@@ -202,7 +204,8 @@ class TestCORSProductionEnvironment:
             patch("main._ensure_spacy_models"),
             patch.dict("os.environ", {"ENVIRONMENT": "production", "CORS_ORIGINS": ""}),
         ):
-            from main import create_app, log
+            from api.middleware.setup import log
+            from main import create_app
 
             mock_settings = _make_mock_settings()
             mock_settings.environment = "production"

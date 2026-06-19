@@ -388,7 +388,7 @@ class TestHTTPLoggingMiddleware:
 
     def test_init(self):
         """Test middleware initialization."""
-        from main import HTTPLoggingMiddleware
+        from api.middleware.asgi import HTTPLoggingMiddleware
 
         app = MagicMock()
         middleware = HTTPLoggingMiddleware(app)
@@ -398,7 +398,7 @@ class TestHTTPLoggingMiddleware:
     @pytest.mark.asyncio
     async def test_passes_through_non_http_scope(self):
         """Test that non-http scopes are passed through directly."""
-        from main import HTTPLoggingMiddleware
+        from api.middleware.asgi import HTTPLoggingMiddleware
 
         app = AsyncMock()
         middleware = HTTPLoggingMiddleware(app)
@@ -414,7 +414,7 @@ class TestHTTPLoggingMiddleware:
     @pytest.mark.asyncio
     async def test_logs_http_request(self):
         """Test that HTTP requests are logged."""
-        from main import HTTPLoggingMiddleware
+        from api.middleware.asgi import HTTPLoggingMiddleware
 
         # Create a simple ASGI app that sends a response
         async def simple_app(scope, receive, send):
@@ -434,7 +434,7 @@ class TestHTTPLoggingMiddleware:
         receive = AsyncMock()
         send = AsyncMock()
 
-        with patch("main.log") as mock_log:
+        with patch("api.middleware.asgi.log") as mock_log:
             await middleware(scope, receive, send)
 
             # Check request was logged
@@ -444,7 +444,7 @@ class TestHTTPLoggingMiddleware:
     @pytest.mark.asyncio
     async def test_masks_api_key_in_log(self):
         """Test that API key is masked in logs."""
-        from main import HTTPLoggingMiddleware
+        from api.middleware.asgi import HTTPLoggingMiddleware
 
         async def simple_app(scope, receive, send):
             await send({"type": "http.response.start", "status": 200, "headers": []})
@@ -464,7 +464,7 @@ class TestHTTPLoggingMiddleware:
         receive = AsyncMock()
         send = AsyncMock()
 
-        with patch("main.log") as mock_log:
+        with patch("api.middleware.asgi.log") as mock_log:
             await middleware(scope, receive, send)
 
             # Verify API key was masked (only first 8 chars shown)
@@ -478,7 +478,7 @@ class TestHTTPLoggingMiddleware:
     @pytest.mark.asyncio
     async def test_logs_http_response(self):
         """Test that HTTP responses are logged."""
-        from main import HTTPLoggingMiddleware
+        from api.middleware.asgi import HTTPLoggingMiddleware
 
         async def simple_app(scope, receive, send):
             await send(
@@ -503,7 +503,7 @@ class TestHTTPLoggingMiddleware:
         receive = AsyncMock()
         send = AsyncMock()
 
-        with patch("main.log") as mock_log:
+        with patch("api.middleware.asgi.log") as mock_log:
             await middleware(scope, receive, send)
 
             # Check response was logged
@@ -513,7 +513,7 @@ class TestHTTPLoggingMiddleware:
     @pytest.mark.asyncio
     async def test_truncates_large_json_response_body(self):
         """Test that large JSON response bodies are truncated."""
-        from main import HTTPLoggingMiddleware
+        from api.middleware.asgi import HTTPLoggingMiddleware
 
         large_body = b'{"data": "' + b"x" * 1000 + b'"}'
 
@@ -540,7 +540,7 @@ class TestHTTPLoggingMiddleware:
         receive = AsyncMock()
         send = AsyncMock()
 
-        with patch("main.log") as mock_log:
+        with patch("api.middleware.asgi.log") as mock_log:
             await middleware(scope, receive, send)
 
             # Check body_preview was truncated
@@ -563,7 +563,7 @@ class TestSecurityHeadersMiddleware:
 
     def test_init(self):
         """Test middleware initialization."""
-        from main import SecurityHeadersMiddleware
+        from api.middleware.asgi import SecurityHeadersMiddleware
 
         app = MagicMock()
         middleware = SecurityHeadersMiddleware(app)
@@ -573,7 +573,7 @@ class TestSecurityHeadersMiddleware:
     @pytest.mark.asyncio
     async def test_passes_through_non_http_scope(self):
         """Test that non-http scopes are passed through directly."""
-        from main import SecurityHeadersMiddleware
+        from api.middleware.asgi import SecurityHeadersMiddleware
 
         app = AsyncMock()
         middleware = SecurityHeadersMiddleware(app)
@@ -589,7 +589,7 @@ class TestSecurityHeadersMiddleware:
     @pytest.mark.asyncio
     async def test_adds_security_headers(self):
         """Test that security headers are added to responses."""
-        from main import SecurityHeadersMiddleware
+        from api.middleware.asgi import SecurityHeadersMiddleware
 
         async def simple_app(scope, receive, send):
             await send({"type": "http.response.start", "status": 200, "headers": []})
@@ -637,7 +637,7 @@ class TestSecurityHeadersMiddleware:
     @pytest.mark.asyncio
     async def test_preserves_existing_headers(self):
         """Test that existing headers are preserved."""
-        from main import SecurityHeadersMiddleware
+        from api.middleware.asgi import SecurityHeadersMiddleware
 
         async def app_with_headers(scope, receive, send):
             await send(
@@ -680,7 +680,7 @@ class TestRequestSizeLimitMiddleware:
 
     def test_init(self):
         """Test middleware initialization."""
-        from main import RequestSizeLimitMiddleware
+        from api.middleware.asgi import RequestSizeLimitMiddleware
 
         app = MagicMock()
         middleware = RequestSizeLimitMiddleware(app)
@@ -691,7 +691,7 @@ class TestRequestSizeLimitMiddleware:
     @pytest.mark.asyncio
     async def test_passes_through_non_http_scope(self):
         """Test that non-http scopes are passed through directly."""
-        from main import RequestSizeLimitMiddleware
+        from api.middleware.asgi import RequestSizeLimitMiddleware
 
         app = AsyncMock()
         middleware = RequestSizeLimitMiddleware(app)
@@ -707,7 +707,7 @@ class TestRequestSizeLimitMiddleware:
     @pytest.mark.asyncio
     async def test_passes_through_get_requests(self):
         """Test that GET requests are passed through without size check."""
-        from main import RequestSizeLimitMiddleware
+        from api.middleware.asgi import RequestSizeLimitMiddleware
 
         app = AsyncMock()
         middleware = RequestSizeLimitMiddleware(app)
@@ -723,7 +723,7 @@ class TestRequestSizeLimitMiddleware:
     @pytest.mark.asyncio
     async def test_passes_through_small_post_requests(self):
         """Test that small POST requests are passed through."""
-        from main import RequestSizeLimitMiddleware
+        from api.middleware.asgi import RequestSizeLimitMiddleware
 
         app = AsyncMock()
         middleware = RequestSizeLimitMiddleware(app)
@@ -743,7 +743,7 @@ class TestRequestSizeLimitMiddleware:
     @pytest.mark.asyncio
     async def test_rejects_large_post_requests(self):
         """Test that large POST requests are rejected with 413."""
-        from main import RequestSizeLimitMiddleware
+        from api.middleware.asgi import RequestSizeLimitMiddleware
 
         app = AsyncMock()
         middleware = RequestSizeLimitMiddleware(app)
@@ -775,7 +775,7 @@ class TestRequestSizeLimitMiddleware:
     @pytest.mark.asyncio
     async def test_rejects_large_put_requests(self):
         """Test that large PUT requests are rejected."""
-        from main import RequestSizeLimitMiddleware
+        from api.middleware.asgi import RequestSizeLimitMiddleware
 
         app = AsyncMock()
         middleware = RequestSizeLimitMiddleware(app)
@@ -800,7 +800,7 @@ class TestRequestSizeLimitMiddleware:
     @pytest.mark.asyncio
     async def test_rejects_large_patch_requests(self):
         """Test that large PATCH requests are rejected."""
-        from main import RequestSizeLimitMiddleware
+        from api.middleware.asgi import RequestSizeLimitMiddleware
 
         app = AsyncMock()
         middleware = RequestSizeLimitMiddleware(app)
@@ -825,7 +825,7 @@ class TestRequestSizeLimitMiddleware:
     @pytest.mark.asyncio
     async def test_passes_requests_without_content_length(self):
         """Test that requests without content-length are passed through."""
-        from main import RequestSizeLimitMiddleware
+        from api.middleware.asgi import RequestSizeLimitMiddleware
 
         app = AsyncMock()
         middleware = RequestSizeLimitMiddleware(app)
@@ -941,7 +941,7 @@ class TestCreateApp:
         """Test that exception handlers are registered."""
         with patch("main._ensure_spacy_models"):
             with patch("main.Settings", return_value=mock_settings):
-                with patch("main.register_exception_handlers") as mock_register:
+                with patch("api.middleware.setup.register_exception_handlers") as mock_register:
                     from main import create_app
 
                     app = create_app()
@@ -952,7 +952,7 @@ class TestCreateApp:
         """Test that rate limiting middleware is registered."""
         with patch("main._ensure_spacy_models"):
             with patch("main.Settings", return_value=mock_settings):
-                with patch("main.register_exception_handlers"):
+                with patch("api.middleware.setup.register_exception_handlers"):
                     from main import create_app
 
                     app = create_app()
@@ -1047,7 +1047,7 @@ class TestHealthEndpoint:
         """Test health endpoint returns success when healthy."""
         with patch("main._ensure_spacy_models"):
             with patch("main.Settings", return_value=mock_settings):
-                with patch("main.health_check") as mock_health_check:
+                with patch("api.endpoints.system.health_check") as mock_health_check:
                     from api.endpoints.health import HealthCheckResponse, ServiceHealthCheck
 
                     mock_health_check.return_value = HealthCheckResponse(
@@ -1072,7 +1072,7 @@ class TestHealthEndpoint:
         """Test health endpoint returns 503 when unhealthy."""
         with patch("main._ensure_spacy_models"):
             with patch("main.Settings", return_value=mock_settings):
-                with patch("main.health_check") as mock_health_check:
+                with patch("api.endpoints.system.health_check") as mock_health_check:
                     from api.endpoints.health import HealthCheckResponse, ServiceHealthCheck
 
                     mock_health_check.return_value = HealthCheckResponse(
@@ -1108,7 +1108,9 @@ class TestMetricsEndpoint:
         """Test metrics endpoint returns Prometheus metrics."""
         with patch("main._ensure_spacy_models"):
             with patch("main.Settings", return_value=mock_settings):
-                with patch("main.generate_latest", return_value=b"prometheus_metrics"):
+                with patch(
+                    "api.endpoints.system.generate_latest", return_value=b"prometheus_metrics"
+                ):
                     from main import create_app
 
                     app = create_app()

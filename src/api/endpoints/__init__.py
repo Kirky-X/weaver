@@ -41,6 +41,7 @@ def __getattr__(name: str) -> APIRouter:
         "saga_router": ("api.endpoints.saga", "router"),
         "search_router": ("api.endpoints.content.search", "router"),
         "sources_router": ("api.endpoints.content.sources", "router"),
+        "system_router": ("api.endpoints.system", "system_router"),
         "visualization_router": ("api.endpoints.graph", "visualization_router"),
     }
     if name in router_map:
@@ -68,5 +69,6 @@ __all__ = [
     "saga_router",
     "search_router",
     "sources_router",
+    "system_router",
     "visualization_router",
 ]
