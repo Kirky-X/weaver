@@ -246,7 +246,7 @@ class TestNeo4jWriterWrite:
         source_id = str(uuid.uuid4())
 
         writer._article_repo.create_article = AsyncMock(return_value="neo4j_article_id")
-        writer._article_repo.find_article_by_pg_id = AsyncMock(
+        writer._article_repo.find_article_by_id = AsyncMock(
             return_value={"publish_time": datetime.now(UTC) - timedelta(hours=2)}
         )
         writer._article_repo.create_followed_by_batch = AsyncMock(
@@ -419,7 +419,7 @@ class TestNeo4jWriterCreateFollowedRelations:
         publish_time = datetime.now(UTC)
         source_time = publish_time - timedelta(hours=2)
 
-        writer._article_repo.find_article_by_pg_id = AsyncMock(
+        writer._article_repo.find_article_by_id = AsyncMock(
             return_value={
                 "publish_time": source_time,
             }
@@ -437,7 +437,7 @@ class TestNeo4jWriterCreateFollowedRelations:
     @pytest.mark.asyncio
     async def test_create_followed_relations_no_source_article(self, writer):
         """Test create FOLLOWED_BY when source article not found."""
-        writer._article_repo.find_article_by_pg_id = AsyncMock(return_value=None)
+        writer._article_repo.find_article_by_id = AsyncMock(return_value=None)
         writer._article_repo.create_followed_by_batch = AsyncMock(return_value=1)
 
         await writer._create_followed_relations(
@@ -451,7 +451,7 @@ class TestNeo4jWriterCreateFollowedRelations:
     @pytest.mark.asyncio
     async def test_create_followed_relations_handles_error(self, writer):
         """Test create FOLLOWED_BY handles errors."""
-        writer._article_repo.find_article_by_pg_id = AsyncMock(side_effect=Exception("Find error"))
+        writer._article_repo.find_article_by_id = AsyncMock(side_effect=Exception("Find error"))
 
         await writer._create_followed_relations(
             article_id="target_id",
@@ -462,7 +462,7 @@ class TestNeo4jWriterCreateFollowedRelations:
     @pytest.mark.asyncio
     async def test_create_followed_relations_multiple_sources(self, writer):
         """Test create FOLLOWED_BY for multiple sources."""
-        writer._article_repo.find_article_by_pg_id = AsyncMock(
+        writer._article_repo.find_article_by_id = AsyncMock(
             return_value={
                 "publish_time": datetime.now(UTC) - timedelta(hours=1),
             }

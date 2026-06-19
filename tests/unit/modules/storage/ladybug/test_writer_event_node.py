@@ -72,9 +72,9 @@ class TestLadybugWriterEventNodeCreation:
             category="科技",
         )
 
-        # Mock article_repo.find_article_by_pg_id to return None (new article)
+        # Mock article_repo.find_article_by_id to return None (new article)
         writer._article_repo = MagicMock()
-        writer._article_repo.find_article_by_pg_id = AsyncMock(return_value=None)
+        writer._article_repo.find_article_by_id = AsyncMock(return_value=None)
         writer._article_repo.create_article = AsyncMock(return_value="article-uuid")
 
         writer._entity_repo = MagicMock()
@@ -112,7 +112,7 @@ class TestLadybugWriterEventNodeCreation:
         state = _make_state(article_id=article_id, title="Test Title")
 
         writer._article_repo = MagicMock()
-        writer._article_repo.find_article_by_pg_id = AsyncMock(return_value=None)
+        writer._article_repo.find_article_by_id = AsyncMock(return_value=None)
         writer._article_repo.create_article = AsyncMock(return_value="article-uuid")
 
         writer._entity_repo = MagicMock()
@@ -143,7 +143,7 @@ class TestLadybugWriterEventNodeCreation:
         state = _make_state(article_id=article_id, title="Updated Title")
 
         writer._article_repo = MagicMock()
-        writer._article_repo.find_article_by_pg_id = AsyncMock(
+        writer._article_repo.find_article_by_id = AsyncMock(
             return_value={"id": "existing-article-id", "pg_id": article_id}
         )
         writer._article_repo.create_article = AsyncMock(return_value="existing-article-id")
@@ -179,7 +179,7 @@ class TestLadybugWriterEventNodeCreation:
         )
 
         writer._article_repo = MagicMock()
-        writer._article_repo.find_article_by_pg_id = AsyncMock(return_value=None)
+        writer._article_repo.find_article_by_id = AsyncMock(return_value=None)
         writer._article_repo.create_article = AsyncMock(return_value="article-uuid")
 
         writer._entity_repo = MagicMock()
@@ -213,7 +213,7 @@ class TestLadybugWriterEventNodeCreation:
         )
 
         writer._article_repo = MagicMock()
-        writer._article_repo.find_article_by_pg_id = AsyncMock(return_value=None)
+        writer._article_repo.find_article_by_id = AsyncMock(return_value=None)
         writer._article_repo.create_article = AsyncMock(return_value="article-uuid")
 
         writer._entity_repo = MagicMock()

@@ -469,7 +469,7 @@ class Neo4jWriter:
 
             try:
                 # Get source article to calculate time gap
-                source_article = await self._article_repo.find_article_by_pg_id(source_id)
+                source_article = await self._article_repo.find_article_by_id(source_id)
                 if source_article and publish_time and source_article.get("publish_time"):
                     source_time = source_article["publish_time"]
                     if hasattr(source_time, "timestamp") and hasattr(publish_time, "timestamp"):

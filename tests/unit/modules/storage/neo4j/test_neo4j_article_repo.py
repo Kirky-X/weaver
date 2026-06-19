@@ -73,7 +73,7 @@ class TestCreateArticle:
 
 
 class TestFindArticleByPgId:
-    """Tests for find_article_by_pg_id method."""
+    """Tests for find_article_by_id method."""
 
     @pytest.mark.asyncio
     async def test_find_article_found(self):
@@ -94,7 +94,7 @@ class TestFindArticleByPgId:
         )
 
         repo = Neo4jArticleRepo(mock_pool)
-        result = await repo.find_article_by_pg_id("pg-uuid-123")
+        result = await repo.find_article_by_id("pg-uuid-123")
 
         assert result is not None
         assert result["pg_id"] == "pg-uuid-123"
@@ -107,13 +107,13 @@ class TestFindArticleByPgId:
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         repo = Neo4jArticleRepo(mock_pool)
-        result = await repo.find_article_by_pg_id("nonexistent")
+        result = await repo.find_article_by_id("nonexistent")
 
         assert result is None
 
 
 class TestFindArticleByNeo4jId:
-    """Tests for find_article_by_neo4j_id method."""
+    """Tests for find_article_by_graph_id method."""
 
     @pytest.mark.asyncio
     async def test_find_by_neo4j_id_found(self):
@@ -134,7 +134,7 @@ class TestFindArticleByNeo4jId:
         )
 
         repo = Neo4jArticleRepo(mock_pool)
-        result = await repo.find_article_by_neo4j_id("neo4j-internal-123")
+        result = await repo.find_article_by_graph_id("neo4j-internal-123")
 
         assert result is not None
         assert result["neo4j_id"] == "neo4j-internal-123"
@@ -146,7 +146,7 @@ class TestFindArticleByNeo4jId:
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         repo = Neo4jArticleRepo(mock_pool)
-        result = await repo.find_article_by_neo4j_id("nonexistent")
+        result = await repo.find_article_by_graph_id("nonexistent")
 
         assert result is None
 
@@ -375,7 +375,7 @@ class TestDeleteOrphanArticles:
 
 
 class TestListAllArticlePgIds:
-    """Tests for list_all_article_pg_ids method."""
+    """Tests for list_all_article_ids method."""
 
     @pytest.mark.asyncio
     async def test_list_all_pg_ids(self):
@@ -389,7 +389,7 @@ class TestListAllArticlePgIds:
         )
 
         repo = Neo4jArticleRepo(mock_pool)
-        result = await repo.list_all_article_pg_ids()
+        result = await repo.list_all_article_ids()
 
         assert len(result) == 2
         assert "id-1" in result
@@ -401,7 +401,7 @@ class TestListAllArticlePgIds:
         mock_pool.execute_query = AsyncMock(return_value=[])
 
         repo = Neo4jArticleRepo(mock_pool)
-        result = await repo.list_all_article_pg_ids()
+        result = await repo.list_all_article_ids()
 
         assert result == []
 

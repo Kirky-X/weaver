@@ -328,7 +328,7 @@ class TestNeo4jWriterMergeSources:
 
             mock_article_repo = MagicMock()
             mock_article_repo.create_article = AsyncMock(return_value="article-id")
-            mock_article_repo.find_article_by_pg_id = AsyncMock(return_value=None)
+            mock_article_repo.find_article_by_id = AsyncMock(return_value=None)
             mock_article_repo.create_followed_by_batch = AsyncMock(return_value=2)
 
             mock_entity_repo_cls.return_value = mock_entity_repo
@@ -601,7 +601,7 @@ class TestNeo4jWriterFollowedBy:
 
             mock_article_repo = MagicMock()
             mock_article_repo.create_followed_by_batch = AsyncMock(return_value=1)
-            mock_article_repo.find_article_by_pg_id = AsyncMock(return_value=None)
+            mock_article_repo.find_article_by_id = AsyncMock(return_value=None)
 
             mock_entity_repo_cls.return_value = MagicMock()
             mock_article_repo_cls.return_value = mock_article_repo
@@ -617,9 +617,7 @@ class TestNeo4jWriterFollowedBy:
         source_time = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
         target_time = datetime(2026, 1, 1, 15, 0, 0, tzinfo=UTC)
 
-        mock_article_repo.find_article_by_pg_id = AsyncMock(
-            return_value={"publish_time": source_time}
-        )
+        mock_article_repo.find_article_by_id = AsyncMock(return_value={"publish_time": source_time})
 
         await writer._create_followed_relations("article-1", ["source-1"], target_time)
 
@@ -633,7 +631,7 @@ class TestNeo4jWriterFollowedBy:
     async def test_followed_with_error(self, writer_with_mocks):
         """Test _create_followed_relations handles error gracefully."""
         writer, mock_article_repo = writer_with_mocks
-        mock_article_repo.find_article_by_pg_id = AsyncMock(side_effect=Exception("DB error"))
+        mock_article_repo.find_article_by_id = AsyncMock(side_effect=Exception("DB error"))
 
         # Should not raise
         await writer._create_followed_relations("article-1", ["source-1"], None)

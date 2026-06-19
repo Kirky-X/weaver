@@ -51,7 +51,7 @@ class LadybugArticleRepo:
         generated_id = str(uuid.uuid4())
 
         # Check if article already exists
-        existing = await self.find_article_by_pg_id(article_id)
+        existing = await self.find_article_by_id(article_id)
         if existing:
             # Update existing article
             query = """
@@ -76,7 +76,7 @@ class LadybugArticleRepo:
                 return result[0]["id"]
             return existing["id"]
 
-        # Create new article — use CREATE since find_article_by_pg_id already
+        # Create new article — use CREATE since find_article_by_id already
         # confirmed it doesn't exist. LadybugDB (Kuzu) requires the PRIMARY KEY
         # `id` to be provided at creation time.
         query = """
@@ -132,7 +132,7 @@ class LadybugArticleRepo:
 
         for article in articles:
             pg_id = article.get("pg_id")
-            existing = await self.find_article_by_pg_id(pg_id)
+            existing = await self.find_article_by_id(pg_id)
             if existing:
                 existing_ids[pg_id] = existing["id"]
             else:
@@ -182,8 +182,8 @@ class LadybugArticleRepo:
 
         return created_ids + list(existing_ids.values())
 
-    async def find_article_by_pg_id(self, article_id: str) -> dict[str, Any] | None:
-        """Find an article by its PostgreSQL ID."""
+    async def find_article_by_id(self, article_id: str) -> dict[str, Any] | None:
+        """Find an article by its article ID (pg_id)."""
         query = """
         MATCH (a:Article {pg_id: $pg_id})
         RETURN a.id AS id,
@@ -198,8 +198,8 @@ class LadybugArticleRepo:
             return dict(result[0])
         return None
 
-    async def find_article_by_id(self, article_id: str) -> dict[str, Any] | None:
-        """Find an article by its ID."""
+    async def find_article_by_graph_id(self, graph_id: str) -> dict[str, Any] | None:
+        """Find an article by its graph database internal ID."""
         query = """
         MATCH (a:Article {id: $id})
         RETURN a.id AS id,
@@ -209,7 +209,7 @@ class LadybugArticleRepo:
                a.publish_time AS publish_time,
                a.score AS score
         """
-        result = await self._pool.execute_query(query, {"id": article_id})
+        result = await self._pool.execute_query(query, {"id": graph_id})
         if result:
             return dict(result[0])
         return None
@@ -355,8 +355,8 @@ class LadybugArticleRepo:
             count += 1
         return count
 
-    async def list_all_article_pg_ids(self) -> list[str]:
-        """List all article PostgreSQL IDs."""
+    async def list_all_article_ids(self) -> list[str]:
+        """List all article IDs."""
         query = """
         MATCH (a:Article)
         RETURN a.pg_id AS pg_id

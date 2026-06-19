@@ -209,7 +209,7 @@ class ConsistencyJobs:
             pg_ids = await self._article_repo.get_all_article_ids()
 
             # 1. Detect and clean up orphan Neo4j nodes
-            neo4j_ids = await self._graph_writer.article_repo.list_all_article_pg_ids()
+            neo4j_ids = await self._graph_writer.article_repo.list_all_article_ids()
             orphan_ids = set(neo4j_ids) - pg_ids
 
             deleted = 0

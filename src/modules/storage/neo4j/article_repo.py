@@ -107,11 +107,11 @@ class Neo4jArticleRepo:
         result = await self._pool.execute_query(query, params)
         return [r["neo4j_id"] for r in result if r.get("neo4j_id")]
 
-    async def find_article_by_pg_id(self, article_id: str) -> dict[str, Any] | None:
-        """Find an article node by PostgreSQL ID.
+    async def find_article_by_id(self, article_id: str) -> dict[str, Any] | None:
+        """Find an article node by article ID.
 
         Args:
-            article_id: The PostgreSQL UUID.
+            article_id: The article UUID.
 
         Returns:
             Article dict if found, None otherwise.
@@ -131,11 +131,11 @@ class Neo4jArticleRepo:
             return dict(result[0])
         return None
 
-    async def find_article_by_neo4j_id(self, neo4j_id: str) -> dict[str, Any] | None:
-        """Find an article node by Neo4j internal ID.
+    async def find_article_by_graph_id(self, graph_id: str) -> dict[str, Any] | None:
+        """Find an article node by graph database internal ID.
 
         Args:
-            neo4j_id: The Neo4j internal element ID.
+            graph_id: The graph database internal element ID.
 
         Returns:
             Article dict if found, None otherwise.
@@ -151,7 +151,7 @@ class Neo4jArticleRepo:
                a.score AS score,
                a.created_at AS created_at
         """
-        result = await self._pool.execute_query(query, {"neo4j_id": neo4j_id})
+        result = await self._pool.execute_query(query, {"neo4j_id": graph_id})
         if result:
             return dict(result[0])
         return None
@@ -376,11 +376,11 @@ class Neo4jArticleRepo:
         result = await self._pool.execute_query(query, {"valid_pg_ids": valid_article_ids})
         return result[0]["orphan_count"] if result else 0
 
-    async def list_all_article_pg_ids(self) -> list[str]:
-        """List all article pg_ids in Neo4j.
+    async def list_all_article_ids(self) -> list[str]:
+        """List all article IDs in Neo4j.
 
         Returns:
-            List of pg_id strings.
+            List of article ID strings.
         """
         query = """
         MATCH (a:Article)

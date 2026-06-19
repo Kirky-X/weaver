@@ -430,7 +430,7 @@ class TestSyncNeo4jWithPostgres:
 
         pg_id = str(uuid.uuid4())
         scheduler_jobs_service._article_repo.get_all_article_ids = AsyncMock(return_value={pg_id})
-        scheduler_jobs_service._graph_writer.article_repo.list_all_article_pg_ids = AsyncMock(
+        scheduler_jobs_service._graph_writer.article_repo.list_all_article_ids = AsyncMock(
             return_value=[pg_id]
         )
         scheduler_jobs_service._graph_writer.article_repo.count_articles_without_mentions = (
@@ -456,7 +456,7 @@ class TestSyncNeo4jWithPostgres:
 
         pg_id = str(uuid.uuid4())
         scheduler_jobs_service._article_repo.get_all_article_ids = AsyncMock(return_value={pg_id})
-        scheduler_jobs_service._graph_writer.article_repo.list_all_article_pg_ids = AsyncMock(
+        scheduler_jobs_service._graph_writer.article_repo.list_all_article_ids = AsyncMock(
             return_value=[pg_id, "orphan-id"]
         )
         scheduler_jobs_service._article_repo.get_incomplete_articles = AsyncMock(return_value=[])
@@ -484,7 +484,7 @@ class TestSyncNeo4jWithPostgres:
 
         pg_id = str(uuid.uuid4())
         scheduler_jobs_service._article_repo.get_all_article_ids = AsyncMock(return_value={pg_id})
-        scheduler_jobs_service._graph_writer.article_repo.list_all_article_pg_ids = AsyncMock(
+        scheduler_jobs_service._graph_writer.article_repo.list_all_article_ids = AsyncMock(
             return_value=[pg_id]
         )
         scheduler_jobs_service._graph_writer.article_repo.delete_orphan_articles = AsyncMock(

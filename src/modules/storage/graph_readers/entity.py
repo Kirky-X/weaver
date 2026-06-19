@@ -212,8 +212,8 @@ class GraphEntityReader(GraphReaderBase):
     ) -> dict[str, float]:
         """Compute co-occurrence weights as shared article counts.
 
-        Uses two-pass approach: get articles mentioning source, then check
-        which of those also mention each target. Works with LadybugDB.
+        Uses a single Cypher query to count shared articles between the source
+        entity and all target entities. Works with both Neo4j and LadybugDB.
 
         Args:
             source_name: Source entity canonical name.
@@ -226,35 +226,26 @@ class GraphEntityReader(GraphReaderBase):
             return {}
 
         try:
-            # Get articles mentioning source entity
-            source_articles_query = """
-                MATCH (a:Article)-[:MENTIONS]->(src:Entity {canonical_name: $name})
-                RETURN DISTINCT a.pg_id AS article_id
+            # Single query: count shared articles between source and all targets
+            query = """
+                MATCH (a:Article)-[:MENTIONS]->(src:Entity {canonical_name: $source})
+                WITH a, collect(DISTINCT src) AS sources
+                MATCH (a)-[:MENTIONS]->(tgt:Entity)
+                WHERE tgt.canonical_name IN $targets
+                RETURN tgt.canonical_name AS target_name,
+                       count(DISTINCT a) AS shared_count
             """
-            source_result = await self._pool.execute_query(
-                source_articles_query, {"name": source_name}
+            result = await self._pool.execute_query(
+                query,
+                {"source": source_name, "targets": target_names},
             )
-            if not source_result:
-                return {}
 
-            source_article_ids = {row["article_id"] for row in source_result}
-            if not source_article_ids:
-                return {}
-
-            # For each target, count shared articles
-            weights = {}
-            for target in target_names:
-                target_articles_query = """
-                    MATCH (a:Article)-[:MENTIONS]->(tgt:Entity {canonical_name: $target})
-                    RETURN DISTINCT a.pg_id AS article_id
-                """
-                target_result = await self._pool.execute_query(
-                    target_articles_query, {"target": target}
-                )
-                target_article_ids = {row["article_id"] for row in target_result}
-                shared = source_article_ids & target_article_ids
-                if shared:
-                    weights[target] = float(len(shared))
+            weights: dict[str, float] = {}
+            for row in result:
+                target_name = row.get("target_name")
+                shared_count = row.get("shared_count", 0)
+                if target_name and shared_count:
+                    weights[target_name] = float(shared_count)
 
             return weights
         except Exception:
