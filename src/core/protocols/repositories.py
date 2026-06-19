@@ -14,18 +14,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from core.db import PersistStatus
-    from core.types.pipeline_state import PipelineState
-
-if TYPE_CHECKING:
     import uuid
 
-    from core.models.shared import (
+    from core.protocols.types import (
         ArticleSearchResultView,
         ArticleView,
         CommunitySearchResultView,
         EntitySearchResultView,
         EntityView,
+        PersistStatus,
+        PipelineState,
     )
 
 
@@ -56,11 +54,12 @@ class EntityRepository(Protocol):
         """
         ...
 
-    async def find_entity_by_id(self, neo4j_id: str) -> EntityView | None:
-        """Find an entity by Neo4j internal ID.
+    async def find_entity_by_id(self, entity_id: str) -> EntityView | None:
+        """Find an entity by its graph database internal ID.
 
         Args:
-            neo4j_id: The Neo4j internal element ID.
+            entity_id: The graph database internal element ID (Neo4j elementId
+                or LadybugDB id).
 
         Returns:
             EntityView if found, None otherwise.
@@ -191,14 +190,14 @@ class VectorRepository(Protocol):
 
     async def upsert_entity_vector(
         self,
-        neo4j_id: str,
+        entity_id: str,
         embedding: list[float],
         model_id: str,
     ) -> None:
         """Upsert a single entity vector.
 
         Args:
-            neo4j_id: Neo4j entity ID.
+            entity_id: Graph database entity ID (Neo4j elementId or LadybugDB id).
             embedding: Entity embedding vector.
             model_id: Embedding model identifier from configuration.
         """
@@ -381,7 +380,7 @@ class GraphArticleRepository(Protocol):
 
     async def create_article(
         self,
-        pg_id: str,
+        article_id: str,
         title: str,
         category: str,
         publish_time: Any | None,
@@ -416,27 +415,27 @@ class GraphArticleRepository(Protocol):
         """
         ...
 
-    async def find_article_by_pg_id(self, pg_id: str) -> dict[str, Any] | None: ...
+    async def find_article_by_pg_id(self, article_id: str) -> dict[str, Any] | None: ...
 
     async def find_article_by_neo4j_id(self, neo4j_id: str) -> dict[str, Any] | None: ...
 
     async def create_followed_by_relation(
-        self, from_pg_id: str, to_pg_id: str, time_gap_hours: float | None = None
+        self, from_article_id: str, to_article_id: str, time_gap_hours: float | None = None
     ) -> None: ...
 
     async def get_followed_articles(
-        self, pg_id: str, direction: str = "outgoing", limit: int = 10
+        self, article_id: str, direction: str = "outgoing", limit: int = 10
     ) -> list[dict[str, Any]]: ...
 
-    async def delete_article(self, pg_id: str) -> bool: ...
+    async def delete_article(self, article_id: str) -> bool: ...
 
     async def delete_old_articles(self, days: int = 90) -> int: ...
 
-    async def get_article_entities(self, pg_id: str) -> list[dict[str, Any]]: ...
+    async def get_article_entities(self, article_id: str) -> list[dict[str, Any]]: ...
 
-    async def update_article_score(self, pg_id: str, score: float) -> None: ...
+    async def update_article_score(self, article_id: str, score: float) -> None: ...
 
-    async def delete_orphan_articles(self, valid_pg_ids: list[str]) -> int: ...
+    async def delete_orphan_articles(self, valid_article_ids: list[str]) -> int: ...
 
     async def list_all_article_pg_ids(self) -> list[str]: ...
 

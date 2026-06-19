@@ -101,16 +101,6 @@ class RedisClient:
         """Set a key-value pair with optional expiration."""
         await self.client.set(key, value, ex=ex)
 
-    async def setex(self, key: str, ttl: int, value: str) -> None:
-        """Set a key with expiration.
-
-        Args:
-            key: Key to set.
-            ttl: Time to live in seconds.
-            value: Value to store.
-        """
-        await self.client.setex(key, ttl, value)
-
     async def hget(self, name: str, key: str) -> str | None:
         """Get a hash field value."""
         return await self.client.hget(name, key)
@@ -218,24 +208,6 @@ class RedisClient:
                 yield key
             if cursor == 0:
                 break
-
-    async def scan(
-        self,
-        cursor: int = 0,
-        match: str | None = None,
-        count: int = 10,
-    ) -> tuple[int, list[str]]:
-        """Scan keys matching a pattern incrementally.
-
-        Args:
-            cursor: Cursor position (0 to start).
-            match: Pattern to match.
-            count: Hint for number of keys per iteration.
-
-        Returns:
-            Tuple of (new_cursor, list of keys).
-        """
-        return await self.client.scan(cursor=cursor, match=match, count=count)
 
     async def delete(self, *keys: str) -> int:
         """Delete one or more keys.
@@ -428,10 +400,6 @@ class CashewsClient:
         if ex is not None:
             self._expiry[key] = time.monotonic() + ex
 
-    async def setex(self, key: str, ttl: int, value: str) -> None:
-        """Set a key with expiration."""
-        await self.set(key, value, ex=ttl)
-
     async def delete(self, *keys: str) -> int:
         if not keys:
             return 0
@@ -557,30 +525,20 @@ class CashewsClient:
 
     # ── Scan ───────────────────────────────────────────────────
 
-    async def scan(
-        self,
-        cursor: int = 0,
-        match: str | None = None,
-        count: int = 10,
-    ) -> tuple[int, list[str]]:
-        all_keys = list(self._store.keys())
-        if match:
-            all_keys = [k for k in all_keys if self._match_pattern(k, match)]
-        start = cursor
-        end = start + count
-        batch = all_keys[start:end]
-        new_cursor = end if end < len(all_keys) else 0
-        return new_cursor, batch
-
     async def scan_iter(self, pattern: str, count: int = 100):
         """Iterate over keys matching pattern."""
+        all_keys = list(self._store.keys())
+        if pattern:
+            all_keys = [k for k in all_keys if self._match_pattern(k, pattern)]
         cursor = 0
         while True:
-            cursor, keys = await self.scan(cursor, match=pattern, count=count)
-            for key in keys:
+            end = cursor + count
+            batch = all_keys[cursor:end]
+            for key in batch:
                 yield key
-            if cursor == 0:
+            if end >= len(all_keys):
                 break
+            cursor = end
 
     # ── Pipeline / Script ──────────────────────────────────────
 

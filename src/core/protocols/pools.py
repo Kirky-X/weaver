@@ -81,6 +81,13 @@ class GraphPool(Protocol):
     def database_type(self) -> str:
         """Return the database type identifier (e.g., 'neo4j', 'ladybug').
 
+        .. deprecated::
+            Prefer ``container.graph_pool_type`` or explicit ``database_type``
+            constructor arguments passed to repositories/detectors. Relying on
+            this property couples callers to the pool's concrete backend.
+            Retained for backward compatibility with existing modules that
+            inspect the pool type at runtime.
+
         Returns:
             String identifier for the database backend.
         """
@@ -118,36 +125,16 @@ class GraphPool(Protocol):
 
 
 @runtime_checkable
-class CachePool(Protocol):
-    """Protocol for cache implementations (Redis, Cashews, etc.).
+class CacheKV(Protocol):
+    """Protocol for key/value cache operations.
 
-    Defines a unified interface for cache operations that can be
-    implemented by different cache backends.
+    Defines basic key-value operations supported by cache backends.
 
     Implementations:
         - RedisClient: redis-py async wrapper
         - CashewsClient: in-memory cache client using cashews
+        - FallbackCachePool: Redis→Cashews degradation proxy
     """
-
-    # ── Lifecycle ─────────────────────────────────────────────────────
-
-    async def startup(self) -> None:
-        """Initialize the cache connection."""
-        ...
-
-    async def shutdown(self) -> None:
-        """Close the cache connection."""
-        ...
-
-    async def ping(self) -> bool:
-        """Check cache connectivity.
-
-        Returns:
-            True if cache is reachable.
-        """
-        ...
-
-    # ── Key/Value Operations ──────────────────────────────────────────
 
     async def get(self, key: str) -> str | None:
         """Get a value by key.
@@ -204,17 +191,18 @@ class CachePool(Protocol):
         """
         ...
 
-    async def setex(self, key: str, ttl: int, value: str) -> None:
-        """Set a key with expiration.
 
-        Args:
-            key: Key to set.
-            ttl: Time to live in seconds.
-            value: Value to store.
-        """
-        ...
+@runtime_checkable
+class CacheHash(Protocol):
+    """Protocol for hash cache operations.
 
-    # ── Hash Operations ───────────────────────────────────────────────
+    Defines hash data structure operations supported by cache backends.
+
+    Implementations:
+        - RedisClient: redis-py async wrapper
+        - CashewsClient: in-memory cache client using cashews
+        - FallbackCachePool: Redis→Cashews degradation proxy
+    """
 
     async def hget(self, name: str, key: str) -> str | None:
         """Get a hash field value.
@@ -286,21 +274,18 @@ class CachePool(Protocol):
         """
         ...
 
-    # ── Pipeline Operations ───────────────────────────────────────────
 
-    def pipeline(self) -> Any:
-        """Return a pipeline for batch operations.
+@runtime_checkable
+class CacheList(Protocol):
+    """Protocol for list cache operations.
 
-        Returns:
-            A pipeline object supporting hincrby, hset, expire, etc.
-            Must be used as an async context manager:
-                async with pool.pipeline() as pipe:
-                    pipe.hincrby(...)
-                    await pipe.execute()
-        """
-        ...
+    Defines list data structure operations supported by cache backends.
 
-    # ── List Operations ───────────────────────────────────────────────
+    Implementations:
+        - RedisClient: redis-py async wrapper
+        - CashewsClient: in-memory cache client using cashews
+        - FallbackCachePool: Redis→Cashews degradation proxy
+    """
 
     async def lpush(self, name: str, *values: str) -> int:
         """Prepend values to a list.
@@ -359,7 +344,18 @@ class CachePool(Protocol):
         """
         ...
 
-    # ── Sorted Set Operations ─────────────────────────────────────────
+
+@runtime_checkable
+class CacheSortedSet(Protocol):
+    """Protocol for sorted set cache operations.
+
+    Defines sorted set data structure operations supported by cache backends.
+
+    Implementations:
+        - RedisClient: redis-py async wrapper
+        - CashewsClient: in-memory cache client using cashews
+        - FallbackCachePool: Redis→Cashews degradation proxy
+    """
 
     async def zadd(self, name: str, mapping: dict[str, float]) -> int:
         """Add members to a sorted set.
@@ -407,22 +403,43 @@ class CachePool(Protocol):
         """
         ...
 
-    # ── Scan Operations ───────────────────────────────────────────────
 
-    async def scan(
-        self, cursor: int = 0, match: str | None = None, count: int = 10
-    ) -> tuple[int, list[str]]:
-        """Scan keys incrementally.
+@runtime_checkable
+class CachePipeline(Protocol):
+    """Protocol for pipeline cache operations.
 
-        Args:
-            cursor: Cursor position (0 to start).
-            match: Pattern to match.
-            count: Hint for number of keys per iteration.
+    Defines pipeline/batch operation support for cache backends.
+
+    Implementations:
+        - RedisClient: redis-py async wrapper
+        - CashewsClient: in-memory cache client using cashews
+        - FallbackCachePool: Redis→Cashews degradation proxy
+    """
+
+    def pipeline(self) -> Any:
+        """Return a pipeline for batch operations.
 
         Returns:
-            Tuple of (new_cursor, list of keys).
+            A pipeline object supporting hincrby, hset, expire, etc.
+            Must be used as an async context manager:
+                async with pool.pipeline() as pipe:
+                    pipe.hincrby(...)
+                    await pipe.execute()
         """
         ...
+
+
+@runtime_checkable
+class CacheScan(Protocol):
+    """Protocol for scan cache operations.
+
+    Defines incremental key scanning operations for cache backends.
+
+    Implementations:
+        - RedisClient: redis-py async wrapper
+        - CashewsClient: in-memory cache client using cashews
+        - FallbackCachePool: Redis→Cashews degradation proxy
+    """
 
     async def scan_iter(self, pattern: str, count: int = 100):
         """Iterate over keys matching pattern using SCAN (non-blocking).
@@ -433,5 +450,47 @@ class CachePool(Protocol):
 
         Yields:
             Keys matching the pattern.
+        """
+        ...
+
+
+@runtime_checkable
+class CachePool(
+    CacheKV,
+    CacheHash,
+    CacheList,
+    CacheSortedSet,
+    CachePipeline,
+    CacheScan,
+    Protocol,
+):
+    """Protocol for cache implementations (Redis, Cashews, etc.).
+
+    Defines a unified interface for cache operations that can be
+    implemented by different cache backends. Combines all cache
+    sub-protocols (CacheKV, CacheHash, CacheList, CacheSortedSet,
+    CachePipeline, CacheScan) and adds lifecycle management.
+
+    Implementations:
+        - RedisClient: redis-py async wrapper
+        - CashewsClient: in-memory cache client using cashews
+        - FallbackCachePool: Redis→Cashews degradation proxy
+    """
+
+    # ── Lifecycle ─────────────────────────────────────────────────────
+
+    async def startup(self) -> None:
+        """Initialize the cache connection."""
+        ...
+
+    async def shutdown(self) -> None:
+        """Close the cache connection."""
+        ...
+
+    async def ping(self) -> bool:
+        """Check cache connectivity.
+
+        Returns:
+            True if cache is reachable.
         """
         ...

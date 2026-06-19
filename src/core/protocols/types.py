@@ -1,0 +1,45 @@
+# Copyright (c) 2026 KirkyX. All Rights Reserved
+"""Shared type definitions used in Protocol signatures.
+
+This module re-exports type definitions that are used in Protocol method
+signatures so that the protocols layer does not depend directly on the
+DB layer (``core.db``) or the types package (``core.types``).
+
+Importing from this module is preferred within ``core.protocols``:
+    from core.protocols.types import PersistStatus, PipelineState
+
+Re-exported types:
+    - PersistStatus: Article persistence status enum (defined in core.db.models.base)
+    - PipelineState: TypedDict for pipeline state (defined in core.types.pipeline_state)
+    - ArticleView, EntityView, EventView, CommunityView: View models
+      (defined in core.models.shared)
+    - ArticleSearchResultView, EntitySearchResultView, CommunitySearchResultView:
+      Search result view models (defined in core.models.shared)
+"""
+
+from __future__ import annotations
+
+# Import directly from the definition modules (not the package __init__)
+# to avoid circular imports:
+#   core.protocols -> core.protocols.types -> core.db -> core.protocols
+# By importing from core.db.models.base and core.types.pipeline_state
+# directly, we bypass the core.db.__init__ which imports core.protocols.
+from core.db.models.base import PersistStatus
+from core.models.shared import (
+    ArticleSearchResultView,
+    ArticleView,
+    CommunitySearchResultView,
+    EntitySearchResultView,
+    EntityView,
+)
+from core.types.pipeline_state import PipelineState
+
+__all__ = [
+    "ArticleSearchResultView",
+    "ArticleView",
+    "CommunitySearchResultView",
+    "EntitySearchResultView",
+    "EntityView",
+    "PersistStatus",
+    "PipelineState",
+]

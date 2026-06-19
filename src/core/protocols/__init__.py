@@ -53,6 +53,12 @@ from core.protocols.services import (
     TaskRegistryService,
 )
 
+# Shared type definitions used in Protocol signatures
+from core.protocols.types import (
+    PersistStatus,
+    PipelineState,
+)
+
 # Validation utilities
 from core.protocols.validation import (
     assert_implements,
@@ -74,7 +80,9 @@ __all__ = [
     "KnowledgeCluster",
     "MapperProtocol",
     "PendingSyncRepository",
+    "PersistStatus",
     "PipelineService",
+    "PipelineState",
     "RelationalPool",
     "SourceAuthorityRepository",
     "TaskRegistryService",

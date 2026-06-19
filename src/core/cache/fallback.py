@@ -217,9 +217,6 @@ class FallbackCachePool:
     async def mget(self, keys: list[str]) -> list[str | None]:
         return await self._execute("mget", keys)
 
-    async def setex(self, key: str, ttl: int, value: str) -> None:
-        return await self._execute("setex", key, ttl, value)
-
     # ── Hash Operations ────────────────────────────────────────────
 
     async def hget(self, name: str, key: str) -> str | None:
@@ -291,11 +288,6 @@ class FallbackCachePool:
 
     # ── Scan Operations ────────────────────────────────────────────
 
-    async def scan(
-        self, cursor: int = 0, match: str | None = None, count: int = 10
-    ) -> tuple[int, list[str]]:
-        return await self._execute("scan", cursor, match=match, count=count)
-
     async def scan_iter(self, pattern: str, count: int = 100):
         """Iterate over keys matching pattern using SCAN (non-blocking).
 
@@ -306,13 +298,17 @@ class FallbackCachePool:
         Yields:
             Keys matching the pattern.
         """
-        cursor = 0
-        while True:
-            cursor, keys = await self.scan(cursor, match=pattern, count=count)
-            for key in keys:
+        client = self._primary if self._primary_healthy else self._fallback
+        try:
+            async for key in client.scan_iter(pattern, count=count):
                 yield key
-            if cursor == 0:
-                break
+        except Exception as exc:
+            if self._primary_healthy:
+                self._degrade_to_fallback("scan_iter", exc)
+                async for key in self._fallback.scan_iter(pattern, count=count):
+                    yield key
+            else:
+                raise
 
     # ── Script Operations ──────────────────────────────────────────
 
