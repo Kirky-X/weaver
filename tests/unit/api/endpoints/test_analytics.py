@@ -5,10 +5,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from api.endpoints.analytics import router
-from tests.helpers import create_mock_relational_pool, create_test_client
+from tests.helpers import create_test_client
 
 
 class TestAnalyticsShiftsEndpoint:
@@ -188,21 +186,21 @@ class TestAnalyticsBriefingsWithData:
 
     def test_briefings_endpoint_returns_data(self) -> None:
         """Test briefings endpoint returns data from storage."""
-        mock_pool = create_mock_relational_pool()
-        mock_pool.session_context = mock_pool.session
-
-        mock_row = MagicMock()
-        mock_row.id = 1
-        mock_row.briefing_date = "2026-01-15"
-        mock_row.total_items = 5
-        mock_row.generated_at = None
-
-        mock_result = MagicMock()
-        mock_result.scalars.return_value.all.return_value = [mock_row]
-        mock_pool.session().execute = AsyncMock(return_value=mock_result)
-
         mock_storage = MagicMock()
-        mock_storage._pool = mock_pool
+        mock_storage.get_briefings_with_items = AsyncMock(
+            return_value=[
+                {
+                    "id": 1,
+                    "briefing_date": "2026-01-15",
+                    "title": "Daily Briefing",
+                    "summary": "Summary",
+                    "status": "published",
+                    "total_items": 5,
+                    "generated_at": None,
+                    "items": [],
+                }
+            ]
+        )
 
         with patch("api.endpoints.analytics._get_analytics_storage", return_value=mock_storage):
             response = self.client.get("/analytics/briefings")
@@ -211,12 +209,16 @@ class TestAnalyticsBriefingsWithData:
         body = response.json()
         assert body["data"]["total"] == 1
         assert len(body["data"]["briefings"]) == 1
+        mock_storage.get_briefings_with_items.assert_called_once_with(date=None, limit=10)
 
     def test_briefings_endpoint_handles_storage_error(self) -> None:
-        """Test briefings endpoint handles storage errors gracefully."""
+        """Test briefings endpoint handles storage errors gracefully.
+
+        AnalyticsStorage.get_briefings_with_items logs and returns [] on error,
+        so the endpoint receives an empty list rather than raising.
+        """
         mock_storage = MagicMock()
-        mock_storage._pool = MagicMock()
-        mock_storage._pool.session_context.side_effect = Exception("DB error")
+        mock_storage.get_briefings_with_items = AsyncMock(return_value=[])
 
         with patch("api.endpoints.analytics._get_analytics_storage", return_value=mock_storage):
             response = self.client.get("/analytics/briefings")

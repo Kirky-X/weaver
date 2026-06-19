@@ -86,3 +86,61 @@ class AnalyticsStorage:
         except Exception as exc:
             log.error("get_shifts_failed", error=str(exc))
             return []
+
+    async def get_briefings_with_items(
+        self,
+        date: str | None = None,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Get daily briefings with their items eagerly loaded.
+
+        Args:
+            date: Optional date filter in YYYY-MM-DD format.
+            limit: Maximum number of briefings to return.
+
+        Returns:
+            List of briefing dicts, each including an ``items`` list with
+            score breakdown and reason. Ordered by generation time desc.
+        """
+        try:
+            async with self._pool.session_context() as session:
+                from datetime import date as date_type
+
+                from sqlalchemy import select
+                from sqlalchemy.orm import selectinload
+
+                from core.db import DailyBriefing
+
+                query = select(DailyBriefing).options(selectinload(DailyBriefing.items))
+                if date:
+                    target_date = date_type.fromisoformat(date)
+                    query = query.where(DailyBriefing.briefing_date == target_date)
+                query = query.order_by(DailyBriefing.generated_at.desc()).limit(limit)
+                result = await session.execute(query)
+                rows = result.scalars().all()
+                return [
+                    {
+                        "id": r.id,
+                        "briefing_date": str(r.briefing_date),
+                        "title": r.title,
+                        "summary": r.summary,
+                        "status": r.status,
+                        "total_items": r.total_items,
+                        "generated_at": r.generated_at.isoformat() if r.generated_at else None,
+                        "items": [
+                            {
+                                "rank": item.rank,
+                                "article_id": str(item.article_id),
+                                "category": item.category,
+                                "score": float(item.score) if item.score else None,
+                                "score_breakdown": item.score_breakdown,
+                                "reason": item.reason,
+                            }
+                            for item in r.items
+                        ],
+                    }
+                    for r in rows
+                ]
+        except Exception as exc:
+            log.error("get_briefings_with_items_failed", error=str(exc))
+            return []

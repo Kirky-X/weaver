@@ -61,49 +61,8 @@ async def get_briefings(
     Each briefing includes its items with score_breakdown.
     """
     try:
-        from datetime import date as date_type
-
-        from core.db import DailyBriefing
-
         storage = _get_analytics_storage()
-        pool = storage._pool
-
-        async with pool.session_context() as session:
-            from sqlalchemy import select
-            from sqlalchemy.orm import selectinload
-
-            query = select(DailyBriefing).options(selectinload(DailyBriefing.items))
-            if date:
-                target_date = date_type.fromisoformat(date)
-                query = query.where(DailyBriefing.briefing_date == target_date)
-            query = query.order_by(DailyBriefing.generated_at.desc()).limit(limit)
-            result = await session.execute(query)
-            rows = result.scalars().all()
-
-            briefings = [
-                {
-                    "id": r.id,
-                    "briefing_date": str(r.briefing_date),
-                    "title": r.title,
-                    "summary": r.summary,
-                    "status": r.status,
-                    "total_items": r.total_items,
-                    "generated_at": r.generated_at.isoformat() if r.generated_at else None,
-                    "items": [
-                        {
-                            "rank": item.rank,
-                            "article_id": str(item.article_id),
-                            "category": item.category,
-                            "score": float(item.score) if item.score else None,
-                            "score_breakdown": item.score_breakdown,
-                            "reason": item.reason,
-                        }
-                        for item in r.items
-                    ],
-                }
-                for r in rows
-            ]
-
-            return success_response({"briefings": briefings, "total": len(briefings)})
+        briefings = await storage.get_briefings_with_items(date=date, limit=limit)
+        return success_response({"briefings": briefings, "total": len(briefings)})
     except Exception:
         return success_response({"briefings": [], "total": 0})
