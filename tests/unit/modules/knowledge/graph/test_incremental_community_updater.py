@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from modules.knowledge.graph.community.modularity import _compute_modularity
 from modules.knowledge.graph.community.updater import (
     CommunityStats,
     IncrementalCommunityUpdater,
@@ -483,14 +484,14 @@ class TestCalculateModularity:
 
 
 class TestComputeModularity:
-    """Tests for _compute_modularity method."""
+    """Tests for _compute_modularity function."""
 
     def test_single_community(self, updater):
         """Test modularity with single community."""
         edges = [("A", "B", 1.0), ("B", "C", 1.0), ("C", "A", 1.0)]
         partitions = {"A": 0, "B": 0, "C": 0}
 
-        result = updater._compute_modularity(edges, partitions)
+        result = _compute_modularity(edges, partitions)
 
         assert isinstance(result, float)
         # Fully connected single community should have positive modularity
@@ -498,7 +499,7 @@ class TestComputeModularity:
 
     def test_empty_data(self, updater):
         """Test with empty data."""
-        result = updater._compute_modularity([], {})
+        result = _compute_modularity([], {})
 
         assert result == 0.0
 
@@ -507,7 +508,7 @@ class TestComputeModularity:
         edges = [("A", "B", 1.0)]
         partitions = {"A": 0, "B": 0, "C": 1}
 
-        result = updater._compute_modularity(edges, partitions)
+        result = _compute_modularity(edges, partitions)
 
         assert isinstance(result, float)
 

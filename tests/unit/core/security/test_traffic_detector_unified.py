@@ -43,10 +43,10 @@ class FakeRedis:
     async def ttl(self, key: str) -> int:
         return self._ttls.get(key, -1)
 
-    async def setex(self, key: str, ttl: int, value: str) -> bool:
+    async def set(self, key: str, value: str, ex: int | None = None) -> None:
         self._data[key] = value
-        self._ttls[key] = ttl
-        return True
+        if ex is not None:
+            self._ttls[key] = ex
 
     async def get(self, key: str) -> str | None:
         return self._data.get(key)
@@ -118,7 +118,7 @@ class TestPerIPRateLimiting:
     @pytest.mark.asyncio
     async def test_banned_ip_blocked_immediately(self, fake_redis, config):
         """Banned IPs should be blocked immediately on next request."""
-        await fake_redis.setex("traffic:blocked:ip:5.6.7.8", 900, "1")
+        await fake_redis.set("traffic:blocked:ip:5.6.7.8", "1", ex=900)
         det = TrafficAnomalyDetector(redis=fake_redis, config=config)
 
         decision = await det.check_request(key_id="key1", ip="5.6.7.8")
@@ -340,7 +340,7 @@ class TestAutoBanDuration:
     @pytest.mark.asyncio
     async def test_banned_ip_retry_after_matches_ban_duration(self, fake_redis, config):
         """Banned IP's retry_after should reflect remaining ban time."""
-        await fake_redis.setex("traffic:blocked:ip:5.6.7.8", 900, "1")
+        await fake_redis.set("traffic:blocked:ip:5.6.7.8", "1", ex=900)
         det = TrafficAnomalyDetector(redis=fake_redis, config=config)
 
         decision = await det.check_request(key_id="key1", ip="5.6.7.8")

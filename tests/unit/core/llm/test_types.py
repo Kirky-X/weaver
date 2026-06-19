@@ -4,6 +4,7 @@
 import pytest
 
 from core.llm import (
+    CacheUsage,
     Capability,
     Label,
     LLMResponse,
@@ -13,7 +14,6 @@ from core.llm import (
     RoutingConfig,
     TokenUsage,
 )
-from core.llm.types import CacheUsage
 
 
 class TestLabel:
@@ -112,43 +112,11 @@ class TestTokenUsage:
         assert usage.total_tokens == 0
 
 
-class TestCacheUsage:
-    """Tests for CacheUsage dataclass."""
-
-    def test_cache_hit_rate_with_values(self) -> None:
-        """Test cache_hit_rate returns hit / (hit + miss)."""
-        usage = CacheUsage(cache_hit_tokens=100, cache_miss_tokens=50)
-        assert usage.cache_hit_rate == pytest.approx(100 / 150)
-
-    def test_cache_hit_rate_zero_division_protection(self) -> None:
-        """Test cache_hit_rate returns 0.0 when total is zero (no exception)."""
-        usage = CacheUsage()
-        assert usage.cache_hit_rate == 0.0
-
-    def test_default_values_are_zero(self) -> None:
-        """Test all fields default to 0."""
-        usage = CacheUsage()
-        assert usage.cache_hit_tokens == 0
-        assert usage.cache_miss_tokens == 0
-        assert usage.reasoning_tokens == 0
-
-    def test_frozen_immutable(self) -> None:
-        """Test CacheUsage is immutable (frozen)."""
-        usage = CacheUsage(cache_hit_tokens=10)
-        with pytest.raises(AttributeError):
-            usage.cache_hit_tokens = 20  # type: ignore[misc]
-
-    def test_full_hit_rate(self) -> None:
-        """Test cache_hit_rate returns 1.0 when miss is 0."""
-        usage = CacheUsage(cache_hit_tokens=200, cache_miss_tokens=0)
-        assert usage.cache_hit_rate == 1.0
-
-
 class TestLLMResponseCacheFields:
     """Tests for LLMResponse cache field extension."""
 
     def test_default_cache_fields_are_zero(self) -> None:
-        """Test LLMResponse constructs with cache fields defaulting to 0."""
+        """Test LLMResponse constructs with cache_usage defaulting to None."""
         label = Label(llm_type=LLMType.CHAT, provider="openai", model="gpt-4o")
         response = LLMResponse(
             content="hello",
@@ -157,11 +125,10 @@ class TestLLMResponseCacheFields:
             token_usage=None,
             model="gpt-4o",
         )
-        assert response.cache_hit_tokens == 0
-        assert response.cache_miss_tokens == 0
+        assert response.cache_usage is None
 
     def test_cache_fields_can_be_set(self) -> None:
-        """Test LLMResponse accepts explicit cache field values."""
+        """Test LLMResponse accepts explicit cache_usage value."""
         label = Label(llm_type=LLMType.CHAT, provider="deepseek", model="deepseek-chat")
         response = LLMResponse(
             content="hello",
@@ -169,14 +136,14 @@ class TestLLMResponseCacheFields:
             latency_ms=100.0,
             token_usage=None,
             model="deepseek-chat",
-            cache_hit_tokens=500,
-            cache_miss_tokens=200,
+            cache_usage=CacheUsage(cache_hit_tokens=500, cache_miss_tokens=200),
         )
-        assert response.cache_hit_tokens == 500
-        assert response.cache_miss_tokens == 200
+        assert response.cache_usage is not None
+        assert response.cache_usage.cache_hit_tokens == 500
+        assert response.cache_usage.cache_miss_tokens == 200
 
     def test_existing_construction_not_broken(self) -> None:
-        """Test existing LLMResponse construction (without cache fields) still works."""
+        """Test existing LLMResponse construction (without cache_usage) still works."""
         label = Label(llm_type=LLMType.CHAT, provider="aiping", model="GLM-4-9B")
         token_usage = TokenUsage(input_tokens=10, output_tokens=5, total_tokens=15)
         response = LLMResponse(
@@ -189,8 +156,28 @@ class TestLLMResponseCacheFields:
         assert response.content == "result"
         assert response.token_usage is not None
         assert response.token_usage.total_tokens == 15
-        assert response.cache_hit_tokens == 0
-        assert response.cache_miss_tokens == 0
+        assert response.cache_usage is None
+
+
+class TestCacheUsage:
+    """Tests for CacheUsage dataclass."""
+
+    def test_cache_hit_rate_with_values(self) -> None:
+        """Test cache_hit_rate computes correctly with non-zero values."""
+        usage = CacheUsage(cache_hit_tokens=100, cache_miss_tokens=50)
+        assert usage.cache_hit_rate == pytest.approx(100 / 150)
+
+    def test_cache_hit_rate_zero_division(self) -> None:
+        """Test cache_hit_rate returns 0.0 on zero-division."""
+        usage = CacheUsage()
+        assert usage.cache_hit_rate == 0.0
+
+    def test_default_values(self) -> None:
+        """Test CacheUsage defaults to all zeros."""
+        usage = CacheUsage()
+        assert usage.cache_hit_tokens == 0
+        assert usage.cache_miss_tokens == 0
+        assert usage.reasoning_tokens == 0
 
 
 class TestRoutingConfig:

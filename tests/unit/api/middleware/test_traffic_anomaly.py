@@ -38,10 +38,10 @@ class FakeRedis:
     async def ttl(self, key: str) -> int:
         return self._ttls.get(key, -1)
 
-    async def setex(self, key: str, ttl: int, value: str) -> bool:
+    async def set(self, key: str, value: str, ex: int | None = None) -> None:
         self._data[key] = value
-        self._ttls[key] = ttl
-        return True
+        if ex is not None:
+            self._ttls[key] = ex
 
     async def get(self, key: str) -> str | None:
         return self._data.get(key)
@@ -212,7 +212,7 @@ class TestPerIPRateDetection:
     async def test_banned_ip_blocked(self, detector, fake_redis):
         """Banned IPs should be blocked immediately."""
         # Manually ban an IP
-        await fake_redis.setex("traffic:blocked:ip:5.6.7.8", 900, "1")
+        await fake_redis.set("traffic:blocked:ip:5.6.7.8", "1", ex=900)
 
         decision = await detector.check_request("key1", "5.6.7.8")
         assert decision.action == "block"

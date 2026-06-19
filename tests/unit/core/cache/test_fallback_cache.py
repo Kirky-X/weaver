@@ -41,7 +41,11 @@ def mock_redis() -> AsyncMock:
     redis.zadd.return_value = 1
     redis.zrangebyscore.return_value = ["member1"]
     redis.zrem.return_value = 1
-    redis.scan.return_value = (0, ["key1"])
+
+    async def _scan_iter_keys(pattern: str, count: int = 100):
+        yield "key1"
+
+    redis.scan_iter = MagicMock(side_effect=_scan_iter_keys)
     redis.startup.return_value = None
     redis.shutdown.return_value = None
     redis.register_script = MagicMock(return_value=MagicMock())
@@ -71,7 +75,11 @@ def mock_cashews() -> AsyncMock:
     cashews.zadd.return_value = 1
     cashews.zrangebyscore.return_value = ["member1"]
     cashews.zrem.return_value = 1
-    cashews.scan.return_value = (0, ["key1"])
+
+    async def _scan_iter_keys(pattern: str, count: int = 100):
+        yield "key1"
+
+    cashews.scan_iter = MagicMock(side_effect=_scan_iter_keys)
     cashews.startup.return_value = None
     cashews.shutdown.return_value = None
     cashews.register_script = MagicMock(return_value=MagicMock())
@@ -226,12 +234,14 @@ class TestFallbackCachePoolNormalOperation:
         mock_redis.zrem.assert_called_once_with("zset", "member")
         assert result == 1
 
-    async def test_scan_routes_to_primary(
+    async def test_scan_iter_routes_to_primary(
         self, fallback_pool: FallbackCachePool, mock_redis: AsyncMock
     ) -> None:
-        result = await fallback_pool.scan(0, match="prefix:*", count=10)
-        mock_redis.scan.assert_called_once_with(0, match="prefix:*", count=10)
-        assert result == (0, ["key1"])
+        keys = []
+        async for key in fallback_pool.scan_iter("prefix:*", count=10):
+            keys.append(key)
+        mock_redis.scan_iter.assert_called_once_with("prefix:*", count=10)
+        assert keys == ["key1"]
 
     async def test_register_script_routes_to_primary(
         self, fallback_pool: FallbackCachePool, mock_redis: AsyncMock

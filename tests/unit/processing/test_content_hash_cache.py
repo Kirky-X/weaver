@@ -1,11 +1,14 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Tests for content hash cache layer in Pipeline.
+"""Tests for content hash cache layer (ContentHashCacheService).
 
 Covers:
 - Content hash hit -> skip processing
 - Cache miss -> execute full pipeline
 - Processing complete -> write to cache
 - Cache TTL correctly set
+
+The cache logic was extracted from Pipeline into ContentHashCacheService;
+these tests target the service directly.
 """
 
 from __future__ import annotations
@@ -17,7 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from modules.ingestion.domain.models import RawArticle
-from modules.processing.pipeline.graph import Pipeline
+from modules.processing.pipeline.content_hash_cache import ContentHashCacheService
 from modules.processing.pipeline.state import PipelineState
 
 
@@ -32,7 +35,7 @@ def _make_raw_article(title: str = "Test Title", body: str = "Test body content.
 
 
 def _compute_content_hash(title: str, body: str) -> str:
-    """Compute content hash matching pipeline logic."""
+    """Compute content hash matching service logic."""
     content = f"{title}{body}"
     return hashlib.sha256(content.encode()).hexdigest()
 
@@ -58,13 +61,10 @@ class TestContentHashCacheHit:
         )
         cache_client.mget.return_value = [cached_result]
 
-        # Create pipeline with mock cache
-        pipeline = MagicMock()
-        pipeline._deps.infrastructure.cache_client = cache_client
-        pipeline._settings = MagicMock()
+        service = ContentHashCacheService(cache_client=cache_client)
 
         # Call the method under test
-        result = await Pipeline._check_content_hash_cache(pipeline, [article])
+        result = await service.check([article])
 
         # Verify cache was checked
         cache_client.mget.assert_called_once()
@@ -91,11 +91,9 @@ class TestContentHashCacheHit:
         ]
         cache_client.mget.return_value = cached_results
 
-        pipeline = MagicMock()
-        pipeline._deps.infrastructure.cache_client = cache_client
-        pipeline._settings = MagicMock()
+        service = ContentHashCacheService(cache_client=cache_client)
 
-        result = await Pipeline._check_content_hash_cache(pipeline, articles)
+        result = await service.check(articles)
 
         assert len(result) == 2
         assert result[0]["category"] == "politics"
@@ -113,11 +111,9 @@ class TestContentHashCacheMiss:
         cache_client = AsyncMock()
         cache_client.mget.return_value = [None]
 
-        pipeline = MagicMock()
-        pipeline._deps.infrastructure.cache_client = cache_client
-        pipeline._settings = MagicMock()
+        service = ContentHashCacheService(cache_client=cache_client)
 
-        result = await Pipeline._check_content_hash_cache(pipeline, [article])
+        result = await service.check([article])
 
         assert result[0] is None
 
@@ -132,11 +128,9 @@ class TestContentHashCacheMiss:
         cache_client = AsyncMock()
         cache_client.mget.return_value = [None, None]
 
-        pipeline = MagicMock()
-        pipeline._deps.infrastructure.cache_client = cache_client
-        pipeline._settings = MagicMock()
+        service = ContentHashCacheService(cache_client=cache_client)
 
-        result = await Pipeline._check_content_hash_cache(pipeline, articles)
+        result = await service.check(articles)
 
         assert len(result) == 2
         assert result[0] is None
@@ -155,15 +149,13 @@ class TestContentHashCacheWrite:
         cache_client = AsyncMock()
         cache_client.set.return_value = None
 
-        pipeline = MagicMock()
-        pipeline._deps.infrastructure.cache_client = cache_client
-        pipeline._settings = MagicMock()
+        service = ContentHashCacheService(cache_client=cache_client)
 
         state = PipelineState(raw=article)
         state["category"] = "politics"
         state["quality_score"] = 0.85
 
-        await Pipeline._write_content_hash_cache(pipeline, state)
+        await service.write(state)
 
         # Verify cache was written
         cache_client.set.assert_called_once()
@@ -187,9 +179,7 @@ class TestContentHashCacheWrite:
         cache_client = AsyncMock()
         cache_client.set.return_value = None
 
-        pipeline = MagicMock()
-        pipeline._deps.infrastructure.cache_client = cache_client
-        pipeline._settings = MagicMock()
+        service = ContentHashCacheService(cache_client=cache_client)
 
         states = []
         for article in articles:
@@ -197,9 +187,7 @@ class TestContentHashCacheWrite:
             state["category"] = "politics"
             states.append(state)
 
-        # Call _write_content_hash_cache for each state
-        for state in states:
-            await Pipeline._write_content_hash_cache(pipeline, state)
+        await service.write_batch(states)
 
         # Verify cache was written for each article
         assert cache_client.set.call_count == 2
@@ -213,11 +201,9 @@ class TestContentHashCacheDisabled:
         """When cache_client is None, return None for all articles."""
         article = _make_raw_article()
 
-        pipeline = MagicMock()
-        pipeline._deps.infrastructure.cache_client = None
-        pipeline._settings = MagicMock()
+        service = ContentHashCacheService(cache_client=None)
 
-        result = await Pipeline._check_content_hash_cache(pipeline, [article])
+        result = await service.check([article])
 
         assert result[0] is None
 
@@ -226,15 +212,13 @@ class TestContentHashCacheDisabled:
         """When cache_client is None, don't attempt to write."""
         article = _make_raw_article()
 
-        pipeline = MagicMock()
-        pipeline._deps.infrastructure.cache_client = None
-        pipeline._settings = MagicMock()
+        service = ContentHashCacheService(cache_client=None)
 
         state = PipelineState(raw=article)
         state["category"] = "politics"
 
         # Should not raise
-        await Pipeline._write_content_hash_cache(pipeline, state)
+        await service.write(state)
 
 
 class TestContentHashCacheMetrics:
@@ -248,14 +232,14 @@ class TestContentHashCacheMetrics:
         cache_client = AsyncMock()
         cache_client.mget.return_value = ['{"title": "Test"}']
 
-        pipeline = MagicMock()
-        pipeline._deps.infrastructure.cache_client = cache_client
-        pipeline._settings = MagicMock()
+        service = ContentHashCacheService(cache_client=cache_client)
 
-        with patch("modules.processing.pipeline.graph.MetricsCollector") as mock_metrics:
+        with patch(
+            "modules.processing.pipeline.content_hash_cache.MetricsCollector"
+        ) as mock_metrics:
             mock_counter = MagicMock()
             mock_metrics.content_hash_cache_hit_total.labels.return_value = mock_counter
-            await Pipeline._check_content_hash_cache(pipeline, [article])
+            await service.check([article])
             mock_metrics.content_hash_cache_hit_total.labels.assert_called_with(hit="hit")
 
     @pytest.mark.asyncio
@@ -266,12 +250,12 @@ class TestContentHashCacheMetrics:
         cache_client = AsyncMock()
         cache_client.mget.return_value = [None]
 
-        pipeline = MagicMock()
-        pipeline._deps.infrastructure.cache_client = cache_client
-        pipeline._settings = MagicMock()
+        service = ContentHashCacheService(cache_client=cache_client)
 
-        with patch("modules.processing.pipeline.graph.MetricsCollector") as mock_metrics:
+        with patch(
+            "modules.processing.pipeline.content_hash_cache.MetricsCollector"
+        ) as mock_metrics:
             mock_counter = MagicMock()
             mock_metrics.content_hash_cache_hit_total.labels.return_value = mock_counter
-            await Pipeline._check_content_hash_cache(pipeline, [article])
+            await service.check([article])
             mock_metrics.content_hash_cache_hit_total.labels.assert_called_with(hit="miss")

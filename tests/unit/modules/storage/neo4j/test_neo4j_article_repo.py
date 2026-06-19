@@ -30,7 +30,7 @@ class TestCreateArticle:
 
         repo = Neo4jArticleRepo(mock_pool)
         result = await repo.create_article(
-            pg_id="pg-uuid-123",
+            article_id="pg-uuid-123",
             title="Test Article",
             category="tech",
             publish_time=datetime.now(),
@@ -48,7 +48,7 @@ class TestCreateArticle:
 
         repo = Neo4jArticleRepo(mock_pool)
         result = await repo.create_article(
-            pg_id="pg-uuid-456",
+            article_id="pg-uuid-456",
             title="Test Article",
             category="finance",
             publish_time=None,
@@ -65,7 +65,7 @@ class TestCreateArticle:
         repo = Neo4jArticleRepo(mock_pool)
         with pytest.raises(RuntimeError, match="Failed to create article node"):
             await repo.create_article(
-                pg_id="pg-uuid-fail",
+                article_id="pg-uuid-fail",
                 title="Fail Article",
                 category="tech",
                 publish_time=None,
@@ -162,8 +162,8 @@ class TestCreateFollowedByRelation:
 
         repo = Neo4jArticleRepo(mock_pool)
         await repo.create_followed_by_relation(
-            from_pg_id="article-1",
-            to_pg_id="article-2",
+            from_article_id="article-1",
+            to_article_id="article-2",
         )
 
         mock_pool.execute_query.assert_called_once()
@@ -176,8 +176,8 @@ class TestCreateFollowedByRelation:
 
         repo = Neo4jArticleRepo(mock_pool)
         await repo.create_followed_by_relation(
-            from_pg_id="article-1",
-            to_pg_id="article-2",
+            from_article_id="article-1",
+            to_article_id="article-2",
             time_gap_hours=24.5,
         )
 
@@ -216,7 +216,7 @@ class TestGetFollowedArticles:
 
         repo = Neo4jArticleRepo(mock_pool)
         result = await repo.get_followed_articles(
-            pg_id="source-article",
+            article_id="source-article",
             direction="outgoing",
             limit=10,
         )
@@ -242,7 +242,7 @@ class TestGetFollowedArticles:
 
         repo = Neo4jArticleRepo(mock_pool)
         result = await repo.get_followed_articles(
-            pg_id="source-article",
+            article_id="source-article",
             direction="incoming",
             limit=5,
         )
@@ -258,7 +258,7 @@ class TestGetFollowedArticles:
 
         repo = Neo4jArticleRepo(mock_pool)
         result = await repo.get_followed_articles(
-            pg_id="isolated-article",
+            article_id="isolated-article",
             direction="outgoing",
         )
 

@@ -6,27 +6,29 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from modules.knowledge.graph.community.graph_utils import (
+    find_connected_components_dfs,
+)
+from modules.knowledge.graph.community.modularity import _compute_modularity
 from modules.knowledge.graph.metrics import (
     ConnectedComponent,
     EntityDegree,
     GraphMetrics,
     GraphQualityMetrics,
-    _dfs_component,
 )
 
 
 class TestDFSComponent:
-    """Test _dfs_component helper function."""
+    """Test find_connected_components_dfs helper function."""
 
     def test_single_node(self):
         """Test DFS on a single isolated node."""
         adjacency = {"A": set()}
-        visited: set[str] = set()
+        nodes = {"A"}
 
-        result = _dfs_component("A", adjacency, visited)
+        components = find_connected_components_dfs(adjacency, nodes)
 
-        assert result == {"A"}
-        assert visited == {"A"}
+        assert components == [{"A"}]
 
     def test_connected_component(self):
         """Test DFS finds all connected nodes."""
@@ -38,35 +40,22 @@ class TestDFSComponent:
             "E": {"F"},
             "F": {"E"},
         }
-        visited: set[str] = set()
+        nodes = {"A", "B", "C", "D", "E", "F"}
 
-        result = _dfs_component("A", adjacency, visited)
+        components = find_connected_components_dfs(adjacency, nodes)
 
-        assert result == {"A", "B", "C", "D"}
-        assert "E" not in result
-        assert "F" not in result
-
-    def test_already_visited_nodes_skipped(self):
-        """Test that already visited nodes are not reprocessed."""
-        adjacency = {
-            "A": {"B"},
-            "B": {"A"},
-        }
-        visited: set[str] = {"B"}
-
-        result = _dfs_component("A", adjacency, visited)
-
-        assert result == {"A"}
-        # B should not be added again
+        assert len(components) == 2
+        assert {"A", "B", "C", "D"} in components
+        assert {"E", "F"} in components
 
     def test_empty_adjacency(self):
         """Test DFS with node not in adjacency dict."""
         adjacency: dict[str, set[str]] = {}
-        visited: set[str] = set()
+        nodes = {"X"}
 
-        result = _dfs_component("X", adjacency, visited)
+        components = find_connected_components_dfs(adjacency, nodes)
 
-        assert result == {"X"}
+        assert components == [{"X"}]
 
     def test_complex_graph(self):
         """Test DFS on complex graph with multiple branches."""
@@ -80,22 +69,13 @@ class TestDFSComponent:
             "7": {"8"},
             "8": {"7"},
         }
-        visited: set[str] = set()
+        nodes = {"1", "2", "3", "4", "5", "6", "7", "8"}
 
-        result = _dfs_component("1", adjacency, visited)
+        components = find_connected_components_dfs(adjacency, nodes)
 
-        assert result == {"1", "2", "3", "4", "5", "6"}
-        assert len(result) == 6
-
-    def test_mutates_visited_in_place(self):
-        """Test that visited set is modified in place."""
-        adjacency = {"A": {"B"}, "B": {"A"}}
-        visited: set[str] = set()
-
-        _dfs_component("A", adjacency, visited)
-
-        assert "A" in visited
-        assert "B" in visited
+        assert len(components) == 2
+        assert {"1", "2", "3", "4", "5", "6"} in components
+        assert {"7", "8"} in components
 
 
 class TestGraphMetrics:
@@ -455,7 +435,7 @@ class TestGraphQualityMetricsModularity:
         ]
         partitions = {"A": 0, "B": 0, "C": 0}
 
-        result = metrics._compute_modularity(edges, partitions)
+        result = _compute_modularity(edges, partitions)
 
         assert result >= 0
 
@@ -469,7 +449,7 @@ class TestGraphQualityMetricsModularity:
         ]
         partitions = {"A": 0, "B": 0, "C": 0, "D": 1, "E": 1, "F": 1}
 
-        result = metrics._compute_modularity(edges, partitions)
+        result = _compute_modularity(edges, partitions)
 
         assert result >= 0
 
@@ -796,7 +776,7 @@ class TestGraphQualityMetricsModularityEdgeCases:
         ]
         partitions = {"A": 0, "B": 0, "C": 0}
 
-        result = metrics._compute_modularity(edges, partitions)
+        result = _compute_modularity(edges, partitions)
 
         assert result == 0.0
 
@@ -811,7 +791,7 @@ class TestGraphQualityMetricsModularityEdgeCases:
         ]
         partitions = {"A": 0, "B": 0, "C": 0, "D": 1, "E": 1, "F": 1}
 
-        result = metrics._compute_modularity(edges, partitions)
+        result = _compute_modularity(edges, partitions)
 
         assert -1 <= result <= 1
 
@@ -820,7 +800,7 @@ class TestGraphQualityMetricsModularityEdgeCases:
         edges = [("A", "B", 1.0)]
         partitions: dict[str, int] = {}
 
-        result = metrics._compute_modularity(edges, partitions)
+        result = _compute_modularity(edges, partitions)
 
         assert result == 0.0
 
@@ -832,7 +812,7 @@ class TestGraphQualityMetricsModularityEdgeCases:
         ]
         partitions = {"A": 0, "B": 0}  # C is missing
 
-        result = metrics._compute_modularity(edges, partitions)
+        result = _compute_modularity(edges, partitions)
 
         # Should still compute but ignore edges with missing partitions
         assert isinstance(result, float)
@@ -846,8 +826,8 @@ class TestGraphQualityMetricsModularityEdgeCases:
         ]
         partitions = {"A": 0, "B": 0, "C": 0}
 
-        result_default = metrics._compute_modularity(edges, partitions, resolution=1.0)
-        result_high = metrics._compute_modularity(edges, partitions, resolution=2.0)
+        result_default = _compute_modularity(edges, partitions, resolution=1.0)
+        result_high = _compute_modularity(edges, partitions, resolution=2.0)
 
         # Higher resolution should give different results
         assert isinstance(result_default, float)

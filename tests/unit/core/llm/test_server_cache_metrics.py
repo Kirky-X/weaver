@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from core.llm.types import (
+    CacheUsage,
     GlobalConfig,
     Label,
     LLMResponse,
@@ -110,8 +111,7 @@ class TestServerCacheMetricsIncrement:
             latency_ms=100.0,
             token_usage=TokenUsage(input_tokens=10, output_tokens=5),
             model="deepseek-chat",
-            cache_hit_tokens=500,
-            cache_miss_tokens=200,
+            cache_usage=CacheUsage(cache_hit_tokens=500, cache_miss_tokens=200),
         )
 
         labels = {"call_point": "classifier", "provider": "deepseek"}
@@ -150,8 +150,7 @@ class TestServerCacheMetricsIncrement:
             latency_ms=100.0,
             token_usage=TokenUsage(input_tokens=10, output_tokens=5),
             model="deepseek-chat",
-            cache_hit_tokens=0,
-            cache_miss_tokens=0,
+            cache_usage=None,
         )
 
         labels = {"call_point": "classifier", "provider": "deepseek"}

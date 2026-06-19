@@ -183,8 +183,7 @@ def _make_mock_response() -> MagicMock:
     resp.label = _make_label()
     resp.latency_ms = 100.0
     resp.model = "gpt-4o"
-    resp.cache_hit_tokens = 0
-    resp.cache_miss_tokens = 0
+    resp.cache_usage = None
     return resp
 
 
@@ -197,7 +196,7 @@ class TestRedisCache:
         client = _make_client()
         mock_redis = MagicMock()
         mock_redis.get = AsyncMock(return_value=None)
-        mock_redis.setex = AsyncMock(return_value=True)
+        mock_redis.set = AsyncMock(return_value=True)
         client._redis = mock_redis
 
         with patch.object(
@@ -209,7 +208,7 @@ class TestRedisCache:
 
         assert result == "test response content"
         mock_redis.get.assert_awaited_once()
-        mock_redis.setex.assert_awaited_once()
+        mock_redis.set.assert_awaited_once()
         assert client._cache_misses == 1
 
     @pytest.mark.asyncio
@@ -224,7 +223,7 @@ class TestRedisCache:
         )
         mock_redis = MagicMock()
         mock_redis.get = AsyncMock(return_value=cached_data)
-        mock_redis.setex = AsyncMock(return_value=True)
+        mock_redis.set = AsyncMock(return_value=True)
         client._redis = mock_redis
 
         with patch.object(client._pools["openai"], "execute", new=AsyncMock()) as mock_execute:
@@ -243,7 +242,7 @@ class TestRedisCache:
         client = _make_client()
         mock_redis = MagicMock()
         mock_redis.get = AsyncMock(side_effect=ConnectionError("Redis down"))
-        mock_redis.setex = AsyncMock(side_effect=ConnectionError("Redis down"))
+        mock_redis.set = AsyncMock(side_effect=ConnectionError("Redis down"))
         client._redis = mock_redis
 
         with patch.object(
@@ -268,7 +267,7 @@ class TestRedisCache:
         )
         mock_redis = MagicMock()
         mock_redis.get = AsyncMock(return_value=cached_data)
-        mock_redis.setex = AsyncMock(return_value=True)
+        mock_redis.set = AsyncMock(return_value=True)
         client._redis = mock_redis
 
         assert client._cache_hits == 0
@@ -305,12 +304,12 @@ class TestTTLGrading:
         assert CACHE_TTL["default"] == 24 * 60 * 60
 
     @pytest.mark.asyncio
-    async def test_redis_setex_uses_correct_ttl_per_call_point(self):
-        """Verify that Redis setex receives the correct TTL for each call_point."""
+    async def test_redis_set_uses_correct_ttl_per_call_point(self):
+        """Verify that Redis set receives the correct TTL for each call_point."""
         client = _make_client()
         mock_redis = MagicMock()
         mock_redis.get = AsyncMock(return_value=None)
-        mock_redis.setex = AsyncMock(return_value=True)
+        mock_redis.set = AsyncMock(return_value=True)
         client._redis = mock_redis
 
         with patch.object(
@@ -318,5 +317,5 @@ class TestTTLGrading:
         ):
             await client.call("chat.openai.gpt-4o", {"key": "value"}, call_point="classifier")
 
-        call_kwargs = mock_redis.setex.call_args
-        assert call_kwargs[0][1] == CACHE_TTL["classifier"]  # 7 days
+        call_kwargs = mock_redis.set.call_args
+        assert call_kwargs[1]["ex"] == CACHE_TTL["classifier"]  # 7 days

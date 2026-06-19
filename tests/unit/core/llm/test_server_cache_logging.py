@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from core.llm.types import (
+    CacheUsage,
     GlobalConfig,
     Label,
     LLMResponse,
@@ -58,14 +59,16 @@ def _make_response(
     provider: str = "deepseek",
     model: str = "deepseek-chat",
 ) -> LLMResponse:
+    cache_usage = None
+    if cache_hit > 0 or cache_miss > 0:
+        cache_usage = CacheUsage(cache_hit_tokens=cache_hit, cache_miss_tokens=cache_miss)
     return LLMResponse(
         content=content,
         label=_make_label(provider=provider, model=model),
         latency_ms=100.0,
         token_usage=TokenUsage(input_tokens=10, output_tokens=5),
         model=model,
-        cache_hit_tokens=cache_hit,
-        cache_miss_tokens=cache_miss,
+        cache_usage=cache_usage,
     )
 
 

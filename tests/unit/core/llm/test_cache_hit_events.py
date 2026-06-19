@@ -146,8 +146,7 @@ class TestTTLCacheHitNoEvent:
         mock_response.label = _make_label()
         mock_response.latency_ms = 200.0
         mock_response.model = "gpt-4o"
-        mock_response.cache_hit_tokens = 0
-        mock_response.cache_miss_tokens = 0
+        mock_response.cache_usage = None
 
         mock_emit = AsyncMock()
         with patch.object(
@@ -208,8 +207,7 @@ class TestTTLCacheHitNoEvent:
         mock_response.label = _make_label()
         mock_response.latency_ms = 150.0
         mock_response.model = "gpt-4o"
-        mock_response.cache_hit_tokens = 0
-        mock_response.cache_miss_tokens = 0
+        mock_response.cache_usage = None
 
         mock_emit = AsyncMock()
         with patch.object(

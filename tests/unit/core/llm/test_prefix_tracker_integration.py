@@ -62,8 +62,7 @@ def _make_mock_response() -> MagicMock:
     resp.label = _make_label()
     resp.latency_ms = 100.0
     resp.model = "gpt-4o"
-    resp.cache_hit_tokens = 0
-    resp.cache_miss_tokens = 0
+    resp.cache_usage = None
     return resp
 
 
@@ -84,7 +83,7 @@ class TestPrefixHashTrackerIntegration:
         client = _make_client()
         mock_redis = MagicMock()
         mock_redis.get = AsyncMock(return_value=None)
-        mock_redis.setex = AsyncMock(return_value=True)
+        mock_redis.set = AsyncMock(return_value=True)
         client._redis = mock_redis
 
         payload = {
@@ -114,7 +113,7 @@ class TestPrefixHashTrackerIntegration:
         client = _make_client()
         mock_redis = MagicMock()
         mock_redis.get = AsyncMock(return_value=None)
-        mock_redis.setex = AsyncMock(return_value=True)
+        mock_redis.set = AsyncMock(return_value=True)
         client._redis = mock_redis
 
         payload1 = {
@@ -163,7 +162,7 @@ class TestPrefixHashTrackerIntegration:
         )
         mock_redis = MagicMock()
         mock_redis.get = AsyncMock(return_value=cached_data)
-        mock_redis.setex = AsyncMock(return_value=True)
+        mock_redis.set = AsyncMock(return_value=True)
         client._redis = mock_redis
 
         payload = {

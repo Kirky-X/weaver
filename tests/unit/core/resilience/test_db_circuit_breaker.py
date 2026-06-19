@@ -52,11 +52,11 @@ class TestDBCircuitBreakerResetTimeout:
             await cb.record_failure()
         assert await cb.is_open()
 
-        # Simulate time passing beyond reset_timeout
+        # Simulate time passing beyond reset_timeout by patching
+        # the self-maintained _opened_at timestamp to be 31 seconds ago
         from datetime import UTC, datetime, timedelta
 
-        # Patch the opened_at timestamp to be 31 seconds ago
-        cb._breaker._state_storage.opened_at = datetime.now(UTC) - timedelta(seconds=31)
+        cb._opened_at = datetime.now(UTC) - timedelta(seconds=31)
 
         # After timeout, is_open should return False (half-open state)
         assert not await cb.is_open()

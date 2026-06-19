@@ -17,7 +17,7 @@ class TestURLSecurityCache:
         """Create mock Redis client."""
         redis = MagicMock()
         redis.get = AsyncMock()
-        redis.setex = AsyncMock()
+        redis.set = AsyncMock()
         redis.delete = AsyncMock()
         redis.keys = AsyncMock(return_value=[])
         return redis
@@ -104,10 +104,10 @@ class TestURLSecurityCache:
             risk="safe",
         )
 
-        mock_redis.setex.assert_called_once()
+        mock_redis.set.assert_called_once()
         # Check that safe TTL is used
-        call_args = mock_redis.setex.call_args
-        assert call_args[0][1] == 21600  # safe_ttl
+        call_args = mock_redis.set.call_args
+        assert call_args[1]["ex"] == 21600  # safe_ttl
 
     @pytest.mark.asyncio
     async def test_set_malicious_result(
@@ -120,10 +120,10 @@ class TestURLSecurityCache:
             risk="blocked",
         )
 
-        mock_redis.setex.assert_called_once()
+        mock_redis.set.assert_called_once()
         # Check that malicious TTL is used
-        call_args = mock_redis.setex.call_args
-        assert call_args[0][1] == 900  # malicious_ttl
+        call_args = mock_redis.set.call_args
+        assert call_args[1]["ex"] == 900  # malicious_ttl
 
     @pytest.mark.asyncio
     async def test_set_high_risk_uses_malicious_ttl(
@@ -136,8 +136,8 @@ class TestURLSecurityCache:
             risk="high",
         )
 
-        call_args = mock_redis.setex.call_args
-        assert call_args[0][1] == 900  # malicious_ttl
+        call_args = mock_redis.set.call_args
+        assert call_args[1]["ex"] == 900  # malicious_ttl
 
     @pytest.mark.asyncio
     async def test_set_disabled_noop(self, disabled_cache: URLSecurityCache) -> None:
@@ -200,13 +200,13 @@ class TestURLSecurityCache:
         """Different risk levels should use different TTLs."""
         # Safe - long TTL
         await cache.set("https://safe.example.com", {"risk": "safe"}, "safe")
-        safe_call = mock_redis.setex.call_args
-        safe_ttl = safe_call[0][1]
+        safe_call = mock_redis.set.call_args
+        safe_ttl = safe_call[1]["ex"]
 
         # Blocked - short TTL
         await cache.set("https://blocked.example.com", {"risk": "blocked"}, "blocked")
-        blocked_call = mock_redis.setex.call_args
-        blocked_ttl = blocked_call[0][1]
+        blocked_call = mock_redis.set.call_args
+        blocked_ttl = blocked_call[1]["ex"]
 
         assert safe_ttl > blocked_ttl
 

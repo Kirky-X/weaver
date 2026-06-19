@@ -310,12 +310,23 @@ class TestAggregateUsageData:
 class TestFlushUsageBuffer:
     """Tests for flush_usage_buffer function."""
 
+    @staticmethod
+    def _async_key_iter(keys):
+        """Create an async generator yielding keys (mimics CachePool.scan_iter)."""
+
+        async def _gen():
+            for key in keys:
+                yield key
+
+        return _gen()
+
     @pytest.fixture
     def mock_cache(self):
         """Create a mock CachePool."""
         cache = MagicMock()
-        cache.scan = AsyncMock()
+        cache.scan_iter = MagicMock(return_value=self._async_key_iter([]))
         cache.hgetall = AsyncMock()
+        cache.hget = AsyncMock(return_value=None)
         cache.delete = AsyncMock()
         return cache
 
@@ -328,12 +339,12 @@ class TestFlushUsageBuffer:
     @freeze_time("2026-04-06 14:30:00", tz_offset=0)
     async def test_flush_no_keys_returns_zero(self, mock_cache, mock_relational_pool):
         """Test flush returns (0, 0) when no keys found."""
-        mock_cache.scan.return_value = (0, [])
+        mock_cache.scan_iter.return_value = self._async_key_iter([])
 
         result = await flush_usage_buffer(mock_cache, mock_relational_pool)
 
         assert result == (0, 0)
-        mock_cache.scan.assert_called_once()
+        mock_cache.scan_iter.assert_called_once()
 
     @pytest.mark.asyncio
     @freeze_time("2026-04-06 14:30:00", tz_offset=0)
@@ -342,7 +353,7 @@ class TestFlushUsageBuffer:
         current_hour_key = f"{REDIS_KEY_PREFIX}:2026040614"
 
         # Return current hour key but it should be filtered out
-        mock_cache.scan.return_value = (0, [current_hour_key])
+        mock_cache.scan_iter.return_value = self._async_key_iter([current_hour_key])
 
         result = await flush_usage_buffer(mock_cache, mock_relational_pool)
 
@@ -354,7 +365,7 @@ class TestFlushUsageBuffer:
         """Test flush processes a single key successfully."""
         past_hour_key = f"{REDIS_KEY_PREFIX}:2026040510"
 
-        mock_cache.scan.return_value = (0, [past_hour_key])
+        mock_cache.scan_iter.return_value = self._async_key_iter([past_hour_key])
 
         # Mock hgetall to return usage data
         mock_cache.hgetall.return_value = {
@@ -382,7 +393,7 @@ class TestFlushUsageBuffer:
         """Test flush deletes empty hash without processing."""
         past_hour_key = f"{REDIS_KEY_PREFIX}:2026040510"
 
-        mock_cache.scan.return_value = (0, [past_hour_key])
+        mock_cache.scan_iter.return_value = self._async_key_iter([past_hour_key])
         mock_cache.hgetall.return_value = {}
 
         result = await flush_usage_buffer(mock_cache, mock_relational_pool)
@@ -399,7 +410,7 @@ class TestFlushUsageBuffer:
             f"{REDIS_KEY_PREFIX}:2026040511",
         ]
 
-        mock_cache.scan.return_value = (0, keys)
+        mock_cache.scan_iter.return_value = self._async_key_iter(keys)
 
         # Return data for both keys
         mock_cache.hgetall.side_effect = [
@@ -427,11 +438,8 @@ class TestFlushUsageBuffer:
         keys_page1 = [f"{REDIS_KEY_PREFIX}:2026040510"]
         keys_page2 = [f"{REDIS_KEY_PREFIX}:2026040511"]
 
-        # First scan returns cursor 100, second returns cursor 0
-        mock_cache.scan.side_effect = [
-            (100, keys_page1),
-            (0, keys_page2),
-        ]
+        # scan_iter handles pagination internally; yield all keys from both pages
+        mock_cache.scan_iter.return_value = self._async_key_iter(keys_page1 + keys_page2)
 
         mock_cache.hgetall.side_effect = [
             {"chat::openai::gpt-4::classifier::count": "5"},
@@ -449,7 +457,7 @@ class TestFlushUsageBuffer:
             result = await flush_usage_buffer(mock_cache, mock_relational_pool)
 
         assert result == (2, 0)
-        assert mock_cache.scan.call_count == 2
+        assert mock_cache.scan_iter.call_count == 1
 
     @pytest.mark.asyncio
     @freeze_time("2026-04-06 14:30:00", tz_offset=0)
@@ -457,7 +465,7 @@ class TestFlushUsageBuffer:
         """Test flush counts errors when processing fails."""
         past_hour_key = f"{REDIS_KEY_PREFIX}:2026040510"
 
-        mock_cache.scan.return_value = (0, [past_hour_key])
+        mock_cache.scan_iter.return_value = self._async_key_iter([past_hour_key])
         mock_cache.hgetall.return_value = {
             "chat::openai::gpt-4::classifier::count": "5",
         }
@@ -479,7 +487,7 @@ class TestFlushUsageBuffer:
         """Test flush handles keys with invalid time bucket format."""
         invalid_key = f"{REDIS_KEY_PREFIX}:invalid_format"
 
-        mock_cache.scan.return_value = (0, [invalid_key])
+        mock_cache.scan_iter.return_value = self._async_key_iter([invalid_key])
         mock_cache.hgetall.return_value = {"data": "value"}
 
         result = await flush_usage_buffer(mock_cache, mock_relational_pool)
@@ -494,7 +502,7 @@ class TestFlushUsageBuffer:
         past_hour_key = f"{REDIS_KEY_PREFIX}:2026040510"
         expected_time_bucket = datetime(2026, 4, 5, 10, 0, 0, tzinfo=UTC)
 
-        mock_cache.scan.return_value = (0, [past_hour_key])
+        mock_cache.scan_iter.return_value = self._async_key_iter([past_hour_key])
         mock_cache.hgetall.return_value = {
             "chat::openai::gpt-4::classifier::count": "10",
             "chat::openai::gpt-4::classifier::input_tok": "2000",
@@ -504,6 +512,8 @@ class TestFlushUsageBuffer:
             "chat::openai::gpt-4::classifier::success": "9",
             "chat::openai::gpt-4::classifier::failure": "1",
         }
+        # hget is called twice per group: latency_min, then latency_max
+        mock_cache.hget = AsyncMock(side_effect=["50", "100"])
 
         mock_repo = MagicMock()
         mock_repo.get_latency_bounds = AsyncMock(return_value=(50.0, 100.0))
@@ -540,7 +550,7 @@ class TestFlushUsageBuffer:
         """Test flush processes multiple groups within single key."""
         past_hour_key = f"{REDIS_KEY_PREFIX}:2026040510"
 
-        mock_cache.scan.return_value = (0, [past_hour_key])
+        mock_cache.scan_iter.return_value = self._async_key_iter([past_hour_key])
         mock_cache.hgetall.return_value = {
             "chat::openai::gpt-4::classifier::count": "5",
             "chat::openai::gpt-4::classifier::success": "5",
@@ -571,7 +581,7 @@ class TestFlushUsageBuffer:
             f"{REDIS_KEY_PREFIX}:2026040511",
         ]
 
-        mock_cache.scan.return_value = (0, keys)
+        mock_cache.scan_iter.return_value = self._async_key_iter(keys)
 
         # First key succeeds, second fails
         mock_cache.hgetall.side_effect = [

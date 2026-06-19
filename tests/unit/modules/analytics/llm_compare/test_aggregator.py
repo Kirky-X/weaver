@@ -94,10 +94,21 @@ class TestAggregateCompareData:
 class TestFlushCompareBuffer:
     """Test flush_compare_buffer function."""
 
+    @staticmethod
+    def _async_key_iter(keys):
+        """Create an async generator yielding keys (mimics CachePool.scan_iter)."""
+
+        async def _gen():
+            for key in keys:
+                yield key
+
+        return _gen()
+
     @pytest.fixture
     def mock_cache(self):
         """Create mock cache pool."""
         cache = AsyncMock()
+        cache.scan_iter = MagicMock(return_value=self._async_key_iter([]))
         return cache
 
     @pytest.fixture
@@ -109,7 +120,7 @@ class TestFlushCompareBuffer:
     @pytest.mark.asyncio
     async def test_flush_empty_buffer(self, mock_cache, mock_relational_pool):
         """Test flush with no keys to process."""
-        mock_cache.scan = AsyncMock(return_value=(0, []))
+        mock_cache.scan_iter.return_value = self._async_key_iter([])
 
         processed, errors = await flush_compare_buffer(mock_cache, mock_relational_pool)
 
@@ -119,12 +130,7 @@ class TestFlushCompareBuffer:
     @pytest.mark.asyncio
     async def test_flush_handles_errors(self, mock_cache, mock_relational_pool):
         """Test flush handles errors gracefully."""
-        mock_cache.scan = AsyncMock(
-            side_effect=[
-                (1, ["llm:compare:2024010100"]),
-                (0, []),
-            ]
-        )
+        mock_cache.scan_iter.return_value = self._async_key_iter(["llm:compare:2024010100"])
         mock_cache.hgetall = AsyncMock(side_effect=Exception("Redis error"))
 
         processed, errors = await flush_compare_buffer(mock_cache, mock_relational_pool)
@@ -135,12 +141,7 @@ class TestFlushCompareBuffer:
     @pytest.mark.asyncio
     async def test_flush_deletes_empty_hashes(self, mock_cache, mock_relational_pool):
         """Test flush deletes empty hashes without processing."""
-        mock_cache.scan = AsyncMock(
-            side_effect=[
-                (1, ["llm:compare:2024010100"]),
-                (0, []),
-            ]
-        )
+        mock_cache.scan_iter.return_value = self._async_key_iter(["llm:compare:2024010100"])
         mock_cache.hgetall = AsyncMock(return_value={})
         mock_cache.delete = AsyncMock()
 
@@ -152,12 +153,7 @@ class TestFlushCompareBuffer:
     @pytest.mark.asyncio
     async def test_flush_processes_keys(self, mock_cache, mock_relational_pool):
         """Test flush processes keys."""
-        mock_cache.scan = AsyncMock(
-            side_effect=[
-                (1, ["llm:compare:2024010100"]),
-                (0, []),
-            ]
-        )
+        mock_cache.scan_iter.return_value = self._async_key_iter(["llm:compare:2024010100"])
         mock_cache.hgetall = AsyncMock(
             return_value={
                 "chat::gpt-4::claude-3::count": "10",

@@ -10,13 +10,14 @@ from __future__ import annotations
 import pytest
 
 from core.llm.routing.difficulty_estimator import DifficultyEstimator
-from core.llm.routing.tiered_router import TierConfig, TieredRouter
+from core.llm.routing.tiered_router import TieredRouter
+from core.llm.types import TierConfig, describe_routing, validate_tiers
 
 # ── TierConfig Validation ───────────────────────────────────────────
 
 
 class TestTierConfigValidation:
-    """Test TierConfig.validate_tiers() class method."""
+    """Test validate_tiers() class method."""
 
     def test_valid_tiers_pass(self) -> None:
         """Tiers covering 0.0-1.0 with ascending max_difficulty should pass."""
@@ -25,18 +26,18 @@ class TestTierConfigValidation:
             TierConfig(label="chat.medium.classifier", max_difficulty=0.7),
             TierConfig(label="chat.best.classifier", max_difficulty=1.0),
         ]
-        errors = TierConfig.validate_tiers(tiers)
+        errors = validate_tiers(tiers)
         assert errors == []
 
     def test_empty_tiers_pass(self) -> None:
         """Empty tiers list should pass (no tiers = no routing)."""
-        errors = TierConfig.validate_tiers([])
+        errors = validate_tiers([])
         assert errors == []
 
     def test_single_tier_pass(self) -> None:
         """Single tier with max_difficulty=1.0 should pass."""
         tiers = [TierConfig(label="chat.default", max_difficulty=1.0)]
-        errors = TierConfig.validate_tiers(tiers)
+        errors = validate_tiers(tiers)
         assert errors == []
 
     def test_non_ascending_max_difficulty_fails(self) -> None:
@@ -45,7 +46,7 @@ class TestTierConfigValidation:
             TierConfig(label="chat.medium", max_difficulty=0.7),
             TierConfig(label="chat.fast", max_difficulty=0.3),
         ]
-        errors = TierConfig.validate_tiers(tiers)
+        errors = validate_tiers(tiers)
         assert len(errors) > 0
         assert any("ascending" in e.lower() or "non-ascending" in e.lower() for e in errors)
 
@@ -55,7 +56,7 @@ class TestTierConfigValidation:
             TierConfig(label="chat.fast", max_difficulty=0.5),
             TierConfig(label="chat.best", max_difficulty=1.5),
         ]
-        errors = TierConfig.validate_tiers(tiers)
+        errors = validate_tiers(tiers)
         assert len(errors) > 0
         assert any("range" in e.lower() for e in errors)
 
@@ -66,7 +67,7 @@ class TestTierConfigValidation:
             TierConfig(label="chat.medium", max_difficulty=0.5),
             TierConfig(label="chat.best", max_difficulty=1.0),
         ]
-        errors = TierConfig.validate_tiers(tiers)
+        errors = validate_tiers(tiers)
         assert len(errors) > 0
         assert any("duplicate" in e.lower() for e in errors)
 
@@ -76,7 +77,7 @@ class TestTierConfigValidation:
             TierConfig(label="chat.fast", max_difficulty=0.3),
             TierConfig(label="chat.medium", max_difficulty=0.7),
         ]
-        errors = TierConfig.validate_tiers(tiers)
+        errors = validate_tiers(tiers)
         assert len(errors) > 0
         assert any("1.0" in e or "coverage" in e.lower() for e in errors)
 
@@ -85,7 +86,7 @@ class TestTierConfigValidation:
 
 
 class TestTierConfigDescribeRouting:
-    """Test TierConfig.describe_routing() method."""
+    """Test describe_routing() method."""
 
     def test_describe_routing_returns_string(self) -> None:
         """describe_routing() should return a human-readable string."""
@@ -94,7 +95,7 @@ class TestTierConfigDescribeRouting:
             TierConfig(label="chat.medium.classifier", max_difficulty=0.7),
             TierConfig(label="chat.best.classifier", max_difficulty=1.0),
         ]
-        description = TierConfig.describe_routing(tiers)
+        description = describe_routing(tiers)
         assert isinstance(description, str)
         assert "0.3" in description
         assert "0.7" in description
@@ -103,7 +104,7 @@ class TestTierConfigDescribeRouting:
 
     def test_describe_empty_tiers(self) -> None:
         """describe_routing() with empty tiers should indicate no routing."""
-        description = TierConfig.describe_routing([])
+        description = describe_routing([])
         assert "no tiers" in description.lower() or "empty" in description.lower()
 
 
@@ -199,5 +200,5 @@ class TestConfigDrivenTiers:
             {"label": "chat.best.classifier", "max_difficulty": 1.0},
         ]
         tiers = [TierConfig(**t) for t in config_tiers]
-        errors = TierConfig.validate_tiers(tiers)
+        errors = validate_tiers(tiers)
         assert errors == []
