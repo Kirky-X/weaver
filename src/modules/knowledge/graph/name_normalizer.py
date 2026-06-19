@@ -139,18 +139,6 @@ class NameNormalizer:
             "SA": "SA",
         }
 
-        self._chinese_org_suffixes = [
-            "有限公司",
-            "股份有限公司",
-            "集团",
-            "公司",
-            "科技",
-            "技术",
-            "网络",
-            "信息",
-            "互联网",
-        ]
-
     def normalize(
         self,
         name: str,
@@ -418,7 +406,8 @@ class NameNormalizer:
 
     def _compare_without_suffixes(self, name1: str, name2: str) -> bool:
         """Compare names ignoring organization suffixes."""
-        suffixes = list(self._org_suffix_map.keys()) + self._chinese_org_suffixes
+        # Use the shared ORGANIZATION_SUFFIXES registry (single source of truth)
+        suffixes = ORGANIZATION_SUFFIXES
 
         def strip_suffix(name: str) -> str:
             for suffix in suffixes:

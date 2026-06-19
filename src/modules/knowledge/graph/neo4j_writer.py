@@ -98,7 +98,7 @@ class Neo4jWriter:
         score = state.get("score")
 
         article_neo4j_id = await self._article_repo.create_article(
-            pg_id=article_id_str,
+            article_id=article_id_str,
             title=title,
             category=category.value if hasattr(category, "value") else str(category),
             publish_time=publish_time,

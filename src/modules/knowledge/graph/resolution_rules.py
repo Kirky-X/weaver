@@ -16,6 +16,10 @@ from typing import Any
 from core.constants import EntityType
 from core.observability import get_logger
 from modules.knowledge.graph.location_resolver import LocationResolver
+from modules.knowledge.graph.name_normalizer import (
+    ORGANIZATION_SUFFIXES,
+    strip_bracket_variant,
+)
 
 log = get_logger(__name__)
 

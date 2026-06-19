@@ -658,7 +658,7 @@ Consider:
         tasks = [
             self.resolve_entity(
                 name=entity.get("name", ""),
-                entity_type=entity.get("type", "未知"),
+                entity_type=entity.get("type", EntityType.UNKNOWN.value),
                 embedding=entity.get("embedding", []),
                 description=entity.get("description"),
             )

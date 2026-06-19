@@ -11,36 +11,16 @@ from typing import TYPE_CHECKING, Any
 from core.constants import DatabaseType, GraphHealthStatus
 from core.db.graph_query_builders import GraphQueryBuilder, create_graph_query_builder
 from core.observability import get_logger
+from modules.knowledge.graph.community.graph_utils import (
+    build_adjacency,
+    find_connected_components_dfs,
+)
+from modules.knowledge.graph.community.modularity import _compute_modularity
 
 if TYPE_CHECKING:
     from core.protocols import GraphPool
 
 log = get_logger(__name__)
-
-
-def _dfs_component(start: str, adjacency: dict[str, set[str]], visited: set[str]) -> set[str]:
-    """Perform DFS to find a connected component.
-
-    Args:
-        start: Starting node ID.
-        adjacency: Adjacency dictionary mapping nodes to their neighbors.
-        visited: Set of already visited nodes (modified in-place).
-
-    Returns:
-        Set of nodes in the connected component.
-    """
-    stack = [start]
-    component: set[str] = set()
-    while stack:
-        node = stack.pop()
-        if node in visited:
-            continue
-        visited.add(node)
-        component.add(node)
-        for neighbor in adjacency.get(node, []):
-            if neighbor not in visited:
-                stack.append(neighbor)
-    return component
 
 
 @dataclass
@@ -412,13 +392,7 @@ class GraphQualityMetrics:
                                     adjacency[entity].add(neighbor_name)
                                     all_entities.add(neighbor_name)
 
-            visited: set[str] = set()
-            components: list[set[str]] = []
-
-            for entity in all_entities:
-                if entity not in visited:
-                    component = _dfs_component(entity, adjacency, visited)
-                    components.append(component)
+            components = find_connected_components_dfs(adjacency, all_entities)
 
             metrics.connected_components = len(components)
             if components:
@@ -507,33 +481,25 @@ class GraphQualityMetrics:
                                     adjacency[entity].add(neighbor_name)
                                     all_entities.add(neighbor_name)
 
-            visited: set[str] = set()
-            components: list[set[str]] = []
-            for entity in all_entities:
-                if entity not in visited:
-                    component = _dfs_component(entity, adjacency, visited)
-                    components.append(component)
+            components = find_connected_components_dfs(adjacency, all_entities)
 
-            # Compute modularity Q = sum[(e_ii / m) - (a_i / 2m)^2]
-            total_edges = sum(len(adjacency.get(n, set())) for n in all_entities) // 2
-            if total_edges == 0:
-                metrics.modularity_score = 0.0
-                return
+            # Build edge list and partitions from connected components,
+            # then delegate to shared modularity function.
+            edges: list[tuple[str, str, float]] = []
+            seen_edges: set[tuple[str, str]] = set()
+            for node, neighbors in adjacency.items():
+                for neighbor in neighbors:
+                    edge = (node, neighbor) if node <= neighbor else (neighbor, node)
+                    if edge not in seen_edges:
+                        seen_edges.add(edge)
+                        edges.append((node, neighbor, 1.0))
 
-            q = 0.0
-            for component in components:
-                e_ii = 0
+            partitions: dict[str, int] = {}
+            for component_id, component in enumerate(components):
                 for node in component:
-                    for neighbor in adjacency.get(node, set()):
-                        if neighbor in component:
-                            e_ii += 1
-                e_ii //= 2  # each edge counted twice
+                    partitions[node] = component_id
 
-                a_i = sum(len(adjacency.get(n, set())) for n in component)
-
-                q += (e_ii / total_edges) - (a_i / (2 * total_edges)) ** 2
-
-            metrics.modularity_score = q
+            metrics.modularity_score = _compute_modularity(edges, partitions)
 
         except Exception as exc:
             log.warning("metrics_modularity_calculation_failed", error=str(exc))
@@ -573,28 +539,25 @@ class GraphQualityMetrics:
                                 adjacency[entity].add(neighbor_name)
                                 all_entities.add(neighbor_name)
 
-        visited: set[str] = set()
         components: list[ConnectedComponent] = []
 
         component_id = 0
-        for entity in all_entities:
-            if entity not in visited:
-                node_set = _dfs_component(entity, adjacency, visited)
-                node_list = list(node_set)
-                type_dist: dict[str, int] = defaultdict(int)
-                for node in node_list:
-                    etype = entity_types.get(node, "Unknown")
-                    type_dist[etype] += 1
+        for node_set in find_connected_components_dfs(adjacency, all_entities):
+            node_list = list(node_set)
+            type_dist: dict[str, int] = defaultdict(int)
+            for node in node_list:
+                etype = entity_types.get(node, "Unknown")
+                type_dist[etype] += 1
 
-                components.append(
-                    ConnectedComponent(
-                        component_id=component_id,
-                        node_ids=node_list,
-                        size=len(node_list),
-                        entity_types=dict(type_dist),
-                    )
+            components.append(
+                ConnectedComponent(
+                    component_id=component_id,
+                    node_ids=node_list,
+                    size=len(node_list),
+                    entity_types=dict(type_dist),
                 )
-                component_id += 1
+            )
+            component_id += 1
 
         return sorted(components, key=lambda c: c.size, reverse=True)
 
@@ -722,76 +685,23 @@ class GraphQualityMetrics:
         if partitions is None:
             partitions = await self._generate_simple_partitions(edges)
 
-        return self._compute_modularity(edges, partitions, resolution)
+        return _compute_modularity(edges, partitions, resolution)
 
     async def _generate_simple_partitions(
         self,
         edges: list[tuple[str, str, float]],
     ) -> dict[str, int]:
         """Generate simple partitions based on connected components."""
-        adjacency: dict[str, set[str]] = defaultdict(set)
-        all_nodes: set[str] = set()
+        adjacency, all_nodes = build_adjacency(edges)
 
-        for source, target, _ in edges:
-            adjacency[source].add(target)
-            adjacency[target].add(source)
-            all_nodes.add(source)
-            all_nodes.add(target)
-
-        visited: set[str] = set()
         partitions: dict[str, int] = {}
-        community_id = 0
-
-        for node in all_nodes:
-            if node not in visited:
-                component = _dfs_component(node, adjacency, visited)
-                for n in component:
-                    partitions[n] = community_id
-                community_id += 1
+        for community_id, component in enumerate(
+            find_connected_components_dfs(adjacency, all_nodes)
+        ):
+            for n in component:
+                partitions[n] = community_id
 
         return partitions
-
-    def _compute_modularity(
-        self,
-        edges: list[tuple[str, str, float]],
-        partitions: dict[str, int],
-        resolution: float = 1.0,
-    ) -> float:
-        """Compute modularity score from edges and partitions.
-
-        Based on GraphRAG implementation.
-        """
-        if not edges or not partitions:
-            return 0.0
-
-        total_weight = sum(e[2] for e in edges)
-        if total_weight == 0:
-            return 0.0
-
-        degree_sums_within: dict[int, float] = defaultdict(float)
-        degree_sums_for: dict[int, float] = defaultdict(float)
-
-        for source, target, weight in edges:
-            src_comm = partitions.get(source, -1)
-            tgt_comm = partitions.get(target, -1)
-
-            if src_comm == tgt_comm and src_comm != -1:
-                degree_sums_within[src_comm] += weight * 2
-
-            if src_comm != -1:
-                degree_sums_for[src_comm] += weight
-            if tgt_comm != -1:
-                degree_sums_for[tgt_comm] += weight
-
-        modularity = 0.0
-        for comm in set(partitions.values()):
-            if comm == -1:
-                continue
-            intra = degree_sums_within[comm]
-            total = degree_sums_for[comm]
-            modularity += intra - resolution * (total**2) / (2 * total_weight)
-
-        return modularity / (2 * total_weight)
 
     async def get_health_summary(self) -> dict[str, Any]:
         """Get a quick health summary of the graph."""
