@@ -563,17 +563,17 @@ class VectorRepo:
                     raise
 
     async def upsert_entity_vector(
-        self, neo4j_id: str, embedding: list[float], model_id: str
+        self, entity_id: str, embedding: list[float], model_id: str
     ) -> None:
         """Upsert a single entity vector.
 
         Args:
-            neo4j_id: Neo4j entity ID.
+            entity_id: Graph database entity ID (Neo4j elementId or LadybugDB id).
             embedding: Entity embedding vector.
             model_id: Embedding model identifier from configuration.
         """
         await self.upsert_entity_vectors(
-            [(neo4j_id, embedding)], model_id=model_id, use_temp_key=False
+            [(entity_id, embedding)], model_id=model_id, use_temp_key=False
         )
 
     async def upsert_event_embedding(self, event: object, model_id: str) -> bool:

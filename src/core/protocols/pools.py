@@ -77,22 +77,6 @@ class GraphPool(Protocol):
         - LadybugPool: LadybugDB async connection wrapper
     """
 
-    @property
-    def database_type(self) -> str:
-        """Return the database type identifier (e.g., 'neo4j', 'ladybug').
-
-        .. deprecated::
-            Prefer ``container.graph_pool_type`` or explicit ``database_type``
-            constructor arguments passed to repositories/detectors. Relying on
-            this property couples callers to the pool's concrete backend.
-            Retained for backward compatibility with existing modules that
-            inspect the pool type at runtime.
-
-        Returns:
-            String identifier for the database backend.
-        """
-        ...
-
     async def startup(self) -> None:
         """Initialize the pool."""
         ...

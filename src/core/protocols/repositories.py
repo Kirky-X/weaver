@@ -394,10 +394,10 @@ class GraphArticleRepository(Protocol):
         """Create multiple Article nodes in batch.
 
         Args:
-            articles: List of dicts with pg_id, title, category, publish_time, score.
+            articles: List of dicts with article_id, title, category, publish_time, score.
 
         Returns:
-            List of Neo4j internal IDs.
+            List of graph database internal IDs.
         """
         ...
 
@@ -408,16 +408,16 @@ class GraphArticleRepository(Protocol):
         """Create multiple FOLLOWED_BY relationships in batch.
 
         Args:
-            relations: List of dicts with from_pg_id, to_pg_id, time_gap_hours.
+            relations: List of dicts with from_article_id, to_article_id, time_gap_hours.
 
         Returns:
             Number of relationships created.
         """
         ...
 
-    async def find_article_by_pg_id(self, article_id: str) -> dict[str, Any] | None: ...
+    async def find_article_by_id(self, article_id: str) -> dict[str, Any] | None: ...
 
-    async def find_article_by_neo4j_id(self, neo4j_id: str) -> dict[str, Any] | None: ...
+    async def find_article_by_graph_id(self, graph_id: str) -> dict[str, Any] | None: ...
 
     async def create_followed_by_relation(
         self, from_article_id: str, to_article_id: str, time_gap_hours: float | None = None
@@ -437,7 +437,7 @@ class GraphArticleRepository(Protocol):
 
     async def delete_orphan_articles(self, valid_article_ids: list[str]) -> int: ...
 
-    async def list_all_article_pg_ids(self) -> list[str]: ...
+    async def list_all_article_ids(self) -> list[str]: ...
 
     async def delete_articles_without_mentions(self) -> int: ...
 
@@ -477,7 +477,7 @@ class GraphWriter(Protocol):
             concurrency: Maximum concurrent writes.
 
         Returns:
-            Dict with neo4j_ids as list[list[str]] (per-article grouping),
+            Dict with graph_ids as list[list[str]] (per-article grouping),
             article_ids list, and errors list.
         """
         ...
