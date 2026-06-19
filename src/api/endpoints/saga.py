@@ -122,8 +122,7 @@ async def retry_saga(
         raise HTTPException(status_code=404, detail=f"No log entries found for saga {saga_id}")
 
     # Get article_id from the saga logs
-    log_repo = orchestrator._log_repo
-    logs = await log_repo.get_by_saga_id(saga_id)
+    logs = await orchestrator.get_saga_logs(saga_id)
     if not logs:
         raise HTTPException(status_code=404, detail=f"No logs found for saga {saga_id}")
 
@@ -158,8 +157,7 @@ async def get_article_sagas(
         Dict with list of saga log entries.
 
     """
-    log_repo = orchestrator._log_repo
-    logs = await log_repo.get_by_article_id(article_id)
+    logs = await orchestrator.get_saga_logs_by_article(article_id)
 
     entries = []
     for entry in logs:
@@ -196,8 +194,7 @@ async def list_failed_sagas(
     """
     limit = min(limit, 200)
 
-    log_repo = orchestrator._log_repo
-    failed_logs = await log_repo.get_failed_logs(limit=limit)
+    failed_logs = await orchestrator.get_failed_saga_logs(limit=limit)
 
     entries = []
     for entry in failed_logs:

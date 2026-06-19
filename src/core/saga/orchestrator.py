@@ -422,3 +422,36 @@ class SagaOrchestrator:
             "status": overall_status,
             "steps": steps,
         }
+
+    async def get_saga_logs(self, saga_id: uuid.UUID) -> list[Any]:
+        """Get saga logs by saga ID.
+
+        Args:
+            saga_id: ID of the saga.
+
+        Returns:
+            List of SagaLog entries for the saga.
+        """
+        return await self._log_repo.get_by_saga_id(saga_id)
+
+    async def get_saga_logs_by_article(self, article_id: uuid.UUID) -> list[Any]:
+        """Get saga logs by article ID.
+
+        Args:
+            article_id: Article UUID.
+
+        Returns:
+            List of SagaLog entries for the article.
+        """
+        return await self._log_repo.get_by_article_id(article_id)
+
+    async def get_failed_saga_logs(self, limit: int = 100) -> list[Any]:
+        """Get failed saga logs.
+
+        Args:
+            limit: Maximum number of logs to return.
+
+        Returns:
+            List of failed SagaLog entries.
+        """
+        return await self._log_repo.get_failed_logs(limit=limit)

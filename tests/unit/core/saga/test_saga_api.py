@@ -132,11 +132,9 @@ class TestRetrySaga:
             ],
         }
 
-        mock_log_repo = AsyncMock()
         mock_entry = MagicMock()
         mock_entry.article_id = article_id
-        mock_log_repo.get_by_saga_id.return_value = [mock_entry]
-        mock_orchestrator._log_repo = mock_log_repo
+        mock_orchestrator.get_saga_logs = AsyncMock(return_value=[mock_entry])
 
         from api.endpoints.saga import retry_saga
 
@@ -168,7 +166,6 @@ class TestListFailedSagas:
 
     @pytest.mark.asyncio
     async def test_list_failed_sagas(self, mock_orchestrator):
-        mock_log_repo = AsyncMock()
         mock_entry = MagicMock()
         mock_entry.id = uuid.uuid4()
         mock_entry.saga_id = uuid.uuid4()
@@ -177,8 +174,7 @@ class TestListFailedSagas:
         mock_entry.step_status = "failed"
         mock_entry.error_message = "Connection refused"
         mock_entry.retry_count = 3
-        mock_log_repo.get_failed_logs.return_value = [mock_entry]
-        mock_orchestrator._log_repo = mock_log_repo
+        mock_orchestrator.get_failed_saga_logs = AsyncMock(return_value=[mock_entry])
 
         from api.endpoints.saga import list_failed_sagas
 
@@ -189,13 +185,11 @@ class TestListFailedSagas:
 
     @pytest.mark.asyncio
     async def test_list_failed_sagas_limit_capped(self, mock_orchestrator):
-        mock_log_repo = AsyncMock()
-        mock_log_repo.get_failed_logs.return_value = []
-        mock_orchestrator._log_repo = mock_log_repo
+        mock_orchestrator.get_failed_saga_logs = AsyncMock(return_value=[])
 
         from api.endpoints.saga import list_failed_sagas
 
         result = await list_failed_sagas(limit=500, orchestrator=mock_orchestrator)
 
         # Limit should be capped to 200
-        mock_log_repo.get_failed_logs.assert_called_once_with(limit=200)
+        mock_orchestrator.get_failed_saga_logs.assert_called_once_with(limit=200)
