@@ -182,11 +182,12 @@ async def verify_admin_api_key(
             detail="Invalid API Key",
         )
 
-    # Admin key not configured: reject in all environments
+    # Admin key not configured: reject with 503 Service Unavailable
+    # (configuration issue, not server internal error)
     if not admin_key:
         log.error("admin_key_not_configured")
         raise HTTPException(
-            status_code=500,
+            status_code=503,
             detail="Admin API key not configured. "
             "Set WEAVER_API__ADMIN_API_KEY environment variable.",
         )

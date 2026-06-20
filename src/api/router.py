@@ -13,6 +13,7 @@ from api.endpoints import (
     causal_router,
     communities_monitoring_router,
     communities_router,
+    graph_metrics_router,
     graph_monitoring_router,
     graph_router,
     llm_router,
@@ -32,6 +33,7 @@ api_router.include_router(pipeline_router)
 api_router.include_router(articles_router)
 api_router.include_router(search_router)
 api_router.include_router(graph_router)
+api_router.include_router(graph_metrics_router)
 api_router.include_router(visualization_router)
 api_router.include_router(admin_router)
 api_router.include_router(communities_router)

@@ -60,7 +60,7 @@ class SearchResponse(BaseModel):
 @router.get("", response_model=APIResponse[SearchResponse])
 async def search_unified(
     request: Request,
-    q: str = Query(..., description="Search query"),
+    q: str = Query(..., min_length=1, description="Search query"),
     mode: str | None = Query(
         None,
         description="Explicit search mode: 'local' for vector search, 'global' for community search, 'auto' for intent-based routing (default)",

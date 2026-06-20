@@ -87,10 +87,10 @@ class TestAdminAuthMiddleware:
             assert "Admin access required" in exc_info.value.detail
 
     @pytest.mark.asyncio
-    async def test_verify_admin_api_key_raises_500_when_not_configured_production(
+    async def test_verify_admin_api_key_raises_503_when_not_configured_production(
         self,
     ) -> None:
-        """Test verify_admin_api_key raises 500 when admin key not configured in production."""
+        """Test verify_admin_api_key raises 503 when admin key not configured in production."""
         from api.middleware.auth import verify_admin_api_key
 
         regular_key = "regular-key-12345678901234567890123456"
@@ -103,17 +103,17 @@ class TestAdminAuthMiddleware:
             patch("container.get_settings", return_value=mock_settings),
             patch.dict("os.environ", {"ENVIRONMENT": "production"}),
         ):
-            # Admin key not configured in production: raises 500
+            # Admin key not configured: raises 503 Service Unavailable
             with pytest.raises(Exception) as exc_info:
                 await verify_admin_api_key(key=regular_key)
-            assert exc_info.value.status_code == 500
+            assert exc_info.value.status_code == 503
             assert "Admin API key not configured" in exc_info.value.detail
 
     @pytest.mark.asyncio
     async def test_verify_admin_api_key_rejects_when_not_configured_development(
         self,
     ) -> None:
-        """Test verify_admin_api_key raises 500 when admin key not configured even in dev."""
+        """Test verify_admin_api_key raises 503 when admin key not configured even in dev."""
         from api.middleware.auth import verify_admin_api_key
 
         regular_key = "regular-key-12345678901234567890123456"
@@ -126,10 +126,10 @@ class TestAdminAuthMiddleware:
             patch("container.get_settings", return_value=mock_settings),
             patch.dict("os.environ", {"ENVIRONMENT": "development"}),
         ):
-            # Admin key not configured: rejects in all environments
+            # Admin key not configured: rejects with 503 in all environments
             with pytest.raises(Exception) as exc_info:
                 await verify_admin_api_key(key=regular_key)
-            assert exc_info.value.status_code == 500
+            assert exc_info.value.status_code == 503
             assert "Admin API key not configured" in exc_info.value.detail
 
 
