@@ -389,6 +389,16 @@ class TestBaseGlobalContextBuilderGetCommunityEntities:
         result = await builder.get_community_entities("")
         assert result == []
 
+    @pytest.mark.asyncio
+    async def test_non_uuid_id_skipped(self) -> None:
+        """Non-UUID community IDs (e.g. fallback 'entity:xxx') are skipped without error."""
+        pool = _make_pool()
+        builder = ConcreteGlobalContextBuilder(graph_pool=pool)
+        result = await builder.get_community_entities("entity:人工智能使用限制新规")
+        assert result == []
+        # Pool should not be queried for non-UUID IDs
+        pool.execute_query.assert_not_called()
+
 
 class TestBaseGlobalContextBuilderBuildMapReduceContext:
     """Tests for build_map_reduce_context."""

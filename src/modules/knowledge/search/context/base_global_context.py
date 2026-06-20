@@ -274,8 +274,25 @@ class BaseGlobalContextBuilder(ContextBuilder):
         self,
         community_id: str,
     ) -> list[dict[str, Any]]:
-        """Get entities belonging to a specific community."""
+        """Get entities belonging to a specific community.
+
+        Filters out non-UUID IDs (e.g. fallback results like "entity:xxx")
+        since they are not real community IDs and cannot be used in queries.
+        """
         if not community_id:
+            return []
+
+        # Skip non-UUID community IDs (e.g. fallback results like "entity:xxx")
+        # validate_uuid in build_community_entities_query would reject these,
+        # but the call is outside the try-except block below.
+        import re
+
+        uuid_pattern = re.compile(
+            r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            re.IGNORECASE,
+        )
+        if not uuid_pattern.match(str(community_id)):
+            log.debug("skip_non_uuid_community_id", community_id=community_id)
             return []
 
         cypher = self._query_builder.build_community_entities_query(

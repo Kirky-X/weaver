@@ -127,3 +127,6 @@ target/
 vendor/
 venv/
 # -------------------------------------
+
+# API end-to-end test file
+test_api_e2e.py
