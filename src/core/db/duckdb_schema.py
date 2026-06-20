@@ -129,6 +129,21 @@ SCHEMA_QUERIES = [
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
         synced_at TIMESTAMP WITH TIME ZONE
     )""",
+    # ── Saga Logs ───────────────────────────────────────────────
+    """CREATE TABLE IF NOT EXISTS saga_logs
+    (
+        id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+        saga_id UUID NOT NULL,
+        article_id UUID NOT NULL,
+        step_name VARCHAR(50) NOT NULL,
+        step_status VARCHAR(20) NOT NULL,
+        started_at TIMESTAMP WITH TIME ZONE NOT NULL,
+        completed_at TIMESTAMP WITH TIME ZONE,
+        compensation_data JSON,
+        error_message VARCHAR,
+        retry_count INTEGER DEFAULT 0,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    )""",
     # ── LLM Failure Records ─────────────────────────────────────
     """CREATE TABLE IF NOT EXISTS llm_failure_records
     (
@@ -156,6 +171,9 @@ SCHEMA_QUERIES = [
         input_tokens INTEGER,
         output_tokens INTEGER,
         total_tokens INTEGER,
+        cached_tokens INTEGER DEFAULT 0,
+        reasoning_tokens INTEGER DEFAULT 0,
+        cost_usd DECIMAL(12, 8) DEFAULT 0,
         latency_ms DECIMAL(10, 2),
         success BOOLEAN DEFAULT true,
         error_type VARCHAR,
@@ -177,6 +195,9 @@ SCHEMA_QUERIES = [
         input_tokens_sum INTEGER DEFAULT 0,
         output_tokens_sum INTEGER DEFAULT 0,
         total_tokens_sum INTEGER DEFAULT 0,
+        cached_tokens_sum INTEGER DEFAULT 0,
+        reasoning_tokens_sum INTEGER DEFAULT 0,
+        cost_usd_sum DECIMAL(14, 8) DEFAULT 0,
         latency_avg_ms DOUBLE,
         latency_min_ms DOUBLE,
         latency_max_ms DOUBLE,

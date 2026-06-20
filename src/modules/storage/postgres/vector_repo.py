@@ -529,8 +529,8 @@ class VectorRepo:
         use_temp_key: bool,
     ) -> None:
         """Upsert entity vectors with DuckDB retry for single-writer conflicts."""
-        max_retries = 3
-        base_delay = 0.1
+        max_retries = 5
+        base_delay = 0.2
         for attempt in range(max_retries):
             try:
                 async with self._pool.session() as session:
