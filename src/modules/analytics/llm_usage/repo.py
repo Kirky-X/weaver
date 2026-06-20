@@ -7,7 +7,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import and_, delete, func, select
+from sqlalchemy import and_, case, delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 
 from core.db import LLMUsageHourly, LLMUsageRaw
@@ -409,7 +409,7 @@ class LLMUsageRepo:
                 func.sum(LLMUsageHourly.input_tokens_sum).label("input_tokens_sum"),
                 func.sum(LLMUsageHourly.output_tokens_sum).label("output_tokens_sum"),
                 func.sum(LLMUsageHourly.total_tokens_sum).label("total_tokens_sum"),
-                func.case(
+                case(
                     (
                         func.sum(LLMUsageHourly.call_count) > 0,
                         func.sum(LLMUsageHourly.latency_avg_ms * LLMUsageHourly.call_count)
@@ -522,7 +522,7 @@ class LLMUsageRepo:
             func.sum(LLMUsageHourly.input_tokens_sum).label("total_input_tokens"),
             func.sum(LLMUsageHourly.output_tokens_sum).label("total_output_tokens"),
             func.sum(LLMUsageHourly.total_tokens_sum).label("total_tokens"),
-            func.case(
+            case(
                 (
                     func.sum(LLMUsageHourly.call_count) > 0,
                     func.sum(LLMUsageHourly.latency_avg_ms * LLMUsageHourly.call_count)
@@ -584,7 +584,7 @@ class LLMUsageRepo:
                 func.sum(LLMUsageHourly.input_tokens_sum).label("total_input_tokens"),
                 func.sum(LLMUsageHourly.output_tokens_sum).label("total_output_tokens"),
                 func.sum(LLMUsageHourly.total_tokens_sum).label("total_tokens"),
-                func.case(
+                case(
                     (
                         func.sum(LLMUsageHourly.call_count) > 0,
                         func.sum(LLMUsageHourly.latency_avg_ms * LLMUsageHourly.call_count)
@@ -655,7 +655,7 @@ class LLMUsageRepo:
                 func.sum(LLMUsageHourly.input_tokens_sum).label("input_tokens"),
                 func.sum(LLMUsageHourly.output_tokens_sum).label("output_tokens"),
                 func.sum(LLMUsageHourly.total_tokens_sum).label("total_tokens"),
-                func.case(
+                case(
                     (
                         func.sum(LLMUsageHourly.call_count) > 0,
                         func.sum(LLMUsageHourly.latency_avg_ms * LLMUsageHourly.call_count)
@@ -724,7 +724,7 @@ class LLMUsageRepo:
                 func.sum(LLMUsageHourly.input_tokens_sum).label("input_tokens"),
                 func.sum(LLMUsageHourly.output_tokens_sum).label("output_tokens"),
                 func.sum(LLMUsageHourly.total_tokens_sum).label("total_tokens"),
-                func.case(
+                case(
                     (
                         func.sum(LLMUsageHourly.call_count) > 0,
                         func.sum(LLMUsageHourly.latency_avg_ms * LLMUsageHourly.call_count)
@@ -776,7 +776,7 @@ class LLMUsageRepo:
                 LLMUsageHourly.call_point,
                 func.sum(LLMUsageHourly.call_count).label("call_count"),
                 func.sum(LLMUsageHourly.total_tokens_sum).label("total_tokens"),
-                func.case(
+                case(
                     (
                         func.sum(LLMUsageHourly.call_count) > 0,
                         func.sum(LLMUsageHourly.latency_avg_ms * LLMUsageHourly.call_count)
