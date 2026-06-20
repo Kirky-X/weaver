@@ -60,14 +60,16 @@ def upgrade() -> None:
     # 4. Drop old index on articles_core
     op.drop_index("idx_core_task_status", table_name="articles_core")
 
-    # 5. Drop processing columns from articles_core
+    # 5. Drop articles VIEW first (depends on columns being dropped below)
+    op.execute("DROP VIEW IF EXISTS articles")
+
+    # 6. Drop processing columns from articles_core
     op.drop_column("articles_core", "task_id")
     op.drop_column("articles_core", "processing_stage")
     op.drop_column("articles_core", "processing_error")
     op.drop_column("articles_core", "retry_count")
 
-    # 6. Rebuild articles VIEW to JOIN article_processing
-    op.execute("DROP VIEW IF EXISTS articles")
+    # 7. Rebuild articles VIEW to JOIN article_processing
     op.execute("""
         CREATE VIEW articles AS
         SELECT

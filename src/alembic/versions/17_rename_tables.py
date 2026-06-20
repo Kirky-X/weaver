@@ -11,7 +11,7 @@ Changes:
 - Rename indexes idx_sources_* → idx_source_configs_*
 - Rename table llm_failures → llm_failure_records
 - Rename indexes idx_llm_failures_* → idx_llm_failure_records_*
-- Rename sequence llm_failures_seq → llm_failure_records_seq
+- Rename sequence llm_failures_id_seq → llm_failure_records_id_seq
 """
 
 from collections.abc import Sequence
@@ -59,13 +59,13 @@ def upgrade() -> None:
     op.execute("ALTER INDEX idx_llm_failures_provider RENAME TO idx_llm_failure_records_provider")
 
     # Rename sequence
-    op.execute("ALTER SEQUENCE llm_failures_seq RENAME TO llm_failure_records_seq")
+    op.execute("ALTER SEQUENCE IF EXISTS llm_failures_id_seq RENAME TO llm_failure_records_id_seq")
 
 
 def downgrade() -> None:
     """Revert table renames."""
     # ── llm_failure_records → llm_failures ──
-    op.execute("ALTER SEQUENCE llm_failure_records_seq RENAME TO llm_failures_seq")
+    op.execute("ALTER SEQUENCE IF EXISTS llm_failure_records_id_seq RENAME TO llm_failures_id_seq")
 
     op.execute("ALTER INDEX idx_llm_failure_records_created RENAME TO idx_llm_failures_created")
     op.execute("ALTER INDEX idx_llm_failure_records_article RENAME TO idx_llm_failures_article")

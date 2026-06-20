@@ -480,7 +480,7 @@ def upgrade() -> None:
         sa.Column("latency_ms", sa.Float(), nullable=False),
         sa.Column("success", sa.Boolean(), nullable=False, server_default="true"),
         sa.Column("error_type", sa.String(100), nullable=True),
-        sa.Column("article_id", sa.BigInteger(), nullable=True),
+        sa.Column("article_id", postgresql.UUID(as_uuid=True), nullable=True),
         sa.Column("task_id", sa.String(50), nullable=True),
         sa.Column(
             "created_at",
@@ -535,7 +535,7 @@ def upgrade() -> None:
         sa.Column("content", sa.Text(), nullable=False),
         sa.Column("is_active", sa.Boolean(), nullable=False, server_default="true"),
         sa.Column("change_reason", sa.Text(), nullable=True),
-        sa.Column("prompt_metadata", sa.dialects.postgresql.JSONB(), nullable=True),
+        sa.Column("prompt_metadata", postgresql.JSONB(), nullable=True),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),
@@ -606,10 +606,12 @@ def downgrade() -> None:
 
     op.drop_table("source_authorities")
 
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_entity_vectors_hnsw;")
+    with op.get_context().autocommit_block():
+        op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_entity_vectors_hnsw;")
     op.drop_table("entity_vectors")
 
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_article_vectors_hnsw;")
+    with op.get_context().autocommit_block():
+        op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_article_vectors_hnsw;")
     op.drop_index("idx_av_unique", table_name="article_vectors")
     op.drop_table("article_vectors")
 

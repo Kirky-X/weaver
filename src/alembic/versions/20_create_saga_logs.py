@@ -2,7 +2,7 @@
 """Create saga_logs table for Saga compensation transaction logging.
 
 Revision ID: 20_create_saga_logs
-Revises: 19_fix_article_fk_references
+Revises: 17_rename_tables
 Create Date: 2026-06-12
 
 Changes:
@@ -18,7 +18,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "20_create_saga_logs"
-down_revision: str | None = "19_fix_article_fk_references"
+down_revision: str | None = "17_rename_tables"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

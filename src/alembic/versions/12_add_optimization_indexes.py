@@ -29,45 +29,49 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Create optimization indexes using CONCURRENTLY to avoid lock contention."""
+    # CONCURRENTLY cannot run inside a transaction block; use autocommit_block.
     # ── articles_core optimization indexes (design doc §9.2) ──
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_articles_sentiment_time "
-        "ON articles_core (sentiment_score, publish_time DESC) "
-        "WHERE sentiment_score IS NOT NULL"
-    )
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_articles_briefing "
-        "ON articles_core (publish_time DESC, score DESC) "
-        "WHERE score IS NOT NULL"
-    )
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_articles_category_sentiment "
-        "ON articles_core (category, sentiment_score DESC) "
-        "WHERE category IS NOT NULL AND sentiment_score IS NOT NULL"
-    )
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_articles_url_lookup "
-        "ON articles_core (source_url) INCLUDE (id, title, publish_time)"
-    )
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_articles_retry "
-        "ON articles_core (persist_status, updated_at ASC) "
-        "WHERE persist_status IN ('pg_done', 'neo4j_failed', 'failed')"
-    )
+    with op.get_context().autocommit_block():
+        op.execute(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_articles_sentiment_time "
+            "ON articles_core (sentiment_score, publish_time DESC) "
+            "WHERE sentiment_score IS NOT NULL"
+        )
+        op.execute(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_articles_briefing "
+            "ON articles_core (publish_time DESC, score DESC) "
+            "WHERE score IS NOT NULL"
+        )
+        op.execute(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_articles_category_sentiment "
+            "ON articles_core (category, sentiment_score DESC) "
+            "WHERE category IS NOT NULL AND sentiment_score IS NOT NULL"
+        )
+        op.execute(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_articles_url_lookup "
+            "ON articles_core (source_url) INCLUDE (id, title, publish_time)"
+        )
+        op.execute(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_articles_retry "
+            "ON articles_core (persist_status, updated_at ASC) "
+            "WHERE persist_status IN ('pg_done', 'neo4j_failed', 'failed')"
+        )
 
     # ── article_analysis index (is_news moved after vertical split) ──
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_articles_is_news "
-        "ON article_analysis (is_news) "
-        "WHERE is_news = true"
-    )
+    with op.get_context().autocommit_block():
+        op.execute(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_articles_is_news "
+            "ON article_analysis (is_news) "
+            "WHERE is_news = true"
+        )
 
     # ── entity_vectors HNSW index (design doc §8.1) ──
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_entity_vectors_hnsw "
-        "ON entity_vectors USING hnsw (embedding vector_cosine_ops) "
-        "WITH (m = 16, ef_construction = 200)"
-    )
+    with op.get_context().autocommit_block():
+        op.execute(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_entity_vectors_hnsw "
+            "ON entity_vectors USING hnsw (embedding vector_cosine_ops) "
+            "WITH (m = 16, ef_construction = 200)"
+        )
 
     # ── daily_briefing_items unique constraints (design doc §12.2) ──
     op.create_unique_constraint(
@@ -96,15 +100,19 @@ def downgrade() -> None:
         type_="unique",
     )
 
+    # DROP INDEX CONCURRENTLY cannot run inside a transaction block.
     # ── entity_vectors HNSW index ──
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_entity_vectors_hnsw")
+    with op.get_context().autocommit_block():
+        op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_entity_vectors_hnsw")
 
     # ── article_analysis index ──
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_articles_is_news")
+    with op.get_context().autocommit_block():
+        op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_articles_is_news")
 
     # ── articles_core optimization indexes ──
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_articles_retry")
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_articles_url_lookup")
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_articles_category_sentiment")
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_articles_briefing")
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_articles_sentiment_time")
+    with op.get_context().autocommit_block():
+        op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_articles_retry")
+        op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_articles_url_lookup")
+        op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_articles_category_sentiment")
+        op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_articles_briefing")
+        op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_articles_sentiment_time")

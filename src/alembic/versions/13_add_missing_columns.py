@@ -17,6 +17,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision: str = "13_add_missing_columns"
 down_revision: str | None = "12_add_optimization_indexes"
@@ -72,7 +73,7 @@ def upgrade() -> None:
     )
     op.add_column(
         "daily_briefing_items",
-        sa.Column("score_breakdown", sa.JSONB(), nullable=True),
+        sa.Column("score_breakdown", postgresql.JSONB(), nullable=True),
     )
 
     # ── sentiment_shifts (design doc §12.1) ──

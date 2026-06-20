@@ -23,6 +23,9 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     """Update CHECK constraints and add ENUM value."""
+    # Extend alembic_version.version_num to accommodate long revision IDs
+    op.execute("ALTER TABLE alembic_version ALTER COLUMN version_num TYPE VARCHAR(128)")
+
     # ── articles_core: update document_type CHECK ──
     op.execute("ALTER TABLE articles_core DROP CONSTRAINT IF EXISTS chk_core_document_type")
     op.execute(

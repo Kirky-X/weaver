@@ -43,7 +43,7 @@ def upgrade() -> None:
         sa.Column("title", sa.Text, nullable=False),
         sa.Column(
             "category",
-            sa.Enum(
+            postgresql.ENUM(
                 "政治",
                 "军事",
                 "经济",
@@ -63,7 +63,7 @@ def upgrade() -> None:
         sa.Column("credibility_score", sa.Numeric(3, 2)),
         sa.Column(
             "persist_status",
-            sa.Enum(
+            postgresql.ENUM(
                 "pending",
                 "processing",
                 "pg_done",
@@ -174,7 +174,7 @@ def upgrade() -> None:
         sa.Column("sentiment", sa.String(10)),
         sa.Column(
             "primary_emotion",
-            sa.Enum(
+            postgresql.ENUM(
                 "乐观",
                 "振奋",
                 "兴奋",
@@ -227,7 +227,7 @@ def upgrade() -> None:
         SELECT
             id, source_url, source_host, title, category, language, region,
             score, sentiment_score, credibility_score, persist_status, publish_time,
-            merged_into, is_merged, merged_source_ids,
+            merged_into, is_merged, merged_source_ids::uuid[],
             content_hash, version, document_type, doc_metadata,
             task_id, processing_stage, processing_error, retry_count,
             created_at, updated_at
@@ -326,7 +326,7 @@ def upgrade() -> None:
             c.persist_status, c.publish_time, c.created_at, c.updated_at,
             c.merged_into, c.is_merged, c.merged_source_ids,
             c.task_id, c.processing_stage, c.processing_error, c.retry_count,
-            a.sentiment_score AS sentiment_score
+            c.sentiment_score
         FROM articles_core c
         LEFT JOIN article_bodies b ON c.id = b.article_id
         LEFT JOIN article_analysis a ON c.id = a.article_id
@@ -357,7 +357,7 @@ def downgrade() -> None:
         sa.Column("body", sa.Text, nullable=False),
         sa.Column(
             "category",
-            sa.Enum(
+            postgresql.ENUM(
                 "政治",
                 "军事",
                 "经济",
@@ -405,7 +405,7 @@ def downgrade() -> None:
         sa.Column("sentiment_score", sa.Numeric(3, 2)),
         sa.Column(
             "primary_emotion",
-            sa.Enum(
+            postgresql.ENUM(
                 "乐观",
                 "振奋",
                 "兴奋",
@@ -429,7 +429,7 @@ def downgrade() -> None:
         sa.Column("verified_by_sources", sa.Integer, nullable=False, server_default=sa.text("0")),
         sa.Column(
             "persist_status",
-            sa.Enum(
+            postgresql.ENUM(
                 "pending",
                 "processing",
                 "pg_done",
@@ -467,7 +467,7 @@ def downgrade() -> None:
         INSERT INTO articles
         SELECT
             c.id, c.source_url, c.source_host, a.is_news, c.title,
-            COALESCE(b.body, ''), b.summary, c.category, c.language, c.region,
+            COALESCE(b.body, ''), c.category, c.language, c.region,
             c.merged_into, c.is_merged, c.merged_source_ids,
             b.summary, a.event_time, a.subjects, a.key_data, a.impact, a.has_data,
             a.data_conflicts, a.image_forensics,

@@ -33,10 +33,12 @@ def upgrade() -> None:
     )
 
     # ── articles_core: doc_metadata GIN index ──
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_articles_doc_metadata_gin "
-        "ON articles_core USING gin (doc_metadata)"
-    )
+    # CONCURRENTLY cannot run inside a transaction block; use autocommit_block.
+    with op.get_context().autocommit_block():
+        op.execute(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_articles_doc_metadata_gin "
+            "ON articles_core USING gin (doc_metadata)"
+        )
 
     # ── sentiment_shifts: shift_type CHECK ──
     op.execute(
@@ -51,10 +53,14 @@ def upgrade() -> None:
     )
 
     # ── community_vectors: title GIN index ──
-    op.execute(
-        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_community_vectors_title_gin "
-        "ON community_vectors USING gin (title)"
-    )
+    # varchar columns need an explicit operator class for GIN; pg_trgm provides
+    # gin_trgm_ops. CREATE EXTENSION can run inside a transaction.
+    op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+    with op.get_context().autocommit_block():
+        op.execute(
+            "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_community_vectors_title_gin "
+            "ON community_vectors USING gin (title gin_trgm_ops)"
+        )
 
     # ── sources: interval_minutes CHECK (5-1440) ──
     op.execute(
@@ -69,7 +75,9 @@ def downgrade() -> None:
     op.execute("ALTER TABLE sources DROP CONSTRAINT IF EXISTS chk_sources_interval_minutes_range")
 
     # ── community_vectors ──
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_community_vectors_title_gin")
+    # DROP INDEX CONCURRENTLY cannot run inside a transaction block.
+    with op.get_context().autocommit_block():
+        op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_community_vectors_title_gin")
 
     # ── daily_briefing_items ──
     op.execute(
@@ -80,5 +88,6 @@ def downgrade() -> None:
     op.execute("ALTER TABLE sentiment_shifts DROP CONSTRAINT IF EXISTS chk_shift_type_values")
 
     # ── articles_core ──
-    op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_articles_doc_metadata_gin")
+    with op.get_context().autocommit_block():
+        op.execute("DROP INDEX CONCURRENTLY IF EXISTS idx_articles_doc_metadata_gin")
     op.execute("ALTER TABLE articles_core DROP CONSTRAINT IF EXISTS chk_core_document_type")

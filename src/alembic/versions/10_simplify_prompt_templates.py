@@ -17,6 +17,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision: str = "10_simplify_prompt_templates"
 down_revision: str | None = "09_create_article_versions_table"
@@ -57,7 +58,7 @@ def downgrade() -> None:
     )
     op.add_column(
         "prompt_templates",
-        sa.Column("prompt_metadata", sa.dialects.postgresql.JSONB(), nullable=True),
+        sa.Column("prompt_metadata", postgresql.JSONB(), nullable=True),
     )
     op.add_column(
         "prompt_templates",
