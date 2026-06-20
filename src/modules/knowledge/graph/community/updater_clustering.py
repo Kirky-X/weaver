@@ -19,6 +19,7 @@ from modules.knowledge.graph.community.graph_utils import (
     build_adjacency,
     find_connected_components_dfs,
 )
+from modules.knowledge.graph.community.ladybug_dialect import LadybugDialect
 
 # Optional: Leiden algorithm for better community detection
 try:
@@ -293,26 +294,25 @@ class SubgraphClusteringService:
         if not entity_names:
             return []
 
-        if self._database_type == DatabaseType.LADYBUG.value:
-            # LadybugDB: Only RELATED_TO edges between entities, no pruned field.
-            query = """
-            MATCH (e:Entity)-[:HAS_ENTITY]-(c:Community)
-            WHERE e.canonical_name IN $names
-            WITH DISTINCT c.id AS community_id
-            MATCH (c:Community)-[:HAS_ENTITY]-(e1:Entity)-[r:RELATED_TO]-(e2:Entity)-[:HAS_ENTITY]-(c2:Community)
-            RETURN DISTINCT community_id, c2.id AS neighbor_community_id
-            """
+        rel_pattern = LadybugDialect.related_to_pattern(self._database_type)
+        pruned_cond = LadybugDialect.pruned_condition(self._database_type, "e2")
+        if pruned_cond:
+            # Neo4j: explicit type exclusion + pruned filter
+            where_clause = (
+                f"WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY'] AND {pruned_cond}"
+            )
         else:
-            # Neo4j: Multiple relationship types, use type(r) function
-            query = """
-            MATCH (e:Entity)-[:HAS_ENTITY]-(c:Community)
-            WHERE e.canonical_name IN $names
-            WITH DISTINCT c.id AS community_id
-            MATCH (c:Community)-[:HAS_ENTITY]-(e1:Entity)-[r]-(e2:Entity)-[:HAS_ENTITY]-(c2:Community)
-            WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
-              AND (e2.pruned IS NULL OR e2.pruned = false)
-            RETURN DISTINCT community_id, c2.id AS neighbor_community_id
-            """
+            # LadybugDB: [r:RELATED_TO] pattern filters type, no pruned field
+            where_clause = ""
+
+        query = f"""
+        MATCH (e:Entity)-[:HAS_ENTITY]-(c:Community)
+        WHERE e.canonical_name IN $names
+        WITH DISTINCT c.id AS community_id
+        MATCH (c:Community)-[:HAS_ENTITY]-(e1:Entity)-{rel_pattern}-(e2:Entity)-[:HAS_ENTITY]-(c2:Community)
+        {where_clause}
+        RETURN DISTINCT community_id, c2.id AS neighbor_community_id
+        """
 
         try:
             results = await self._pool.execute_query(query, {"names": entity_names})
@@ -342,37 +342,42 @@ class SubgraphClusteringService:
         if not community_ids:
             return [], []
 
-        if self._database_type == DatabaseType.LADYBUG.value:
-            # LadybugDB: Only RELATED_TO edges, no pruned field, use id property.
-            query = """
-            MATCH (c:Community)-[:HAS_ENTITY]-(e1:Entity)
-            WHERE c.id IN $community_ids
-            WITH e1
-            MATCH (e1)-[r:RELATED_TO]-(e2:Entity)
-            RETURN DISTINCT
-                   e1.id AS id1,
-                   e2.id AS id2,
-                   coalesce(r.weight, 1.0) AS weight
-            LIMIT $max_edges
-            """
+        rel_pattern = LadybugDialect.related_to_pattern(self._database_type)
+        pruned_cond_e1 = LadybugDialect.pruned_condition(self._database_type, "e1")
+        pruned_cond_e2 = LadybugDialect.pruned_condition(self._database_type, "e2")
+        is_ladybug = LadybugDialect.is_ladybug(self._database_type)
+
+        # LadybugDB uses id property; Neo4j uses elementId() function
+        id_expr1 = "e1.id" if is_ladybug else "elementId(e1)"
+        id_expr2 = "e2.id" if is_ladybug else "elementId(e2)"
+
+        # First WHERE clause: Neo4j adds pruned filter for e1
+        if pruned_cond_e1:
+            where1 = f"WHERE c.id IN $community_ids AND {pruned_cond_e1}"
         else:
-            # Neo4j: Multiple relationship types, use type(r) and elementId().
-            id_expr1 = "elementId(e1)"
-            id_expr2 = "elementId(e2)"
-            query = f"""
-            MATCH (c:Community)-[:HAS_ENTITY]-(e1:Entity)
-            WHERE c.id IN $community_ids
-              AND (e1.pruned IS NULL OR e1.pruned = false)
-            WITH e1
-            MATCH (e1)-[r]-(e2:Entity)
-            WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
-              AND (e2.pruned IS NULL OR e2.pruned = false)
-            RETURN DISTINCT
-                   {id_expr1} AS id1,
-                   {id_expr2} AS id2,
-                   coalesce(r.weight, 1.0) AS weight
-            LIMIT $max_edges
-            """
+            where1 = "WHERE c.id IN $community_ids"
+
+        # Second WHERE clause: Neo4j needs type exclusion + pruned filter for e2
+        if pruned_cond_e2:
+            where2 = (
+                "WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY'] "
+                f"AND {pruned_cond_e2}"
+            )
+        else:
+            where2 = ""
+
+        query = f"""
+        MATCH (c:Community)-[:HAS_ENTITY]-(e1:Entity)
+        {where1}
+        WITH e1
+        MATCH (e1)-{rel_pattern}-(e2:Entity)
+        {where2}
+        RETURN DISTINCT
+               {id_expr1} AS id1,
+               {id_expr2} AS id2,
+               coalesce(r.weight, 1.0) AS weight
+        LIMIT $max_edges
+        """
 
         try:
             results = await self._pool.execute_query(

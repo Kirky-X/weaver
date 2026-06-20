@@ -17,6 +17,7 @@ from core.observability import get_logger
 from modules.knowledge.graph.community.graph_utils import (
     find_connected_components_dfs,
 )
+from modules.knowledge.graph.community.ladybug_dialect import LadybugDialect
 
 if TYPE_CHECKING:
     from core.protocols import GraphPool
@@ -263,29 +264,33 @@ class DiffWriter:
 
         # Group entities by relationships to create communities
         # For now, create one community per connected component
-        if self._database_type == DatabaseType.LADYBUG.value:
-            # LadybugDB: Only RELATED_TO edges between entities, no pruned field.
-            query = """
-            MATCH (e:Entity)
-            WHERE e.canonical_name IN $names
-            OPTIONAL MATCH (e)-[r:RELATED_TO]-(other:Entity)
-            WHERE other.canonical_name IN $names
-            WITH e, collect(DISTINCT other.canonical_name) AS neighbors
-            RETURN e.canonical_name AS entity, neighbors
-            """
+        rel_pattern = LadybugDialect.related_to_pattern(self._database_type)
+        pruned_cond_e = LadybugDialect.pruned_condition(self._database_type, "e")
+        pruned_cond_other = LadybugDialect.pruned_condition(self._database_type, "other")
+
+        # First WHERE clause: Neo4j adds pruned filter for e
+        if pruned_cond_e:
+            where1 = f"WHERE e.canonical_name IN $names AND {pruned_cond_e}"
         else:
-            # Neo4j: Multiple relationship types, use type(r) function
-            query = """
-            MATCH (e:Entity)
-            WHERE e.canonical_name IN $names
-              AND (e.pruned IS NULL OR e.pruned = false)
-            OPTIONAL MATCH (e)-[r]-(other:Entity)
-            WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
-              AND other.canonical_name IN $names
-              AND (other.pruned IS NULL OR other.pruned = false)
-            WITH e, collect(DISTINCT other.canonical_name) AS neighbors
-            RETURN e.canonical_name AS entity, neighbors
-            """
+            where1 = "WHERE e.canonical_name IN $names"
+
+        # Second WHERE clause (OPTIONAL MATCH): Neo4j needs type exclusion + pruned for other
+        if pruned_cond_other:
+            where2 = (
+                "WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY'] "
+                f"AND other.canonical_name IN $names AND {pruned_cond_other}"
+            )
+        else:
+            where2 = "WHERE other.canonical_name IN $names"
+
+        query = f"""
+        MATCH (e:Entity)
+        {where1}
+        OPTIONAL MATCH (e)-{rel_pattern}-(other:Entity)
+        {where2}
+        WITH e, collect(DISTINCT other.canonical_name) AS neighbors
+        RETURN e.canonical_name AS entity, neighbors
+        """
 
         try:
             results = await self._pool.execute_query(query, {"names": entity_names})

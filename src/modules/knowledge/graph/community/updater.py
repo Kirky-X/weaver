@@ -20,13 +20,13 @@ wrappers so existing callers and tests keep working unchanged.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING
 
-from core.constants import DatabaseType
 from core.observability import get_logger
 from modules.knowledge.graph.community.health.checker import CommunityHealthChecker
 from modules.knowledge.graph.community.health.models import HealthIssue
+from modules.knowledge.graph.community.ladybug_dialect import LadybugDialect
 from modules.knowledge.graph.community.repair_service import CommunityRepairService
 from modules.knowledge.graph.community.updater_clustering import SubgraphClusteringService
 from modules.knowledge.graph.community.updater_diff import DiffWriter
@@ -231,22 +231,13 @@ class IncrementalCommunityUpdater:
         Args:
             result: Update result to record.
         """
-        if self._database_type == DatabaseType.LADYBUG.value:
-            # LadybugDB: No datetime() function, pass ISO timestamp as parameter.
-            now = datetime.now(UTC).isoformat()
-            query = """
-            MERGE (m:_CommunityMetadata {id: 'singleton'})
-            SET m.last_incremental_update_at = $now,
-                m.pending_entity_count = 0
-            """
-            params: dict[str, object] = {"now": now}
-        else:
-            query = """
-            MERGE (m:_CommunityMetadata {id: 'singleton'})
-            SET m.last_incremental_update_at = datetime(),
-                m.pending_entity_count = 0
-            """
-            params = {}
+        now_expr = LadybugDialect.now_expression(self._database_type)
+        query = f"""
+        MERGE (m:_CommunityMetadata {{id: 'singleton'}})
+        SET m.last_incremental_update_at = {now_expr},
+            m.pending_entity_count = 0
+        """
+        params: dict[str, object] = LadybugDialect.now_param(self._database_type)
 
         try:
             await self._pool.execute_query(query, params)
@@ -257,34 +248,32 @@ class IncrementalCommunityUpdater:
         """Update metadata after full rebuild, including entity count."""
         modularity = await self._calculate_modularity()
 
-        if self._database_type == DatabaseType.LADYBUG.value:
-            # LadybugDB: No datetime() function, no pruned field.
-            now = datetime.now(UTC).isoformat()
-            query = """
-            MATCH (e:Entity)
-            WITH count(e) AS entity_count
-            MERGE (m:_CommunityMetadata {id: 'singleton'})
-            SET m.last_full_rebuild_at = $now,
-                m.last_incremental_update_at = $now,
-                m.pending_entity_count = 0,
-                m.entity_count = entity_count,
-                m.modularity = coalesce($modularity, m.modularity)
-            """
+        now_expr = LadybugDialect.now_expression(self._database_type)
+        pruned_cond = LadybugDialect.pruned_condition(self._database_type, "e")
+        if pruned_cond:
+            # Neo4j: filter out pruned entities when counting
+            where_clause = f"WHERE {pruned_cond}"
         else:
-            query = """
-            MATCH (e:Entity)
-            WHERE (e.pruned IS NULL OR e.pruned = false)
-            WITH count(e) AS entity_count
-            MERGE (m:_CommunityMetadata {id: 'singleton'})
-            SET m.last_full_rebuild_at = datetime(),
-                m.last_incremental_update_at = datetime(),
-                m.pending_entity_count = 0,
-                m.entity_count = entity_count,
-                m.modularity = coalesce($modularity, m.modularity)
-            """
+            # LadybugDB: no pruned field in schema
+            where_clause = ""
+
+        query = f"""
+        MATCH (e:Entity)
+        {where_clause}
+        WITH count(e) AS entity_count
+        MERGE (m:_CommunityMetadata {{id: 'singleton'}})
+        SET m.last_full_rebuild_at = {now_expr},
+            m.last_incremental_update_at = {now_expr},
+            m.pending_entity_count = 0,
+            m.entity_count = entity_count,
+            m.modularity = coalesce($modularity, m.modularity)
+        """
+
+        params: dict[str, object] = {"modularity": modularity}
+        params.update(LadybugDialect.now_param(self._database_type))
 
         try:
-            await self._pool.execute_query(query, {"modularity": modularity})
+            await self._pool.execute_query(query, params)
         except Exception as exc:
             log.warning("update_full_rebuild_metadata_failed", error=str(exc))
 
