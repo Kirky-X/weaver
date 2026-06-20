@@ -19,7 +19,7 @@ if TYPE_CHECKING:
         VectorRepository,
     )
     from core.saga import SagaOrchestrator
-    from modules.analytics import LLMUsageBuffer, LLMUsageRepo
+    from modules.analytics import LLMUsageBuffer
     from modules.analytics.llm_failure.repo import LLMFailureRepo
     from modules.ingestion import (
         Crawler,
@@ -225,12 +225,20 @@ class ContainerServicesMixin:
         """Get LLM usage buffer (or None if not initialized)."""
         return self._llm_usage_buffer
 
-    def llm_usage_repo(self) -> LLMUsageRepo:
-        """Get LLM usage repository."""
+    def llm_usage_repo(self) -> Any:
+        """Get LLM usage repository (DuckDB or PostgreSQL version based on pool type)."""
         if self._llm_usage_repo is None:
-            from modules.analytics import LLMUsageRepo
+            from core.db.duckdb_pool import DuckDBPool
 
-            self._llm_usage_repo = LLMUsageRepo(self.relational_pool())
+            pool = self.relational_pool()
+            if isinstance(pool, DuckDBPool):
+                from modules.storage.duckdb import DuckDBLLMUsageRepo
+
+                self._llm_usage_repo = DuckDBLLMUsageRepo(pool)
+            else:
+                from modules.analytics import LLMUsageRepo
+
+                self._llm_usage_repo = LLMUsageRepo(pool)
         return self._llm_usage_repo
 
     def scheduler_job_runner(self) -> Any:

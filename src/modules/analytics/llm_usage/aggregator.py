@@ -48,7 +48,9 @@ async def flush_usage_buffer(
     Returns:
         Tuple of (processed_count, error_count).
     """
+    from core.db.duckdb_pool import DuckDBPool
     from modules.analytics.llm_usage.repo import LLMUsageRepo
+    from modules.storage.duckdb import DuckDBLLMUsageRepo
 
     # Calculate current hour bucket (to exclude)
     now = datetime.now(UTC)
@@ -68,7 +70,10 @@ async def flush_usage_buffer(
 
     log.info("llm_usage_aggregator_flush_start", keys=len(keys_to_process))
 
-    repo = LLMUsageRepo(relational_pool)
+    if isinstance(relational_pool, DuckDBPool):
+        repo = DuckDBLLMUsageRepo(relational_pool)
+    else:
+        repo = LLMUsageRepo(relational_pool)
     processed = 0
     errors = 0
 

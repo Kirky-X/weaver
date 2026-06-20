@@ -421,11 +421,11 @@ class LLMUsageRepo:
                 func.max(LLMUsageHourly.latency_max_ms).label("latency_max_ms"),
                 func.sum(LLMUsageHourly.success_count).label("success_count"),
                 func.sum(LLMUsageHourly.failure_count).label("failure_count"),
-                func.array_agg(func.distinct(LLMUsageHourly.label)).label("labels"),
-                func.array_agg(func.distinct(LLMUsageHourly.call_point)).label("call_points"),
-                func.array_agg(func.distinct(LLMUsageHourly.llm_type)).label("llm_types"),
-                func.array_agg(func.distinct(LLMUsageHourly.provider)).label("providers"),
-                func.array_agg(func.distinct(LLMUsageHourly.model)).label("models"),
+                func.string_agg(func.distinct(LLMUsageHourly.label), ",").label("labels"),
+                func.string_agg(func.distinct(LLMUsageHourly.call_point), ",").label("call_points"),
+                func.string_agg(func.distinct(LLMUsageHourly.llm_type), ",").label("llm_types"),
+                func.string_agg(func.distinct(LLMUsageHourly.provider), ",").label("providers"),
+                func.string_agg(func.distinct(LLMUsageHourly.model), ",").label("models"),
             )
             .where(
                 and_(
@@ -462,13 +462,17 @@ class LLMUsageRepo:
                 "latency_max_ms": float(row.latency_max_ms or 0),
                 "success_count": row.success_count or 0,
                 "failure_count": row.failure_count or 0,
-                "label": ", ".join(sorted(set(row.labels or []))) if row.labels else "",
+                "label": ", ".join(sorted(set(row.labels.split(",")))) if row.labels else "",
                 "call_point": (
-                    ", ".join(sorted(set(row.call_points or []))) if row.call_points else ""
+                    ", ".join(sorted(set(row.call_points.split(",")))) if row.call_points else ""
                 ),
-                "llm_type": ", ".join(sorted(set(row.llm_types or []))) if row.llm_types else "",
-                "provider": ", ".join(sorted(set(row.providers or []))) if row.providers else "",
-                "model": ", ".join(sorted(set(row.models or []))) if row.models else "",
+                "llm_type": (
+                    ", ".join(sorted(set(row.llm_types.split(",")))) if row.llm_types else ""
+                ),
+                "provider": (
+                    ", ".join(sorted(set(row.providers.split(",")))) if row.providers else ""
+                ),
+                "model": ", ".join(sorted(set(row.models.split(",")))) if row.models else "",
             }
             for row in rows
         ]
