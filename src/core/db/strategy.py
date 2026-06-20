@@ -11,6 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from core.db.query_builders import DatabaseType
 from core.observability import get_logger
 from core.protocols import GraphPool, RelationalPool
 
@@ -35,7 +36,7 @@ class DatabaseStrategy:
 
     relational_pool: RelationalPool
     graph_pool: GraphPool | None
-    relational_type: str  # "postgresql" | "duckdb"
+    relational_type: DatabaseType  # DatabaseType.POSTGRES | DatabaseType.DUCKDB
     graph_type: str  # "neo4j" | "ladybug" | "none"
 
 
@@ -91,7 +92,7 @@ async def create_strategy(
 
     # 1. Try PostgreSQL
     relational_pool: RelationalPool
-    relational_type: str
+    relational_type: DatabaseType
 
     try:
         pg_pool = PostgresPool(
@@ -102,7 +103,7 @@ async def create_strategy(
         )
         await pg_pool.startup()
         relational_pool = pg_pool
-        relational_type = "postgresql"
+        relational_type = DatabaseType.POSTGRES
         log.info("postgres_connected")
     except Exception as exc:
         log.warning("postgres_unavailable_fallback_to_duckdb", error=str(exc))
@@ -116,7 +117,7 @@ async def create_strategy(
         await duckdb_pool.startup()
         await initialize_duckdb_schema(duckdb_pool)
         relational_pool = duckdb_pool
-        relational_type = "duckdb"
+        relational_type = DatabaseType.DUCKDB
         log.info("duckdb_connected", db_path=duckdb_settings.db_path)
 
     # 2. Try Neo4j or LadybugDB

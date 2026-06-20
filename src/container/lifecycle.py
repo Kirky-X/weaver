@@ -1124,7 +1124,7 @@ class ContainerLifecycleMixin:
 
         if self._strategy is not None:
             await self._strategy.relational_pool.shutdown()
-            log.info("relational_pool_shutdown", type=self._strategy.relational_type)
+            log.info("relational_pool_shutdown", type=self._strategy.relational_type.value)
             if self._strategy.graph_pool is not None:
                 await self._strategy.graph_pool.shutdown()
                 log.info("graph_pool_shutdown", type=self._strategy.graph_type)

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from config.settings import Neo4jSettings
+from core.db.query_builders import DatabaseType
 
 
 class TestNeo4jSettingsEnabled:
@@ -91,7 +92,7 @@ class TestContainerNeo4jToggle:
         mock_strategy = MagicMock()
         mock_strategy.graph_pool = None
         mock_strategy.graph_type = "none"
-        mock_strategy.relational_type = "postgresql"
+        mock_strategy.relational_type = DatabaseType.POSTGRES
         mock_strategy.relational_pool = MagicMock()
 
         with patch("core.db.create_strategy", AsyncMock(return_value=mock_strategy)):
@@ -114,7 +115,7 @@ class TestContainerNeo4jToggle:
         mock_strategy = MagicMock()
         mock_strategy.graph_pool = mock_graph_pool
         mock_strategy.graph_type = "neo4j"
-        mock_strategy.relational_type = "postgresql"
+        mock_strategy.relational_type = DatabaseType.POSTGRES
         mock_strategy.relational_pool = MagicMock()
 
         with patch("core.db.create_strategy", AsyncMock(return_value=mock_strategy)):

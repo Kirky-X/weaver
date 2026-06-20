@@ -144,7 +144,7 @@ def _make_strategy(
 ):
     """Create a mock DatabaseStrategy."""
     strategy = MagicMock()
-    strategy.relational_type = relational_type.value
+    strategy.relational_type = relational_type
     strategy.graph_type = graph_type
 
     mock_rel_pool = MagicMock()

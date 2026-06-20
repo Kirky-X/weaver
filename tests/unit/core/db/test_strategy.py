@@ -3,6 +3,7 @@
 
 import pytest
 
+from core.db.query_builders import DatabaseType
 from core.db.strategy import DatabaseStrategy
 
 
@@ -14,27 +15,27 @@ class TestDatabaseStrategy:
         strategy = DatabaseStrategy(
             relational_pool=None,  # type: ignore[arg-type]
             graph_pool=None,  # type: ignore[arg-type]
-            relational_type="postgresql",
+            relational_type=DatabaseType.POSTGRES,
             graph_type="none",
         )
         with pytest.raises(AttributeError):
-            strategy.relational_type = "duckdb"  # type: ignore[misc]
+            strategy.relational_type = DatabaseType.DUCKDB  # type: ignore[misc]
 
     def test_dataclass_fields(self) -> None:
         """DatabaseStrategy should have expected fields."""
         strategy = DatabaseStrategy(
             relational_pool=None,  # type: ignore[arg-type]
             graph_pool=None,  # type: ignore[arg-type]
-            relational_type="duckdb",
+            relational_type=DatabaseType.DUCKDB,
             graph_type="ladybug",
         )
-        assert strategy.relational_type == "duckdb"
+        assert strategy.relational_type == DatabaseType.DUCKDB
         assert strategy.graph_type == "ladybug"
         assert strategy.graph_pool is None
 
     def test_relational_type_validation(self) -> None:
         """relational_type should accept valid values."""
-        for rel_type in ["postgresql", "duckdb"]:
+        for rel_type in [DatabaseType.POSTGRES, DatabaseType.DUCKDB]:
             strategy = DatabaseStrategy(
                 relational_pool=None,  # type: ignore[arg-type]
                 graph_pool=None,  # type: ignore[arg-type]
@@ -49,7 +50,7 @@ class TestDatabaseStrategy:
             strategy = DatabaseStrategy(
                 relational_pool=None,  # type: ignore[arg-type]
                 graph_pool=None,  # type: ignore[arg-type]
-                relational_type="postgresql",
+                relational_type=DatabaseType.POSTGRES,
                 graph_type=graph_type,
             )
             assert strategy.graph_type == graph_type
@@ -82,7 +83,7 @@ class TestCreateStrategy:
             ladybug_settings=ladybug_settings,
         )
 
-        assert strategy.relational_type == "postgresql"
+        assert strategy.relational_type == DatabaseType.POSTGRES
         assert strategy.graph_type == "none"
         mock_pg_pool.startup.assert_called_once()
 
@@ -124,7 +125,7 @@ class TestCreateStrategy:
             ladybug_settings=ladybug_settings,
         )
 
-        assert strategy.relational_type == "duckdb"
+        assert strategy.relational_type == DatabaseType.DUCKDB
         mock_duckdb_pool.startup.assert_called_once()
         mock_init_duckdb.assert_called_once_with(mock_duckdb_pool)
 
@@ -185,7 +186,7 @@ class TestCreateStrategy:
             neo4j_settings=neo4j_settings,
         )
 
-        assert strategy.relational_type == "postgresql"
+        assert strategy.relational_type == DatabaseType.POSTGRES
         assert strategy.graph_type == "neo4j"
         mock_neo4j_pool.startup.assert_called_once()
 
@@ -228,7 +229,7 @@ class TestCreateStrategy:
             ladybug_settings=ladybug_settings,
         )
 
-        assert strategy.relational_type == "postgresql"
+        assert strategy.relational_type == DatabaseType.POSTGRES
         assert strategy.graph_type == "ladybug"
         mock_ladybug_pool.startup.assert_called_once()
         mock_init_schema.assert_called_once()

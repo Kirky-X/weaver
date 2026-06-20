@@ -42,7 +42,7 @@ class ContainerPoolsMixin:
             log = get_logger(__name__)
             log.info(
                 "database_strategy_initialized",
-                relational_type=self._strategy.relational_type,
+                relational_type=self._strategy.relational_type.value,
                 graph_type=self._strategy.graph_type,
             )
         return self._strategy
@@ -69,7 +69,7 @@ class ContainerPoolsMixin:
         """
         if self._strategy is None:
             raise RuntimeError("Database strategy not initialized. Call init_strategy() first.")
-        return self._strategy.relational_type
+        return self._strategy.relational_type.value
 
     @property
     def graph_pool_type(self) -> str | None:

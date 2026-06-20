@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from core.db.query_builders import DatabaseType
+
 
 class TestEventBusSharing:
     """Test that init_pipeline() creates EventBus and shares it."""
@@ -72,7 +74,7 @@ class TestEventBusSharing:
         mock_strategy = MagicMock()
         mock_strategy.graph_pool = None
         mock_strategy.relational_pool = MagicMock()
-        mock_strategy.relational_type = "postgres"  # Needed for VectorRepo QueryBuilder
+        mock_strategy.relational_type = DatabaseType.POSTGRES  # Needed for VectorRepo QueryBuilder
         container._strategy = mock_strategy
 
         mock_spacy = MagicMock()
@@ -109,7 +111,7 @@ class TestEventBusSharing:
         mock_strategy = MagicMock()
         mock_strategy.graph_pool = None
         mock_strategy.relational_pool = MagicMock()
-        mock_strategy.relational_type = "postgres"  # Needed for VectorRepo QueryBuilder
+        mock_strategy.relational_type = DatabaseType.POSTGRES  # Needed for VectorRepo QueryBuilder
         container._strategy = mock_strategy
 
         mock_spacy = MagicMock()
