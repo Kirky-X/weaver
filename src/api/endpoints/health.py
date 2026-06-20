@@ -206,23 +206,26 @@ async def health_check() -> HealthCheckResponse:
         )
         all_healthy = False
 
-    # Check Redis
+    # Check cache (Redis or Cashews fallback)
     cache_client = None
     if container is not None:
         try:
             cache_client = container.cache_client()
         except RuntimeError:
             cache_client = None
+    # Use the cache backend type as the service name so the checks key
+    # reflects the actual active backend ('redis' or 'cashews').
+    cache_service_name = cache_client.cache_type if hasattr(cache_client, "cache_type") else "redis"
     if cache_client is not None:
         redis_result = await check_redis_health(cache_client)
-        checks["redis"] = ServiceHealthCheck(**redis_result)
+        checks[cache_service_name] = ServiceHealthCheck(**redis_result)
         if redis_result["status"] != HealthCheckStatus.OK.value:
             all_healthy = False
     else:
-        checks["redis"] = ServiceHealthCheck(
+        checks[cache_service_name] = ServiceHealthCheck(
             status=HealthCheckStatus.UNAVAILABLE.value, error="Client not initialized"
         )
-        metrics.health_check_status.labels(service="redis").set(
+        metrics.health_check_status.labels(service=cache_service_name).set(
             HEALTH_STATUS_CODES[HealthCheckStatus.UNAVAILABLE.value]
         )
         all_healthy = False

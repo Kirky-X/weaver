@@ -353,8 +353,9 @@ async def regenerate_report(
 @router.get("", response_model=APIResponse[CommunityListResponse])
 async def list_communities(
     level: int | None = Query(None, description="Filter by community level"),
+    page: int | None = Query(None, ge=1, description="Page number (1-based)"),
     limit: int = Query(20, ge=1, le=100, description="Maximum results"),
-    offset: int = Query(0, ge=0, description="Result offset"),
+    offset: int | None = Query(None, ge=0, description="Result offset"),
     _: str = Depends(verify_api_key),
     pool: GraphPool = Depends(get_graph_pool),
     pool_type: str = Depends(get_graph_pool_type),
@@ -363,8 +364,9 @@ async def list_communities(
 
     Args:
         level: Optional level filter.
+        page: Optional 1-based page number (computes offset when offset is None).
         limit: Maximum number of results.
-        offset: Result offset for pagination.
+        offset: Result offset for pagination (takes precedence over page).
         _: Verified API key.
         pool: GraphPool connection pool.
 
@@ -372,6 +374,11 @@ async def list_communities(
         List of communities.
 
     """
+    # page is a convenience parameter: when provided and offset is not,
+    # derive offset from page number. Explicit offset takes precedence.
+    if offset is None:
+        offset = (page - 1) * limit if page is not None else 0
+
     repo = Neo4jCommunityRepo(pool, database_type=_get_db_type(pool_type))
 
     try:

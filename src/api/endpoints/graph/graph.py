@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from api.dependencies import get_graph_repo
+from api.dependencies import get_graph_pool, get_graph_pool_type, get_graph_repo
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from api.schemas.traverse import (
@@ -22,6 +22,7 @@ from api.schemas.traverse import (
     TraverseResultItem,
     TraverseStatistics,
 )
+from core.protocols import GraphPool
 from modules.storage.graph_repo import GraphRepository
 
 router = APIRouter(prefix="/graph", tags=["graph"])
@@ -107,6 +108,70 @@ class RelatedEntityResult(BaseModel):
 
 
 # ── Endpoints ───────────────────────────────────────────────────
+
+
+@router.get("/entities", response_model=APIResponse[list[dict[str, Any]]])
+async def list_entities(
+    entity_type: str | None = Query(None, description="Filter by entity type"),
+    limit: int = Query(20, ge=1, le=100, description="Maximum results"),
+    offset: int = Query(0, ge=0, description="Result offset"),
+    _: str = Depends(verify_api_key),
+    pool: GraphPool = Depends(get_graph_pool),
+    pool_type: str = Depends(get_graph_pool_type),
+) -> APIResponse[list[dict[str, Any]]]:
+    """List entities with optional type filter.
+
+    Returns a paginated list of entities from the graph database.
+    Works with both Neo4j and LadybugDB backends.
+
+    Args:
+        entity_type: Optional entity type filter.
+        limit: Maximum number of results (1-100).
+        offset: Result offset for pagination.
+        _: Verified API key.
+        pool: GraphPool connection pool.
+        pool_type: Graph database type ('neo4j' or 'ladybug').
+
+    Returns:
+        List of entities with id, name, entity_type, and mention_count.
+
+    """
+    # Build query conditionally based on entity_type filter.
+    # Use undirected MENTIONS pattern to count article mentions across
+    # both Neo4j (Entity->Article) and LadybugDB (Article->Entity) directions.
+    where_clause = "WHERE e.type = $entity_type" if entity_type is not None else ""
+    query = f"""
+        MATCH (e:Entity)
+        {where_clause}
+        OPTIONAL MATCH (a:Article)-[m:MENTIONS]-(e)
+        WITH e, count(DISTINCT a) AS mention_count
+        RETURN e.id AS id, e.canonical_name AS name, e.type AS entity_type,
+               mention_count
+        ORDER BY mention_count DESC, e.canonical_name ASC
+        SKIP $offset LIMIT $limit
+    """
+    params: dict[str, Any] = {"limit": limit, "offset": offset}
+    if entity_type is not None:
+        params["entity_type"] = entity_type
+
+    try:
+        rows = await pool.execute_query(query, params)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to list entities: {exc!s}",
+        ) from exc
+
+    entities = [
+        {
+            "id": str(row.get("id") or ""),
+            "name": row.get("name") or "",
+            "entity_type": row.get("entity_type") or "未知",
+            "mention_count": int(row.get("mention_count") or 0),
+        }
+        for row in rows
+    ]
+    return success_response(entities)
 
 
 @router.get("/entities/{name}", response_model=APIResponse[EntityWithRelations])

@@ -156,11 +156,15 @@ def get_cache_type(container: Container = Depends(get_container)) -> str:
     """FastAPI dependency for cache type.
 
     Returns:
-        Cache class name or 'none'.
+        Cache type string ('redis', 'cashews') or class name, or 'none'.
 
     """
     try:
         cache = container.cache_client()
+        # Prefer cache_type attribute (FallbackCachePool exposes it,
+        # returning 'redis' or 'cashews' based on primary health).
+        if hasattr(cache, "cache_type"):
+            return cache.cache_type
         return type(cache).__name__
     except RuntimeError:
         return "none"

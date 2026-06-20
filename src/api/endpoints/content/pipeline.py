@@ -399,6 +399,61 @@ async def get_queue_stats(
     )
 
 
+@router.get("/status", response_model=APIResponse[dict])
+async def pipeline_status(
+    _: str = Depends(verify_api_key),
+    relational_pool: RelationalPool = Depends(get_relational_pool),
+) -> APIResponse[dict]:
+    """Get overall pipeline status.
+
+    Returns current pipeline state, queue stats, and recent activity.
+
+    Args:
+        _: Verified API key.
+        relational_pool: Relational database pool for article stats.
+
+    Returns:
+        Pipeline status with queue stats and recent article count.
+
+    """
+    from sqlalchemy import case, func, select
+
+    from core.db import Article, PersistStatus
+
+    # Determine pipeline state from article-level processing counts
+    async with relational_pool.session() as session:
+        result = await session.execute(
+            select(
+                func.sum(
+                    case((Article.persist_status == PersistStatus.PROCESSING, 1), else_=0)
+                ).label("processing_count"),
+                func.sum(case((Article.persist_status == PersistStatus.PENDING, 1), else_=0)).label(
+                    "pending_count"
+                ),
+                func.count(Article.id).label("total_articles"),
+            )
+        )
+        row = result.one()
+
+    processing_count = int(row.processing_count or 0)
+    pending_count = int(row.pending_count or 0)
+    total_articles = int(row.total_articles or 0)
+
+    # Pipeline is "running" when articles are actively being processed
+    status = "running" if processing_count > 0 else "idle"
+
+    return success_response(
+        {
+            "status": status,
+            "queue": {
+                "pending": pending_count,
+                "processing": processing_count,
+            },
+            "recent_articles": total_articles,
+        }
+    )
+
+
 # ── Single URL Processing ─────────────────────────────────────
 
 
