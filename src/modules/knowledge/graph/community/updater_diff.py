@@ -12,6 +12,7 @@ import uuid
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
+from core.constants import DatabaseType
 from core.observability import get_logger
 from modules.knowledge.graph.community.graph_utils import (
     find_connected_components_dfs,
@@ -32,10 +33,12 @@ class DiffWriter:
 
     Args:
         pool: Graph database connection pool.
+        database_type: Graph database type string (e.g. neo4j or ladybug).
     """
 
-    def __init__(self, pool: GraphPool) -> None:
+    def __init__(self, pool: GraphPool, database_type: str | None = None) -> None:
         self._pool = pool
+        self._database_type = database_type or DatabaseType.NEO4J.value
 
     async def _write_diff(
         self,
@@ -260,17 +263,29 @@ class DiffWriter:
 
         # Group entities by relationships to create communities
         # For now, create one community per connected component
-        query = """
-        MATCH (e:Entity)
-        WHERE e.canonical_name IN $names
-          AND (e.pruned IS NULL OR e.pruned = false)
-        OPTIONAL MATCH (e)-[r]-(other:Entity)
-        WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
-          AND other.canonical_name IN $names
-          AND (other.pruned IS NULL OR other.pruned = false)
-        WITH e, collect(DISTINCT other.canonical_name) AS neighbors
-        RETURN e.canonical_name AS entity, neighbors
-        """
+        if self._database_type == DatabaseType.LADYBUG.value:
+            # LadybugDB: Only RELATED_TO edges between entities, no pruned field.
+            query = """
+            MATCH (e:Entity)
+            WHERE e.canonical_name IN $names
+            OPTIONAL MATCH (e)-[r:RELATED_TO]-(other:Entity)
+            WHERE other.canonical_name IN $names
+            WITH e, collect(DISTINCT other.canonical_name) AS neighbors
+            RETURN e.canonical_name AS entity, neighbors
+            """
+        else:
+            # Neo4j: Multiple relationship types, use type(r) function
+            query = """
+            MATCH (e:Entity)
+            WHERE e.canonical_name IN $names
+              AND (e.pruned IS NULL OR e.pruned = false)
+            OPTIONAL MATCH (e)-[r]-(other:Entity)
+            WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
+              AND other.canonical_name IN $names
+              AND (other.pruned IS NULL OR other.pruned = false)
+            WITH e, collect(DISTINCT other.canonical_name) AS neighbors
+            RETURN e.canonical_name AS entity, neighbors
+            """
 
         try:
             results = await self._pool.execute_query(query, {"names": entity_names})

@@ -20,9 +20,10 @@ wrappers so existing callers and tests keep working unchanged.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from core.constants import DatabaseType
 from core.observability import get_logger
 from modules.knowledge.graph.community.health.checker import CommunityHealthChecker
 from modules.knowledge.graph.community.health.models import HealthIssue
@@ -123,7 +124,7 @@ class IncrementalCommunityUpdater:
         # Compose collaborators, sharing the same pool and wiring cross-service
         # references back to this updater (used only at call time).
         self._modularity_calculator = ModularityCalculator(pool)
-        self._diff_writer = DiffWriter(pool)
+        self._diff_writer = DiffWriter(pool, database_type=self._database_type)
         self._clustering_service = SubgraphClusteringService(
             pool=pool,
             max_subgraph_size=max_subgraph_size,
@@ -230,14 +231,25 @@ class IncrementalCommunityUpdater:
         Args:
             result: Update result to record.
         """
-        query = """
-        MERGE (m:_CommunityMetadata {id: 'singleton'})
-        SET m.last_incremental_update_at = datetime(),
-            m.pending_entity_count = 0
-        """
+        if self._database_type == DatabaseType.LADYBUG.value:
+            # LadybugDB: No datetime() function, pass ISO timestamp as parameter.
+            now = datetime.now(UTC).isoformat()
+            query = """
+            MERGE (m:_CommunityMetadata {id: 'singleton'})
+            SET m.last_incremental_update_at = $now,
+                m.pending_entity_count = 0
+            """
+            params: dict[str, object] = {"now": now}
+        else:
+            query = """
+            MERGE (m:_CommunityMetadata {id: 'singleton'})
+            SET m.last_incremental_update_at = datetime(),
+                m.pending_entity_count = 0
+            """
+            params = {}
 
         try:
-            await self._pool.execute_query(query)
+            await self._pool.execute_query(query, params)
         except Exception as exc:
             log.warning("update_metadata_failed", error=str(exc))
 
@@ -245,17 +257,31 @@ class IncrementalCommunityUpdater:
         """Update metadata after full rebuild, including entity count."""
         modularity = await self._calculate_modularity()
 
-        query = """
-        MATCH (e:Entity)
-        WHERE (e.pruned IS NULL OR e.pruned = false)
-        WITH count(e) AS entity_count
-        MERGE (m:_CommunityMetadata {id: 'singleton'})
-        SET m.last_full_rebuild_at = datetime(),
-            m.last_incremental_update_at = datetime(),
-            m.pending_entity_count = 0,
-            m.entity_count = entity_count,
-            m.modularity = coalesce($modularity, m.modularity)
-        """
+        if self._database_type == DatabaseType.LADYBUG.value:
+            # LadybugDB: No datetime() function, no pruned field.
+            now = datetime.now(UTC).isoformat()
+            query = """
+            MATCH (e:Entity)
+            WITH count(e) AS entity_count
+            MERGE (m:_CommunityMetadata {id: 'singleton'})
+            SET m.last_full_rebuild_at = $now,
+                m.last_incremental_update_at = $now,
+                m.pending_entity_count = 0,
+                m.entity_count = entity_count,
+                m.modularity = coalesce($modularity, m.modularity)
+            """
+        else:
+            query = """
+            MATCH (e:Entity)
+            WHERE (e.pruned IS NULL OR e.pruned = false)
+            WITH count(e) AS entity_count
+            MERGE (m:_CommunityMetadata {id: 'singleton'})
+            SET m.last_full_rebuild_at = datetime(),
+                m.last_incremental_update_at = datetime(),
+                m.pending_entity_count = 0,
+                m.entity_count = entity_count,
+                m.modularity = coalesce($modularity, m.modularity)
+            """
 
         try:
             await self._pool.execute_query(query, {"modularity": modularity})

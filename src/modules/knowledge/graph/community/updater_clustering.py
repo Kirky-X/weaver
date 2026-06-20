@@ -293,17 +293,26 @@ class SubgraphClusteringService:
         if not entity_names:
             return []
 
-        # First, find communities directly containing these entities
-        # Then, find neighboring communities through 2-hop entity relationships
-        query = """
-        MATCH (e:Entity)-[:HAS_ENTITY]-(c:Community)
-        WHERE e.canonical_name IN $names
-        WITH DISTINCT c.id AS community_id
-        MATCH (c:Community)-[:HAS_ENTITY]-(e1:Entity)-[r]-(e2:Entity)-[:HAS_ENTITY]-(c2:Community)
-        WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
-          AND (e2.pruned IS NULL OR e2.pruned = false)
-        RETURN DISTINCT community_id, c2.id AS neighbor_community_id
-        """
+        if self._database_type == DatabaseType.LADYBUG.value:
+            # LadybugDB: Only RELATED_TO edges between entities, no pruned field.
+            query = """
+            MATCH (e:Entity)-[:HAS_ENTITY]-(c:Community)
+            WHERE e.canonical_name IN $names
+            WITH DISTINCT c.id AS community_id
+            MATCH (c:Community)-[:HAS_ENTITY]-(e1:Entity)-[r:RELATED_TO]-(e2:Entity)-[:HAS_ENTITY]-(c2:Community)
+            RETURN DISTINCT community_id, c2.id AS neighbor_community_id
+            """
+        else:
+            # Neo4j: Multiple relationship types, use type(r) function
+            query = """
+            MATCH (e:Entity)-[:HAS_ENTITY]-(c:Community)
+            WHERE e.canonical_name IN $names
+            WITH DISTINCT c.id AS community_id
+            MATCH (c:Community)-[:HAS_ENTITY]-(e1:Entity)-[r]-(e2:Entity)-[:HAS_ENTITY]-(c2:Community)
+            WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
+              AND (e2.pruned IS NULL OR e2.pruned = false)
+            RETURN DISTINCT community_id, c2.id AS neighbor_community_id
+            """
 
         try:
             results = await self._pool.execute_query(query, {"names": entity_names})
@@ -333,23 +342,37 @@ class SubgraphClusteringService:
         if not community_ids:
             return [], []
 
-        id_expr1 = "e1.id" if self._database_type == DatabaseType.LADYBUG.value else "elementId(e1)"
-        id_expr2 = "e2.id" if self._database_type == DatabaseType.LADYBUG.value else "elementId(e2)"
-
-        query = f"""
-        MATCH (c:Community)-[:HAS_ENTITY]-(e1:Entity)
-        WHERE c.id IN $community_ids
-          AND (e1.pruned IS NULL OR e1.pruned = false)
-        WITH e1
-        MATCH (e1)-[r]-(e2:Entity)
-        WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
-          AND (e2.pruned IS NULL OR e2.pruned = false)
-        RETURN DISTINCT
-               {id_expr1} AS id1,
-               {id_expr2} AS id2,
-               coalesce(r.weight, 1.0) AS weight
-        LIMIT $max_edges
-        """
+        if self._database_type == DatabaseType.LADYBUG.value:
+            # LadybugDB: Only RELATED_TO edges, no pruned field, use id property.
+            query = """
+            MATCH (c:Community)-[:HAS_ENTITY]-(e1:Entity)
+            WHERE c.id IN $community_ids
+            WITH e1
+            MATCH (e1)-[r:RELATED_TO]-(e2:Entity)
+            RETURN DISTINCT
+                   e1.id AS id1,
+                   e2.id AS id2,
+                   coalesce(r.weight, 1.0) AS weight
+            LIMIT $max_edges
+            """
+        else:
+            # Neo4j: Multiple relationship types, use type(r) and elementId().
+            id_expr1 = "elementId(e1)"
+            id_expr2 = "elementId(e2)"
+            query = f"""
+            MATCH (c:Community)-[:HAS_ENTITY]-(e1:Entity)
+            WHERE c.id IN $community_ids
+              AND (e1.pruned IS NULL OR e1.pruned = false)
+            WITH e1
+            MATCH (e1)-[r]-(e2:Entity)
+            WHERE NOT type(r) IN ['HAS_ENTITY', 'MENTIONS', 'FOLLOWED_BY']
+              AND (e2.pruned IS NULL OR e2.pruned = false)
+            RETURN DISTINCT
+                   {id_expr1} AS id1,
+                   {id_expr2} AS id2,
+                   coalesce(r.weight, 1.0) AS weight
+            LIMIT $max_edges
+            """
 
         try:
             results = await self._pool.execute_query(
