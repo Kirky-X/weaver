@@ -19,7 +19,6 @@ if TYPE_CHECKING:
     from core.protocols.types import (
         ArticleSearchResultView,
         ArticleView,
-        CommunitySearchResultView,
         EntitySearchResultView,
         EntityView,
         PersistStatus,
@@ -225,35 +224,6 @@ class VectorRepository(Protocol):
 
 
 @runtime_checkable
-class CommunityVectorRepository(Protocol):
-    """Protocol for community vector repository implementations.
-
-    Any class implementing these methods can be used as a CommunityVectorRepository.
-
-    Implementations:
-        - CommunityVectorRepo: PostgreSQL-based community vector repository
-    """
-
-    async def find_similar_communities(
-        self,
-        embedding: list[float],
-        limit: int = 5,
-        threshold: float = 0.80,
-    ) -> list[CommunitySearchResultView]:
-        """Find similar communities using vector similarity.
-
-        Args:
-            embedding: Query embedding vector.
-            limit: Maximum number of results.
-            threshold: Minimum similarity threshold.
-
-        Returns:
-            List of CommunitySearchResultView with community_id, score, and title.
-        """
-        ...
-
-
-@runtime_checkable
 class ArticleRepository(Protocol):
     """Protocol for article repository implementations.
 
@@ -320,33 +290,6 @@ class ArticleRepository(Protocol):
             error: Error message.
         """
         ...
-
-
-@runtime_checkable
-class PendingSyncRepository(Protocol):
-    """Protocol for pending sync repository implementations.
-
-    Implementations:
-        - PendingSyncRepo: PostgreSQL-based pending sync repository
-    """
-
-    async def upsert(
-        self, article_id: uuid.UUID, sync_type: str, payload: dict[str, Any]
-    ) -> int: ...
-
-    async def get_pending(self, limit: int = 100) -> list[Any]: ...
-
-    async def mark_synced(self, id: int) -> None: ...
-
-    async def mark_failed(self, id: int, error: str) -> None: ...
-
-    async def cleanup_old_synced(self, days: int = 7) -> int: ...
-
-    async def get_stale_pending(self, hours: int = 1) -> list[Any]: ...
-
-    def reconstruct_state_from_payload(self, payload: dict[str, Any]) -> dict[str, Any]: ...
-
-    async def get_by_article_id(self, article_id: uuid.UUID) -> Any | None: ...
 
 
 @runtime_checkable

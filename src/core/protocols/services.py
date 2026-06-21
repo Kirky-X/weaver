@@ -166,17 +166,6 @@ class EmbeddingServiceProtocol(Protocol):
 
 
 @runtime_checkable
-class IntentClassifierProtocol(Protocol):
-    """Protocol for intent classifier.
-
-    Implementations:
-        - _IntentGraphAdapter: Adaptive search intent classifier
-    """
-
-    async def classify(self, query: str) -> Any: ...
-
-
-@runtime_checkable
 class DeduplicationStrategy(Protocol):
     """Protocol for URL deduplication strategy.
 
@@ -193,7 +182,6 @@ class DeduplicationStrategy(Protocol):
 __all__ = [
     "DeduplicationStrategy",
     "EmbeddingServiceProtocol",
-    "IntentClassifierProtocol",
     "PipelineService",
     "TaskRegistryService",
 ]

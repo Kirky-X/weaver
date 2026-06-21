@@ -19,7 +19,6 @@ from core.models.shared import (
     EntityView,
 )
 from core.protocols.repositories import (
-    CommunityVectorRepository,
     EntityRepository,
     VectorRepository,
 )
@@ -99,18 +98,3 @@ class TestVectorRepositoryReturnTypes:
         assert (
             "Any" not in return_str
         ), f"find_similar_entities() should not return list[Any], got {return_str}"
-
-
-class TestCommunityVectorRepositoryReturnTypes:
-    """Verify CommunityVectorRepository Protocol declares View return types."""
-
-    def test_find_similar_communities_returns_list_community_search_result_view(self) -> None:
-        """find_similar_communities() SHALL return list[CommunitySearchResultView]."""
-        return_str = _get_return_type_str(CommunityVectorRepository.find_similar_communities)
-        assert "CommunitySearchResultView" in return_str, (
-            f"find_similar_communities() should return list[CommunitySearchResultView], "
-            f"got {return_str}"
-        )
-        assert (
-            "dict" not in return_str
-        ), f"find_similar_communities() should not return list[dict], got {return_str}"

@@ -35,11 +35,9 @@ from core.protocols.pools import (
 # Repository protocols
 from core.protocols.repositories import (
     ArticleRepository,
-    CommunityVectorRepository,
     EntityRepository,
     GraphArticleRepository,
     GraphWriter,
-    PendingSyncRepository,
     SourceAuthorityRepository,
     VectorRepository,
 )
@@ -48,7 +46,6 @@ from core.protocols.repositories import (
 from core.protocols.services import (
     DeduplicationStrategy,
     EmbeddingServiceProtocol,
-    IntentClassifierProtocol,
     PipelineService,
     TaskRegistryService,
 )
@@ -68,18 +65,15 @@ from core.protocols.validation import (
 __all__ = [
     "ArticleRepository",
     "CachePool",
-    "CommunityVectorRepository",
     "DeduplicationStrategy",
     "EmbeddingServiceProtocol",
     "EntityRepository",
     "GraphArticleRepository",
     "GraphPool",
     "GraphWriter",
-    "IntentClassifierProtocol",
     "KnowledgeCacheProtocol",
     "KnowledgeCluster",
     "MapperProtocol",
-    "PendingSyncRepository",
     "PersistStatus",
     "PipelineService",
     "PipelineState",

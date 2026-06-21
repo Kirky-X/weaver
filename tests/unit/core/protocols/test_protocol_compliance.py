@@ -15,14 +15,12 @@ import pytest
 from core.protocols import (
     ArticleRepository,
     CachePool,
-    CommunityVectorRepository,
     EntityRepository,
     GraphArticleRepository,
     GraphPool,
     GraphWriter,
     KnowledgeCacheProtocol,
     MapperProtocol,
-    PendingSyncRepository,
     PipelineService,
     RelationalPool,
     SourceAuthorityRepository,
@@ -60,7 +58,6 @@ PROTOCOL_REGISTRY: dict[str, type] = {
     "ArticleRepository": ArticleRepository,
     "GraphArticleRepository": GraphArticleRepository,
     "GraphWriter": GraphWriter,
-    "PendingSyncRepository": PendingSyncRepository,
     "SourceAuthorityRepository": SourceAuthorityRepository,
     "PipelineService": PipelineService,
     "TaskRegistryService": TaskRegistryService,
@@ -86,7 +83,6 @@ PROTOCOL_IMPLEMENTATIONS = [
     # Repository implementations
     ("modules.storage.postgres.vector_repo", "VectorRepo", "VectorRepository"),
     ("modules.storage.postgres.article_repo", "ArticleRepo", "ArticleRepository"),
-    ("modules.storage.postgres.pending_sync_repo", "PendingSyncRepo", "PendingSyncRepository"),
     (
         "modules.storage.postgres.source_authority_repo",
         "SourceAuthorityRepo",
@@ -169,14 +165,10 @@ class TestNoFalseImplementsDeclarations:
         """Phase 0-4 classes should not claim Implements: for non-existent Protocols."""
         from core.llm.routing.difficulty_estimator import DifficultyEstimator
         from core.llm.routing.tiered_router import TieredRouter
-        from core.resilience.db_circuit_breaker import DatabaseCircuitBreaker
         from modules.analytics.alert_service import AlertService
-        from modules.knowledge.search.engines.deep_graph_rag import DeepGraphRAGEngine
         from modules.knowledge.search.rerankers.beam_search_reranker import BeamSearchReranker
         from modules.memory.core.narrative_node import NarrativeNode
         from modules.memory.core.schema_node import SchemaNode
-        from modules.memory.evolution.forgetting_scheduler import ForgettingScheduler
-        from modules.memory.graphs.event import EventGraphRepo
         from modules.processing.nodes.classification.cascade_classifier import CascadeClassifier
 
         # These classes should NOT claim to implement a known Protocol
@@ -185,12 +177,8 @@ class TestNoFalseImplementsDeclarations:
             CascadeClassifier,
             DifficultyEstimator,
             TieredRouter,
-            DatabaseCircuitBreaker,
-            EventGraphRepo,
             NarrativeNode,
             SchemaNode,
-            ForgettingScheduler,
-            DeepGraphRAGEngine,
             BeamSearchReranker,
             AlertService,
         ]
@@ -225,13 +213,6 @@ class TestImplementsDocstringFormat:
 
         docstring = ArticleRepo.__doc__ or ""
         assert "ArticleRepository" in docstring
-
-    def test_pending_sync_repo_implements_pending_sync_repository(self) -> None:
-        """PendingSyncRepo should declare Implements: PendingSyncRepository."""
-        from modules.storage.postgres.pending_sync_repo import PendingSyncRepo
-
-        docstring = PendingSyncRepo.__doc__ or ""
-        assert "PendingSyncRepository" in docstring
 
     def test_source_authority_repo_implements_source_authority_repository(self) -> None:
         """SourceAuthorityRepo should declare Implements: SourceAuthorityRepository."""

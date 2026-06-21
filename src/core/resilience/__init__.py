@@ -4,14 +4,11 @@
 公开 API:
 - CircuitBreaker: 熔断器
 - CBState: 熔断器状态
-- DatabaseCircuitBreaker: 数据库专用熔断器别名 (CircuitBreaker)
-- create_db_circuit_breaker: 创建 DB 优化配置的熔断器
 - retry_db, retry_llm, retry_network: 重试装饰器
 """
 
 from core.llm.utils.json_parser import OutputParserException
 from core.resilience.circuit_breaker import CBState, CircuitBreaker
-from core.resilience.db_circuit_breaker import DatabaseCircuitBreaker, create_db_circuit_breaker
 from core.resilience.retry import (
     retry_db,
     retry_llm,
@@ -24,9 +21,7 @@ from core.resilience.retry import (
 __all__ = [
     "CBState",
     "CircuitBreaker",
-    "DatabaseCircuitBreaker",
     "OutputParserException",
-    "create_db_circuit_breaker",
     "retry_db",
     "retry_llm",
     "retry_network",
