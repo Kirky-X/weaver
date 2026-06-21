@@ -11,7 +11,7 @@ dependencies = [
     "bcrypt>=4.2.0",
     "fastapi>=0.135.1",
     "feedparser>=6.0.12",
-    "httpx[http2]>=0.28.1",
+    "httpx[http2,socks]>=0.28.1",
     "json_repair>=0.58.7",
     # Removed: langchain/langgraph unused (replaced by litellm)
     "neo4j>=6.1.0",
