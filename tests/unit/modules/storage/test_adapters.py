@@ -90,13 +90,11 @@ class TestStorageAdaptersModule:
         from modules.storage.adapters import (
             DuckDBArticleRepo,
             DuckDBLLMUsageRepo,
-            DuckDBPendingSyncRepo,
             DuckDBSourceAuthorityRepo,
         )
 
         assert DuckDBArticleRepo is not None
         assert DuckDBLLMUsageRepo is not None
-        assert DuckDBPendingSyncRepo is not None
         assert DuckDBSourceAuthorityRepo is not None
 
 

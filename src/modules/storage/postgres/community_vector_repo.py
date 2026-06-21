@@ -1,8 +1,7 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
 """Community vector repository for community similarity search.
 
-This repository provides vector similarity operations for community vectors,
-used by DeepGraphRAGEngine for community filtering.
+This repository provides vector similarity operations for community vectors.
 """
 
 from __future__ import annotations
@@ -20,9 +19,6 @@ log = get_logger(__name__)
 
 class CommunityVectorRepo:
     """Repository for community vector similarity operations.
-
-    Implements:
-        CommunityVectorRepository: Community vector similarity search
 
     Args:
         pool: Relational database connection pool.

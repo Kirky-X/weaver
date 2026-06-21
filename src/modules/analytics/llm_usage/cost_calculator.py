@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from core.llm.config.cost import CostConfig
+from core.llm.config import CostConfig
 from core.llm.types import TokenUsage
 
 

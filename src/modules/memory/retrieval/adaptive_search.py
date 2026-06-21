@@ -15,7 +15,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from core.observability import get_logger
-from core.protocols import EmbeddingServiceProtocol, IntentClassifierProtocol
+from core.protocols import EmbeddingServiceProtocol
 from modules.knowledge.search.rerankers.beam_search_reranker import BeamSearchReranker
 from modules.memory.core.event_node import EventNode
 from modules.memory.core.graph_types import EdgeType, IntentType
@@ -80,7 +80,7 @@ class AdaptiveSearchEngine:
         temporal_repo: TemporalGraphRepo,
         causal_repo: CausalGraphRepo,
         embedding_service: EmbeddingServiceProtocol,
-        intent_classifier: IntentClassifierProtocol,
+        intent_classifier: Any,
         knowledge_cache: KnowledgeCacheProtocol | None = None,
         cache_similarity_threshold: float = 0.85,
         max_depth: int = 5,

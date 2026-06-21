@@ -42,11 +42,9 @@ class VectorRepo:
         self,
         pool: RelationalPool,
         query_builder: VectorQueryBuilder,
-        ef_search_manager: Any = None,
     ) -> None:
         self._pool = pool
         self._query_builder = query_builder
-        self._ef_search_manager = ef_search_manager
 
     async def upsert_article_vectors(
         self,
@@ -226,16 +224,12 @@ class VectorRepo:
         async with self._pool.session() as session:
             # Set ef_search dynamically in the SAME session as the query
             if self._query_builder.database_type == DatabaseType.POSTGRES:
-                if self._ef_search_manager and search_mode:
-                    ef_value = self._ef_search_manager.get_ef_search(search_mode)
-                else:
-                    ef_value = 100  # Default fallback
+                ef_value = 100  # Default fallback
                 # PostgreSQL SET command does not support parameter binding
                 # (asyncpg converts :value to $1, but SET rejects placeholders).
-                # ef_value originates from EfSearchManager.get_ef_search() (int)
-                # or the hardcoded default 100 — int() cast guarantees safety.
+                # ef_value is the hardcoded default 100 — int() cast guarantees safety.
                 await session.execute(text(f"SET hnsw.ef_search = {int(ef_value)}"))
-                log.debug("ef_search_set_in_session", ef_search=ef_value, mode=search_mode)
+                log.debug("ef_search_set_in_session", ef_search=ef_value)
 
             query = text(self._query_builder.build_find_similar_articles_query(config))
 

@@ -4,7 +4,6 @@
 from modules.knowledge.search.context.builder import ContextBuilder
 from modules.knowledge.search.context.global_context import GlobalContextBuilder
 from modules.knowledge.search.context.local_context import LocalContextBuilder
-from modules.knowledge.search.engines.deep_graph_rag import DeepGraphRAGEngine
 from modules.knowledge.search.engines.drift_search import DRIFTSearchEngine
 from modules.knowledge.search.engines.global_search import GlobalSearchEngine, MapReduceResult
 from modules.knowledge.search.engines.hybrid_search import (
@@ -18,7 +17,6 @@ from modules.knowledge.search.intent.schemas import IntentClassification, QueryI
 __all__ = [
     "ContextBuilder",
     "DRIFTSearchEngine",
-    "DeepGraphRAGEngine",
     "GlobalContextBuilder",
     "GlobalSearchEngine",
     "HybridSearchConfig",

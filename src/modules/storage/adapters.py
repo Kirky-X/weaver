@@ -11,7 +11,6 @@ from core.protocols import (
 from modules.storage.duckdb import (
     DuckDBArticleRepo,
     DuckDBLLMUsageRepo,
-    DuckDBPendingSyncRepo,
     DuckDBSourceAuthorityRepo,
 )
 from modules.storage.graph_repo import GraphRepository
@@ -26,7 +25,6 @@ __all__ = [
     "ArticleRepository",
     "DuckDBArticleRepo",
     "DuckDBLLMUsageRepo",
-    "DuckDBPendingSyncRepo",
     "DuckDBSourceAuthorityRepo",
     "EntityRepository",
     "GraphRepository",
