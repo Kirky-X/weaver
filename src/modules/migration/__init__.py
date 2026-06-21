@@ -10,7 +10,6 @@ Features:
 - Rich progress bar display
 - Full and incremental migration modes
 - Custom mapping rules via YAML configuration
-- FastAPI routes + Typer CLI dual entry points
 
 公开 API:
 - MigrationEngine: 迁移引擎
