@@ -120,9 +120,6 @@ class LiteLLMCaller:
     提供统一的chat、embedding、rerank调用接口.
     """
 
-    def __init__(self) -> None:
-        """初始化caller."""
-
     @staticmethod
     def _build_model_name(provider_type: str, model_id: str) -> str:
         """构建LiteLLM格式的模型名称.

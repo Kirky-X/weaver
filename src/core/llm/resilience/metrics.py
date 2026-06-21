@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from time import monotonic
 
@@ -21,12 +22,7 @@ class ProviderMetrics:
     last_request_time: float = 0.0
     last_error: str = ""
     last_error_time: float = 0.0
-    _lock: Any = field(default=None, repr=False, compare=False)
-
-    def __post_init__(self) -> None:
-        import asyncio
-
-        object.__setattr__(self, "_lock", asyncio.Lock())
+    _lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False, compare=False)
 
     @property
     def success_rate(self) -> float:

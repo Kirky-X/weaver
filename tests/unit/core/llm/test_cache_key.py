@@ -5,7 +5,7 @@ import re
 
 import pytest
 
-from core.llm.cache_key import NON_SEMANTIC_FIELDS, build_stable_cache_key
+from core.llm.client import NON_SEMANTIC_FIELDS, build_stable_cache_key
 
 
 class TestBuildStableCacheKey:

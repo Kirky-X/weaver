@@ -15,8 +15,6 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from core.llm.cache_key import NON_SEMANTIC_FIELDS
-
 
 def _short_hash(data: str) -> str:
     """Generate 8-char SHA256 digest of input string."""
@@ -102,6 +100,8 @@ def capture_shape(
         tools_hash = _short_hash(tools_normalized)
 
     # Exclude non-semantic fields from payload
+    from core.llm.client import NON_SEMANTIC_FIELDS
+
     semantic_payload = {k: v for k, v in payload.items() if k not in NON_SEMANTIC_FIELDS}
     payload_normalized = json.dumps(semantic_payload, sort_keys=True, ensure_ascii=False)
     payload_hash = _short_hash(payload_normalized)

@@ -279,11 +279,6 @@ class RoutingConfig(BaseModel):
     tiered_routing: bool = False
     tiers: list[TierConfig] = []
 
-    def __post_init__(self) -> None:
-        """Ensure fallbacks is initialized."""
-        if self.fallbacks is None:
-            self.fallbacks = []
-
 
 def parse_routing_dict_shared(v: Any) -> dict[str, RoutingConfig]:
     """Parse routing config dict (shared validator logic).
