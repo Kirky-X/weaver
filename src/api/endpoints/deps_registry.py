@@ -13,7 +13,7 @@ All getters return Protocol types, not concrete implementations.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from core.observability import get_logger
 
@@ -24,7 +24,6 @@ if TYPE_CHECKING:
         CachePool,
         EmbeddingServiceProtocol,
         GraphPool,
-        IntentClassifierProtocol,
         RelationalPool,
         VectorRepository,
     )
@@ -262,14 +261,14 @@ class Endpoints:
         return get_embedding_service_optional(container=Endpoints._container())
 
     @staticmethod
-    def get_intent_classifier() -> IntentClassifierProtocol:
+    def get_intent_classifier() -> Any:
         """Get intent classifier for search endpoints."""
         from api.dependencies import get_intent_classifier
 
         return get_intent_classifier(container=Endpoints._container())
 
     @staticmethod
-    def get_intent_classifier_optional() -> IntentClassifierProtocol | None:
+    def get_intent_classifier_optional() -> Any:
         """Get intent classifier or None if not initialized."""
         from api.dependencies import get_intent_classifier_optional
 

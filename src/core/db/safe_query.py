@@ -11,7 +11,6 @@ core.security.validation.identifier_validator module re-exports from here.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -184,32 +183,3 @@ def validate_relation_types(relation_types: list[str]) -> list[str]:
     for rt in relation_types:
         validate_edge_type(rt)
     return relation_types
-
-
-@dataclass
-class IdentifierValidator:
-    """Validator for database identifiers.
-
-    Provides centralized validation for all identifier types.
-
-    Example:
-        validator = IdentifierValidator()
-        table_name = validator.validate_table("users")
-        edge_type = validator.validate_edge_type("RELATED_TO")
-    """
-
-    def validate_table(self, name: str) -> str:
-        """Validate table name."""
-        return validate_sql_identifier(name, "table")
-
-    def validate_column(self, name: str) -> str:
-        """Validate column name."""
-        return validate_sql_identifier(name, "column")
-
-    def validate_edge_type(self, edge_type: str) -> str:
-        """Validate Cypher edge type."""
-        return validate_edge_type(edge_type)
-
-    def validate_label(self, label: str) -> str:
-        """Validate Cypher label."""
-        return validate_neo4j_label(label)

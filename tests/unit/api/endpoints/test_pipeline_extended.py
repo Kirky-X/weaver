@@ -169,8 +169,6 @@ class TestURLValidationExtended:
         """Test whitelist mode with no configured domains (lines 435-439)."""
         from api.endpoints.content.pipeline import _validate_url_for_processing
 
-        mock_settings.pipeline_url_endpoint.whitelist_enabled = True
-
         url = "https://example.com/article"
 
         with pytest.raises(HTTPException) as exc_info:
@@ -198,7 +196,6 @@ class TestURLValidationExtended:
         """Test whitelist mode domain matching logic (lines 441-450)."""
         from api.endpoints.content.pipeline import _validate_url_for_processing
 
-        mock_settings.pipeline_url_endpoint.whitelist_enabled = True
         mock_settings.pipeline_url_endpoint.allowed_domains = allowed_domains
 
         if should_pass:

@@ -39,7 +39,6 @@ def mock_settings():
     settings.neo4j.uri = "bolt://localhost:7687"
     settings.neo4j.user = "neo4j"
     settings.neo4j.password = "password"
-    settings.pipeline_url_endpoint.whitelist_enabled = False
     settings.pipeline_url_endpoint.allowed_domains = []
     return settings
 

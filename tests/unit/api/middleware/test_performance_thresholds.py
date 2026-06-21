@@ -146,23 +146,3 @@ class TestPerformanceThresholds:
                 ]
                 assert len(warning_calls) == 0
                 assert len(error_calls) == 0
-
-
-class TestPerformanceSettings:
-    """Test PerformanceSettings configuration."""
-
-    def test_default_values(self) -> None:
-        """PerformanceSettings should have correct defaults."""
-        from config.subconfigs import PerformanceSettings
-
-        settings = PerformanceSettings()
-        assert settings.p95_threshold_ms == 100
-        assert settings.p99_threshold_ms == 200
-
-    def test_custom_values(self) -> None:
-        """PerformanceSettings should accept custom values."""
-        from config.subconfigs import PerformanceSettings
-
-        settings = PerformanceSettings(p95_threshold_ms=50, p99_threshold_ms=150)
-        assert settings.p95_threshold_ms == 50
-        assert settings.p99_threshold_ms == 150

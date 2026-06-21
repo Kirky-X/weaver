@@ -20,7 +20,7 @@ Example:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Any
 
 from fastapi import Depends, HTTPException
 
@@ -31,7 +31,6 @@ if TYPE_CHECKING:
         CachePool,
         EmbeddingServiceProtocol,
         GraphPool,
-        IntentClassifierProtocol,
         PipelineService,
         RelationalPool,
         TaskRegistryService,
@@ -463,14 +462,14 @@ def get_embedding_service(
 
 def get_intent_classifier(
     container: Container = Depends(get_container),
-) -> IntentClassifierProtocol:
+) -> Any:
     """FastAPI dependency for intent classifier.
 
     Raises:
         HTTPException: 503 if classifier is not initialized.
 
     Returns:
-        IntentClassifierProtocol instance.
+        Intent classifier instance.
 
     """
     service = getattr(container, "_intent_classifier", None)
@@ -525,7 +524,7 @@ def get_embedding_service_optional(
 
 def get_intent_classifier_optional(
     container: Container = Depends(get_container),
-) -> IntentClassifierProtocol | None:
+) -> Any:
     """Get intent classifier or None if not initialized."""
     return getattr(container, "_intent_classifier", None)
 

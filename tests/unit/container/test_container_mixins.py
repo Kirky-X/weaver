@@ -514,16 +514,6 @@ class TestContainerServicesPendingSyncRepo:
             result = c.pending_sync_repo()
         assert result is mock_repo
 
-    def test_pending_sync_repo_duckdb(self) -> None:
-        c = _make_container()
-        c._strategy = _make_strategy(relational_type=DatabaseType.DUCKDB)
-        c._pending_sync_repo = None
-
-        mock_repo = MagicMock()
-        with patch("modules.storage.duckdb.DuckDBPendingSyncRepo", return_value=mock_repo):
-            result = c.pending_sync_repo()
-        assert result is mock_repo
-
 
 class TestContainerServicesLLMFailureRepo:
     """Tests for ContainerServicesMixin.llm_failure_repo."""

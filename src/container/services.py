@@ -203,14 +203,9 @@ class ContainerServicesMixin:
         if self._pending_sync_repo is None:
             if self._strategy is None:
                 raise RuntimeError("Database strategy not initialized. Call init_strategy() first.")
-            if self._strategy.relational_type == DatabaseType.DUCKDB:
-                from modules.storage.duckdb import DuckDBPendingSyncRepo
+            from modules.storage.postgres import PendingSyncRepo
 
-                self._pending_sync_repo = DuckDBPendingSyncRepo(self._strategy.relational_pool)
-            else:
-                from modules.storage.postgres import PendingSyncRepo
-
-                self._pending_sync_repo = PendingSyncRepo(self._strategy.relational_pool)
+            self._pending_sync_repo = PendingSyncRepo(self._strategy.relational_pool)
         return self._pending_sync_repo
 
     def llm_failure_repo(self) -> LLMFailureRepo:

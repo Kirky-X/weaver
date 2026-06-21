@@ -4,6 +4,9 @@
 from __future__ import annotations
 
 from core.constants import EmbeddingModel, LLMRole
+from core.observability import get_logger
+
+log = get_logger(__name__)
 
 
 def extract_embedding_model_id(llm_settings: object) -> str:
