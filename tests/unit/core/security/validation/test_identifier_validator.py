@@ -1,14 +1,13 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Tests for core.security.validation.identifier_validator module.
+"""Tests for core.security.validation identifier validation API.
 
-The identifier_validator module is a deprecated shim that re-exports from
-core.db.safe_query. These tests verify the actual safe_query API.
+These tests verify the actual safe_query API re-exported via
+core.security.validation.
 """
 
 import pytest
 
-from core.security.validation.identifier_validator import (
-    IdentifierValidator,
+from core.security.validation import (
     InvalidIdentifierError,
     validate_cypher_edge_type,
     validate_cypher_label,
@@ -207,57 +206,6 @@ class TestValidateRelationTypes:
         relation_types = ["合作关系", "朋友关系"]
         result = validate_relation_types(relation_types)
         assert result == relation_types
-
-
-class TestIdentifierValidator:
-    """Test IdentifierValidator dataclass."""
-
-    @pytest.fixture
-    def validator(self):
-        """Create IdentifierValidator."""
-        return IdentifierValidator()
-
-    def test_validate_table(self, validator):
-        """Test table name validation."""
-        assert validator.validate_table("users") == "users"
-        assert validator.validate_table("user_table") == "user_table"
-
-    def test_validate_table_invalid(self, validator):
-        """Test invalid table name raises error."""
-        with pytest.raises(InvalidIdentifierError) as exc_info:
-            validator.validate_table("1invalid")
-        assert exc_info.value.identifier_type == "table"
-
-    def test_validate_column(self, validator):
-        """Test column name validation."""
-        assert validator.validate_column("user_id") == "user_id"
-        assert validator.validate_column("name") == "name"
-
-    def test_validate_column_invalid(self, validator):
-        """Test invalid column name raises error."""
-        with pytest.raises(InvalidIdentifierError) as exc_info:
-            validator.validate_column("column-name")
-        assert exc_info.value.identifier_type == "column"
-
-    def test_validate_edge_type(self, validator):
-        """Test edge type validation."""
-        assert validator.validate_edge_type("RELATED_TO") == "RELATED_TO"
-        assert validator.validate_edge_type("合作关系") == "合作关系"
-
-    def test_validate_edge_type_invalid(self, validator):
-        """Test invalid edge type raises error."""
-        with pytest.raises(InvalidIdentifierError):
-            validator.validate_edge_type("invalid_type")
-
-    def test_validate_label(self, validator):
-        """Test label validation."""
-        assert validator.validate_label("Entity") == "Entity"
-        assert validator.validate_label("实体") == "实体"
-
-    def test_validate_label_invalid(self, validator):
-        """Test invalid label raises error."""
-        with pytest.raises(InvalidIdentifierError):
-            validator.validate_label("123Label")
 
 
 class TestEdgeCases:

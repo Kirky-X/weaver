@@ -10,7 +10,7 @@ Test 5.4:
 
 import pytest
 
-from core.llm.config.cost import CostConfig, CostRate
+from core.llm.config import CostConfig, CostRate
 from core.llm.types import TokenUsage
 from modules.analytics.llm_usage.cost_calculator import CostCalculator
 

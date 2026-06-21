@@ -351,7 +351,6 @@ class TestProcessSingleUrlEndpoint:
         from api.endpoints.content.pipeline import ProcessUrlRequest, process_single_url
 
         mock_cache = MagicMock()
-        mock_settings.pipeline_url_endpoint.whitelist_enabled = True
         mock_settings.pipeline_url_endpoint.allowed_domains = ["trusted.com", "news.example.org"]
 
         request = ProcessUrlRequest(url="https://untrusted.com/article", whitelist_mode=True)
@@ -383,7 +382,6 @@ class TestProcessSingleUrlEndpoint:
         mock_cache = MagicMock()
         mock_cache.hset = AsyncMock()
 
-        mock_settings.pipeline_url_endpoint.whitelist_enabled = True
         mock_settings.pipeline_url_endpoint.allowed_domains = ["example.com"]
 
         # subdomain.example.com should be allowed
