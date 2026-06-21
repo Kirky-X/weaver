@@ -128,5 +128,8 @@ vendor/
 venv/
 # -------------------------------------
 
+# API test results
+api_test_results/
+
 # API end-to-end test file
 test_api_e2e.py

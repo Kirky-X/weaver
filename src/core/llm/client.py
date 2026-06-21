@@ -15,7 +15,7 @@ from pydantic import BaseModel
 from core.constants import RedisKeys
 from core.llm.cache_key import build_stable_cache_key
 from core.llm.prefix_shape import PrefixHashTracker
-from core.llm.resilience.pool import ProviderPool
+from core.llm.resilience.pool import AllProvidersFailedError, ProviderPool
 from core.llm.routing.router import LabelRouter
 from core.llm.types import (
     CACHE_TTL,
@@ -414,11 +414,17 @@ class LLMClient:
             latency_ms=0.0,
             token_usage=None,
             success=False,
-            error_type=type(last_error).__name__,
+            error_type=type(last_error).__name__ if last_error else "NoProviderAvailable",
             article_id=article_id,
             task_id=task_id,
         )
-        raise last_error  # type: ignore[misc]
+        if last_error is not None:
+            raise last_error
+        raise AllProvidersFailedError(
+            labels=labels,
+            last_error=None,
+            message=f"No available provider for label: {parsed_label}",
+        )
 
     async def batch_call(
         self,

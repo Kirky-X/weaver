@@ -28,12 +28,16 @@ class AllProvidersFailedError(Exception):
         self,
         labels: list[Label],
         last_error: Exception | None = None,
+        message: str | None = None,
     ) -> None:
         self.labels = labels
         self.last_error = last_error
-        super().__init__(
-            f"All providers failed for labels: {[str(lbl) for lbl in labels]}. Last error: {last_error}",
-        )
+        if message is None:
+            message = (
+                f"All providers failed for labels: {[str(lbl) for lbl in labels]}. "
+                f"Last error: {last_error}"
+            )
+        super().__init__(message)
 
 
 class ProviderPool:
@@ -177,6 +181,9 @@ class ProviderPool:
                     provider=self.name,
                     model=label.model,
                 )
+                last_error = ValueError(
+                    f"Model '{label.model}' not found in provider '{self.name}'"
+                )
                 continue
 
             # 检查模型是否支持该类型
@@ -186,6 +193,9 @@ class ProviderPool:
                     provider=self.name,
                     model=label.model,
                     llm_type=label.llm_type.value,
+                )
+                last_error = ValueError(
+                    f"Model '{label.model}' does not support type '{label.llm_type.value}'"
                 )
                 continue
 
@@ -205,6 +215,7 @@ class ProviderPool:
                     provider=self.name,
                     label=str(label),
                 )
+                last_error = CircuitOpenError(f"Circuit breaker open for provider {self.name}")
                 continue
 
             try:
