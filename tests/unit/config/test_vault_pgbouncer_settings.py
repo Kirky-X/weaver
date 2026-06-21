@@ -1,57 +1,13 @@
 # Copyright (c) 2026 KirkyX. All Rights Reserved
-"""Vault and PgBouncer configuration tests.
+"""PgBouncer configuration tests.
 
-Verifies that VaultSettings and PgBouncerSettings load correctly
-with proper defaults and do not affect existing behavior when disabled.
+Verifies that PgBouncerSettings loads correctly
+with proper defaults and does not affect existing behavior when disabled.
 """
 
 from __future__ import annotations
 
-from config.subconfigs import PgBouncerSettings, PostgresSettings, VaultSettings
-
-
-class TestVaultSettings:
-    """Verify VaultSettings configuration model."""
-
-    def test_default_disabled(self) -> None:
-        """Vault should be disabled by default."""
-        settings = VaultSettings()
-        assert settings.enabled is False
-
-    def test_default_url(self) -> None:
-        """Default Vault URL should be localhost:8200."""
-        settings = VaultSettings()
-        assert settings.url == "http://localhost:8200"
-
-    def test_default_token_empty(self) -> None:
-        """Default Vault token should be empty."""
-        settings = VaultSettings()
-        assert settings.token == ""
-
-    def test_default_mount_path(self) -> None:
-        """Default mount path should be secret/weaver."""
-        settings = VaultSettings()
-        assert settings.mount_path == "secret/weaver"
-
-    def test_default_secret_keys(self) -> None:
-        """Default secret keys should include core passwords and API keys."""
-        settings = VaultSettings()
-        assert "postgres/password" in settings.secret_keys
-        assert "neo4j/password" in settings.secret_keys
-        assert "redis/password" in settings.secret_keys
-        assert "api/api_key" in settings.secret_keys
-        assert "api/admin_api_key" in settings.secret_keys
-
-    def test_custom_enabled(self) -> None:
-        """Vault can be enabled with custom settings."""
-        settings = VaultSettings(
-            enabled=True,
-            url="https://vault.example.com:8200",
-            token="hvs.xxx",
-        )
-        assert settings.enabled is True
-        assert settings.url == "https://vault.example.com:8200"
-        assert settings.token == "hvs.xxx"
+from config.subconfigs import PgBouncerSettings, PostgresSettings
 
 
 class TestPgBouncerSettings:
@@ -72,11 +28,6 @@ class TestPgBouncerSettings:
         """Default pool mode should be transaction."""
         settings = PgBouncerSettings()
         assert settings.pool_mode == "transaction"
-
-    def test_default_max_client_conn(self) -> None:
-        """Default max client connections should be 100."""
-        settings = PgBouncerSettings()
-        assert settings.max_client_conn == 100
 
     def test_custom_enabled(self) -> None:
         """PgBouncer can be enabled with custom settings."""

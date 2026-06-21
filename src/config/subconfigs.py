@@ -315,58 +315,14 @@ class FetcherSettings(BaseModel):
 class SearchSettings(BaseModel):
     """Search enhancement settings."""
 
-    hybrid_enabled: bool = True
     rerank_enabled: bool = True
     rerank_model: str = "tiny"
     mmr_enabled: bool = True
     mmr_lambda: float = 0.7
     mmr_similarity_mode: str = "jaccard"
-    bm25_rebuild_interval: int = 300
-    temporal_decay_enabled: bool = False
-    temporal_decay_half_life_days: float = 30.0
     global_map_community_timeout: float = 15.0
     global_map_overall_timeout: float = 30.0
     global_reduce_timeout: float = 15.0
-
-
-class PerformanceSettings(BaseModel):
-    """Performance monitoring thresholds."""
-
-    p95_threshold_ms: int = 100
-    p99_threshold_ms: int = 200
-
-
-class SearchPerformanceSettings(BaseModel):
-    """Search performance monitoring thresholds per mode."""
-
-    hybrid_p99_threshold_ms: int = 300
-    local_p99_threshold_ms: int = 200
-    global_p99_threshold_ms: int = 500
-    drift_p99_threshold_ms: int = 1000
-
-    def get_threshold_ms(self, mode: str) -> int:
-        """Get P99 threshold in milliseconds for a search mode.
-
-        Args:
-            mode: Search mode (hybrid, local, global, drift).
-
-        Returns:
-            P99 threshold in milliseconds. Defaults to hybrid threshold
-            for unknown modes.
-        """
-        return {
-            "hybrid": self.hybrid_p99_threshold_ms,
-            "local": self.local_p99_threshold_ms,
-            "global": self.global_p99_threshold_ms,
-            "drift": self.drift_p99_threshold_ms,
-        }.get(mode, self.hybrid_p99_threshold_ms)
-
-
-class DedupSettings(BaseModel):
-    """Deduplication settings."""
-
-    enable_simhash_dedup: bool = True
-    simhash_hamming_threshold: int = 3
 
 
 class ObservabilitySettings(BaseModel):
@@ -397,9 +353,6 @@ class MemorySettings(BaseModel):
     max_traversal_depth: int = 5
     beam_width: int = 10
     token_budget: int = 4000
-    structure_weight: float = 1.0
-    semantic_weight: float = 0.5
-    traversal_decay: float = 0.9
     max_relations_per_entity: int = 50  # Max causal relations per entity
 
 
@@ -460,24 +413,6 @@ class PromptSettings(BaseModel):
     dir: str = str(CONFIG_DIR / "prompts")
 
 
-class IntentRoutingSettings(BaseModel):
-    """Intent-aware routing configuration."""
-
-    enabled: bool = True
-    classification_threshold: float = 0.7
-    fallback_mode: str = "local"
-    allow_explicit_mode: bool = True
-
-
-class TemporalInferenceSettings(BaseModel):
-    """Temporal inference configuration."""
-
-    enabled: bool = True
-    default_window_days: int = 7
-    parse_chinese_expressions: bool = True
-    auto_anchor: bool = True
-
-
 class TemporalMemorySettings(BaseModel):
     """Temporal memory query limits for adaptive search."""
 
@@ -516,18 +451,6 @@ class KnowledgeCacheSettings(BaseModel):
     max_queries: int = 5  # FIFO queue size per cluster
     similarity_threshold: float = 0.85  # Minimum similarity for cache hit
     hotness_threshold: float = 0.3  # Minimum hotness to keep cluster
-
-
-class AnalyticsSettings(BaseModel):
-    """Analytics configuration for sentiment shift detection.
-
-    Environment variables: WEAVER_ANALYTICS__SHIFT_DETECTION_ENABLED, etc.
-    """
-
-    shift_detection_enabled: bool = True
-    shift_window_days: int = 14
-    pel_penalty: float = 5.0
-    binseg_penalty: float = 3.0
 
 
 class DailyBriefingSettings(BaseModel):
@@ -582,34 +505,6 @@ class PaddleNLPSentimentSettings(BaseModel):
     max_input_length: int = 512
     confidence_threshold: float = 0.6
     fallback_to_llm: bool = True
-
-
-class GLiNERSettings(BaseModel):
-    """GLiNER zero-shot entity extraction configuration.
-
-    Environment variables: WEAVER_ENTITY_EXTRACTION__GLINER__ENABLED, etc.
-    """
-
-    enabled: bool = True
-    model_name: str = "urchade/gliner_multi-v2.1"
-    threshold: float = 0.5
-    max_input_length: int = 4096
-    labels: list[str] = Field(
-        default_factory=lambda: ["事件", "数据指标", "法规与政策", "产品与技术"]
-    )
-
-
-class HNSWEfSearchSettings(BaseModel):
-    """HNSW dynamic ef_search configuration.
-
-    Environment variables: WEAVER__SEARCH__HNSW__EF_SEARCH__HYBRID, etc.
-    """
-
-    hybrid: int = 40
-    local: int = 120
-    global_value: int = 60
-    drift: int = 80
-    latency: int = 20
 
 
 class TrafficAnomalySettings(BaseModel):
@@ -677,4 +572,3 @@ class PgBouncerSettings(BaseModel):
     host: str = "localhost"
     port: int = 6432
     pool_mode: str = "transaction"  # session / transaction / statement
-    max_client_conn: int = 100

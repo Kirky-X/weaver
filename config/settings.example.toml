@@ -108,23 +108,10 @@ retry_flush_interval_seconds = 30      # Interval between retry queue flushes (s
 
 [search]
 # Search enhancement settings
-hybrid_enabled = true                   # Enable hybrid search (vector + keyword)
 rerank_enabled = true                  # Enable cross-encoder reranking
 rerank_model = "tiny"                 # Flashrank model variant (tiny/small/medium/multilingual)
 mmr_enabled = false                   # Enable Maximal Marginal Relevance for diversity
 mmr_lambda = 0.7                      # MMR balance (0-1, higher favors relevance over diversity)
-bm25_rebuild_interval = 300            # BM25 index rebuild interval (seconds)
-temporal_decay_enabled = false        # Enable time-based scoring boost for recent documents
-temporal_decay_half_life_days = 30.0  # Time for decay to reach 50% (days)
-
-# ============================================================
-# Deduplication Configuration
-# ============================================================
-
-[dedup]
-# Article deduplication settings
-enable_simhash_dedup = true            # Enable SimHash-based title deduplication
-simhash_hamming_threshold = 3           # Max Hamming distance for duplicate detection (0-64, lower = stricter)
 
 # ============================================================
 # Observability Configuration
@@ -203,17 +190,6 @@ cache_malicious_ttl_seconds = 900         # Cache TTL for malicious results (15 
 # Infrastructure Integration (disabled by default)
 # ============================================================
 
-[vault]
-# HashiCorp Vault integration for secrets management.
-# When enabled, sensitive values are fetched from Vault at startup.
-# See docs/ARCHITECTURE.md for deployment guide.
-enabled = false                           # Enable Vault integration
-url = "http://localhost:8200"             # Vault server URL
-# token: Set via WEAVER_VAULT__TOKEN environment variable
-mount_path = "secret/weaver"              # KV v2 mount path
-# secret_keys: List of secret paths to fetch from Vault
-# Default: ["postgres/password", "neo4j/password", "redis/password", "api/api_key", "api/admin_api_key"]
-
 [pgbouncer]
 # PgBouncer connection pooler for production deployments.
 # When enabled, PostgreSQL connections are routed through PgBouncer.
@@ -222,4 +198,3 @@ enabled = false                           # Enable PgBouncer routing
 host = "localhost"                        # PgBouncer proxy hostname
 port = 6432                               # PgBouncer proxy port
 pool_mode = "transaction"                 # Pooling mode: session / transaction / statement
-max_client_conn = 100                     # Maximum client connections

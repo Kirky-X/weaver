@@ -79,8 +79,6 @@ class TestPydanticSettingsCompatibility:
         # Basic validation
         assert settings is not None
         assert hasattr(settings, "app_name")
-        assert hasattr(settings, "intent_routing")
-        assert hasattr(settings, "temporal_inference")
         assert hasattr(settings, "memory")
 
     def test_llm_settings_instantiation(self):

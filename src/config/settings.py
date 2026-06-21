@@ -33,18 +33,13 @@ from pydantic_settings import (
 
 # Import sub-configurations
 from config.subconfigs import (
-    AnalyticsSettings,
     APISettings,
     DailyBriefingSettings,
-    DedupSettings,
     DuckDBSettings,
     EntitySettings,
     FakeNewsDetectorSettings,
     FetcherSettings,
-    GLiNERSettings,
     HealthCheckSettings,
-    HNSWEfSearchSettings,
-    IntentRoutingSettings,
     LadybugSettings,
     MemorySettings,
     Neo4jSettings,
@@ -60,11 +55,9 @@ from config.subconfigs import (
     SchedulerSettings,
     SearchSettings,
     SpacySettings,
-    TemporalInferenceSettings,
     TemporalMemorySettings,
     TrafficAnomalySettings,
     URLSecuritySettings,
-    VaultSettings,
 )
 from core.llm.config.config import LLMSettings
 from core.utils.paths import PROJECT_ROOT
@@ -107,15 +100,12 @@ class Settings(BaseSettings):
     scheduler: SchedulerSettings = Field(default_factory=SchedulerSettings)
     fetcher: FetcherSettings = Field(default_factory=FetcherSettings)
     search: SearchSettings = Field(default_factory=SearchSettings)
-    dedup: DedupSettings = Field(default_factory=DedupSettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
     memory: MemorySettings = Field(default_factory=MemorySettings)
     spacy: SpacySettings = Field(default_factory=SpacySettings)
     url_security: URLSecuritySettings = Field(default_factory=URLSecuritySettings)
     entity: EntitySettings = Field(default_factory=EntitySettings)
     prompt: PromptSettings = Field(default_factory=PromptSettings)
-    intent_routing: IntentRoutingSettings = Field(default_factory=IntentRoutingSettings)
-    temporal_inference: TemporalInferenceSettings = Field(default_factory=TemporalInferenceSettings)
     temporal_memory: TemporalMemorySettings = Field(default_factory=TemporalMemorySettings)
     pipeline_url_endpoint: PipelineUrlEndpointSettings = Field(
         default_factory=PipelineUrlEndpointSettings
@@ -124,19 +114,15 @@ class Settings(BaseSettings):
     pipeline_process: PipelineProcessSettings = Field(default_factory=PipelineProcessSettings)
 
     # Analytics settings (loaded from TOML)
-    analytics: AnalyticsSettings = Field(default_factory=AnalyticsSettings)
     daily_briefing: DailyBriefingSettings = Field(default_factory=DailyBriefingSettings)
     saga: SagaSettings = Field(default_factory=SagaSettings)
     paddlenlp_sentiment: PaddleNLPSentimentSettings = Field(
         default_factory=PaddleNLPSentimentSettings
     )
     fake_news_detector: FakeNewsDetectorSettings = Field(default_factory=FakeNewsDetectorSettings)
-    gliner: GLiNERSettings = Field(default_factory=GLiNERSettings)
-    hnsw_ef_search: HNSWEfSearchSettings = Field(default_factory=HNSWEfSearchSettings)
     traffic_anomaly: TrafficAnomalySettings = Field(default_factory=TrafficAnomalySettings)
 
     # Infrastructure integration settings (disabled by default)
-    vault: VaultSettings = Field(default_factory=VaultSettings)
     pgbouncer: PgBouncerSettings = Field(default_factory=PgBouncerSettings)
 
     # LLM configuration (loaded from separate TOML file)
