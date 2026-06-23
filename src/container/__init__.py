@@ -3,10 +3,10 @@
 
 This package provides the Container as a facade combining four mixins:
 
-- src.container.lifecycle  — startup/shutdown orchestration
-- src.container.pools    — database and cache pool initialization
-- src.container.services  — repositories, crawlers, fetchers, pipeline
-- src.container.search   — search engine initialization
+- container.lifecycle  — startup/shutdown orchestration
+- container.pools    — database and cache pool initialization
+- container.services  — repositories, crawlers, fetchers, pipeline
+- container.search   — search engine initialization
 """
 
 from __future__ import annotations
@@ -15,15 +15,15 @@ import threading
 from typing import TYPE_CHECKING, Any
 
 from config.settings import Settings
-from core.observability import get_logger
-from src.container.lifecycle import (
+from container.lifecycle import (
     ContainerLifecycleMixin,
     _handle_llm_failure_async,
     _handle_llm_usage_metrics,
 )
-from src.container.pools import ContainerPoolsMixin
-from src.container.search import ContainerSearchMixin
-from src.container.services import ContainerServicesMixin
+from container.pools import ContainerPoolsMixin
+from container.search import ContainerSearchMixin
+from container.services import ContainerServicesMixin
+from core.observability import get_logger
 
 if TYPE_CHECKING:
     from core.protocols.services import PipelineService, TaskRegistryService
