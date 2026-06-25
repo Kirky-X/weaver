@@ -42,6 +42,7 @@ class ArticleDetailResponse(BaseModel):
     id: str
     source_url: str
     source_host: str | None
+    source_id: str | None
     is_news: bool
     title: str
     body: str
@@ -74,6 +75,7 @@ def _article_to_dict(article: Article) -> dict[str, Any]:
         "id": str(article.id),
         "source_url": article.source_url,
         "source_host": article.source_host,
+        "source_id": article.source_id,
         "is_news": article.is_news,
         "title": article.title,
         "body": article.body,
@@ -85,18 +87,20 @@ def _article_to_dict(article: Article) -> dict[str, Any]:
         "subjects": article.subjects,
         "key_data": article.key_data,
         "impact": article.impact,
-        "score": float(article.score) if article.score else None,
+        "score": float(article.score) if article.score is not None else None,
         "sentiment": article.sentiment,
-        "sentiment_score": float(article.sentiment_score) if article.sentiment_score else None,
+        "sentiment_score": (
+            float(article.sentiment_score) if article.sentiment_score is not None else None
+        ),
         "primary_emotion": article.primary_emotion.value if article.primary_emotion else None,
         "credibility_score": (
-            float(article.credibility_score) if article.credibility_score else None
+            float(article.credibility_score) if article.credibility_score is not None else None
         ),
         "source_credibility": (
-            float(article.source_credibility) if article.source_credibility else None
+            float(article.source_credibility) if article.source_credibility is not None else None
         ),
         "content_check_score": (
-            float(article.content_check_score) if article.content_check_score else None
+            float(article.content_check_score) if article.content_check_score is not None else None
         ),
         "publish_time": article.publish_time.isoformat() if article.publish_time else None,
         "created_at": article.created_at.isoformat(),
@@ -114,6 +118,7 @@ async def list_articles(
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     category: str | None = Query(None, description="Filter by category"),
     source_host: str | None = Query(None, description="Filter by source host"),
+    source_id: str | None = Query(None, description="Filter by source config ID"),
     min_score: float | None = Query(None, ge=0, le=1, description="Minimum score filter"),
     min_credibility: float | None = Query(
         None, ge=0, le=1, description="Minimum credibility filter"
@@ -132,6 +137,7 @@ async def list_articles(
         page_size: Items per page.
         category: Filter by category.
         source_host: Filter by source hostname.
+        source_id: Filter by source config ID (e.g. "rss-cnbeta").
         min_score: Minimum score filter (0-1).
         min_credibility: Minimum credibility score filter (0-1).
         sort_by: Field to sort by.
@@ -157,6 +163,8 @@ async def list_articles(
                 pass
         if source_host:
             filters.append(Article.source_host == source_host)
+        if source_id:
+            filters.append(Article.source_id == source_id)
         if min_score is not None:
             filters.append(Article.score >= min_score)
         if min_credibility is not None:

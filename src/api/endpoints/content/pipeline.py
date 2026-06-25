@@ -164,6 +164,24 @@ async def trigger_pipeline(
     # Trigger the source scheduler to crawl
     try:
         if request.source_id:
+            # Validate source_id exists before triggering
+            sources = scheduler.list_enabled_sources()
+            all_source_ids = {s.id for s in sources}
+            # Also check disabled sources
+            try:
+                all_sources = (
+                    scheduler.list_all_sources()
+                    if hasattr(scheduler, "list_all_sources")
+                    else sources
+                )
+                all_source_ids = {s.id for s in all_sources}
+            except Exception:
+                pass
+            if request.source_id not in all_source_ids:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Source '{request.source_id}' not found",
+                )
             await asyncio.wait_for(
                 scheduler.trigger_now(
                     request.source_id,
@@ -230,6 +248,10 @@ async def trigger_pipeline(
             status_code=500,
             detail="Pipeline trigger timed out after 300 seconds",
         ) from exc
+    except HTTPException:
+        # Re-raise HTTPException (e.g., 404 for invalid source_id)
+        # without wrapping it into a 500 error
+        raise
     except Exception as exc:
         # Update task status to failed
         await cache.hset(

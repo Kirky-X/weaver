@@ -8,7 +8,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from api.dependencies import get_cache_client, get_graph_pool
+from api.dependencies import get_cache_client_optional, get_graph_pool
 from api.endpoints._graph_metrics_shared import (
     GRAPH_METRICS_CACHE_TTL,
     GRAPH_METRICS_FULL_CACHE_KEY,
@@ -18,7 +18,7 @@ from api.endpoints._graph_metrics_shared import (
 from api.middleware.auth import verify_api_key
 from api.schemas.response import APIResponse, success_response
 from core.observability import get_logger
-from core.protocols import GraphPool
+from core.protocols import CachePool, GraphPool
 from modules.knowledge.graph import GraphQualityMetrics
 
 log = get_logger("graph_metrics")
@@ -77,6 +77,7 @@ async def get_graph_metrics(
     ),
     _: str = Depends(verify_api_key),
     graph_pool: GraphPool = Depends(get_graph_pool),
+    cache: CachePool | None = Depends(get_cache_client_optional),
 ) -> APIResponse[Any]:
     """Get graph metrics with view-based routing.
 
@@ -100,7 +101,7 @@ async def get_graph_metrics(
     if view == "health":
         return await _get_health_view(graph_pool)
     elif view == "full":
-        return await _get_full_view(graph_pool, include)
+        return await _get_full_view(graph_pool, include, cache)
     elif view == "community":
         raise HTTPException(
             status_code=400,
@@ -133,14 +134,13 @@ async def _get_health_view(graph_pool: GraphPool) -> APIResponse[HealthSummaryRe
 
 
 async def _get_full_view(
-    graph_pool: GraphPool, include: str | None
+    graph_pool: GraphPool, include: str | None, cache: CachePool | None
 ) -> APIResponse[GraphMetricsResponse]:
     """Get full metrics view with optional caching and include filtering."""
     # Parse include parameter
     include_set = parse_include_param(include)
 
     # Try to get from cache if no specific include filter
-    cache = get_cache_client()
     if cache and include_set is None:
         try:
             cached = await cache.get(GRAPH_METRICS_FULL_CACHE_KEY)

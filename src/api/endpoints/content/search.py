@@ -3,10 +3,11 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.dependencies import (
     get_embedding_service_optional,
@@ -299,7 +300,7 @@ async def search_drift(
         get_logger(__name__).error("drift_search_failed", error=str(exc))
         if "neo4j" in str(exc).lower() or "graph" in str(exc).lower():
             raise HTTPException(status_code=503, detail="Graph service unavailable")
-        if "llm" in str(exc).lower():
+        if "llm" in str(exc).lower() or "circuit breaker" in str(exc).lower():
             raise HTTPException(status_code=503, detail="LLM service unavailable")
         raise HTTPException(status_code=500, detail=f"DRIFT search failed: {exc}")
 
@@ -313,10 +314,10 @@ class CausalSearchRequest(BaseModel):
     query: str
     """The causal reasoning query (e.g., 'Why did X happen?')."""
 
-    max_depth: int = 3
+    max_depth: int = Field(default=3, ge=1, le=10)
     """Maximum depth for causal chain traversal."""
 
-    min_confidence: float = 0.7
+    min_confidence: float = Field(default=0.7, ge=0.0, le=1.0)
     """Minimum confidence for causal edges."""
 
 
@@ -449,10 +450,10 @@ async def search_causal(
             max_depth=body.max_depth,
         )
 
-        # Execute search
-        results = await engine.search(
-            query=body.query,
-            intent=IntentType.WHY if "IntentType" in dir() else None,
+        # Execute search (with timeout protection)
+        results = await asyncio.wait_for(
+            engine.search(query=body.query, intent=IntentType.WHY),
+            timeout=60.0,
         )
 
         # Build causal chain from results
@@ -475,6 +476,9 @@ async def search_causal(
             )
         )
 
+    except TimeoutError:
+        log.error("causal_search_timeout", query=body.query)
+        raise HTTPException(status_code=504, detail="Causal search timed out")
     except Exception as exc:
         log.error("causal_search_failed", error=str(exc))
         if "neo4j" in str(exc).lower():
@@ -517,8 +521,17 @@ async def search_temporal(
         # Create repository
         temporal_repo = TemporalGraphRepo(pool=graph_pool)
 
-        # Get temporal chain
-        events = await temporal_repo.get_temporal_chain(limit=body.limit)
+        # Search temporal events by query (with timeout protection)
+        # Fall back to get_temporal_chain if no matches found
+        events = await asyncio.wait_for(
+            temporal_repo.search_temporal_events(query=body.query, limit=body.limit),
+            timeout=30.0,
+        )
+        if not events:
+            events = await asyncio.wait_for(
+                temporal_repo.get_temporal_chain(limit=body.limit),
+                timeout=30.0,
+            )
 
         # Convert neo4j.time.DateTime to ISO string for JSON serialization
         for event in events:
@@ -544,6 +557,9 @@ async def search_temporal(
             )
         )
 
+    except TimeoutError:
+        log.error("temporal_search_timeout", limit=body.limit)
+        raise HTTPException(status_code=504, detail="Temporal search timed out")
     except Exception as exc:
         log.error("temporal_search_failed", error=str(exc))
         if "neo4j" in str(exc).lower():

@@ -264,7 +264,9 @@ async def get_article_graph(
 @router.get("/relations", response_model=APIResponse[list[RelationTypeSummary]])
 async def get_entity_relations(
     entity: str = Query(..., description="Entity canonical name"),
-    entity_type: str = Query("组织机构", description="Entity type"),
+    entity_type: str | None = Query(
+        None, description="Entity type (optional, e.g. '组织机构', '人物')"
+    ),
     _: str = Depends(verify_api_key),
     graph_repo: GraphRepository = Depends(get_graph_repo),
 ) -> APIResponse[list[RelationTypeSummary]]:

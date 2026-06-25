@@ -316,6 +316,24 @@ def get_source_scheduler(
         raise HTTPException(status_code=503, detail="Source scheduler not initialized")
 
 
+def get_smart_fetcher(
+    container: Container = Depends(get_container),
+) -> Any:
+    """FastAPI dependency for smart fetcher.
+
+    Raises:
+        HTTPException: 503 if smart fetcher is not initialized.
+
+    Returns:
+        SmartFetcher instance.
+
+    """
+    try:
+        return container.smart_fetcher()
+    except RuntimeError:
+        raise HTTPException(status_code=503, detail="Smart fetcher not initialized")
+
+
 def get_source_config_repo(
     container: Container = Depends(get_container),
 ) -> SourceConfigRepo:

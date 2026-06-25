@@ -67,6 +67,14 @@ async def compensate_saga(
         HTTPException: 404 if saga not found, 500 if compensation fails.
 
     """
+    # Check saga existence first (consistent with retry_saga endpoint)
+    status_info = await orchestrator.get_saga_status(saga_id)
+    if status_info.get("status") == "unknown":
+        raise HTTPException(
+            status_code=404,
+            detail=f"Saga {saga_id} not found",
+        )
+
     result = await orchestrator.compensate_saga(saga_id)
 
     if result.status.value == "failed":

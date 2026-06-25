@@ -40,8 +40,12 @@ HEALTH_STATUS_CODES = {
 }
 
 
-async def check_postgres_health(pool: Any) -> dict[str, Any]:
-    """Check PostgreSQL connectivity.
+async def check_postgres_health(pool: Any, service_name: str = "postgres") -> dict[str, Any]:
+    """Check relational database connectivity (PostgreSQL or DuckDB).
+
+    Args:
+        pool: Database connection pool.
+        service_name: Service name for Prometheus labels (e.g. "postgres" or "duckdb").
 
     Returns:
         dict with status, latency_ms, and optional error message.
@@ -53,24 +57,24 @@ async def check_postgres_health(pool: Any) -> dict[str, Any]:
             async with pool.session_context() as session:
                 await session.execute(text("SELECT 1"))
         latency_ms = (time.monotonic() - start) * 1000
-        metrics.health_check_status.labels(service="postgres").set(
+        metrics.health_check_status.labels(service=service_name).set(
             HEALTH_STATUS_CODES[HealthCheckStatus.OK.value]
         )
-        metrics.health_check_latency.labels(service="postgres").observe(latency_ms / 1000)
+        metrics.health_check_latency.labels(service=service_name).observe(latency_ms / 1000)
         return {"status": HealthCheckStatus.OK.value, "latency_ms": latency_ms}
     except TimeoutError:
         latency_ms = (time.monotonic() - start) * 1000
-        metrics.health_check_status.labels(service="postgres").set(
+        metrics.health_check_status.labels(service=service_name).set(
             HEALTH_STATUS_CODES[HealthCheckStatus.TIMEOUT.value]
         )
-        metrics.health_check_latency.labels(service="postgres").observe(latency_ms / 1000)
+        metrics.health_check_latency.labels(service=service_name).observe(latency_ms / 1000)
         return {"status": HealthCheckStatus.TIMEOUT.value, "latency_ms": latency_ms}
     except Exception as e:
         latency_ms = (time.monotonic() - start) * 1000
-        metrics.health_check_status.labels(service="postgres").set(
+        metrics.health_check_status.labels(service=service_name).set(
             HEALTH_STATUS_CODES[HealthCheckStatus.ERROR.value]
         )
-        metrics.health_check_latency.labels(service="postgres").observe(latency_ms / 1000)
+        metrics.health_check_latency.labels(service=service_name).observe(latency_ms / 1000)
         return {
             "status": HealthCheckStatus.ERROR.value,
             "latency_ms": latency_ms,
@@ -78,8 +82,12 @@ async def check_postgres_health(pool: Any) -> dict[str, Any]:
         }
 
 
-async def check_neo4j_health(pool: Any) -> dict[str, Any]:
-    """Check Neo4j connectivity.
+async def check_neo4j_health(pool: Any, service_name: str = "neo4j") -> dict[str, Any]:
+    """Check graph database connectivity (Neo4j or LadybugDB).
+
+    Args:
+        pool: Graph database connection pool.
+        service_name: Service name for Prometheus labels (e.g. "neo4j" or "ladybug").
 
     Returns:
         dict with status, latency_ms, and optional error message.
@@ -90,24 +98,24 @@ async def check_neo4j_health(pool: Any) -> dict[str, Any]:
         async with asyncio.timeout(5):
             await pool.execute_query("RETURN 1")
         latency_ms = (time.monotonic() - start) * 1000
-        metrics.health_check_status.labels(service="neo4j").set(
+        metrics.health_check_status.labels(service=service_name).set(
             HEALTH_STATUS_CODES[HealthCheckStatus.OK.value]
         )
-        metrics.health_check_latency.labels(service="neo4j").observe(latency_ms / 1000)
+        metrics.health_check_latency.labels(service=service_name).observe(latency_ms / 1000)
         return {"status": HealthCheckStatus.OK.value, "latency_ms": latency_ms}
     except TimeoutError:
         latency_ms = (time.monotonic() - start) * 1000
-        metrics.health_check_status.labels(service="neo4j").set(
+        metrics.health_check_status.labels(service=service_name).set(
             HEALTH_STATUS_CODES[HealthCheckStatus.TIMEOUT.value]
         )
-        metrics.health_check_latency.labels(service="neo4j").observe(latency_ms / 1000)
+        metrics.health_check_latency.labels(service=service_name).observe(latency_ms / 1000)
         return {"status": HealthCheckStatus.TIMEOUT.value, "latency_ms": latency_ms}
     except Exception as e:
         latency_ms = (time.monotonic() - start) * 1000
-        metrics.health_check_status.labels(service="neo4j").set(
+        metrics.health_check_status.labels(service=service_name).set(
             HEALTH_STATUS_CODES[HealthCheckStatus.ERROR.value]
         )
-        metrics.health_check_latency.labels(service="neo4j").observe(latency_ms / 1000)
+        metrics.health_check_latency.labels(service=service_name).observe(latency_ms / 1000)
         return {
             "status": HealthCheckStatus.ERROR.value,
             "latency_ms": latency_ms,
@@ -169,39 +177,46 @@ async def health_check() -> HealthCheckResponse:
     checks: dict[str, ServiceHealthCheck] = {}
     all_healthy = True
 
-    # Check PostgreSQL
+    # Check relational database (PostgreSQL or DuckDB)
+    relational_service_name = "postgres"  # default
     pg_pool = None
     if container is not None:
         try:
             pg_pool = container.relational_pool()
+            relational_service_name = container.relational_pool_type
         except RuntimeError:
             pg_pool = None
     if pg_pool is not None:
-        pg_result = await check_postgres_health(pg_pool)
-        checks["postgres"] = ServiceHealthCheck(**pg_result)
+        pg_result = await check_postgres_health(pg_pool, service_name=relational_service_name)
+        checks[relational_service_name] = ServiceHealthCheck(**pg_result)
         if pg_result["status"] != HealthCheckStatus.OK.value:
             all_healthy = False
     else:
-        checks["postgres"] = ServiceHealthCheck(
+        checks[relational_service_name] = ServiceHealthCheck(
             status=HealthCheckStatus.UNAVAILABLE.value, error="Pool not initialized"
         )
-        metrics.health_check_status.labels(service="postgres").set(
+        metrics.health_check_status.labels(service=relational_service_name).set(
             HEALTH_STATUS_CODES[HealthCheckStatus.UNAVAILABLE.value]
         )
         all_healthy = False
 
-    # Check Neo4j
+    # Check graph database (Neo4j or LadybugDB)
+    graph_service_name = "neo4j"  # default
     neo4j_pool = container.graph_pool() if container is not None else None
+    if container is not None:
+        graph_type = container.graph_pool_type
+        if graph_type is not None:
+            graph_service_name = graph_type
     if neo4j_pool is not None:
-        neo4j_result = await check_neo4j_health(neo4j_pool)
-        checks["neo4j"] = ServiceHealthCheck(**neo4j_result)
+        neo4j_result = await check_neo4j_health(neo4j_pool, service_name=graph_service_name)
+        checks[graph_service_name] = ServiceHealthCheck(**neo4j_result)
         if neo4j_result["status"] != HealthCheckStatus.OK.value:
             all_healthy = False
     else:
-        checks["neo4j"] = ServiceHealthCheck(
+        checks[graph_service_name] = ServiceHealthCheck(
             status=HealthCheckStatus.UNAVAILABLE.value, error="Pool not initialized"
         )
-        metrics.health_check_status.labels(service="neo4j").set(
+        metrics.health_check_status.labels(service=graph_service_name).set(
             HEALTH_STATUS_CODES[HealthCheckStatus.UNAVAILABLE.value]
         )
         all_healthy = False
